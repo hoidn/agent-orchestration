@@ -18,7 +18,8 @@
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
-  input-document, profile, invalidation-entry and artifact-handoff clarification.
+  input-document, profile, invalidation-entry, artifact-handoff and command
+  transport clarification.
 - **Evidence:**
   [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
   below as "gate report";
@@ -190,12 +191,16 @@ JSON (UTF-8, sorted object keys, compact separators, finite numbers only):
 ```
 
 The [Phase 2 shared key schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#canonical-definition-keys)
-fixes the exact nine-element JSON array, reference bindings, capture routes,
+fixes the nine-element base JSON array, reference bindings, capture routes,
 residual signature and source-independent checks. Binding maps use declared
 formal names, or `["local", index]` for a generated local's captured formal;
 local selectors sort by index before ordinary strings sorted by name.
 Ordered type arguments, residual parameter types and record fields retain
 declaration order. The residual signature excludes the capture prefix.
+The bounded command-transport specialization in §9.1.3 appends a tenth
+component only to definitions whose command transport needs it; it also
+defines the corresponding typed capture routes. The base nine components
+and existing keys without that component keep their meaning.
 
 The readable base is `kind + ":" + module + "::" + declared_name`, where
 `kind` is `procedure` or `workflow`; the entry uses the workflow kind. A
@@ -1080,7 +1085,7 @@ records, unions, lists, optionals and paths, nested to any depth.
 
 | Value | How a command or provider receives it |
 | --- | --- |
-| A value in `:argv` | Rendered as the present route's variable substitution renders it: a string as itself, a number as its decimal text, a `Bool` as `true` or `false`, a record or list as JSON with the substitution's spacing (`json.dumps` defaults), keys in the value's order. Both routes give the same argv bytes (spike iteration 3, F) |
+| A value in `:argv` | Preserve the present route's distinction between a literal surviving its actual materialization decision and a runtime value (§9.1.3). A literal is first rendered with `str`: literal `Bool` gives `True`/`False`; static string templates are substituted once. A runtime string is inserted verbatim, runtime `Bool` gives `true`/`false`, numbers use decimal text, and records/lists use `json.dumps` defaults with keys in value order. Neither route reparses an inserted runtime string |
 | A certified adapter's inputs | One JSON object, fields in signature order, as the last argv token, as today. The document carries the declared inputs only, each projected to its declared type |
 | An external tool's `:inputs` (§9.1.1) | One typed input document in JSON, written in the attempt's directory. Its path is the last argv token. The document is validated against the checked field types before launch |
 | A value that is large, or that a person should be able to read | A materialized view (a later release). The effect receives the path of the view |
@@ -1248,6 +1253,477 @@ Phase 4a closes such additional needs; it cannot defer the admitted result,
 declared-read or handoff obligations above, or replace artifact evidence with
 a claim that memoized values already provide it.
 
+### 9.1.3 Closed command templates and transport scope
+
+R12 preserves successful legacy argv bytes, including the literal/runtime
+Bool distinction. It does not normalize legacy spelling or repair old targets.
+The selected authored placeholders are `${inputs.*}` and `${loop.index}`;
+`loop.total` is only a legacy scope discriminator. Runtime strings, documents,
+environments and prompts do not acquire recursive interpolation.
+
+#### Classification at the actual materialization boundary
+
+A scalar is a template only if the existing command renderer receives a
+literal after the actual route's binding decisions. Resolving an expression
+to a literal is insufficient: materialization first turns that result into a
+runtime reference. Preserve `str` for a surviving literal and tokenize those
+bytes; render materialized/runtime values using the shared substitution
+coercion. Do not add constant folding. The public target-2.34 oracle is:
+
+```lisp
+:argv ("python" "probe.py" true (let* ((x true)) x)
+       (if true true false) (let* ((s "${inputs.n}")) s))
+; n = 7: ["True", "True", "true", "7"]
+```
+
+The `if` becomes `WccSelect`, is bound by ANF, and the WCC binding owner emits
+a projection even when its resolver selects a literal. The two `let*` aliases
+in that example do not materialize. Nor does every hoisted binding imply a
+runtime value. Extract the decision, with its precedence, from
+`wcc/defunctionalize._defunctionalize_body`: expansion-owned pure projection
+(except an existing direct reference), run-ref demand's resolver override,
+provider-context whole-value projection, request-input alias/projection, then
+the `IfExpr` projection and ordinary resolved alias. Reuse
+`_wcc_continuation_binding_demands`; a command-only free-name approximation
+would miss a second consumer that forces materialization.
+
+The surface binding owner is `control_dispatch._normalize_let_binding`:
+its inline-binding predicate preserves the resolved alias; otherwise
+`_lower_effectful_binding_expr` chooses match, pure projection or expression
+emission. The same expression can therefore require a different decision
+when processed by a different owner. A native/private boundary terminates
+literal propagation: its bound parameters are runtime values. Inline
+argument aliases retain the selected binding facts, including specialization
+and imported typed bodies. Captures evaluate actual arguments once.
+
+Put these small pure decisions in
+`lowering/command_transport_decisions.py` and make both legacy owners call
+them. Inputs are existing typed expressions/binding facts, type environments,
+expansion ownership and continuation demands; outputs describe alias versus
+materialized value, not emitted steps or reference strings. A binding fact
+retains its descriptor and static literal/structural alias, or that it is a
+materialized root with its available typed projections. It is a compiler-local
+symbol table over existing bindings, not another AST, runtime environment or
+serialized namespace. It needs no Python-id/source-span lookup table.
+
+Use the `typed_body` already retained by `_build_procedure`/`_build_workflow`,
+the existing condition retained-input facilities, and the normalized WCC
+bindings. `_prebind_effect_argument_matches` retains its selection in a join;
+ANF retains a selection's bound `WccSelect`. Follow those bindings with the
+shared materialization decision before assembling each command plan. No
+`argv_origins` field, parser change, source-expression copy, legacy snapshot
+schema change or new semantic-hygiene path is selected. If a future concrete
+counterexample loses a required fact before these owners, return that first
+loss to Design; it is not permission to add an anticipatory shadow AST.
+
+`closed/command_templates.py` performs this finite analysis and attaches only
+the resulting `Value`/`Template` plans to `WccPerform.operation_payload` after
+ordinary ANF, before `closed/effects.translate_perform`. The original argv
+and document operands remain the only evaluated source operands. A plan's
+slots refer to those bindings and typed scope roots. ANF retains payloads
+when revisited; it never interprets a template or creates effects for it.
+
+#### Exact scope selection, including composition
+
+The substitution scope is separate from lexical locals:
+
+| Edge | Input roots | Loop index / materialization |
+| --- | --- | --- |
+| Entry or native workflow | Its declared parameters under native boundary projection | Reset to absent; parameters runtime |
+| Ordinary let/branch/join | Inherit; shadowing does not replace native roots | Inherit |
+| Inline procedure | Inherit; actual binding facts propagate | Inherit; own loop shadows only in its body |
+| Selected private procedure edge | Its own parameter roots and source names | Reset to absent; parameters runtime |
+| Selected composition case arm | Ordered lexical roots in the arm certificate below | Reset to absent; roots runtime; preserve composition origin for descendant selection |
+| Loop body / exit | Same roots | Bind zero-based index / restore enclosing index |
+
+Selection follows the actual owner, not source nesting. The default CLI uses
+WCC. `_lower_wcc_procedure_call` processes an inline body through WCC without
+the surface iteration override; a native/private child starts WCC again.
+`_defunctionalize_case` performs guarded hoisting, not a composition namespace
+reset. `_defunctionalize_rec_join` hands its body through
+`_frontend_expr_from_wcc_loop_body` to the surface loop emitter. Within that
+body, let bindings use `_normalize_let_binding`; direct loop-tail if/match
+uses `_lower_loop_body_expr` and its guarded loop cases. A value-bound match
+or a surface-inline procedure body can reach `_control_lower_match_expr_impl`.
+Its selected arms, unlike guarded WCC/loop cases, may acquire composition
+boundaries. Explicit schema1 enters the surface owners directly; it is a
+separate oracle, not the default CLI route. The analysis follows these owner
+transitions over the existing WCC/typed nodes; no route selector is persisted
+in the program/key and no defunctionalizer or emitter runs in `closed`.
+
+Producer selection is retained configuration, including for compiled imports.
+`Stage3CompileResult.lowering_schema_version` and `FrontendBuildManifest`
+already distinguish schema1 from schema2; `TypedProgram` currently drops it.
+At both existing `typed_program_from_graph` calls, in
+`compiler.py::compile_stage3_module` and `_compile_stage3_graph`, pass
+`lowering_schema_for_route(normalized_lowering_route)` into a required
+compiler-only `TypedProgram.producer_lowering_schema`: a strict integer 1 or
+2, not Bool or an unknown/default state. The first loss is those constructor
+calls, not parsing, snapshot import or artifact decoding. Source attachment,
+entry selection and dataclass replacements preserve the fact. Default 2.35
+typed construction selects 2 as its predecessor transport schema. Schema2 uses WCC
+owner rules; schema1 uses surface owner rules, with the same shared decisions.
+Preserve each imported definition's owning snapshot through specialization;
+equal source bytes do not justify substituting the caller's schema. The scalar
+is neither a closed field nor another key component: only the effective
+categorical decisions below survive closure.
+
+The admitted ingress inventory fixes where this fact comes from:
+
+| Ingress | Existing authority and transfer |
+| --- | --- |
+| Source through `compile_stage3_module` or `compile_stage3_entrypoint`; typed-only `compile_typed_program` | Both Stage3 snapshot construction sites already have the normalized route. `compile_typed_program` uses that same entrypoint with `lowering_route=None`; it does not construct another snapshot. Attach the required schema before returning or attaching the snapshot |
+| Explicit `imported_programs` or a source-produced bundle's `typed_program` | `_require_explicit_source_snapshots` already requires the complete original producer snapshot. Its required schema and retained configuration travel with that snapshot; entry selection, imported-program maps and `_attach_typed_programs_to_source_bundles` preserve the owner |
+| File-based imported-bundle manifest | `build.py::_iter_compiled_import_entries` requires `kind: compiled` and a `.orc` path. `_load_imported_workflow_bundle_manifest` compiles it through `_build_frontend_bundle_in_memory` with the supplied lowering route. This is a source constructor path, not a historical snapshot decoder |
+| Older decoded bundle explicitly paired with its original snapshot | `LoadedWorkflowBundle.__getstate__` omits `typed_program`. The existing complete, selected, structurally matching original snapshot is supplied at pairing (§4.2.1); it carries the schema with its bodies/configuration. An old bundle does not need to acquire a new persisted field, reopen its source or locate a build directory |
+| Valid bundle capsule plus the matching original snapshot | The existing capsule decoder verifies its envelope and bundle catalog. The paired original snapshot supplies each producer's schema and retained configuration, under the same §4.2.1 structural-pairing contract. The capsule's global schema2 does not establish the schema of each imported producer |
+
+A valid schema2 capsule can contain a schema1 child imported by its schema2
+parent. Keep the child's schema1 on its original snapshot and the parent's
+schema2 on its own snapshot after decode and pairing. The global capsule
+schema comes from the controller's construction context; it is not per-owner
+authority. Capsule encoding/decoding, `LoadedWorkflowBundle`, its pickle state
+and `_typed_program_matches_bundle` retain their existing contracts. No bundle
+schema field, decoder transfer or capsule/snapshot schema comparison is added.
+Pairing checks structural consistency, not historical body authenticity (§4.2.1).
+
+These cover the existing supported compiler entrypoints. `TypedProgram` has
+no persisted snapshot format or historical snapshot reader; its explicit
+in-memory original is not reconstructed from an old pickle. Consequently no
+origin-recovery API, optional producer-manifest input, checkpoint scan,
+dual-schema analysis or route-neutral mode is selected. Missing this required
+fact on a compiler-produced snapshot is a producer invariant defect, not a
+new `compiled_workflow_source_required` branch. That diagnostic keeps its
+existing missing/incomplete/mismatched original-snapshot meaning. Existing
+closed-program artifacts keep the annotation compatibility rules below.
+Neither source deletion nor relocation introduces a new refusal or an
+external metadata lookup; never read `frontend_build_root/manifest.json`
+to recover producer configuration.
+
+The concrete same-source producer witness has two successful runs: schema2
+emits `["PROCEDURE", "WORKFLOW"]`, schema1 emits
+`["PROCEDURE", "PROCEDURE"]`. Retaining the scalar at construction preserves
+this distinction without persisting a new route selector. Test both Stage3
+construction paths, direct typed imports, manifest source construction and
+restored capsule pairing, including conflicting caller configuration. Delete
+source and the original build directory, relocate the supplied artifacts and
+read back/run using the retained snapshots; no supplied external manifest is
+required. Include the positive mixed-catalog case (schema1 child, schema2
+parent, schema2 capsule) paired with each original snapshot; preserve each
+owner's transport decisions. Keep the existing missing/incompatible-snapshot
+negative controls without changing valid capsule admission.
+
+For a surface procedure call, reuse the full
+`_schema1_iteration_private_override_applies` predicate: resolved inline mode,
+iteration present, outside composition, no procedure-owned `LoopRecurExpr`,
+and both private boundary/body eligibility checks. A source `if`/`match` or
+loop alone does not select a private or composition edge. Imports preserve
+the owning definition's typed/configuration context.
+
+The composition selector is the following pure **top-level control summary**.
+It shares decision functions with the named legacy owners; it does not emit
+steps or retain a control graph. `S` is one boolean, composed by OR for a
+sequence. Typed alias/materialization facts are threaded in lexical order.
+
+| Actual owner/decision | Summary at the caller's top level |
+| --- | --- |
+| `_lower_conditional_branch_expr` / let-tail direct-output shortcut succeeds for every required projected result leaf | False; the result is references, with no emitted control |
+| Surface inline let binding | False; update its alias facts |
+| Selected pure/structural projection, command/provider/native call or projection anchor | False; update the materialized result facts; these emit no top-level if/match/repeat |
+| Surface non-inline let binding followed by its body | OR of selected binding emission and selected tail; do not count syntax bypassed by either shortcut |
+| Surface inline call | Its specialized body's summary under actual aliases and the selected scope; a selected private call instead contributes False |
+| Surface `_control_lower_if_expr_impl`, `_control_lower_match_expr_impl`, `_emit_repeat_until_from_emitter_input` reached after the shortcuts | True: respectively a top-level if, match or repeat; nested arm contents are not separately counted in this result |
+| Reached `phase_flow._phase_stdlib_lower_produce_one_of_impl`, `_phase_stdlib_lower_resume_or_start_impl`, or `phase_resource._phase_stdlib_lower_finalize_selected_item_impl` | True: these owners emit a top-level match even though the source intrinsic is not a match; this classification does not broaden their admission |
+| Direct WCC case / loop-tail guarded case | No composition certificate at this arm; retain its ordinary child analysis, and apply the surface rule only at a real surface-value-match owner below it |
+
+The direct-output test shares the leaf/reference-availability decision from
+`core._inline_output_refs_for_expr`; it uses typed projection availability,
+not fabricated `root.steps.*` names. Pure-projection selection shares
+`_pure_projection_binding_candidate`; the command implementing such a
+projection contributes False even if its **data payload** contains an `if`.
+Generated control counts only when its emitter actually contributes a
+first-level control statement; use the explicit intrinsic rows above, not a
+recursive scan of payload JSON. `run-provider-phase` and resource transition
+are leaf emitters for this summary; their surrounding admitted WCC expansion
+is analyzed normally. The loop seed/current-state/sparse-projection helpers
+can also emit if/match, but are under an already-True loop emission. This
+accounts for the current control-emitting owners; a new operation requires
+an explicit summary rule and cannot silently default to False.
+
+At `_control_lower_match_expr_impl`, select a reset for an arm exactly when
+its selected pre-hoist branch summary is True. This is equivalent to
+`fragment_requires_helper_boundary` by induction over the table: direct refs
+and leaf/projection emitters add none of its three keys; sequence concatenates;
+inline calls expose their selected body; private calls hide it; each reached
+structured emitter contributes one such key. The legacy fragment test stays
+an independent verification oracle while extraction is tested. No successful
+case is excluded because it arose through WCC's surface bridge.
+
+There is a public default-CLI witness: target 2.32, a loop let-binding of an
+effectful match whose A arm contains an if and inline helper calls, followed
+by `done` of a constant result. It executes a generated composition child and
+emits `["PROCEDURE", "WORKFLOW"]`. Returning the bound match value instead
+refuses during legacy result projection; adding a nested owned loop also
+refuses in WCC conversion. Those failures do not prove unreachability. The
+successful witness and the prior WCC guarded-hoist witness exercise distinct
+owners. At 2.35 the selected control forms remain admitted even when legacy
+refused; the summary is defined on their typed nodes and never imports the
+legacy effectful-control-value refusal or requires a flat terminal/step id.
+
+The first required new datum is the selected local arm reset and its ordered
+roots. Construct it at the shared match-arm selection before losing that
+arm correspondence, retaining it as `WccCaseArm.command_scope`, a tuple of
+`(source_formal, WccValue)` roots; absence means inheritance, an empty tuple
+means an empty reset. Preserve it on the existing arm through any ANF copying.
+`closed/build.tail` emits the optional exact arm field:
+
+```text
+"command_scope": [[source_formal, closed_root], ...]
+```
+
+Roots are exactly `_helper_capture_names`' lexical free roots, ordered by the
+current ordered typed local-binding table. Sequential lets/shadowing and arm
+binders use that owner's rules. A placeholder string is not a lexical free
+name and never adds a root to rescue a missing input. Retain references to
+the existing bindings, not a helper definition or new call. For a
+`VariantCaseTypeRef` root, use `_helper_capture_boundary_type`'s field-only
+record projection: the closed root keeps its checked `variant_case` type;
+a pure projection view derives rows from those payload fields without a new
+nominal record, discriminant input or source-derived generated record name.
+
+The checker enters the arm's ordinary variant binder first, validates every
+root as an in-scope pure value in that environment, and derives the root
+projection table. It then resets its command-scope checking context only for
+that arm. The evaluator needs no dynamic namespace/reset frame: slots and
+ordinary captures already name the values. Root certificate operands are
+checked/traversed but are not independently evaluated as effects. Native
+children reset composition origin; inline descendants retain it, including
+inside their own loops. Exiting the arm restores the prior scope.
+
+#### Closed templates, whole roots and inactive union projection
+
+Every newly compiled command has `argv_transport`, parallel to its tail-only
+`argv`. Certified inline-document commands have `[]`; documents themselves
+are never templates. Exact rows and parts are:
+
+```text
+{"kind": "value"}
+{"kind": "template", "parts": [part, ...]}
+
+part = {"kind": "text", "text": string}
+     | {"kind": "slot", "name": name, "path": [string, ...],
+        "filters": [string, ...], "value": closed_value}
+     | {"kind": "missing", "expression": string}
+name = ["input", source_formal, native_wire_name] | ["loop-index"]
+```
+
+An input slot's `value` is the **whole typed native root**, not a projected
+leaf. `native_wire_name` selects exactly one row derived for `source_formal`
+from that root's descriptor. Derive row path, leaf contract and activity from
+`derive_workflow_boundary_fields`/`compiled_boundary_rows` and the descriptor;
+never split `pair__x` or serialize a guessed field path. Extract the pure
+row-selection/activity operation into `workflow/type_descriptor.py`. Walking
+its derived path follows the actual discriminant at every union: a field
+absent in the active variant yields Missing before suffix/filter application.
+Do not assume input-mode `compiled_boundary_rows` supplies output-only
+`active_variants`, use an unconditional `field` on a union, or erase the root
+to `Value`. A variant-case root uses the field-only view above.
+
+For `choice: Choice = A(x Int) | B`, the closed root parameter `p` has the full
+Choice descriptor. A slot is:
+
+```text
+{"kind":"slot", "name":["input","choice","choice__x"],
+ "path":[], "filters":[], "value":{"k":"name","n":"p"}}
+```
+
+With `p` as parameter zero, the native certificate is
+`command_params: [["choice", 0]]`. In A(7),
+the derived row selects `x` and renders `7`; in B it produces
+`undefined_variables` at the reached command. The artifact is well-typed for
+both values. An inline descendant captures `p: Choice` via
+`["command-input", "choice"]`, reads that root in the same slot, and receives
+the whole Choice as an ordinary argument. Read-back derives `choice__x` from
+the checked Choice, rejects a different-root/leaf-Int capture or invented row,
+and accepts B until resolution. The checker never requires a universal
+`Choice.x` field.
+
+`path` is only the dictionary suffix after selection of that row. Thus a
+Value root `payload` can resolve `${inputs.payload.z}` by selecting its root
+row and then dictionary key `z`. Missing keys, non-dictionary intermediates
+and None are Missing. No list indexing, new general field operator on Value
+or runtime namespace lookup is introduced. A statically impossible root/row
+becomes a `missing` part, not an artifact-check failure for an unchosen arm.
+
+Reuse/extract `VariableSubstitutor`'s pure tokenization, dictionary lookup,
+filters and coercion: protect `$$`, recognize `${...}`, omit empty filter
+segments, apply filters in order, insert once, then restore escaped dollars.
+Preserve `$${`, `$$${`, default JSON spacing/ASCII escaping and `|json` compact
+UTF-8/insertion-order bytes. Unknown filters stay checked strings and fail
+only when reached. Missing/inactive/None/filter failures report
+`undefined_variables` before started/dispatch; committed input re-resolution
+uses `effect_input_diverged` with that cause. No flat state object is required.
+
+A value row renders the evaluated argv value; a template retains that
+operand's once-only evaluation, source order and dependencies but renders its
+parts. Text parts are canonical: merge adjacent text, omit empty text; an
+empty template is an empty argument. Parts have no `@`; their closed value
+children use normal AST provenance. Slot/certificate operands contain no
+perform or effectful call. Effects already belong to ANF bindings.
+
+#### Captures, index and minimal contextual specialization
+
+Capture whole roots using exactly `["command-input", source_formal]` and
+`["command-loop-index"]`. Preserve their complete descriptors; index is
+strict Int. Deduplicate by root in an interface, keep ordinary captures first,
+then command routes in canonical order. Missing roots get no dummy capture.
+Propagate demands through inline intermediates and resolved reference
+forwarding; native/private/arm resets stop inherited roots and supply their
+own. Root values may differ between calls sharing a body.
+
+A native definition's optional `command_params` is
+`[[source_formal, parameter_index], ...]` in native signature order, selecting
+only demanded roots after capture conversion. Presence denotes the native
+reset, including `[]` if only a missing-root/index demand reaches it; absence
+on an inline definition means inheritance. Entry follows the same rule. The
+checker validates unique names/indexes, root descriptors/projections and
+actual alias/capture forwarding. It is a finite binding certificate, not
+source-history authentication. Include it in that definition's residual
+signature key object; no other signature object accepts it.
+
+A demanded loop index adds optional `index: wire_name` to the existing loop
+node. It is fresh and distinct from state/target names, bound as zero-based
+Int only in `body`, with no dependencies. It is not in that loop's seed,
+budget or exhaustion scope; an outer index still in scope is available there.
+Continue rebinds it. No frame/site string changes, identity parsing, counter
+effect or persisted loop context supplies this value.
+
+The previous proposed three raw context bits are not part of the schema.
+Use one optional tenth key component containing **contextual decision rows**:
+
+```text
+{"command_decisions": [row, ...]}
+row = ["arg", command_ordinal, tail_argv_index, arg_choice]
+    | ["arm", command_case_ordinal, variant, "reset"]
+    | ["call", original_declaration_identity, occurrence, child_variant_digest]
+arg_choice = ["value"] | ["template", [lookup_choice, ...]]
+lookup_choice = ["missing"]
+              | ["input", root_origin, native_wire_name]
+              | ["loop-index", root_origin]
+root_origin = ["native", source_formal]
+            | ["capture", command_capture_route]
+            | ["arm", command_case_ordinal, variant, source_formal]
+            | ["loop", demanded_loop_ordinal]
+```
+
+This is a bounded vector of categorical choices, not a body hash, copied AST
+or control graph. Arg rows contain no template text, filters, expressions or
+root values. Arm rows contain no arm body/root expressions. The ordered local
+inventory counts commands and command-bearing cases only: a case is counted
+when an arm contains a command or a call with a command descendant.
+Unrelated pure bindings/conditions are not counted. Calls use the existing
+original-declaration/static-occurrence selector, ignoring calls to other
+declarations. Rows use deterministic semantic traversal; no spans, names
+allocated by lowering, or runtime values appear.
+
+Include one arg row per tail argv operand, derived from its checked
+`argv_transport`. Template lookup choices follow non-text parts in order;
+text/filter/suffix spelling is ordinary body data. Root origins are inferred
+from checked root certificates/capture forwarding, following pure aliases;
+they are not another serialized origin map. Only index binders actually used
+by command slots/captures receive demanded-loop ordinals. A mode-only
+value/template bit would miss a template changing from a missing lookup to a
+root, or switching between a native and arm-local root. Runtime A versus B
+of the same Choice root changes neither lookup choice nor specialization. Even a context-invariant literal uses that categorical
+row; it adds no specialization when contexts agree, and avoids another
+source-only sensitivity certificate. Emit an arm row only for a present
+`command_scope`; absence is the canonical inherited outcome. Include a call
+row only if its child has command decisions or command root/index demands.
+A child's `child_variant_digest` is SHA-256 of canonical JSON of exactly
+`{"native": native_rows_or_null, "captures": capture_rows, "decisions": rows}`.
+`native` is null for inheritance or ordered `[source_formal, parameter_index,
+key_projected_root_descriptor]` rows (possibly empty) for its `command_params`;
+`captures` is ordered `[command_route, key_projected_descriptor]` rows,
+excluding ordinary capture routes. `decisions` is that child's vector. The
+preimage excludes its ordinary body/captures/value bindings, configuration
+and name.
+Those already belong to the nine-component key/program digest. Do not expand
+child rows into a caller. Omit the tenth component when the local inventory
+is empty; no raw iteration/composition/route flag is recorded. Static inline
+actuals continue to use existing tagged literal value-binding rows, not a
+second literal store. Entry keeps its declared name; it has no tenth-key
+field, and its semantic command/arm data already enters program digest.
+
+A same-nine-components pair for the call dimension is an inline `outer(s,
+flag)` that reads `${inputs.state_root}` itself and owns a loop in one arm,
+calling `helper(s)` in the other. The owned loop prevents private promotion
+of outer; its direct command fixes the same input capture interface in both
+contexts. Outside versus inside a caller loop, the descendant helper can
+inherit versus reset under the surface predicate. Only the child command
+interface/decision digest differs. An additional inline wrapper with its own
+loop and the same direct input demand requires a changed child digest even
+when its immediate edge stays inline. These are admitted 2.35 key tests, not
+claims that legacy executed the nested-loop specimens.
+
+For the arm dimension, place the same producer-backed match/if body in that
+non-promotable inline outer, reached as an ordinary WCC call versus through
+the surface loop bridge: the nine-component parameter/capture interface can
+be identical, while the match arm inherits versus has a composition reset.
+The actual two route owners and successful surface/guarded witnesses above
+establish the distinction; the same-declaration pair is a required typed
+construction test. For the arg dimension, an expansion-owned pure alias
+binding used by a command has WCC projection versus surface inline-alias
+selection with identical typed binding and nine-component interface. A
+shared materialization-rule test must exercise both owners; the public
+`if`/`let` oracle separately fixes their non-interchangeability. An unrelated
+pure binding or changing only a literal template's text changes none of these
+categorical decisions; the latter changes program digest, not this key.
+
+This vector is sufficient because the original nine components supply all
+substituted literals, root/capture interfaces and types; the remaining
+context-sensitive choices are argument materialization and selected lookup
+roots, local reset selection and descendants' command interfaces/choices. Compute children
+bottom-up over the already finite closed call graph before interning. The
+stored size is O(local argv/lookup decisions + command arms + relevant call edges)
+per specialization, with one fixed-size digest per edge, not transitively
+expanded bodies. P5 derives row outcomes and child interface digests from the
+checked command/arm/callee certificates, validates selector uniqueness/order,
+and checks the name from the complete key. It cannot authenticate source
+history or infer that an otherwise valid decision inventory was once authored
+elsewhere. Retain one body per complete key and the projected-body conflict
+check; no new specialization differing only in raw ambient context is allowed.
+
+#### Traversal, dependencies and artifact compatibility
+
+The command child relation is all argv values, all slot values in argv/part
+order, and all document values. A case arm additionally has its certificate
+root values, checked in the arm binder scope before the body. Each occurrence
+is traversed once. Document presence never hides argv. Implement this relation
+in `closed/sites._effect_value_children`/`_ast_nodes` and independently in
+`closed/check._effect_children` plus its case-arm walks; include it in
+run-reference finalization, source-owner/demand/type/key walks and provenance
+stripping. Generic JSON hashing does not replace AST traversal.
+
+ANF owns original expanded keyword evaluation order. Slot reads reuse cached
+immutable root values; union the original argv, slot and document dependencies,
+including dependencies of a selected value, into resolved input. Digest final
+argv bytes. Certificate-only checks add neither dispatch nor dependencies.
+Replay/read-only resolution does not revalidate committed files on disk.
+Templates, root certificates, contextual decisions and index binders are
+semantic data; containers accept no `@`. Moving/formatting source cannot leave
+nested provenance in the digest or advance effect counters. Task 6 owns this
+joint traversal; Task 12 reuses it for document admission.
+
+Keep `workflow-lisp/closed-program/1` and `table/1`. Earlier Phase 2 commands
+without `argv_transport` remain valid compile-only artifacts. Readiness scans
+all commands before new run authority and refuses absence as
+`command_transport_required`, requesting explicit rebuild from the original
+source/typed snapshot. Stored evaluated authority with absent annotation is
+`memo_inconsistent`; never guess literal transport or repair it. Phase 2 made
+no 2.35 runs to migrate; runtime representation/profile pins still apply.
+An old reader may refuse new fields. Old-target serialization/admission and
+requests stay unchanged; shared decision extraction must prove their parity.
+
 ### 9.2 Performers
 
 A performer executes one class of effect. It receives the effect node of the
@@ -1341,7 +1817,7 @@ value, given by a rule. A field not listed here is equal on both routes.
 | R9 | `command.command` | The stable command tokens, the interpreter replaced by its resolved path (C3), then the rendered argv (§9.1); append a certified adapter's inline input document, or an external tool's generated input-document path when `:inputs` is present (§9.1.1) |
 | R10 | `command.env` | R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
 | R11 | Generated helper commands | None. The present route runs inline Python steps that write managed write roots under `.orchestrate/workflow_lisp/`; the model has no write roots and no call frames, so nothing writes them |
-| R12 | A value in a command argument | Rendered as §9.1 states; equal to the present route's bytes |
+| R12 | A value in a command argument | Rendered by §§9.1/9.1.3 with checked static-template/value classification and explicit scope captures; preserve successful legacy bytes, including literal `True`/`False` versus substituted `true`/`false`, single-pass runtime strings and selected native/private scope resets |
 
 P3 preserves a prompt extern as `source_kind` (`asset_file` or `input_file`)
 and its exact path with the present source's lookup semantics. An input file
@@ -1470,6 +1946,8 @@ Codes this design introduces or keeps, and where each is raised:
 | `command_closure_unreadable` | Before a first attempt: a missing, unreadable or unsupported declared path, with path/reason (C2); when comparing a prior start/commit use `effect_input_diverged` |
 | `command_closure_written` | Before commit: declared closure evidence changed during the command attempt (C4) |
 | `command_result_inputs_invalid` | At build: malformed, duplicate or nontransportable external-tool `:inputs` (§9.1.1) |
+| `command_transport_required` | Before new run authority: a valid compile-only Phase 2 command lacks `argv_transport`; rebuild explicitly (§9.1.3) |
+| `undefined_variables` | At reached command input resolution: a missing template binding/dictionary key, `None` or invalid filter; no start/dispatch (§9.1.3) |
 | `effect_input_invalid` | Before reserving a command attempt: a typed input value violates its checked contract, with field/value path and the existing violation code (§9.1.1) |
 | `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5) |
 | `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3) |
