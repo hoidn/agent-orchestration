@@ -6,16 +6,21 @@ request. This roadmap owns prospective order and disposition; the
 the [demonstration design](../design/orc_reuse_introspection_search_experiment.md)
 owns the experiment, and the
 [implementation plan](2026-09-08-orc-research-demonstration-plan.md) describes
-selected assisted development and conditional successors. The reduced R1a pilot
-has reported its partial results; the owner selected the C1 recovery below.
+selected assisted development and conditional successors. The reduced R1a pilot,
+assisted C1 feasibility, and code-grounded qualitative ergonomic assessment are
+recorded. The proposal's documentation portion is addressed; the C1
+receipt-interface implementation remains unselected.
 On 2026-09-28 the owner selected CF-1a and slated CF-1b ahead of R1b's
 review/revision composition; see the
 [CF-1 selection record](#cf-1--composition-first-procedures-pending-unselected).
 CF-1a is closed, CF-1b is implemented at target 2.33, and CF-1c consumer
 migration is on hold. On 2026-09-29 the owner approved the defect repairs of
 the [value/effect decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md) and the brief's feasibility spike after
-them; the repairs are implemented and the spike is the next selected work
-([Independent Work And Successor](#independent-work-and-successor)).
+them. The repairs and spike are complete; gate G1 selected evaluated
+execution, with the closed-program compiler selected as Phase 2 at target
+2.35. The owner's 2026-10-01 delivery amendment introduces an early migration
+pilot and consumer-driven later additions; see
+[Independent Work And Successor](#independent-work-and-successor).
 Publication alone does not select
 later studies, new language surfaces, or source promotion.
 
@@ -59,7 +64,7 @@ unchanged.
 | Unit | Question and bounded work | Entry and exit |
 | --- | --- | --- |
 | R0 — ES disposition | Owner selected **prelaunch park** on 2026-09-08; preserve the completed prompt correction and frozen scientific evidence. | Complete as a disposition, not scientific completion. [Recorded hand-back](#current-es-boundary); resumption needs explicit owner selection and the existing adoption gate. |
-| R1a — construction, reuse, and introspection | Reduced pilot closed out with partial construction, unavailable reuse-proxy measurements, and inconclusive diagnosis. Selected follow-up: assisted C1 ORC/Python development with normal agent sessions. Assess ergonomic `.orc` reuse qualitatively from real abstractions/callers, optionally with LLM-assisted judgment; the contrived maintenance comparison is withdrawn as a reuse test. The active plan retains USD375 and configured OpenAI roles. | Compare real behavior and actual development friction before substantial redesign. Neither three successful novice builds, shared-edit propagation, nor a token threshold defines reuse ergonomics. If representative evidence is absent, leave the axis unassessed. A fresh scored comparison needs its own selection and held-back final cases, not a rerun of the old matrix by default. |
+| R1a — construction, reuse, and introspection | Reduced pilot closed with partial construction, unavailable reuse-proxy measurements, and inconclusive diagnosis. Assisted C1 ORC/Python feasibility and a code-grounded qualitative ergonomic assessment are recorded. The documentation portion of the follow-on is addressed; the remaining C1 original/terminal receipt-interface repair is ready but unselected. See the [active plan](2026-09-08-orc-research-demonstration-plan.md#proposed-follow-on--explicit-current-value-handoff) and [execution report](../reports/2026-09-08-orc-research-demonstration.md#assisted-c1-development-and-corrected-interpretation). R1b, R2, and R3 remain unselected and require separate selection. | Compare real behavior and actual development friction before substantial redesign. Neither three successful novice builds, shared-edit propagation, nor a token threshold defines reuse ergonomics. If representative evidence is absent, leave the axis unassessed. A fresh scored comparison needs its own selection and held-back final cases, not a rerun of the old matrix by default. |
 | R1b — agent authoring and self-programming | Separately budgeted actual agent authoring, feedback-driven revision, and one agent-chosen orchestration-improvement episode using the review-handoff family. Normal tools, execution and debugging belong inside each authoring session; scripted leaves do not test prompt-quality improvement. | Requires a working execution path, oracle, and composition cases, not passing R1a's reuse/introspection utility screens. Its review/revision composition authors against the CF-1b value-returning review helper, not `std/phase`, so that a known library defect is not measured as authoring friction; if CF-1a stops CF-1b, R1b proceeds on `std/phase` with that defect recorded as a confound. A cost/time envelope appropriate to normal sessions and a named model require approval before allocation; task-level revision episodes do not impose a compiler-only or fixed-model-turn loop. Scripted leaf providers do not make authoring free or establish task efficacy. |
 | R2 — task qualification and finite catalog | Qualify one live family before candidate work: prefer session-derived review/planning improvement when independently evaluable, with linear-classifier repair as the hard-oracle alternative. Compare a finite authored catalog under one separately preregistered budget, not two studies. | Separate review and explicit allocation; R1b success is not required. Retain actual task failures and cost; no general effectiveness claim from a descriptive pilot. |
 | R3 — search and representation | Test adaptive topology/prompt search against fixed and enumeration/random controls; compare the same protocol as an agent skill and credible reusable Python/native orchestration before claiming ORC-specific superiority. Evaluate whole-program and combined-change effects. | Requires a usable executable program space and evaluation, not all five axes passing. Separate bounded plan and budget. Broader generated provider-workflow execution is an implementation capability question, not a prerequisite safety project. |
@@ -73,12 +78,33 @@ requires explicit selection and its own bounded allocation.
 Language/foundation improvements are tracked independently:
 [EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected),
 [EC-1](#ec-1--pure-call-expression-composition-pending-unselected),
-[PC-1](#pc-1--first-class-provider-context-pending-unselected), and
-[CF-1](#cf-1--composition-first-procedures-pending-unselected).
+[PC-1](#pc-1--first-class-provider-context-pending-unselected),
+[CF-1](#cf-1--composition-first-procedures-pending-unselected), and
+[W3](#w3--local-hooks-with-inferred-context).
 Each has its own feasibility and consequence gates. They are not extra research
 units, new R1a deliverables, or automatic prerequisites for the five-axis studies.
 One explicit exception is recorded: CF-1b precedes R1b's review/revision
 composition by owner selection on 2026-09-28.
+
+The separate [evaluated-execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+owns runtime delivery: Phase 2 closed program → Phase 3 executable core →
+Phase 6a pilot, with Phase 4 additions including W3 and independent Phase 5
+parallel map → Phase 6b maintained-consumer migration → Phase 7 retirement.
+Portable context is a named later delivery, not silently included in the
+first-release provider subset. Composition, macro provenance, typed prompt
+and result contracts, and artifact production/consumption/lineage are
+preserved obligations, not expendable simplifications. This implementation
+sequence neither adds a research unit nor selects R1b/R2/R3 or a general
+search framework. Pilot authoring evidence informs improvements; it does
+not require all five axes to pass before useful capabilities can ship.
+
+Native sequential turns are separately recorded as
+[PQ-1 in runtime Phase 4](2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+on 2026-10-01: a pending, consumer-conditioned addition, not another research
+unit or a prerequisite for portable context, the executable core, or the
+early migration pilot. The [queue design](../design/workflow_lisp_provider_prompt_queue.md)
+owns delayed delivery and recovery; shared session/turn adapters must not
+become a parallel session manager.
 
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.
@@ -434,8 +460,10 @@ session-artifact workaround. Reconsider type/transport, module/control-flow,
 static provider selection, and recursion assumptions when concrete uses justify
 it. Native opacity limits introspection; context does not clone a workspace or
 establish independent judgments. Avoid a universal memory service or parallel
-session manager. Reconcile the separate prompt-queue proposal before any shared
-transport work creates duplicate owners.
+session manager. [PQ-1](2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+owns the separate native-turn delivery: share adapter/codec owners without
+making portable capture wait for native continuation or claiming that either
+implements the other.
 
 The [pure-call composition target](../design/workflow_lisp_pure_call_composition.md)
 and [revised effect proposal](../design/workflow_lisp_effect_ledger_simplification.md)
@@ -606,6 +634,40 @@ through the utility evaluation (Tasks 8–12). Its later library
 migration/retirement (Tasks 13–15) and CF-1d require separate owner decisions
 and any necessary allocation.
 
+## W3 — Local Hooks With Inferred Context
+
+**Status:** pending Phase 4c authoring improvement in the
+[evaluated-execution delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities),
+integrated by owner clarification on 2026-10-01. Implementation and target
+selection remain pending. This is W3 of the existing
+[write-once design](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context),
+not a new research unit or runtime-closure feature.
+
+The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
+owns Task 4 qualification and Tasks 11–14 delivery: multiple local bindings,
+inferred lexical captures, signatures from the expected `ProcRef`, then
+removal of `inputs I` and context-only records from `improve` callers.
+
+Qualify W3 independently of W0/W1/W2/W4. Resolve the surface grammar,
+cross-hook type inference and stdlib target/module migration before
+implementation. Preserve definition-site values, once-only captured effects,
+public fresh-run/resume behavior and older-target compatibility. Existing
+`bind-proc` remains the option for reusable top-level hooks.
+
+Judge the change by concrete deletions, clearer callers and the locality of
+adding a hook input, with behavior preserved. Record line counts as evidence;
+a fixed percentage is not an adoption gate. Reuse the shipped proposal
+example and `reviewed_change.orc` comparison; this needs no new live study.
+
+The parent sequence owns its placement: Phase 3 supplies the runtime;
+Task 4 qualification and Phase 6a assess the caller improvement; Phase 4c
+delivers Tasks 11–14; Phase 6b migrates the maintained consumer inventory.
+Qualification preparation can overlap Phase 3. W3 syntax is not a condition
+for running the early pilot, and its delivery does not wait for unrelated
+Phase 4 effect ports. The component's Phase E is this same Phase 4c work,
+not a second schedule. Phase 2 order, CF-1c hold and research allocations
+stay unchanged; no executable selector/manifest or active-run state changes.
+
 ## Current ES Boundary
 
 The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
@@ -684,6 +746,11 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   anchor. It owns the value-returning review helper and generic-union delta;
   `std/phase` remains available beside `std/improve` until CF-1c decides
   otherwise.
+- [W3](#w3--local-hooks-with-inferred-context) is integrated into runtime
+  delivery as Phase 4c. The repetition-reduction planset owns its technical
+  tasks: Task 4 qualification with Phase 6a, then Tasks 11–14, followed by
+  Phase 6b consumer migration. Target and compatibility decisions remain open;
+  it adds no prerequisite to Phases 2–3.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:
@@ -718,11 +785,15 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   workspace, and lexical scope for hoisted and pure bindings at every target.
   The known defects that remain, cases d and f of the brief among them, are
   listed in [composition-first §11](../design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233).
-- **Next selected work (owner, 2026-09-29):** the feasibility spike of the
-  [decision brief, section 10](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md#10-spike-scope-and-criteria-fixed-in-advance),
-  with its criteria fixed there. Its plan is written after the defect repairs
-  merge. The choice between the brief's options and the version policy for an
-  inverted runtime wait for its result.
+- **Selected runtime work:** the feasibility spike is complete; gate G1
+  selected evaluated execution on 2026-09-29. The
+  [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
+  owns the selected closed-program compiler at target 2.35 (owner decision,
+  2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+  owns the 2026-10-01 amendment: runnable core, early consumer pilot,
+  selective effect/context additions and independent parallel map, migration,
+  then retirement. Downstream implementation remains pending; this does not
+  select a new research study or alter the running Phase 2 task order.
 
 ## Routing And Historical Records
 
@@ -740,6 +811,13 @@ of R1b. The five research units, their allocations, and completed records are
 unchanged; R1b's entry now names the corrected review interface. The five research units, selected work,
 allocations, and completed records are unchanged. No executable manifest/queue
 row, ready-to-run implementation plan, or live workflow selection is added.
+
+The 2026-10-01 W3 incorporation makes the already proposed local-hook work
+discoverable here and expands its existing plan tasks. The five research
+units and the plan's 15 task numbers remain unchanged (Tasks 1–14 pending,
+Task 15 deferred). No machine-selected next item changes. W3's next planning
+step is Task 4 qualification for Phase 6a and Phase 4c delivery, not automatic
+implementation or a separate delivery track.
 
 `workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
 is a legacy review example with historical context, not a live stage selector
@@ -1139,13 +1217,15 @@ one another circularly:
    context/background-stratified subject selection improve sample efficiency or
    outcomes enough to justify its observation and archive machinery?
 
-The
-[candid effectiveness analysis](../reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md)
-that preceded this roadmap found no existing five-minute artifact that answers
-these questions. The roadmap therefore starts with evidence collection and
-preserves independent baselines throughout. It does not use the system's
-self-hosting history, a toy that merely compiles, or the existence of a complex
-substrate as proof of effectiveness.
+The historical source named “Compelling Example Search and Effectiveness
+Doubts” (2026-07-22) is unavailable: its report is absent from this checkout
+and Git history. This roadmap cited it for the finding that no existing
+five-minute artifact answered these questions. The
+[retained R1a pilot report](../reports/2026-09-08-orc-research-demonstration.md)
+is later evidence, not a substitute for that missing source. The roadmap
+therefore starts with evidence collection and preserves independent baselines
+throughout. It does not use the system's self-hosting history, a toy that merely
+compiles, or the existence of a complex substrate as proof of effectiveness.
 
 ## Decision
 

@@ -4,8 +4,9 @@
 
 - **Status:** implemented at target 2.34 (`specs/versioning.md`, v2.34
   additions), except that a refusal at run time points at the generated
-  step's pure region, not at the failing application (N4). Targets through
-  2.33 keep the behaviour of section 2
+  step's pure region, not at the failing application (N4). Literal tests do
+  not cover every position in the totality matrix. Targets through 2.33 keep
+  the pre-surface behaviour summarized in section 2.
 - **Kind:** pure expression surface and boundary contract
 - **Owner:** Workflow Lisp frontend; pure expression catalog
 - **Created:** 2026-09-29
@@ -13,7 +14,7 @@
   section E
 - **Plan:** [evaluated execution plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md),
   Phase 0
-- **Amends on acceptance:**
+- **Updated at target 2.34:**
   [expression surface and adapter retirement](workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
   §10.2, the drafting guide's section on pure expressions,
   `specs/io.md`, `specs/versioning.md`
@@ -21,11 +22,12 @@
 
 ## 1. Summary
 
-A workflow can compare two `Float` values and cannot compute with them. It
-cannot divide, and it cannot write a decimal constant in an expression. A
-selection policy that scores candidates therefore has to leave the language.
+A workflow before target 2.34 could compare two `Float` values but could not
+compute with them, divide, or write a decimal constant in an expression.
+Target 2.34 now admits the numeric surface below, so supported selection
+policies can perform that arithmetic in the language.
 
-This design adds a closed decimal arithmetic. It has four parts.
+The target implements a closed decimal arithmetic surface with four parts.
 
 | Part | Statement |
 | --- | --- |
@@ -171,11 +173,9 @@ waits for a fixture that needs it.
 
 ## 6. Targets And Compatibility
 
-- The rules apply from one new target, the same that carries the surface
-  changes of [writing each fact once](workflow_lisp_write_once.md).
-- Targets that exist today keep their behaviour. They refuse a decimal
-  literal in an expression and they accept non-finite values at boundaries,
-  as they do now.
+- The rules apply at target 2.34. Targets through 2.33 retain their previous
+  behaviour: they refuse decimal literals in expressions and accept
+  non-finite values at boundaries, as summarized in section 2.
 - The pure evaluator is shared by both execution routes, so the operators do
   not depend on evaluated execution.
 
@@ -183,7 +183,7 @@ waits for a fixture that needs it.
 
 | Requirement | Measure |
 | --- | --- |
-| Literals | A literal compiles and runs in each position of the totality matrix |
+| Literals | The full coverage target is compile/run evidence for each totality-matrix position; current tests do not cover every position |
 | Operators | For each operator: a result, each refusal, and the same refusal at compile time for literal operands |
 | Agreement | For every program of the tests, the type the compiler assigns equals the type the evaluator produces |
 | Boundaries | Each row of N6, for a workflow input, a command result, a provider result and an expected output file |
@@ -194,6 +194,6 @@ waits for a fixture that needs it.
 
 | Claim | Fixture |
 | --- | --- |
-| One catalog can serve the four places that hold type rules today | The frontend check, the static typing of payloads and the evaluator give the same answer on a generated set of well-typed and ill-typed applications |
+| One catalog serves frontend checking, payload typing and evaluation | The frontend check, the static typing of payloads and the evaluator give the same answer on a generated set of well-typed and ill-typed applications |
 | A digest depends on a `Float` only through its double | Two adjacent doubles have two digests; one double computed two ways has one; `-0.0` and `0.0` have two |
 | Refusing non-finite values at boundaries breaks no maintained workflow | No workflow of the repetition census corpus receives such a value in its tests |

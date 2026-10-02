@@ -1,5 +1,11 @@
 # MLEvolve-inspired search in ORC and Python
 
+**Historical checkpoint:** The findings and development status below describe
+baseline `fc5f2a2e1426d74da4cdb79a97a494e685300141`, not the current checkout.
+For maintained source, reproduction commands and current limits, use the
+[specimen README](../../experiments/mlevolve_pair/README.md) and
+[drafting guide §2A](../lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today).
+
 Result: Python executes the bounded policy; the full ORC specimen is blocked by the current frontend. Its explicit control-flow form generates a 361-node pure expression against a 256-node limit. This is a reproducible feasibility result, not a proof that every ORC formulation is impossible. The runtime was not modified to admit the specimen.
 
 Purpose: compare independent `.orc` and Python implementations of the same search policy, without assuming an exact MLEvolve port and without placing a Python controller underneath `.orc`.

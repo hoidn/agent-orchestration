@@ -213,6 +213,37 @@ orchestrate run-step <step_name> --workflow workflows/examples/cycle_guard_demo.
 orchestrate watch workflows/examples/cycle_guard_demo.orc
 ```
 
+### Workflow Lisp trials (target 2.25)
+
+```text
+orchestrate trial WORKFLOW --entry-workflow NAME
+  [--input NAME=VALUE ...] [--input-file JSON]
+  [--source-root DIR ...]
+  [--provider-externs-file JSON] [--prompt-externs-file JSON]
+  [--imported-workflow-bundles-file JSON] [--command-boundaries-file JSON]
+  [--state-dir DIR] [--run-ref-root DIR]
+```
+
+The public command compiles the selected entry with the ordinary full compiler
+and runs it with the ordinary executor. The entry must target DSL `2.25` and
+its terminal public result must be the exact compiler-owned trial result.
+Inputs bind through `--input` (repeatable) or `--input-file`; provide source
+roots and extern manifests required by that workflow. Raw executable configs,
+non-trial terminal results, other targets, and privileged bypasses are refused.
+
+The command prints one closed `workflow_trial_run_result.v1` JSON record. It
+contains the run ID and terminal status; completed results also contain the
+verdict digest and path, while failed results contain a bounded failure
+diagnostic. Exit `0` means completed, `1` means the trial ran and failed, and
+`2` means validation or admission refused before execution. As elsewhere, exit
+`2` alone does not distinguish compile errors from other refusals; read the
+diagnostic code.
+
+`--run-ref-root` sets the canonical absolute child-workspace root. When
+omitted, it defaults to `~/.local/state/orchestrator/run-ref`. An explicit
+value must already be canonical and absolute, and resume must use the root
+bound to the persisted run. Trial has no dry-run mode.
+
 ### Extended CLI Options
 
 ```bash

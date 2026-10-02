@@ -11,10 +11,11 @@
 declarations, construct values from the expected type, infer effects, let
 hooks capture their context, and bind provider options once.
 
-**Architecture:** Every change is in declarations, the typechecker,
-elaboration or provider configuration. No change depends on how a compiled
-workflow is executed. Phase A changes no language rule. The language changes
-enter together at one new target.
+**Architecture:** Changes use declarations, the typechecker, elaboration and
+provider configuration, reusing the selected execution route rather than
+adding an evaluator. Phase A changes no language rule. Each selected language
+change needs a target and compatibility decision; W3 can be qualified
+independently of the other authoring changes.
 
 **Tech Stack:** Python, Workflow Lisp reader, typechecker, specialization and
 elaboration, provider registry and shared validation, pytest/pytest-xdist,
@@ -30,19 +31,46 @@ command-backed deterministic procedures and stand-in providers.
 
 ## Status, Authorities, And Scope
 
-Status: draft for the owner. Not approved. No task starts before the
-decisions below are recorded.
+Status: draft; implementation is not selected. The W3 planning revision is
+recorded below. Qualification supplies evidence for the open decisions;
+implementation starts only after the applicable decisions are resolved.
+
+### W3 Planning Amendment
+
+Owner request, 2026-10-01: make the before/after local-hook proposal concrete
+in the roadmap and this planset. W3 covers multiple local bindings, inferred
+lexical captures, expected `ProcRef` signatures, and removal of `inputs I`
+from `improve`. This selects the planning revision, not implementation of
+W0–W5 or a new language target. All implementation tasks remain pending.
+
+Delivery integration, 2026-10-01: W3 is a component of evaluated-execution
+delivery, not a separately scheduled feature. The
+[parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+owns scheduling: Phase 3 provides the runtime; Task 4 qualification feeds
+the Phase 6a pilot; Phase 4c delivers Tasks 11–14 after the open decisions
+and Task 6 target registration; Phase 6b owns broader consumer migration.
+Phase E below is the component's work breakdown for Phase 4c, not another
+top-level phase. Qualification preparation can overlap Phase 3; W3 does not
+gate that phase or require its new syntax in the pilot. W0/W1/W2/W4 remain
+independent. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
+owns the proposed behavior and illustrative before/after.
+
+Target-selection update (2026-10-01): the original recommendation of 2.34
+predated its delivered numeric surface; 2.35 is now selected for evaluated
+execution. Neither delivery selects this proposal. Decision 2 must be
+resolved against those allocations before target registration or tests are
+written; this update chooses no replacement target.
 
 Decisions needed before execution:
 
 | # | Decision | Recommendation |
 | --- | --- | --- |
-| 1 | Which of the rules W0 to W5 are accepted | W0, W1, W2 and W4. W3 on the result of Task 4. W5 deferred under its own condition |
-| 2 | The target that carries W1, W2, W3 and W4 | One new target, 2.34 |
+| 1 | Which of the rules W0 to W5 are accepted | W3 is a named authoring candidate, qualified by Task 4 independently of W0/W1/W2/W4. Their proposed scope remains unchanged; W5 stays deferred |
+| 2 | The target for each selected language change | W3 uses the evaluated route as Phase 4c; its language target remains unresolved against existing 2.34 numeric and selected 2.35 evaluated execution. Other repetition rules retain their own target decisions |
 | 3 | The module that owns declarations shared by a workflow family and unused by the standard library | One module per family under `workflows/library/`, named for the family |
-| 4 | The adoption bar for W3 | The helper variant of `reviewed_change.orc` is at least 10 % shorter than the hand-written variant and keeps every behaviour |
+| 4 | The adoption bar for W3 | Preserve behavior while removing the context-only record/constructor, forwarding parameter and restated hook signatures. Review actual callers and edit locality; line counts are supporting evidence, not a percentage gate |
 | 5 | Where provider defaults are written | The provider externs file |
-| 6 | Whether `improve` changes its signature in place | Yes. It has one caller, the shipped example |
+| 6 | How the context-free `improve` signature replaces the current API | Inventory maintained callers, fixtures and imports; settle target/module compatibility before editing the shared stdlib. Preserve older-target builds and checkpoint identity; do not assume the shipped example is the only consumer |
 | 7 | Who implements Phase B | The runtime owner, because the change is in provider configuration and shared validation |
 
 Depends on: the
@@ -52,7 +80,9 @@ repaired.
 
 Out of scope: the compiler defects recorded in the
 [value/effect separation decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md);
-moving older workflows to the new target; the Design Delta family.
+broad migration of older workflows to the new target (parent Phase 6b owns
+that rollout; Task 14 proves the representative W3 consumers); the Design
+Delta family.
 
 ## Global Constraints
 
@@ -60,9 +90,11 @@ moving older workflows to the new target; the Design Delta family.
   phase starts from. Evidence is byte identity of every build artifact at one
   fixed path with `PYTHONHASHSEED=0`, with the orchestrator package at one
   fixed path as well.
-- A program at the new target that uses none of the new forms lowers to what
-  it lowers to at 2.33.
-- A new form lowers to exactly what its explicit equivalent lowers to.
+- A program using no new authoring form preserves its values, effects and
+  resume behavior. Compare canonical output within the selected route;
+  do not require flat and evaluated routes to serialize identically.
+- A new form has the same canonical output as its explicit equivalent on
+  the same route, excluding source provenance where that route requires it.
 - Every refusal has a diagnostic code and a source location.
 - Tests assert behavior through the public run entry. No test asserts prompt
   text.
@@ -164,13 +196,17 @@ codes and how `--dry-run` prints them.
 2. Implement. Compare definitions, not text.
 3. Run the lint over the corpus. After Tasks 1 and 2 it reports nothing.
 
-### Task 4: Measure W3 With The Language As It Is
+### Task 4: Qualify W3 On Concrete Callers
 
 - [ ] Complete
 
 **Read/trace:** `experiments/orc_repetition_census/variants/`, the
-`let-proc` and `bind-proc` contracts,
-`orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`.
+`let-proc` and `bind-proc` contracts, design §6,
+`orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`, its maintained
+callers and public compile/run/resume fixtures. Trace capture ownership
+through `procedure_typecheck.py`, specialization and the selected execution
+route; the existing capture/replay defects in composition-first §11 are
+required counterexamples, not behavior to preserve.
 **Create:** variants under `experiments/orc_repetition_census/variants/`,
 stored as `.orc.txt`; an addendum to the census report.
 
@@ -180,10 +216,20 @@ stored as `.orc.txt`; an addendum to the census report.
    Keep every behaviour of the original; where one cannot be kept, record the
    diagnostic.
 3. Count lines with `count_lines.py`, in the census's categories.
-4. Write a second variant as the design's section 6.3 would allow it, and
-   count it. It will not compile; mark it so.
-5. Report both counts against the hand-written variant (92 lines). State
-   whether each meets the bar of decision 4.
+4. Write a second variant as design §6.3 would allow it, and count it.
+   Mark proposed syntax as non-runnable. Settle the multiple-binding grammar,
+   how a directly supplied local `proc-ref` obtains its expected signature,
+   and diagnostics for missing or incompatible expectations. Neither hook
+   may refer to itself or a sibling; general inference remains out of scope.
+5. Report both counts against the hand-written variant (92 lines at the
+   census baseline). Assess the actual record/constructor/parameter deletions
+   and the change needed when only one hook needs another enclosing value.
+   Preserve domain records that have uses beyond context forwarding. Use
+   decision 4, not the former 10 % threshold, for the adoption recommendation.
+6. Record the target, stdlib migration and older-target compatibility decision
+   from the caller inventory. A local scratch helper is feasibility evidence,
+   not a second production API. Resolve execution-route gaps before claiming
+   public run/resume proof; a compiler-only spike is insufficient.
 
 ## B. Provider Options Bound Once
 
@@ -228,10 +274,13 @@ diagnostic `provider_parameters_missing`, `specs/providers.md`.
 `orchestrator/workflow_lisp/syntax.py`,
 `orchestrator/workflow/validation.py`, `tests/test_workflow_lisp_target_233.py`.
 **Update:** those owners.
-**Create:** `tests/test_workflow_lisp_target_234.py`.
+**Tests:** choose the target test module after decision 2. The existing
+`tests/test_workflow_lisp_target_234.py` owns numeric-target evidence and must
+not be replaced or presented as repetition-reduction delivery.
 
 1. Write failing tests: a module at the new target that uses no new form
-   compiles, and lowers to what it lowers to at 2.33.
+   compiles and retains its behavior; compare canonical output to the same
+   execution route's baseline, with older-target controls unchanged.
 2. Register the target and one predicate named for it.
 
 ### Task 7: Pass The Expected Type Through Every Position Of Design Section 4.2
@@ -254,9 +303,9 @@ expected type), `typecheck_structural_values.py` (the empty `(list)`),
 2. Write the controls at 2.33: each of those programs is rejected as today.
 3. Implement. A loop takes its expected type from its position and passes it
    to `done` and `:on-exhausted`.
-4. Compile the whole corpus at its own targets, and a copy of each 2.33
-   program retargeted to the new target. Every build artifact is identical to
-   the artifact before this task.
+4. Compile the whole corpus at its own targets: artifacts remain identical.
+   For retargeted programs, compare before/after expected-type threading on
+   the selected route; do not conflate this change with runtime migration.
 
 ### Task 8: Constructors Without A Type Name
 
@@ -327,8 +376,12 @@ entry EL-1.
 
 ## E. Hooks That Capture Their Context
 
-Phase E starts only if Task 4 reports that the second variant meets the bar
-of decision 4.
+This is the technical breakdown of the parent's Phase 4c. Entry: Phase 3's
+runtime, the Phase 6a caller assessment, and Task 4's grammar, inference,
+capture ownership, target/module compatibility and decision-4 evidence.
+Task 6 registers the selected target before new syntax is admitted. Tasks
+11 → 12 → 13 → 14 form the W3 delivery order; unrelated W0/W1/W2/W4 delivery
+is not a prerequisite. Public run/resume acceptance uses Phase 3's evaluator.
 
 ### Task 11: Several Bindings In One `let-proc`
 
@@ -343,7 +396,8 @@ procedures.
 1. Write failing tests at the new target: two local procedures in one form,
    both passed by `proc-ref` to one helper, compile and run; a local
    procedure that names another of the same form, or itself, is rejected with
-   a located diagnostic.
+   a located diagnostic. Older targets retain their single-binding syntax;
+   scope escape and nested local-procedure definitions remain refused.
 2. Implement. The generated procedures and their step identities for a form
    with one binding are what they are today.
 
@@ -357,8 +411,13 @@ procedures.
 1. Write failing tests: without `:captures`, a body that uses names of the
    enclosing scope compiles and runs like the form with the list written; a
    name bound both outside and as a parameter is the parameter; an authored
-   list that omits a name the body uses is rejected, naming the name.
-2. Implement. The build artifacts equal those of the explicit list.
+   list that omits a name the body uses is rejected, naming the name. A later
+   call-site binder cannot change a captured value. Capturing a committed
+   effect result does not dispatch it again, either fresh or on resume.
+2. Implement through the existing capture/specialization owners. Record a
+   deterministic capture ordering and compare with the equivalent explicit
+   list on that route. Do not serialize runtime procedure/closure values or
+   add another evaluator or capture store.
 
 ### Task 13: A Local Procedure Takes Its Signature From The Expected Type
 
@@ -373,9 +432,14 @@ procedures.
    parameter omits its parameter types and its return type; the callee's type
    parameters are bound from the other arguments and from the body; a local
    procedure whose body does not fit the expected type is rejected at the
-   body.
-2. Implement. Arguments that fix type parameters are checked first; local
-   procedures are checked after, against the bound types.
+   body. Exercise the pair of review/revise hooks: the review result fixes
+   feedback/blocker types used by the revise signature. An unresolved or
+   conflicting expectation gets a located diagnostic requesting explicit
+   types, rather than a guess or source-order-dependent result.
+2. Implement the bounded inference order settled in Task 4 through existing
+   typechecking/specialization. Compare inferred and fully annotated forms;
+   effect declarations keep their current rules unless W2 is separately
+   selected and delivered.
 
 ### Task 14: `improve` Without `inputs`
 
@@ -388,11 +452,26 @@ section on `improve`.
 **Create:** the measured helper variant of `reviewed_change.orc` as a test
 program.
 
-1. Change the signature as design section 6.4 gives it.
-2. Rewrite the example with local hooks.
-3. Run the example's tests through the public run and resume.
-4. Count the helper variant of `reviewed_change.orc` and record the count
-   against decision 4.
+1. Apply the compatibility decision from Task 4, then replace the signature
+   as design §6.4 gives it: remove `I`, `inputs`, and forwarding at both hook
+   calls. Inventory every affected maintained caller and fixture; retain
+   historical measurement copies as evidence.
+2. Rewrite the example and measured helper variant with local hooks; remove
+   only context-only records/constructors. Retain reusable top-level hooks
+   through existing `bind-proc` where that is clearer. Leave one public
+   signature per resolved stdlib module, without an `improve-v2` wrapper.
+   These are Phase 4c's representative migrations; hand the remaining
+   maintained-consumer inventory and migration recipe to parent Phase 6b.
+3. Prove APPROVED, BLOCKED and EXHAUSTED results, final candidate and feedback,
+   bounded review/revise ordering, distinct captures for two helper calls,
+   lexical shadowing and committed-boundary resume through public entries
+   with deterministic fixture providers. Check effect invocation counts and
+   older-target build/checkpoint compatibility; no live study is required.
+4. Report the before/after callers, deleted declarations and forwarding, and
+   line counts against decision 4. Update the local-procedure baseline,
+   composition-first contract, drafting guide, capability/design indexes and
+   this roadmap together when the feature lands; do not publish proposed
+   syntax as supported before that evidence exists.
 
 ## F. Constraints That Bind
 

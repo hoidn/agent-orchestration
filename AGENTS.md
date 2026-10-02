@@ -39,11 +39,28 @@ Development rules:
 
 ## Subagent policy
 
-You are the primary coordinator and final integrator. Use subagent driven development when appropriate. If you are codex, use the following models for the respective subagent roles:
-- Implementation: luna 6 xhigh
-- Review: Sol 6 high
+You are the primary coordinator and final integrator. Use subagent driven development when appropriate. Delegate substantive implementation, revision, and test preparation; retain cross-cutting decisions, integration, and final verification. Reuse valid verification evidence unless relevant changes, failures, or unresolved concerns justify rerunning checks; complete all required checks.
+
+If you are Codex, use these default models for the respective subagent roles:
+- Implementation (of code): luna 6 xhigh
+- Revision (of code): luna 6 xhigh
+- Revision (of specs, designs, or plans): Sol 6.1 high
+- Review (of code or plans): Sol 6.1 high
+- Review (of specs or designs): Astra 6 xhigh
 - Design: Astra 6 xhigh
 - planning: Astra 6 high
+
+For Codex, escalate code implementation or revision from Luna to Sol 6.1 high when the work exceeds a bounded implementation task or the same issue persists after corrections. Route unresolved architectural decisions to Design with Astra 6 xhigh. The coordinator may make these escalations within the approved scope and briefly state why.
+
+If you are Claude, use the following models for the respective subagent roles:
+- Implementation: Opus 5.5 high
+- Review: Opus 5.5 high
+- Design: Fable 5.1 xhigh
+- planning: Fable 5.1 high
+
+Revision applies accepted findings; corrections to specs, designs, or plans that require new architectural decisions return to Design. Return code corrections to the existing implementer when possible. Use a reviewer distinct from the author.
+
+State the role and artifact type in every delegation, including follow-ups to reused agents. Give new tasks matching role prefixes, such as `impl_code_`, `revise_code_`, `revise_design_`, or `review_design_`, so activity can be attributed independently of the model.
 
 For nontrivial tasks:
 

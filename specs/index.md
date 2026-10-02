@@ -7,7 +7,7 @@ Status: Normative master. This index defines scope, versioning, conformance, and
   - DSL v2.29 additionally admits already-transportable record/union lists as
     whole loop state and complete state-derived exhaustion results, including
     root-state and committed-boundary resume; see the
-    [execution plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md#b-rich-loop-state-and-complete-exits).
+    [frontend loop contract](../docs/design/workflow_lisp_frontend_specification.md#131-bounded-loop).
   - DSL v2.30 admits resolved-inline pure-call composition and ordered schema-3
     lexical bindings, preserving selected-hook scope and eager exactly-once
     arguments. Private/effectful/unrepresentable calls remain excluded; older
@@ -29,6 +29,14 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     admission is per defining module. It adds no generic records or explicit
     procedure type arguments. See `versioning.md`, which also lists the scope
     corrections that apply to every target.
+  - DSL v2.34 implements decimal literals, numeric operators and finite-value
+    checks at boundaries. Repetition reduction is a separate unapproved
+    proposal; see [versioning](versioning.md) for the implemented surface.
+  - DSL v2.35 is the selected evaluated-execution target. Internal closed-program
+    compilation is partially integrated; public CLI compilation, execution
+    and resume remain unavailable with `evaluated_execution_unavailable`.
+    The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
+    owns the accepted model; [versioning](versioning.md) owns target admission.
   - State schema: `schema_version: "2.1"`.
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
 

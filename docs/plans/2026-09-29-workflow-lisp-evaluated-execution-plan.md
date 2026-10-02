@@ -39,26 +39,32 @@ Phases 0 and 1 were selected as follows. The owner approved on 2026-09-29 the sp
 of Phase 1, the repairs of the
 [shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md),
 and decisions 1 to 4 below. Gate G1 selected evaluated execution; Phase 2
-execution is authorized at target 2.35. Later phases retain their staged gates.
+execution is authorized at target 2.35 and has its own selected [implementation plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md).
+The owner's 2026-10-01 amendment sets the downstream order below. Phases 3
+to 7 remain pending; this amendment records neither implementation nor
+completion of those phases.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
 | # | Decision | Outcome |
 | --- | --- | --- |
-| 1 | The target that carries the surface changes of Phase 0 | 2.34, the target of the repetition reduction plan |
+| 1 | The target that carries the surface changes of Phase 0 | 2.34 for the numeric surface; repetition reduction remains a separate unapproved proposal |
 | 2 | Whether Phase 0 includes the interim repair of the flat route, Task 2 | Yes |
 | 3 | Whether the numeric operators are adopted now or when a maintained workflow needs them | Now, with the fixture of the numeric surface design, section 4 |
 | 4 | Where the spike lives and how long it may take | `experiments/evaluated_execution_spike/`, removed after the gate. One week of agent time |
 | - | When Phase 0 starts and from which base | Now, from the integration branch of the repairs plan. It enters `main` after the repairs |
 | 5 | Gate G1: the choice of architecture | Evaluated execution, built in stages at a new target. Beside Phase 2, one more experiment: a shipped workflow with a coordinator that is not a run reference, through both routes |
-| 6 | The number of the evaluated execution target | 2.35, selected by the owner on 2026-09-30 |
-| 7 | The effect classes of the first release | Commands, composed providers, calls of workflows, run references. Each other class enters later, with its own adapter and its own evidence through the public run and resume entries |
+| 7 | The effect classes of the first release | Commands, the admitted portable composed-provider subset (without context capture), workflow/procedure calls and path-mode run references. Each other class enters later, with its own adapter and its own evidence through the public run and resume entries |
+
+Decided on 2026-09-30: decision 6, the evaluated execution target, is **2.35**
+(recorded by the Phase 2 owner in `bf6c9c9d`). The earlier recommendation of
+a new major number is superseded; the runtime delivery scope is unchanged.
 
 Decisions needed:
 
 | # | Decision | Recommendation | Needed before |
 | --- | --- | --- | --- |
-| 8 | When older targets are retired | After the maintained workflows run at the new target | Phase 7 |
+| 8 | When older targets are retired, including how existing runs remain resumable or are explicitly retired | After the maintained workflows run at the new target, with an explicit disposition for existing runs | Phase 7 |
 
 Base: the integration branch of the shared defect repairs plan, with `main`
 and the paired search experiment merged in. Phases 0 and 1 merge to `main`
@@ -69,10 +75,11 @@ policy that schedules work as each result arrives.
 
 ## Global Constraints
 
-- Targets that exist today accept and lower exactly what they do at the
-  commit each phase starts from. Evidence is byte identity of every build
-  artifact for identical identity inputs, with the program and the
-  orchestrator package each at one fixed path and `PYTHONHASHSEED=0`.
+- Until explicitly retired under decision 8, older targets accept and lower
+  exactly what they do at the commit each phase starts from. Evidence is
+  byte identity of every build artifact for identical identity inputs, with
+  the program and the orchestrator package each at one fixed path and
+  `PYTHONHASHSEED=0`.
   Preserve the compiler/runtime identity's truthful package-file pin: changed
   package bytes may change that pin and dependent run-ref artifacts at old
   targets. Report real-pin differences separately from raw serialization
@@ -354,9 +361,10 @@ section 6, gives bind the first release. The design is revised with the
 decisions that the spike had to guess before the plan of Phase 2 is written.
 
 
-The owner chooses among repairing the flat route, values as expressions, and
-evaluated execution, on the report of Task 10. Phases 2 to 7 follow only the
-third choice. Each gets its own plan when it is selected.
+The owner selected evaluated execution over repairing the flat route or
+values as expressions, on the report of Task 10. Each later phase gets its
+own implementation plan when selected; G1 is not reopened by the delivery
+ordering below.
 
 ---
 
@@ -365,9 +373,50 @@ third choice. Each gets its own plan when it is selected.
 Milestones, entry conditions and evidence. Tasks are written when a phase is
 selected.
 
+### Delivery Order And Preserved Capabilities
+
+Owner amendment, 2026-10-01:
+
+**Phase 2 → Phase 3 → Phase 6a pilot → Phase 4 additions (including W3) and
+Phase 5 → Phase 6b migration → Phase 7 retirement.**
+
+This is the preferred delivery order, not a serial dependency chain or a
+requirement to finish every effect class before using the runtime. Phase 5
+may start after Phase 3 alongside the
+pilot; it does not wait for all of Phase 4. Phase 6b advances consumer by
+consumer as the capabilities each needs land. Existing phase numbers and
+the selected Phase 2 task order stay unchanged.
+
+Simplify the execution machinery, not the language's useful contracts:
+
+| Capability to retain | Delivery and evidence |
+| --- | --- |
+| Generic procedures, hooks and nested composition | Phases 2–3 retain admitted call/binding forms and arbitrary admitted nesting. The pilot reuses a helper with different domain types and hooks, without position-repair wrappers |
+| Metalinguistic abstraction | Retain existing macro expansion and source provenance through compilation; do not replace reusable language abstractions with special runtime cases |
+| Typed prompt and result contracts | Preserve prompt assembly, validation and typed value transport for admitted effects; the pilot exercises these through public entries |
+| Artifact production, publication, consumption, freshness and lineage | Preserve the existing contracts needed by each migrating consumer and demonstrate a producer-to-consumer handoff. Memoized values do not substitute for artifact tracking, nor do declared dependencies prove every file an agent actually read |
+| Explicit portable provider context | A named Phase 4 priority, with capture, transformation/forking and rebinding evidence; not part of the first-release portable provider subset |
+| Local hooks with inferred context (W3) | Phase 6a qualifies the caller improvement; Phase 4c delivers capture/signature inference and the context-free `improve` API; Phase 6b migrates maintained consumers |
+
+Delivery integration, 2026-10-01: W3 belongs to this delivery sequence as
+Phase 4c. The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
+retains its technical tasks, not a competing schedule. Grammar, target and
+module compatibility remain open prerequisites; scheduling W3 does not mark
+it implemented or start a run. Other repetition rules and the
+[effect-ledger workstream](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
+remain separately scoped. None becomes a prerequisite for Phases 2–3.
+
 ### Phase 2: The Closed Program
 
-Entry: gate G1.
+Reviewed Tasks 1–7 are integrated from `d178ad7e` (2026-10-01). Tasks 8–11
+remain pending; public CLI compilation at 2.35 is not yet available, and
+execution/resume remain Phase 3 work. This checkpoint does not close Phase 2.
+
+Entry: gate G1. Execute the selected
+[Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
+without adding downstream runtime work or a general transformation engine.
+The corpus below is the admitted first-release scope; later effect classes
+remain explicit release gaps, not extra Phase 2 prerequisites.
 
 | Milestone | Evidence |
 | --- | --- |
@@ -383,29 +432,102 @@ Entry: gate G1.
 
 Entry: Phase 2.
 
+Deliver a coherent executable core for the admitted effect classes, not a
+collection of preferred syntactic positions. A failure to close or evaluate
+an admitted composition is a compiler/runtime defect, not a reason to
+require a wrapper or narrow nesting. Restrict effect-class admission as the
+design specifies, not compositional semantics within that admission.
+
 | Milestone | Evidence |
 | --- | --- |
 | Values and one implementation of pure operators | The agreement test of Task 6, extended to the evaluator of programs |
-| Evaluation of every construct, with nesting | The totality matrix with no known defect |
+| Evaluation of every admitted construct, with nesting | No known defect in the first-release cells of the totality matrix; later-class gaps remain explicitly identified |
 | The memo and the table of resume | Review focus 2; criterion 3 of the spike on the corpus |
 | Typed input documents | A command receives a list of records of unions and returns it unchanged |
 | Performers for commands and composed providers | The `std/improve` example and the single-call comparison workflows run with stand-in providers, then with real ones |
+| Workflow/procedure calls and path-mode run references | Public run and committed-boundary resume, including nested calls; the run-reference adapter preserves its ledger contract |
 | The views | `orchestrator report`, the dashboard cursor, the monitor classifier and the watchdog probe read a state derived from a memo |
-| `run`, `resume`, `--dry-run` | Compile, run and resume of each maintained workflow through the public entry |
+| `run`, `resume`, `--dry-run` | Public compile, dry-run, run and resume of first-release fixtures, including consumers nominated for Phase 6a; the authoring pilot follows Phase 3, not a prerequisite for it |
 | The state profile in `specs/state.md` | The specification and the code agree on every key of the view |
 
-### Phase 4: The Other Effect Classes
+### Phase 4: Consumer Capabilities And Authoring
 
-Entry: Phase 3. One milestone per class, in this order: request for input,
-resource transition, materialized view, provider with phased delivery,
-supervision and peer groups, run reference and trial. Evidence for each: a
-program that uses the class runs and resumes at the new target, and the
-class's own ledger, where it has one, is unchanged.
+Entry: Phase 3. Select additions by a named maintained consumer's need,
+not a fixed port of every historical runtime class. New effect classes need
+an adapter and public run/resume evidence preserving their contract and
+ledger. Authoring changes reuse existing effect and execution owners.
+
+- **4a — Priority additions:** portable context capture and rebinding,
+  governed by [Provider Context Values](../design/workflow_lisp_provider_context_values.md)
+  and [PC-1](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#pc-1--first-class-provider-context-pending-unselected).
+  Name the consumer when selecting its implementation slice. Demonstrate
+  snapshot → transform/fork → bind, carriage through reusable procedures,
+  and resume without repeating committed calls. Start with the existing
+  ordinary portable-context subset; this does not select native sessions,
+  unsupported adapters or lossless cross-provider continuation. Close any
+  remaining artifact publication/consumption/freshness gaps required by a
+  selected consumer before migrating it; do not defer obligations already
+  belonging to an admitted first-release effect.
+- **4b — Other classes when needed:** requests for human input, resource
+  transitions, materialized views, phased providers, supervision/peer groups,
+  adjudication, trials, native sequential turns (PQ-1 below), and remaining
+  run-reference modes. Name the consumer
+  and the missing behavior before selecting a class. Path-mode run references
+  already belong to Phases 2–3; they do not wait here.
+- **4c — W3 local hooks:** deliver multiple `let-proc` bindings, inferred
+  lexical captures, expected `ProcRef` signatures and `improve` without
+  `inputs I`, using the existing compiler and Phase 3 evaluator. The
+  [component plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#e-hooks-that-capture-their-context)
+  owns Tasks 11 → 12 → 13 → 14, after Task 4 qualification and Task 6 target
+  registration. Entry includes the Phase 6a caller assessment and resolved
+  grammar/target/module compatibility. Prove public compile/run/resume,
+  definition-site captures and no repeated committed effects on the shipped
+  proposal example and the `reviewed_change.orc` helper variant. Task 14
+  proves representative migration; the maintained-consumer rollout belongs
+  to Phase 6b. W3 adds no runtime closure or new effect class.
+
+An unneeded class may remain deferred or be retired with its consumers by
+explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
+for unrelated effect ports or W0/W1/W2/W4. Phase 4 is not an all-or-nothing
+prerequisite for Phase 5 or each Phase 6b consumer.
+
+#### PQ-1: Sequential Native-Session Turns
+
+**Status:** pending, consumer-conditioned Phase 4 work, recorded by owner
+request on 2026-10-01; not implementation selection or admission at target
+2.35. Governing [design](../design/workflow_lisp_provider_prompt_queue.md).
+This adds no prerequisite to Phases 2–3, Phase 5, the early Phase 6a pilot,
+or portable context in 4a/PC-1. Neither Q5's existing transport nor portable
+context implements this capability.
+
+**Candidate consumer:** an opt-in coder-call variant of
+[`reviewed_change.orc`](../../experiments/orc_vs_single_call/workflows/reviewed_change.orc):
+investigate → implement → self-review, returning its existing `Change` type.
+Keep the outer independent reviewer and review/revise control flow intact;
+self-review does not replace independent review. Select a session-capable
+provider explicitly; do not silently change the current consumer's model or
+claim that its existing typed prompt already fits the queue. No consumer is
+changed by this roadmap entry.
+
+| Step | Work and evidence | Consequence |
+| --- | --- | --- |
+| PQ-1a — qualify the bounded design | Review the design against the selected adapter and named consumer. Prove three delayed turns in one conversation, and continuation of a durably completed prefix. Resolve the scoped K4 recovery refinement and final commit gaps; specify timeout scope and resume accounting, unresolved-turn/session-loss behavior and prompt-source limits | Prerequisites remain open until evidenced. Select an implementation plan and target only for the qualified scope; revise an obstructing adapter/design assumption before dropping the use case |
+| PQ-1b — deliver the consumer slice | Existing `provider-result` configuration, finite enumerated prompt externs, one final typed result; reuse transport/session/prompt owners. Public compile/run/resume, invocation-count checks, composed helper placement and a real provider smoke | Keep first delivery bounded, without a second session manager, external inbox, or wholesale coordinator rewrite. Static membership is a delivery limit, not a permanent restriction justified by the old runtime |
+| PQ-1c — retain, improve, or simplify | Inspect normal authoring and actual recovery/friction relative to ordinary context passing; no new scoring apparatus or requirement that all five axes pass | Retain useful native continuity; improve concrete limitations (including typed fragments or bounded computed queues when justified), or cancel/remove unused queue-specific machinery while retaining independent transport/context capabilities |
+
+The generic coordinator restart rule is not evidence for prefix recovery.
+PQ-1a owns that open prerequisite; it does not authorize edits to the
+first-release protocol or the running Phase 2 task order. There is no new
+executable selector/manifest or top-level phase. Implementation tasks are
+written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 
 Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
 single-call comparison is one: its four implementers run in sequence.
+Recommended alongside the early pilot, independently of unneeded Phase 4
+classes. Reuse the evaluator and memo; no general scheduling framework is
+part of this phase.
 
 | Milestone | Evidence |
 | --- | --- |
@@ -416,14 +538,60 @@ single-call comparison is one: its four implementers run in sequence.
 
 ### Phase 6: Migration
 
-Entry: Phase 4 for the classes the maintained workflows use. Evidence: each
-maintained workflow runs at the new target with the trace it has on the flat
-route.
+**6a — Early pilot.** Entry: Phase 3. Select a small set of maintained
+workflows whose effects are admitted, starting from the `std/improve` and
+single-call comparison consumers already used by Phase 3. Do not wait for
+all of Phase 4. Record public compile, dry-run, run and resume evidence,
+including no redispatch of committed effects. Compare values and required
+effect ordering with the flat route where it runs; for formerly broken
+compositions, check the intended behavior, not parity with the defect.
+
+Exercise actual authoring and modification: reuse a generic helper with
+different domain types/hooks, compose nested calls without positional
+workarounds, and trace an artifact handoff. Assess reuse ergonomics from
+those changes and reasoned review, not an arbitrary build count, line-count
+threshold or mandatory benchmark harness. Record missing capability evidence
+as missing. Phase 3 and this pilot are the first evaluation point, not a
+global abandon/continue verdict before context and other differentiating
+capabilities can be exercised.
+
+For W3, use the existing explicit-hook API for the baseline and perform
+[component Task 4](2026-09-29-workflow-lisp-repetition-reduction-plan.md#task-4-qualify-w3-on-concrete-callers):
+compare the local-hook proposal, identify forwarding to delete and settle
+the migration/compatibility decision. Qualification preparation can overlap
+Phase 3; the pilot supplies executable caller evidence before Phase 4c.
+Do not require unimplemented W3 syntax to run the pilot.
+
+Use observed friction to select a principled improvement, a justified
+design/type-system revision, or explicit simplification of an unhelpful
+feature. A current design limit is not proof that the use case is
+impossible; investigate the limit before dropping the case. Scope changes
+still need selection, not an automatic expansion of the running phase.
+
+**6b — Maintained-consumer migration.** Entry per consumer: Phase 3 plus
+only the Phase 4/5 capabilities it needs. Extend pilot evidence to portable
+context reuse and parallel best-of-N as those land; parallel execution need
+not reproduce the old serial completion order, but must preserve results
+and required dependencies. Preserve contracts and useful lineage, not the
+old state representation. Migration covers maintained consumers, not every
+historical/deprecated example; identify any consumer explicitly retired
+instead of ported. Complete this phase when the maintained set runs and
+resumes on the new runtime with its required capabilities.
+
+After Phase 4c, migrate each maintained `improve` consumer covered by W3's
+inventory to the context-free API and remove context-only forwarding.
+Consumers that do not need W3 can migrate earlier; old-target checkpoints
+retain their resolved module/runtime contract until their retirement decision.
 
 ### Phase 7: Retirement
 
-Entry: the owner's decision 8. The code that serves only older targets is
-removed when no maintained workflow declares one.
+Entry: completed Phase 6b and the owner's decision 8, including a disposition
+for existing old-profile runs. Remove code serving only retired targets
+once no maintained consumer needs it: displaced flat lowering, replay and
+state-translation machinery, not useful language contracts or shared
+performers. Until then, old runs keep their documented resume route. Two
+runtimes are a migration cost, not the intended permanent architecture;
+retirement is a delivery milestone, not indefinite optional cleanup.
 
 ---
 

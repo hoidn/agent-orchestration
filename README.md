@@ -252,16 +252,18 @@ Deeper reading:
 | --- | --- |
 | Understand the repo map | [`docs/index.md`](docs/index.md) |
 | Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
-| Start new authoring | [Workflow Lisp review/revise example](workflows/examples/review_revise_design_docs.orc) |
+| Choose a copy-safe Workflow Lisp example | [`Which Example Should I Copy?`](workflows/README.md#which-example-should-i-copy) |
 | Author Workflow Lisp `.orc` | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
 | Translate or audit historical YAML | [Historical YAML reference](docs/workflow_drafting_guide.md) |
 | Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
 | Find runnable examples | [`workflows/README.md`](workflows/README.md) |
 | Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
-| Run a target-2.25 trial entry | [`docs/design/workflow_lisp_trial_runs.md`](docs/design/workflow_lisp_trial_runs.md) |
+| Author or run a target-2.25 trial | [Pinned child runs and trials](docs/lisp_workflow_drafting_guide.md#pinned-child-runs-and-trials); [CLI contract](specs/cli.md#workflow-lisp-trials-target-225) |
 
-If you are new to the repo, first compile the registry-approved `.orc` example
-below. Compilation validates the typed frontend without executing providers.
+If you are new to the repo, use the workflow catalog to choose a current
+copy-safe example. The compile-only check below uses a targeted review/fix
+reference; use the catalog for current copy guidance and the compile check
+only to validate source.
 
 ## Install
 
@@ -296,7 +298,7 @@ The CLI program name is `orchestrate`, but the examples use
 
 ## First Compile Check
 
-Validate the generic typed review/revise example:
+Run the compile-only source check for the targeted review/fix reference:
 
 ```bash
 python -m orchestrator compile \
@@ -305,10 +307,13 @@ python -m orchestrator compile \
   --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json
 ```
 
-Expected result: the frontend compiles through the default WCC/schema-2 route,
-shared validation succeeds, and no provider command executes. The route-readiness
-registry marks this example `preferred_current_guidance`; it is a review/fix
-starting point, not a universal template or a YAML parity claim.
+This compile-only command deliberately omits `--entry-workflow` and runs no
+provider. It is a source-check reference, not copy-safety or explicit-entry
+evidence. Supplying
+`--entry-workflow review_revise_design_docs::review-revise-design-docs` to the
+run/dry-run route currently fails with `workflow_signature_mismatch`
+(`entry_bootstrap_name_gate_denied`). Choose a new starting point from the
+[workflow catalog](workflows/README.md#which-example-should-i-copy).
 
 ## Run For Real
 

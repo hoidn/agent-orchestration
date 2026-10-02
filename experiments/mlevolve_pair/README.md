@@ -28,9 +28,10 @@ The proposal fixture is deterministic: its first A improvement is deliberately
 out of bounds, repair yields `(2, 0)`, later A improvements plateau at `(2, 0)`,
 B improvements plateau at `(0, 3)`, and fusion combines A's `a` with B's `b`.
 Both controllers retain the typed trial list, but the proposal leaf receives its
-length (`history_size` / evaluation count) because the current typed command
-adapter accepts only scalar and path inputs. The fixture uses that length to
-inject the invalid candidate once; it never chooses the operation or branch.
+length (`history_size` / evaluation count) because the typed command adapter
+used by this specimen accepts only scalar and path inputs. The fixture uses
+that length to inject the invalid candidate once; it never chooses the
+operation or branch.
 The two seed candidates are fixed and valid by fixture construction.
 
 `search.orc` records the authored ORC policy, but this specimen does not claim
@@ -42,7 +43,7 @@ direct and subprocess leaves, then attempts the ORC compile and public run.
 From the repository root, reproduce the comparison and write its evidence with:
 
 ```bash
-python -m experiments.mlevolve_pair.compare --output experiments/mlevolve_pair/evidence.json
+python -m experiments.mlevolve_pair.compare --output /tmp/mlevolve-pair-evidence.json
 ```
 
 The compact controller is in `search_compact.orc`. Its module path is

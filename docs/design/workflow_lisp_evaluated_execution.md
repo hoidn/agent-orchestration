@@ -3,9 +3,10 @@
 ## Metadata
 
 - **Status:** accepted for the first release at gate G1 on 2026-09-29;
-  revised with the spike's findings. Not implemented: the spike under
-  `experiments/evaluated_execution_spike/` is throwaway evidence, and nothing
-  under `orchestrator/` runs this model.
+  compiler implementation is partial. [Phase 2 Tasks 1–7](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+  are integrated; Tasks 8–11 remain pending. The public CLI does not yet
+  compile or execute target 2.35. No production runtime evaluates this model;
+  the spike under `experiments/evaluated_execution_spike/` remains evidence.
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-09-30, after gate G1, independent design/Phase 2
@@ -20,7 +21,9 @@
   (gate report, §10); they are cited below as "spike iteration N"
 - **Plan:** [evaluated execution plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md).
   Its decisions 5 and 7 fix the architecture and the scope of the first
-  release; the owner closed decision 6 by selecting target 2.35 on 2026-09-30.
+  release; decision 6 selects target 2.35 (owner, 2026-09-30).
+  Delivery order and consumer migration are owned by that plan, not this
+  execution contract.
 - **Amends when the first release lands:**
   [core calculus middle-end](workflow_lisp_core_calculus_middle_end.md)
   (§10.1 constructs, §11.4 identity, §15 alternatives, §16 deferred work),
@@ -55,8 +58,8 @@ Five rules follow.
 ### 1.1 The first release
 
 The owner's decision of 2026-09-29 (plan, decisions 5 and 7): evaluated
-execution is built in stages, at a new target. The targets that exist today
-keep the present route.
+execution is built in stages, at target 2.35. Targets through 2.34 keep the
+flat route.
 
 The first release covers four classes of effect: commands (external tools
 and certified adapters), composed providers, calls of workflows and
@@ -143,7 +146,7 @@ properties.
 
 ### 4.1 Properties
 
-| # | Property | Today |
+| # | Property | Flat route (targets through 2.34) |
 | --- | --- | --- |
 | P1 | Whole program. The body of every `call` target is present once, specialized, in the table of definitions (§4.2). Nothing is elaborated after the program is built | Callee bodies are elaborated during lowering |
 | P2 | Only calculus. No node holds a surface expression | Loop state, lists, `list/map`, `path/join-under`, bundle paths and several effect payloads are surface objects |
@@ -1070,6 +1073,7 @@ coordinator (§9.3) is a performer with a ledger of its own.
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
 | Provider, phased delivery; supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
+| Provider, authored sequential native-session turns | Later | Existing session/turn transports with a bounded coordinator | The [queue design](workflow_lisp_provider_prompt_queue.md) requires qualified turn-prefix recovery; neither composed delivery nor K4's restart rule supplies it |
 
 A program at the new target that uses a class marked later is refused at
 build (§1.1). At older targets it runs as today.
@@ -1115,6 +1119,15 @@ needed for replay, rather than redraw it. Phased delivery still needs its own
 adapter: treating it as an ordinary composed call, as the spike did, proves
 no parity and must be refused at admission. None of this changes C3's
 diagnostic-only interpreter upgrade rule or K8's no-supersession rule.
+
+Authored native-session turns are another later class. Their
+[recovery contract](workflow_lisp_provider_prompt_queue.md#recovery-contract)
+retains completed turn progress before the parent result commits. K4's
+discard-and-restart rule does not provide that behavior: admission requires
+a reviewed, evidenced refinement for this class, including the binding of
+turn progress across attempts and the final K2–K5 settlement gaps. This
+prerequisite changes neither K4 for the first release nor the admission of
+any existing class.
 
 ### 9.4 The request contract
 
@@ -1275,18 +1288,21 @@ Codes this design introduces or keeps, and where each is raised:
 
 ## 13. Targets And Compatibility
 
-- Evaluated execution applies from target **2.35**, selected by the owner
-  on 2026-09-30 (plan decision 6). A program at that target runs on the
-  evaluator only.
-- Programs at targets that exist today compile and run as they do. Require
-  raw byte-identical artifacts for identical identity inputs. The existing
-  compiler/runtime identity hashes the installed package bytes; changes to
-  those bytes truthfully change its pin and dependent run-ref artifacts,
-  including at older targets. Preserve that pin. Report real-pin differences
-  separately from a fixed-identity serialization comparison; do not normalize
-  artifacts or describe the controlled comparison as real-pin byte equality.
-- A run started under one profile is resumed under it; a run started under
-  one representation of the closed program is resumed under it (§8.4).
+- Evaluated execution applies from target 2.35 (plan decision 6, selected
+  by the owner on 2026-09-30). A program at that target runs on the evaluator
+  only once the evaluator is delivered; Phase 2 provides compilation only.
+- Until explicitly retired under plan decision 8, programs at older targets
+  compile and run as they do. Require raw byte-identical artifacts for
+  identical identity inputs. The existing compiler/runtime identity hashes
+  the installed package bytes; changes to those bytes truthfully change its
+  pin and dependent run-ref artifacts, including at older targets. Preserve
+  that pin. Report real-pin differences separately from a fixed-identity
+  serialization comparison; do not normalize artifacts or describe the
+  controlled comparison as real-pin byte equality.
+- While its profile is retained, a run started under one profile is resumed
+  under it; a run started under one representation of the closed program is
+  resumed under it (§8.4). Retiring existing runs requires an explicit
+  disposition under plan decision 8, not silent conversion to another profile.
 - A module at the new target may import a module at an older target when the
   imported definitions use only forms the closed program can express. The
   import is compiled under the new target's rules. An evaluated-entry build
@@ -1395,9 +1411,11 @@ repeat.
 
 ## 18. Feasibility Obligations
 
-Each claim is an open prerequisite until its fixture passes.
+These rows distinguish spike evidence from integrated internal compiler
+evidence. Public release fixtures remain required; the [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+owns task completion.
 
-| Claim | Fixture | Spike |
+| Claim | Fixture | Evidence and remaining work |
 | --- | --- | --- |
 | The closed program can be built for the corpus | P1 to P7 hold for every workflow whose forms/classes are admitted; inventory every refusal against §1.1, including stdlib command closures. Never seed an unknown implementation closure as empty merely to pass | 38 of 52 built in iteration 3, 39 with the later trial specimen in iteration 4; phased calls were treated as ordinary calls, so build count is not admission/parity evidence |
 | A lexical path distinguishes every effect site, across inlined copies | A procedure with one effect, called from three arms of one `match`, in a loop | Met (gate report, §2, criterion 6) |
@@ -1408,22 +1426,23 @@ Each claim is an open prerequisite until its fixture passes.
 | The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Met for X1 and X4; X2 and X3 open |
 | Non-finite numbers cannot reach an input digest | The numeric surface's boundary rule, implemented at target 2.34 | Owned by the [numeric surface](workflow_lisp_numeric_surface.md) |
 | A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Open: Phase 3 of the plan |
-| The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Open; the artifact must retain the type facts needed for these checks |
-| Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Open; spike explicitly refuses several of these admitted forms |
-| Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical at identical identity inputs (§13); an old entry calling a new-target module is refused | Open; the spike and Phase 2 draft still flat-lower imports |
-| Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Open; current generated names/configuration contain source positions |
-| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Open; current parser/models discard `closure` |
-| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Open; declaration/injection/package-location seams exist, but their evaluated-route closure carriage and launch-origin check do not |
+| The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Implemented internally: the checker and artifact read-back reject non-operator, nested nominal, effect-result, entry-result and call-signature tampering. Public CLI artifact delivery remains pending in Task 9 |
+| Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Implemented internally: canonical keys distinguish selected callable targets and bindings; builder regressions cover lexical captures, forwarding and once-only bound-effect creation. Public formatting/relocation builds remain pending in Task 9 |
+| Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical at identical identity inputs (§13); an old entry calling a new-target module is refused | Implemented internally: an evaluated entry skips flat lowering throughout its source graph, including older-target imported control; old entries retain their route and refuse evaluated dependencies. Public closed CLI compilation remains pending in Task 9 |
+| Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Implemented internally: local callable identities, private nominal descriptors and run-reference structural signatures omit paths/positions while preserving owners. Closed run-reference construction and public relocation/digest fixtures remain pending in Tasks 8–9 |
+| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Implemented internally: both binding models retain and validate `closure`, distinguishing omission from explicit empty declarations; canonical configuration preserves unused bindings in program identity. Legacy serialization compatibility is covered. Public CLI integration and filesystem/recovery checks remain pending |
+| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Implemented internally: injected builtin declarations retain their package closure origin through typed configuration; command construction and checked read-back require explicit closures. Public CLI carriage and runtime launch-origin, changed-byte, retry and cache-placement checks remain pending |
 
 ## 19. Decisions Still Open
 
 The first three iterations' 38 decisions are rules above. Later-admission
 questions from iteration 4 and remaining feasibility evidence do not change
-the first-release architecture. The owner selected target **2.35** on
-2026-09-30, closing plan decision 6.
+the first-release architecture. Target-number question 1 was resolved by
+the owner on 2026-09-30; the remaining questions below stay open.
 
 | # | Question | Answered by |
 | --- | --- | --- |
+| 1 | The number of the new target — resolved | 2.35, owner decision of 2026-09-30 (plan, decision 6) |
 | 2 | When older targets are retired | The owner: plan, decision 8. After the maintained workflows run at the new target |
 | 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters |
 | 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's | One program per context form, run on both routes, with the equality asserted on the values (§18) |

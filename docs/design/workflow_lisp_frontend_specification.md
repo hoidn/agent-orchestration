@@ -54,6 +54,13 @@ same scoped leaf result. The normative durable-state and CLI contracts are in
 Target 2.33 adds first-order generic unions (§8.5) and the `std/improve`
 library module (§87.1).
 
+Target 2.34 adds the implemented [numeric surface](workflow_lisp_numeric_surface.md).
+The pipeline described here remains the runnable route through 2.34.
+Target 2.35 selects [evaluated execution](workflow_lisp_evaluated_execution.md):
+its internal compiler is partially integrated, but public CLI compilation
+and execution remain unavailable. Follow the [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+for compiler delivery and the parent plan for later runtime delivery.
+
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
 The compact operating rule is:

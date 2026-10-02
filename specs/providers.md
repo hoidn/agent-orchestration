@@ -77,6 +77,15 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     `omp_conf` requires the admitted `${omp_conf_root}` and exposes the
     workflow workspace as repository context; `omp_conf_inference` is reserved
     for prompt output-contract inference and is not a public author choice.
+  - Profile-isolated launches require nonempty caller `HOME`, `XDG_DATA_HOME`,
+    `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `TMPDIR`, and an admitted `PATH`.
+    These are caller roots; the adapter generates the child's fresh attempt
+    roots. Credentials enter only through `OMP_AUTH_BROKER_URL` and
+    `OMP_AUTH_BROKER_TOKEN`. The URL must use HTTP, a loopback IP literal
+    (`127.0.0.1` or `[::1]`) and an explicit port in `1..65535`, with no
+    userinfo, query or fragment; `localhost` is not admitted.
+    The adapter does not start the broker. Operator setup is in the
+    [OMP run prerequisites](../docs/omp_upgrade_runbook.md#run-prerequisites).
   - `omp_conf` is a trusted, credential-bearing tool lane, not a secret
     sandbox. It retains same-UID read, network, and process access;
     model-facing tools can observe the current `OMP_AUTH_BROKER_TOKEN` through

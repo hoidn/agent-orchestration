@@ -1,6 +1,8 @@
 # OMP Pin Upgrade Runbook
 
-Status: operator procedure for the code-owned OMP-I1 executable pin.
+Status: operator setup and upgrade procedure for the code-owned OMP-I1
+executable pin. For ordinary profile launches, use [Run prerequisites](#run-prerequisites);
+building and installing a new pin is a separate operation.
 
 This runbook changes one coupled release unit: the Orchestrator code, the
 `OmpBinaryPin`, the audited OMP source overlay, the packaged conf presets, and
@@ -49,6 +51,46 @@ Acceptance:
 The launcher repeats platform, AVX2, version, ownership, mode, and whole-file
 digest checks before every run. An operator shell alias or alternate binary on
 `PATH` is not an override.
+
+## Run prerequisites
+
+First [inspect the installed pin](#inspect-the-installed-pin); ordinary use
+does not require rebuilding it. The profile-isolated lanes `omp_no_tools`,
+`omp_conf`, and internal `omp_conf_inference` require nonempty caller roots.
+In the terminal that will launch the orchestrator, preserve existing values
+or supply the conventional defaults:
+
+```sh
+: "${HOME:?HOME must name your existing home directory}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export TMPDIR="${TMPDIR:-/tmp}"
+mkdir -p "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$TMPDIR"
+```
+
+Keep the inspected `omp` on `PATH`. These are caller settings; the launcher
+creates separate child HOME/XDG/temp roots for each attempt.
+
+Start the credential broker in a separate private terminal, using your
+configured credential home:
+
+```sh
+omp auth-broker serve --bind 127.0.0.1:47653
+```
+
+In the orchestrator terminal using the same credential home:
+
+```sh
+export OMP_AUTH_BROKER_URL=http://127.0.0.1:47653
+export OMP_AUTH_BROKER_TOKEN="$(omp auth-broker token)"
+```
+
+The profile adapter requires this URL/token pair and does not start the
+broker. The URL must be HTTP with loopback IP `127.0.0.1` or `[::1]` and an
+explicit port; `localhost` is refused. Never print or paste the token. For
+`omp_conf`, also supply the admitted repository conf root through the provider
+binding. See [provider contracts](../specs/providers.md) for lane boundaries.
 
 ## Build a candidate
 
@@ -143,14 +185,10 @@ pytest -q \
   tests/test_cli_prompt_import.py
 ```
 
-Real acceptance requires a live loopback broker and real credential home. Start
-the broker in a private terminal, then expose only its URL/token to the test
-process:
+Real acceptance requires the [run prerequisites](#run-prerequisites), including
+a live loopback broker and real credential home. In the prepared terminal:
 
 ```sh
-omp auth-broker serve --bind 127.0.0.1:47653
-export OMP_AUTH_BROKER_URL=http://127.0.0.1:47653
-export OMP_AUTH_BROKER_TOKEN="$(omp auth-broker token)"
 export OMP_E2E_AUTH_HOME="$HOME"
 pytest -q -n 2 --dist=worksteal tests/test_omp_integration.py
 ```

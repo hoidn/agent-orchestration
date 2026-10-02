@@ -1,9 +1,12 @@
 # Decision Brief: Separating Values From Effects In Workflow Lisp Execution
 
-- **Status:** owner decisions recorded on 2026-09-29 (section 12). The choice
-  between options A, B and C stays open until the spike of section 10
-  reports. No option changes a current contract until the owner selects it
-  and a design document is written for it.
+- **Status:** historical decision brief, with owner decisions recorded on
+  2026-09-29 (section 12). The repairs and spike have since completed;
+  [gate G1](2026-09-29-evaluated-execution-spike.md) selected
+  [evaluated execution](../design/workflow_lisp_evaluated_execution.md).
+  The linked design and [delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
+  own the current target and implementation scope. The evidence and options
+  below preserve the pre-spike checkpoint.
 - **Date and commit:** 2026-09-29, `main` at `1fb5b167`.
 - **Consumes:**
   [core calculus middle-end](../design/workflow_lisp_core_calculus_middle_end.md),

@@ -178,8 +178,9 @@ asserts no tracked effect, also after specialization.
 That document lists what must be decided before implementation: the target,
 name resolution of effect subjects in the defining scope, how the origin of
 an authored restriction is carried through specialization, mixed-target
-linking, and the editor projection of inferred effects. This design adds one
-decision: W2 takes the same target as W1, W3 and W4.
+linking, and the editor projection of inferred effects. This design proposes
+one shared target for W1, W2 and W4. W3 may be qualified separately; the
+implementation plan owns target selection.
 
 `:lowering` is not part of W2. The clause is optional today. Its default,
 `auto`, may choose a private workflow for a procedure with several call
@@ -227,6 +228,15 @@ Captures remain compile-time. The local procedure is converted into a private
 procedure specialized with its captures, as today. No runtime closure is
 introduced.
 
+Captured values retain their defining lexical binding; a later invocation-site
+binder cannot replace them. A parameter shadows an enclosing name and is not
+a capture. Capturing an already computed effect result forwards its value
+without evaluating the effect again, including across committed-boundary resume.
+Missing or conflicting expected signatures require explicit types with a
+located diagnostic. Multiple bindings do not permit sibling calls, recursion,
+nested local-procedure definitions or runtime dispatch. W3 does not change
+effect-annotation rules; those remain W2's separate responsibility.
+
 ### 6.4 Standard library change
 
 `improve` loses `inputs I`.
@@ -251,14 +261,50 @@ partially with `bind-proc`, which exists today.
 Manual state management: a record that exists only to move values the hooks
 could read directly, and a constructor that must list every one of them.
 
-### 6.6 Dependency
+### 6.6 Before And After
 
-The measured workflow also lost four lines because a nested `if` inside a
-hook is rejected, and could not return its own outcome union because a pure
-`match` over the helper's result is rejected. Both are compiler defects
-recorded in the
-[value/effect separation decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md).
-W3 does not repair them.
+Illustrative fragments; domain types, agent operations, imports and effect
+annotations are omitted in both versions. The after form is proposed, not
+runnable current syntax. Its multiple-binding and omitted-type grammar must
+be settled before implementation.
+
+```lisp
+; Before: context is packed solely for the helper to forward.
+(defrecord ReviewInputs (goal String) (rubric String))
+(defproc review ((candidate Proposal) (inputs ReviewInputs))
+  -> Decision[Feedback Blocker]
+  (review-agent candidate inputs.goal inputs.rubric))
+(defproc revise
+  ((candidate Proposal) (inputs ReviewInputs) (feedback Feedback))
+  -> Proposal
+  (revise-agent candidate feedback inputs.goal))
+; Inside the caller, with initial, goal and rubric in scope:
+(improve initial (record ReviewInputs :goal goal :rubric rubric)
+  (proc-ref review) (proc-ref revise) 3)
+
+; After: each local hook uses its enclosing lexical context.
+(let-proc
+  ((review (candidate)
+     (review-agent candidate goal rubric))
+   (revise (candidate feedback)
+     (revise-agent candidate feedback goal)))
+  (improve initial (proc-ref review) (proc-ref revise) 3))
+```
+
+`review` captures `goal` and `rubric`; `revise` captures only `goal`.
+`Proposal` comes from `initial`; the review result supplies the feedback and
+blocker types, including the expected feedback parameter of `revise`.
+Adding another enclosing value used by one hook requires no context-record,
+constructor or helper-signature edit. Records with independent domain uses
+remain domain values; only forwarding scaffolding is removed.
+
+### 6.7 Execution Prerequisites
+
+The [composition-first contract](workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
+records current-route placement, delayed-capture and effect-replay defects.
+W3 must demonstrate lexical capture and once-only effect execution on its
+selected route. Successful specialization or an illustrative rewrite does
+not establish fresh-run/resume behavior or repair the execution model.
 
 ## 7. W4: Provider Options Are Bound Once
 
@@ -346,13 +392,18 @@ serve.
 ## 9. Targets And Compatibility
 
 - W0 applies to every target. It changes no language rule.
-- W1, W2, W3 and W4 enter together at one new target. Older targets accept
+- W1, W2 and W4 share a proposed target; W3 may be selected separately.
+  Each selected change needs a target/route decision. Older targets accept
   and lower what they do today.
 - The change to `improve` in 6.4 replaces its signature; a standard-library
-  procedure has one signature. Its one caller, the shipped example, changes
-  with it. `std/improve` moves to the new target.
-- A program that uses none of the new forms and moves to the new target keeps
-  its lowered output.
+  procedure has one signature per resolved module. Inventory maintained
+  callers, imports and fixtures before migration; do not assume one caller.
+  Resolve target/module compatibility before replacing the bundled definition:
+  older-target builds and checkpoints cannot silently receive the new API.
+  Do not add a parallel `improve-v2` forwarding API.
+- Inferred and explicit forms have equivalent semantics and canonical output
+  on the same execution route. Cross-route checks compare values, effects and
+  resume behavior, not flat artifacts with closed-program artifacts.
 
 ## 10. Rejected Alternatives
 
@@ -376,7 +427,7 @@ census on the same corpus and on the rewrite of `reviewed_change.orc`.
 | W0 | No declaration in the corpus repeats, with identical text, one that an importable module exports. Every name declared with differing text in several files is unified or renamed. Lines of type declarations fall by at least 200 |
 | W1 | Every constructor at a position of 4.2 compiles without its type name and produces build artifacts identical to the explicit form, for the corpus and for generic bodies inlined across modules |
 | W2 | The acceptance lanes of the effect ledger simplification design |
-| W3 | The helper variant of `reviewed_change.orc` keeps every behaviour of the original and is at least 10 % shorter than the hand-written variant in code lines. If it is not, the changes of 6.3 are not adopted |
+| W3 | Preserve behavior while removing context-only records/constructors, helper forwarding and restated hook signatures. Review actual callers, capture clarity and edit locality when a hook needs another enclosing value. Report line counts as evidence, not a percentage adoption gate |
 | W4 | No call in the corpus sets an option that equals its binding's default. Build artifacts of a workflow are identical whether an option is written on the call or taken from the binding |
 | All | Older targets: byte-identical build artifacts. Compile, run and resume through the public entry for each new form |
 
@@ -390,12 +441,16 @@ Each is an open prerequisite until its fixture passes.
 | A loop receives an expected type from its position | A loop at a workflow tail whose `done` and `:on-exhausted` values omit the union name |
 | A constructor without its type in a generic body lowers like the explicit form when the body is inlined in another module | `std/improve` rewritten with `(variant APPROVED …)`, called from a module that does not import `Improvement` |
 | Captures can be inferred without capturing a name the author did not intend | A local procedure whose body uses a name bound both in the enclosing scope and as its own parameter; the parameter wins, and the capture list shown by the compiler matches |
-| A local procedure's signature can be taken from the expected `ProcRef` type while the callee's type parameters are still being bound | `improve` called with `initial` of a record type and two local hooks without written types |
+| Captures retain definition-site values without repeating effects | Two helper calls capture different values; later binders cannot change them; an effect-produced captured value is obtained once fresh and reused on committed-boundary resume |
+| A local procedure's signature can be taken from the expected `ProcRef` type while the callee's type parameters are still being bound | Typed `initial` and two unannotated local hooks; the review result fixes the revise feedback type. Missing/conflicting expectations produce located diagnostics |
+| Removing `inputs I` preserves existing consumers | Inventory maintained imports/fixtures; prove the selected target/module migration and older-target build/checkpoint compatibility before replacing the bundled API |
 | Binding defaults reach supervision, peer-group and adjudication calls | One call of each kind with options only on the binding |
 
 ## 13. Relationship To The Execution Model
 
 W0 to W5 act on declarations, the typechecker, elaboration and provider
-configuration. None depends on how a compiled workflow is executed, and none
-is changed by the choice recorded as open in the value/effect separation
-decision brief.
+configuration. They add no evaluator. W3 reuses the selected route's ordinary
+procedure/capture representation; on evaluated execution that is the
+[closed-program definition and capture contract](workflow_lisp_evaluated_execution.md#4-the-closed-program).
+Public runtime evidence on that route must establish the behavior above;
+compiler acceptance alone is insufficient.

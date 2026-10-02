@@ -31,12 +31,14 @@ add the step.
 
 | Pattern | Use when | Measured |
 | --- | --- | --- |
-| Generate several candidates, select one | single calls vary in quality and a stronger judge is available | +0.83 and +1.02 over the single call, gain in 11 of 12 runs |
+| Generate several candidates, select one | single calls vary in quality and a stronger judge is available | +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs |
 | Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | +0.58, no run got worse; judges agreed less |
-| Review and revise with the author's model | do not use | -0.5 to 0 |
+| Review and revise with the author's model | no benefit was demonstrated in this bounded experiment; validate it on the intended task | -0.5 to 0 |
 
-Selection cannot damage a candidate. Revision can: in one run three review
-rounds took a patch two judges would have merged from 8.0 to 4.0.
+Selection leaves candidate patches unchanged, though it can choose a worse
+candidate than the alternative. Revision can damage a selected patch: in one
+run three review rounds took a patch two judges would have merged from 8.0 to
+4.0.
 
 `list/map-effect` runs its body in sequence. Four implementers take four times
 as long as one. A `command-result` or a `call` of a workflow runs as its body;
@@ -130,7 +132,7 @@ that delivers nothing in a later loop iteration fails with
 | Write the success criterion before seeing scores | a secondary analysis looked like a win after the primary one had missed its bar; it took a second run to confirm it |
 | Judge blind: random ids, no stage, no grouping | an unblinded reading favoured the workflow; blind judges found the revised patches worse |
 | Use a judge that is not the workflow's own judge | otherwise the selector is scored by itself |
-| Pair the comparison: the workflow's first call is the single call | it removes run-to-run variation from the comparison |
+| Predeclare the paired baseline and report the comparator actually used | the best-of-N criterion here compared the selected patch with its group mean, not its first call; see the [comparison report](reports/2026-09-28-orc-versus-single-call.md#workflow-1-generate-four-select-one) |
 | Repeat anchor patches across batches | judges used different parts of the scale; two anchors moved from 8.0 and 3.0 to 7.0 and 5.0 |
 | Do not score with tests the agent can run | agents test themselves until they pass; every arm reached 100 percent |
 | Report judge agreement | it ranged from 19 of 60 to 68 of 72 |

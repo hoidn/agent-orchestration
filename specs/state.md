@@ -65,7 +65,7 @@
     - `current_step.visit_count`: visit ordinal for the in-flight top-level step visit, when the runtime has already incremented `step_visits`
   - v2.10 provider-session observability:
     - canonical visit metadata records live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.json`
-    - stable masked transport spools live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.transport.log`
+    - non-OMP masked transport spools use `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.transport.log`, with retention governed by `io.md`. OMP raw JSON transport is memory-only; its empty compatibility spool is removed on fresh-visit finalization, including failure and debug mode.
     - successful fresh session steps may expose `steps.<Step>.debug.provider_session = {mode, session_id, metadata_path, publication_state, ...}`
     - target-2.27 Workflow Lisp `:session-artifact <name>` is compile-time
       sugar for one existing fresh provider-session publication. On successful

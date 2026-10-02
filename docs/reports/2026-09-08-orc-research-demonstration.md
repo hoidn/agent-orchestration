@@ -776,6 +776,14 @@ is invocation friction, not a library defect. The design-doc example invocation
 also failed with missing `run`/bootstrap diagnostics: its
 `build-review-runtime-owned` requires `run`, while its caller supplies none.
 Do not label that failure a prompt problem or infer universal stdlib failure.
+A subsequent owner-authorized narrow diagnostic resolved the invocation question:
+the unchanged example compiles with empty diagnostics when `--entry-workflow`
+is omitted and the existing source root/provider/prompt manifests are supplied.
+The explicit selector encountered the compiler's name-gated bootstrap path;
+selection-free export discovery succeeds, as the existing build-artifact test
+also documents. Thus the local issue is invocation guidance and route-dependent
+ergonomics, not a universally broken example. The active plan records the exact
+command and one proposed repair; no implementation or redesign was launched.
 The source shape nevertheless shows why file-oriented subjects fit this API:
 `fix-design-doc` updates the artifact and returns the same subject paths.
 
@@ -783,7 +791,7 @@ The source shape nevertheless shows why file-oriented subjects fit this API:
 provider/artifact execution contracts. For this small value-in/value-out C1 task,
 ordinary reusable Python is the more direct control representation; this is a
 code-grounded judgment, not a measured cost/efficacy win. The smallest justified
-improvements are a working maintained entry example and clearer original/current
+improvements are documented working entry invocation and clearer original/current
 value flow with less duplicate receipt glue. Reconsider returning the final
 subject from the review procedure only for actual value-based callers; no
 compiler/library overhaul is justified or selected here. Broader ergonomic reuse

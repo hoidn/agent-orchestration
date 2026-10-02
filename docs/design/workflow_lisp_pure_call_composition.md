@@ -20,21 +20,21 @@
 
 ## Summary And Current Fallback
 
-An effect-free procedure call should compose as an ordinary expression wherever
-its resolved implementation can be represented without changing the enclosing
-contract. Distinguish semantic effects, expression representability, and
-sequencing requirements. A procedure-call edge alone is not impurity.
+At target 2.30, calls to resolved inline effect-free helpers compose as ordinary
+expressions wherever their implementations fit the enclosing pure-expression
+contract. The compiler preserves argument order, once-only evaluation, lexical
+scope and provenance with resolved-call normalization and ordered schema-3
+bindings. A procedure-call edge alone is not impurity.
 
-The initial target is resolved inline helpers reducible to the supported
-pure-expression language, including nested calls and imported specializations.
-Record/union fields, list elements, `list/map` bodies, and pure `defun` callers
-must not reject such a helper merely because it was declared with `defproc`.
-This is not general permission to place effectful work anywhere.
+The implemented subset includes nested and imported specializations in
+record/union fields, list elements, supported `list/map` bodies, and pure
+`defun` callers. Effectful calls, private execution frames and bodies that
+cannot reduce to supported pure expressions remain excluded.
 
-Today, use `defun` where it suffices, or an explicit `let*` binding where
-ordinary procedure lowering is supported. Those are current workarounds, not
-proof of unrestricted composition. Optional annotations are a separate design;
-this proposal can retain current `:effects` clauses throughout.
+Before target 2.30, authors used `defun` where it sufficed or an explicit
+`let*` binding where ordinary procedure lowering was supported. Those forms
+remain useful for older targets and calls outside the implemented subset;
+target 2.30 removes that workaround for supported resolved-inline calls.
 
 ## Context And Authority
 
@@ -54,16 +54,17 @@ pure expressions, and collection contracts. Relevant component authorities:
   [state layout](workflow_lisp_state_layout.md), and
   [source maps](workflow_lisp_source_map.md): generated value ownership and replay.
 
-The audit reproduces a constant-returning inline `defproc` rejected in record,
-list, map, and `defun` positions while an equivalent `defun` passes. Binding
-the procedure first permits record/list construction; a target-2.26 condition
-also passes. This proves an inconsistent composition boundary, not that every
-pure procedure already has a valid expression lowering.
+The pre-2.30 audit reproduced a constant-returning inline `defproc` rejected in
+record, list, map, and `defun` positions while an equivalent `defun` passed.
+Binding the procedure first permitted record/list construction; a target-2.26
+condition also passed. Target 2.30 closes the resolved-inline subset described
+above; it does not make every pure procedure representable as an expression.
 
-Current record/list checks compare the entire `EffectSummary` with empty,
-including call edges. `functions.py::_find_purity_violation` rejects procedure
-calls structurally. Merely changing those guards does not supply the necessary
-resolved-call conversion, evaluation, or identity behavior.
+Before target 2.30, record/list checks compared the entire `EffectSummary` with
+empty, including call edges, and `functions.py::_find_purity_violation`
+rejected procedure calls structurally. Target 2.30 adds resolved-call
+normalization, ordered bindings and provenance for the admitted subset; effects
+and expression representability still govern admission.
 
 ## Decision And Alternatives
 
@@ -73,12 +74,11 @@ list, and provider-context helper APIs or a runtime procedure interpreter.
 
 Alternatives:
 
-- **Keep manual pre-binding:** smallest implementation cost, but it does not
-  solve pure-map or pure-function reuse and makes expression composition depend
-  on the spelling of the helper.
+- **Keep manual pre-binding:** it was the practical workaround before target
+  2.30 and remains useful when a call falls outside the supported subset.
 - **Require duplicate `defun`/`defproc` wrappers:** preserves existing compiler
-  paths but splits one behavior between expression reuse and `ProcRef` reuse.
-  Keep it as a fallback, not the target architecture.
+  paths but splits expression reuse from `ProcRef` reuse; target 2.30 removes
+  that requirement for resolved-inline calls in the supported subset.
 - **Merge all callable kinds or build general effect polymorphism now:** much
   broader than the demonstrated need. Retain meaningful workflow/identity
   boundaries; reconsider them when an actual consumer requires more.
@@ -96,13 +96,13 @@ Three questions govern a call independently:
 2. Can its value be represented in the enclosing expression/payload contract?
 3. Does preserving evaluation and identity require bindings or execution control?
 
-The initial admission requires resolved, effect-free arguments/body and an inline
-lowering that can reduce to supported pure expressions while retaining existing
-scope, type, error, and provenance semantics. Empty tracked effects alone do not
+At target 2.30, admission requires resolved, effect-free arguments and body,
+plus inline lowering that reduces to supported pure expressions while retaining
+scope, type, error and provenance semantics. Empty tracked effects alone do not
 prove termination, totality, or absence of a meaningful private boundary.
 
-Target examples below retain today's annotations to isolate the composition
-change. They are not current runnable source:
+The following target-2.30 forms illustrate admitted calls in workflow values
+and nested pure functions; existing type and collection limits still apply:
 
 ```lisp
 (defrecord Result (value Int))
@@ -124,7 +124,8 @@ change. They are not current runnable source:
   (increment (increment x)))
 ```
 
-In an enclosing workflow with `values : List[Int]`, the same helper must work:
+In an enclosing workflow with `values : List[Int]`, the same helper composes in
+an eligible map body:
 
 ```lisp
 (list/map ((value values)) (increment value))
@@ -148,11 +149,11 @@ supported alternative. Existing targets retain their diagnostics.
 
 ## Normalization And Architecture
 
-The intended flow is existing resolution/specialization → typed expression
+The target-2.30 flow is existing resolution/specialization → typed expression
 normalization → existing pure payload or WCC sequencing → shared validation
-and runtime. The precise placement must be demonstrated against current
-`defun` checking and WCC phase order before an implementation plan is complete.
-Do not infer that a late WCC pass can repair an earlier source rejection.
+and runtime. The implemented phase placement preserves the existing
+`defun` checks and WCC ordering; a late WCC pass alone cannot repair an earlier
+source rejection.
 
 Responsibilities remain with existing owners:
 
@@ -172,11 +173,11 @@ duplicate a general normalizer behind an apparently small API.
 
 ### Selected Phase Placement
 
-For the new EC-1 target, reuse the existing function inliner before procedure
-and workflow body typechecking. This exposes procedure calls inside functions
-to the existing procedure effect fixed point; it does not require a second
-function-effect graph or a new effect atom. Historical targets retain their
-existing pipeline. Apply the same ordering in single-module and linked builds:
+At target 2.30, the compiler reuses the existing function inliner before
+procedure and workflow body typechecking. This exposes procedure calls inside
+functions to the existing procedure effect fixed point; it does not require a
+second function-effect graph or a new effect atom. Historical targets retain
+their existing pipeline. The same ordering applies in single-module and linked builds:
 
 1. Build catalogs and provisionally type function bodies. Preserve candidate
    procedure-call edges and actual effects; defer only the placement verdict
@@ -235,10 +236,11 @@ consumer. An uncalled function is still validated, not exempt from its contract.
 
 ### Ordered Pure-Payload Binding
 
-The current pure-projection lowering substitutes `LetStarExpr` bindings: unused
-arguments can disappear and repeated uses can duplicate evaluation. EC-1 therefore
-requires an ordered lexical `let` node in version 3 of the existing pure-expression
-payload, rather than relying on substitution or hoisting work outside a map/branch.
+Before target 2.30, pure-projection lowering substituted `LetStarExpr` bindings:
+unused arguments could disappear and repeated uses could duplicate evaluation.
+Target 2.30 implements an ordered lexical `let` node in version 3 of the existing
+pure-expression payload, rather than relying on substitution or hoisting work
+outside a map/branch.
 Its shape is `kind: let`, ordered `bindings` entries containing `name`, normalized
 `type`, and expression `value`, followed by a `body`. Validate, typecheck, and
 evaluate each binding in order in the preceding lexical environment; evaluate
@@ -269,19 +271,17 @@ For example, `f(x, y) = y` called as `f(2, x)` with caller `x = 9` returns 9,
 not 2. Body cloning retains lexical shadowing and call/definition provenance.
 
 Preparation fixtures under
-`tests/fixtures/workflow_lisp/pure_call_composition_preparation/` demonstrated
-two existing function-expansion defects, not merely risks of the new
-procedure-call surface: caller-name capture changed returned values, and an
-unused fallible argument disappears. Caller-name capture is corrected at every
-target, including the `defun` expansion below 2.30, which now evaluates its
-arguments in the caller's scope (`specs/versioning.md`, exceptions to target
-stability). The unused fallible argument still disappears. An equivalent
-`defun` is therefore not automatically a valid semantic control. Verify
-explicit-binding controls independently and repair the shared
-normalization/payload owners under the selected target.
+`tests/fixtures/workflow_lisp/pure_call_composition_preparation/` recorded two
+pre-implementation defects: caller-name capture changed returned values, and an
+unused fallible argument could disappear. Caller-name capture is corrected at
+every target, including `defun` expansion below 2.30. At target 2.30, ordered
+bindings also preserve once-only evaluation for repeated and unused arguments;
+targets below 2.30 retain their characterized substitution behavior. The
+target-2.30 regression is covered by
+`tests/test_workflow_lisp_pure_call_composition.py::test_target_230_compiles_ordered_bindings_for_repeated_and_unused_arguments`.
 
-Only payloads needing the new node use schema 3, under the selected EC-1 target.
-Existing schema-1/2 payloads and old-target lowering remain unchanged; validators
+At target 2.30, only payloads needing the new node use schema 3. Existing
+schema-1/2 payloads and older-target lowering remain unchanged; validators
 reject a `let` in those older payload schemas. The payload and its lexical
 structure participate in the existing deterministic identity/resume contract.
 
@@ -302,9 +302,9 @@ structure participate in the existing deterministic identity/resume contract.
   Do not claim semantic equivalence merely because successful scalar results
   match; overflow, path rejection, and skipped-work cases are evidence too.
 
-The first proof may handle the constant helper, but closure of the advertised
-subset requires dynamic arguments, nested/imported helpers, and maps. Textual
-substitution is insufficient if it changes evaluation or proof semantics.
+The target-2.30 regression suite covers dynamic arguments, nested and imported
+helpers, maps, and evaluation counts. Textual substitution remains insufficient
+where it changes evaluation or proof semantics.
 
 ### Identity, State, And Replay
 
@@ -405,14 +405,14 @@ source provenance, agent revision/repair effort, and useful search candidates
 plus whole-task quality/cost. Compiler acceptance alone proves none of the last
 four advantages.
 
-A successful minimum should lead to a documented supported subset and tests of
-representative repeated use. Improve common unresolved cases through shared
-mechanisms where justified. If the type system or callable split is the recurring
-obstacle, consider revising it instead of treating failure as task infeasibility.
-If normalization or expansion costs outweigh the benefit, narrow or retire the
-proposal and remove its speculative scaffolding; retain independently useful
-inference/annotation improvements. Compare with a `defun`, explicit binding,
-or ordinary Python/skill control appropriate to the same task.
+Target 2.30 established a documented subset and representative regression
+coverage. Practical utility remains a separate question: measure repeated use,
+diagnosis, repair effort and task quality against a `defun`, explicit binding,
+or ordinary Python/skill control. Improve common unresolved cases through
+shared mechanisms where justified. If the type system or callable split is the
+recurring obstacle, consider revising it. If normalization or expansion costs
+outweigh the benefit, narrow or retire the implementation and remove its
+speculative scaffolding while retaining independently useful inference work.
 
 Delete the displaced edge-only guards and duplicated call-conversion paths
 only for the newly supported regime; retain real effect checks and old-target
@@ -422,13 +422,9 @@ exercise the claimed improvement.
 
 ## Documentation And Implementation Handoff
 
-Before implementation, resolve phase ordering, once-only pure expression
-representation, source/call identity, and the version boundary with executable
-evidence or an explicitly selected feasibility spike. These are prerequisites,
-not details an implementer should silently choose.
-
-On acceptance, amend frontend pure/procedure rules, effect-graph pure contexts,
-WCC/pure-payload contracts where needed, list/function guidance, and the
-procedure-first identity clarification. Keep current snippets current until the
-new route is implemented. The draft adds no runtime evaluator, provider executor,
+Target 2.30 resolved phase ordering, ordered pure-expression bindings,
+source/call identity, and the version boundary with executable evidence. The
+implemented contract is incorporated in [frontend baseline §8.6](workflow_lisp_frontend_specification.md#86-defun),
+the effect-graph pure contexts, WCC/pure-payload rules and current drafting
+guidance. This feature adds no runtime procedure interpreter, provider executor,
 roadmap allocation, or mandatory dependency on all of EL-1.

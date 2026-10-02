@@ -47,6 +47,11 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
 
 ## Status, Authorities And Scope
 
+- Reviewed integration checkpoint (2026-10-01): Tasks 1–7 are complete at
+  `d178ad7e`, including Task 4's final capture repairs. Tasks 8–11 remain
+  pending: provider/run-reference construction, public CLI compilation,
+  corpus verification and final documentation. This partial delivery does
+  not make target 2.35 runnable or complete the phase-wide verification.
 - Parent plan: [evaluated execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md),
   Phase 2 (milestones P1 to P7). Entry condition: gate G1, decided
   2026-09-29. Governing revisions: design commits `181e4ed9` and
@@ -55,8 +60,8 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
   actual clean base recorded before Task 1; `613993ad` is historical Phase 0
   evidence, not this revision's comparison base.
 - The owner selected **2.35** on 2026-09-30, closing parent-plan decision 6
-  after reviewing this plan. `PHASE2_BASE` is
-  `2e4c7a653d74c06e24c15c284662e5914abd5576`, the integrated Phase 0 head.
+  after reviewing this plan (decision recorded in `bf6c9c9d`). `PHASE2_BASE`
+  is `2e4c7a653d74c06e24c15c284662e5914abd5576`, the integrated Phase 0 head.
   Task 1 registers the target in one gate constant; every later task and
   every fixture reads the number from that constant, never as a literal.
 - In scope: the compiler's output at the new target and the manifest field
@@ -75,6 +80,12 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
   coordinator experiment (parent plan, decision 5) and the equality of the
   compiler's `PhaseCtx` and `phase-target` values with the present route's
   (design §19, item 4; open item of this plan).
+- The parent's [delivery-order amendment](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+  starts a migration pilot after Phase 3, selects later effects by consumer
+  need, and keeps parallel map independent of the full Phase 4 set. It adds
+  no tasks or prerequisites to this Phase 2 plan and changes no task order.
+  Its downstream work remains pending; Task 11 must preserve that routing
+  when publishing Phase 2's delivered status.
 
 ## Global Constraints
 
@@ -1476,7 +1487,8 @@ edit); design §13.
 
 **Interfaces:**
 - Produces: `syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION: str = "2.35"`
-  (the owner-selected target; later tasks consume this constant) and `syntax.target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool`
+  (the owner-selected gate; consumers read this constant) and
+  `syntax.target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool`
   (tuple comparison `>=`, like `target_dsl_supports_numeric_surface`).
 - Produces: `closed.target.entry_target_dsl_version(path: Path) -> str`
   (reads the entry header through the existing reader and syntax parser,
@@ -1570,7 +1582,8 @@ the diagnostic's rendered location, which `render_diagnostic` prints as
 `<path>:<line>:<column>: [<code>]`). Add the resume test the same way
 (`orchestrator resume` on a run directory whose `workflow_file` names the
 program: exit 2, same code). Add an unregistered next-version refusal derived from the selected target
-(`target_dsl_unsupported`, as `test_target_235_is_refused_as_unsupported`).
+(`target_dsl_unsupported`; rename the former `test_target_235_is_refused_as_unsupported`
+case to reflect the next unsupported version).
 
 - [x] **Step 2: Run them; expected failures**
 
@@ -4400,7 +4413,8 @@ appropriate owner before closeout; never claim a failing selector passed.
   kinds, values, policy and ordering needed to prove parity; Phase 3 verifies
   their actual rendering.
 - Which forms outside the release the corpus uses, by count: Task 10's
-  expectation table is the answer and the input to Phase 4's order.
+  expectation table informs consumer selection in Phases 4 and 6; counts
+  alone do not require porting every historical class before the pilot.
 - Whether a `list_map` value should instead be a catalog payload: decided
   here as a closed value over its binder (the evaluator extends the
   environment per item); Phase 3 may revisit if the catalog's own `list_map`
@@ -4475,5 +4489,5 @@ retry, terminal, trial-SDK or reader implementation enters this plan.
 - [ ] Review by the repository Review role (Sol 6.1 high), with the owner's
   Critical-only gate above and every finding/evidence disposition recorded.
 - [ ] Integrate according to the coordinator's authorized branch workflow;
-  this document revision itself neither implements Phase 2 nor authorizes a
-  target number, merge or push.
+  this document revision records the already-selected target but neither
+  implements Phase 2 nor authorizes a merge or push.

@@ -177,14 +177,30 @@ authority. For current claims, validate
 `docs/workflow_lisp_route_readiness_registry.json` and run the direct owner
 compile/runtime/resume tests cited by the selected registry entry.
 
-For the most useful Workflow Lisp review/fix model for targeted design-doc
-reviews, read `workflows/examples/review_revise_design_docs.orc`. It runs a
-bounded stdlib `.orc` review/fix loop over a parameterized target design doc,
-optional context docs, and review focus. Treat it as the preferred fresh
-starting point for targeted design-doc review/fix authoring. The earlier
-`workflows/examples/review_revise_parametric_design_docs.orc` remains useful
-provenance for the real-life-tested review path, but it hardcodes one design
-set and is not the preferred copy target.
+For targeted design-doc review/fix semantics, read
+`workflows/examples/review_revise_design_docs.orc` as a reference, not as a
+preferred copy target. The compile-only command in the [README](../README.md#first-compile-check)
+works from the repository root without `--entry-workflow`:
+
+```bash
+python -m orchestrator compile workflows/examples/review_revise_design_docs.orc \
+  --source-root workflows/examples \
+  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
+  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json \
+  --diagnostics-json
+```
+
+The subject is file-oriented: `fix-design-doc` edits the document artifact and
+returns the same subject paths. The loop returns findings and report paths,
+not a revised subject value for a downstream value-based handoff.
+This command checks source without executing providers. Selecting
+`review_revise_design_docs::review-revise-design-docs` for `run --dry-run`
+currently fails with `workflow_signature_mismatch`
+(`entry_bootstrap_name_gate_denied`). Choose new examples from the workflow
+catalog's [copy-safety table](../workflows/README.md#which-example-should-i-copy).
+The earlier `workflows/examples/review_revise_parametric_design_docs.orc`
+remains provenance for the real-life-tested review path, but hardcodes one
+design set.
 
 For the smallest concrete Workflow Lisp teaching example, read
 `workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
@@ -545,8 +561,12 @@ Most defects below share one cause: at run time a value exists only as the
 output of a step
 ([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
 [Evaluated execution](design/workflow_lisp_evaluated_execution.md) is a
-proposed execution model that removes that cause; it is under test and no
-target offers it.
+model accepted at gate G1 that addresses that cause. Target 2.35 is selected,
+and internal compiler Tasks 1–7 are integrated, but public CLI compilation
+awaits Phase 2 Task 9 and execution awaits Phase 3. Use targets through 2.34
+for runnable workflows; `compile`, `run` and `resume` currently refuse 2.35
+with `evaluated_execution_unavailable`. The [Phase 2 status](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+distinguishes delivered compiler work from the remaining tasks.
 
 Run a program from the repository root. The value is in
 `.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
@@ -1819,6 +1839,12 @@ workspace-free profile. `omp` and `omp_unrestricted_workspace` inherit ambient
 operator configuration and are for trusted repositories; the unrestricted
 template additionally selects OMP `--yolo`.
 
+Before using a profile-isolated lane, follow the [OMP run prerequisites](omp_upgrade_runbook.md#run-prerequisites)
+to verify the installed pin, populate the caller's HOME/XDG/temp environment,
+and start its credential broker. The launcher creates child attempt roots;
+authors do not supply those paths. Ambient lanes retain their ordinary
+operator configuration.
+
 `omp_conf` is a trusted, credential-bearing tool lane, not a secret sandbox. It
 retains same-UID read, network, and process access; model-facing tools can
 observe the current `OMP_AUTH_BROKER_TOKEN` through the process environment or
@@ -2334,6 +2360,81 @@ ordinary dispatch. It never retargets messages or reuses interrupted member
 sessions, attempts, endpoints, panes, bundles, or settlements. Missing,
 malformed, conflicting, or ambiguous authoritative recovery state fails
 closed before provider launch.
+
+## Pinned Child Runs And Trials
+
+Target 2.24 `run-ref` runs a child against an exact repository commit. Keep the
+commit as a literal 40-character lowercase Git object ID. `:bundle` selects a
+workflow from the already compiled caller bundle and transports its reachable
+compiled graph and source/asset closure to the child without recompiling; it
+derives the result type and does not accept `:returns` or `:environment`.
+`:path` selects a `.orc` path in the pinned clone and runs the ordinary full
+compiler there; omitting `:returns` claims exactly `Value`, while an explicit
+`:returns T` must match the child's return type exactly. V1 admits only
+`:environment :deterministic-effect-free`.
+Clones and child processes are workspace/output boundaries, not an OS sandbox.
+Relpath inputs are copied to deterministic child-workspace destinations and
+rebound only after input-contract validation; host paths do not cross into the
+child. Supply every input required by the selected child entry.
+
+This `:path` form is a syntax specimen from the current DSL contract. Replace
+the example repository, commit, and entry with the exact source you intend to
+run; it is not a production template or a test-fixture recommendation.
+
+```lisp
+(run-ref
+  :source (:repo "/absolute/repository"
+           :commit "0123456789abcdef0123456789abcdef01234567")
+  :program (:path "candidate.orc" :entry candidate)
+  :inputs (:task task)
+  :returns Value
+  :policy (:environment :deterministic-effect-free :setup ()))
+```
+
+At target 2.25, `trial` evaluates 2–16 statically authored `run-ref` arms over
+1–64 repetitions (at most 256 cells); all arms must have the same normalized
+result type. The selected entry must end in the exact compiler-owned trial
+result. The full evaluation and budget fields are specified in the [DSL
+contract](../specs/dsl.md).
+The CLI expects the workflow's declared inputs plus any source roots and
+provider, prompt, imported-bundle, or command-boundary manifests that source
+uses:
+
+```bash
+python -m orchestrator trial <controller.orc> \
+  --entry-workflow <module::entry> \
+  --input-file <inputs.json> \
+  --source-root . \
+  --provider-externs-file <providers.json> \
+  --prompt-externs-file <prompts.json> \
+  --imported-workflow-bundles-file <bundles.json> \
+  --command-boundaries-file <commands.json> \
+  --state-dir <absolute-state-dir> \
+  --run-ref-root <canonical-absolute-run-ref-root>
+```
+
+Omit manifest flags the source does not need. An explicit run-ref root must be
+canonical and absolute; the default is
+`~/.local/state/orchestrator/run-ref`. Trial has no dry-run mode: this command
+can execute child programs and evaluator providers.
+`python -m orchestrator trial --help` is safe for checking the CLI shape. The
+command prints `workflow_trial_run_result.v1`; exit `0` means completed, `1`
+means the trial ran and failed, and `2` means validation or admission refused
+before execution.
+
+If a trial is interrupted, identify its run ID from the persisted run
+directory and `state.json` under the configured `--state-dir`, or from the
+terminal JSON when available. Resume that run from the same workspace and
+state directory, with the same explicit `--run-ref-root` if one was used;
+resume validates and reuses committed trial/cell results. For an explicitly
+configured root and state directory, use:
+
+```bash
+python -m orchestrator resume <run-id> --state-dir <same-state-dir> \
+  --run-ref-root <same-canonical-run-ref-root>
+```
+
+See [state settlement](../specs/state.md#target-225-trial-state-settlement-and-replay).
 
 ## 9. Structured Command Results
 

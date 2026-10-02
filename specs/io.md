@@ -21,7 +21,13 @@
   - Stderr is captured separately and written to logs when non-empty.
   - v2.10 session-enabled provider steps normalize structured provider transport before ordinary output capture:
     - normalized assistant text becomes the step-visible stdout used by `output_capture` and `output_file`
-    - raw metadata transport remains on the runtime-owned provider-session spool path under the run root
+    - non-OMP metadata codecs use a masked runtime-owned provider-session
+      transport spool under the run root, retained on failure or in debug mode
+    - `omp_json_stdout` transport is processed in memory. Its compatibility
+      spool stays empty and is removed when a fresh visit finalizes, on either
+      success or failure, including debug mode. Persisted parent metadata is
+      the credential-minimized projection; OMP journals remain separate
+      observations as defined in `state.md`.
   - Deterministic artifact contracts:
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).

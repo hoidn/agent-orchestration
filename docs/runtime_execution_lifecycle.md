@@ -110,7 +110,12 @@ Key notes:
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
 - `call` executes an imported workflow inline with its own nested state, private providers/artifacts/context defaults, and caller-visible outputs exported only after the callee body and callee finalization succeed.
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
-- After a resumed run terminates, `current_step` is cleared the same way it is for non-resumed runs.
+- Ordinary resumed execution clears `current_step` when it reaches terminal
+  state. Early root checksum or projection rejection before the prologue is an
+  exception: it may retain the unchanged cursor for forensics. The root
+  `status` and `error` govern observability; the retained cursor is not live
+  for status, heartbeat, or stalled-run interpretation. See the [state
+  integrity contract](../specs/state.md#state-integrity-and-recovery).
 - For structured `if/else`, non-selected lowered branch nodes appear as `skipped`, while the selected-branch outputs are materialized on the join node under the authored statement name.
 - For `repeat_until`, the loop frame stays `running` while iterations are in progress, materializes declared loop outputs after each completed iteration, and fails with `repeat_until_iterations_exhausted` if `max_iterations` is reached before the condition becomes true.
 - For structured `finally`, cleanup failures after body success become the run's primary failure; if the body already failed, cleanup failures are recorded as secondary diagnostics under `state.finalization`.

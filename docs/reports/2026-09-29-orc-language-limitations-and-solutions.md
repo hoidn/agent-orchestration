@@ -1,5 +1,11 @@
 # Limitaciones de `.orc` y posibles soluciones
 
+**Lectura histórica:** los hallazgos, propuestas y decisiones abiertas de este
+informe corresponden a la base indicada abajo. Para los límites actuales y las
+reparaciones posteriores, consulte la [guía de autoría §2A](../lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today),
+el [diseño numérico](../design/workflow_lisp_numeric_surface.md) y el
+[diseño de ejecución evaluada aceptado en G1](../design/workflow_lisp_evaluated_execution.md).
+
 Fecha: 2026-09-29. Base examinada: `fc5f2a2e1426d74da4cdb79a97a494e685300141`, Workflow Lisp con destino DSL 2.33.
 
 **Estado:** hallazgos y propuestas derivados de la comparación secuencial inspirada en MLEvolve. Este documento no modifica el contrato del lenguaje, no selecciona una arquitectura nueva y no afirma que las soluciones propuestas estén implementadas.

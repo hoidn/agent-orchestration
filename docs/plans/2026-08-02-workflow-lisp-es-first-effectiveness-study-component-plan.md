@@ -3,14 +3,14 @@
 ## Scheduling-Only Amendment (2026-09-08)
 
 The owner-requested [current research roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
-now owns prospective research sequence. Its R0 first coordinates with the
-active ES owner: bounded continuation under the existing owner-adoption gate,
-or an explicit owner prelaunch park/closure. This amendment neither launches
-nor cancels ES. A park is not scientific completion.
+owns prospective research sequence. On 2026-09-08, Ollie explicitly selected
+**prelaunch park** for ES and advancement to R1a entry work. The
+[roadmap hand-back](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#current-es-boundary)
+records this disposition. A park is neither cancellation nor scientific completion.
 
 The [pinned F1v2 refreeze plan](2026-08-03-es-f1-large-scope-refreeze-execution-plan.md)
 owns authoritative execution status: its Tasks 0, 1, 2, 3, and 3A are complete
-and consolidated Task 4 is current at this update. Historical status and
+and consolidated Task 4 is incomplete and parked. Historical status and
 Task-8 adoption references below do not displace that plan's current task
 mapping or binding requirements. No frozen task, evaluator, reference-product,
 lock, review, or run-evidence bytes are changed here.
@@ -1135,10 +1135,10 @@ Scheduling amendment, 2026-09-08:
 
 - [ ] Preserve the reviewed fixed-screen result and every evidence identity.
       Report precisely what ES did and did not establish.
-- [ ] Record the owner-coordinated ES disposition and hand-back in the
-      [current roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
-      If ES is parked before live execution, record a park rather than
-      satisfying the scientific completion criteria below.
+- [x] Record the owner-coordinated ES disposition and hand-back in the
+      [current roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#current-es-boundary).
+      Owner selected prelaunch park on 2026-09-08; this does not satisfy
+      the scientific completion criteria below.
 - [ ] Assess programmability/compositionality, reuse, introspection,
       self-programmability, and optimization independently under the
       [research plan](2026-09-08-orc-research-demonstration-plan.md).
