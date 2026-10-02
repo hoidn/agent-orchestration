@@ -52,7 +52,11 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
   CLI compilation and Task 10 corpus/P3 compiler evidence. Task 11's
   documentation and routing repair are implemented and committed; its
   checks are recorded below.
-  Phase-wide verification and fresh final reviews remain open at Closeout.
+  Phase-wide compilation/compatibility checks and a complete red-suite run
+  are recorded in the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md).
+  The sole confirmed test-caller integration regression is repaired;
+  final code/verification review passed at `17049e79`; documentation review
+  and authorized integration remain open at Closeout.
   `compile` persists the checked target-2.35 program; runtime evaluation is
   still refused until Phase 3. Owning evidence: Task 8/9/10 completion records,
   `tests/test_workflow_lisp_closed_program_compile_cli.py`,
@@ -4508,21 +4512,32 @@ retry, terminal, trial-SDK or reader implementation enters this plan.
 
 ## Closeout
 
-- [ ] Raw compatibility comparison for the four programs and compiled-import/
+- [x] Raw compatibility comparison for the four programs and compiled-import/
   nested run-ref specimens against `PHASE2_BASE`: equal bytes at identical
   identity inputs, separate fixed-identity serialization proof, and explicit
   explanation of real compiler-pin-dependent differences without weakening
   the pin or normalizing artifacts (Global Constraints).
-- [ ] Full suite in tmux, alone: `pytest -q -n 16 --dist=worksteal`,
+- [x] Full suite in tmux, alone: `pytest -q -n 16 --dist=worksteal`,
   after narrow selectors pass. Record and resolve failures; do not weaken
   verification or accept a new failure by updating expectations.
-- [ ] Fresh output: `python -m orchestrator compile` of
+- [x] Fresh output: `python -m orchestrator compile` of
   `experiments/mlevolve_pair/search_compact.orc` retargeted, and of the
   `std/improve` example, at the new target; the summaries and the site
   counts in the report.
-- [ ] The corpus table of Task 10 in the report, with the count built.
-- [ ] Review by the repository Review role (Sol 6.1 high), with the owner's
+- [x] The corpus table of Task 10 in the report, with the count built.
+- [x] Review by the repository Review role (Sol 6.1 high), with the owner's
   Critical-only gate above and every finding/evidence disposition recorded.
 - [ ] Integrate according to the coordinator's authorized branch workflow;
   final integration follows the coordinator's authorized workflow after
   phase-wide verification and final reviews. No push is part of this plan.
+
+Recorded verification: [Phase 2 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md).
+The completed full run at `d4f0e0f4` is red (275 failed, 20,288 passed,
+36 skipped, 178 xfailed, exit 1). Its six newly observed IDs were diagnosed;
+the one confirmed caller integration regression has a test-only repair and
+two focused PASS checks. Existing baseline, checkout-location, concurrency
+and duration-variance failures are recorded without a full-green claim.
+Fresh legacy raw comparisons, authentic-pin capsule differences,
+controlled-identity serialization and public compile/readback smokes are
+recorded separately. Final code/verification review passed at `17049e79`; documentation review
+and authorized integration remain pending.
