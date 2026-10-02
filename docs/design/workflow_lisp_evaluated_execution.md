@@ -1120,23 +1120,74 @@ not a later reread that can race a source edit. Raw source-byte fingerprints
 belong to the build cache; they do not enter the semantic program digest and
 undo P6's formatting invariance.
 
-Runtime evidence is a sorted map keyed by the declared logical base/path (and
-the stable-command token's position where applicable). A regular file row
-contains `kind: file` and `sha256:<digest of bytes>`. A directory row contains
-`kind: directory` and the SHA-256 of canonical JSON rows of its files, sorted
-by relative POSIX path, each carrying the file evidence. All files, including
-dotfiles and caches, participate; empty directories contribute no file rows.
-For paths through symlinks, each row additionally binds the resolved target,
-relative to its workspace/package base when inside that base and absolute
-otherwise. Directory traversal follows declared symlink targets and records
-their target identity;
+Runtime evidence is an ordinary map, `{}` when empty, with no wrapper or
+version. Each key is the canonical JSON string of `[base, path, position]`
+(the serialization used by `closed/program.py::canonical_digest`),
+where base is `workspace`, `absolute` or `package:orchestrator`, path follows
+the normalized declaration rules above (relative for workspace/package,
+absolute for absolute), and position is `null` for a declaration or a
+nonnegative integer, never Bool, for a stable-command token. Serialize keys
+in sorted order. Declarations and token positions are distinct obligations.
+Every exterior value has exactly `kind` (`file` or `directory`) and `digest`
+(`sha256:` followed by 64 lowercase hexadecimal digits), plus only the
+optional `target` described below. File digests bind the regular file bytes.
+
+For an entry whose lookup traverses symlinks, `target` binds its final resolved
+destination, not link text or a list of intermediate links. Targets are
+nonempty, NUL-free strings in canonical resolved POSIX spelling. A target
+within its workspace base uses the relative path from that base (`.` for its
+root); within its package base it uses `package:orchestrator/<relative path>`
+(`package:orchestrator/.` for its root). Outside that base, or for an absolute
+base, it uses the absolute resolved path. Relative targets do not escape with
+`..`; resolved spellings have no redundant separators or unresolved `.`/`..`
+components except the stated root forms. Moving a package and its internal
+targets together preserves these logical spellings. Changing link text or
+an intermediate link without changing the final target or bytes does not
+alone require divergence.
+
+A directory's digest uses `closed/program.py::canonical_digest` on one flat
+list of the following exact rows, sorted uniquely by normalized relative
+POSIX `path` within that directory:
+
+| Traversed entry | Internal row hashed in the directory list |
+| --- | --- |
+| Regular file | `{"path": p, "kind": "file", "digest": d}`, with only optional `target` when its lookup traverses symlinks; digest and target use the exterior rules |
+| Internal symlink resolving to a directory | `{"path": p, "kind": "directory", "target": t}`, with no `digest`; target uses the declaration's base encoding |
+| Ordinary directory | No row of its own; traverse its children |
+
+All files, including dotfiles and caches, participate. Ordinary empty
+directories contribute no rows. Each internal directory symlink contributes
+its identity row even when its target is empty, then its target's files are
+traversed under the logical path through that symlink; nested directory
+symlinks contribute their own rows. Do not add another recursive digest for
+the identity row. A declared root reached through a symlink records its
+target in the exterior value, without a duplicate internal `path: "."` row.
+Different logical aliases to the same target keep distinct rows and are not
+by themselves cycles. A duplicate internal path is an error, never an
+overwrite. Resolve and validate the target before emitting a row:
 cycles, missing/dangling entries, unsupported file kinds and unreadable files
 fail closed. No absent path is hashed as an empty file. On a memo hit these
 failures are divergences; before a first attempt they are closure-resolution
 failures. The path and reason are reported.
 
+The writer and journal reader enforce this same exterior shape, reversible
+canonical keys, valid bases/paths/positions, digests and target grammar;
+extra fields, alternate key spellings and internal identity rows used as
+exterior values are refused. The internal list is not persisted. A reader's
+shape check cannot certify symlink presence, filesystem contents or a hash's
+material. The same live resolver reconstructs evidence for initial binding,
+precommit, retry and reuse and compares it with the relevant prior map;
+a stored opaque digest never substitutes for fresh resolution/rehash.
+
 Input/result/cache destinations must not equal a closure file or lie beneath
-a closure directory, including resolved symlink aliases. Check runtime-owned
+a closure directory, including resolved symlink aliases. During that same
+live walk, retain transient resolved coverage of closure directory roots,
+traversed directory-symlink targets and regular leaves. C4 consumes this
+coverage and resolves destinations through their existing ancestors before
+creation: a new descendant under an external empty directory-symlink target
+is covered even though it has no file row. Do not infer this coverage from an
+opaque digest, persist a target list or discover it with a second resolver.
+Check runtime-owned
 destinations before creation; a command that writes an undeclared cache there
 violates C4 and its changed closure refuses resume. There is no ignored-cache
 rule. The adapter's positional JSON input remains value data (§9.1), never an
