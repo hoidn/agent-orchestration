@@ -179,6 +179,8 @@ Execution receipt (2026-10-02): integrated at `2962dd44479b09c148f21a9499e254a61
 
 R12 Design receipt (2026-10-02): candidate commit `64608146` integrated at `ea97fba2` after independent v4 review PASS (`689cce4ddc85b17cb1421480ee913ecf182ce3d389286c6badaa5ecf541cfd93`). Historical FAILs and probes remain preserved. This closes the Design gate only; all R12 implementation and public parity checks remain open.
 
+R12-A kernel sub-batch receipt (2026-10-02): pure substitution extraction integrated at `1bf43c852bdb600ac2a364db12097a0dac0998a5` after independent conformity and quality PASS. Coordinator fresh integrated checks: **17 passed**; candidate adapter/safety checks and exact public legacy 2.34 argv smoke are preserved in `task-6-r12-kernel-integration.json` under the Phase 3 SDD evidence directory. Materialization/control extraction, closed transport and evaluated runtime remain open; no R12 task checkbox is closed by this receipt.
+
 **R12 exclusive owner transfers.** The compiler carrier/ANF/schema sub-batch
 owns the joint command child relation before Task 12's document extension;
 Task 12 must reuse it. Transfer shared evaluator/CLI readiness seams only
