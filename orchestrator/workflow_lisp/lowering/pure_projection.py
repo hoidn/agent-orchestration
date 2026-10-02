@@ -360,15 +360,12 @@ def lower_pure_projection_step(
             "output_contracts": lowered_output_contracts,
         },
     }
-    if set(lowered_output_contracts) == {"__result__"}:
-        # Root-valued results keep the shared logical `return` ref name while
-        # the runtime artifact is the compiler-owned `__result__`.
-        output_refs = {"return": f"root.steps.{step_name}.artifacts.__result__"}
-    else:
-        output_refs = {
-            output_name: f"root.steps.{step_name}.artifacts.{output_name}"
-            for output_name in lowered_output_contracts
-        }
+    from .command_control_decisions import projection_artifact_names
+
+    output_refs = {
+        output_name: f"root.steps.{step_name}.artifacts.{artifact_name}"
+        for output_name, artifact_name in projection_artifact_names(lowered_output_contracts).items()
+    }
     return LoweredPureProjection(
         step=step,
         output_refs=output_refs,
@@ -1646,6 +1643,10 @@ def _output_contracts_for_type(
     span,
     form_path: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
+    return output_contracts_for_type(type_ref, type_env=context.type_env, span=span, form_path=form_path)
+
+
+def output_contracts_for_type(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment, span, form_path: tuple[str, ...]) -> dict[str, dict[str, Any]]:
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return _structured_output_contracts(
             type_ref,
@@ -1653,13 +1654,13 @@ def _output_contracts_for_type(
             source_path=("return",),
             span=span,
             form_path=form_path,
-            type_env=context.type_env,
+            type_env=type_env,
         )
     root_field = root_workflow_boundary_field(
         type_ref,
         span=span,
         form_path=form_path,
-        type_env=context.type_env,
+        type_env=type_env,
     )
     return {"__result__": dict(root_field.contract_definition)}
 

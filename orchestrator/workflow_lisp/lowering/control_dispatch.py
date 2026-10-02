@@ -41,12 +41,10 @@ from ..expressions import (
 )
 from ..procedure_refs import ResolvedProcRefValue
 from ..syntax import (
-    ProcedureExpansionFrame,
     target_dsl_supports_pure_call_composition,
     target_dsl_supports_rich_loop_values,
     target_dsl_supports_union_prompt_input,
 )
-from ..expression_traversal import walk_expr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from .command_transport_decisions import (
@@ -76,7 +74,6 @@ from .phase_scope import (
     _resolved_proc_ref_value,
 )
 from .pure_projection import (
-    is_pure_projection_expr,
     lower_pure_projection_step,
     output_contracts_for_boundary_type,
 )
@@ -245,13 +242,9 @@ def _control_lower_expression_impl(
             step_name_prefix=context.step_name_prefix,
         )
     if isinstance(expr, LetStarExpr):
-        if (
-            target_dsl_supports_pure_call_composition(
-                context.type_env.target_dsl_version
-            )
-            and _is_compiler_owned_procedure_let(expr)
-            and is_pure_projection_expr(expr)
-        ):
+        from .command_transport_decisions import compiler_owned_pure_let
+
+        if compiler_owned_pure_let(expr, target_dsl_version=context.type_env.target_dsl_version):
             lowered = lower_pure_projection_step(
                 expr,
                 result_type=typed_expr.type_ref,
@@ -277,16 +270,6 @@ def _control_lower_expression_impl(
         message=f"workflow `{context.workflow_name}` cannot lower expression `{type(expr).__name__}` in Stage 3",
         span=typed_expr.span,
         form_path=typed_expr.form_path,
-    )
-
-
-def _is_compiler_owned_procedure_let(expr: LetStarExpr) -> bool:
-    """Limit schema-3 preservation to procedure-expansion bindings."""
-
-    return any(
-        isinstance(frame, ProcedureExpansionFrame)
-        for node in walk_expr(expr)
-        for frame in node.expansion_stack
     )
 
 
@@ -574,16 +557,15 @@ def _lower_pure_projection_binding_expr(
         ),
     )
     output_refs = lowered.output_refs
-    if (
-        not whole_value
-        and boundary_fields
-        and target_dsl_supports_pure_call_composition(context.type_env.target_dsl_version)
-    ):
+    from .command_control_decisions import binding_projection_output_aliases
+
+    aliases = binding_projection_output_aliases(
+        boundary_fields, whole_value=whole_value,
+        pure_call_composition=target_dsl_supports_pure_call_composition(context.type_env.target_dsl_version),
+    )
+    if aliases is not None:
         output_refs = {
-            f"return__{'__'.join(field.source_path[1:])}": lowered.output_refs[
-                field.generated_name
-            ]
-            for field in boundary_fields
+            name: lowered.output_refs[original_name] for name, original_name in aliases.items()
         }
     return [lowered.step], _TerminalResult(
         step_name=step_name_prefix,
