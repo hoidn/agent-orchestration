@@ -11,6 +11,7 @@ from orchestrator.workflow.pure_expr import coerce_pure_value
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.sites import _effect_value_children
 
+from .calls import call_environment, call_result
 from .values import (
     BindingEvaluator,
     EvaluatedValue,
@@ -249,24 +250,17 @@ class _Machine:
             self._value(value, environment, owner, activation, loops)
             for value in node["args"]
         )
-        parameters = definition["params"]
-        if len(arguments) != len(parameters):
-            raise self._error("closed_call_arity", "call arity differs from its checked definition", node)
-        call_environment = LexicalEnvironment(
-            {
-                name: self._coerce_result(value, descriptor, node)
-                for value, (name, descriptor) in zip(arguments, parameters, strict=True)
-            },
-            run_id=self.run_id,
+        native_environment = call_environment(
+            node, definition, arguments, run_id=self.run_id
         )
         frame = node.get("frame")
         call_activation = activation
         if frame is not None:
             call_activation = (*activation, *self._segments(self._instantiate(frame, loops)))
         result = self._body(
-            definition["body"], call_environment, node["callee"], call_activation, ()
+            definition["body"], native_environment, node["callee"], call_activation, ()
         )
-        return self._coerce_result(result, node["type"], node)
+        return call_result(node, definition, result)
 
     def _perform(self, node, environment, owner, activation, loops):
         if self.effect_handler is None:
