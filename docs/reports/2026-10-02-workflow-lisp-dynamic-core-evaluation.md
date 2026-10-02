@@ -846,6 +846,33 @@ resume cases as lost-capability controls exercised in UD05/UD06. Keep six
 old-target admission cases and the selected-hook effect-summary case unchanged;
 the candidate does not inherit those static guarantees.
 
+**DC-2b complete, 2026-10-02, code `18121c76`:** Luna 6 xhigh implemented
+the three assigned files; independent conformity by
+`/root/design_dynamic_core_roadmap` (Astra 6 xhigh) and quality review by
+`/root/review_code_dynamic_core_utility` (Sol 6.1 high) passed. The shared helper
+reads decision tags and transmits payloads opaquely; caller hooks own explicit
+wire/domain reconstruction. This preserves the typed helper's generic payload
+behavior without adding a decoder. An independent inline caller definition set
+and shared-fragment assembly are distinct source owners, not dynamic imports.
+
+Author collection found **11**; final author narrow check passed **11 in
+8.72s** after deleting unused/duplicated test setup. Conformity independently
+passed the same eleven before that test-only cleanup; final quality confirmed
+the cleanup and exact hashes. Fresh coordinator check passed **11 in 8.73s**,
+exit 0, including real local command leaves and the public typed-run comparison.
+`/tmp/orc-dc2-execution-0jczbaqn/improve-result.json` records the exact command,
+runtime revision and equal before/after hashes; output is `improve-final.log`.
+Initial behavioral RED used an EXHAUSTED stub where APPROVED was required;
+subsequent fixture syntax/wire-input corrections are not missing-feature proof.
+
+UI04 identifies the actual schema refusal and absent publication; UI05 verifies
+the completed three-call prefix and final revision's exit 3; UI10 verifies no
+leaf attempt. Context capture is exercised by the wrapper case. These results
+complete improve protocol parity, not utility or adoption: the 77 search and
+10 author-edit/diagnostic observations remain pending. The pre-search upstream
+check found only documentation receipt `5ffad6ba` after `f572a82a`; that receipt
+was merged without changing runtime or frozen comparison sources.
+
 ### Full Paired Search — 77 Cases
 
 `fixtures/search.orc` contains the authored controller. Reuse the exact

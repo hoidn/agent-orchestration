@@ -137,7 +137,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
-| DC-2 — utility comparison | Active; scope reviewed, DC-2a complete, DC-2b improve executing | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
+| DC-2 — utility comparison | Active; DC-2a/b complete, DC-2c search executing | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
@@ -164,7 +164,7 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-DC-2b full improve execution, followed by search and paired author edits;
+DC-2c paired search execution, followed by paired author edits;
 DC-F continue was explicitly selected by the owner on 2026-10-02. Existing
 executable selectors have no new item to consume.
 
@@ -365,7 +365,7 @@ failures remain documented and no global-suite PASS is claimed.
 | Sequential batch and role | Exclusive writable implementation paths | Required cases and completion |
 | --- | --- | --- |
 | DC-2a — code implementation, bounded core; complete at `e7da6fd2` | `experiments/dynamic_core_evaluation/{program,source,evaluator,leaf_bridge}.py`; `tests/experiments/test_dynamic_core_utility_core.py` | UC01–UC12, including the two bridge groups; `/3` additions with frozen `/1` and `/2` admission; existing certified command adapter reaches the current compiler/executor |
-| DC-2b — code implementation, improve | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
+| DC-2b — code implementation, improve; complete at `18121c76` | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
 | DC-2c — code implementation, search | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py` | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion |
 | DC-2d — code implementation, paired edits and diagnostics | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; paired runnable edits, error timing, repeated work and one reproducible full-consumer demo |
 | DC-2e — independent code/utility review and coordinator integration | This plan and the same report; corrections return to the relevant implementer | Review code first, then benefit/cost evidence; inspect diff, run required final checks, prepare DC-U packet and stop for its owner disposition |
