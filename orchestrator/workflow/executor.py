@@ -12374,6 +12374,8 @@ class WorkflowExecutor:
         result: Dict[str, Any],
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        *,
+        document_bytes: bytes | None = None,
     ) -> Dict[str, Any]:
         """Validate deterministic output contracts and attach parsed values to step result."""
         expected_outputs = step.get('expected_outputs')
@@ -12415,6 +12417,7 @@ class WorkflowExecutor:
                     workspace=self.workspace,
                     finite_floats=finite_floats,
                     workspace_files=self.workspace_files,
+                    document_bytes=document_bytes,
                 )
             elif resolved_output_bundle:
                 structured_artifacts = validate_output_bundle(
@@ -12422,6 +12425,7 @@ class WorkflowExecutor:
                     workspace=self.workspace,
                     finite_floats=finite_floats,
                     workspace_files=self.workspace_files,
+                    document_bytes=document_bytes,
                 )
             overlapping_names = sorted(
                 set(expected_artifacts) & set(structured_artifacts)

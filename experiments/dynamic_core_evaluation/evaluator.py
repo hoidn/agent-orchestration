@@ -198,8 +198,40 @@ def _pop_values(values: list[Any], count: int) -> list[Any]:
     return result
 
 
-def evaluate(program: DynamicProgram, inputs: Mapping[str, Any]) -> EvaluationResult:
-    """Validate declared input data, evaluate one entry body and validate its result."""
+def evaluate(
+    program: DynamicProgram,
+    inputs: Mapping[str, Any],
+    *,
+    leaf_bridge: Any = None,
+    read_only: bool = False,
+) -> EvaluationResult:
+    """Validate inputs, link trusted leaves, and evaluate one entry body."""
+
+    if type(read_only) is not bool:
+        raise TypeError("read_only must be Bool")
+    if program.schema.endswith("/2"):
+        if leaf_bridge is None and program.effects:
+            raise EvaluatedValueError(
+                "dynamic_effect_unlinked",
+                "declared leaf operations require a trusted leaf registry",
+                location="/effects",
+            )
+        if leaf_bridge is not None:
+            from .leaf_bridge import LeafBridge
+
+            if not isinstance(leaf_bridge, LeafBridge):
+                raise EvaluatedValueError(
+                    "dynamic_effect_unlinked",
+                    "effect dispatch requires the trusted leaf bridge",
+                    location="/effects",
+                )
+            leaf_bridge.link(program.effects)
+    elif program.effects:
+        raise EvaluatedValueError(
+            "dynamic_effect_unlinked",
+            "pure artifacts cannot declare leaf operations",
+            location="/effects",
+        )
 
     if not isinstance(inputs, Mapping):
         raise EvaluatedValueError("dynamic_boundary_invalid", "entry inputs must be an object", location="/inputs")
@@ -297,6 +329,18 @@ def evaluate(program: DynamicProgram, inputs: Mapping[str, Any]) -> EvaluationRe
                 tasks.append(("op_done", node["name"], len(args), pointer, context))
                 for index in reversed(range(len(args))):
                     tasks.append(("enter", args[index], env, _pointer(_pointer(pointer, "args"), index), code, context))
+            elif kind == "effect":
+                if read_only:
+                    raise _error(
+                        "dynamic_effect_forbidden",
+                        "read-only evaluation cannot dispatch a leaf operation",
+                        pointer,
+                        context,
+                        steps,
+                        operation=node["name"],
+                    )
+                tasks.append(("effect_done", node["name"], pointer, context))
+                tasks.append(("enter", node["inputs"], env, _pointer(pointer, "inputs"), code, context))
             continue
 
         if action == "let_next":
@@ -475,6 +519,80 @@ def evaluate(program: DynamicProgram, inputs: Mapping[str, Any]) -> EvaluationRe
                     operand_kinds=kinds,
                 ) from exc
             values.append(result)
+            continue
+
+        if action == "effect_done":
+            _, operation, pointer, context = task
+            try:
+                effect_inputs = _thaw(values.pop())
+            except (TypeError, RecursionError) as exc:
+                raise _error(
+                    "dynamic_boundary_invalid",
+                    "leaf inputs must be ordinary JSON data",
+                    pointer,
+                    context,
+                    steps,
+                    operation=operation,
+                ) from exc
+            try:
+                result = leaf_bridge.invoke(
+                    operation,
+                    effect_inputs,
+                    location=pointer,
+                    call_context=_call_context_frames(context),
+                )
+            except EvaluatedValueError as exc:
+                if exc.code == "dynamic_boundary_invalid":
+                    metadata = dict(exc.metadata)
+                    metadata.setdefault("operation", operation)
+                    metadata.setdefault("call_context", _call_context_frames(context))
+                    raise EvaluatedValueError(
+                        exc.code,
+                        str(exc),
+                        location=pointer,
+                        metadata=metadata,
+                    ) from exc
+                metadata = {
+                    "operation": operation,
+                    "call_context": _call_context_frames(context),
+                }
+                for key in ("leaf_run_id", "cause_code"):
+                    if key in exc.metadata:
+                        metadata[key] = exc.metadata[key]
+                raise EvaluatedValueError(
+                    "dynamic_effect_failed",
+                    "leaf operation failed",
+                    location=pointer,
+                    metadata=metadata,
+                ) from exc
+            except Exception as exc:
+                raise _error(
+                    "dynamic_effect_failed",
+                    "leaf operation failed",
+                    pointer,
+                    context,
+                    steps,
+                    operation=operation,
+                    cause_code=type(exc).__name__,
+                ) from exc
+            try:
+                formed = _formed_boundary_value(
+                    dict(result),
+                    pointer,
+                    context,
+                )
+            except EvaluatedValueError as exc:
+                raise EvaluatedValueError(
+                    "dynamic_effect_failed",
+                    "leaf operation returned an invalid dynamic value",
+                    location=pointer,
+                    metadata={
+                        "operation": operation,
+                        "call_context": _call_context_frames(context),
+                        "cause_code": exc.code,
+                    },
+                ) from exc
+            values.append(_freeze(formed))
             continue
 
         raise AssertionError(f"unknown evaluator continuation {action!r}")
