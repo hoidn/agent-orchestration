@@ -966,7 +966,7 @@ files that differ.
 | Rule | Statement |
 | --- | --- |
 | C1 | Every supplied external-tool and certified-adapter binding (including unused rows), and every used compiler-injected binding retained for emission, declares `closure`, using the common rules below. An empty list is a declaration, not a fallback for unknown implementation files. An absent field is refused at build with `command_boundary_closure_missing`; `null` is not an empty declaration. No build option or builtin exception weakens this rule |
-| C2 | The resolved input of a command binds, by content: each stable-command token that names a workspace path, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
+| C2 | The resolved input of a command binds, by content: each stable-command token selected as a workspace path by the conservative rules below, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
 | C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
 | C4 | A closure is read-only. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse any change (§8.1), even if no failure record survived. A resume that finds a committed effect's declared file changed also refuses (C7). Caches and outputs, including generated adapter input documents and attempt files, live outside every closure. Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
 | C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares. A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
@@ -981,6 +981,57 @@ Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closure
 `closed/program.py::_canonical_closure` and `closed/artifact.py` (same directory),
 [closure tests](../../tests/test_workflow_lisp_command_boundary_closure.py)
 and [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py).
+
+Automatic C2 selection examines stable-command tokens spelled relative to the
+workspace, or absolute tokens whose lexical components have the workspace
+root as a prefix. The prefix comparison uses the common separator/`.`
+normalization and is component-wise (`/work` does not include `/work-other`),
+without resolving symlinks or collapsing `..`.
+That normalization also supplies logical evidence spelling;
+it must not replace filesystem lookup with a rewritten path. Lookup uses the
+original token spelling and ordinary path resolution, including intermediate
+symlinks and `..`; argv is unchanged. A relative path or a symlink may resolve
+outside the workspace and binds that target under the existing encoding.
+An absolute spelling outside the lexical workspace prefix is not selected
+automatically; an explicit closure declaration can bind it.
+
+The bare first token belongs only to C3's automatic interpreter pin, even when
+a workspace entry has the same name. A workspace-relative slashed or
+workspace-prefixed absolute executable token is mandatory C2 evidence even
+when missing. An external absolute executable adds no automatic C2 evidence;
+its launchability and any explicit declaration still apply. For the remaining
+tokens in the automatic scope, select an existing final filesystem entry
+using `lstat` semantics, with no inference of argv roles, options, modules,
+extensions or executable-specific syntax. Thus a final dangling symlink is
+selected and fails when resolved for evidence. Initial `ENOENT` or `ENOTDIR`
+means no final entry is selected unless it is mandatory through an explicit
+declaration or prior evidence; no empty hash is created. Other lookup errors,
+including `EACCES` and `ELOOP`, fail closed with path and reason. An initially
+missing token after argv[0], including an endpoint below a dangling parent
+symlink, has no automatic file guarantee: declare it explicitly to require it
+from the start. In particular, C2 does not infer an absent script in
+`python probe.py` from its operand position or extension.
+
+Every explicit closure entry remains mandatory, and `closure: []` does not
+disable automatic selection. At each resolution or rehash, union the current
+automatic selection and explicit closure with the relevant prior evidence:
+the active commit being checked for reuse, the latest uncommitted `started`
+for retry, or that attempt's `started` before commit. Preserve its logical
+base/path and token position using the same evidence format. Do not union all
+history: a start that committed and whose commit was later invalidated does
+not pin authorized re-execution to its old bytes (§8.1); a newer uncommitted
+start still does. A previously bound path that disappears remains mandatory
+and fails closed; a newly appearing entry changes the evidence map and cannot
+pass comparison silently. Restoration follows the existing retry rule.
+
+This conservative selection intentionally binds existing literal homonyms,
+including directories such as `.`. They incur the same hashing and C4
+read-only/destination-disjointness rules as explicit declarations, even when
+the command treats them as data. For example, a selected workspace `.`
+overlaps the normal run root beneath `.orchestrate/runs`; C4 refuses those
+destinations before creation. This cost is accepted without a semantic-role
+exception or a new class/form admission restriction. It does not promise
+success for every literal command or permit a new `closed_program_gap`.
 
 The manifest grammar is `"closure": [<path string>, ...]` for both boundary
 kinds. Each entry is a nonempty literal path without NUL; there are no globs,
