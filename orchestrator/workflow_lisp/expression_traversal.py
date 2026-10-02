@@ -319,6 +319,11 @@ def map_expr(
                 expr,
                 base=rewritten_base.base,
                 fields=(*rewritten_base.fields, *expr.fields),
+                shared_field_types=(
+                    (*(rewritten_base.shared_field_types or (None,) * len(rewritten_base.fields)),
+                     *(expr.shared_field_types or (None,) * len(expr.fields)))
+                    if rewritten_base.shared_field_types or expr.shared_field_types else ()
+                ),
             )
         if isinstance(rewritten_base, NameExpr):
             return replace(expr, base=rewritten_base)

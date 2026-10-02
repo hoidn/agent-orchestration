@@ -218,9 +218,12 @@ def typecheck_trial_expr(expr, *, context, recurse, typed_factory):
         expr=replace(
             expr,
             arms=tuple(typed_arms),
-            evaluation=replace(
-                expr.evaluation,
-                provider=evaluator_provider_id,
+            # Evaluated-entry strict inference retypes the source expression;
+            # retain its alias so that pass resolves the same binding again.
+            evaluation=(
+                expr.evaluation
+                if context.compiler_session.closed_program
+                else replace(expr.evaluation, provider=evaluator_provider_id)
             ),
             site_digest=site_digest,
         ),

@@ -1233,6 +1233,20 @@ def normalize_resolved_inline_procedure_calls(
                     role="procedure_bound",
                     allocator=allocator,
                 )
+                bound_capture_sources = {
+                    argument.name: argument
+                    for argument in getattr(selected_binding, "bound_args", ())
+                }
+                static_capture_rows = tuple(
+                    (
+                        argument.source_binding_identity,
+                        argument.type_ref,
+                    )
+                    if (argument := bound_capture_sources.get(param_name)) is not None
+                    and argument.source_binding_identity is not None
+                    else None
+                    for param_name, _type_ref in static_params
+                )
                 body_proc_ref_bindings = dict(
                     getattr(getattr(procedure, "specialization", None), "proc_ref_bindings", {})
                 )
@@ -1268,6 +1282,11 @@ def normalize_resolved_inline_procedure_calls(
                     binding_labels=(
                         None,
                     ) * (len(static_call_bindings.bindings) + len(call_bindings.bindings)),
+                    binding_capture_sources=(
+                        *static_capture_rows,
+                        *((None,) * (len(static_call_bindings.bindings) - len(static_capture_rows))),
+                        *((None,) * len(call_bindings.bindings)),
+                    ),
                 )
                 return expanded
             finally:

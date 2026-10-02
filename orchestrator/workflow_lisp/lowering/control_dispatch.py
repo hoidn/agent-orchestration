@@ -49,6 +49,10 @@ from ..syntax import (
 from ..expression_traversal import walk_expr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
+from .command_transport_decisions import (
+    is_inline_let_binding_expr,
+    surface_binding_materialization,
+)
 from .context import (
     _compile_error,
     _context_with_local_type_binding,
@@ -369,24 +373,7 @@ def _control_lower_let_star_impl(
 
 
 def _control_is_inline_let_binding_expr_impl(expr: Any) -> bool:
-    return isinstance(
-        expr,
-        (
-            NameExpr,
-            FieldAccessExpr,
-            PhaseTargetExpr,
-            LiteralExpr,
-            RecordExpr,
-            RecordUpdateExpr,
-            LoopStateSeedExpr,
-            LoopStateUpdateExpr,
-            UnionVariantExpr,
-            ProviderBundlePathExpr,
-            ProcRefLiteralExpr,
-            BindProcExpr,
-            PureOpExpr,
-        ),
-    )
+    return is_inline_let_binding_expr(expr)
 
 
 def _normalize_let_binding(
@@ -473,7 +460,14 @@ def _lower_effectful_binding_expr(
             step_name=step_name_prefix,
         )
     # schema1_compatibility: retained for explicit legacy composed match lowering.
-    if isinstance(expr, MatchExpr):
+    binding_kind, candidate = surface_binding_materialization(
+        expr, resolved_binding=(
+            None if isinstance(expr, MatchExpr) else _resolve_inline_expr_value(
+                expr, local_values=local_values,
+            )
+        ),
+    )
+    if binding_kind == "match":
         from .control_match import _lower_binding_match_expr
 
         return _lower_binding_match_expr(
@@ -483,13 +477,9 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name_prefix=step_name_prefix,
         )
-    pure_projection_candidate = _pure_projection_binding_candidate(
-        expr,
-        local_values=local_values,
-    )
-    if pure_projection_candidate is not None:
+    if binding_kind == "projection":
         return _lower_pure_projection_binding_expr(
-            pure_projection_candidate,
+            candidate,
             source_expr=expr,
             binding_name=step_name_prefix.rsplit("__", 1)[-1],
             binding_type=binding_type,
@@ -510,19 +500,6 @@ def _lower_effectful_binding_expr(
         ),
         local_values=local_values,
     )
-
-
-def _pure_projection_binding_candidate(
-    expr: Any,
-    *,
-    local_values: Mapping[str, Any],
-) -> Any | None:
-    candidate = _resolve_inline_expr_value(expr, local_values=local_values)
-    if candidate is None or isinstance(candidate, (str, Mapping)):
-        return None
-    if is_pure_projection_expr(candidate):
-        return candidate
-    return None
 
 
 def _lower_pure_projection_binding_expr(

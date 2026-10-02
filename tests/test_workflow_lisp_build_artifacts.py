@@ -2939,6 +2939,7 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
 
     artifact_paths = write_build_artifacts(
         build_root=artifact_root,
+        workspace_root=tmp_path,
         compile_result=result.compile_result,
         validated_bundle=result.validated_bundle,
         entry_selection=result.entry_selection,

@@ -1,7 +1,8 @@
-"""Target 2.35 registration and run/resume refusal before evaluated execution lands."""
+"""Target 2.35 registration and public entry behavior during rollout."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from orchestrator.workflow import validation
 from orchestrator.workflow_lisp import build as workflow_lisp_build
 from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
 from orchestrator.workflow_lisp import syntax
+import orchestrator.workflow.evaluated.authority as evaluated_authority
 from orchestrator.workflow_lisp.closed.target import (
     entry_target_dsl_version,
     refuse_run_at_evaluated_execution_target,
@@ -92,24 +94,55 @@ def test_entry_target_version_and_refusal_diagnostic(tmp_path: Path) -> None:
     ) == ("evaluated_execution_unavailable", "lowering", files["source"], line)
 
 
-def test_public_run_refuses_target_235_before_command_dispatch(
+def test_public_run_235_publishes_authority_but_does_not_dispatch_missing_adapter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     files = _write_program(tmp_path, TARGET)
-    line = next(
-        n for n, source_line in enumerate(files["source"].read_text().splitlines(), 1)
-        if ":target-dsl" in source_line
-    )
+    commands = json.loads(files["commands"].read_text(encoding="utf-8"))
+    for command in commands.values():
+        command["closure"] = []
+    files["commands"].write_text(json.dumps(commands), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     result = _public_run(files)
 
-    assert result.exit_code == 2
+    assert result.exit_code == 1
     assert _log(tmp_path / "probe_revise.py") == []
-    assert caplog.text.count("[evaluated_execution_unavailable]") == 1
-    assert f"{files['source']}:{line}:" in caplog.text
+    assert caplog.text.count("[closed_effect_handler_missing]") == 1
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    assert (run_root / "run.json").is_file()
+    memo = (run_root / "memo.jsonl").read_text(encoding="utf-8")
+    assert '"outcome":"failed"' in memo
+    assert '"code":"closed_effect_handler_missing"' in memo
+
+
+def test_public_run_does_not_dispatch_when_authority_publication_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = _write_program(tmp_path, TARGET)
+    commands = json.loads(files["commands"].read_text(encoding="utf-8"))
+    for command in commands.values():
+        command["closure"] = []
+    files["commands"].write_text(json.dumps(commands), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def fail_authority_write(*_args, **_kwargs):
+        raise OSError("injected authority artifact publication failure")
+
+    monkeypatch.setattr(
+        evaluated_authority, "durable_atomic_write", fail_authority_write
+    )
+
+    result = _public_run(files)
+
+    assert result.exit_code == 1
+    assert _log(tmp_path / "probe_revise.py") == []
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    assert not (run_root / "run.json").exists()
+    assert (run_root / "memo.jsonl").read_bytes() == b""
 
 
 def _replace_target_header(source: Path, before: str, after: str) -> None:
@@ -203,6 +236,40 @@ def test_legacy_run_keeps_external_source_roots(
         result = run_workflow(args)
 
     assert result.exit_code == 0
+
+
+def test_evaluated_run_keeps_external_source_roots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    external_root = tmp_path / "external"
+    project_root.mkdir()
+    files = _public_run_files(project_root, {})
+    external_module = external_root / "shared" / "types.orc"
+    external_module.parent.mkdir(parents=True)
+    external_module.write_text(
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(defmodule shared/types) (export Out) (defrecord Out (value String)))\n',
+        encoding="utf-8",
+    )
+    files["source"].parent.mkdir(parents=True)
+    files["source"].write_text(
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(defmodule grt/entry) (import shared/types :only (Out)) (export run) '
+        '(defworkflow run () -> Out (record Out :value "ok")))\n',
+        encoding="utf-8",
+    )
+    args = _run_args(files)
+    args.source_root.append(str(external_root))
+    argv = [*_run_argv(files), "--source-root", str(external_root)]
+    monkeypatch.chdir(tmp_path)
+
+    with patch.object(sys, "argv", argv):
+        result = run_workflow(args)
+
+    assert result.exit_code == 0
+    assert dict(result.workflow_outputs) == {"value": "ok"}
 
 
 def test_public_resume_refuses_target_235_before_dispatch(

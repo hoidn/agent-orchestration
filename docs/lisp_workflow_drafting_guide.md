@@ -561,12 +561,11 @@ Most defects below share one cause: at run time a value exists only as the
 output of a step
 ([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
 [Evaluated execution](design/workflow_lisp_evaluated_execution.md) is a
-model accepted at gate G1 that addresses that cause. Target 2.35 is selected,
-and internal compiler Tasks 1–7 are integrated, but public CLI compilation
-awaits Phase 2 Task 9 and execution awaits Phase 3. Use targets through 2.34
-for runnable workflows; `compile`, `run` and `resume` currently refuse 2.35
-with `evaluated_execution_unavailable`. The [Phase 2 status](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
-distinguishes delivered compiler work from the remaining tasks.
+model accepted at gate G1 that addresses that cause. At target 2.35,
+`compile` now builds a checked closed program; `run` and `resume` refuse
+with `evaluated_execution_unavailable` until Phase 3. Use targets through
+2.34 for runnable workflows. The [Phase 2 status](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+separates implemented compilation from open runtime verification.
 
 Run a program from the repository root. The value is in
 `.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
@@ -602,6 +601,38 @@ The commands are `probe.py`: `bump n` returns `{n: n+1}`, `fetch n` returns
 | 16 | An effectful call as the argument of another | exit 2, `compiler_defect` | Defect (elaboration) | bind the inner call with `let*` first |
 | 17 | A name bound inside an expression that shadows an outer name | runs, with the value of lexical scope | - | - |
 | 18 | A `bind-proc` value used under a later binder of a name it reads | runs, but reads the later binder's value: 13 where lexical scope gives 7 | Defect (wrong value) | rename the later binding |
+
+At target **2.35**, public `compile` builds `closed_program.json` and
+`manifest.json`; it validates typed values/control, callee bodies,
+canonical configuration and the perform-site table. Commands, portable
+composed providers (extern `asset_file`/`input_file` and admitted `defprompt`
+slots, without context capture), calls/captures/bounded local procedures and
+path-mode run references are admitted. `run` and `resume` refuse with
+`evaluated_execution_unavailable`; the compiler does not establish runtime
+parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py)
+and [target refusal tests](../tests/test_workflow_lisp_target_evaluated_execution.py).
+
+Selected `request-input`, `trial`, phased provider delivery,
+`run-provider-phase`, `produce-one-of`, `resume-or-start`,
+`finalize-selected-item`, `resource-transition`, `materialize-view`, live
+provider supervision/peer groups and bundle-mode `run-ref` refuse with
+`closed_program_gap`. Provider session artifacts, context binding/capture,
+materialization attempts and unsupported input renderers are also outside
+this compiler subset. Recursive calls remain excluded. The owning
+`closed/build.py` / `closed/effects.py` under `orchestrator/workflow_lisp/`
+and [effect tests](../tests/test_workflow_lisp_closed_program_effects.py)
+record located gaps; frontend/typechecking can refuse a source before it
+reaches the builder, so these are not promises of acceptance for every
+retargeted old workflow. The [corpus evidence](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#task-10-the-corpus-check)
+records the exact 37 Built, 10 Gap, 4 Refused and 1 NotSynthesizable partition.
+
+Every supplied command manifest row, even unused, and every used injected
+binding needs `"closure": ["tool.py", "lib/"]` or an explicit `"closure": []`.
+Omission refuses with `command_boundary_closure_missing`; malformed values
+refuse with `command_boundary_manifest_invalid`. Build records canonical
+logical paths without reading closure contents; runtime hashes/enforcement
+remain open. See [command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration)
+and [closure tests](../tests/test_workflow_lisp_command_boundary_closure.py).
 
 The two forms of the paired search controller meet rows 1 and 14. The form
 with a copy per branch,

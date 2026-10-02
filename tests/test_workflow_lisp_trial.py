@@ -40,6 +40,7 @@ from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
 from orchestrator.workflow_lisp.typecheck_context import (
     TypecheckSessionStateCollisionError,
 )
+from orchestrator.workflow_lisp.compiler_session import CompilerSession
 from orchestrator.workflow_lisp.effects import (
     RunsRefEffect,
     RunsTrialEffect,
@@ -526,6 +527,71 @@ def test_trial_typechecks_homogeneous_arms_to_generated_result_and_effect() -> N
     assert {type(effect).__name__ for effect in typed.effect_summary.direct_effects} == {
         "RunsTrialEffect"
     }
+
+
+@pytest.mark.parametrize(
+    "provider_rows",
+    (
+        (("scorer", "codex"), ("other", "codex")),
+        (("scorer", "codex"), ("codex", "other-provider")),
+    ),
+)
+def test_evaluated_retyping_keeps_the_trial_provider_alias(provider_rows) -> None:
+    expr = parse_trial_expression(
+        _expression(_trial_source()),
+        target_dsl_version="2.25",
+    )
+    bindings = {
+        name: ProviderExtern(name=name, provider_id=provider_id)
+        for name, provider_id in provider_rows
+    }
+    bindings["trial-rubric"] = PromptExtern(
+        name="trial-rubric",
+        asset_file="rubrics/trial.md",
+    )
+    externs = ExternEnvironment(bindings_by_name=bindings)
+    compiler_session = CompilerSession(closed_program=True)
+    first = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr, PrimitiveTypeRef("String")),
+        extern_environment=externs,
+        compiler_session=compiler_session,
+    )
+    assert isinstance(first.expr, TrialExpr)
+
+    second = typecheck_expression(
+        first.expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(first.expr, PrimitiveTypeRef("String")),
+        extern_environment=externs,
+        compiler_session=compiler_session,
+    )
+
+    assert isinstance(second.expr, TrialExpr)
+    assert second.expr.evaluation.provider == "scorer"
+
+
+def test_evaluated_retyping_still_rejects_an_authored_provider_id() -> None:
+    source = _trial_source().replace(':provider "scorer"', ':provider "codex"')
+    expr = parse_trial_expression(
+        _expression(source),
+        target_dsl_version="2.25",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr, PrimitiveTypeRef("String")),
+            extern_environment=_externs(),
+            compiler_session=CompilerSession(closed_program=True),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "trial_evaluation_provider_unresolved"
 
 
 def test_trial_failed_enclosing_placement_rolls_back_type_environment() -> None:

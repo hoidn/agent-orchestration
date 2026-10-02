@@ -48,14 +48,21 @@ from orchestrator.runtime_observability import close_executor_session, open_exec
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
-from orchestrator.workflow_lisp.closed.target import refuse_run_at_evaluated_execution_target
+from orchestrator.workflow_lisp.closed.target import (
+    entry_target_dsl_version,
+    refuse_run_at_evaluated_execution_target,
+)
+from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
     render_diagnostic,
 )
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
+from orchestrator.workflow_lisp.syntax import (
+    target_dsl_refuses_non_finite_floats,
+    target_dsl_uses_evaluated_execution,
+)
 from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
@@ -612,6 +619,41 @@ def run_workflow(
         if not workflow_path.exists():
             logger.error(f"Workflow file not found: {workflow_path}")
             return _run_result(1)
+
+        source_read_trace = SourceReadTrace()
+        try:
+            selected_target = entry_target_dsl_version(
+                workflow_path, source_read_trace=source_read_trace
+            )
+        except (LispFrontendCompileError, OSError, UnicodeError):
+            selected_target = None
+            source_read_trace = None
+        if (
+            selected_target is not None
+            and target_dsl_uses_evaluated_execution(selected_target)
+            # ponytail: reserved prompt roots remain on their existing route
+            # until evaluated authority can publish through the retained dir fd.
+            and expected_run_identity is None
+            and reserved_run_fd is None
+        ):
+            from orchestrator.cli.commands.evaluated import run_evaluated_workflow
+
+            exit_code, evaluated_run_id, evaluated_run_root, outputs = (
+                run_evaluated_workflow(
+                    args,
+                    workspace=workspace,
+                    workflow_path=workflow_path,
+                    logical_workflow_path=logical_workflow_path,
+                    run_id=run_id,
+                    source_read_trace=source_read_trace,
+                )
+            )
+            return RunWorkflowResult(
+                exit_code=exit_code,
+                run_id=evaluated_run_id,
+                run_root=evaluated_run_root,
+                workflow_outputs=outputs,
+            )
 
         if not args.dry_run:
             state_manager = StateManager(

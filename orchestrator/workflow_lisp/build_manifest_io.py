@@ -153,6 +153,38 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
     )
 
 
+def _require_build_path_within_workspace(
+    path: Path,
+    *,
+    workspace_root: Path,
+) -> None:
+    """Reject a build destination if following symlinks leaves WORKSPACE."""
+
+    # ponytail: path checks leave a symlink-swap race; use descriptor-rooted
+    # publication if concurrent hostile mutation must be covered.
+    try:
+        workspace = Path(workspace_root).resolve(strict=False)
+        resolved_path = Path(path).resolve(strict=False)
+        resolved_path.relative_to(workspace)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="workflow_lisp_build_path_escapes_workspace",
+                    message=(
+                        f"build output path `{path}` does not resolve within "
+                        f"WORKSPACE `{workspace_root}`"
+                    ),
+                    path=Path(path),
+                    notes=(
+                        "build output paths must stay under WORKSPACE "
+                        "after following symlinks",
+                    ),
+                ),
+            )
+        ) from exc
+
+
 def _load_string_mapping(
     manifest_path: Path | None,
     *,

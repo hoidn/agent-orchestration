@@ -1094,7 +1094,7 @@ def _lower_one_workflow(
         normalize_generated_step_id=_normalize_generated_step_id,
         source_read_trace=source_read_trace,
     )
-    local_values = _signature_local_values(typed_workflow)
+    local_values = _signature_local_values(typed_workflow, type_env=context.type_env)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)
     steps, terminal = _normalize_top_level_terminal(
         typed_workflow=typed_workflow,

@@ -437,6 +437,12 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
             )
         }
     }
+    state.loop_carrier_families_by_expr_key = {
+        ("session.orc", 1, 1, ("form",)): (("session-module", "workflow", "run"), 0)
+    }
+    state.run_ref_origins_by_source_key = {
+        ("session-module", "expression-key"): bytes.fromhex("04" * 32)
+    }
     state.parametric_specialization_requests = {
         "specialization": cast(
             "PendingParametricProcedureSpecialization", object()
@@ -468,6 +474,12 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
                 key: dict(value)
                 for key, value in state.loop_carrier_metadata_by_expr_key.items()
             },
+            "loop_carrier_families_by_expr_key": dict(
+                state.loop_carrier_families_by_expr_key
+            ),
+            "run_ref_origins_by_source_key": dict(
+                state.run_ref_origins_by_source_key
+            ),
             "run_ref_metadata_by_name": dict(
                 state.run_ref_metadata_by_name
             ),
@@ -565,6 +577,8 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "shared_union_field_capabilities": (),
         "loop_carrier_metadata_by_name": {},
         "loop_carrier_metadata_by_expr_key": {},
+        "loop_carrier_families_by_expr_key": {},
+        "run_ref_origins_by_source_key": {},
         "run_ref_metadata_by_name": {},
         "run_ref_metadata_by_expr_key": {},
         "parametric_specialization_requests": {},
@@ -642,13 +656,29 @@ def test_nested_typecheck_merges_success_outputs_and_discards_failure_outputs(
         "generated": object(),
         "loop_name": object(),
         "loop_expr": object(),
+        "loop_family": (("session-module", "workflow", "outer"), 0),
+        "run_ref_origin": bytes.fromhex("01" * 32),
         "specialization": object(),
     }
-    success_values = {name: object() for name in outer_values}
-    failure_values = {name: object() for name in outer_values}
+    success_values = {
+        **{name: object() for name in outer_values},
+        "loop_family": (("session-module", "workflow", "success"), 1),
+        "run_ref_origin": bytes.fromhex("02" * 32),
+    }
+    failure_values = {
+        **{name: object() for name in outer_values},
+        "loop_family": (("session-module", "workflow", "failure"), 2),
+        "run_ref_origin": bytes.fromhex("03" * 32),
+    }
     outer_expr_key = ("outer", 1, 1, ("outer",))
     success_expr_key = ("success", 1, 1, ("success",))
     failure_expr_key = ("failure", 1, 1, ("failure",))
+    outer_family_key = ("session.orc", 1, 1, ("outer",))
+    success_family_key = ("session.orc", 2, 1, ("success",))
+    failure_family_key = ("session.orc", 3, 1, ("failure",))
+    outer_origin_key = ("session-module", "outer-expression")
+    success_origin_key = ("session-module", "success-expression")
+    failure_origin_key = ("session-module", "failure-expression")
     signature = (("value", "String"),)
     state.generated_local_procedures = {
         "outer": cast("TypedProcedureDef", outer_values["generated"])
@@ -664,6 +694,12 @@ def test_nested_typecheck_merges_success_outputs_and_discards_failure_outputs(
                 "LoopStateCarrierMetadata", outer_values["loop_expr"]
             )
         }
+    }
+    state.loop_carrier_families_by_expr_key = {
+        outer_family_key: cast(tuple[object, int], outer_values["loop_family"])
+    }
+    state.run_ref_origins_by_source_key = {
+        outer_origin_key: outer_values["run_ref_origin"]
     }
     state.parametric_specialization_requests = {
         "outer": cast(
@@ -685,6 +721,18 @@ def test_nested_typecheck_merges_success_outputs_and_discards_failure_outputs(
         state.loop_carrier_metadata_by_expr_key.setdefault(expr_key, {})[
             signature
         ] = cast("LoopStateCarrierMetadata", values["loop_expr"])
+        family_key = (
+            success_family_key if prefix == "success" else failure_family_key
+        )
+        origin_key = (
+            success_origin_key if prefix == "success" else failure_origin_key
+        )
+        state.loop_carrier_families_by_expr_key[family_key] = cast(
+            tuple[object, int], values["loop_family"]
+        )
+        state.run_ref_origins_by_source_key[origin_key] = values[
+            "run_ref_origin"
+        ]
         state.parametric_specialization_requests[prefix] = cast(
             "PendingParametricProcedureSpecialization",
             values["specialization"],
@@ -714,6 +762,14 @@ def test_nested_typecheck_merges_success_outputs_and_discards_failure_outputs(
                     outer_expr_key,
                     success_expr_key,
                 }
+                assert set(state.loop_carrier_families_by_expr_key) == {
+                    outer_family_key,
+                    success_family_key,
+                }
+                assert set(state.run_ref_origins_by_source_key) == {
+                    outer_origin_key,
+                    success_origin_key,
+                }
                 assert set(state.parametric_specialization_requests) == {
                     "outer",
                     "success",
@@ -733,6 +789,8 @@ def test_nested_typecheck_merges_success_outputs_and_discards_failure_outputs(
             assert "failure" not in state.generated_local_procedures
             assert "failure" not in state.loop_carrier_metadata_by_name
             assert failure_expr_key not in state.loop_carrier_metadata_by_expr_key
+            assert failure_family_key not in state.loop_carrier_families_by_expr_key
+            assert failure_origin_key not in state.run_ref_origins_by_source_key
             assert "failure" not in state.parametric_specialization_requests
         elif mutation == "success":
             mutate_roots("success", success_values, success_expr_key)
@@ -757,6 +815,14 @@ def test_nested_typecheck_merges_success_outputs_and_discards_failure_outputs(
     assert (
         state.loop_carrier_metadata_by_expr_key[success_expr_key][signature]
         is success_values["loop_expr"]
+    )
+    assert (
+        state.loop_carrier_families_by_expr_key[success_family_key]
+        is success_values["loop_family"]
+    )
+    assert (
+        state.run_ref_origins_by_source_key[success_origin_key]
+        is success_values["run_ref_origin"]
     )
     assert (
         state.parametric_specialization_requests["success"]

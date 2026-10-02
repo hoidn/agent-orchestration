@@ -474,7 +474,9 @@ annotations as proof of context composition.
 
 **Routing:** this adds one pending, unselected workstream and no executable
 manifest/queue row. The five research units and their current allocations stay
-unchanged. The R1a recovery/continuation remains the next already-selected work;
+unchanged. The [current research sequence](#current-research-sequence) and
+its [demonstration plan](2026-09-08-orc-research-demonstration-plan.md#proposed-follow-on--explicit-current-value-handoff)
+own R1a's current disposition and selection of any remaining implementation.
 PC-1 cannot be launched by its coordinator without separate selection/funding.
 
 ## CF-1 — Composition-First Procedures (Pending, Unselected)
@@ -680,7 +682,9 @@ No live permission follows from this roadmap.
 
 **Owner disposition, 2026-09-08:** Ollie selected “Park ES; advance R1a entry”
 in the execution session. R0 is closed by this explicit prelaunch park. Retain
-the [verified prompt-authority correction and remaining gaps](es-f1-task4-runtime-prompt-authority-correction.json),
+the verified prompt-authority correction and remaining gaps (local historical
+evidence: `es-f1-task4-runtime-prompt-authority-correction.json`, not a tracked
+repository artifact),
 all frozen task/evaluator/reference evidence, and the unconsumed canonical
 smoke/study allowances. This is neither cancellation nor scientific completion.
 The pinned refreeze plan and scientific package bytes are unchanged.
@@ -698,7 +702,9 @@ artifacts are retained but not accepted as qualification or an assessment freeze
 Measured construction, reuse, and diagnosis were not completed. The coordinator
 subsequently hit an actual per-request reservation denial under the same USD50
 total cap; that is not a claim that all USD50 was spent. The bounded
-[tighter-reservation investigation](2026-09-08-orc-request-reservation-recovery-plan.md)
+tighter-reservation investigation (local historical evidence:
+`2026-09-08-orc-request-reservation-recovery-plan.md`, not a tracked repository
+plan)
 found no existing smaller enforced output limit on the pinned OpenRouter route;
 no behavior-preserving bound reduction was adopted. The owner subsequently
 authorized autonomous finite cap amendments in the OMP execution session, with

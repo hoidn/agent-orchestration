@@ -11,7 +11,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
 )
-from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
+from orchestrator.workflow_lisp.reader import SourceReadTrace, read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
@@ -34,9 +34,15 @@ def _entry_target_header_from_tree(
     raise AssertionError("validated module is missing its :target-dsl header")
 
 
-def _entry_target_header(path: Path) -> tuple[str, SourceSpan]:
+def _entry_target_header(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> tuple[str, SourceSpan]:
     path = resolve_path_preserving_fd(path)
-    return _entry_target_header_from_tree(read_sexpr_file(path))
+    return _entry_target_header_from_tree(
+        read_sexpr_file(path, source_read_trace=source_read_trace)
+    )
 
 
 def _initial_source_location(path: Path) -> SourceSpan:
@@ -56,10 +62,16 @@ def _entry_target_header_from_bytes(
     return _entry_target_header_from_tree(parse_tree)
 
 
-def entry_target_dsl_version(path: Path) -> str:
+def entry_target_dsl_version(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> str:
     """Return the target declared by one entry module without resolving imports."""
 
-    target_dsl_version, _span = _entry_target_header(path)
+    target_dsl_version, _span = _entry_target_header(
+        path, source_read_trace=source_read_trace
+    )
     return target_dsl_version
 
 
@@ -106,7 +118,11 @@ def _evaluated_execution_unavailable_diagnostic(
 def refuse_run_at_evaluated_execution_target(path: Path) -> None:
     """Refuse run/resume early when the entry header selects evaluated execution."""
 
-    target_dsl_version, target_span = _entry_target_header(path)
+    try:
+        target_dsl_version, target_span = _entry_target_header(path)
+    except (LispFrontendCompileError, OSError, UnicodeError):
+        # This is only an early refusal peek; the regular build owns source diagnostics.
+        return
     if syntax.target_dsl_uses_evaluated_execution(target_dsl_version):
         _raise_evaluated_execution_unavailable(target_dsl_version, target_span)
 

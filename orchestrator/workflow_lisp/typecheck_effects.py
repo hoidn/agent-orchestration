@@ -1186,6 +1186,22 @@ def typecheck_provider_result_expr(
     )
 
 
+def require_evaluated_provider_bundle_path_target(
+    expr: ProviderBundlePathExpr,
+    target_type: PathTypeRef,
+) -> None:
+    """Apply the evaluated X4 root constraint to an already typed path."""
+
+    if target_type.definition.under != ".orchestrate/runs":
+        raise_error(
+            "`provider-bundle-path :as` must be rooted under `.orchestrate/runs` for evaluated execution",
+            code="provider_bundle_path_target_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+
 def typecheck_provider_bundle_path_expr(
     expr: ProviderBundlePathExpr,
     *,
@@ -1216,17 +1232,8 @@ def typecheck_provider_bundle_path_expr(
             expansion_stack=expr.expansion_stack,
         )
     target_dsl_version = getattr(context.type_env, "target_dsl_version", None)
-    if (
-        target_dsl_uses_evaluated_execution(target_dsl_version)
-        and target_type.definition.under != ".orchestrate/runs"
-    ):
-        raise_error(
-            "`provider-bundle-path :as` must be rooted under `.orchestrate/runs` for evaluated execution",
-            code="provider_bundle_path_target_invalid",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
+    if target_dsl_uses_evaluated_execution(target_dsl_version):
+        require_evaluated_provider_bundle_path_target(expr, target_type)
 
     value_expr_env = getattr(context.session_state, "value_expr_env", {})
     source_expr = None
@@ -1332,6 +1339,9 @@ def typecheck_command_result_expr(
             for field_name, value_expr in expr.adapter_inputs
         }
         arg_summaries.extend(typed_input.effect_summary for typed_input in typed_inputs.values())
+        expr = replace(expr, adapter_inputs=tuple(
+            (name, typed_input.expr) for name, typed_input in typed_inputs.items()
+        ))
         expected_fields = {field.name: field for field in command_binding.input_signature}
         missing_fields = tuple(
             field.name
@@ -1375,9 +1385,9 @@ def typecheck_command_result_expr(
                 typed_input=typed_input,
             )
     else:
-        for arg_expr in expr.argv:
-            typed_arg = recurse(arg_expr)
-            arg_summaries.append(typed_arg.effect_summary)
+        typed_args = tuple(recurse(arg_expr) for arg_expr in expr.argv)
+        arg_summaries.extend(typed_arg.effect_summary for typed_arg in typed_args)
+        expr = replace(expr, argv=tuple(typed_arg.expr for typed_arg in typed_args))
         if command_binding is not None:
             validate_command_argv(expr, command_binding)
         else:
