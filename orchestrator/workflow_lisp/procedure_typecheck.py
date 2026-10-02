@@ -718,6 +718,9 @@ def _typecheck_parametric_procedure_call(
             form_path=expr.form_path,
         )
 
+    if context.compiler_session.closed_program:
+        expr = replace(expr, args=tuple(argument.expr for argument in typed_args))
+
     concrete_bindings = all(not _type_ref_contains_type_param(bound_type) for bound_type in type_bindings.values())
 
     if not concrete_bindings:

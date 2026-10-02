@@ -3170,12 +3170,16 @@ class Builder:
     not broaden admission. Runtime equality with the present route remains
     the open item of this plan (design §19, 4).
   - X4: `result_path` carries the declared path descriptor. At the new
-    target `typecheck_provider_bundle_path_expr` additionally requires the
-    `:as` type's `under` to be `.orchestrate/runs` (the parent of every run
-    root, `specs/state.md`), else `provider_bundle_path_target_invalid`;
-    this one-line rule in `typecheck_effects.py`, gated by
-    `target_dsl_uses_evaluated_execution(context.type_env.target_dsl_version)`,
-    belongs to this task.
+    target `typecheck_provider_bundle_path_expr` requires the `:as` type's
+    `under` to be `.orchestrate/runs` (the parent of every run root,
+    `specs/state.md`), else `provider_bundle_path_target_invalid`. Preserve
+    the existing authored-target gate in `typecheck_effects.py`; extract its
+    root check to one shared helper and call that helper from
+    `closed/values.py` when a selected older source body or supplied older
+    typed snapshot is translated. Source typechecking visits imported
+    declarations that may never be selected, so do not gate it globally on
+    `compiler_session.closed_program`; closed translation is the precise
+    selected-body boundary. Keep the strict reader's independent X4 check.
   - §4.3: a `halt` in a join's body is the join's value: `body()` translates
     it as `halt` and the evaluator (Phase 3) treats it so; nothing to do here
     beyond keeping `halt` in that position. `continue` → `{"k": "continue", "loop": d.loops[-1], ...}`
@@ -3948,6 +3952,22 @@ build root by `build_key` and copies it beside `run.json` (§8.4).
 
 **Files:**
 - Create: `tests/workflow_lisp_closed_program_corpus.py` (helper, not collected), `tests/test_workflow_lisp_closed_program_corpus.py`
+- Create: `tests/workflow_lisp_closed_program_p3.py` (bounded source-to-closed P3 projection helper called by the maintained corpus test)
+- Modify: `orchestrator/workflow_lisp/closed/effects.py` (repair the admitted raw-argv certified-adapter translation defect found by the admission matrix)
+- Modify: `orchestrator/workflow_lisp/typecheck_trial.py` and `tests/test_workflow_lisp_trial.py` (retain the authored provider alias only while an evaluated-entry compile retypes the trial)
+- Modify: `orchestrator/workflow_lisp/expressions.py`, `typecheck_dispatch.py`, `wcc/elaborate.py`, and `procedure_typecheck.py` (retain closed-profile enum ownership and typed generic call arguments across strict retyping)
+- Modify: `tests/test_workflow_lisp_closed_program_frontend.py` (public old-source, nominal-owner, and generic-seed regression coverage)
+- Modify: `orchestrator/workflow_lisp/closed/build.py` and `tests/test_workflow_lisp_closed_program_frontend.py` (preserve required entry context parameters that cannot be synthesized by the existing X1/X2 defaults)
+- Modify: `orchestrator/workflow_lisp/closed/check.py` and `tests/test_workflow_lisp_closed_program_frontend.py` (make canonical operator-binding maps independent of JSON object key order)
+- Modify: `orchestrator/workflow_lisp/typecheck_effects.py`, `orchestrator/workflow_lisp/closed/values.py`, and `tests/test_workflow_lisp_closed_program_frontend.py` (apply the evaluated provider-bundle path root rule to old-source and supplied-snapshot bodies when selected under a typed entry)
+- Modify: `orchestrator/workflow_lisp/closed/names.py` and `tests/test_workflow_lisp_closed_program_context.py` (resolve retained nominal owners locally when a captured native context shares a module name with the caller's merged type environment)
+- Modify: `orchestrator/workflow_lisp/closed/build.py` (retain exact run-ref producers nested in an injected phantom carrier value)
+- Reuse: `tests/test_workflow_lisp_closed_program_effects.py` (the existing public carrier/readback and run-ref tamper selectors are the maintained RED/GREEN controls)
+- Modify: `tests/test_workflow_lisp_closed_program_context.py` (maintain source-produced 1:N record/path views, output refinements, defaults, provider operand order, and all six RunCtx/PhaseCtx/ItemCtx partitions)
+- Modify: `tests/test_workflow_lisp_closed_program_frontend.py` (maintain typed 2.35 producers and encoded, decoded, snapshot-restored 2.34 producers with independent configuration scopes)
+- Modify: `tests/test_workflow_lisp_closed_program_names.py` (maintain private nested record/enum/path identities through imported generic specialization keys, parameters, and results)
+- Modify: `tests/test_workflow_lisp_closed_program_build.py` (maintain plain three-frame readback and direct/imported-helper loop-arm frames)
+- Modify: `tests/test_workflow_lisp_closed_program_compile_cli.py` (maintain the fourth-manifest mixed old/evaluated producer CLI route)
 
 **Read first:** the spike's `census.py` (the corpus roots, how externs were
 synthesized from checked-in manifests or the source: read it, do not import
@@ -3980,10 +4000,11 @@ design §18 first row; Phase 2 milestones P1, P2, P3.
   `not_synthesizable`, with the exact missing facts; it is not a new language
   gap, and the admission matrix must separately cover that supported form.
 - Produces: `EXPECTED: dict[str, Outcome]` pinned per workflow: `built`
-  (with its site count), `gap(form)`, `refused(code)` (a typecheck refusal
-  the flat route gives too), `not_synthesizable`.
+  (with its site count), `gap(form)`, `refused(code)` (an inherited source
+  refusal confirmed at the original target, or a specifically documented
+  target-migration refusal), `not_synthesizable`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 @pytest.mark.parametrize("workflow", corpus(), ids=str)
@@ -3998,7 +4019,7 @@ def test_every_shipped_workflow_builds_a_closed_program_or_is_refused_by_a_gap_n
 
 def test_the_partition_is_stated() -> None:
     counts = Counter(type(o).__name__ for o in EXPECTED.values())
-    assert counts["Built"] >= 38                      # the spike built 38; X2 and X3 now build two more
+    assert counts == EXPECTED_PARTITION              # evidence-backed exact partition; §18 requires every admitted form to build
     assert counts["Gap"] + counts["Refused"] + counts["NotSynthesizable"] + counts["Built"] == len(EXPECTED)
 ```
 
@@ -4011,21 +4032,210 @@ the five `validate-design-gap-architecture`, `-stdlib`,
 `qa_placement_trial::compare`; `refused(provider_phased_interactive_capability_missing)`
 for `review-revise-design-docs-judgment-panel`; `refused(macro_arity_error)`
 for `review-revise-parametric-design-docs`; `built` for the rest, including
-`run-with-phase-composed-binding` and `lisp_frontend_design_delta::drain`
-(X3 and X2 are built now). Where the run disagrees, the run wins: record the
-actual outcome, and if a workflow that the spike built now fails, that is a
-finding for the report, not an expectation to lower.
+`run-with-phase-composed-binding` (X3). The maintained 2.35 run reaches
+`materialize-view` in the imported `plan_phase` while building
+`lisp_frontend_design_delta::drain` in an earlier bounded source-graph probe,
+after the enum-owner and generic-child repairs but before the final X4
+selected-body gate. That probe locates the gap at
+`plan_phase.orc:232:21`; it is not the final joint corpus result. Applying the
+X4 root check to the selected old body makes the maintained corpus stop first
+at `provider_bundle_path_target_invalid` for `drain`, while the same source
+passes at original target 2.14. A separate old-source compiled-import control
+builds and reads back, and source-drain legacy artifact projections remain
+byte-equal. Do not widen the X4 path boundary or expand materializer behavior
+in Task 10. Record the exact final evidence-backed partition instead of using
+the spike's historical 38-built count as an admission threshold. Where a
+workflow that the spike built now fails, repair its owner or document a
+target-specific refusal supported by its governing contract; do not conceal
+a compiler defect by lowering the expectation.
 
-- [ ] **Step 2: Run; expected failures** the pinned outcomes that differ from
+- [x] **Step 2: Run; expected failures** the pinned outcomes that differ from
 the actual ones; each is inspected before `EXPECTED` is corrected.
 
-- [ ] **Step 3: Write the helper** (about 180 lines) and correct `EXPECTED`
+- [x] **Step 3: Write the helper** and correct `EXPECTED`
 from the run, with one line of justification per correction in the report.
 
-- [ ] **Step 4: Run; expected pass.** Time the module; it should stay under
-three minutes serial (38 builds at 0.1 to 0.3 s each plus typecheck).
+- [x] **Step 4: Run; expected pass.** Time the full maintained module; the
+52 pinned corpus rows plus admission/P3 controls pass serially in 31.36 s,
+under the three-minute target.
 
-- [ ] **Step 5: P3 evidence** (contracts and complete prompt assembly facts).
+- [x] **Step 5: P3 evidence** (contracts and complete prompt assembly facts).
+
+The admission matrix also pins authored invocation mode for a certified
+adapter. `test_certified_adapter_preserves_its_authored_invocation_mode`
+confirms both raw `:argv` and promoted `:adapter` source build at 2.34; the
+new-target raw-argv case currently fails closed-tree validation because the
+translator serializes it as a document with no selected signature fields.
+Repair this at `closed/effects.py` using the retained WCC invocation mode,
+preserving the certified boundary configuration and reader checks. The
+promoted-document case remains the control. Fresh evidence:
+`/tmp/p2-task10-raw-argv-red5.log` (1 failed, raw argv;
+1 passed, promoted document).
+
+The 52-program probe also compares the same shipped QA-trial source and its
+checked provider/prompt manifests at its original target 2.25 and after
+rewriting only the entry target to 2.35. The original Stage 3 route typechecks;
+at 2.35 both `compile_stage3_entrypoint` (which selects the evaluated profile)
+and `compile_typed_program` currently reject the trial evaluator after
+resolving its configured `scorer` alias to the provider id. Preserve that RED
+evidence and repair alias retention at the trial typecheck owner before
+classifying the corpus; do not replace the expected `gap(trial)` with this
+provider lookup failure or another refusal.
+
+The repeated trial typecheck resolves `scorer` correctly on its first pass,
+then replaces the authored alias with the provider id in the typed expression.
+The evaluated-entry strict inference pass retypes that expression and
+mistakenly treats the provider id as an authored alias. Keep
+`_validate_evaluation_bindings` unchanged, and preserve the original evaluation
+only when `context.compiler_session.closed_program` is true; legacy typechecks
+continue storing the resolved provider id exactly as before. The maintained
+trial regression covers shared provider ids, alias/id collisions, unknown
+authored ids, and the old-module-under-evaluated-entry profile. This bounded
+choice makes future trial admission responsible for resolving the retained
+alias in its owning module's extern environment when constructing an effect
+configuration; Phase 2 still refuses trial before that projection is needed.
+
+The real X2 source probe exposed a second repeated-typecheck loss. An enum
+member inside an imported procedure is retyped at the evaluated entry using the
+entry's nominal environment; a caller-defined homonym can therefore shadow
+the imported owner, or the imported member can become unresolved. Generic
+procedure argument retyping also recurses over the original arguments instead
+of the typed child expressions, dropping compiler-generated path-seed type
+facts before WCC. Preserve a resolved enum `TypeRef` as omitted typed metadata
+and replace generic call arguments with their typed children only for
+`compiler_session.closed_program`; WCC consults the retained owner there. The
+legacy route remains on its original expression tree. Maintain source-produced
+old-target and imported-snapshot controls, private homonyms, an invalid
+authored enum-member refusal, and the generic generated-path seed case. The
+new metadata is omitted from legacy JSON when it is `None` and is excluded
+from semantic identity; later typed-product formats must explicitly preserve
+or reconstruct enum ownership if they begin serializing these in-memory
+typecheck nodes.
+
+The imported `lisp_frontend_design_delta/stdlib_payloads` source workflows
+provide another entry-shape control: they require an explicit `DrainCtx` whose
+fields are not one of the compiler's supported X1/X2 entry defaults. The
+builder currently removes every hidden-context formal from the artifact
+parameters and then tries to synthesize this unsupported context, producing a
+compiler defect. Keep only contexts for which the existing `RunCtx`/`PhaseCtx`
+constructors can actually supply an entry value hidden; retain required
+non-synthesizable contexts as normal typed parameters. The maintained source
+test must show that 2.14 accepted this required input and that 2.35 builds,
+validates and strictly reads it back; an omitted unsupported context remains a
+refusal. Do not infer support from `allows_entry_bootstrap`, which is false for
+both some supported contexts and this unsupported one.
+
+The 12-argument operator control also exposes an artifact-reader defect. The
+operator payload's `bindings` is a JSON object keyed by `a0` through `aN`,
+while `args` is the ordered array. Canonical JSON sorts object keys, so for
+more than ten operands `a10` precedes `a2`; comparing `list(bindings)` with
+argument order incorrectly rejects the builder's own artifact. At both
+closed-value inference and checked-node validation, compare the exact binding
+key set and continue validating each `aN` type against argument index `N`.
+Maintain a public source-built 12-operand round-trip and negative missing,
+extra and wrong-type binding cases. This preserves argument order in the array
+and the existing schema/type trust checks; it only removes a JSON map-order
+assumption.
+
+The generic-child repair also exposed a narrow run-ref producer-association
+regression in existing phantom-carrier controls. After typed generic children
+are retained, `_run_ref_context_for_value` could find producers under injected
+record fields but missed generated results present only in the `WccInject`
+value's retained type. Finalization then raised `CanonicalNameError` for
+`RunRefResult$...` in both source-free phantom-carrier build and public
+run-ref-tamper controls (initial RED logs:
+`/tmp/task10-isolated-runref-phantom.log` and
+`/tmp/task10-isolated-runref-tamper.log`; both selectors pass on Task 9 base).
+Keep the correction local to `WccInject`: inspect nested run-ref TypeRefs from
+that value's retained type, then resolve them only through the definition's
+retained producer map and the existing exact-TypeRef/unique-origin resolver.
+Do not infer by signature or name, add a registry, or change the artifact.
+This adds a bounded type-tree walk at that injected value while preserving the
+existing producer distinctions. The maintained controls are
+`test_same_signature_run_refs_finalize_inside_phantom_loop_carriers` and
+`test_public_run_ref_artifact_rejects_full_digest_and_reserved_type_tampering`.
+
+The refused-case control restores only each prepared entry's original target
+declaration before invoking the flat Stage 3 API; the copied imported graph
+and checked extern facts stay identical. This distinguishes inherited source
+refusals from target migration rules. `review_revise_design_docs` has the same
+`workflow_signature_mismatch` at original target 2.23 (required `run` is
+missing). `review_revise_design_docs_judgment_panel` passes at 2.23 and builds
+at 2.35 with two sites, because its phased helper is not reachable. The
+selector and `drain` pass at their original targets but their direct 2.35
+source is refused with `provider_bundle_path_target_invalid`, the documented
+X4 path boundary under `.orchestrate/runs`; keep these target-specific
+refusals explicit rather than weakening the root constraint. An imported
+old-source selector or drain body selected under a typed entry is also checked
+at the selected-body boundary. The source-only probes isolated the previous
+late reader failure (`compiler_defect`, provider result path under `state`):
+typechecking admits the old provider path into the new entry, then closed
+value translation reaches the reader's `.orchestrate/runs` root rule too
+late. Extract the existing evaluated-target root requirement into one typed
+helper in `typecheck_effects.py`; keep the source typecheck's authored-target
+gate using that helper, and call it from `closed/values.py` with the retained
+`PathTypeRef` before producing the provider-bundle-path value. Keep
+`closed/check.py`'s X4 reader rule unchanged. The maintained public regression
+covers direct new source, selected old source, selected old bundle, restored
+snapshots and source deletion, plus uncalled valid paths and
+`.orchestrate/runs` readbacks. This repairs the old-source graph diagnostic
+without widening the path boundary.
+
+An additional admitted combination exposed owner loss in a workflow capture:
+an imported 2.34 producer has an ordinary native `PhaseCtx` parameter and
+omits it at two `run-phase` calls while supplying it explicitly at another;
+the caller also passes both the captured context and an ordinary context.
+Stage 3 accepts the producer and 2.35 typechecking accepts the caller, but
+closed naming could not resolve the native declaration after the merged root
+kept the caller's same-module type environment. Keep the fix local to
+`names._definition_owner_identity`: search the current environments first,
+then the retained imported-program snapshots by exact declaration identity,
+deduplicating programs and environments. Do not change `_typed_type_envs`,
+`_workflow_request`, or add a name/shape fallback. The maintained controls must
+cover shared, caller-private, and transitive owners at original and relocated
+roots, exact capture recipients and explicit-call selection, unchanged native
+signatures, stable digest/readback after source deletion, and rejection of an
+unregistered cloned declaration. The scratch RED is
+`/tmp/task10-context-key-owner-probe.py`; the bounded owner-local proposal and
+six case controls are in `task-10-context-key-owner-design.md` and
+`/tmp/task10-context-key-owner-controls.py`. This lookup now pays the cost of
+walking the retained snapshot graph when resolving names, but keeps other
+inventory consumers and their name-based behavior unchanged.
+
+The maintained source matrix also exercises both producer products through
+source-deleted public builds. Two typed 2.35 producer snapshots and two 2.34
+bundles encoded and decoded through the real capsule transport retain their
+own provider/prompt configuration while the caller keeps a conflicting scope;
+the old bundles are paired with their original typed source snapshots, and the
+omitted-snapshot control retains `compiled_workflow_source_required`.
+`test_source_free_imports_keep_typed_and_restored_producer_scopes` builds and
+strictly reads back both routes. The fourth-manifest CLI selector remains the
+separately maintained public CLI route.
+
+The six context partitions are covered across
+`test_hidden_entry_run_context_is_a_typed_x1_record`, the two cases of
+`test_omitted_phase_context_uses_the_default_or_existing_run_context`, and
+`test_phase_context_partitions_keep_exact_source_routes_and_readback` (phase
+from phase, ItemCtx-derived phase, and explicit phase), each with strict
+artifact readback. The private nested owner control is
+`test_closed_imported_private_nesting_survives_generic_specialization_keys`;
+it checks private record, enum and path descriptors in both imported
+specialization keys and emitted workflow/procedure signatures after source
+deletion.
+
+The final maintained corpus pins 37 `Built`, 10 `Gap`, four `Refused`, and one
+`NotSynthesizable` outcome. Compared with the initial D3-seeded red table,
+`kiss_backlog_item` is `Built(7)` after its declared launcher stand-in is
+prepared; `same_file_record_call_binding` is `Built(1)` after its explicit
+result-shape stand-in is prepared; `review_revise_design_docs` retains its
+original-target `workflow_signature_mismatch`; the judgment panel is
+`Built(2)` because its composed delivery is reachable and its phased helper
+is not; and selector plus design-delta drain are target-migration
+`provider_bundle_path_target_invalid` refusals under X4, while each passes at
+its original target. Those two selected old-body refusals are separately
+covered by the source/snapshot X4 regression. Keep the trial, materializer,
+and resource-transition gaps at their located forms; do not use the historical
+spike count as a floor.
 
 For `workflows/examples/improve_experiment_proposal.orc`, the two single-call
 workflows, and dedicated input-file/document-slot fixtures, compile both
@@ -4044,6 +4254,24 @@ are not dependency parity. Reuse existing pure prompt/dependency projection
 helpers where available; full executor-free prompt assembly and request
 comparison through `run`/`resume` remain Phase 3 evidence. Test name:
 `test_contracts_and_prompt_inputs_equal_the_flat_routes_for_the_real_programs`.
+The helper reads result structure and refinements from the linked flat route's
+actual `TypeRef` descriptor, then normalizes only nominal names through retained
+closed-program type owners. It keeps authored fields and source prompt values
+intact rather than rebuilding both sides from the closed type environment. The
+label fixture pairs a generated value occurrence with authored
+`__wcc_anf_0123456789` and checks the retained source binding relationship for
+each occurrence.
+
+The maintained matrix additionally pairs the source-produced three-frame
+plain-call fixture (`test_three_call_sites_of_one_procedure_are_one_definition_and_three_frames`)
+with strict readback, and checks the direct loop-arm and named-helper loop-arm
+forms in `test_control_fixtures_build_and_read_back_after_source_removal`.
+The generic `if_in_hook` fixture checks its persisted specialization key,
+including the exact `improve` result type and its `review`/`revise` procedure
+targets, through the same strict reader. Four existing negative/transport
+selectors are reused from their owning modules rather than copied into a
+second matrix: nested traversal, certified document metadata, invocation
+mode, and command-configuration tamper rejection.
 
 Add an explicit admission matrix alongside the shipped corpus: external-tool
 and certified-adapter commands; both prompt source kinds; document/rendered/
@@ -4059,11 +4287,57 @@ Task 2's admission rules, not new `gap(form)` outcomes. Every admitted matrix
 entry builds and round-trips; an internal compiler failure is repaired,
 never added to `EXPECTED` as a new gap.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Freeze commit** (fresh independent reviews follow this SHA)
 
-`git add -- tests/workflow_lisp_closed_program_corpus.py tests/test_workflow_lisp_closed_program_corpus.py`
+Stage and commit only this plan, its implementation repairs, and maintained
+corpus/matrix tests with explicit pathspecs; do not use `git add -A`.
 
-`git commit -m "test: every shipped workflow builds a closed program or is refused by a gap naming the form" -- tests/workflow_lisp_closed_program_corpus.py tests/test_workflow_lisp_closed_program_corpus.py`
+```sh
+git add -- \
+  docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md \
+  orchestrator/workflow_lisp/closed/build.py \
+  orchestrator/workflow_lisp/closed/check.py \
+  orchestrator/workflow_lisp/closed/effects.py \
+  orchestrator/workflow_lisp/closed/names.py \
+  orchestrator/workflow_lisp/closed/values.py \
+  orchestrator/workflow_lisp/expressions.py \
+  orchestrator/workflow_lisp/procedure_typecheck.py \
+  orchestrator/workflow_lisp/typecheck_dispatch.py \
+  orchestrator/workflow_lisp/typecheck_effects.py \
+  orchestrator/workflow_lisp/typecheck_trial.py \
+  orchestrator/workflow_lisp/wcc/elaborate.py \
+  tests/test_workflow_lisp_closed_program_build.py \
+  tests/test_workflow_lisp_closed_program_compile_cli.py \
+  tests/test_workflow_lisp_closed_program_context.py \
+  tests/test_workflow_lisp_closed_program_corpus.py \
+  tests/test_workflow_lisp_closed_program_frontend.py \
+  tests/test_workflow_lisp_closed_program_names.py \
+  tests/test_workflow_lisp_trial.py \
+  tests/workflow_lisp_closed_program_corpus.py \
+  tests/workflow_lisp_closed_program_p3.py
+git commit -m "workflow-lisp: pin evaluated execution corpus and repair admitted paths" -- \
+  docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md \
+  orchestrator/workflow_lisp/closed/build.py \
+  orchestrator/workflow_lisp/closed/check.py \
+  orchestrator/workflow_lisp/closed/effects.py \
+  orchestrator/workflow_lisp/closed/names.py \
+  orchestrator/workflow_lisp/closed/values.py \
+  orchestrator/workflow_lisp/expressions.py \
+  orchestrator/workflow_lisp/procedure_typecheck.py \
+  orchestrator/workflow_lisp/typecheck_dispatch.py \
+  orchestrator/workflow_lisp/typecheck_effects.py \
+  orchestrator/workflow_lisp/typecheck_trial.py \
+  orchestrator/workflow_lisp/wcc/elaborate.py \
+  tests/test_workflow_lisp_closed_program_build.py \
+  tests/test_workflow_lisp_closed_program_compile_cli.py \
+  tests/test_workflow_lisp_closed_program_context.py \
+  tests/test_workflow_lisp_closed_program_corpus.py \
+  tests/test_workflow_lisp_closed_program_frontend.py \
+  tests/test_workflow_lisp_closed_program_names.py \
+  tests/test_workflow_lisp_trial.py \
+  tests/workflow_lisp_closed_program_corpus.py \
+  tests/workflow_lisp_closed_program_p3.py
+```
 
 **What this makes harder later:** the pinned partition changes with every
 Phase 4 class; the expectation table is the record of what the first release

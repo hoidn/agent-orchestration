@@ -890,14 +890,64 @@ def test_fourth_manifest_build_keeps_old_and_evaluated_producer_bodies(
       (+ current legacy)))""",
     ))
 
-    summary, program, _artifact = _build_state(files)
+    summary, program, artifact = _build_state(files)
 
     assert summary["build_key"] == Path(summary["build_root"]).name
+    restored = ClosedProgram.from_artifact(artifact.decode("utf-8"))
+    assert (restored.tree, restored.sites, restored.digest) == (
+        program.tree,
+        program.sites,
+        program.digest,
+    )
     definitions = program.tree["definitions"]
     evaluated = definitions["workflow:producer/entry::selected-run"]
     legacy = definitions["workflow:unused/entry::run"]
-    assert evaluated["body"]
-    assert legacy["body"]
+    assert evaluated["key"][:3] == ["producer/entry", "workflow", "selected-run"]
+    assert legacy["key"][:3] == ["unused/entry", "workflow", "run"]
+
+    # The new producer is compiled from its typed 2.35 source and its inline
+    # helper is retained as executable body data after the CLI build/readback.
+    body = evaluated["body"]
+    first = body
+    assert first["k"] == "let" and first["value"]["k"] == "lit"
+    assert first["value"]["v"] == 6
+    second = first["body"]
+    assert second["k"] == "let" and second["value"]["k"] == "name"
+    assert second["value"]["n"] == first["name"]
+    third = second["body"]
+    assert third["k"] == "let" and third["value"]["k"] == "op"
+    assert third["value"]["payload"]["expr"]["operator"] == "+"
+    assert [argument["k"] for argument in third["value"]["args"]] == ["name", "lit"]
+    assert third["value"]["args"][0]["n"] == second["name"]
+    assert third["value"]["args"][1]["v"] == 1
+    assert third["body"]["k"] == "halt"
+    assert third["body"]["value"]["n"] == third["name"]
+    assert not [node for node in _closed_ast_nodes(body) if node.get("k") == "call"]
+
+    # The source-produced old 2.34 bundle keeps its original literal body.
+    assert legacy["body"]["k"] == "halt"
+    assert legacy["body"]["value"]["k"] == "lit"
+    assert legacy["body"]["value"]["v"] == 9
+
+    # Both imports are actually selected by the consumer, in authored order.
+    entry = program.tree["body"]
+    current, previous = entry, entry["body"]
+    assert current["k"] == previous["k"] == "let"
+    assert current["name"] == "current" and previous["name"] == "legacy"
+    assert current["value"]["callee"] == "workflow:producer/entry::selected-run"
+    assert previous["value"]["callee"] == "workflow:unused/entry::run"
+    total = previous["body"]
+    assert total["k"] == "let" and total["value"]["k"] == "op"
+    assert total["value"]["payload"]["expr"]["operator"] == "+"
+    assert [argument["n"] for argument in total["value"]["args"]] == [
+        current["name"], previous["name"]
+    ]
+
+
+def _closed_ast_nodes(value):
+    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+
+    return tuple(_ast_nodes(value))
 
 
 def test_imported_producer_key_uses_the_consumed_source_snapshot(

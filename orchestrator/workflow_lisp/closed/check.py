@@ -1390,8 +1390,8 @@ class _Checker:
             args = value["args"]
             bindings = payload["bindings"]
             expected_names = [f"a{index}" for index in range(len(args))]
-            if list(bindings) != expected_names:
-                self.fail("definition_key", "closed operator bindings do not match argument order", value)
+            if set(bindings) != set(expected_names):
+                self.fail("definition_key", "closed operator binding names do not match argument indexes", value)
             for index, child in enumerate(args):
                 descriptor = self._infer_closed_value(child, env)
                 expected = bindings[f"a{index}"]["type"]
@@ -3199,8 +3199,8 @@ class _Checker:
                 self.fail("payload_invalid", "operator arguments must be an array", node)
             bindings = payload.get("bindings", {})
             expected_names = [f"a{index}" for index in range(len(args))]
-            if list(bindings) != expected_names:
-                self.fail("payload_invalid", "operator bindings do not match argument order", node)
+            if set(bindings) != set(expected_names):
+                self.fail("payload_invalid", "operator binding names do not match argument indexes", node)
             for index, argument in enumerate(args):
                 actual = self._value(argument, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
                 self._require_type(actual, bindings[f"a{index}"]["type"], "type_mismatch", argument)

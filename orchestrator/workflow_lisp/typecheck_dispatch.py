@@ -379,7 +379,11 @@ def _typecheck(
         )
     if isinstance(expr, EnumMemberExpr):
         try:
-            enum_type = type_env.resolve_type(
+            enum_type = (
+                expr.resolved_type
+                if context.compiler_session.closed_program
+                else None
+            ) or type_env.resolve_type(
                 expr.enum_name,
                 span=expr.span,
                 form_path=expr.form_path,
@@ -411,7 +415,15 @@ def _typecheck(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        return _typed(expr=expr, type_ref=enum_type, effect=EMPTY_EFFECT_SUMMARY)
+        return _typed(
+            expr=(
+                replace(expr, resolved_type=enum_type)
+                if context.compiler_session.closed_program
+                else expr
+            ),
+            type_ref=enum_type,
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
     if isinstance(expr, NameExpr):
         try:
             type_ref = value_env[expr.name]

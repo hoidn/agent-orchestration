@@ -166,7 +166,7 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
         "contract": contract_value,
     }
 
-    if isinstance(binding, CertifiedAdapterBinding):
+    if isinstance(binding, CertifiedAdapterBinding) and payload.get("adapter_name") is not None:
         supplied = dict(payload.get("adapter_inputs", ()))
         selected_rows = [row for row in binding.input_signature if row.name in supplied]
         unknown = set(supplied) - {row.name for row in binding.input_signature}

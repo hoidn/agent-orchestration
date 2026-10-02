@@ -10,6 +10,8 @@ import pytest
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+from orchestrator.workflow_lisp.closed.build import build_closed_program
+from orchestrator.workflow_lisp.closed.program import ClosedProgram
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.closed.names import (
     Renamer,
@@ -89,6 +91,90 @@ def test_canonical_nominal_descriptors_keep_private_owners_after_import_and_relo
     second = descriptors(elsewhere)
     assert first == second
     assert first["first"] != first["second"]
+
+
+def test_closed_imported_private_nesting_survives_generic_specialization_keys(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "private-owners"
+    root.mkdir()
+    for module in ("a", "b"):
+        (root / f"{module}.orc").write_text(
+            f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+              (defmodule {module}) (export Outer keep)
+              (defenum Flag yes no)
+              (defpath Report :kind relpath :under "reports" :must-exist true)
+              (defrecord Note (flag Flag) (path Report))
+              (defrecord Outer (notes List[Note]))
+              (defproc identity :forall (T) ((value T)) -> T
+                :effects () :lowering private-workflow value)
+              (defworkflow keep ((value Outer)) -> Outer (identity value)))''',
+            encoding="utf-8",
+        )
+    entry = root / "entry.orc"
+    entry.write_text(
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+          (defmodule entry) (import a :as left) (import b :as right) (export run)
+          (defworkflow run ((first left.Outer) (second right.Outer)) -> left.Outer
+            (let* ((first-result (call left.keep :value first))
+                   (second-result (call right.keep :value second)))
+              first-result)))''',
+        encoding="utf-8",
+    )
+    typed = compile_typed_program(
+        entry,
+        entry_workflow="run",
+        source_roots=(root,),
+        workspace_root=root,
+        command_boundaries={},
+    )
+    for module in ("entry", "a", "b"):
+        (root / f"{module}.orc").unlink()
+
+    closed = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (restored.tree, restored.sites, restored.digest) == (
+        closed.tree,
+        closed.sites,
+        closed.digest,
+    )
+    definitions = restored.tree["definitions"]
+    for module in ("a", "b"):
+        workflow = next(
+            row
+            for row in definitions.values()
+            if row["key"][:3] == [module, "workflow", "keep"]
+        )
+        specialized = next(
+            row
+            for row in definitions.values()
+            if row["key"][:3] == [module, "procedure", "identity"]
+        )
+        descriptor = workflow["params"][0][1]
+        assert descriptor == workflow["result"]
+        assert descriptor == specialized["params"][0][1] == specialized["result"]
+        assert descriptor["name"] == f"{module}::Outer"
+        note = descriptor["fields"][0]["type"]["item"]
+        assert note["name"] == f"{module}::Note"
+        assert note["fields"][0]["type"] == {
+            "kind": "enum",
+            "name": f"{module}::Flag",
+            "allowed": ["yes", "no"],
+        }
+        path = note["fields"][1]["type"]
+        assert path == {
+            "kind": "path",
+            "name": f"{module}::Report",
+            "under": "reports",
+            "must_exist_target": True,
+        }
+        assert specialized["key"][3] == [["T", descriptor]]
+
+    params = restored.tree["params"]
+    assert [name for name, _descriptor in params] == ["first", "second"]
+    assert params[0][1]["name"] == "a::Outer"
+    assert params[1][1]["name"] == "b::Outer"
+    assert params[0][1] != params[1][1]
 
 
 def test_renamer_preserves_authored_names_and_reserves_later_names() -> None:
@@ -569,12 +655,20 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
     root.mkdir()
     entry = root / "if_in_hook.orc"
     entry.write_text(source.replace("TARGET", TARGET), encoding="utf-8")
+    (tmp_path / "probe.py").write_text(
+        "raise RuntimeError('Task10 compile-only command; runtime is not tested')\n",
+        encoding="utf-8",
+    )
     typed = compile_typed_program(
         entry,
         entry_workflow="run",
         source_roots=(tmp_path,),
         command_boundaries={
-            "fetch": ExternalToolBinding(name="fetch", stable_command=("python", "probe.py"))
+            "fetch": ExternalToolBinding(
+                name="fetch",
+                stable_command=("python", "probe.py"),
+                closure=("probe.py",),
+            )
         },
     )
     (spec,) = (
@@ -597,6 +691,47 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
     assert [row[0] for row in key[4]] == ["review", "revise"]
     assert {row[1]["target"][2] for row in key[4]} == {"review", "revise"}
     assert key[5:8] == [[], [], []]
+    assert [row[1]["name"] for row in key[3]] == [
+        "cp/if_in_hook::Note",
+        "cp/if_in_hook::Note",
+        "cp/if_in_hook::Brief",
+        "cp/if_in_hook::Candidate",
+    ]
+    assert key[8]["result"]["name"] == {
+        "head": "std/improve::Improvement",
+        "args": [
+            "cp/if_in_hook::Candidate",
+            "cp/if_in_hook::Note",
+            "cp/if_in_hook::Note",
+        ],
+    }
+    closed = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (restored.tree, restored.sites, restored.digest) == (
+        closed.tree,
+        closed.sites,
+        closed.digest,
+    )
+    (persisted,) = [
+        row["key"]
+        for row in restored.tree["definitions"].values()
+        if row["key"][:3] == ["std/improve", "procedure", "improve"]
+    ]
+    assert persisted == key
+    procedure_refs = {name: value for name, value in persisted[4]}
+    review_target = procedure_refs["review"]["target"]
+    revise_target = procedure_refs["revise"]["target"]
+    assert review_target[2] == "review" and revise_target[2] == "revise"
+    assert review_target[8]["result"]["name"] == {
+        "head": "std/improve::Decision",
+        "args": ["cp/if_in_hook::Note", "cp/if_in_hook::Note"],
+    }
+    assert [row["name"] for row in revise_target[8]["params"]] == [
+        "cp/if_in_hook::Candidate",
+        "cp/if_in_hook::Brief",
+        "cp/if_in_hook::Note",
+    ]
+    assert revise_target[8]["result"]["name"] == "cp/if_in_hook::Candidate"
     name = canonical_callee_name(spec, key=key)
     assert name == (
         "procedure:std/improve::improve["

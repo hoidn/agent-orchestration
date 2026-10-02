@@ -6463,7 +6463,7 @@ def _infer_expr_type(
             "float": PrimitiveTypeRef(name="Float"),
         }[expr.literal_kind]
     if isinstance(expr, EnumMemberExpr):
-        return type_env.resolve_type(
+        return expr.resolved_type or type_env.resolve_type(
             expr.enum_name,
             span=expr.span,
             form_path=expr.form_path,

@@ -288,6 +288,9 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
     elif isinstance(expr, GeneratedRelpathSeedExpr):
         result = {"k": "lit", "v": expr.literal_path, "type": builder.desc(value.metadata.type_ref, d)}
     elif isinstance(expr, ProviderBundlePathExpr) and isinstance(expr.source_expr, NameExpr):
+        from ..typecheck_effects import require_evaluated_provider_bundle_path_target
+
+        require_evaluated_provider_bundle_path_target(expr, value.metadata.type_ref)
         result = {
             "k": "result_path",
             "n": d.ref(expr.source_expr.name),

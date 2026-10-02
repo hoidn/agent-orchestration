@@ -896,6 +896,18 @@ class Builder:
             for child in children
             for producer in self._run_ref_context_for_value(child, d, seen=seen)
         ]
+        if isinstance(value, WccInject):
+            scoped_producers = tuple(
+                dict.fromkeys(
+                    producer
+                    for producers in (d.run_ref_names or {}).values()
+                    for producer in producers
+                )
+            )
+            rows.extend(
+                self._producer_for_type_ref(ref, scoped_producers)
+                for ref in self._run_ref_type_refs(value.metadata.type_ref)
+            )
         return tuple(dict.fromkeys(rows))
 
     @staticmethod
@@ -3542,20 +3554,35 @@ def _caller_run_context(
     raise ValueError("hidden phase context has no authorized caller RunCtx or PhaseCtx value")
 
 
+def _entry_context_synthesis_kind(requirement: Any, type_ref: TypeRef) -> str | None:
+    if requirement is None:
+        return None
+    if _is_run_context_shape(type_ref):
+        return "RunCtx"
+    if (
+        requirement.context_kind == "PhaseCtx"
+        and requirement.phase_name
+        and _is_phase_context_shape(type_ref)
+    ):
+        return "PhaseCtx"
+    return None
+
+
 def _entry_context_values(builder: Builder, workflow: Any, d: Definition, body: dict[str, Any]) -> dict[str, Any]:
     hidden = workflow.signature.hidden_context_requirements
     for param_name, type_ref in reversed(workflow.signature.params):
         requirement = hidden.get(param_name)
-        if requirement is None:
+        synthesis_kind = _entry_context_synthesis_kind(requirement, type_ref)
+        if synthesis_kind is None:
             continue
         wire_name = d.names.get(param_name)
         if wire_name is None:
             local, wire_name = builder.bind(d, param_name, label=None)
             d.names = local.names
         descriptor = builder.desc(type_ref, d)
-        if requirement.context_kind == "RunCtx" or _is_run_context_shape(type_ref):
+        if synthesis_kind == "RunCtx":
             value = run_context_value(descriptor)
-        elif requirement.context_kind == "PhaseCtx" and requirement.phase_name:
+        elif synthesis_kind == "PhaseCtx":
             run_type = type_ref.field_types.get("run") if isinstance(type_ref, RecordTypeRef) else None
             run_value = run_context_value(builder.desc(run_type, d)) if run_type is not None else None
             if run_value is None:
@@ -3603,7 +3630,14 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
     native_params = {param.name: param for param in entry.definition.params}
     params = []
     defaults = {}
-    hidden = set(entry.signature.hidden_context_requirements)
+    hidden = {
+        name
+        for name, type_ref in entry.signature.params
+        if _entry_context_synthesis_kind(
+            entry.signature.hidden_context_requirements.get(name), type_ref
+        )
+        is not None
+    }
     value_env = dict(entry.signature.params)
     for name, type_ref in entry.signature.params:
         param = native_params.get(name)

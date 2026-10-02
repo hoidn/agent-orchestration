@@ -114,6 +114,12 @@ class EnumMemberExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    resolved_type: "TypeRef | None" = field(
+        default=None,
+        repr=False,
+        hash=False,
+        metadata={"json_omit_if_none": True, "semantic_identity_omit": True},
+    )
 
     @property
     def name(self) -> str:

@@ -14,6 +14,7 @@ from orchestrator.workflow_lisp.closed import build as closed_build
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.workflow_lisp.closed.sites import _ast_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
@@ -248,6 +249,12 @@ def test_three_call_sites_of_one_procedure_are_one_definition_and_three_frames(t
     assert sorted(closed.tree["definitions"]) == [callee]
     assert closed.sites == ((callee, "#1"),)
     assert [call["frame"] for call in calls] == [f"{name}={callee}" for name in ("a", "b", "c")]
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (restored.tree, restored.sites, restored.digest) == (
+        closed.tree,
+        closed.sites,
+        closed.digest,
+    )
 
 
 @pytest.mark.parametrize(
@@ -274,6 +281,68 @@ def test_control_fixtures_build_and_read_back_after_source_removal(tmp_path: Pat
         restored.sites,
         restored.digest,
     )
+    if name == "arms_in_loop":
+        callee = "procedure:cp/arms_in_loop::fetch"
+        effects = [
+            node
+            for definition in {"entry": restored.tree["body"], **{
+                key: row["body"] for key, row in restored.tree["definitions"].items()
+            }}.values()
+            for node in _ast_nodes(definition)
+            if node.get("k") == "perform"
+        ]
+        assert restored.sites == ((callee, "#1"),)
+        assert len(effects) == 1 and effects[0]["site"] == "#1"
+        calls = [node for node in _ast_nodes(restored.tree["body"]) if node.get("k") == "call"]
+        assert len(calls) == 3
+        assert [call["frame"] for call in calls] == [
+            f"loop:state[*] / got / body / {variant} / #1={callee}"
+            for variant in ("FIRST", "SECOND", "THIRD")
+        ]
+
+        source = fixture("arms_in_loop").replace("(export run)", "(export run helper)", 1)
+        helper_source = source.replace(
+            "(defworkflow run () -> Int", "(defworkflow helper () -> Int", 1
+        ).rstrip()
+        helper_source = (
+            helper_source[:-1]
+            + "\n(defworkflow run () -> Int (call helper))\n)\n"
+        )
+        helper_root = tmp_path / "arms-in-loop-helper"
+        helper_path = install(helper_root, helper_source)
+        helper_typed = compile_typed_program(
+            helper_path,
+            entry_workflow="cp/arms_in_loop::run",
+            source_roots=(helper_root,),
+            command_boundaries=BOUNDARIES,
+            workspace_root=helper_root,
+        )
+        helper_path.unlink()
+        helper_program = build_closed_program(helper_typed)
+        helper_restored = ClosedProgram.from_artifact(helper_program.artifact())
+        assert (helper_restored.tree, helper_restored.sites, helper_restored.digest) == (
+            helper_program.tree,
+            helper_program.sites,
+            helper_program.digest,
+        )
+        helper_definition = helper_restored.tree["definitions"]["workflow:cp/arms_in_loop::helper"]
+        helper_calls = [
+            node
+            for node in _ast_nodes(helper_definition["body"])
+            if node.get("k") == "call" and node.get("callee") == callee
+        ]
+        assert helper_restored.sites == ((callee, "#1"),)
+        assert len(helper_calls) == 3
+        assert [call["frame"] for call in helper_calls] == [
+            f"loop:state[*] / got / body / {variant} / #1={callee}"
+            for variant in ("FIRST", "SECOND", "THIRD")
+        ]
+        entry_calls = [
+            node for node in _ast_nodes(helper_restored.tree["body"])
+            if node.get("k") == "call"
+            and node.get("callee") == "workflow:cp/arms_in_loop::helper"
+        ]
+        assert len(entry_calls) == 1
 
 
 def test_public_source_deleted_command_build_roundtrips_strictly(tmp_path: Path) -> None:

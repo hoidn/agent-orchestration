@@ -528,7 +528,18 @@ def _definition_owner_identity(type_ref: Any, *, typed: Any) -> str:
     if isinstance(type_ref, PrimitiveTypeRef) and not type_ref.allowed_values:
         return type_ref.name
 
-    environments = _typed_type_envs(typed)
+    environments = list(_typed_type_envs(typed))
+    seen_programs = {id(typed)}
+    pending = list(getattr(typed, "imported_programs", {}).values())
+    while pending:
+        program = pending.pop(0)
+        if id(program) in seen_programs:
+            continue
+        seen_programs.add(id(program))
+        for environment in _typed_type_envs(program):
+            if all(environment is not old for old in environments):
+                environments.append(environment)
+        pending.extend(getattr(program, "imported_programs", {}).values())
     if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values:
         for environment in environments:
             module = environment.declaring_module(type_ref)
