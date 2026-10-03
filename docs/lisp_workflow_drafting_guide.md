@@ -562,16 +562,19 @@ output of a step
 ([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
 [Evaluated execution](design/workflow_lisp_evaluated_execution.md) is a
 model accepted at gate G1 that addresses that cause. At target 2.35,
-`compile` builds a checked closed program; validated public dry-run and pure
-public run are integrated. Public effects and resume remain pending. Use targets
-through 2.34 for complete effectful workflows. The [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+`compile` builds a checked closed program; validated public dry-run and public
+pure, command and portable composed-provider run are integrated. Use 2.35 only
+within that bounded runtime subset. Choose a target through 2.34 when public
+resume, path run-reference dispatch or effects excluded from 2.35 are needed.
+The [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
 and [public CLI tests](../tests/test_workflow_evaluated_cli.py) distinguish the
 bounded runtime from complete release qualification. The
 [dynamic-core evaluation](plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 is a separate prospective route; its examples are not current syntax.
 
-Run a program from the repository root. The value is in
-`.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
+The following shape table and `guide_shapes` walkthrough apply to targets
+**2.33 and 2.34**. Run the program from the repository root; on that legacy route
+the value is in `.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
 
 ```bash
 python -m orchestrator run tests/fixtures/workflow_lisp/guide_shapes/loop_in_called_workflow.orc \
@@ -611,11 +614,15 @@ canonical configuration and the perform-site table. Commands, portable
 composed providers (extern `asset_file`/`input_file` and admitted `defprompt`
 slots, without context capture), calls/captures/bounded local procedures and
 path-mode run references are admitted by the compiler. Public dry-run validates
-without launching effects, and pure public run is implemented. Public effect
-dispatch currently fails with `closed_effect_handler_missing`; public resume
-still refuses with `evaluated_execution_unavailable`. Compilation is not evidence
-of effectful runtime parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
-[public runtime tests](../tests/test_workflow_evaluated_cli.py) and
+without launching effects. Public pure, command and portable composed-provider
+run are implemented; the latter uses captured prompt/dependency bytes, typed
+result projection and required output-file checks. Public provider tests use
+controlled local transport, not paid or live-vendor qualification. Public resume
+still refuses with `evaluated_execution_unavailable`; path run-reference dispatch
+and complete runtime readers remain pending. Compilation is not evidence of
+complete effectful runtime parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
+[public runtime tests](../tests/test_workflow_evaluated_cli.py),
+[provider runtime tests](../tests/test_workflow_evaluated_providers.py) and
 [target admission tests](../tests/test_workflow_lisp_target_evaluated_execution.py).
 
 Selected `request-input`, `trial`, phased provider delivery,
@@ -636,9 +643,35 @@ Every supplied command manifest row, even unused, and every used injected
 binding needs `"closure": ["tool.py", "lib/"]` or an explicit `"closure": []`.
 Omission refuses with `command_boundary_closure_missing`; malformed values
 refuse with `command_boundary_manifest_invalid`. Build records canonical
-logical paths without reading closure contents; runtime hashes/enforcement
-remain open. See [command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration)
+logical paths without reading closure contents. Runtime command-local closure
+hashing, destination checks, post-dispatch rehash and pinned interpreter launch
+are implemented; public-resume checks remain pending.
+See [command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration)
 and [closure tests](../tests/test_workflow_lisp_command_boundary_closure.py).
+
+For a command at 2.35, supply its manifest with `--command-boundaries-file`;
+provider fixtures use `--provider-externs-file`, `--prompt-externs-file` and
+`--source-root` to locate their declarations. A supplied boundary must name its
+stable command and declare its implementation closure. Commands/providers write
+the structured result to `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`; stdout is attempt
+evidence, not a substitute result. Certified adapter `:inputs` currently use
+canonical inline JSON; the external-tool `:argv` plus `:inputs` path-token
+protocol and attempt-owned `inputs.json` remain Task 12 work.
+
+Run the existing isolated public-entry self-checks from the repository root:
+
+```bash
+python -m pytest -q \
+  tests/test_workflow_evaluated_cli.py::test_public_run_dispatches_command_once_and_commits_typed_result \
+  tests/test_workflow_evaluated_providers.py::test_public_provider_dispatches_once_and_commits_its_typed_result
+```
+
+These create real command/provider-process fixtures in temporary workspaces and
+check one dispatch, typed commits and attempt evidence. They do not require a paid
+provider. The evaluated run authority is `closed_program.json`, `run.json` and
+`memo.jsonl` under the run root. The legacy `state.json` output recipe above does
+not apply to this profile; its derived views and complete reader integration
+remain pending.
 
 The two forms of the paired search controller meet rows 1 and 14. The form
 with a copy per branch,

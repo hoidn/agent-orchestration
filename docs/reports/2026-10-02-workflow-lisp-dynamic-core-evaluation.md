@@ -1433,3 +1433,83 @@ all reviewed applicable delivery is integrated. Task 4 still needs shared resolv
 request/attempt assembly, strict native result and required-file validation before
 return, and external document transport. State publication remains caller-owned. The dependent Tasks 5–8 cutover cannot start under
 the reviewed sequencing; no duplicate performer or implicit adoption is selected.
+
+
+### Shared Command/Provider Runtime Import
+
+The coordinator rechecked upstream on 2026-10-03. Reviewed integration
+`b5b07cebb47892bd3fef3c862cab13263b39059b` merged at
+`a672985d340064beb9000299caff8c2a3284a3e0`. During verification, upstream delivered
+portable provider implementation `7e2282a428d8b1e75dd128823df1d669fbca4283`
+(source `5af1888a5877dfc0346ed73209a275c521bc43b6`) and reviewed plan receipt
+`21b78d16a250c796475bfe6e9b24544ea9ea5875`; both integrated at
+`103dc8cd14907202438673d80812c662e167cfd5`. Independent Sol conformity and
+quality review passed both imports. The R12 control source remains `0f1bbc46`,
+represented by the equivalent integrated patch recorded above. No dirty upstream
+work was imported. Frozen DC-2 comparator
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` and comparison sources are unchanged.
+
+This imports the reviewed command runtime/R12 renderer (`304b3bbf`), pure prompt
+assembly (`da94c8c8`), provider IO carriage/activation (`d795200e` / `04733927`)
+and portable provider performer/lifecycle (`7e2282a4`). Public target 2.35 now
+runs pure programs, commands and portable composed providers. Provider evidence
+uses controlled local process transport through the real executor; it is not a
+paid call or later live-vendor qualification. Commands retain local C4 checks and
+pinned interpreter launch; providers bind captured C6 reads and C9 operands and
+validate required output files. Public resume, path run-reference dispatch,
+complete profile readers and combined typed Tasks 6/7/full release acceptance
+remain unfinished. The accepted `resume_request` design is not public-resume
+implementation evidence.
+
+Fresh coordinator verification:
+
+| Import/check | Observed result and limit |
+| --- | --- |
+| Initial `b5b07ceb` collection/narrow | 153 cases collected; 44 passed in 5.19s, including public command, prompt parity/capture and dynamic preparation controls |
+| Initial affected suite | 1,008 passed and two failed in 20.99s; this result remains historical and is not rewritten as PASS |
+| Baseline/correction | Both failures reproduced at exact upstream `b5b07ceb`: obsolete whole-object identity assertions in `test_workflow_lisp_closed_preparation_integrity`. The test-only correction preserves the semantic-key/shared-prepared-body checks and explicitly rejects repeated comparison/elaboration. Independent Sol conformity/quality passed; coordinator passed the two corrected cases plus the dependency-chain guard: three in 1.35s |
+| Provider collection/narrow | 40 new cases collected in 3.24s; 41 narrow cases passed in 30.02s, including public provider/command processes and complete request parity |
+| Final affected suite | 644 passed in 18.79s across 41 explicit modules: all evaluated modules, dynamic routing/root/module preparation, seven experimental dynamic modules and the complete corrected 22-case preparation module. This is affected-scope integration evidence, not a full-repository green claim |
+
+Exact commands, source snapshots, stable before/after hashes and raw output are
+in `/tmp/orc-dc3-upstream-20261003-zqov7cv6/`: `config.json`,
+`provider-config.json`, and `{collect,narrow,affected,correction,provider-collect,provider-narrow,provider-affected}.{json,log}`.
+Baseline reproduction and correction evidence are under
+`/tmp/orc-dc3-upstream-test-revision-20261003`; the disposable baseline worktree
+was removed after verification. Broad checks use `pytest -q -n 16 --dist=worksteal`
+in tmux. These verification receipts preceded the factual documentation update.
+
+#### Actual Shared API Handoff And Remaining Task 4 Gaps
+
+| Delivered owner/API | Actual input/result ownership and dynamic consequence |
+| --- | --- |
+| `commands.py::render_command_argv(node, operands)` | Operands are `Sequence[EvaluatedValue]`; renders checked transport plans to string tokens. `inline_command_document` serializes checked certified operands to canonical JSON |
+| `commands.py::perform_command(node, argv, *, attempt_files, workspace_files, input_document=None, timeout_sec=None)` | One real dispatch with caller-owned files and declaration contracts; returns `(EvaluatedValue, digest)`. No memo access inside the performer. Optional canonical bytes can be written to exclusive `inputs.json` by this low-level hook, but public runtime does not supply that hook or the external document path token |
+| `prompts.py::assemble_provider_prompt(checked_node, evaluated_operands, *, source_text, dependency_snapshot, result_path)` | Pure assembly from typed evaluated operands and already captured inputs; reuses existing input/dependency/output-contract rendering |
+| `providers.py::resolve_provider_io(node, operands, *, workspace, reader)` / `resolve_provider_input(node, operands, *, workspace, reader, result_path)` | Typed evaluated operands and the checked physical reader select source/dependency bytes; the resolved request contains prompt, policy, input digest parts and required output-file rows |
+| `providers.py::perform_provider(node, resolved, identity, *, executor, attempt_files, workspace_files, result_path)` | One preparation/dispatch with exclusive prompt/stream/result evidence. Validates required output files, then returns the shared projected typed result/digest. Runtime owns synchronized attempts, memo commits/reuse and terminal publication |
+| `commands.py::validate_effect_result(node, result_bytes, result_path, workspace_files)` | Common command/provider captured-byte validator and typed projection/coercion; returns `(EvaluatedValue, digest, artifacts)`. It does not expose the existing `strict_transport_values=True` opt-in or a native whole-value result |
+
+Task 4 inventory/registration is complete; **Task 4 is not PASS**. The two
+remaining shared-owner slices are concrete:
+
+- **Native resolved-value/strict-result seam:** shared request rendering must
+  accept resolved native boundary values rather than `EvaluatedValue` operands.
+  The existing whole-value/strict captured-byte kernel from Task 2 must pass
+  through shared request/performer owners, including
+  required-file validation before return, without constructing typed values or
+  reconstructing flattened output. The typed performer currently retains its
+  default projection policy; extra-field projection in provider tests is not
+  strict dynamic boundary evidence. Route this bounded extraction to its owner
+  under the existing transfer protocol; do not add a second executor or fabricate
+  typed program/memo state.
+- **External Task 12 document transport:** `evaluated/inputs.py` and
+  `tests/test_workflow_evaluated_input_documents.py` are not delivered. Closed
+  document nodes still require certified adapters and empty argv; public runtime
+  appends canonical inline JSON. External-tool `:argv` plus `:inputs` needs
+  once-only operands, attempt-owned canonical bytes and the declared path token.
+  The low-level file-writing hook alone does not deliver that public protocol.
+
+Tasks 5–8 have not started under the reviewed atomic-cutover sequencing. Q1–Q5,
+public dynamic target 3.0 and DC-P remain unqualified; no adoption, application
+migration or repinning follows from this synchronization.

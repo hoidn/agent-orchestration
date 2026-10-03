@@ -118,8 +118,9 @@ base: `workspace` for relative supplied paths, `absolute` for absolute paths,
 or `package:orchestrator` for trusted relative injected bindings. A manifest
 override remains workspace-based. These declarations enter configuration and
 program identity; compilation reads no closure file bytes and performs no
-traversal or symlink resolution. Runtime file hashes, read-only enforcement,
-output disjointness and interpreter pinning remain open in Phase 3, as owned
+traversal or symlink resolution. Command runtime file hashes, command-local output disjointness, post-dispatch
+read-only checks and pinned interpreter launch are implemented. Public resume
+and complete Phase 3 qualification remain pending, as owned
 by [evaluated execution §7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares).
 Targets through 2.34 accept valid declarations and ignore them in legacy
 binding identity/artifacts.
@@ -129,6 +130,11 @@ Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closure
 [closure tests](../../tests/test_workflow_lisp_command_boundary_closure.py),
 [build tests](../../tests/test_workflow_lisp_closed_program_build.py) and
 [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py).
+Runtime evidence: `tests/test_workflow_evaluated_command_lifecycle.py`,
+`tests/test_workflow_evaluated_command_origin.py` and
+`tests/test_workflow_evaluated_cli.py`. The current certified input-document
+route passes canonical inline JSON; the external-tool `inputs.json` path-token
+protocol remains Phase 3 Task 12 work.
 
 ## Certified Command Adapter
 

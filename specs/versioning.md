@@ -799,14 +799,19 @@
     declared (C1). Canonical declarations enter program identity; compilation
     does not read their file contents (C2). See [IO](io.md) and
     `tests/test_workflow_lisp_command_boundary_closure.py`.
-  - Phase 3 has integrated validated public dry-run and pure public `run`,
-    including checked terminal authority. Public effect dispatch still fails
-    with `closed_effect_handler_missing`; public `resume` remains unavailable
-    with `evaluated_execution_unavailable`, and complete runtime readers and
-    phase-wide qualification remain pending. Compilation alone establishes
+  - Phase 3 has integrated validated public dry-run and public pure, command
+    and portable composed-provider `run`, including checked terminal authority
+    and exclusive attempt evidence. Providers use captured source/dependency
+    bytes, typed result projection and required output-file checks; public tests
+    use controlled local transport, not live-vendor qualification. Certified
+    adapter input documents use inline JSON; the external-tool `inputs.json`
+    path-token protocol is still pending. Public `resume` remains unavailable
+    with `evaluated_execution_unavailable`; path run-reference dispatch, complete
+    runtime readers and phase-wide qualification remain pending. Compilation
+    alone establishes
     neither effect execution nor resume parity. Evidence:
-    `tests/test_workflow_evaluated_cli.py` and
-    `tests/test_workflow_lisp_target_evaluated_execution.py`. Targets through
+    `tests/test_workflow_evaluated_cli.py`, `tests/test_workflow_evaluated_providers.py`
+    and `tests/test_workflow_lisp_target_evaluated_execution.py`. Targets through
     2.34 retain their current route and artifacts.
 
 - DSL evolution rollout roadmap
@@ -851,7 +856,7 @@
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
   - `v2.34`: implemented decimal literals in expressions, numeric operators and finite boundary values; repetition reduction remains an unapproved proposal
-  - `v2.35`: closed-program compilation, public dry-run and pure run implemented; public effects/resume and complete Phase 3 delivery pending
+  - `v2.35`: closed-program compilation, public dry-run and pure/command/portable-provider run implemented; public resume and complete Phase 3 delivery pending
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -1003,6 +1008,6 @@ Planned acceptance:
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Typed match-subject preservation is limited to typed prompts and type-dependent hooks; a direct generic subject without either still lowers differently from the same call bound by `let*`, including at 2.34. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
 | 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
-| 2.35 | Workflow Lisp compilation and pure public runtime implemented; full runtime partial | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references. Explicit command closures are required; selected excluded effects refuse with `closed_program_gap`. Validated public dry-run and pure run are integrated; public effects fail with `closed_effect_handler_missing`, and resume remains unavailable with `evaluated_execution_unavailable`. See the v2.35 additions above for implementation evidence and admission limits. Existing targets retain their current route and artifacts. |
+| 2.35 | Workflow Lisp compilation and bounded public runtime implemented; full runtime partial | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references. Explicit command closures are required; selected excluded effects refuse with `closed_program_gap`. Validated public dry-run and pure/command/portable-provider run are integrated. Certified input documents use inline JSON; external document transport, path run-reference dispatch and complete readers remain pending. Public resume remains unavailable with `evaluated_execution_unavailable`. Provider evidence uses controlled local transport. See the v2.35 additions above for implementation evidence and admission limits. Existing targets retain their current route and artifacts. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

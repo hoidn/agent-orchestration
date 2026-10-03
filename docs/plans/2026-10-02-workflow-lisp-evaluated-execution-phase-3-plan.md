@@ -46,13 +46,14 @@ First-release classes are commands (external tools and certified adapters), port
 ## Branch Scope Overlay: Dynamic Evaluation
 
 Owner amendment, 2026-10-02, for `design/orc-dynamic-core-evaluation` only.
-Merge `3420a690` retains committed source `7af8ebf6` and its full dependency
-history; source uncommitted work is excluded. The seventeen numbered tasks,
-checkboxes and original receipts below remain intact. Tasks 1–5 are integrated;
-the public pure run/dry-run slice works, effects refuse
-`closed_effect_handler_missing`, and resume/full effectful release remains
-unfinished. A command **closure** in Tasks 5–8 is file/content evidence, not a
-lexical runtime closure.
+Historical import `3420a690` retains committed source `7af8ebf6` and its full
+dependency history; source uncommitted work is excluded. The seventeen numbered
+tasks, checkboxes and original receipts below remain intact. Tasks 1–5 are
+integrated. Subsequent reviewed command and portable composed-provider runtime
+handoffs are imported at `103dc8cd` from upstream receipt `21b78d16` (2026-10-03),
+alongside public pure run/dry-run. Provider checks use controlled local transport;
+public resume and complete Phase 3 qualification remain unfinished. A command
+**closure** in Tasks 5–8 is file/content evidence, not a lexical runtime closure.
 
 On this dynamic branch, shared implementations come from the upstream Phase 3
 owners via the [synchronization protocol](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#upstream-phase-3-synchronization).
@@ -600,7 +601,9 @@ Recipe gates: two public resumes with explicit Namespace independent of `sys.arg
 
 - [ ] Document exact authority/header/memo/view keys, including §8.4's eight-field `resume_request`, effective-request/pre-binding capture, locator and fresh-binding rules, historical absence (`resume_request_missing` only for resume) versus malformed presence (`memo_inconsistent`), and source-independent read-only/invalidation behavior; retain unchanged schema/profile/representation. Document record transitions, errors, profile/representation routing, lock liveness, artifact evidence, typed `:inputs`, invalidation and read-only readers. Cross-check key-for-key against actual files produced by public fixtures; add no phase status to normative contracts beyond availability metadata conventions.
 - [ ] Publish exact availability for each public operation and selected profile:
-  retain qualified pure/command run and dry-run evidence without claiming provider/resume support;
+  retain qualified pure/command/portable composed-provider run and dry-run
+  evidence, distinguishing controlled local provider transport from later
+  live-provider qualification; public resume remains pending;
   remove each remaining refusal only after its required executable evidence passes. Preserve later effect exclusions, C5 promise limits, genuine open later-admission questions and old-target/runtime retention. Route this branch through DC-F/DC-U/DC-P and Phase 6a evidence; the typed
   fallback still hands off to its pilot. Do not call Phase 3 the end of the goal
   or let the old whole-goal instruction bypass a candidate gate.

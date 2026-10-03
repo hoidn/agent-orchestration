@@ -694,8 +694,10 @@ concrete design/plan, removal inventory, one consumer destination and needed
 shared-runtime/public-route qualification. Design and the
 [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed
 independent review; Tasks 1–3 qualify exact routing, strict boundary preparation
-and selective source declarations. Task 4 awaits the reviewed shared direct seam;
-the public dynamic candidate and DC-P remain pending. No adoption, migration,
+and selective source declarations. Reviewed typed command/provider performers
+are imported; Task 4 still needs the native strict result seam and external
+Task 12 input-document transport. The public dynamic candidate and DC-P remain
+pending. No adoption, migration,
 paid calls, parallel or child-run expansion is authorized by this selection.
 The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns finite tasks and gate evidence; the

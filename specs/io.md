@@ -41,8 +41,10 @@
       the manifest can still change the build key.
       At build, C2 means canonical logical declarations enter configuration
       and program identity; compilation does not read, traverse, resolve
-      symlinks or hash closure file bytes. Runtime content hashes and
-      read-only/interpreter enforcement remain open in Phase 3. See
+      symlinks or hash closure file bytes. Command runtime content hashes,
+      command-local output disjointness,
+      post-dispatch read-only checks and pinned interpreter launch are implemented.
+      Public-resume enforcement and complete Phase 3 qualification remain open. See
       [command closure declaration](../docs/design/workflow_command_adapter_contract.md#command-closure-declaration),
       `closed/effects.py::require_command_closures`,
       `closed/program.py::_canonical_closure` (under

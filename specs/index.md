@@ -33,10 +33,12 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     checks at boundaries. Repetition reduction is a separate unapproved
     proposal; see [versioning](versioning.md) for the implemented surface.
   - DSL v2.35 is the selected typed evaluated-execution target. Public closed-program
-    compilation, validated dry-run and pure public execution are integrated.
-    Public effect execution and resume remain pending; this is not a complete
+    compilation, validated dry-run, pure execution, command execution and portable
+    composed-provider execution are integrated. Public resume, path run-reference
+    dispatch and complete runtime readers remain pending; this is not a complete
     Phase 3 release. The bounded runtime evidence is
-    [the public CLI suite](../tests/test_workflow_evaluated_cli.py).
+    [the public CLI suite](../tests/test_workflow_evaluated_cli.py) and
+    [controlled provider suite](../tests/test_workflow_evaluated_providers.py).
     The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
     owns the accepted model; [versioning](versioning.md) owns target admission.
   - Legacy state schema: `schema_version: "2.1"`. The partial evaluated profile
