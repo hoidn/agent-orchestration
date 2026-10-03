@@ -70,6 +70,26 @@ revision and unchanged before/after owner hashes are in
 their qualification pin remain unchanged; this behavior-preserving extraction
 does not re-pin controls, finish Task 6 or pass a dynamic gate.
 
+**Pre-DC-2d synchronization, 2026-10-02:** integration `c3162d42` merged cleanly
+at `820a12a96d0ec44ca46667674b5570de472ff29f`. It includes `a6487768` (opt-in
+pinned attempt capture), `8ce38bb2` (R12-B compiler-local scopes, source
+`52b612ff`) and their independently reviewed upstream receipts. Integration
+assessment by `/root/review_code_dynamic_core_utility` (Sol 6.1 high) found no
+interaction conflict: the candidate's existing executor/byte hook is untouched,
+capture defaults remain legacy, and command-scope annotations are opt-in. The
+coordinator inspected the merged diff; the imported exec/compiler trees match
+upstream. No local performer or capture implementation was added.
+
+Fresh narrow checks passed **11 in 2.52s**; the affected combined run passed
+**254 in 10.79s**, exit 0, in tmux with `-q -n 16 --dist=worksteal`. This covers
+capture/secrets, command scopes/control, dynamic boundaries/core/improve/search,
+typed improve and evaluated CLI. Exact commands, revision and equal before/after
+owner hashes are in `/tmp/orc-dc2-execution-0jczbaqn/scope-import-result.json`,
+with `scope-import-narrow.log` and `scope-import-impacted.log`. Control sources
+remain unchanged at their frozen pin; the current runtime is recorded separately.
+The upstream 949-pass/5-inherited-failure broad receipt is historical, not a new
+global PASS. R12-B/C and Task 6 remain open; no dynamic gate advances here.
+
 | Control | Exact owner and evidence limit |
 | --- | --- |
 | Typed improve | `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc` at target 2.33; `tests/test_workflow_lisp_improve_stdlib.py` and `tests/workflow_lisp_improve_stdlib_sources.py` own command-backed full helper outcomes and public legacy run/resume. Internal bundle execution and public execution are separately identified below |
@@ -904,6 +924,32 @@ US06 changes only the test specimen's internal bound; no public configuration
 or Python-reference outcome is invented. Invalid non-Int boundary inputs stay
 strict boundary failures. The two existing Python-reference tests and two
 public-refusal tests remain separate controls, not additional dynamic pairs.
+
+**DC-2c complete, 2026-10-02, code `e31e8282`:** implementation by
+`/root/impl_code_dynamic_core_search` (Luna 6 xhigh), conformity by
+`/root/design_dynamic_core_roadmap` (Astra 6 xhigh), and code/quality review by
+`/root/review_code_dynamic_core_utility` (Sol 6.1 high), all complete with no
+open finding. The policy is authored entirely in `.orc`; real certified adapters
+and the precise `SearchResult` boundary are retained. The shared-module setup
+handoff was limited to loading the same existing bindings for inactive leaves.
+
+Collection found **77** search cases. Author full matrix: **77 in 5.77s**;
+independent conformity's focused US02–US06: **5 in 5.37s**. After all corrections,
+fresh coordinator combined search/improve checks passed **88 in 6.62s**, exit 0,
+with unchanged before/after hashes. Receipt and output:
+`/tmp/orc-dc2-execution-0jczbaqn/search-result.json` and `search-final.log`.
+The later upstream integration reran both consumers in its affected check above.
+
+All 72 scripted pairs compare the full result/history and ordered requests;
+the real local-leaf case matches the ten-evaluation solved trace and every
+request payload. Schema-invalid bundles refuse publication, distinct from
+typed `valid=false`; lowered controller exhaustion matches the equally modified
+historical compact spike. No public evaluated effect-run claim follows. Early
+fixture review corrected missing real-call logging and strengthened failed
+publication and actual-program schema assertions; the initial functional RED
+was an `invalid_budget` stub where two seed evaluations were required.
+These observations complete 100 of 110 new utility cases; the ten paired
+author-edit/diagnostic observations and the DC-U decision remain pending.
 
 ### Four Paired Edits And Six Diagnostic/Restart Cases
 

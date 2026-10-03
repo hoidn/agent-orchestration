@@ -121,7 +121,11 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest import, 2026-10-02: integration `f572a82a` imported at merge `a55a035d`
+Latest import, 2026-10-02: reviewed integration `c3162d42` imported at
+`820a12a9`, adding opt-in attempt capture and R12-B compiler-local lexical facts.
+Fresh narrow checks passed 11; affected integration checks passed 254, including
+complete dynamic improve/search and the public typed helper controls. Earlier
+integration `f572a82a` imported at merge `a55a035d`
 after independent code review PASS. Its captured-document validation extraction
 preserves the existing public wrappers; 17 narrow and 127 integrated cases
 passed, including real public helper run/resume. Earlier `9bb4b207` at
@@ -137,7 +141,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
-| DC-2 — utility comparison | Active; DC-2a/b complete, DC-2c search executing | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
+| DC-2 — utility comparison | Active; DC-2a/b/c complete, DC-2d edits/diagnostics executing | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
@@ -164,7 +168,7 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-DC-2c paired search execution, followed by paired author edits;
+DC-2d paired author edits and diagnostics, followed by DC-U evidence/review;
 DC-F continue was explicitly selected by the owner on 2026-10-02. Existing
 executable selectors have no new item to consume.
 
@@ -366,7 +370,7 @@ failures remain documented and no global-suite PASS is claimed.
 | --- | --- | --- |
 | DC-2a — code implementation, bounded core; complete at `e7da6fd2` | `experiments/dynamic_core_evaluation/{program,source,evaluator,leaf_bridge}.py`; `tests/experiments/test_dynamic_core_utility_core.py` | UC01–UC12, including the two bridge groups; `/3` additions with frozen `/1` and `/2` admission; existing certified command adapter reaches the current compiler/executor |
 | DC-2b — code implementation, improve; complete at `18121c76` | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
-| DC-2c — code implementation, search | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py`; improve test `_dynamic_run` binding setup only | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion; rerun UI01–UI11 after shared-module integration |
+| DC-2c — code implementation, search; complete at `e31e8282` | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py`; improve test `_dynamic_run` binding setup only | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion; rerun UI01–UI11 after shared-module integration |
 | DC-2d — code implementation, paired edits and diagnostics | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; paired runnable edits, error timing, repeated work and one reproducible full-consumer demo |
 | DC-2e — independent code/utility review and coordinator integration | This plan and the same report; corrections return to the relevant implementer | Review code first, then benefit/cost evidence; inspect diff, run required final checks, prepare DC-U packet and stop for its owner disposition |
 
