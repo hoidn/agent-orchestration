@@ -9,6 +9,7 @@ import math
 from types import MappingProxyType
 from typing import Any
 
+from orchestrator.contracts.output_contract import strict_json_loads
 from orchestrator.workflow.evaluated.values import EvaluatedValueError
 from orchestrator.workflow.type_descriptor import (
     is_transportable_type_descriptor,
@@ -51,26 +52,6 @@ def _invalid(message: str, location: str = "") -> EvaluatedValueError:
         message,
         location=location or None,
     )
-
-
-def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
-def _finite_float(value: str) -> float:
-    result = float(value)
-    if not math.isfinite(result):
-        raise ValueError("non-finite JSON number")
-    return result
-
-
-def _reject_constant(value: str) -> None:
-    raise ValueError(f"non-JSON numeric constant {value!r}")
 
 
 def _identifier(value: Any, context: str) -> str:
@@ -383,17 +364,6 @@ def _validate_node(
         reason = node["reason"]
         if not isinstance(reason, str) or not reason:
             raise _invalid("failure reason must be a non-empty string", _pointer(pointer, "reason"))
-
-
-def strict_json_loads(text: str) -> Any:
-    """Decode strict JSON, rejecting duplicates and non-finite numbers."""
-
-    return json.loads(
-        text,
-        object_pairs_hook=_unique_object,
-        parse_constant=_reject_constant,
-        parse_float=_finite_float,
-    )
 
 
 __all__ = ["DynamicProgram", "SCHEMA", "EFFECT_SCHEMA", "DYNAMIC_SCHEMA", "strict_json_loads"]

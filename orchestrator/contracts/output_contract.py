@@ -609,6 +609,7 @@ def validate_output_bundle(
     workspace: Path,
     *,
     finite_floats: bool = False,
+    strict_transport_values: bool = False,
     workspace_files: Any | None = None,
     document_bytes: bytes | None = None,
 ) -> Dict[str, Any]:
@@ -616,6 +617,8 @@ def validate_output_bundle(
 
     `finite_floats` is as for `validate_contract_value`. With it, the document
     is read with non-finite constants so that the refusal names the field.
+    `strict_transport_values` applies native JSON decoding and normalized
+    transport descriptors to every bundle value.
     """
     if workspace_files is not None:
         return _validate_output_bundle_with_owner(
@@ -623,6 +626,7 @@ def validate_output_bundle(
             workspace_files,
             document_bytes=document_bytes,
             finite_floats=finite_floats,
+            strict_transport_values=strict_transport_values,
         )
     from orchestrator.workflow.workspace_files import WorkspaceFiles
 
@@ -633,6 +637,7 @@ def validate_output_bundle(
             owner,
             document_bytes=document_bytes,
             finite_floats=finite_floats,
+            strict_transport_values=strict_transport_values,
         )
     finally:
         owner.close()
@@ -644,6 +649,7 @@ def _validate_output_bundle_with_owner(
     document_bytes: bytes | None = None,
     *,
     finite_floats: bool = False,
+    strict_transport_values: bool = False,
 ) -> Dict[str, Any]:
     bundle_path = str(output_bundle.get("path", ""))
     bundle_file = _owner_contract_path(workspace_files, bundle_path)
@@ -698,6 +704,7 @@ def _validate_output_bundle_with_owner(
         captured_bytes,
         workspace_files,
         finite_floats=finite_floats,
+        strict_transport_values=strict_transport_values,
     )
 
 
@@ -707,6 +714,7 @@ def _validate_output_bundle_document_bytes(
     workspace_files: Any,
     *,
     finite_floats: bool = False,
+    strict_transport_values: bool = False,
 ) -> Dict[str, Any]:
     """Validate captured bytes; the path is diagnostic and values use the workspace owner."""
     resolved_workspace = workspace_files.workspace
@@ -716,12 +724,15 @@ def _validate_output_bundle_document_bytes(
 
     bundle_path = str(output_bundle.get("path", ""))
     try:
-        document = _load_bundle_json(
-            document_bytes.decode("utf-8"),
-            reject_nonstandard_constants=(
-                _contract_contains_value(output_bundle) and not finite_floats
-            ),
-        )
+        if strict_transport_values:
+            document = strict_json_loads(document_bytes)
+        else:
+            document = _load_bundle_json(
+                document_bytes.decode("utf-8"),
+                reject_nonstandard_constants=(
+                    _contract_contains_value(output_bundle) and not finite_floats
+                ),
+            )
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
         raise OutputContractError([
             ContractViolation(
@@ -817,6 +828,7 @@ def _validate_output_bundle_document_bytes(
             workspace=resolved_workspace,
             finite_floats=finite_floats,
             workspace_files=workspace_files,
+            strict_transport_values=strict_transport_values,
         )
         if violation is not None:
             violation.context["path"] = bundle_path
@@ -1315,6 +1327,7 @@ def _parse_output_bundle_value(
     value_path: str = "",
     finite_floats: bool = False,
     workspace_files: Any | None = None,
+    strict_transport_values: bool = False,
 ) -> tuple[Any, ContractViolation | None]:
     if finite_floats and (
         value_type == "value" or _descriptor_contains_direct_structure(spec)
@@ -1323,7 +1336,7 @@ def _parse_output_bundle_value(
         if violation is not None:
             return None, violation
 
-    if _descriptor_contains_direct_structure(spec):
+    if strict_transport_values or _descriptor_contains_direct_structure(spec):
         from orchestrator.workflow.type_descriptor import (
             transport_descriptor_for_schema,
             validate_transport_value,
@@ -1336,6 +1349,7 @@ def _parse_output_bundle_value(
                     raw_value,
                     descriptor,
                     allow_nested_structures=True,
+                    require_int64=strict_transport_values,
                     path_validator=lambda value, path_descriptor: (
                         _require_nested_transport_path(
                             value,
@@ -1351,8 +1365,12 @@ def _parse_output_bundle_value(
             return None, ContractViolation(
                 type="invalid_transportable_value",
                 message=(
-                    "Output value does not match its nested structural "
-                    "transport contract"
+                    "Output value does not match its strict native transport contract"
+                    if strict_transport_values
+                    else (
+                        "Output value does not match its nested structural "
+                        "transport contract"
+                    )
                 ),
                 context={
                     "value_path": value_path,
@@ -1381,6 +1399,7 @@ def _parse_output_bundle_value(
             value_path=value_path,
             finite_floats=finite_floats,
             workspace_files=workspace_files,
+            strict_transport_values=strict_transport_values,
         )
 
     if value_type == "list":
@@ -1407,6 +1426,7 @@ def _parse_output_bundle_value(
                 value_path=_append_value_path(value_path, str(index)),
                 finite_floats=finite_floats,
                 workspace_files=workspace_files,
+                strict_transport_values=strict_transport_values,
             )
             if violation is not None:
                 violation.context["index"] = index
@@ -1444,6 +1464,7 @@ def _parse_output_bundle_value(
                 value_path=_append_value_path(value_path, key),
                 finite_floats=finite_floats,
                 workspace_files=workspace_files,
+                strict_transport_values=strict_transport_values,
             )
             if violation is not None:
                 violation.context["key"] = key
@@ -1744,6 +1765,34 @@ def _descriptor_contains_direct_structure(descriptor: Any) -> bool:
         _descriptor_contains_direct_structure(descriptor.get(child_key))
         for child_key in ("item", "items", "keys", "values")
     )
+
+
+def strict_json_loads(document: str | bytes) -> Any:
+    """Decode JSON values strictly, rejecting duplicate keys and non-finite numbers."""
+    if isinstance(document, bytes):
+        document = document.decode("utf-8", errors="strict")
+    return json.loads(
+        document,
+        object_pairs_hook=_unique_json_object,
+        parse_constant=_reject_nonstandard_json_constant,
+        parse_float=_finite_json_float,
+    )
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _finite_json_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError("non-finite JSON number")
+    return result
 
 
 def _load_bundle_json(

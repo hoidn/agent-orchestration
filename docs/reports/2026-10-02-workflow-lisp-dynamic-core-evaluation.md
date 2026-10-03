@@ -1278,3 +1278,68 @@ Author RED/GREEN/collection/broad logs are `/tmp/orc-dc3-target-*.log`; exact
 coordinator command/HEAD/stable hashes are
 `/tmp/orc-dc3-integration-z6_e0z2j/target-root.{json,log}`. Task 1 is complete;
 Q1–Q5 and public dynamic availability remain pending.
+
+### Independent Preparation And Continued Synchronization
+
+A read-only Sol check of Task 3 traced the actual module path. Stage-1 compilation
+already skips procedure bodies, so a spy on that elaborator alone is insufficient
+evidence. The bounded task now explicitly owns selection before macro expansion
+and declaration elaboration in `compiler.py`/`modules.py`, reusing existing graph,
+export/scope and type-reference helpers. Its negative control includes an invalid
+unselected declaration. Actual compiled-bundle/dynamic-source loading remains
+Task 6 work if absent from the preliminary seam; no dummy loader substitutes.
+
+Upstream `948f97b9d5b0aea921680bbbb3777e1dc2fe4b58` was imported at
+`575f2de186d81614c36275087ed5637f36ee101e`. The sole change allows independent
+prompt-assembly/parity preparation under the existing accepted design; provider
+execution and Task 7 closeout remain dependent on their actual runtime owners.
+The coordinator inspected the one-line plan delta and ran `git diff --check`;
+no production source or machine selection changed, so existing code verification
+remains applicable. Shared runtime availability and Q1–Q5 remain incomplete.
+
+### Task 2 — Strict Native-Root Boundary Kernel
+
+The coordinator assigned the dynamic-specific strict policy to the existing
+output-contract/type-descriptor owners after checking the upstream worktrees
+for overlap. No shared performer was independently reimplemented.
+`validate_output_bundle(..., strict_transport_values=True)` uses the existing
+whole-value `__result__` contract and descriptor validator for native values;
+`require_int64=True` supplies the candidate's range without changing old defaults.
+The experimental strict JSON decoder moved into the shared output owner and
+its experiment caller imports that implementation. There is no second decoder
+or inverse `return__…` converter. These APIs and this committed delta are the
+reusable handoff for the upstream owner; they are not a claim of upstream adoption.
+
+Fifteen new checks cover records, applied unions, strict scalars, optional and
+nested `Value` integer bounds, Int-to-Float normalization, duplicate/nonfinite
+JSON, inactive empty-record fields, path containment and captured-byte stability.
+A required report is checked separately. This proves **Q1 kernel preparation**,
+not atomic combined publication or direct command/provider readiness.
+
+Luna Implementation observed seven initial failures for the absent strict option.
+The initial candidate passed 254 output/runtime checks in 6.38s and 256 generated
+contract/artifact checks in 14.16s. Independent Sol review required removing the
+received duplicate key from the new error and retaining nested-range coverage;
+the correction passed 139 affected checks in 2.76s and collected 15 final cases.
+Final conformity and separate quality reviews passed. Coordinator integration
+passed 17 cases in 1.53s, including a real checked command dispatch and the
+experimental malformed-result publication refusal. No full-repository green
+claim follows from these affected checks.
+
+Reviewed SHA256 values:
+
+- `output_contract.py`: `55e3517158f42c8fd364084544afb7a58bb1d81e204cef481da56419435ce585`.
+- `type_descriptor.py`: `f2267ca73286ad75a2168219b06c4fa27c9c7c184dd4359b756f5a2ab647c7da`.
+- Experimental `program.py`: `6169c9cad72da5081e198d287ac9bb2b833c8a1acefa39a79136fe46b19c036f`.
+- New boundary tests: `7df20e8d9958896bc83e77c899ebf1d686f6a36d6bc729985e77d2b6d301b6fe`.
+
+Author logs are `/tmp/orc-dc3-boundaries-*-20261002.txt`; the broad selectors were
+`test_workflow_dynamic_boundaries`, `test_output_contract`, its `value`,
+`collections`, `nested_transport` companions, `test_workflow_output_contract_integration`,
+and the experimental `test_dynamic_core_evaluation` / `test_dynamic_core_boundaries`
+modules. The second batch used `test_workflow_lisp_build_artifacts` and
+`test_workflow_lisp_structured_results`; both used `pytest -q -n 16 --dist=worksteal`.
+Exact coordinator command, HEAD `575f2de1`, stable hashes and output are in
+`/tmp/orc-dc3-integration-z6_e0z2j/boundaries-root.{json,log}`.
+The last upstream check still found `948f97b9` / source `0f1bbc46`.
+Task 2 is complete; Task 3 can proceed independently of the missing direct seam.

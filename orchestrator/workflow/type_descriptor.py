@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 MAX_TRANSPORT_VALUE_DEPTH = 64
 MAX_TRANSPORT_VALUE_BYTES = 16_777_216
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
 _NONTRANSPORTABLE_PRIMITIVES = frozenset({"Json", "Provider", "Prompt"})
 COMPILER_PRIMITIVE_TYPE_NAMES = frozenset(
     {
@@ -807,6 +809,7 @@ def validate_transport_value(
     descriptor: Mapping[str, Any],
     *,
     allow_nested_structures: bool = False,
+    require_int64: bool = False,
     path_validator: Callable[[str, Mapping[str, Any]], Any] | None = None,
 ) -> Any:
     """Validate and return one direct JSON value against its descriptor."""
@@ -829,6 +832,7 @@ def validate_transport_value(
         value_path="$",
         active_container_ids=set(),
         path_validator=path_validator,
+        require_int64=require_int64,
     )
     try:
         encoded = json.dumps(
@@ -894,6 +898,7 @@ def _validate_descriptor_value(
     value_path: str,
     active_container_ids: set[int],
     path_validator: Callable[[str, Mapping[str, Any]], Any] | None,
+    require_int64: bool,
 ) -> Any:
     if depth > MAX_TRANSPORT_VALUE_DEPTH:
         raise ValueError("transport value exceeds the maximum depth")
@@ -905,6 +910,7 @@ def _validate_descriptor_value(
             value_path,
             depth=depth,
             active_container_ids=active_container_ids,
+            require_int64=require_int64,
         )
     if kind == "enum":
         if type(value) is not str or value not in descriptor["allowed"]:
@@ -926,6 +932,7 @@ def _validate_descriptor_value(
             value_path=value_path,
             active_container_ids=active_container_ids,
             path_validator=path_validator,
+            require_int64=require_int64,
         )
     if kind == "list":
         if type(value) is not list:
@@ -941,6 +948,7 @@ def _validate_descriptor_value(
                     value_path=f"{value_path}/{index}",
                     active_container_ids=active_container_ids,
                     path_validator=path_validator,
+                    require_int64=require_int64,
                 )
                 for index, item in enumerate(value)
             ],
@@ -962,6 +970,7 @@ def _validate_descriptor_value(
                     value_path=f"{value_path}/{_escape_pointer_token(key)}",
                     active_container_ids=active_container_ids,
                     path_validator=path_validator,
+                    require_int64=require_int64,
                 )
                 for key, item in value.items()
             },
@@ -985,6 +994,7 @@ def _validate_descriptor_value(
                     ),
                     active_container_ids=active_container_ids,
                     path_validator=path_validator,
+                    require_int64=require_int64,
                 )
                 for field in descriptor["fields"]
             },
@@ -1016,6 +1026,7 @@ def _validate_descriptor_value(
                         ),
                         active_container_ids=active_container_ids,
                         path_validator=path_validator,
+                        require_int64=require_int64,
                     )
                     for field in variant["fields"]
                 },
@@ -1031,6 +1042,7 @@ def _validate_primitive_value(
     *,
     depth: int,
     active_container_ids: set[int],
+    require_int64: bool,
 ) -> Any:
     if name == "Value":
         return _validate_json_value(
@@ -1038,6 +1050,7 @@ def _validate_primitive_value(
             depth=depth,
             value_path=value_path,
             active_container_ids=active_container_ids,
+            require_int64=require_int64,
         )
     if name == "String" or name not in {"Int", "Float", "Bool"}:
         if type(value) is not str:
@@ -1046,6 +1059,8 @@ def _validate_primitive_value(
     if name == "Int":
         if type(value) is not int:
             raise ValueError(f"{value_path} is not an Int")
+        if require_int64 and not _INT64_MIN <= value <= _INT64_MAX:
+            raise ValueError(f"{value_path} is outside signed 64-bit Int bounds")
         return value
     if name == "Float":
         if type(value) not in {int, float}:
@@ -1070,10 +1085,15 @@ def _validate_json_value(
     depth: int,
     value_path: str,
     active_container_ids: set[int],
+    require_int64: bool,
 ) -> Any:
     if depth > MAX_TRANSPORT_VALUE_DEPTH:
         raise ValueError("transport value exceeds the maximum depth")
-    if value is None or type(value) in {bool, int, str}:
+    if value is None or type(value) in {bool, str}:
+        return value
+    if type(value) is int:
+        if require_int64 and not _INT64_MIN <= value <= _INT64_MAX:
+            raise ValueError(f"{value_path} is outside signed 64-bit Int bounds")
         return value
     if type(value) is float:
         if not math.isfinite(value):
@@ -1089,6 +1109,7 @@ def _validate_json_value(
                     depth=depth + 1,
                     value_path=f"{value_path}/{index}",
                     active_container_ids=active_container_ids,
+                    require_int64=require_int64,
                 )
                 for index, item in enumerate(value)
             ],
@@ -1106,6 +1127,7 @@ def _validate_json_value(
                     depth=depth + 1,
                     value_path=f"{value_path}/{_escape_pointer_token(key)}",
                     active_container_ids=active_container_ids,
+                    require_int64=require_int64,
                 )
                 for key, item in value.items()
             },
