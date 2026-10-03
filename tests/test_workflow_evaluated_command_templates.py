@@ -436,7 +436,7 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
     artifact = tmp_path / "artifacts/work/output.json"
     assert artifact.is_file()
     dispatches_before = prior.raw
-    real_reuse = runtime_module._reuse_command_commit
+    real_reuse = runtime_module._reuse_effect_commit
 
     def remove_artifact_before_path_reuse(commit, node, *args):
         if node["boundary"] == "produce":
@@ -444,7 +444,7 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
         return real_reuse(commit, node, *args)
 
     with monkeypatch.context() as patched:
-        patched.setattr(runtime_module, "_reuse_command_commit", remove_artifact_before_path_reuse)
+        patched.setattr(runtime_module, "_reuse_effect_commit", remove_artifact_before_path_reuse)
         with memo_writer_lock(authority.run_root):
             exit_code, value = runtime_module.execute_pure_run(
                 authority, {}, run_id="run-1", workspace=tmp_path
