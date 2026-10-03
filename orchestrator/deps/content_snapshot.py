@@ -9,6 +9,8 @@ from pathlib import PurePosixPath
 from pathlib import Path
 from typing import Literal
 
+from .._common.io_text import read_text_with_sha256
+
 
 MAX_INJECTION_BYTES = 262144
 TRUNCATION_SUMMARY_RESERVE_BYTES = 512
@@ -284,6 +286,18 @@ def snapshot_content_dependencies(
     authored_rows: Iterable[AuthoredDependencyRow],
 ) -> DependencyContentSnapshot:
     """Read one immutable, newline-normalized functional snapshot."""
+    snapshot, _digests = snapshot_content_dependencies_with_sha256(
+        workspace,
+        authored_rows,
+    )
+    return snapshot
+
+
+def snapshot_content_dependencies_with_sha256(
+    workspace: Path,
+    authored_rows: Iterable[AuthoredDependencyRow],
+) -> tuple[DependencyContentSnapshot, dict[str, str]]:
+    """Read one snapshot and return raw digests for its present targets."""
 
     root = Path(workspace)
     rows = tuple(authored_rows)
@@ -298,6 +312,7 @@ def snapshot_content_dependencies(
             )
 
     payloads: list[DependencyContent] = []
+    digests: dict[str, str] = {}
     seen: set[str] = set()
     for row in rows:
         target = row.canonical_target
@@ -307,7 +322,11 @@ def snapshot_content_dependencies(
         try:
             # Text mode deliberately preserves the established YAML behavior:
             # strict UTF-8 plus universal-newline normalization.
-            normalized = (root / target).read_text(encoding="utf-8").encode("utf-8")
+            text, digests[target] = read_text_with_sha256(
+                root / target,
+                encoding="utf-8",
+            )
+            normalized = text.encode("utf-8")
         except UnicodeDecodeError as exc:
             raise ContentDependencySnapshotError(
                 "invalid_utf8_dependency",
@@ -321,7 +340,7 @@ def snapshot_content_dependencies(
                 row,
             ) from exc
         payloads.append(DependencyContent(target, normalized))
-    return build_content_snapshot(rows, payloads)
+    return build_content_snapshot(rows, payloads), digests
 
 
 def _render_header(target: str, shown_bytes: int, total_bytes: int) -> bytes:

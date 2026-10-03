@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+from orchestrator._common.io_text import read_text_with_sha256 as _read_text_with_sha256
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
 
 class AssetResolutionError(ValueError):
@@ -45,8 +46,12 @@ class WorkflowAssetResolver:
 
     def read_text(self, relative_path: str) -> str:
         """Read one source-relative asset as UTF-8 text."""
-        path = self.resolve(relative_path)
-        return path.read_text(encoding="utf-8")
+        text, _digest = self.read_text_with_sha256(relative_path)
+        return text
+
+    def read_text_with_sha256(self, relative_path: str) -> tuple[str, str]:
+        """Read one source-relative asset and retain its raw-byte digest."""
+        return _read_text_with_sha256(self.resolve(relative_path), encoding="utf-8")
 
     def render_content_blocks(self, relative_paths: Iterable[str]) -> str:
         """Render deterministic source-asset content blocks in authored order."""
