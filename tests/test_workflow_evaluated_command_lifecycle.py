@@ -69,6 +69,10 @@ def _publish(root: Path, program):
         run_id="run-1",
         workflow_file="lifecycle.orc",
         workflow_checksum="sha256:" + hashlib.sha256(b"lifecycle source").hexdigest(),
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs={},
     ) as authority:
         yield authority

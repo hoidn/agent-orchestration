@@ -51,6 +51,10 @@ def _publish(run_root: Path, program) -> None:
         run_id=run_root.name,
         workflow_file="pure.orc",
         workflow_checksum=source_digest,
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs={},
     ):
         pass
@@ -390,6 +394,10 @@ def test_rehashed_incompatible_or_nonfinite_inputs_refuse_without_mutation(
         run_id=run_root.name,
         workflow_file="inputs.orc",
         workflow_checksum="sha256:" + "0" * 64,
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs={"score": 0.5},
     ):
         pass

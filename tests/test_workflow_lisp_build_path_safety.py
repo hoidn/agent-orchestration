@@ -203,3 +203,31 @@ def test_closed_compile_rejects_artifact_file_symlink_to_outside(
 
     _assert_path_error(completed)
     assert sentinel.read_text(encoding="utf-8") == "unchanged"
+
+
+@pytest.mark.parametrize("manifest_name,entry_path", [("sub/imports.json", "../producer.orc"), ("imports.json", "sub/../producer.orc")])
+def test_compiled_import_fd_manifest_preserves_relative_parent_components(
+    tmp_path: Path, manifest_name: str, entry_path: str
+) -> None:
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+    (tmp_path / "sub").mkdir()
+    for name in ("main", "producer"):
+        (tmp_path / (name + ".orc")).write_text(
+            f'(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+            f'(defmodule {name}) (export run) (defworkflow run () -> Int 7))'
+        )
+    manifest = tmp_path / manifest_name
+    manifest.write_text(json.dumps({"unused": {"kind": "compiled", "path": entry_path}}))
+    request = FrontendBuildRequest(source_path=tmp_path / "main.orc", source_roots=(tmp_path,),
+                                   workspace_root=tmp_path, imported_workflow_bundles_path=manifest)
+    ordinary = build_closed_program_bundle(request)
+    fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        from dataclasses import replace
+        retained = build_closed_program_bundle(replace(
+            request, imported_workflow_bundles_path=Path(f"/proc/self/fd/{fd}/{manifest_name}")
+        ))
+        assert retained.program.digest == ordinary.program.digest
+    finally:
+        os.close(fd)

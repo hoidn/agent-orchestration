@@ -409,6 +409,10 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
         run_id="run-1",
         workflow_file="path_replay.orc",
         workflow_checksum="sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs={},
     ) as authority:
         real_append = runtime_module.append_record

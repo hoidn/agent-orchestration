@@ -32,6 +32,10 @@ def _run(root, monkeypatch, source=SOURCE, *, prompt_kind="asset_file", inputs=N
     monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
     with publish_run_authority(root / ".state" / "run-1", built.program,
         run_id="run-1", workflow_file="main.orc", workflow_checksum="sha256:" + sha256(source.encode()).hexdigest(),
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs=inputs or {"message": "typed input"}) as authority:
         yield built, authority
 
@@ -282,6 +286,10 @@ def test_supplied_staged_provider_selection_reaches_real_performer(tmp_path, mon
     built = SimpleNamespace(program=checked, provider_io=provider_io)
     with publish_run_authority(tmp_path / ".state" / "run-1", checked, run_id="run-1",
         workflow_file="consumer/main.orc", workflow_checksum="sha256:" + sha256(WREF.encode()).hexdigest(),
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs={"input": {"n": 0}}) as authority:
         assert _execute(tmp_path, built, authority, inputs={"input": {"n": 0}}) == (0, {"n": 7})
         requests = _requests(tmp_path)

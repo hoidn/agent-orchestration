@@ -9,6 +9,7 @@ byte-identical to the pre-split build.py definitions.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 from collections.abc import Mapping
@@ -952,7 +953,10 @@ def _load_json_file(
 def _resolve_manifest_relative_path(manifest_path: Path, entry_path: str) -> Path:
     candidate = Path(entry_path)
     if not candidate.is_absolute():
-        candidate = (manifest_path.parent / candidate).resolve()
+        try:
+            candidate = (manifest_path.parent / candidate).resolve()
+        except RuntimeError as exc:
+            raise OSError(errno.ELOOP, str(exc), str(manifest_path.parent / candidate)) from exc
     return candidate
 
 

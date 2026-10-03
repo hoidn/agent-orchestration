@@ -693,6 +693,32 @@ def _resume_workflow_with_writer_lock_held(
             assert state is not None
 
 
+def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None) -> int | None:
+    """Select immutable authority under the writer locks, before legacy state."""
+    from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, RunAuthorityError, _read_header_json
+    from orchestrator.cli.commands.evaluated import resume_evaluated_workflow
+    header_path = run_root / "run.json"
+    if not header_path.exists() and not header_path.is_symlink():
+        if (run_root / "memo.jsonl").exists() or (run_root / "closed_program.json").exists():
+            logger.error("[memo_inconsistent] evaluated run authority header is missing")
+            return 2
+        return None
+    try:
+        header = _read_header_json(header_path)
+        if not isinstance(header, dict):
+            raise RunAuthorityError("run header is not an object")
+        profile = header.get("result_persistence_profile")
+        schema = header.get("schema_version")
+        if profile == PROFILE and schema == SCHEMA_VERSION:
+            return resume_evaluated_workflow(run_root, workspace=workspace, force_restart=force_restart, run_ref_root=run_ref_root)
+        if schema == "2.1" and profile in (None, DERIVED_PURE_REPLAY_PROFILE):
+            return None
+        raise RunAuthorityError("unsupported run authority profile or schema")
+    except (OSError, UnicodeError, ValueError) as exc:
+        logger.error("[memo_inconsistent] %s", exc)
+        return 2
+
+
 def resume_workflow(
     run_id: str,
     repair: bool = False,
@@ -747,6 +773,9 @@ def resume_workflow(
                 workspace_run_lock(workspace_dir, restart_run_id or run_id)
             )
             writer_locks.enter_context(run_writer_lock(run_root))
+            evaluated_exit = _evaluated_resume_route(run_root, workspace_dir, force_restart=force_restart, run_ref_root=run_ref_root)
+            if evaluated_exit is not None:
+                return evaluated_exit
             return _resume_workflow_with_writer_lock_held(
                 run_id=run_id,
                 repair=repair,
