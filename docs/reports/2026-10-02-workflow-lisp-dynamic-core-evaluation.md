@@ -1,8 +1,10 @@
 # Dynamic-Core Evaluation: Execution Evidence
 
 Status: DC-0 and DC-1a/b/c implementation, verification and independent review
-complete; DC-F owner **continue** on 2026-10-02. DC-2 is active; DC-U/DC-P
-dispositions remain pending. This report records actual source inspection,
+complete; DC-F owner **continue** on 2026-10-02. All 110 DC-2 cases have executed
+and final code and independent document/utility reviews passed. DC-U/DC-P owner
+dispositions remain pending.
+This report records actual source inspection,
 test collection and coordinator-supplied control execution. The
 [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns selection; the [proposal](../design/workflow_lisp_dynamic_core_proposal.md)
@@ -89,6 +91,21 @@ with `scope-import-narrow.log` and `scope-import-impacted.log`. Control sources
 remain unchanged at their frozen pin; the current runtime is recorded separately.
 The upstream 949-pass/5-inherited-failure broad receipt is historical, not a new
 global PASS. R12-B/C and Task 6 remain open; no dynamic gate advances here.
+
+**Pre-DC-U synchronization, 2026-10-02:** reviewed integration `b7d82fa1`
+merged at `bcc4ee1385877289e1ecb0012ae1f40b07d44bfc`, including the reviewed
+attempt-allocation work and interpreter-pin design. The coordinator's narrow
+attempt checks passed **11 in 2.56s**; output is in the tool transcript, with
+no saved log claimed. The combined 370-case receipt in §8 ran on this integration.
+This imports shared progress rather than implementing it here. The frozen
+comparator remains `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8`; record the moving
+runtime separately and continue periodic upstream checks. Neither import nor
+green checks finish typed Task 6, approve DC-U or erase historical failures.
+The gate-time recheck still found upstream integration
+`b7d82fa18a5ebbe84797c0036fb4178712f81d27` and source
+`0f1bbc46b4f4d8cdcdbbe509264566594f016bfd`. The integration is an ancestor;
+the source patch is already integrated as `a780639c`, with the equal stable
+patch ID recorded above. No additional shared patch was available to import.
 
 | Control | Exact owner and evidence limit |
 | --- | --- |
@@ -743,8 +760,9 @@ consumer protocols; no competing shared performer or recovery work is selected.
 
 ## 8. DC-2 Finite Utility Scope
 
-This is the planned handoff after the recorded DC-F continue, not execution
-evidence or a DC-U disposition. The
+This preserves the finite handoff after the recorded DC-F continue; the
+execution and utility packet follow its case inventory below. It is not a
+DC-U owner disposition. The
 [plan's finite handoff](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#finite-execution-handoff)
 owns batch order, exclusive paths and commands; the
 [proposal §6.4](../design/workflow_lisp_dynamic_core_proposal.md#64-bounded-complete-consumer-comparison)
@@ -983,21 +1001,122 @@ completed before interruption; do not count a pre-dispatch failure as restart
 cost. No paid-provider quality, money or latency conclusion follows from these
 deterministic local calls.
 
+### DC-2d Execution And Final Review
+
+The four paired edits and six diagnostic/restart cases executed with actual
+compiled local command leaves. Their exact source pairs, effect logs, error
+locations, repair observations and retained leaf state are under
+`/tmp/orc-dc2-execution-0jczbaqn/edits-reviewed-vutxmuny/**/evidence/{UE01–UE04,UD01–UD06}/receipt.json`.
+These are coordinator-observed temporary artifacts; the checked-in test module
+recreates them. No author-time, money, quality or performance study was run.
+
+The first combined run precedes two bounded evidence corrections: UD01 now
+asserts/records the full repaired value and calls; UE03 classifies preexisting
+`Brief` forwarding as retained behavior. The existing implementer applied both;
+no candidate semantics, production code or demo changed. Author:
+`/root/impl_code_dynamic_core_utility` (Luna 6 xhigh); final code commit
+`4728b14e`. Independent conformity by `/root/design_dynamic_core_roadmap`
+(Astra 6 xhigh) passed; final code/quality review by
+`/root/review_code_dynamic_core_utility` (Sol 6.1 high) passed with all findings
+closed. The coordinator inspected the corrected diff and receipts. Independent
+review of utility and all seven documentation changes by
+`/root/design_dynamic_core_roadmap` (Astra 6 xhigh): **PASS**, with no blocking
+findings. It supports considering the bounded readiness scope below; it does not
+select the owner disposition. Documentation verification is recorded below.
+
+| Check | Observed receipt and limit |
+| --- | --- |
+| Collection and impacted integration | 370 cases collected; **370 passed in 12.54s**, exit 0, with `-q -n 16 --dist=worksteal` in tmux. `final-result.json`, `final-collect.log`, `final-combined.log` under `/tmp/orc-dc2-execution-0jczbaqn/`; equal before/after code hashes. Runtime `bcc4ee13`, production tree `a3728ccdce03c80f2c238cd965b67d8645ee81a8`. This precedes the two review corrections. |
+| Distinct counted cases | 110 new: 12 UC + 11 UI + 77 US + 4 UE + 6 UD; 84 retained DC-1 candidate cases; all 105 frozen-source controls; 71 routing checks. Earlier narrow and batch counts overlap and are not additional coverage. |
+| Exact full-consumer README command | Exit 0; `final-demo.sh`, `final-demo-result.json`, `final-demo.log` under the same receipt root. Disk-written/read-back `/3` artifact; **196 steps**, **4 calls** (review → revise → review → revise); EXHAUSTED `{title: "draft+r+r", score: 2}`. Digest `sha256:7f5dd633505995ca32c18a84d03afa218bf831cf0890364a65f8a911ff3b4dd7`. Experimental driver, no public dynamic launch or paid calls. |
+| Final affected recheck | **10 passed in 8.89s**, exit 0, after both evidence corrections; `edits-reviewed-result.json` and `edits-reviewed.log` under the same receipt root. Equal before/after final test SHA256 `79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958`. The earlier 370-case run remains integration evidence, supplemented by this final affected check; do not report 370 at the corrected hash. |
+| Final code and utility review | Code/conformity and independent document/utility review PASS as above. Earlier DC-2a/b/c reviews remain valid within their scopes. |
+| Documentation verification | **71 passed in 3.51s**, exit 0, in tmux with `-q -n 16 --dist=worksteal` on `tests/test_workflow_lisp_drain_roadmap_routing.py`; 20 changed local links/anchors and `git diff --check` passed. Exact command, document hashes and results are in `dc-u-docs-result.json` and `dc-u-docs.log` under the same receipt root. This verification record was added after the check. |
+
+The combined command is the eleven-module command in the
+[plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#finite-execution-handoff),
+with `--basetemp /tmp/orc-dc2-execution-0jczbaqn/final-pytest-ijyf7x7p`.
+The supplied JSON records the executable, command, exit, runtime revision and
+hashes; pytest's own log supplies the 12.54s duration. This is an impacted check,
+not a full-repository green result. The inherited red baseline remains red.
+
 ### DC-U Evidence Packet
 
-After these cases execute and independent review completes, append receipts to
-this same section. Separate supported, adverse, missing and untested findings.
-List added source/admission/evaluator/driver paths; retained domain validators,
-specialization, command/provider and state owners; actually displaced owners
-(possibly none); `/1`–`/3` identities; old-target compatibility; and each leaf's
-retained legacy state/startup work. LOC alone does not establish net complexity.
-The best implemented typed control, historical spike and proposed W1/W3 must
-remain separately labeled. Credit W1/W3's plausible reduction in constructor
-repetition/context plumbing without pretending it executes or requiring its
-implementation here.
+**Assessment:** ordinary functions and lexical capture are demonstrated useful
+composition mechanisms. Full fresh-run consumer parity is established by the
+finite matrix. The four author edits show a mixed result: less internal callable
+plumbing, but no general reduction in edits or repair cost. Boundary adaptation,
+late failures, repeated external work and compatibility are material costs.
+The present branch removes **zero production owners**; it does not establish
+net implementation simplification.
 
-The full-consumer README command is part of DC-2d and must run before closeout,
-in addition to narrow/combined checks. Record fresh commands/exits/revisions
-and independent review, then recommend continue, bounded revision or typed
-fallback. **DC-U owner disposition remains pending**; passing these cases
-does not select DC-3, a public target or adoption.
+| Supported evidence | Scope and interpretation |
+| --- | --- |
+| Complete fresh-run protocols | UI01–UI11 preserve full improve outcomes, payloads, latest candidates and failure/order behavior; US01's 72 pairs and US02–US06 preserve search values/history, ordered requests, spend and exhaustion. The typed compact control is a historical evaluated spike; public typed helper run/resume and pure CLI controls are separate. |
+| Ordinary reusable functions | One unspecialized improve helper forwards active payloads opaquely and accepts ordinary hook values; source functions capture, return, store and pass callables without internal generic parameters or ProcRefs. S/P/UC and full consumers prove the mechanism, not public module reuse. |
+| Existing boundary pipeline | Real compiled domain schemas, adapter/provider/command dispatch, strict captured-output validation, document/output checks and public result boundaries retain their existing owners. Neither `Value` nor a handwritten validator substitutes for the full consumer result contract. |
+| Honest runnable comparison | Four edited pairs run complete expected values and leaf inputs. Typed pure `defproc`, immutable record update and single-String context are executable controls. W1/W3 remain plausible proposed improvements, not executed evidence. |
+
+| Edit | Observed authoring and repair consequence |
+| --- | --- |
+| UE01 — add `origin` | Both sides change three boundary categories (schema, review argv, revision argv/result) and forward the field at both leaves. Typed internal change initializes the candidate field; the dynamic caller also reconstructs the returned field and forwards ordinary record data. The initially incomplete dynamic caller fails before dispatch; one scripted repair batch yields matching EXHAUSTED `draft+r`, score 1, origin `seed`, with review/revise calls. No dynamic edit-count win. |
+| UE02 — `note` → `message` | Both sides retain real feedback/evidence contracts. The typed generic helper already forwards payloads opaquely, needing one consumer projection edit. The dynamic caller changes six normalization/input sites because it reconstructs `return__…` keys; two observed repair steps each follow a successful review. Both APPROVED evidence and EXHAUSTED value/calls agree after repair. This is adverse adapter/diagnostic evidence, not a generic-helper advantage. |
+| UE03 — independent rubric capture | Review captures goal/rubric and revise captures only goal; both sides deliver `draft tidy clarity` then `draft tidy fb0:clarity`, returning EXHAUSTED `draft+r`, score 1. The typed `Brief` carrier/forwarding already exists and is retained behavior; the actual rubric declaration/consumption/caller value changes are edits. The dynamic caller still duplicates goal at closure construction. No repairs were observed; typed String context and proposed W3 narrow the unique-gain claim. |
+| UE04 — extract pure helper | Both ordinary dynamic helper and existing typed pure `defproc` extract the feedback projection and preserve exactly review/revise payloads and the EXHAUSTED value. Neither requires a new boundary contract or recorded repair. Helper extraction is already available in the incumbent; it is not uniquely enabled by this candidate. |
+
+Touched sites are semantic categories from actual source pairs, not a LOC score
+or a controlled human effort measurement. `observed_repairs` describe scripted
+fixture repairs, not measured author attempts. Timing remains **unmeasured**.
+
+| Adverse diagnostic/restart evidence | Actual effects and comparison |
+| --- | --- |
+| UD01 — unknown name | Dynamic `dynamic_source_invalid` and typed `name_unknown` reject with source location before dispatch: zero calls on both sides. Replacing the missing name with dynamic goal/typed `brief.goal` yields identical full EXHAUSTED `draft+r`, score 1, and ordered review/revise calls, asserted in the final corrected receipt. |
+| UD02 — wrong arity | Dynamic `dynamic_call_arity` occurs before the first effect (0 calls, 38 steps) or after a completed review (1 call, 92 steps), depending on the reached call. Artifact paths/call context identify the failure. Typed `procedure_arity_mismatch` catches both before execution. Removing one extra argument yields matching full value and review/revise inputs. |
+| UD03 — missing field | Dynamic `dynamic_field_missing` occurs after 1 successful review (89 steps), leaving its output/state; typed `record_field_unknown` rejects before effects. A one-site repair restores the matching EXHAUSTED value and two-hook run. |
+| UD04 — VM exhaustion | Budget 80 fails with `dynamic_budget_exhausted` after 1 completed review; its output remains. Raising the source budget to 1000 runs fresh review/revise and restores the typed value. This repeats the first effect; neither controller exhaustion nor a resume point is claimed. |
+| UD05/UD06 — interruption and restart | The observer interrupts only after real successful review/revise leaves. Dynamic fresh restart repeats those 2 prefix calls and runs all 6 completion calls: **8 total leaf runs**, with all first-run states retained. Typed public committed-iteration resume makes **6 total calls**, reusing the 2-call committed prefix. Full final EXHAUSTED `draft+r+r+r`, score 3 agrees. UD06 preserves captured goal and uses the incumbent's actual String-input control. |
+
+The lost static effect-summary guarantee remains an exercised typed control,
+not candidate functionality. Late diagnostics preserve operation and call
+context but generally report artifact paths; complete source mapping is absent.
+Completed external writes are not rolled back. The two extra local leaf runs
+quantify repeated work in these interruption cases only; no paid cost estimate
+or general latency conclusion follows.
+
+| Complexity owner | Actual retained / added / removed responsibility |
+| --- | --- |
+| Boundary declarations, type environment and contract compiler | Retained production `type_env`, normalized descriptors, contract derivation, strict transport validation, prompt/input/output and artifact-lineage machinery. Domain declarations remain on both sides. No validator or schema owner removed. |
+| Typed compiler/evaluator and old targets | Retained generic specialization, ProcRef/proof plumbing, typed P5/closed admission, static effect summaries, memo/authority/resume and all old-target compatibility. Dynamic fixtures bypass internal specialization; they do not delete its production owner. |
+| Experimental admission/source/evaluator | Added `program.py`, `source.py`, `evaluator.py` responsibility for dynamic values/frames/captures, source checks, runtime operations/diagnostics and per-invocation budget. `/1`, `/2`, `/3` are three admitted artifact vocabularies; older versions retain their original admission rules. |
+| Leaf bridge and driver | Added `leaf_bridge.py`, explicit source-fragment assembly, registry linking and caller wire-to-domain reconstruction. Retained full compiler/startup and independent legacy run state/checkpoints for each actual leaf. This is not public imports or a second performer/state authority. |
+| Consumer/test owners | Added improve/search definition fragments, typed utility leaves, four utility test modules and runnable README. Existing controls and maintained production consumers remain. Shared output-byte forwarding and reviewed upstream fixes extend/reuse existing owners. |
+| Actual displacement | **Zero production owners removed.** Internal helper nominal declarations/context signatures/ProcRefs are absent in experimental source; future deletion depends on a selected migration and old-target/run disposition. No net-deletion or total-complexity win is established. |
+
+| Missing or untested evidence | Consequence for the gate |
+| --- | --- |
+| Public dynamic target, imports, full source maps, inspection/readers and selected release qualification | DC-3 readiness obligations; source assembly and a successful experimental driver do not satisfy them. Shared work stays with upstream owners. |
+| Migration/deletion and existing-run disposition | Needed to judge actual net production complexity and select one destination; compatibility machinery remains today. |
+| Live-provider quality/cost, human author time, general performance | Not measured or allocated. Scripted leaves and pytest duration cannot establish these claims. |
+| Candidate effect tracking/resume | Explicitly absent by accepted experiment scope; their observed costs require owner acceptance, not automatic restoration. Recovery/parallel/child-run expansion needs its own selected scope. |
+
+**Proposed disposition: continue only to bounded DC-3 readiness qualification,**
+following independent review. The ordinary function model warrants that next
+examination; the evidence does not justify
+production adoption or a claim that total complexity already fell. A bounded
+revision is appropriate if the owner wants the demonstrated wire-reconstruction
+or late-error costs reduced before readiness; stop retains the typed route and
+qualified W3 fallback if those costs outweigh uniform composition.
+
+The proposed successor uses the existing DC-3 checklist: settle target/artifact,
+import/stdlib and old-run contracts with their current owners; name one
+maintained-consumer destination; inventory credible removable machinery and
+retained compatibility; select and qualify only the needed shared runtime,
+public execution/inspection and boundary slice. Preserve the explicitly
+non-resuming profile, current schemas and periodic upstream reuse. Write the
+bounded plan and owner amendments before production edits. No paid/live calls,
+parallel or child-run expansion, migration or retirement follows from this
+recommendation; any such scope needs its own authorization.
+
+**DC-U owner + date + disposition + next scope: PENDING.** DC-3, DC-P, public
+syntax, adoption and Phase 6b/7 remain unselected. The coordinator concurs with
+the reviewed recommendation; only the owner can select its successor.

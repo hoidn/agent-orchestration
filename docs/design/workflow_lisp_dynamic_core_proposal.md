@@ -1,6 +1,6 @@
 # Workflow Lisp: Dynamic Core With Explicit Boundary Contracts
 
-- **Status:** experimental source functions/closures and compiled leaves implemented; DC-F passed by owner decision; DC-2 utility evaluation active; public target and adoption remain pending.
+- **Status:** experimental architecture proposal; no accepted public dynamic target or adoption. Execution evidence and owner dispositions belong to the linked plan/report.
 - **Kind:** architecture proposal, not an accepted language specification or implementation plan.
 - **Scope:** ordinary computation, callable values, boundary schemas, and the execution contracts those changes would require.
 - **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.
@@ -763,6 +763,27 @@ and the lack of static tracking/resume. Credit already available typed
 `record-update`, String context inputs and ordinary helpers; label W1/W3
 counterfactuals as proposed. Source size alone and removing legitimate domain
 types are not utility gains.
+
+For utility interpretation, distinguish value arguments from type parameters:
+ordinary helpers still take initial values, hook functions and limits. The
+candidate removes internal generic **type** arguments and compile-time ProcRef
+wiring, not ordinary argument passing. The existing typed helper already
+forwards active payloads opaquely. Count caller `return__…` reconstruction and
+field/input repairs as real costs; payload-independent generic behavior and
+pure-helper extraction alone are not unique dynamic gains. Count preexisting
+context-carrier forwarding as retained behavior rather than a new edit.
+
+Late error and restart comparisons must retain their successful prefix outputs
+and count calls across both invocations. A fresh run that repeats two successful
+prefix leaves and then executes six completion leaves has eight actual leaf runs;
+typed committed-iteration resume may make six total calls by reusing the prefix.
+This cost is compatible with the proposed non-resuming profile but must remain
+visible. Every leaf still owns its compiled legacy state and startup work.
+Only actual production removal, with old-target and run dispositions, qualifies
+as net simplification; bypassing specialization inside experiment fixtures does
+not remove its production owner. The
+[single execution report's utility packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-u-evidence-packet)
+owns the observations and recommendation, and the plan owns readiness selection.
 
 The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-2-full-utility-comparison-and-gate-dc-u)
 owns the exact finite file/case handoff and receipts. Implementation is limited

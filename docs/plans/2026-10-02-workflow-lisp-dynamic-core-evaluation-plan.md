@@ -121,7 +121,12 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest import, 2026-10-02: reviewed integration `c3162d42` imported at
+Latest import, 2026-10-02: reviewed integration `b7d82fa1` imported at
+`bcc4ee13`, including attempt allocation and interpreter-pin design. Eleven
+narrow attempt checks passed in 2.56s (tool transcript only); the 370-case
+integration and final affected ten-case supplement are recorded in the report's
+DC-U packet. The frozen comparator remains `4b69ee00`; moving runtime revisions
+are separate. Earlier reviewed integration `c3162d42` imported at
 `820a12a9`, adding opt-in attempt capture and R12-B compiler-local lexical facts.
 Fresh narrow checks passed 11; affected integration checks passed 254, including
 complete dynamic improve/search and the public typed helper controls. Earlier
@@ -141,7 +146,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
-| DC-2 — utility comparison | Active; DC-2a/b/c complete, DC-2d edits/diagnostics executing | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
+| DC-2 — utility comparison | All 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; owner decision pending | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; owner disposition pending |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
@@ -168,7 +173,7 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-DC-2d paired author edits and diagnostics, followed by DC-U evidence/review;
+DC-U owner disposition on the independently reviewed packet;
 DC-F continue was explicitly selected by the owner on 2026-10-02. Existing
 executable selectors have no new item to consume.
 
@@ -340,7 +345,8 @@ integration `9bb4b207` and source `0f1bbc46` unchanged; both are already importe
 The [proposal §6.4](../design/workflow_lisp_dynamic_core_proposal.md#64-bounded-complete-consumer-comparison)
 owns the additional experimental semantics. The [report §8](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#8-dc-2-finite-utility-scope)
 is the sole case inventory: **110 new logical cases**, including the fixed
-72-search vector. These are planned observations, not passed tests. Its case
+72-search vector. Its case inventory is preserved alongside actual execution
+receipts and the DC-U packet; planned rows alone are not passed tests. Its case
 IDs must appear in test names or parameter IDs; keep any implementation-level
 parameterization count separately in the execution receipt.
 
@@ -371,8 +377,8 @@ failures remain documented and no global-suite PASS is claimed.
 | DC-2a — code implementation, bounded core; complete at `e7da6fd2` | `experiments/dynamic_core_evaluation/{program,source,evaluator,leaf_bridge}.py`; `tests/experiments/test_dynamic_core_utility_core.py` | UC01–UC12, including the two bridge groups; `/3` additions with frozen `/1` and `/2` admission; existing certified command adapter reaches the current compiler/executor |
 | DC-2b — code implementation, improve; complete at `18121c76` | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
 | DC-2c — code implementation, search; complete at `e31e8282` | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py`; improve test `_dynamic_run` binding setup only | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion; rerun UI01–UI11 after shared-module integration |
-| DC-2d — code implementation, paired edits and diagnostics | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; paired runnable edits, error timing, repeated work and one reproducible full-consumer demo |
-| DC-2e — independent code/utility review and coordinator integration | This plan and the same report; corrections return to the relevant implementer | Review code first, then benefit/cost evidence; inspect diff, run required final checks, prepare DC-U packet and stop for its owner disposition |
+| DC-2d — code implementation, paired edits and diagnostics; complete at `4728b14e` | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; corrected receipts, final 10 passed in 8.89s, code/conformity PASS; exact full-consumer demo passed |
+| DC-2e — independent code/utility review and coordinator integration; independent reviews PASS | This plan and the same report; corrections return to the relevant implementer | Code findings closed; coordinator inspected final diff/receipts; 370-case integration plus affected ten-case supplement; DC-U packet independently reviewed and awaiting owner disposition |
 
 No new helper framework, test registry, report family, schema converter, public
 CLI route or production stdlib migration belongs to these batches. The utility
@@ -435,33 +441,45 @@ coverage or interpret a green parity matrix as a utility/adoption decision.
 
 ### DC-U Completion Checklist
 
-- [ ] Port full `improve`: APPROVE, REVISE, BLOCKED, EXHAUSTED; latest revised
+- [x] Port full `improve`: APPROVE, REVISE, BLOCKED, EXHAUSTED; latest revised
   candidate and evidence/reason payloads; zero limit rejected before hooks;
   invalid hook output and final-iteration revision failures remain failures;
   imported/inline fresh-run order agrees with the control. Record committed-hook
   reuse as a lost capability of the non-resuming candidate, not a parity failure.
-- [ ] Port full paired-search policy: seed ranking, strict improvement/ties,
+- [x] Port full paired-search policy: seed ranking, strict improvement/ties,
   invalid evaluation, one same-branch repair, stalls, one fusion, full history,
   budget/score stops, invalid budgets and exhaustion. Run all 72 existing
   scenario/budget pairs (nine scenarios × eight budgets) owned by
   [the fixture](../../tests/experiments/test_mlevolve_pair_fixture.py) against
   the Python reference. Schema-invalid transport
   is not domain `valid=false`; compare ordered decisions, spend and final value.
-- [ ] Perform four paired edits: add a state field, change review payload, capture
+- [x] Perform four paired edits: add a state field, change review payload, capture
   context, extract a helper. Record touched sites, duplicated facts, concepts,
   repairs and diagnosis. Preserve useful domain schemas/types instead of counting
   their removal as a gain. State errors found before and after costly effects;
   compare repeated calls/cost and partial outputs after interruption/restart.
-- [ ] Compare the best **implemented** typed baseline and the proposed W1/W3
+- [x] Compare the best **implemented** typed baseline and the proposed W1/W3
   improvement honestly. If W1/W3 cannot execute, label it a counterfactual and
   narrow the unique-gain claim; no requirement to build both languages first.
-- [ ] Inventory actual added/retained/displaced owners, validators, specialization
+- [x] Inventory actual added/retained/displaced owners, validators, specialization
   paths, identity forms and compatibility costs. Include budget/runtime
   diagnostics, lost static checks/recovery and old-target retention; LOC alone is not a
   complexity or authoring verdict. No paid-provider quality/cost conclusion from
   scripted leaves or an unbudgeted authoring study.
-- [ ] Run narrow parity/integration checks and independent utility review; record
+- [x] Run narrow parity/integration checks and independent utility review; record
   supported, adverse, missing and untested evidence separately, then DC-U.
+
+Execution receipts are in the [report's DC-U packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-u-evidence-packet):
+370 passed in 12.54s at synchronized runtime `bcc4ee13`, followed by final
+10 passed in 8.89s after two evidence-only test corrections, code `4728b14e`.
+The full-consumer README demo passed with 196 steps and four real local calls.
+These checks do not erase the inherited red baseline or establish a full-suite
+PASS. The packet records mixed author-edit costs, late error detection and
+8 dynamic versus 6 typed calls across interruption/completion, plus zero
+production owners removed. Independent document/utility review by
+`/root/design_dynamic_core_roadmap` (Astra 6 xhigh) passed with no blocking
+findings. Final routing verification is recorded with the packet; this review
+does not select DC-U continue.
 
 **DC-U:** owner judges meaningful authoring/reuse benefit beyond the incumbent and
 credible W1/W3 gains, preserved fresh-run domain protocols, useful diagnostics
@@ -470,6 +488,16 @@ lost effect tracking and resumability against those gains; neither loss alone
 requires rejection. Passing fresh-run parity establishes
 correctness only. Continue selects named DC-3 readiness work; stop retains typed
 execution and may qualify W3 under its existing plan, without shipping closures.
+
+**Owner disposition: PENDING.** The packet recommends continue only to bounded
+DC-3 readiness qualification. Its proposed named scope is a readiness plan for
+the complete-consumer dynamic profile: target/artifact/import/stdlib and old-run
+owner contracts; one named maintained-consumer destination; actual removal and
+compatibility inventory; needed shared runtime and public execution/inspection
+qualification. The owner must select that finite scope before it executes.
+This recommendation allocates no production target, migration, live/paid calls,
+parallel effects or child-run expansion. Revise or stop remain available under
+the existing finite gate policy.
 
 ## DC-3: Production Readiness And Gate DC-P
 

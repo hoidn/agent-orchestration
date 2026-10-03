@@ -394,9 +394,15 @@ Tasks 1–5, then follow the
 
 DC-0 and the pure mechanism are complete; experimental source composition now
 uses ordinary functions with inferred captures and real compiled leaves. DC-F
-passed by owner decision and DC-2 is active; the [runnable specimen](../../experiments/dynamic_core_evaluation/README.md)
-shows the surface before full typed Phase 3 or W3 delivery. The boundary adapter
-reuses existing execution owners, with resume omitted; see the [execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md).
+passed by owner decision. All 110 DC-2 utility cases executed, including complete
+improve/search parity and the paired edits/diagnostics; code review passed at
+`4728b14e`; independent document/utility review passed. DC-U owner disposition remains pending.
+The [runnable full-consumer specimen](../../experiments/dynamic_core_evaluation/README.md)
+uses existing compiled boundary/execution owners with candidate resume omitted.
+The [DC-U packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-u-evidence-packet)
+records useful ordinary composition alongside mixed edit costs, late errors,
+restart replay and zero production owners removed. Its recommendation is only
+bounded DC-3 readiness qualification; that recommendation selects no successor.
 Each gate needs evidence and an explicit owner continue/revise/
 stop disposition. Continue activates only its named successor; revise names one
 bounded correction and one reevaluation, then stop or fresh owner allocation;
