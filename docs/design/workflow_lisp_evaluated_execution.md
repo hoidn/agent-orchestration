@@ -1245,6 +1245,19 @@ must still be launchable; a missing or unusable executable refuses with
 `resume_interpreter_missing`. Absolute/slashed stable-command executables
 keep their existing resolution and declared-file rules.
 
+The header's `interpreters` map has exactly one entry per distinct literal
+`command[0]` without `/` in emitted `perform` nodes of class `command`,
+across the entry body and all definition bodies, including unexecuted branches.
+Its key is that exact token; its value has only `path` (an absolute path without
+NUL) and `digest` (`sha256:` followed by 64 lowercase hexadecimal digits).
+Resolve each name once before authority publication and preserve the selected
+path spelling, including symlinks and `..`. Configuration without an emitted
+site and embedded child run-reference programs add no parent-run pins.
+Loading authority validates exact key coverage and pin shape without resolving
+`PATH` or observing executables; live interpreter checks belong to resume.
+Attempts select the recorded path by the original `command[0]`. This map is
+independent of effect input identity and local C4 checks.
+
 ## 8. Evaluation And Resume
 
 ### 8.1 What the memo decides
