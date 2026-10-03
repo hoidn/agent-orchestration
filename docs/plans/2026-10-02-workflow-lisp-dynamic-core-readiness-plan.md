@@ -1,0 +1,245 @@
+# Workflow Lisp Dynamic Core Readiness Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task by task. Steps use checkbox syntax. The coordinator retains integration and verification; a different reviewer checks each implementation first for conformity, then for code quality.
+
+**Goal:** Qualify the reviewed fresh-only, sequential dynamic candidate through the existing public CLI and shared boundary owners, ending with evidence for DC-P rather than adopting or migrating it.
+
+**Architecture:** Follow [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate): ordinary runtime functions with explicit boundary schemas, direct shared command/provider performers, one independently checked program and one minimal fresh-run state profile. First prove exact routing, root contracts and selective module admission; move the experimental core and its active consumers together only when the imported shared seams can support the replacement path. Retain typed runtime owners for their existing targets.
+
+**Tech Stack:** Existing Python frontend/runtime, S-expression reader, normalized type descriptors, output-contract validators, `StepExecutor`, `ProviderExecutor`, `WorkspaceFiles`, pytest and the existing CLI. No dependency or general backend interface is required.
+
+**Tradeoff:** This removes dynamic callers' source assembly, leaf workflows and wire reconstruction. It makes latent type mistakes and recovery after interruption harder: checks occur at executed operations/boundaries, a fresh invocation repeats work, and old-target compatibility remains a maintenance cost.
+
+## Authority, Scope And Current Evidence
+
+The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-3-production-readiness-and-gate-dc-p) owns DC-U/DC-P dispositions. Its explicit owner continue selects this bounded readiness work. [Proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) owns the candidate contract; this plan does not make new language decisions. The design file inspected for this handoff has SHA256 `53f865b345ccc38fa7f0402fb158d39e8d5e0f116f04dfcf7eb1c5b1a09edf11`; independent Design review and the final argv-contract recheck both passed on that exact hash. Read `docs/index.md`, `docs/capability_status_matrix.md` and the governing design before each owner transfer.
+
+This plan registers target `3.0` on the development branch only when its checked route can be exercised. Its program schema is `workflow-lisp/dynamic-program/1`; its state pair is `3.1` / `dynamic_execution.v1`. No default target changes, release claim, maintained application migration, paid provider work, child runs, parallel effects, resume, invalidation or effect-tracking implementation is selected. Resume/invalidation **refusal** is required. After DC-P only, the proposed single application destination is `experiments/mlevolve_pair/search_compact.orc`, entry `run-search`; its maintained file and command manifest remain unchanged during this plan. Qualification uses a fixture with the same complete policy. `std/dynamic/improve` is the required library integration, not a second application migration.
+
+Design and plan reviews passed; **Task 1 is in progress**, with Tasks 2–9 pending. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. Its native strict dynamic seam remains unqualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
+
+### Sequencing And Unavailable Owners
+
+| Work | Dependency and permitted progress |
+| --- | --- |
+| Tasks 1–3: exact routing, Q1 root-contract preparation, selective source linking | Independent of missing shared performers. Do not call these a runnable dynamic public target. Task 3 proves selection before executable elaboration, not complete Q2 source-free execution. |
+| Task 4: shared import/seam qualification | Import reviewed Phase 3 Tasks 6–7/12; inspect actual APIs and their state dependencies. Missing delivery blocks the dependent cutover, not Tasks 1–3. |
+| Tasks 5–8: production cutover, in bounded reviewed sub-batches | Task 4 is satisfied first. Prepare in an isolated integration checkout and land the core move, frontend, state, direct path, stdlib and replacement active tests together. No intermediate release, copied core or production spike decoder. |
+| Task 9: retained controls, interruption/readers and readiness closeout | Requires the integrated candidate. Complete Q1–Q5 and document remaining live-provider allocation gaps; DC-P disposition remains an owner decision. |
+
+At every task/sub-batch boundary, the coordinator follows the evaluation plan's [upstream synchronization procedure](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#upstream-phase-3-synchronization): inspect committed shared heads and receipts, import applicable reviewed changes, resolve owner overlap, run affected checks and record source/integration hashes. Do not cherry-pick another worker's uncommitted state. If a required shared API is still memo-coupled, return that extraction to its owner or obtain an explicit ownership transfer; do not create a parallel performer, fabricate a memo, or wrap `WorkflowExecutor` to avoid the dependency.
+
+## File And Ownership Map
+
+Paths below are proposed destinations unless explicitly described as existing. A path in this table is not evidence an API exists.
+
+| Owner | Files and responsibility |
+| --- | --- |
+| Existing target selection | `orchestrator/workflow_lisp/syntax.py`; callers in `compiler.py`, `closed/{target,frontend,artifact}.py`, `typecheck_effects.py`, `orchestrator/cli/commands/{compile,run,resume}.py` and `orchestrator/workflow/run_ref/child.py`. Preserve old target routing; keep dynamic imports/children explicitly refused where inadmissible. |
+| Shared schema/boundary owners | `orchestrator/workflow_lisp/{contracts,normalized_type_descriptor,typed_prompt_inputs}.py`, `orchestrator/contracts/output_contract.py`, `orchestrator/workflow/type_descriptor.py`. One strict captured-byte/root-value pipeline, original typed defaults retained. |
+| Existing source/module owners | `orchestrator/workflow_lisp/{reader,syntax,modules,definitions,type_env,source_map}.py` and manifest/configuration loaders in `build_manifest_io.py`. Reuse roots, names, visibility, declaration dependencies and source tracing. Change only the owners actually traversed by the selected declaration path. |
+| Dynamic program/frontend | New `orchestrator/workflow_lisp/dynamic/{__init__,program,source,build}.py`. Move/revise experimental `program.py` and `source.py`; independent admission, checked source maps and closed build publication. No typed body synthesis. |
+| Dynamic evaluator/run | New `orchestrator/workflow/dynamic/{__init__,evaluator,runtime,state}.py`. Move/revise experimental `evaluator.py`; `state.py` owns fresh authority validation/publication and read-only projection, `runtime.py` owns invocation transitions and direct performer calls. Do not create a generic dispatcher hierarchy. |
+| Imported shared performer owners | Planned `orchestrator/workflow/evaluated/{commands,prompts,providers,inputs}.py` and existing closure/interpreter/filesystem owners. Consume actual delivered request APIs; no interface signature is invented here. Typed attempts/memo remain typed. |
+| Public routes/readers | New `orchestrator/cli/commands/dynamic.py`; narrow changes in existing CLI compile/run/resume/report, `cli/main.py`, `state.py`, dashboard and monitor readers, probe and usage-limit watcher. A public result carrier must preserve scalar dynamic terminal values while retaining legacy mappings. |
+| Library and qualification consumers | New `orchestrator/workflow_lisp/stdlib_modules/std/dynamic/improve.orc`; new `tests/fixtures/workflow_lisp/dynamic/` fixtures; new `tests/test_workflow_dynamic_*.py` modules named below. Retain original `std/improve.orc` schema identities and typed helper. |
+| Historical experiment removal | `experiments/dynamic_core_evaluation/{program,source,evaluator,leaf_bridge}.py`, its source fragments and active test drivers. Move reusable code/policy; remove maintained duplicates and obsolete callers only in the complete cutover. Preserve original receipts and reproduction revision in its README/report. |
+
+Owner transfer means coordinator-managed exclusive file assignment after checking upstream overlap; it is not a new user-approval gate. The coordinator may assign the reviewed dynamic-specific strict opt-in to the existing shared owner and return its delta/evidence for reuse. Shared performer delivery remains upstream.
+
+No live workflow/selector drains this plan. The evaluation plan and its parent roadmap prose select work; there is no new manifest to fabricate or historical run state to rewrite. The coordinator updates linked routing surfaces when task status or availability changes.
+
+## Common Execution And Review Protocol
+
+Implementation / code uses Luna 6 xhigh for bounded batches; escalate an oversized or repeatedly failing batch to Sol 6.1 high. Revision / code returns to the implementer when possible. Review / code uses a distinct Sol 6.1 high reviewer, first conformity against the exact task/design, then quality after conformity passes. New architecture questions return to Design / design with Astra 6 xhigh; ordinary implementation decisions stay with the existing owner. Final specification/readiness review is independent of its author. Every delegation names role, artifact, exclusive files and dependencies.
+
+For each task: inspect all callers; write the smallest failing behavioral/contract check; run its narrow selector and record the actual failure; implement; collect new/renamed modules; run narrow checks; inspect diff; complete both reviews; rerun only checks affected by corrections. No tests of literal prompt prose, no skipped assertions to conceal missing delivery, and no missing-module fixture standing in for a real public path. The coordinator inspects integrated diffs/results itself.
+
+Run commands from this worktree root with the intended interpreter and local imports (`PYTHONPATH=.` if needed to defeat a stale editable install). Use the tmux skill for long commands. Broad/slow suites run in tmux with `pytest -q -n 16 --dist=worksteal`; selectors shown without xdist are the narrow first checks. Commit reviewed complete units when authorized; Tasks 5–8 form one atomic cutover and must not leave the active DC-2 route broken in an integrated commit.
+
+## Task 1: Make Typed Target Routing Exact
+
+**Role/artifact:** Implementation / target selection and refusal tests. **Dependency:** none beyond the reviewed design. This is the first bounded executable task, suitable for one Luna implementer.
+
+**Exclusive files:** Modify `orchestrator/workflow_lisp/syntax.py`; extend `tests/test_workflow_lisp_target_evaluated_execution.py`. Inspect, but change other callers only if a failing causal test demonstrates the shared predicate is insufficient. No target registration or dynamic source forms in this task.
+
+- [ ] Re-run `rg -n 'target_dsl_uses_evaluated_execution' orchestrator tests` and inspect every caller, including compile/import, typecheck, run/resume and run-ref refusal paths.
+- [ ] Add `test_evaluated_route_excludes_unknown_and_dynamic_targets`: assert the existing predicate accepts `2.35`, rejects every earlier supported target and rejects `2.36`, `3.0`, `3.1` and malformed input. This must fail on the current numeric comparison. Keep the existing minimum-version constant for its compatibility audit; do not rename prior tests needlessly.
+- [ ] Add `test_unknown_target_public_compile_and_run_refuse_before_creation`, parameterized for unregistered `2.36` and `3.0`. Use actual public compile/run source entry with spies that fail on typed/legacy execution, and assert nonzero diagnostic exit, no build/run creation and no process launch. Assert a diagnostic code/location, not wording. The `3.0` case moves to the positive dynamic route test only when Task 6 explicitly registers it; `2.36` stays refused.
+- [ ] RED: `pytest -q tests/test_workflow_lisp_target_evaluated_execution.py -k 'excludes_unknown or unknown_target_public'`.
+- [ ] Replace the open-ended numeric route with the exact currently supported typed target selection in the same owner. For the inspected registry the complete body can be `return target_dsl_version == EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION`. Do not add a registry/plugin abstraction or broaden run-ref supported versions.
+- [ ] Collect the changed module, then GREEN: `pytest -q tests/test_workflow_lisp_target_evaluated_execution.py`. Run the public pure smoke `pytest -q tests/test_workflow_evaluated_cli.py::test_public_pure_run_persists_checked_terminal` and old artifact check `pytest -q tests/test_workflow_lisp_target_234.py`; put the latter in the broad tmux command if its collected workload is slow.
+- [ ] Check the shared predicate's caller diff and retained `2.35` behavior in independent conformity/quality review. Record this as a routing prerequisite only; no Q proof or dynamic capability is complete.
+
+## Task 2: Prove One Strict Native-Root Boundary
+
+**Role/artifact:** Implementation / shared output-contract delta and Q1 preparation. **Dependency:** none on performers; transfer these shared files from their upstream owners before editing.
+
+**Files:** Extend `tests/test_output_contract.py` and `tests/test_output_contract_nested_transport.py`; create `tests/test_workflow_dynamic_boundaries.py`. Modify only needed shared owners `orchestrator/contracts/output_contract.py`, `orchestrator/workflow/type_descriptor.py` and `orchestrator/workflow_lisp/contracts.py`. The existing `derive_prompt_guided_structured_result_contract(..., whole_value=True)` is the API; use it, do not recreate it.
+
+- [ ] Write a real record/applied-union contract fixture, derive a whole-value output contract, and feed captured bytes through the existing output owner. Expect native `__result__` data, strict Bool/Int/finite values, Int-to-Float normalization and original active-union shape.
+- [ ] Add negative cases for duplicate JSON keys, extra/missing/inactive fields, wrong Bool, nested invalid values and output-path escapes. A valid result plus missing required report must publish no successful result. Prove all validators see the same captured bytes even if the pathname changes after acquisition.
+- [ ] RED: `pytest -q tests/test_workflow_dynamic_boundaries.py`. Inspect the existing decoder before moving/reusing the experiment's strict decoder; one shared owner must implement strict policy. Add a selected-profile opt-in at that owner if required, retaining old default behavior. No evaluator-local parser or schema implementation.
+- [ ] GREEN: collect the new module, run it, then relevant selectors in `tests/test_output_contract.py`, `tests/test_output_contract_nested_transport.py` and `tests/test_workflow_lisp_build_artifacts.py`. Compare retained typed generated/read-back contracts unchanged for identical identity inputs.
+- [ ] Record Q1 as **partial: root kernel proved, direct performer publication pending Task 8**. Return reusable shared changes and evidence to the upstream owner before the next import.
+
+## Task 3: Qualify Declaration-Only Source Selection
+
+**Role/artifact:** Implementation / module selection, ownership and source-location delta. **Dependency:** Task 1 for route assumptions; no performer dependency. Scope ends before new program-format lowering.
+
+**Files:** Extend `tests/test_workflow_lisp_modules.py`; create `tests/test_workflow_dynamic_modules.py` and module fixtures under `tests/fixtures/workflow_lisp/dynamic/modules/`. Modify the required existing `modules.py`, `syntax.py`, `definitions.py`, `type_env.py` and source-map vocabulary only after following their real declaration path. Do not add a parallel module resolver.
+
+- [ ] RED fixture: select `Decision`/`Improvement` from existing `std/improve` with their declaration dependencies while an executable typed-helper elaborator spy raises if called. Test roots, exports, alias/`:only`, transitive declaration dependencies, duplicate canonical member snapshots, cycles and ambiguity. A declaration requiring an inadmissible executable dependency must fail with the import chain.
+- [ ] Add refusal checks for selected old `defproc`, workflow, macro and `ProcRef`, and supplied compiled bundles of **every** profile. Existing target entries must refuse dynamic executable source. Keep unknown-version checks ahead of loading any foreign profile.
+- [ ] Run `pytest -q tests/test_workflow_dynamic_modules.py`; implement selection before executable elaboration through the existing discovery/export/scope owners. Preserve defining module identity, configuration/asset base and exact `SourceReadTrace` bytes/spans. Do not concatenate source or synthesize a provisional dynamic artifact.
+- [ ] Collect and GREEN the new module, then `tests/test_workflow_lisp_modules.py`. Source-free execution, ordinary helper captures and persisted maps stay pending Task 6; mark this limited result honestly in Q2 evidence.
+- [ ] Review boundaries of any shared loader amendment with retained old-target module fixtures. If source header/export support cannot be separated from dynamic lowering, keep that part in Task 6; do not register a runnable target to make this preliminary proof pass.
+
+## Task 4: Import And Qualify The Direct Shared Seam
+
+**Role/artifact:** Coordinator / upstream integration and interface evidence. **Dependency:** actual reviewed Phase 3 Task 6 command performer, Task 7 prompt/provider performer and Task 12 input-document delivery. Existing helper receipts do not satisfy this dependency.
+
+**Owned changes:** Integration receipts in the existing evaluation report/Phase 3 evidence matrix; shared source remains with its owner unless explicitly transferred. No new performer implementation is assigned by this task.
+
+Upstream observation during drafting: `d6d9469c10718ca993f32df15bf9ce8102944ac3` introduces `commands.py::perform_command(node, argv, *, attempt_files, workspace_files, input_document=None, timeout_sec=None)`, returning `(EvaluatedValue, result_digest)`. Its projection/coercion still assumes checked typed nodes. This is concrete shared delivery, not proof that the dynamic native-root/strict-policy seam or full Task 6/7/12/Q3 is ready. The coordinator owns its current integration receipt; refresh that receipt at this task rather than treating this draft observation as an import pin.
+
+- [ ] Inspect the delivered `evaluated/{commands,prompts,providers,inputs}.py` and actual call sites. Record concrete callable names/signatures and request/result ownership from code in the receipt; this plan deliberately supplies no fictional APIs.
+- [ ] Verify requests take resolved values, declaration-owned contracts and caller-owned attempt files without reading typed memo, `EvaluatedValue` internals or dynamic state. If not, route one shared extraction to the upstream owner with both real consumers. No fake typed `ClosedProgram`, `MemoSnapshot`, attempt journal or per-effect `WorkflowExecutor`.
+- [ ] Import reviewed delivery and run its exact selectors in `tests/test_workflow_evaluated_commands.py`, `tests/test_workflow_evaluated_prompts.py`, `tests/test_workflow_evaluated_providers.py`, `tests/test_workflow_evaluated_input_documents.py`, plus changed closure/interpreter/attempt checks. These test files are planned upstream locations; verify their existence rather than substituting mocks or silently ignoring them.
+- [ ] Confirm whole-value contracts, captured-byte strict policy, provider document roles/required files, explicit cwd/permissions, one dispatch, certified signature ordering and external document transport can pass through that seam. Task 8 owns dynamic public source evidence; these are interface prerequisites.
+- [ ] Record PASS or the exact missing owner/slice. Only PASS releases Tasks 5–8. Continue or close independent Tasks 1–3 while this remains unavailable; never report the overall goal completed because upstream work is missing.
+
+## Tasks 5–8: Atomic Production Cutover
+
+These are sequential, separately delegated/reviewed sub-batches of one integration unit. Task 4 must pass before starting the move. Freeze a reproducible DC-2 revision and receipts first. The coordinator lands the unit only when new active behavior tests replace the removed active drivers and all required cutover checks pass. No persistent production copy of the experiment, no forwarding experimental package and no spike-format compatibility decoder is allowed.
+
+### Task 5: Move And Admit The Core
+
+**Role/artifact:** Implementation / program and iterative evaluator. **Files:** Move `experiments/dynamic_core_evaluation/program.py` to `orchestrator/workflow_lisp/dynamic/program.py`; move its evaluator to `orchestrator/workflow/dynamic/evaluator.py`; create package initializers and `tests/test_workflow_dynamic_program.py`, `tests/test_workflow_dynamic_evaluation.py`. Archive spike-format-only tests with their exact historical revision; port reusable behavior from `tests/experiments/test_dynamic_core_evaluation.py`.
+
+- [ ] RED read-back/tamper checks for the **exact** §9.4 envelope, lexical definition fields/owner/boundary, public defaults, schema references, authorized static effect payloads, source references and semantic/provenance digests. All bodies are checked, including unreachable ones. Reject old spike schemas, unknown fields/versions, host callables and forged code/configuration references.
+- [ ] Move the core and revise it for only the production representation. Reuse canonical digest, descriptor and immutable value owners. Persist source provenance separately from semantic identity; location-only edits must preserve semantic digest. Independent read-back re-derives root contracts rather than trusting copied schema/contract data.
+- [ ] Port strict scalar/numeric/budget checks and ordinary create/return/store/pass/select closures, recursion/self-application, shadowing, functional updates and lazy strict conditions. Declared workflow calls validate arguments/defaults/result; helpers remain untyped. Reject closures recursively at every data boundary. No call/effect resets the invocation budget.
+- [ ] Run `pytest -q tests/test_workflow_dynamic_program.py tests/test_workflow_dynamic_evaluation.py`, collecting both modules. Pure checks can pass before source/public integration; missing direct execution is not represented by a trusted host callback or old `LeafBridge`.
+- [ ] Review this sub-batch before assigning the frontend. Do not land it alone while active experiment consumers still depend on the removed owners.
+
+### Task 6: Finish Source Lowering, Closed Builds And The Pure Public Route
+
+**Role/artifact:** Implementation / frontend, imports, maps and build/CLI routing. **Dependency:** Tasks 3, 5. **Files:** Move experimental `source.py` to `workflow_lisp/dynamic/source.py`; create `dynamic/build.py`, `orchestrator/cli/commands/dynamic.py`; modify existing syntax/module/source-map and compile/run route owners narrowly. Create `tests/test_workflow_dynamic_source.py`, `tests/test_workflow_dynamic_cli.py`; extend `tests/test_workflow_dynamic_modules.py` and the target test from Task 1.
+
+- [ ] RED ordinary `workflow-lisp`/`defmodule`/`defworkflow` source with entry-only budget, untyped `define`/`fn`, explicit boundary declarations, defaults and imported helpers. Test malformed syntax, unbound names, duplicates, missing budget/result schema and every prohibited class in unreachable bodies.
+- [ ] Lower directly to the admitted dynamic representation. Resolve imports once by canonical owner; preserve defining-module prompt/configuration/asset ownership. Add per-expression/boundary maps with spans/form paths. Source-free execution must succeed after source deletion; invalid required maps refuse before evaluation. Runtime arity/field/type errors identify imported definition and caller without values/captures leaking into diagnostics.
+- [ ] Reuse `FrontendBuildRequest`, source/configuration traces, binding manifests and atomic artifact publication. Refuse all compiled import bundles. Persist/read back program plus source provenance; do not route through typed specialization/WCC/`ClosedProgram` construction.
+- [ ] Register `3.0` **only in the candidate source/build route on this branch**, with exact selection before typed/legacy loaders. Update every relevant target predicate caller from Task 1's inventory; retain old run-ref/trial/bundle rejection, do not copy the new target into unrelated supported-version sets. Unknown targets still refuse.
+- [ ] Public compile and dry-run must enforce option/input/binding rules before run creation. Track explicit CLI options separately from legacy parser defaults: omitted retries mean zero here; explicit nonzero retries/continue and other §9.2 exclusions refuse. A dry-run does not execute latent branches or promise dynamic type safety. Scalar public results must survive the existing result carrier without breaking old mapping consumers; implement that narrow carrier change with actual callers/tests.
+- [ ] Collect/run `pytest -q tests/test_workflow_dynamic_source.py tests/test_workflow_dynamic_modules.py tests/test_workflow_dynamic_cli.py`; run retained typed CLI/target tests after shared routing changes. Pure public run tests become GREEN after Task 7 supplies fresh authority. Do not call a compile-only artifact a runnable candidate.
+
+### Task 7: Fresh Authority And Profile-Aware Readers
+
+**Role/artifact:** Implementation / fresh state, CLI and inspection. **Dependency:** Task 5 program and Task 6 routing; transfer public reader files before editing.
+
+**Files:** Create `orchestrator/workflow/dynamic/{state,runtime}.py`, `tests/test_workflow_dynamic_state.py`, `tests/test_workflow_dynamic_readers.py`; extend dynamic CLI tests. Modify `cli/commands/{run,resume,report,dynamic}.py`, `cli/main.py`, `orchestrator/state.py`, `dashboard/{scanner,projection,cursor,preview}.py`, `monitor/{scanner,classifier,messages}.py`, `workflows/library/scripts/probe_orchestrator_run.py`, `scripts/watch_workflow_usage_limit.sh` only for actual profile routing. Modify an upstream invalidate command if it exists; otherwise refuse this profile at the existing public invalidation entry, without creating a new general invalidation feature.
+
+- [ ] RED exact §9.7 run/state/effect-row schema and cross-field invariants, scalar terminal values, immutable pins, missing/corrupt state, noncontiguous ordinals, invalid paths, multiple running rows and unknown/mixed profiles. Snapshot bytes around every refused resume/invalidation/reader operation.
+- [ ] Under existing writer/workspace locks, use pinned `WorkspaceFiles`/durable write owners to publish program/header/initial state before execution. Persist only fresh state; no memo or captured environment. Do not call typed `allocate_attempt`/`attempt_paths`, which require memo authority. Reuse lower filesystem operations; any shared extraction needs actual typed and dynamic callers and upstream ownership.
+- [ ] Add run transitions and exclusive ordinal attempt paths, with no adoption on collision. Atomic publication/allocation failure stops before another dispatch. Schema-valid terminal output requires completed effects and no active failure. Earlier successful files remain evidence after later failure.
+- [ ] Readers validate pins and state through the profile owner, use lock liveness to distinguish running/interrupted, and never compile, replay, dispatch, repair or write. Missing state is invalid, not reconstructible. Dashboard/report expose reached invocations and `resumable: false`; monitor/probe/watcher stop/escalate interrupted runs instead of automatically resuming/restarting. No notifications or scheduled jobs are sent.
+- [ ] Collect/run `pytest -q tests/test_workflow_dynamic_state.py tests/test_workflow_dynamic_readers.py tests/test_workflow_dynamic_cli.py`. Exercise actual public report, dashboard response, `monitor --once --dry-run`, probe subprocess and controlled one-cycle watcher. Reuse existing legacy reader suites listed in Task 9.
+- [ ] Pure public compile/run/report smoke must now pass. Effect interruption cases remain pending the direct integration in Task 8; record this distinction in Q4.
+
+### Task 8: Direct Effects, Imported Improve And Replacement Consumers
+
+**Role/artifact:** Implementation / dynamic-specific boundary adaptation, stdlib and integration tests. **Dependencies:** Tasks 4–7. Keep individual revisions bounded: command path, provider path, then library/consumer port; review each before combining.
+
+**Files:** Extend `workflow_lisp/dynamic/{source,program,build}.py`, `workflow/dynamic/{evaluator,runtime}.py`; change shared static payload checks only by owner-approved extraction in `closed/{effects,check}.py`. Create `tests/test_workflow_dynamic_commands.py`, `tests/test_workflow_dynamic_providers.py`, `tests/test_workflow_dynamic_improve.py`, `tests/test_workflow_dynamic_search.py`, `tests/test_workflow_dynamic_edits.py` and fixtures under `tests/fixtures/workflow_lisp/dynamic/`. Move the helper policy into `stdlib_modules/std/dynamic/improve.orc`.
+
+- [ ] RED public command fixtures: a real certified adapter, real external argv tool, and typed external document tool. Derive boundaries from existing bindings and explicit `:returns`; require `:input-type` exactly when external `:inputs` is present, including empty records, and forbid it for certified adapters. Validate exact fields/paths/strict values before dispatch; preserve written operand order and evaluate once.
+- [ ] Implement only dynamic child evaluation/descriptor checks and the caller's state transitions around the imported shared request/performer. Preserve shared argv rendering of scalars/aggregates, Bool spellings and literal/runtime distinctions. Do not reinterpret a runtime string as a template/reference. Reuse certified inline ordering and Task 12 file/token transport. Check closure/disjointness/interpreter evidence through the delivered owners.
+- [ ] RED public provider fixture: deterministic executable provider captures the real request, documents, options and output paths, returns a declared record/union, selects a closure from that data and performs a later actual command. Owner-relative documents and required reports must survive imports. Set a spy to fail on any dynamic-path `WorkflowExecutor` construction. No host callback or per-leaf run can satisfy this check.
+- [ ] Complete Q1 using one captured result snapshot through strict root and required-output validation to actual publication. Wrong/missing bundle, wrong Bool/extra/inactive fields, nonfinite data, forbidden paths, permissions and required-report failure expose no successful dynamic result. Preserve registered `omp_json_stdout`; ordinary stdout remains insufficient.
+- [ ] Move improve policy to the real library import, using existing `std/improve` `Decision`/`Improvement` declarations. Port approval, blocked, exhaustion, final-revision failure, invalid hooks, nonpositive limits and imported/inline order. Ordinary captures carry separate goal/rubric values; no internal type arguments, `ProcRef`, carrier records or authored `return__` normalization.
+- [ ] Port the complete search protocol to the qualification fixture: seed rank, strict improvement/ties, invalid evaluation versus invalid schema, one same-branch repair, stalls, one fusion, complete history, budget/score stops and loop exhaustion. Keep the maintained `search_compact.orc` unchanged until DC-P. Port the four edits (state field, review payload, capture context, helper extraction) and late-error/cost observations to the direct route.
+- [ ] Collect all new modules; run narrow command/provider checks and public smokes first. Run the slower improve/search/edit corpus in tmux with `pytest -q -n 16 --dist=worksteal tests/test_workflow_dynamic_improve.py tests/test_workflow_dynamic_search.py tests/test_workflow_dynamic_edits.py`.
+- [ ] Remove `LeafBridge`, `_GuardedWorkflowExecutor`, hand-linked registries, wrapper leaf workflows and source assembly from the maintained candidate. Remove active experiment imports only after each reusable behavioral case has a named production replacement or an explicit historical-only rationale. Do not delete a difficult utility case as though it were merely spike-format admission. Preserve frozen controls and report original/new counts separately.
+- [ ] Inspect the complete Tasks 5–8 diff and replacement test map; complete conformity and quality review before integrating this atomic cutover.
+
+## Task 9: Q1–Q5 Evidence, Compatibility And DC-P Handoff
+
+**Role/artifact:** Coordinator / final integration; Revision / documentation and reports; independent Review / readiness. **Dependency:** integrated Tasks 1–8. No paid calls or application migration are part of this task.
+
+**Files:** Existing evaluation report and its plan; Phase 3 [evidence matrix](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#evidence-coverage-matrix). Update `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md`, parent evaluated-execution plan, repetition plan and follow-on roadmap together. On behavior landing, amend applicable `specs/{versioning,cli,state,io,providers}.md`, `docs/design/workflow_lisp_frontend_specification.md`, `docs/lisp_workflow_drafting_guide.md`, and the experiment README to distinguish branch-qualified profile from adopted/default availability. Do not globally rewrite typed contracts.
+
+- [ ] Create the Q1–Q5 receipt rows below in the existing evidence matrix/report, with source/runtime hashes, exact selectors, expected versus observed behavior, counts, review hashes and missing evidence. No duplicate release checklist with competing status.
+- [ ] External-kill Q4 checks use real subprocesses at pre-dispatch, in-flight and output-before-publication barriers. Repeated fresh run consumes additional calls/budget; old run files remain unchanged, orphan results are not adopted, resume/invalidation refuse. Also inject failed state writes/allocation and reader races. Exercise source-free errors and wrong-profile routes with no writes/launches.
+- [ ] Run retained target/artifact/run/resume selectors and actual old profile roots. Preserve original runtime/environment pins; source recompile is not old-run conversion. Compare old artifact/request observations on identical identity inputs; record legitimate package-pin changes instead of normalizing them away.
+- [ ] Run final collection and the affected broad suite below in tmux. Reuse valid prior full results unless code changes or unresolved failures justify a rerun. Diagnose baseline failures against pinned source; never weaken assertions or mark unavailable live-provider tests passed.
+- [ ] Inspect removal/compatibility ledger against actual files/callers. Publish removed versus retained owners and new authority cost, not just LOC. Do not claim whole typed compiler retirement.
+- [ ] Verify Markdown links/anchors, source examples with the actual parser/compiler, stale status routes and `git diff --check`. Independent code review and independent readiness/document review must both pass on the integrated candidate.
+- [ ] Present DC-P with Q evidence and explicit paid/live qualification gaps. Only an explicit owner continue authorizing adoption/migration activates Phase 6b for the one named destination. Phase 7 retirement remains separate. Stop retains typed fallback; unfinished shared work is reported as unfinished readiness, not a completed candidate.
+
+### Proof Ownership
+
+| Proof | Completion evidence; no inherited automatic PASS |
+| --- | --- |
+| Q1 | Task 2 kernel plus Task 8 actual command/provider publication: one captured snapshot, native record/applied-union roots, strict refusals, required-output failure and retained typed contracts. |
+| Q2 | Task 3 selection plus Tasks 5–6 source-free closed artifacts, real imports/captures, owner-relative documents, valid maps, version/conflict/cycle refusals. |
+| Q3 | Task 8 real public source/CLI with both command transports and deterministic provider, closure selected after result, exact request comparisons, and no legacy executor construction. |
+| Q4 | Tasks 7/9 real readers, locks, subprocess kills, failed publications, immutable prior files and explicit no-resume/no-invalidate behavior; fresh calls repeat work. |
+| Q5 | Tasks 8/9 full improve/search controls and four edits, retained old targets/runs, actual removal inventory and honest late-error/restart costs. |
+
+Final dynamic suite (after the named modules exist):
+
+```bash
+pytest --collect-only -q tests/test_workflow_dynamic_*.py
+pytest -q -n 16 --dist=worksteal tests/test_workflow_dynamic_*.py
+```
+
+Affected compatibility suite, selecting extra imported performer modules from Task 4's actual receipt:
+
+```bash
+pytest -q -n 16 --dist=worksteal \
+  tests/test_workflow_lisp_target_evaluated_execution.py \
+  tests/test_workflow_lisp_target_234.py \
+  tests/test_workflow_lisp_build_artifacts.py \
+  tests/test_workflow_lisp_build_path_safety.py \
+  tests/test_workflow_lisp_modules.py \
+  tests/test_workflow_lisp_improve_stdlib.py \
+  tests/test_workflow_evaluated_cli.py \
+  tests/test_workflow_evaluated_authority.py \
+  tests/test_workflow_evaluated_attempts.py \
+  tests/test_workflow_evaluated_interpreters.py \
+  tests/test_workflow_state_compatibility.py \
+  tests/test_output_contract.py \
+  tests/test_output_contract_nested_transport.py \
+  tests/test_cli_report_command.py \
+  tests/test_dashboard_cursor.py \
+  tests/test_dashboard_projection.py \
+  tests/test_monitor_classifier.py \
+  tests/test_monitor_messages_emailer.py \
+  tests/test_generic_run_watchdog.py \
+  tests/test_watch_workflow_usage_limit.py
+```
+
+## Removal And Compatibility Ledger
+
+| Surface | Disposition in this plan | Later obligation |
+| --- | --- | --- |
+| Experiment program/evaluator/source implementations | Move/revise, do not copy. Remove old package imports in the atomic cutover; retain receipts and historical revision. | None requiring a second maintained implementation. |
+| Spike schema read-back tests | Archive as historical proof, without production decoders. Port value/budget/security behavior to the new format. | Preserve reproducibility from the frozen source. |
+| Leaf bridge, guard executor, registry, wrapper leaf sources and dynamic caller normalizers | Delete from maintained dynamic execution after direct replacements pass; account for every active test caller. | Typed legacy leaf runs remain under their original owner. |
+| Assembled improve/helper fragments | Replace with real `std/dynamic/improve` import and production fixtures. | Retain canonical domain schemas in `std/improve`. |
+| `search_compact.orc` / `commands_compact.json` | Unchanged maintained consumer; direct candidate is a test fixture until DC-P. | One migration after authorization, preserving entry/config/policy and external schemas. |
+| Typed compiler specialization/ProcRef/proofs, legacy lowering, typed evaluator/memo and resume | Retain. Dynamic bypass is not deletion. | Phase 7 requires actual remaining-caller and existing-run retirement decisions. |
+| New program/frontend/fresh-state/readers | Count as new production responsibilities and compatibility cost. | Adoption must weigh these against removed call paths and authoring benefits. |
+
+## Completion Record
+
+Planning or a successful independent prerequisite does not complete readiness. Check each item only with integrated evidence:
+
+- [ ] Tasks 1–3 passed and exact limited proof scope recorded.
+- [ ] Task 4 imported real shared delivery and qualified its memo-free seam.
+- [ ] Tasks 5–8 atomically replaced the experiment route with active behavioral tests.
+- [ ] Q1–Q5 passed with public integration, retained-profile and kill evidence.
+- [ ] Source/spec/routing docs match delivered availability; independent reviews passed.
+- [ ] Paid/live evidence needs are explicitly recorded as satisfied by authorized work or missing; deterministic stand-ins are not claimed as live-provider qualification.
+- [ ] DC-P evidence packet handed off with adoption, migration and retirement still unselected. The subsequent owner disposition is external to this readiness plan and is recorded separately; it is not required to finish DC-3 qualification.

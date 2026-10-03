@@ -121,8 +121,19 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest import, 2026-10-02: reviewed integration `b7d82fa1` imported at
-`bcc4ee13`, including attempt allocation and interpreter-pin design. Eleven
+Latest import, 2026-10-02: reviewed integration `fc9c57d3` (command performer
+`d6d9469c`) imported at `ddec5698`. All 27 new cases and 157 affected cases
+passed; the report records the still-typed return seam and inherited empty-record
+limitation. This is shared component delivery, not dynamic readiness.
+
+Earlier reviewed integration `163f286d` imported at
+`cc896d41`, adding pre-publication command interpreter pins and exact read-back
+coverage/shape checks. Coordinator checks collected 38 tests, passed nine narrow
+cases, then passed all 38 authority/interpreter/public-CLI cases; commands,
+source hashes and raw output are recorded in the report's DC-3 receipt. The source
+head `0f1bbc46` remains represented by equivalent patch `a780639c`, not literal
+ancestry. Earlier integration `b7d82fa1` imported at `bcc4ee13`, including attempt
+allocation and interpreter-pin design. Eleven
 narrow attempt checks passed in 2.56s (tool transcript only); the 370-case
 integration and final affected ten-case supplement are recorded in the report's
 DC-U packet. The frozen comparator remains `4b69ee00`; moving runtime revisions
@@ -147,7 +158,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
-| DC-3 — production readiness | Bounded qualification selected by DC-U continue; design/plan preparation, not implemented or production accepted | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
+| DC-3 — production readiness | Design and bounded plan independently reviewed; Task 1 in progress; no dynamic public target or production acceptance | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
@@ -173,7 +184,7 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-bounded DC-3 readiness design/plan qualification after the owner's explicit
+Task 1 of the [reviewed DC-3 readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) after the owner's explicit
 DC-U continue on 2026-10-02. DC-F continue was also selected on that date. Existing
 executable selectors have no new item to consume.
 
@@ -508,12 +519,11 @@ design, removal/compatibility inventory, one consumer destination and the needed
 shared-runtime/public-route qualification. It does not accept production
 semantics or mark any readiness checklist item complete.
 
-**Artifacts:** qualify the design first, then write its bounded production
-implementation plan and owner amendments. Exact files and independent verification
+**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Task 1 is executing; Q1–Q5 remain open. Exact files and independent verification
 belong to that plan; this task does not preallocate a language target or mutate
 normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
 
-- [ ] Settle target/IR versions, schema strictness, mixed-version imports,
+- [x] Settle target/IR versions, schema strictness, mixed-version imports,
   stdlib API and existing checkpoint/run dispositions with owners. Define only
   the state the candidate actually retains; no resumable state profile is required.
   Preserve old run pins; never reinterpret typed checkpoints as dynamic captures.
@@ -535,7 +545,7 @@ normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicat
   retain the original typed checklist as history/fallback. Give each production
   obligation its exact evidence owner; candidate success never checks off a
   typed-only task whose specified implementation was not delivered.
-- [ ] Select one maintained-consumer migration destination and list removable
+- [x] Select one maintained-consumer migration destination and list removable
   candidate/old-target machinery, with an explicit existing-run disposition and
   later Phase 7 retirement decision. Do not finance two full migrations.
 - [ ] Record independent readiness review and DC-P's explicit owner disposition.

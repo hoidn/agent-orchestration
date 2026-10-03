@@ -1176,3 +1176,82 @@ prove direct structural result reuse, not universal strict policy, required-file
 publication, actual provider execution or public dynamic support. Q1's remaining
 integration obligations and Q2–Q5 remain to be implemented and qualified; typed
 closed artifacts keep their existing flattened result-contract rules.
+
+### Shared Interpreter Authority Import
+
+Reviewed Phase 3 integration `163f286d80dc27849897cbc28fa62200f4438ba4`
+(code `f9619237`) was merged as `cc896d41ec146f5a91006c914897caae4ab802b1`.
+It pins each emitted bare command interpreter before typed run publication and
+validates exact pin coverage/shape on read-back without observing the filesystem.
+The coordinator inspected the production diff and ran fresh checks at that merge:
+
+- Collection: 38 authority/interpreter/CLI cases.
+- Nine narrow authority cases passed in 1.19s.
+- All 38 affected cases passed in 6.25s with
+  `pytest -q -n 16 --dist=worksteal`, including the public pure-run CLI smoke.
+
+Exact commands, HEAD, stable before/after source hashes and raw output are in
+`/tmp/orc-dc3-integration-z6_e0z2j/{collect,narrow,affected}.{json,log}`.
+This qualifies the imported typed authority change, not a dynamic performer.
+The moving source `0f1bbc46` is represented by equivalent integrated patch
+`a780639c` (stable patch ID `acf0c682851c47a464aeef5ae2c0840b2cd262cb`); it is
+not a literal ancestor. The frozen comparison remains `4b69ee00`.
+Shared command/provider/document performers remain pending upstream.
+
+### Shared Command Performer Import
+
+Reviewed integration `fc9c57d3131ee721a12c3d87fd5c603f42a3d903` (performer
+`d6d9469c`) was merged as `ddec5698d6d6bbf72e8847e050c7ee5f1f185ae8`.
+Independent Sol review found no introduced import blockers; the coordinator
+inspected the complete production diff. Fresh checks collected all 27 new cases,
+passed those 27 in 3.43s, then passed 157 affected cases in 6.83s with
+`pytest -q -n 16 --dist=worksteal`. These include actual compiled command
+dispatch, captured outputs and contract/path checks. Exact commands, HEAD,
+stable before/after hashes and logs are under
+`/tmp/orc-dc3-integration-z6_e0z2j/command-{collect,narrow,affected}.{json,log}`.
+
+`perform_command(node, argv, *, attempt_files, workspace_files, input_document,
+timeout_sec)` performs one dispatch without reading or writing memo/state;
+its result is still `(EvaluatedValue, digest)`. It expects a checked declaration
+and prevalidated canonical input bytes. Attempt allocation, closure/interpreter
+checks, request rendering and lifecycle remain caller responsibilities. This
+import does not qualify the native strict dynamic seam or public effect execution.
+Provider/prompt/document request owners remain pending shared work.
+
+Review also reproduced an inherited flattened-contract omission: with
+`Ready(n:Int) | Skipped(empty:Empty)`, the result
+`{"variant":"Ready","n":7,"empty":{}}` is accepted and projects away `empty`.
+Empty records have no flattened leaf, so the shared contract omits that inactive
+field. This is a known limitation for the shared typed contract owner, not full
+result-conformity evidence or a new regression attributed to this import. The
+local reproduction is `/tmp/orc-phase3-command-performer-review.py`; the dynamic
+Q1 whole-value checks must reject the inactive field. No independent replacement
+performer or change to the frozen `4b69ee00` comparator was introduced.
+
+### Reviewed Readiness Handoff
+
+Astra Design authored proposal §9; a distinct Astra reviewer passed the final
+`53f865b345ccc38fa7f0402fb158d39e8d5e0f116f04dfcf7eb1c5b1a09edf11` version.
+Review removed the unsupported compiled-library import promise and made the
+port/archive disposition of active spike tests explicit. Reading three source
+examples and checking links are syntax/document evidence, not target 3.0 execution.
+
+The [bounded implementation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+was authored by Astra Planning and independently passed Sol conformity and quality
+on `cdf614d1bde9fac34ef41cb10dc103ca05f054397e193bdd2df65b6f58d2f3ae`.
+Its only review correction separates DC-P's external owner decision from
+completion of the readiness handoff. Subsequent status/import receipts are factual
+updates. Task 1 has started under Luna Implementation; Tasks 2–3 can progress
+without missing performers, while the atomic core/frontend/state/direct-effect
+cutover depends on Task 4's actual shared seam. Q1–Q5 remain open.
+
+The reviewed contract names one future application destination and preserves old
+targets/runs. It permits fresh branch qualification, not adoption, migration,
+paid/live calls, parallel or child-run expansion. No production owner has yet
+been removed by this design/plan handoff.
+
+Coordinator handoff verification at `ddec5698`: 71 routing checks passed in
+3.45s, all 27 changed/new document links resolved, and `git diff --check` passed.
+Exact command and stable document hashes are retained in
+`/tmp/orc-dc3-integration-z6_e0z2j/dc3-handoff-docs-result.json`; this receipt
+was appended after those checks without changing their checked contracts.

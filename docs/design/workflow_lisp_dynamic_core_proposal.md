@@ -875,3 +875,515 @@ Mechanism evidence, schema compatibility, real boundary integration, owner
 amendments and net utility still govern adoption. The absence of effect tracking
 or resume is a permitted cost to assess, not an automatic rejection. Retain the
 incumbent when the measured tradeoffs exceed the gain over W1/W3.
+
+## 9. Complete-Consumer Production Candidate
+
+This section specifies the proposed destination of the bounded DC-3 readiness
+work. It does not make target 3.0 available or authorize adoption. The
+[evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-3-production-readiness-and-gate-dc-p)
+owns selection, sequencing and receipts. A reviewed implementation handoff may
+register the candidate on its development branch to qualify the actual public
+CLI; DC-P separately selects release/adoption and consumer migration. That
+distinction avoids requiring production adoption before public-route evidence.
+
+### 9.1 Scope And Choice Of Destination
+
+The first candidate executes sequential ordinary functions, closures and the
+complete improve/search policies. Its external classes are ordinary commands
+(external tools and certified adapters) and portable composed provider results,
+including declared prompt documents and required output files. It retains
+boundary schemas, command implementation evidence, filesystem containment,
+dependency snapshots and validated-before-publication results. It adds neither
+static effect inference nor cross-run reuse.
+
+Refuse parallel effects, run references/child runs, trials, resource transitions,
+materialized views, human-input suspension, provider sessions/context capture,
+phased/live providers and versioned `consumes`/`publishes` before execution,
+including in unreachable bodies. These classes require their own qualification;
+they are not executed through a legacy fallback. In particular, a checked path
+and a captured document do not imply artifact-version lineage or freshness.
+This scope preserves those guarantees where admitted, and refuses their
+unimplemented declaration forms. Do not remove their existing typed support.
+
+| Route | What it achieves | What remains to maintain |
+| --- | --- | --- |
+| Retain typed evaluated execution; qualify W3 separately | Existing domain contracts, early checks and recovery; W3 can reduce context forwarding without dynamic values. | Typed specialization/proofs and pending shared runtime delivery; the dynamic evaluation can remain historical evidence. |
+| Promote the experimental leaf bridge | Already executes both policies with fresh local effects; lowest immediate integration work. | Two frontends, source assembly, per-effect legacy workflows/state, caller wire reconstruction and all old compiler machinery. It preserves DC-2's adverse edit costs and removes no production owner. Reject as the final topology. |
+| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Proposed destination; executable integration remains required. |
+
+Name **`experiments/mlevolve_pair/search_compact.orc`, entry `run-search`**, as
+the single maintained application migration destination after DC-P. Preserve
+its module identity, `commands_compact.json`, CLI entry, full `SearchResult`
+contract and the complete search policy. The frozen comparison sources remain
+historical evidence, not a second maintained runtime implementation. The
+ordinary improve helper is the minimum library integration; its deterministic
+provider consumer is a qualification fixture, not a second application migration.
+Do not also migrate the typed destination or the broader workflow estate.
+
+### 9.2 Proposed Source And Public Use
+
+Use the existing `workflow-lisp` wrapper, language header, `defmodule`, `import`,
+`export`, boundary declarations, `defprompt` and `defworkflow`. Proposed target
+**`"3.0"`** selects dynamic composition; do not add a profile flag to each
+command or a second `dynamic run` entry. Its major target distinguishes the
+incompatible internal-call, validation and recovery contracts. All examples in
+this section are proposed source, unavailable until their qualification lands.
+
+The entry module supplies one positive integer `(:budget N)`; libraries omit it.
+The selected entry's budget covers its entire invocation, including imported
+bodies. `defworkflow` retains typed public inputs/defaults and a required result
+schema. `define`/`fn`, the §6.4 record/list/update forms and ordinary application
+have no internal signature annotations. Strict `if` and the qualified primitive
+set remain sufficient; no macros, automatic match exhaustiveness, new truthiness
+or general Scheme compatibility is implied. Named workflow calls validate their
+declared arguments/result in memory; ordinary helpers do not acquire schemas.
+
+For example, a normal composed provider call returns the declared record itself:
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "3.0")
+  (:budget 10000)
+  (defmodule examples/review)
+  (export review)
+  (defrecord Review (approved Bool) (feedback String))
+  (defprompt review-prompt (:fills (draft :text)) -> Review
+    "Review {draft}. Approve only if it meets the supplied requirements.")
+  (define (review-text draft)
+    (provider-result providers.review
+      :prompt (review-prompt :draft draft)))
+  (defworkflow review ((draft String)) -> Review
+    (review-text draft)))
+```
+
+The provider extern remains supplied by the existing provider
+binding/configuration owner, not declared by an
+arbitrary runtime string. `Review` still owns instructions and validation.
+
+An advanced composition uses a library function and separate captured contexts.
+Here `review-prompt` returns `Decision[Feedback Blocker]`, `revise-prompt` returns
+`Draft`, and both are ordinary declared `defprompt` values in the caller's module:
+
+```lisp
+(import std/improve :only (Decision Improvement))
+(import std/dynamic/improve :only (improve))
+
+(defrecord Draft (title String) (score Int))
+(defrecord Feedback (note String))
+(defrecord Blocker (reason String))
+(defprompt review-prompt
+  (:fills (draft :value Draft) (goal :text) (rubric :text))
+  -> Decision[Feedback Blocker]
+  "Review {draft} against {goal} using {rubric}.")
+(defprompt revise-prompt
+  (:fills (draft :value Draft) (feedback :value Feedback) (goal :text))
+  -> Draft
+  "Revise {draft} toward {goal}, addressing {feedback}.")
+
+(defworkflow improve-draft
+  ((draft Draft) (goal String) (rubric String) (limit Int :default 3))
+  -> Improvement[Draft Feedback Blocker]
+  (improve draft
+    (fn (current)
+      (provider-result providers.review
+        :prompt (review-prompt :draft current :goal goal :rubric rubric)))
+    (fn (current feedback)
+      (provider-result providers.revise
+        :prompt (revise-prompt :draft current :feedback feedback :goal goal)))
+    limit))
+```
+
+The helper returns the existing domain shape, for example
+`{"variant":"EXHAUSTED","value":{"title":"draft+r","score":1}}`.
+There are no authored `return__…` names, generic helper type arguments,
+`ProcRef`/`bind-proc`, carrier records or registry/leaf declarations.
+The helper still takes ordinary value arguments and performs the complete §5
+protocol, including invalid-hook and nonpositive-limit failures.
+
+Use existing CLI doors and manifest flags. After the proposed migration, the
+maintained search commands are:
+
+```bash
+python -m orchestrator compile experiments/mlevolve_pair/search_compact.orc \
+  --entry-workflow run-search --source-root experiments \
+  --command-boundaries-file experiments/mlevolve_pair/commands_compact.json
+python -m orchestrator run experiments/mlevolve_pair/search_compact.orc \
+  --entry-workflow run-search --source-root experiments \
+  --command-boundaries-file experiments/mlevolve_pair/commands_compact.json \
+  --input max_evaluations=12 --input target_score=0.0 --dry-run
+# Removing --dry-run creates a fresh run with those same declared inputs.
+python -m orchestrator report --run-id RUN_ID --format json
+```
+
+`compile` checks all admitted bodies and writes the checked artifact/source map;
+it does not execute helpers. `run --dry-run` additionally resolves bindings,
+permissions, input defaults and initial path checks without creating an effect
+attempt or evaluating latent dynamic branches. It cannot promise that a future
+arity/field/operand check will pass. Ordinary `run` reads back the checked
+artifact and creates a fresh root. `report` includes the profile and
+`resumable: false`. `resume RUN_ID` and invalidation refuse
+`dynamic_resume_unsupported`/`dynamic_invalidation_unsupported` without writes,
+compilation or dispatch; the diagnostic points to a fresh `run` and its repeat
+cost. Existing typed commands retain their behavior.
+
+CLI `--input` retains intentional schema-directed textual parsing at the CLI
+edge; the resulting logical value then passes the strict boundary validator.
+An input-file JSON string `"false"` is not a Bool. Missing/extra inputs and
+invalid defaults refuse before run creation. No CLI coercion is available to
+provider output or dynamic function values.
+
+The qualified run options are frontend binding/source/entry flags, inputs,
+`--state-dir`, `--dry-run` and ordinary logging/streaming. Dynamic runs stop on
+error and default to zero runtime retries; explicit `--on-error continue` or
+nonzero `--max-retries` refuses. Preserve old profiles' retry defaults. Profile
+option validation distinguishes omitted parser defaults from explicit requests;
+it refuses legacy context injection, run-ref roots, cleanup/archive actions,
+backup-state, step summaries/live-agent notes, retry-delay overrides and flat
+debug-YAML export before creating a run. Compile diagnostics/source-map export
+remain supported. Do not silently ignore a requested legacy feature or start
+auxiliary summary providers under this qualification scope.
+
+### 9.3 Source Owners And Target Call Graph
+
+The following distinguishes inspected source seams from proposed changes.
+Referenced shared work is owned by
+[Phase 3 Tasks 6–7/12](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#source-map-and-ownership);
+its implementation must be imported and qualified, not recreated on this branch.
+
+```text
+existing compile/run CLI + FrontendBuildRequest
+  -> existing reader / module discovery / binding manifests / boundary type env
+  -> target-selected dynamic source lowering and independent artifact admission
+  -> dynamic evaluator: ordinary values, closures, budget
+  -> shared resolved command/provider request + path/snapshot/contract owners
+  -> StepExecutor or ProviderExecutor -> one captured result bundle
+  -> shared strict root validation + required outputs -> native domain value
+  -> dynamic continuation or checked public return
+```
+
+| Existing owner | Candidate responsibility / precise limit |
+| --- | --- |
+| `reader.py`, `syntax.py`, `modules.py`, `FrontendBuildRequest` and manifest/configuration loaders | Reuse reading, spans, root resolution, imports/exports and trusted bindings. Add target-selected `define`/budget handling and declaration-only import admission. Their current typed elaboration is not the dynamic frontend. |
+| `type_env.py`, `normalized_type_descriptor.py`, `contracts.py`, `typed_prompt_inputs.py` | Retain schema type applications, refinements, guidance, fill roles and contract compilation. Internal helper calls bypass type unification/specialization; boundary types do not. |
+| `closed/effects.py`, `closed/check.py` and shared request builders | Extract only reusable declaration/contract checks needed by both representations. Existing checked typed effects and P5 stay unchanged; a dynamic artifact is never passed off as a typed `ClosedProgram`. |
+| Proposed `workflow_lisp/dynamic/` source/admission owner and `workflow/dynamic/` evaluator/run owner | Move and revise the qualified experimental core, replacing its source wrapper, hand-linked effects and artifact versions. No second maintained copy under `experiments/`; no new general backend/plugin interface. |
+| `evaluated/commands.py`, `prompts.py`, `providers.py`, `inputs.py` as delivered by their shared owners | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Their filenames are planned delivery locations, not evidence those APIs already exist. |
+| `StepExecutor`, `ProviderExecutor`, `WorkspaceFiles`, content-snapshot/output-contract owners | Keep dispatch, process controls, sandbox/permissions, pinned reads/writes and result validation. The candidate does not call a stateful `WorkflowExecutor` for each effect. |
+| `evaluated/attempts.py`, `authority.py`, `runtime.py` | Preserve typed memo/authority. `allocate_attempt` appends memo records and `attempt_paths` consumes `MemoSnapshot`; neither is a memo-free allocator. Reuse lower filesystem/lock helpers, or one owner-approved shared extraction with both real callers; do not synthesize a memo. |
+| CLI/state/report/dashboard/monitor readers | Route by exact profile before typed/legacy checks. Share data presentation and log-path handling; the fresh profile supplies its own truthful state interpretation, not typed pure replay. |
+
+The current `target_dsl_uses_evaluated_execution` comparison is numeric
+`>= 2.35`; merely registering 3.0 would incorrectly select typed compilation.
+Change the existing target-selection owner and every compiler/CLI/import caller
+to select the exact supported profile before its loader. Known typed targets
+remain typed, 3.0 selects this candidate, unknown targets refuse. Apply the same
+principle to stored-profile selection before `StateManager` or typed authority
+loading. This is a routing prerequisite, not a second independent target flag.
+
+Each effect is one request to an existing performer, not a compiled leaf workflow
+or child run. Shared callable boundaries receive immutable resolved inputs and
+the allocated attempt files. State transitions belong to the calling run owner;
+performers do not read or publish either profile's state. If a delivered shared
+performer still depends on typed memo/`EvaluatedValue` internals, its owner must
+separate that dependency before this call graph is claimed executable.
+
+### 9.4 Closed Artifact, Values And Admission
+
+Propose artifact schema **`workflow-lisp/dynamic-program/1`**, distinct from
+`closed-program/1`, `table/1` and all `dynamic-spike` schemas. Its immutable
+semantic content is the selected target, entry identifier, ordered public
+inputs/defaults/result descriptors, budget, lexical definitions, boundary-schema
+catalog and closed effect/configuration payloads. A lexical definition retains
+ordered parameter/capture names and one body. Source-module ownership and logical
+asset bases are explicit for definitions/prompts; caller location cannot rebase
+an imported document. Schema entries are the existing compiler-normalized
+descriptors with their canonical declaration identities, not a new schema format.
+
+The checked envelope admits exactly `schema`, `target`, `entry`, `budget`,
+`definitions`, `schemas`, `bindings`, `sources` and `source_map`. The last two
+are provenance; all other fields participate in the semantic digest.
+`definitions` maps canonical code IDs to exactly `params`, `captures`, `body`,
+`owner` and `boundary`. `owner` binds the module/logical asset base; `boundary`
+is null for an ordinary helper, otherwise ordered parameter/schema/default
+rows and a result schema reference for a declared workflow. Entry has no
+captures and a non-null boundary. `bindings` holds the existing normalized,
+closed command/provider configuration with explicit owning modules; no host
+callable or external leaf registry is supplied at execution. `sources` pins
+the exact consumed source bytes; `source_map` indexes nodes and boundary subjects
+to those sources. Dynamic functions do not acquire expression-wide type fields.
+
+Retain §6.1/§6.4's scalar, record, list, update, call, closure and failure nodes
+and their exact evaluation order. Replace the spike's string registry `effect`
+with admitted command/provider nodes: their static payload is the shared closed
+request declaration; dynamic child expressions occupy its documented operand
+positions. A boundary operand has an expected descriptor from its declaration,
+not an inferred type for the expression. The shared operand walk determines
+written evaluation order. There is no extra slot language, synthesized typed
+function body, hidden source concatenation or runtime host callback in the file.
+Dynamic admission independently checks the common static payload contract and
+every operand; extracting those checks is a prerequisite, not permission to skip
+typed P5 or claim its type proofs for dynamic nodes.
+
+Admission requires exact fields/version, strict finite JSON, unique declarations,
+resolved lexical names/code IDs, capture arity, valid defaults/descriptors,
+closed authorized effect classes/bindings, and valid module/source-map references.
+Check all included bodies, including unreachable ones; runtime call arity and
+value shape are not statically inferred. Re-derive root output contracts from
+the declared descriptors and compare semantic contract data on read-back rather
+than trusting a copied result schema. Reject forged request classes, schema
+references, filesystem/code bindings and runtime import/eval instructions.
+No missing or unknown version falls through to typed or legacy loading.
+
+Values remain strict scalars, tuples and immutable string-keyed records/maps;
+the admitted operations initially expose the record/list subset. Closures are
+`(program-owned code ID, frozen captures)`, with no mutable cells, Python
+callables or serializable executable capability. Freeze inputs/captures once;
+functional updates invalidate any previous validation assumption. Internal
+functions and collections may contain closures; every data boundary rejects
+them recursively. Tagged outcomes use the shared descriptor's `variant` and
+active fields, without a parallel union runtime class. Int64/finite numeric
+semantics and the one-node-entry budget rule remain §6.1's; calls/effects never
+reset the budget. Execution uses an iterative machine, including self-application.
+
+Use canonical semantic digests from `closed.program.canonical_digest` over the
+checked semantic content, excluding source positions. An independently pinned
+source-map/source-byte digest binds diagnostic provenance. Import/source/config
+snapshots enter build/run provenance using `SourceReadTrace`; neither semantic
+identity nor a reader depends on reopening a live source file. Experiment `/1`,
+`/2`, `/3` artifacts are not production imports or old production run profiles.
+Port applicable behavioral checks to the production owner; archive spike-format
+read-back tests with their revision and receipts instead of leaving active tests
+importing a deleted experimental package. Do not add production compatibility
+decoders or an automatic conversion command merely to keep those tests live.
+
+### 9.5 One Boundary Pipeline, Native Results
+
+`contracts.py::derive_prompt_guided_structured_result_contract` already accepts
+`whole_value=True`, which produces one `__result__` at JSON pointer `""` for a
+record/union as well as other transportable values. This is the candidate's
+result contract. `output_contract.validate_output_bundle` can return that
+validated root value. The dynamic evaluator consumes the existing owner's
+`__result__` value and freezes it; it never splits `return__…` names or builds an
+inverse projection. `evaluated/calls.py::call_result` handles checked typed
+caller/native views and is not such an inverse converter. Existing typed
+`closed/effects.py` generation and `closed/check.py` read-back retain their
+current flattened contracts.
+
+| Boundary | Input/type authority | Result and failure rule |
+| --- | --- | --- |
+| Public workflow | Declared parameters/defaults and result type | Strict entry values before run creation; strict result before terminal publication. Imported named workflow calls apply the same data check in memory. |
+| `defprompt` provider | Existing fill declarations; `:doc`, `:value`, `:path :out`; prompt-owned return schema | Runtime values checked before rendering/launch. Same snapshot dependencies, path aliases and required-file checks; native root result after all output checks. |
+| Extern-backed provider | Existing declared `:inputs` contracts and explicit `:returns` | No inferred schema from the first observed value. Reject an uncontracted dynamic fill before dispatch. |
+| Certified command adapter | Existing `input_signature`, signature-ordered transport keys and invocation protocol; explicit `:returns` | Strict checks precede existing canonical inline JSON construction; no argv wrapper or replacement adapter. |
+| External command argv | Existing command binding and the built-in argv contract of strict transportable data: scalars, records, unions, lists, optionals and paths; never closures/host objects | Preserve the shared renderer's request rules, including literal/runtime Bool spelling and JSON aggregate rendering. Runtime values are rendered once; a dynamic string is not reinterpreted as a reference/template. This transport contract does not validate a tool's semantic arguments; use a declared document schema where their shape matters. |
+| External command document | Proposed `:input-type InputRecord` alongside existing `:inputs ((field expression) ...)`; explicit `:returns` | One existing record schema replaces the typed target's inferred field descriptors. Required when `:inputs` is present, forbidden otherwise and for certified adapters. Exact fields, even for an empty record; reuse Task 12's document bytes/path transport. |
+
+The last row is one necessary annotation at an otherwise untyped external data
+boundary, not another schema language or new binding-manifest format:
+
+```lisp
+(defrecord EvalInput (candidate Candidate) (history List[Trial]))
+(command-result evaluate
+  :argv ("python" "evaluate.py")
+  :inputs ((candidate current) (history trials))
+  :input-type EvalInput :returns Evaluation)
+```
+
+Missing/extra fields, wrong Bool, inactive union fields, nonfinite numbers,
+closure/host values and path escapes fail before launch or exposure as appropriate.
+Retain the existing strict kernel's Int-to-Float normalization; never accept a
+numeric string by scalar coercion. Strict JSON decoding rejects duplicate keys
+before validating the raw root. Thread one runtime-owned captured byte snapshot
+through that strict check and the existing root/required-output/path checks.
+Select strict policy under the new profile at the shared boundary owner, keeping
+old defaults unchanged; a second parser/validator implementation inside the
+dynamic evaluator is forbidden. Reuse or move the experimental strict decoder
+to that owner if no existing shared decoder supplies the exact rule.
+
+Only after every declared check succeeds may the run publish success and return
+the normalized root. A required report failure publishes no successful result
+map even if the structured JSON is valid. Preserve the existing
+`omp_json_stdout` materialization route where its registered provider owns it;
+ordinary stdout is never a substitute bundle. External files already written
+may remain after failure, and path existence is not an authorship/freshness proof.
+No general `consumes`/`publishes` lineage is claimed by this first profile.
+
+### 9.6 Modules And The Minimum Standard Library
+
+Reuse existing search roots, canonical module/member names, `:as`/`:only`, export
+visibility, ambiguity/cycle refusals and source-read snapshots. A dynamic source
+module can import dynamic `define` helpers as ordinary function values; bodies
+are linked once by canonical owner, without specializing on caller values.
+No runtime import/loading, mutable module state or automatic network resolution
+is admitted. Closure code references resolve within the one closed program.
+
+An old-target source module can supply selected `defrecord`/`defunion`/`defpath`
+and `defprompt` declarations plus their declaration dependencies. Resolve that
+selected closure before executable-body checking; do not accidentally elaborate
+or copy every `defproc` in the source. This is a required module-loader delta,
+not a capability already proved by DC-2's source assembler. A prompt/declaration
+whose dependency requires an inadmissible executable form is refused with its
+import chain. Explicitly selecting an old `defproc`, workflow, macro, `ProcRef`
+or compiled typed bundle refuses `dynamic_import_incompatible`; there is no
+implicit translation or leaf bridge. Older-target entries likewise cannot import
+dynamic code. This release links source imports only and refuses supplied
+compiled bundles of every profile, including dynamic ones. A helper library has
+no entry or budget and needs no separately serialized library format. The
+complete linked program can still execute from its closed artifact without
+source reads. Conflicting snapshots of one canonical source member refuse
+rather than coexist under invented identities; declarations/prompts retain
+their defining module's configuration and asset base. The public manifest stays
+with its current owner; compiled-library import is a later consumer requirement,
+not an implicit feature of the complete-program artifact.
+
+The only new maintained library module in this slice is
+`stdlib_modules/std/dynamic/improve.orc`, canonical `std/dynamic/improve`, exporting
+the ordinary four-argument `improve` helper. Move its qualified policy from the
+experiment; replace fragment assembly with a real import. Reuse the existing
+`std/improve` `Decision`/`Improvement` declarations via explicit declaration-only
+imports. Do not duplicate their schemas, silently select a different `std/improve`
+body by target, or translate its typed helper. The distinct helper name/path
+records an incompatible callable API; old imports remain stable. At retirement,
+the old helper body can disappear while its useful boundary declarations retain
+their identities. No forwarding alias or mandatory later rename is needed.
+
+### 9.7 Fresh Run Authority And Read-Only Inspection
+
+Propose exact state routing pair `schema_version: "3.1"` with
+`result_persistence_profile: "dynamic_execution.v1"`. The immutable `run.json`
+pins the checked `closed_program.json`, target/entry, semantic and provenance
+digests, bound inputs, budget, workspace/configuration and runtime/interpreter
+identity. These filenames reuse the public run-root convention, not the typed
+`RunAuthority` schema. The mutable **`state.json` is authoritative for fresh-run
+progress and terminal publication** in this profile; it is not a memo-derived
+cache. No memo, environment checkpoint, resume plan or replay is created.
+
+| File | Exact fields and interpretation |
+| --- | --- |
+| `run.json` | `schema_version`, `result_persistence_profile`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `program_digest`, `input_digest`, `bound_inputs`, `representation`, `interpreters`, `workspace`, `runtime_pin`, `provenance_digest`. Existing checksum/input/interpreter conventions remain with their owners; `representation` is `dynamic/1`. Target/entry/budget and resolved binding configuration are pinned through the program, not copied again. `workspace` is the canonical execution workspace; `runtime_pin` uses the existing package identity owner. |
+| `state.json` | `schema_version`, `result_persistence_profile`, `run_id`, `program_digest`, `updated_at`, `status`, `steps_used`, `current_effect`, `effects`, `workflow_outputs`, `error`. Stored status is `running`, `completed` or `failed`; interruption is a read-time liveness result. Result/error/current fields are present and null when absent. |
+| Each `effects` row | `ordinal`, `definition`, `location`, `effect_class`, `status`, `result_path`, `stdout_path`, `stderr_path`, `prompt_path`, `started_at`, `finished_at`, `error`. `definition`/`location` identify checked code and its expression pointer; class is `command` or `provider`; status is `running`, `completed` or `failed`. Command prompt paths, unfinished timestamps and absent errors are null. Paths are runtime-owned, run-relative and checked through the pinned file owner. |
+
+Readers reject unknown keys and inconsistent identities/digests, noncontiguous
+positive ordinals, steps outside `0..budget`, multiple/nonfinal running rows,
+invalid source references, and paths outside the prescribed attempt directories.
+`current_effect` is the final running row's ordinal or null. A completed state
+has only completed rows, a schema-valid terminal result and no error; failed
+state has an error and no result. An effect failure closes its row before the
+run's failed terminal; a pure failure can follow completed rows. No checks treat
+file hashes as evidence of host-authenticated history or infer missing progress
+from external files.
+
+The minimal state contains its profile/run/program identity, timestamps, status,
+steps consumed at the last transition, ordered effect rows, current row and
+optional terminal result/error. A row has a monotonically increasing invocation
+ordinal, source code/expression location, command/provider class, status,
+attempt-file paths, timing and safe error information. Persist no captured
+closures, static summaries, legacy call frames/step visits, next-effect prediction
+or duplicate copy of every successful result. `workflow_outputs` is the checked
+native terminal value, possibly a scalar, under this profile's schema.
+
+Under the existing writer/workspace locks, durably publish program/header and an
+initial running state before executing. For each invocation: resolve and check
+inputs and command evidence, atomically record the next row as running, create
+its attempt directory exclusively through `WorkspaceFiles`, dispatch once,
+validate the captured result and required files, then atomically complete/fail
+the row. Use run-local ordinal directories such as `effects/1/attempt-1`; the
+ordinal is evidence identity, not a reusable static site or checkpoint key.
+This release has no runtime retry: one performer dispatch per invocation, with
+executor retry settings fixed accordingly. A later retry policy would need
+explicit fresh attempt locations; it is not an implicit use of the current
+CLI's legacy retry default. A collision refuses without adopting existing files.
+
+Atomic state-write/allocation failure stops before another dispatch; a command
+may already have produced partial output. A kill after external completion but
+before state publication leaves an interrupted run, never an adopted success.
+Terminal completion requires no active/failed effect and a strict public result;
+failure retains earlier rows/files. A new invocation always has a new run ID,
+inputs and budget and may repeat all earlier work. Command closure/disjointness,
+interpreter resolution and before/after execution checks reuse their shared
+owners; a fresh run cannot claim typed replay's file-change guarantees.
+
+Readers validate the exact profile, immutable pins and state/result shape, read
+an atomic state snapshot and inspect lock liveness. Stored running plus absent
+writer means `interrupted`; a valid completed/failed terminal remains terminal.
+Missing/corrupt state is `dynamic_state_invalid`, not reconstructible from logs,
+attempt bundles or re-evaluation. Readers neither write nor execute anything.
+Report/dashboard show ordered invocations, reached source location, result/error
+and captured files; no unevaluated future graph or legacy heartbeat is fabricated.
+Monitor/usage-limit readers recognize active/interrupted/terminal states and
+attempt log paths. Watchdogs must expose `resumable: false` and stop/escalate an
+interruption instead of automatically invoking resume or a fresh run. Qualify
+these public readers before availability; notifications and scheduling are not
+part of the tests.
+
+### 9.8 Diagnostics And Compatibility
+
+Map every admitted expression, definition and boundary subject to its original
+module's source span/form path using the existing source-map vocabulary. Runtime
+errors carry code, safe value kind/expected contract, module/span, artifact
+pointer, dynamic call stack, invocation/attempt if reached and budget used.
+Imported helper failures name both the definition and caller. Source-free
+execution uses the persisted map; a missing or invalid required mapping refuses
+artifact admission rather than reporting an unrelated current file. Locations
+and call frames are diagnostic and do not serialize captures or secret values.
+Retain the shared validator's field-path diagnostic without parsing its prose.
+
+| Input/run | Disposition |
+| --- | --- |
+| Existing source/compiled artifact at targets through 2.34 | Original admission, bytes for identical identity inputs, workflow runtime and resume remain. Real package-pin changes remain visible. |
+| Typed target 2.35 and `evaluated_execution.v1` runs | Original typed program, memo and readers/recovery contract; no dynamic semantics or schema-strengthening applied retroactively. |
+| Proposed target 3.0 / dynamic program major 1 | Only the classes and source forms in this profile; strict independent read-back and fresh-run public state. Unsupported forms fail before external work. |
+| Supplied compiled import of any profile; incompatible source import; unknown target/profile/schema; mixed header/program; forged provenance | Refuse explicitly without fallback, conversion, new run creation or dispatch. |
+| Existing interrupted or completed typed run | Keep its original environment/runtime pins and route it to its retained owner; never convert checkpoints to captures or restart it under the dynamic profile. |
+| Historical dynamic-spike artifact/leaf run | Preserve evidence under its experimental/legacy owner; not a migratable production dynamic run. |
+
+The compatibility cost lasts until an explicit Phase 7 run-retirement decision.
+No proposed branch registration deletes old code or promises that old runs can
+be resumed by a future binary after their original runtime is retired.
+
+### 9.9 Removal Ledger And Executable Qualification
+
+| Addition/revision | What it replaces; what remains |
+| --- | --- |
+| Production dynamic source/admission/evaluator | Moves the qualified experiment core; delete its live second implementation and driver source concatenation when the selected route is maintained. Port behavioral checks, archive spike-format read-back tests at their recorded revision with receipts, and remove active imports of deleted experiment modules; add no production `/1`–`/3` loaders. |
+| Direct shared request/performer calls and native root results | Remove `LeafBridge`, `_GuardedWorkflowExecutor`, leaf registries, wrapper workflows and caller normalizers from the maintained route; no per-effect `StateManager`/legacy checkpoint. The small shared `document_bytes` seam remains useful and is not duplicated. |
+| Real dynamic module import and `std/dynamic/improve` | Replace the assembled helper fragment and caller copies; retain `std/improve` schemas and its typed body while old consumers need them. |
+| Fresh state/reader adapter | Replaces per-leaf run state for the dynamic application; adds one explicit authority profile. Typed memo/state authorities remain for their own runs. Count this addition as compatibility cost. |
+| Migrated search application | Removes its internal `SearchState` nominal taxonomy, generic/callable wiring where present and corresponding dynamic-route specializations. Retain `Candidate`, `Evaluation`, `Trial`, `SearchResult`, command bindings and policy tests. |
+| Whole production compiler retirement | No immediate removal claim. `ProcRef`, specialization, variant proofs, typed evaluator, legacy lowering and resume still serve retained targets. Only a later caller/run inventory and retirement decision can remove their owners. |
+
+One maintained application and one ordinary helper do not establish net deletion
+of the compiler. Report removed call paths and retained production owners
+separately. Keeping the incumbent is preferable if the new frontend/state and
+compatibility cost outweigh removal of the bridge and simpler composition.
+
+The following are finite proofs of this architecture, not another evaluator
+spike or permission for paid calls. Reuse the existing Phase 3 evidence matrix
+and exact shared owner tests; the readiness plan records selectors and outcomes.
+
+| Proof | Existing base and missing executable observation |
+| --- | --- |
+| Q1 — root contract | Existing `whole_value=True`, normalized descriptors and output-bundle validators. Derive record/applied-union roots; send one captured byte snapshot through strict validation and actual shared output publication; observe native values, required-output failure, wrong Bool/extra/inactive-field refusal, no authored normalizer and unchanged typed artifacts. Pure contract proof alone does not qualify a performer. |
+| Q2 — selective modules | Existing module roots/export resolution and source tracing. Import `Decision`/`Improvement` without typed `improve`, import an ordinary helper with captures, close source-free artifacts and prove owner-relative documents, full diagnostic spans, conflict/cycle/version refusals and no source assembly. This selection-before-elaboration path is a new prerequisite. |
+| Q3 — direct command/provider path | Import shared Tasks 6–7/12 delivery. Through actual public source/CLI, perform a certified command, external document command, composed deterministic subprocess provider, and closure chosen after its result. Compare request fields, complete native results and permission/path failures. Instrument legacy `WorkflowExecutor` construction to fail if this route reaches it. No callback or legacy-leaf stand-in qualifies. |
+| Q4 — fresh state/public readers | Real public run/report/dashboard/monitor/probe/usage-limit readers; kill before dispatch, during execution and after output before state publication. Observe interruption, immutable old files, refused resume/invalidation and extra calls on a new run. No stale completed projection, dispatch from a reader or successful orphan adoption. |
+| Q5 — retained behavior/removal | Complete improve/search controls and the four author edits on the direct route, plus affected old-target artifact/run/resume selectors. Root-schema errors and source maps must improve the demonstrated wire/diagnostic costs without erasing late runtime failures. Inspect actual module/call-path removal and compatibility owners, not LOC alone. |
+
+DC-3 planning can close the contract while Q2–Q4 still require implementation;
+it cannot mark those proofs passed or declare production readiness. Missing
+shared performers, a memo-free boundary call seam, declaration-only linking,
+dynamic source maps or profile-aware readers are named owner prerequisites.
+Implement their bounded deltas under the reviewed handoff, periodically importing
+shared progress; do not re-create shared runtimes to avoid waiting. Live-provider
+cost/quality and paid qualification remain a separately allocated gap before any
+release claim that needs them.
+
+The owner-facing DC-P choice is adoption of this exact fresh-only, sequential
+profile and the one application destination versus retaining the typed route.
+Proposed version numbers, strict input-document annotation, explicit stdlib name
+and state schema are reviewable design choices inside readiness work. They do
+not independently select migration, old-run retirement or a second feature
+programme. The material costs remain later errors, repeat work after interruption,
+unavailable effect classes and temporarily retained execution machinery.
