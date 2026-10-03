@@ -1500,8 +1500,8 @@ def _remap_capture_fact_scope(facts: Any, index_map: Mapping[int, int]) -> Any:
     """Translate checked nested binding facts into an immediate target scope."""
 
     if not isinstance(facts, Mapping):
-        return deepcopy(facts)
-    result = deepcopy(dict(facts))
+        return facts
+    result = dict(facts)
     bound = result.get("bound")
     if isinstance(bound, Mapping):
         remapped = {}
@@ -2392,7 +2392,15 @@ def _procedure_reference_key(
         if encoded not in actual:
             raise ValueError(f"resolved bound formal is absent from target K: {formal!r}")
         descriptor, binding = actual[encoded]
-        if descriptor != _key_type_ref(bound_args[formal].type_ref, typed=typed, run_ref_signatures=run_refs):
+        expected_descriptor = descriptor
+        if category == "workflow":
+            resolved_workflow = workflow_bindings[formal]
+            expected_descriptor = {"kind": "workflow-reference", "signature": {
+                "params": [_key_type_ref(type_ref, typed=typed, run_ref_signatures=run_refs)
+                    for _, type_ref in resolved_workflow.signature_params],
+                "result": _key_type_ref(resolved_workflow.return_type_ref,
+                    typed=typed, run_ref_signatures=run_refs)}}
+        if expected_descriptor != _key_type_ref(bound_args[formal].type_ref, typed=typed, run_ref_signatures=run_refs):
             raise ValueError(f"resolved bound formal type disagrees with target K: {formal!r}")
         if category == "value":
             supplied = {"value": _normalize_closed_value(payload, run_ref_signatures=run_refs.signatures)}

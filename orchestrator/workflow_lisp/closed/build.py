@@ -138,6 +138,8 @@ class CallableRequest:
     command_bearing: bool = False
     projection_type_obligations: tuple = ()
     source_program: Any = None
+    io_reader: tuple | None = None
+    io_references: Mapping | None = None
 
 
 @dataclass(eq=False)
@@ -193,6 +195,8 @@ class WorkflowRequest:
     command_bearing: bool = False
     workflow: Any = None
     source_program: Any = None
+    io_reader: tuple | None = None
+    io_references: Mapping | None = None
 
 
 def gap_diagnostic(gap: ClosedProgramGap) -> LispFrontendDiagnostic:
@@ -336,6 +340,8 @@ class Builder:
         self._workflow_wcc_cache: dict[tuple[int, str], Any] = {}
         self.prepared_by_key: dict[str, Any] = {}
         self.completed_preparations: dict[Any, Any] = {}
+        self.io_calls = []
+        self.provider_io = None
         self._index_owners()
 
     def _programs(self) -> tuple[Any, ...]:
@@ -491,11 +497,110 @@ class Builder:
                 if not captures:
                     captures = self._workflow_context_captures(signature, selected, source, d)
                 prepared[key] = self._workflow_request(selected, source, captures=captures)
+            reader, references = self._io_call_projection(expression, call, context, d)
+            prepared[key] = replace(prepared[key], io_reader=reader, io_references=references)
 
         body = self._command_wcc_body(callable_def, source_program,
             type_env=type_env, value_env=value_env, compile_time_bindings=compile_time_bindings,
-            call_preparator=prepare, call_declaration_identity=resolver, **preparation)
+            call_preparator=prepare, call_declaration_identity=resolver,
+            io_routes=self._io_formal_routes(d),
+            io_bind=lambda expr, routes: self._io_reference_projection(expr, routes, d),
+            **preparation)
         return body, prepared
+
+    def _io_formal_routes(self, d):
+        result = {formal: {(): ("slot", (formal,))} for formal in d.workflow_refs or {}}
+        for formal, resolved in (d.procedure_refs or {}).items():
+            result[formal] = {path: ("slot", (formal, *path))
+                for path in self._io_reference_paths(resolved, d.source_program)}
+        return result
+
+    def _io_reference_paths(self, resolved, source_program):
+        from ..type_env import WorkflowRefTypeRef
+
+        yield ()
+        selected = self._selected_ref_procedure(resolved, source_program)
+        nested_refs = getattr(getattr(selected, "specialization", None), "proc_ref_bindings", {})
+        for argument in getattr(resolved, "bound_args", ()):
+            if isinstance(argument.type_ref, WorkflowRefTypeRef):
+                yield (argument.name,)
+            elif isinstance(argument.type_ref, ProcRefTypeRef):
+                nested = nested_refs.get(argument.name, argument.value_expr)
+                for path in self._io_reference_paths(nested, source_program):
+                    yield (argument.name, *path)
+
+    def _io_workflow_route(self, target, d):
+        _, workflow, source = self._resolve_workflow_target(d.source_program, d.owner, target)
+        return ("workflow", target, self._module_for_owner(source, workflow.definition.name))
+
+    def _io_reference_projection(self, expression, routes, d):
+        from ..expressions import BindProcExpr, NameExpr, ProcRefLiteralExpr, WorkflowRefLiteralExpr
+        from ..workflow_refs import ResolvedWorkflowRef
+
+        if isinstance(expression, NameExpr):
+            return dict(routes.get(expression.name, {}))
+        if isinstance(expression, WorkflowRefLiteralExpr):
+            return {(): self._io_workflow_route(expression.target_name, d)}
+        if isinstance(expression, ResolvedWorkflowRef):
+            return {(): self._io_workflow_route(expression.authority_source.workflow_name, d)}
+        if isinstance(expression, ProcRefLiteralExpr):
+            return {(): ("reader",)}
+        if isinstance(expression, BindProcExpr):
+            projection = self._io_reference_projection(expression.base_expr, routes, d)
+            return self._io_bound_projection(projection, expression.bindings, routes, d)
+        return {}
+
+    def _io_bound_projection(self, projection, bindings, routes, d):
+        for binding in bindings:
+            nested = self._io_reference_projection(binding.value_expr, routes, d)
+            projection.update({(binding.name, *path): route for path, route in nested.items()})
+        return projection
+
+    def _io_call_projection(self, expression, call, context, d):
+        if not isinstance(call, WccCall):
+            selected = context.io_routes.get(expression.callee_name, {})
+            reader = selected.get(()) or self._io_workflow_route(expression.callee_name, d)
+            return reader, {}
+        procedure, source = self.procedure_owners[call.specialized_callee_name or call.callee_name]
+        origin = context.io_routes.get(expression.callee_name, {})
+        reader = self._io_procedure_reader(procedure, source, context, origin.get((), ("reader",)))
+        references = {path: route for path, route in origin.items() if path}
+        base, _, _ = self._procedure_binding_maps(procedure)
+        parameters = base.signature.params if len(base.signature.params) == len(expression.args) else procedure.signature.params
+        actuals = (*expression.retained_reference_actuals,
+            *((formal, argument) for (formal, _), argument in zip(parameters, expression.args, strict=True)))
+        for formal, argument in actuals:
+            projection = self._io_reference_projection(argument, context.io_routes, d)
+            references.update({(formal, *path): route for path, route in projection.items()})
+        return reader, references
+
+    def _io_procedure_reader(self, procedure, source, context, origin):
+        from ..lowering.procedures import effective_private_workflow_name
+
+        if self._command_inline_edge(procedure, context):
+            return ("reader",)
+        return ("procedure", effective_private_workflow_name(procedure),
+            self._module_for_owner(source, procedure.definition.name, procedure), origin)
+
+    def _remember_io_call(self, node, d, request):
+        if request.io_reader is None:
+            raise ValueError("emitted call has no prepared workflow IO selection")
+        self.io_calls.append((d.canonical, node, request.io_reader, request.io_references or {}))
+
+    def _bind_provider_io(self, program):
+        from .frontend import ProviderIOActivation, ProviderIOCall, ProviderIOContext, WorkflowIOReader
+
+        calls = {}
+        for owner, node, reader, references in self.io_calls:
+            if node.get("frame") is None:
+                continue
+            coordinate = owner, node["frame"]
+            if coordinate in calls:
+                raise ValueError("workflow IO emission repeats a checked call coordinate")
+            calls[coordinate] = ProviderIOCall(node["callee"], reader, references)
+        entry = ProviderIOActivation(program.tree["entry"],
+            WorkflowIOReader.from_program(self.typed, self.typed.entry_module))
+        self.provider_io = ProviderIOContext(entry, calls, frozenset(program.sites), program.digest).bind(program)
 
     def _install_prepared_requests(self, body, d, children):
         from .command_templates import _call_coordinate, command_call_occurrences
@@ -1993,6 +2098,7 @@ class Builder:
     ) -> dict[str, Any]:
         from ..expression_traversal import free_expr_names
         from ..expressions import NameExpr
+        from ..type_env import WorkflowRefTypeRef
 
         selected = self._selected_ref_procedure(resolved, source_program)
         selected_refs = dict(getattr(getattr(selected, "specialization", None), "proc_ref_bindings", {}) or {})
@@ -2018,6 +2124,13 @@ class Builder:
                     command_context=command_context,
                     creation_facts=creation_facts,
                 )}
+                continue
+            if isinstance(argument.type_ref, WorkflowRefTypeRef):
+                workflow = getattr(getattr(selected, "specialization", None), "workflow_ref_bindings", {}).get(formal)
+                if workflow is None:
+                    raise ValueError(f"retained nested workflow reference {formal!r} is unavailable")
+                facts[formal] = {"workflow": {"resolved": workflow,
+                    "facts": self._workflow_reference_facts(workflow, source_program, selected.definition.name)}}
                 continue
             closed = self._closed_bound_value(
                 argument.value_expr,
@@ -2918,8 +3031,6 @@ class Builder:
 
     def call(self, call: WccCall, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
         request = d.prepared_request(call, d) if d.prepared_request is not None else None
-        if request is None and d.procedure_refs is not None and call.callee_name in d.procedure_refs:
-            return self._reference_call(call, d, env, call.callee_name)
         target_name = call.specialized_callee_name or call.callee_name
         target = self.procedure_owners.get(target_name)
         if target is None:
@@ -3008,6 +3119,7 @@ class Builder:
             "args": args,
             **self.provenance(call.metadata),
         }
+        self._remember_io_call(result, d, request)
         if boundary is not None:
             result["boundary"] = boundary
         self._remember_boundary(
@@ -3086,176 +3198,6 @@ class Builder:
         if route[0] == "reference":
             return ["reference", [formal, *list(route[1])], list(route[2])]
         raise ValueError("retained capture route cannot be forwarded through this reference")
-
-    def _reference_call(
-        self,
-        call: WccCall,
-        d: Definition,
-        env: Mapping[str, TypeRef],
-        formal: str,
-    ) -> dict[str, Any]:
-        resolved = d.procedure_refs[formal]
-        pref = (d.procedure_ref_keys or {}).get(formal)
-        if not isinstance(pref, Mapping) or not isinstance(pref.get("target"), list):
-            raise ValueError(f"canonical procedure-reference target for {formal!r} is unavailable")
-        key = pref["target"]
-        target = self._procedure(getattr(resolved, "call_target_name", resolved.procedure_name))
-        if target is None:
-            target = self._procedure(resolved.procedure_name)
-        if target is None:
-            raise ValueError(f"resolved procedure target {resolved.procedure_name!r} has no retained owner")
-        procedure, source_program = target
-        self._require_selected_callable(procedure)
-        captures: list[CaptureSlot] = []
-        capture_args: list[dict[str, Any]] = []
-        for row in key[7]:
-            routes = row["routes"]
-            lifted_routes = [self._lift_route(route, formal) for route in routes]
-            matches = [
-                index
-                for index, outer in enumerate(d.captures or ())
-                if any(route in outer.routes for route in lifted_routes)
-            ]
-            if len(set(matches)) != 1:
-                raise ValueError(
-                    f"retained reference {formal!r} capture does not map to one enclosing value"
-                )
-            outer_index = matches[0]
-            outer_capture = d.captures[outer_index]
-            type_ref = self._capture_type_from_reference(resolved, routes[0], source_program)
-            captures.append(
-                CaptureSlot(
-                    type_ref=type_ref,
-                    routes=list(routes),
-                    type_program=source_program,
-                    run_ref_producers=outer_capture.run_ref_producers,
-                )
-            )
-            source_name = (d.capture_names or [])[outer_index]
-            capture_args.append({"k": "name", "n": d.ref(source_name)})
-
-        # The PRef key already contains the names-owned target projection. Drop
-        # only runtime substitutions from the ephemeral body view so its bound
-        # names become the explicit capture parameters below.
-        captured_formals = {
-            route[1]
-            for row in key[7]
-            for route in row["routes"]
-            if route[0] == "parameter"
-        }
-        specialization = getattr(procedure, "specialization", None)
-        if specialization is not None and captured_formals:
-            filtered = {
-                name: value
-                for name, value in specialization.value_bindings.items()
-                if name not in captured_formals
-            }
-            procedure = replace(procedure, specialization=replace(specialization, value_bindings=filtered))
-        request = CallableRequest(
-            key=key,
-            canonical=canonical_callee_name_from_key(key),
-            captures=captures,
-            procedure_refs=dict(getattr(specialization, "proc_ref_bindings", {}) or {}),
-            procedure_ref_keys={str(row[0]): row[1] for row in key[4]},
-            workflow_refs=dict(getattr(specialization, "workflow_ref_bindings", {}) or {}),
-            workflow_ref_keys={str(row[0]): row[1] for row in key[5]},
-            argument_run_ref_producers={
-                formal: self._run_ref_context_for_value(argument, d)
-                for (formal, _type_ref), argument in zip(
-                    tuple(getattr(procedure.signature, "params", ())),
-                    call.args,
-                    strict=True,
-                )
-            },
-        )
-        canonical = request.canonical
-        if canonical in self.active:
-            raise self.gap("call", f"recursive call of {canonical!r}", call)
-        if canonical not in self.definitions:
-            self._build_procedure(procedure, source_program, key, canonical, request=request)
-        definition = self.definitions[canonical]
-        key = definition["key"]
-        native_params = definition["params"]
-        args = [*capture_args, *[self.value(argument, d, env) for argument in call.args]]
-        caller_types = [capture.type_ref for capture in captures]
-        caller_type_scopes = [capture.type_program or source_program for capture in captures]
-        caller_types.extend(argument.metadata.type_ref for argument in call.args)
-        caller_type_scopes.extend(d.source_program for _argument in call.args)
-        caller_result = self.desc(call.metadata.type_ref, d)
-        caller_params = [
-            [
-                native_params[index][0] if index < len(native_params) else f"arg{index}",
-                self.desc(
-                    capture.type_ref,
-                    d,
-                    typed=capture.type_program or source_program,
-                    run_ref_producers=capture.run_ref_producers,
-                ),
-            ]
-            for index, capture in enumerate(captures)
-        ]
-        caller_params.extend(
-            [
-                native_params[index][0] if index < len(native_params) else f"arg{index}",
-                self.desc(argument.metadata.type_ref, d),
-            ]
-            for index, argument in enumerate(call.args, start=len(captures))
-        )
-        native_result = definition["result"]
-        concrete_difference = (
-            len(caller_params) != len(native_params)
-            or any(left[1] != right[1] for left, right in zip(caller_params, native_params))
-            or caller_result != native_result
-        )
-        boundary = None
-        if concrete_difference:
-            if not self._ordinary_generated_signature_boundary(
-                caller_types=caller_types,
-                caller_type_scopes=caller_type_scopes,
-                caller_result_ref=call.metadata.type_ref,
-                caller_scope=d.source_program,
-                caller_params=caller_params,
-                capture_routes=[capture.routes for capture in captures],
-                native_params=native_params,
-                native_result=native_result,
-                key=key,
-            ):
-                raise ValueError(
-                    f"procedure-reference call {canonical!r} changes its complete native signature without a generated-only boundary"
-                )
-            boundary = self._boundary_relation(
-                caller_params,
-                native_params,
-                caller_result,
-                native_result,
-                direct_capture_count=len(captures),
-            )
-        result = {
-            "k": "call",
-            "callee": canonical,
-            "type": caller_result,
-            "args": args,
-            **self.provenance(call.metadata),
-        }
-        if boundary is not None:
-            result["boundary"] = boundary
-        self._remember_boundary(
-            result,
-            caller_params,
-            native_params,
-            caller_result,
-            native_result,
-            direct_count=len(captures),
-            proof={
-                "caller_types": caller_types,
-                "caller_type_scopes": caller_type_scopes,
-                "caller_result_ref": call.metadata.type_ref,
-                "caller_scope": d.source_program,
-                "capture_routes": [capture.routes for capture in captures],
-                "key": key,
-            },
-        )
-        return result
 
     def workflow_call(self, perform: WccPerform, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
         target_name = perform.target_name
@@ -3457,6 +3399,7 @@ class Builder:
             ],
             **self.provenance(perform.metadata),
         }
+        self._remember_io_call(result, d, target_request)
         if boundary is not None:
             result["boundary"] = boundary
         self._remember_boundary(
@@ -4411,7 +4354,7 @@ def _entry_context_values(builder: Builder, workflow: Any, d: Definition, body: 
     return body
 
 
-def build_closed_program(typed: Any) -> ClosedProgram:
+def build_closed_program(typed: Any, *, builder: Builder | None = None) -> ClosedProgram:
     """Build, site, validate, and digest the complete source-free program table."""
 
     entry_span = getattr(getattr(typed.entry, "definition", None), "span", None)
@@ -4420,7 +4363,7 @@ def build_closed_program(typed: Any) -> ClosedProgram:
         try:
             # Construction and preflight belong to the same boundary as
             # translation: retained-state defects must be located uniformly.
-            builder = Builder(typed)
+            builder = Builder(typed) if builder is None else builder
             builder._preflight_closures()
             return _build_with_builder(typed, builder)
         except ClosedProgramGap as gap:
@@ -4507,8 +4450,10 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
     tree["sites"] = [list(row) for row in assign_sites(tree)]
     builder.finalize_run_refs(tree)
     validate(tree)
-    return ClosedProgram(
+    program = ClosedProgram(
         tree=tree,
         sites=tuple(tuple(row) for row in tree["sites"]),
         digest=program_digest(tree),
     )
+    builder._bind_provider_io(program)
+    return program

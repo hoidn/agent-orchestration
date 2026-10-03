@@ -281,6 +281,8 @@ class CommandScopeContext:
     command_roots: tuple = ()
     command_index: object = None
     call_preparator: object = None
+    io_routes: object = None
+    io_bind: object = None
 
     def prepare_call(self, expr, call, *, variants, procedure_arguments=None):
         from ..wcc.anf import _normalize_call, _normalize_perform
@@ -351,7 +353,11 @@ class CommandScopeContext:
 
     def compile_time_bind(self, expr, *, name, type_ref):
         _, value, _ = _binding_control_fact(expr, name=name, facts=self.control, local_values=self.values)
+        routes = {} if self.io_routes is None else dict(self.io_routes)
+        if self.io_bind is not None:
+            routes[name] = self.io_bind(expr, routes)
         return replace(self, values={**self.values, name: value},
+            io_routes=routes,
             control=replace(self.control, local_type_bindings={**self.control.local_type_bindings, name: type_ref}))
 
     def binding_demands(self, metadata, variants):
@@ -431,7 +437,7 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
     producer_lowering_schema, local_values=None, include_command_plans=False,
     source_program=None, command_bindings=None, command_roots=None,
     call_preparator=None, call_declaration_identity=None, command_root_names=None,
-    command_index_name=None, **elaboration_inputs):
+    command_index_name=None, io_routes=None, io_bind=None, **elaboration_inputs):
     """Elaborate the exact same owner twice; only the second selects arm scopes."""
     from ..wcc.elaborate import elaborate_typed_workflow_body, prepare_elaboration_call_types
     from ..wcc.model import WccIdentityFactory
@@ -467,7 +473,7 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
         command_bindings=command_bindings,
         command_roots=tuple(operands.items()) if command_roots is None else command_roots,
         command_index=operands.get(command_index_name),
-        call_preparator=prepare_call)
+        call_preparator=prepare_call, io_routes=io_routes or {}, io_bind=io_bind)
     annotated = elaborate_typed_workflow_body(typed_body, **inputs, command_scope_context=context)
     result = normalize_wcc_body_to_anf(annotated)
     verify_calls(result)

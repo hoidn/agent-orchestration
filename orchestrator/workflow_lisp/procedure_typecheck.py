@@ -780,9 +780,11 @@ def _typecheck_parametric_procedure_call(
 
     remaining_params: list[tuple[str, TypeRef]] = []
     remaining_args: list[object] = []
+    retained_reference_actuals = list(expr.retained_reference_actuals)
     for arg_expr, (param_name, param_type) in zip(expr.args, signature.params, strict=True):
         concrete_param_type = substitute_type_params(param_type, type_bindings)
         if isinstance(param_type, ProcRefTypeRef) and param_name in proc_ref_bindings:
+            retained_reference_actuals.append((param_name, arg_expr))
             continue
         ensure_no_type_params(
             concrete_param_type,
@@ -825,7 +827,8 @@ def _typecheck_parametric_procedure_call(
         ),
     )
     return typed_factory(
-        expr=replace(expr, callee_name=specialized_name, args=tuple(remaining_args)),
+        expr=replace(expr, callee_name=specialized_name, args=tuple(remaining_args),
+            retained_reference_actuals=tuple(retained_reference_actuals)),
         type_ref=concrete_return_type,
         effect=merge_effect_summaries(*arg_summaries, procedure_summary),
     )

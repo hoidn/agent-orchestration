@@ -343,7 +343,8 @@ def _site_procedure_specializations(node, edge_name, resolved_procedures_by_name
     )
 
 
-def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, resolved_procedures_by_name):
+def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, resolved_procedures_by_name,
+    *, closed_program=False):
     if resolved_procedures_by_name is not None:
         for node in walk_expr(typed_body.expr):
             if not isinstance(node, ProcedureCallExpr):
@@ -364,6 +365,9 @@ def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, res
                 node, edge_name, resolved_procedures_by_name,
             )
             if len(site_specializations) > 1:
+                if closed_program and any(isinstance(type_ref, WorkflowRefTypeRef)
+                    for _, type_ref in edge_procedure.signature.params):
+                    continue
                 raise TypeError(
                     "compiler-owned procedure specialization is "
                     "ambiguous at one WCC call site"
@@ -432,7 +436,8 @@ def prepare_elaboration_call_types(
         for edge in typed_body.effect_summary.procedure_edges
         if edge.span is not None
     }
-    _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, resolved_procedures_by_name)
+    _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site,
+        resolved_procedures_by_name, closed_program=closed_program)
     returns = _elaboration_procedure_return_types(typed_body, procedure_edges_by_site,
         procedure_return_types, closed_program=closed_program,
         resolved_procedures_by_name=resolved_procedures_by_name)
@@ -5079,6 +5084,10 @@ def _elaborate_effect_binding_to_body(
     if command_context is not None:
         binding_compile_time_bindings = {**binding_compile_time_bindings,
             _COMMAND_SCOPE_CONTEXT: command_context}
+    for item in direct_bound_proc_args:
+        binding_compile_time_bindings = _command_compile_time_binding(
+            binding_compile_time_bindings, expr=item.compile_time_value.source_binding,
+            name=item.binding_name, type_ref=item.type_ref)
     current: WccBody = WccLet(
         metadata=scope.body_metadata(
             role=f"let:{binding_name}",

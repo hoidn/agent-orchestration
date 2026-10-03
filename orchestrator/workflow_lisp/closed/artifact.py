@@ -31,7 +31,7 @@ from ..reader import SourceReadTrace
 from .target import entry_target_dsl_version
 from .build import Builder, build_closed_program
 from .effects import require_command_closures
-from .frontend import TypedProgram, compile_typed_program
+from .frontend import ProviderIOContext, TypedProgram, compile_typed_program
 from .program import ClosedProgram, REPRESENTATION, SCHEMA
 
 
@@ -43,6 +43,7 @@ class ClosedProgramBuildResult:
     artifact_path: Path
     manifest_path: Path
     entry_workflow: str
+    provider_io: ProviderIOContext
 
 
 def closed_build_key(
@@ -129,7 +130,7 @@ def build_closed_program_bundle(
         typed, builder=builder, manifest_path=resolved.command_boundaries_path
     )
     configuration = builder.configuration_for(typed, typed.entry_module)
-    program = build_closed_program(typed)
+    program = build_closed_program(typed, builder=builder)
     entry_workflow = typed.entry.definition.name
     imported_contributions = {}
     for binding_name in sorted(set(bundles_by_binding) | set(programs_by_binding)):
@@ -202,6 +203,7 @@ def build_closed_program_bundle(
         artifact_path=artifact_path,
         manifest_path=manifest_path,
         entry_workflow=entry_workflow,
+        provider_io=builder.provider_io.bind(read_back),
     )
 
 
