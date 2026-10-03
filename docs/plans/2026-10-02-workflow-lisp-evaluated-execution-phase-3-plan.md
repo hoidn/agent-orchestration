@@ -233,6 +233,14 @@ Execution receipt (2026-10-02): source `8b15f7584dcf251d0e9cb46a161b99f9d42faa80
 
 **Role/artifact:** Implementation / closure, command boundary and attempt code. **Prerequisite:** Tasks 4–5; independently reviewed artifact amendment if it affects command result publication. R12 implements design §9.1.3 only after independent review of that exact amendment and coordinator transfer of the owners below. Tasks 1–5 and closure/attempt work need not wait; the later Task 6 transfer adds the optional index binder to Task 2's machine without changing its checked site/frame strings.
 
+**Implementation handoff and acceptance sequencing (Tasks 6–8).** A dependency on Task 6 or 7 requires its reviewed, integrated implementation capabilities and the acceptance gates due before the receiving task. It does not require evidence explicitly owned by that receiving or a later task. The following sequence changes no test, expected result, effect semantics or task-completion requirement:
+
+1. **Task 6 command runtime handoff → Task 7 provider integration.** Complete the command compiler transport and the joint renderer/lifecycle/readiness integration: public compile/run must reach the real command performer through the evaluator, bind exact rendered argv/input and dependencies, preserve closure/interpreter evidence and command-local C4, and synchronize attempts and typed commit/failure publication. Pass the Task 6 compile/run and helper/reducer/attempt checks, with independent reviews and integration receipts. Only their public-resume portions wait for Task 8; local reuse/retry/refusal checks do not wait. Compiler or isolated-performer receipts alone do not satisfy this handoff. Public resume remains Task 8's implementation owner.
+2. **Task 7 provider runtime handoff → Task 8 implementation.** In addition to the Task 6 handoff, integrate the portable provider performer with prompt asset selection, captured-read/resolved-input binding and the shared attempt lifecycle. Pass Task 7's public deterministic-provider run, complete request parity, typed result/projection, immutable evidence and one-dispatch checks after independent review. Pure prompt assembly alone is insufficient. Public provider resume/reuse acceptance waits for Task 8.
+3. **Task 8 public resume → outstanding Task 6/7 resume acceptance → Task 9.** Implement Task 8's public preflight, retry and invalidation, then execute the pending public-resume portions of Tasks 6–7 through that entrypoint. This includes R12-C's original command/composition fixtures and exact request bytes, argv/input digests and C9/selected-value dependencies, zero committed redispatch, closure/retry/refusal persistence, and provider request/result reuse without redispatch. Run the Task 8 gates as written. All these resume gates must pass, be independently reviewed and have coordinator-verified integration evidence before Task 9 starts. Internal replay, compilation or a stand-in's initial run cannot substitute for public resume.
+
+Keep combined run/resume checkboxes unchecked until both portions pass; record capability handoffs separately from unfinished acceptance. Tasks 6/7 are not declared complete by these handoffs. The R12 consumer-parity checkbox remains assigned to Tasks 13/14, as Task 3's public run/resume evidence already is to Task 13; those campaigns do not become prerequisites for Tasks 8, 9 or 12, or for starting their own evidence-owning tasks. Preserve their exact selectors, real-provider/handoff requirements and later recovery qualification. Task 17 still requires every acceptance obligation and review disposition; no pending gate is waived. The cost is explicit unfinished acceptance across reviewed integration cuts, tracked by its existing task owner.
+
 **Files:** Create `orchestrator/workflow/evaluated/closure.py`, `orchestrator/workflow/evaluated/commands.py`, `orchestrator/workflow/evaluated/attempts.py`, `tests/test_workflow_evaluated_commands.py`, `tests/test_workflow_evaluated_closure.py`. Modify `runtime.py` dispatch and `orchestrator/exec/step_executor.py` capture seam only as needed. R12 additionally creates shared pure `orchestrator/workflow_lisp/lowering/command_transport_decisions.py`, `orchestrator/workflow_lisp/closed/command_templates.py`, `tests/test_workflow_lisp_command_templates.py` and `tests/test_workflow_evaluated_command_templates.py`, with the bounded existing-owner changes below. The reviewed contract fixes schema/capture choices; the Design receipt below records approval for the specified owner transfers.
 
 - [ ] RED in both modules: a real script receives argv and certified inline JSON bytes, writes the instructed result and logs dispatch. Valid stdout/wrong output path/extra undeclared fields test validation and projection. Retryable failure still dispatches once. Count synchronized `started` before exclusive directory creation.
@@ -382,7 +390,7 @@ with `-q -n 16 --dist=worksteal`. No broad run belongs to design preparation.
 
 ## Task 7: Executor-Free Prompt Assembly And Portable Providers
 
-**Role/artifact:** Implementation / prompt assembly and provider performer code. **Prerequisite:** Pure prompt assembly/parity and shared C6 read helpers may start after Tasks 3 and 5 plus accepted R4/C6 design, independently of Task 6's R12 command transport. Provider performer/runtime hookup and Task 7 closeout still require Tasks 3, 5–6; reviewed artifact delta if required. Every code edit remains subject to exclusive owner transfer. The independent sub-batch supplies no provider-execution evidence, does not close Task 7 and does not unlock Task 8.
+**Role/artifact:** Implementation / prompt assembly and provider performer code. **Prerequisite:** Pure prompt assembly/parity and shared C6 read helpers may start after Tasks 3 and 5 plus accepted R4/C6 design, independently of Task 6's R12 command transport. Provider performer/runtime hookup requires Tasks 3 and 5 plus the reviewed, integrated Task 6 command runtime handoff defined above; reviewed artifact delta if required. Public resume acceptance follows Task 8 under that sequence and remains required for closeout. Every code edit remains subject to exclusive owner transfer. The independent sub-batch supplies no provider-execution evidence, does not close Task 7 and does not unlock Task 8.
 
 **Files:** Create `orchestrator/workflow/evaluated/prompts.py`, `orchestrator/workflow/evaluated/providers.py`, `tests/test_workflow_evaluated_prompts.py`, `tests/test_workflow_evaluated_providers.py`. Narrow shared extractions in `orchestrator/workflow/prompting.py`, `orchestrator/workflow_lisp/typed_prompt_inputs.py`, `orchestrator/providers/executor.py`, `orchestrator/workflow/executor.py` only where both routes must call the same primitive; modify `runtime.py` dispatch.
 
@@ -397,7 +405,7 @@ Pure assembly sub-batch receipt (2026-10-03): source `a0a2370b42708a081add378bdc
 
 ## Task 8: Resume Preflight, Retry And Public Invalidation
 
-**Role/artifact:** Implementation / public resume and continuation code. **Prerequisite:** Tasks 3–7 plus reviewed invalidation CLI contract.
+**Role/artifact:** Implementation / public resume and continuation code. **Prerequisite:** Tasks 3–5, the reviewed and integrated command/provider runtime handoffs from Tasks 6–7 defined above, and the reviewed invalidation CLI contract. The public-resume acceptance of those handoffs is an exit gate here, not a prerequisite for implementing its public entrypoint.
 
 **Files:** Modify `orchestrator/workflow/evaluated/{authority,attempts,runtime,memo}.py`, `orchestrator/cli/commands/{resume,evaluated}.py`, `orchestrator/cli/main.py`; create `orchestrator/cli/commands/invalidate.py`, `tests/test_workflow_evaluated_resume.py`, `tests/test_workflow_evaluated_invalidate.py`.
 
@@ -409,7 +417,7 @@ Pure assembly sub-batch receipt (2026-10-03): source `a0a2370b42708a081add378bdc
 
 ## Task 9: Run-Reference Coordinator And Evaluated Children
 
-**Role/artifact:** Implementation / path run-reference adapter and child runtime integration. **Prerequisite:** Tasks 3–8 and profile wire contract.
+**Role/artifact:** Implementation / path run-reference adapter and child runtime integration. **Prerequisite:** Tasks 3–8 and profile wire contract, including accepted public-resume evidence for the outstanding Task 6/7 gates under the sequence above; consumer campaigns explicitly owned by Tasks 13/14 remain there.
 
 **Files:** Create `orchestrator/workflow/evaluated/run_ref.py`, `tests/test_workflow_evaluated_run_ref.py`; modify `orchestrator/workflow/run_ref/{path_compile,child,runtime}.py` narrowly and `evaluated/{runtime,memo}.py` class/settlement dispatch. Preserve `ledger.py` wire contract.
 
@@ -443,7 +451,7 @@ Pure assembly sub-batch receipt (2026-10-03): source `a0a2370b42708a081add378bdc
 
 ## Task 12: Typed Command Input Documents
 
-**Role/artifact:** Implementation / reviewed source-to-runtime command input transport. **Prerequisite:** Task 6 and independently reviewed typed-input amendment. This task is mandatory Phase 3, not deferred to Phase 4.
+**Role/artifact:** Implementation / reviewed source-to-runtime command input transport. **Prerequisite:** The Task 6 command runtime handoff and independently reviewed typed-input amendment. Its public-resume checks require Task 8; the R12 consumer campaigns remain in Tasks 13/14 and do not block this implementation. This task is mandatory Phase 3, not deferred to Phase 4.
 
 **Files:** Create `orchestrator/workflow/evaluated/inputs.py`, `tests/test_workflow_evaluated_input_documents.py`. Modify exact selected owners `orchestrator/workflow_lisp/expressions.py`, `orchestrator/workflow_lisp/typecheck_effects.py`, `orchestrator/workflow_lisp/wcc/elaborate.py`, `orchestrator/workflow_lisp/closed/{values,effects,check,sites}.py`, `orchestrator/workflow/evaluated/commands.py` as required by the reviewed grammar/schema. Parser owns explicit document presence and expanded argv/input operand order; WCC and closed traversal retain both through once-only lowering, site annotation and checked read-back. Update other typed traversal owners only when the new field actually participates, after grep of all `CommandResultExpr` consumers and explicit owner transfer.
 
@@ -501,7 +509,7 @@ Pure assembly sub-batch receipt (2026-10-03): source `a0a2370b42708a081add378bdc
 
 ## Task 17: Phase-Wide Compatibility, Verification And Handoff
 
-**Role/artifact:** Coordinator / integrated code/evidence verification; independent Review / phase closeout. **Prerequisite:** Tasks 1–16 with review dispositions complete.
+**Role/artifact:** Coordinator / integrated code/evidence verification; independent Review / phase closeout. **Prerequisite:** Tasks 1–16 with review dispositions complete, including every Task 6/7 acceptance gate completed under the Task 8 or Task 13/14 evidence owner. Intermediate capability handoffs are not task or phase completion.
 
 - [ ] Inspect the entire integrated diff, actual changed owners and every fresh check; verify new modules/functions meet limits. Confirm no runtime import uses `experiments/evaluated_execution_spike`, no hidden flat lowering for admitted 2.35 calls/children, and no profile upgrade/old-target retirement slipped in.
 - [ ] Repeat raw old-target artifact comparison at fixed source/package paths with `PYTHONHASHSEED=0`, reusing Phase 2's actual specimen method (2.14 kiss, 2.23 panel, 2.33 improve, 2.34 fixture; compiled imports and nested run-ref capsules). Report truthful package-pin changes separately from fixed-identity serialization equality. Never normalize artifacts or patch the production pin. Retain independent digest manifests and old run/resume smoke.
