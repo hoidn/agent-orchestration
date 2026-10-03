@@ -13,6 +13,7 @@ from orchestrator.state import StateManager
 from orchestrator.workflow import validation
 from orchestrator.workflow_lisp import build as workflow_lisp_build
 from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
+from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp import syntax
 import orchestrator.workflow.evaluated.authority as evaluated_authority
 from orchestrator.workflow_lisp.closed.target import (
@@ -94,10 +95,9 @@ def test_entry_target_version_and_refusal_diagnostic(tmp_path: Path) -> None:
     ) == ("evaluated_execution_unavailable", "lowering", files["source"], line)
 
 
-def test_public_run_235_publishes_authority_but_does_not_dispatch_missing_adapter(
+def test_public_run_235_dispatches_commands_and_commits_dependency_chain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     files = _write_program(tmp_path, TARGET)
     commands = json.loads(files["commands"].read_text(encoding="utf-8"))
@@ -108,14 +108,35 @@ def test_public_run_235_publishes_authority_but_does_not_dispatch_missing_adapte
 
     result = _public_run(files)
 
-    assert result.exit_code == 1
-    assert _log(tmp_path / "probe_revise.py") == []
-    assert caplog.text.count("[closed_effect_handler_missing]") == 1
+    assert (result.exit_code, dict(result.workflow_outputs)) == (
+        0,
+        {"title": "seed+r+r", "score": 2},
+    )
+    assert _log(tmp_path / "probe_revise.py") == [
+        "seed tidy fb",
+        "seed+r tidy fb",
+    ]
     (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
     assert (run_root / "run.json").is_file()
-    memo = (run_root / "memo.jsonl").read_text(encoding="utf-8")
-    assert '"outcome":"failed"' in memo
-    assert '"code":"closed_effect_handler_missing"' in memo
+    memo = [
+        json.loads(line)
+        for line in (run_root / "memo.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    committed = [row for row in memo if row["record"] == "committed"]
+    assert len(committed) == 2
+    first, second = committed
+    probe = str(tmp_path / "probe_revise.py")
+    assert [row["input_parts"]["argv"] for row in committed] == [
+        canonical_sha256(["python", probe, "seed", "tidy", "fb"]),
+        canonical_sha256(["python", probe, "seed+r", "tidy", "fb"]),
+    ]
+    assert first["depends_on"] == []
+    assert second["depends_on"] == [first["identity"]]
+    assert memo[-1] == {
+        "outcome": "completed",
+        "record": "terminal",
+        "value": {"title": "seed+r+r", "score": 2},
+    }
 
 
 def test_public_run_does_not_dispatch_when_authority_publication_fails(

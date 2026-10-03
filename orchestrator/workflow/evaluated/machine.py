@@ -9,7 +9,7 @@ from typing import Any
 
 from orchestrator.workflow.pure_expr import coerce_pure_value
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _effect_value_children
+from orchestrator.workflow_lisp.closed.sites import _ast_nodes, _effect_value_children
 
 from .calls import call_environment, call_result
 from .values import (
@@ -26,6 +26,38 @@ EffectHandler = Callable[
     [Mapping[str, Any], tuple[EvaluatedValue, ...], str], EvaluatedValue
 ]
 _LoopActivation = tuple[str, int]
+
+
+def site_classes(program: ClosedProgram) -> dict[str, str]:
+    """Map checked effect identities through each statically checked call frame."""
+    tree = program.tree
+    definitions = tree["definitions"]
+    classes: dict[str, str] = {}
+
+    def visit(body: Mapping[str, Any], activation: tuple[str, ...]) -> None:
+        nodes = tuple(_ast_nodes(body))
+        for node in nodes:
+            if node.get("k") != "perform":
+                continue
+            identity = " / ".join((*activation, *node["site"].split(" / ")))
+            effect_class = node["class"]
+            previous = classes.setdefault(identity, effect_class)
+            if previous != effect_class:
+                raise ValueError(f"checked effect identity has conflicting classes: {identity}")
+
+        for node in nodes:
+            if node.get("k") != "call":
+                continue
+            callee = node["callee"]
+            frame = node.get("frame")
+            call_activation = activation
+            if frame is not None:
+                call_activation = (*activation, *frame.split(" / "))
+            visit(definitions[callee]["body"], call_activation)
+
+    entry = tree["entry"]
+    visit(tree["body"], (entry,))
+    return classes
 
 
 class _ControlTransfer(Exception):
@@ -183,6 +215,15 @@ class _Machine:
         selection_dependencies = budget_value.dependencies
         for ordinal in range(1, max(0, budget) + 1):
             local = environment.extend(node["param"], state)
+            if "index" in node:
+                local = local.extend(
+                    node["index"],
+                    coerce_evaluated_value(
+                        ordinal - 1,
+                        {"kind": "primitive", "name": "Int"},
+                        context="command loop index",
+                    ),
+                )
             active = (*loops, (node["name"], ordinal))
             try:
                 self._body(node["body"], local, owner, activation, active)

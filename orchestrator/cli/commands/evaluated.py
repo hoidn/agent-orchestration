@@ -138,6 +138,7 @@ def run_evaluated_workflow(
                     authority,
                     bound_inputs,
                     run_id=state_manager.run_id,
+                    workspace=workspace,
                 )
                 if exit_code != 0:
                     outputs: Mapping[str, Any] = {}

@@ -45,6 +45,12 @@ class RunAuthorityError(ValueError):
     code = "memo_inconsistent"
 
 
+class CommandTransportRequiredError(RunAuthorityError):
+    """A compile-only command artifact is not ready for evaluated execution."""
+
+    code = "command_transport_required"
+
+
 @dataclass(frozen=True, slots=True)
 class RunAuthority:
     run_root: Path
@@ -168,6 +174,19 @@ def _emitted_bare_interpreters(program: ClosedProgram) -> list[str]:
     )
 
 
+def _has_command_transport(program: ClosedProgram) -> bool:
+    bodies = [
+        program.tree["body"],
+        *(definition["body"] for definition in program.tree["definitions"].values()),
+    ]
+    return all(
+        "argv_transport" in node
+        for body in bodies
+        for node in _ast_nodes(body)
+        if node.get("k") == "perform" and node.get("class") == "command"
+    )
+
+
 def _pin_emitted_interpreters(program: ClosedProgram) -> dict[str, dict[str, str]]:
     pins: dict[str, dict[str, str]] = {}
     for token in _emitted_bare_interpreters(program):
@@ -200,6 +219,8 @@ def _checked_authority(run_root: Path, header: dict[str, Any]) -> RunAuthority:
             _read_file(run_root / PROGRAM_FILENAME).decode("utf-8")
         )
         _validate_program_binding(program, header)
+        if not _has_command_transport(program):
+            raise ValueError("stored command is missing argv transport")
         _validate_interpreter_pins(program, header["interpreters"])
         bound_inputs = _validated_bound_inputs(program, header["bound_inputs"])
         if canonical_sha256(bound_inputs) != header["input_digest"]:
@@ -323,6 +344,10 @@ def publish_run_authority(
     if ClosedProgram.from_artifact(program.artifact()).digest != program.digest:
         raise RunAuthorityError("program is not a stable checked artifact")
     bound_inputs = _validated_bound_inputs(program, dict(bound_inputs))
+    if not _has_command_transport(program):
+        raise CommandTransportRequiredError(
+            "checked command has no argv transport; rebuild from its source"
+        )
     interpreters = _pin_emitted_interpreters(program)
     _create_run_root(run_root)
     with run_writer_lock(run_root):
