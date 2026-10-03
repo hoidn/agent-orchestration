@@ -16,7 +16,7 @@ The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#d
 
 This plan registers target `3.0` on the development branch only when its checked route can be exercised. Its program schema is `workflow-lisp/dynamic-program/1`; its state pair is `3.1` / `dynamic_execution.v1`. No default target changes, release claim, maintained application migration, paid provider work, child runs, parallel effects, resume, invalidation or effect-tracking implementation is selected. Resume/invalidation **refusal** is required. After DC-P only, the proposed single application destination is `experiments/mlevolve_pair/search_compact.orc`, entry `run-search`; its maintained file and command manifest remain unchanged during this plan. Qualification uses a fixture with the same complete policy. `std/dynamic/improve` is the required library integration, not a second application migration.
 
-Design and plan reviews passed; **Tasks 1–2 are complete**; Task 3 is in progress and Tasks 4–9 are pending. Q1 is partial: the strict native-root kernel is proved, with direct publication still pending Task 8. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. Its native strict dynamic seam remains unqualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
+Design and plan reviews passed; **Tasks 1–3 are complete**; Task 4 awaits the shared direct seam and Tasks 5–9 remain pending. Q2 has declaration-only source selection; public/source-free linking remains unqualified. Q1 is partial: the strict native-root kernel is proved, with direct publication still pending Task 8. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. Its native strict dynamic seam remains unqualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
 
 ### Sequencing And Unavailable Owners
 
@@ -89,15 +89,29 @@ Run commands from this worktree root with the intended interpreter and local imp
 
 **Files:** Extend `tests/test_workflow_lisp_modules.py`; create `tests/test_workflow_dynamic_modules.py` and module fixtures under `tests/fixtures/workflow_lisp/dynamic/modules/`. Modify `modules.py` and the narrow declaration-selection seam in `compiler.py`; extend `syntax.py`, `definitions.py`, `type_env.py` or source-map vocabulary only if their real declaration path requires it. Do not add a parallel module resolver.
 
-- [ ] RED fixture: select `Decision`/`Improvement` from existing `std/improve` with their declaration dependencies while an executable typed-helper elaborator spy raises if called. Test roots, exports, alias/`:only`, transitive declaration dependencies, duplicate canonical member snapshots, cycles and ambiguity. A declaration requiring an inadmissible executable dependency must fail with the import chain.
-- [ ] Add refusal checks for selected old `defproc`, workflow, macro and `ProcRef`, and supplied compiled bundles of **every** profile. Existing target entries must refuse dynamic executable source. Keep unknown-version checks ahead of loading any foreign profile. Supplied-bundle and dynamic-source refusals are verified in Task 6 if the Task 3 seam does not accept those inputs; do not simulate an unavailable loader.
-- [ ] Run `pytest -q tests/test_workflow_dynamic_modules.py`; implement selection before executable elaboration through the existing discovery/export/scope owners. Select before macro expansion and declaration elaboration, reusing `resolve_module_graph`, `derive_export_surface`, `build_import_scope` and the compiler's imported/exported type-reference helpers. A selected-declaration test must exclude an invalid unselected declaration; the existing stage-1 path already skips procedure bodies, so a procedure spy alone proves no new behavior. Preserve defining module identity, configuration/asset base and exact `SourceReadTrace` bytes/spans. Do not concatenate source or synthesize a provisional dynamic artifact.
-- [ ] Collect and GREEN the new module, then `tests/test_workflow_lisp_modules.py`. Source-free execution, ordinary helper captures and persisted maps stay pending Task 6; mark this limited result honestly in Q2 evidence.
-- [ ] Review boundaries of any shared loader amendment with retained old-target module fixtures. If source header/export support cannot be separated from dynamic lowering, keep that part in Task 6; do not register a runnable target to make this preliminary proof pass.
+- [x] RED fixture: select `Decision`/`Improvement` from existing `std/improve` with their declaration dependencies while an executable typed-helper elaborator spy raises if called. Test roots, exports, alias/`:only`, transitive declaration dependencies, duplicate canonical member snapshots, cycles and ambiguity. A declaration requiring an inadmissible executable dependency must fail with the import chain.
+- [x] Add refusal checks for selected old `defproc`, workflow, macro and `ProcRef`, and supplied compiled bundles of **every** profile. Existing target entries must refuse dynamic executable source. Keep unknown-version checks ahead of loading any foreign profile. Supplied-bundle and dynamic-source refusals are verified in Task 6 if the Task 3 seam does not accept those inputs; do not simulate an unavailable loader.
+- [x] Run `pytest -q tests/test_workflow_dynamic_modules.py`; implement selection before executable elaboration through the existing discovery/export/scope owners. Select before macro expansion and declaration elaboration, reusing `resolve_module_graph`, `derive_export_surface`, `build_import_scope` and the compiler's imported/exported type-reference helpers. A selected-declaration test must exclude an invalid unselected declaration; the existing stage-1 path already skips procedure bodies, so a procedure spy alone proves no new behavior. Preserve defining module identity, configuration/asset base and exact `SourceReadTrace` bytes/spans. Do not concatenate source or synthesize a provisional dynamic artifact.
+- [x] Collect and GREEN the new module, then `tests/test_workflow_lisp_modules.py`. Source-free execution, ordinary helper captures and persisted maps stay pending Task 6; mark this limited result honestly in Q2 evidence.
+- [x] Review boundaries of any shared loader amendment with retained old-target module fixtures. If source header/export support cannot be separated from dynamic lowering, keep that part in Task 6; do not register a runnable target to make this preliminary proof pass.
+
+Task 3 integrated at `17a69df0`: 23 new cases collected and passed, 336 affected
+cases passed, and coordinator verification passed 24 cases including a retained
+public CLI run. Independent conformity and quality passed. Compiled-bundle,
+target-3.0, source-free and persisted-map checks remain Task 6, as scoped above.
+See the [receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-3--selective-source-declarations).
 
 ## Task 4: Import And Qualify The Direct Shared Seam
 
 **Role/artifact:** Coordinator / upstream integration and interface evidence. **Dependency:** actual reviewed Phase 3 Task 6 command performer, Task 7 prompt/provider performer and Task 12 input-document delivery. Existing helper receipts do not satisfy this dependency.
+
+**Current dependency:** At the post-Task-3 check, reviewed upstream remains
+`8430b87f` and is fully imported. Its command performer returns a typed projected
+value; the newer file-capture helpers do not assemble or execute provider
+requests. Still required from shared owners: resolved request/attempt assembly,
+strict native result and required-file validation before returning to the caller, and external
+document operand/bytes/token transport. Existing helpers alone do not pass this
+task. Tasks 5–8 remain dependent; no replacement performer is implemented here.
 
 **Owned changes:** Integration receipts in the existing evaluation report/Phase 3 evidence matrix; shared source remains with its owner unless explicitly transferred. No new performer implementation is assigned by this task.
 
@@ -236,7 +250,7 @@ pytest -q -n 16 --dist=worksteal \
 
 Planning or a successful independent prerequisite does not complete readiness. Check each item only with integrated evidence:
 
-- [ ] Tasks 1–3 passed and exact limited proof scope recorded.
+- [x] Tasks 1–3 passed and exact limited proof scope recorded.
 - [ ] Task 4 imported real shared delivery and qualified its memo-free seam.
 - [ ] Tasks 5–8 atomically replaced the experiment route with active behavioral tests.
 - [ ] Q1–Q5 passed with public integration, retained-profile and kill evidence.

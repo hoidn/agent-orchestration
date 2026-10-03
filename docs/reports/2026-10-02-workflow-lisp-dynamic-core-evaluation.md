@@ -1356,7 +1356,7 @@ Its current real command callers are component tests, while the public evaluated
 runtime remains pure-only.
 
 Still needed from the shared owners: qualified resolved request/snapshot/attempt
-assembly and strict native result/required-file publication (including the
+assembly and strict native result/required-file validation before return (including the
 registered stdout materialization path), plus external-document operand/bytes/token
 transport. Merely writing supplied bytes to `inputs.json` is not that transport.
 The independent upstream prompt-preparation allocation can advance these owners;
@@ -1398,3 +1398,38 @@ Exact commands, stable hashes and raw output are in
 The disposable verification checkout was removed after use. Provider assembly,
 strict dynamic publication and Task 4/Q3 remain pending; the frozen comparison
 revision is unchanged.
+
+### Task 3 — Selective Source Declarations
+
+Integrated at `17a69df0`. The private source-only entry reuses the existing graph,
+scopes and Stage-1 pipeline, selecting type/schema/prompt dependencies before
+macro collection or full declaration elaboration. The existing single-form
+elaborator owns dependency syntax. Tests import `std/improve` schemas without its
+typed helper and exclude an invalid unselected declaration. Selected executable
+declarations and indirect `ProcRef` dependencies refuse with the import chain.
+
+Luna's initial implementation passed six cases but exceeded its bounded batch;
+Sol Revision removed the duplicate declaration parser and completed coverage.
+Independent Sol review and coordinator inspection found and corrected private
+self-qualified dependencies, alias visibility widening and the untraced root-
+inference read. Each correction has a behavioral regression. One proposed alias-
+slash positive also failed the existing baseline; the final test uses existing
+alias-dot/canonical syntax and does not count that fixture error as a product bug.
+Final conformity and subsequent quality review passed without findings.
+
+Fresh evidence: 23 new cases collected and passed; 336 affected cases passed in
+14.84s, covering modules, definitions, improve, build/artifact path safety,
+retained targets and public CLI. Coordinator verification passed all 24 selected
+cases in 2.61s with stable hashes. Commands, hashes and raw output:
+`/tmp/orc-dc3-modules-revision-receipt-02.json` and corresponding logs;
+`/tmp/orc-dc3-integration-z6_e0z2j/modules-root.{json,log}`. The affected command
+uses `pytest -q -n 16 --dist=worksteal`; no full-repository green claim follows.
+
+Q2 is **partial**: source selection preserves canonical ownership, complete spans,
+prompt/path bases and consistent read snapshots. Public target 3.0, source-free
+execution and compiled-bundle refusal through the future loader remain Task 6.
+At this boundary upstream still points to reviewed `8430b87f` / source `0f1bbc46`;
+all reviewed applicable delivery is integrated. Task 4 still needs shared resolved
+request/attempt assembly, strict native result and required-file validation before
+return, and external document transport. State publication remains caller-owned. The dependent Tasks 5–8 cutover cannot start under
+the reviewed sequencing; no duplicate performer or implicit adoption is selected.
