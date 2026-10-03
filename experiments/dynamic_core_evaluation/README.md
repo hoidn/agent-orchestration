@@ -1,144 +1,154 @@
-# Dynamic composition with existing boundary contracts
+# Dynamic-core evaluation
 
-This is an isolated experiment, not a public `.orc` target. The
-[composition source](fixtures/composition.orc) uses the existing reader and the
-same checked dynamic artifact/evaluator as the pure experiment. The
-[typed leaves](fixtures/leaf.orc) keep the existing compiler, `defprompt`,
-document delivery and structured-output validation.
+This remains an isolated experiment, not a public `.orc` target or a production
+adoption. The current evidence executes complete improve and compact-search
+consumers through admitted dynamic artifacts and the existing compiled leaf
+runtime. The driver writes each artifact to disk, reads it back, checks its
+digest, then calls real deterministic local command leaves through
+`LeafBridge` and `WorkflowExecutor`.
 
-## What changes for the author
+The full improve consumer assembles the ordinary [`improve` definition
+fragment](fixtures/improve.orc) with caller-owned hooks and keeps the compiled
+result contract `Improvement[Draft Feedback Blocker]`. The compact search
+consumer uses [`search.orc`](fixtures/search.orc), declares `SearchResult`, and
+reuses the existing compact controller command adapters. The smaller
+[`composition.orc`](fixtures/composition.orc) remains a `Value`-result example
+for single-pass closure composition; it is not the result schema used by those
+full-consumer checks. Shared definitions have to be assembled into caller
+source because this bounded reader has no ORC import support.
 
-The existing [`std/improve`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
-passes its explicit `inputs I` argument to `ProcRef` hooks. Its
-[caller fixtures](../../tests/workflow_lisp_improve_stdlib_sources.py) pass
-`proc-ref` values and context separately. These excerpts compare **callback
-wiring only**; the experimental specimen is not a port of improve's loop,
-approval/blocked/exhaustion policy or recovery behavior.
+## Context passed to hooks
+
+In the existing typed helper, each hook receives the explicit `inputs I`
+argument. The typed route already supports one `String` as `I` without a
+context record:
 
 ```lisp
-; Existing typed helper interface/body excerpts:
-(review ProcRef[(S I) -> Decision[F B]])
-(revise ProcRef[(S I F) -> S])
-; ... with inputs : I carried through the helper:
 (review state.current inputs)
 (revise state.current inputs r.feedback)
-
-; Existing caller wiring:
-(proc-ref review-candidate)
-(proc-ref revise-candidate)
-; Context is supplied separately to improve, then to each hook.
 ```
 
-The experimental composition uses ordinary function values:
+The dynamic excerpt is UE03 in the [paired source-edit cases](../../tests/experiments/test_dynamic_core_utility_edits.py).
+It gives review only the candidate; an ordinary closure captures the
+independent goal and rubric, while the revise closure captures the goal it
+uses:
 
 ```lisp
-(define (apply-one callback value) (callback value))
+(define (review-for goal rubric)
+  (fn (current)
+    (let* ((wire (effect review (record
+                 (draft__title (field current "title"))
+                 (draft__score (field current "score"))
+                 (goal goal)
+                 (rubric rubric)))))
+      (normalize-review wire))))
 
-(define (make-annotator goal rubric)
-  (fn (reviewed)
-    (fn (candidate)
-      (effect annotate
-        (record
-          (feedback
-            (string/concat goal " | " rubric " | "
-              (field reviewed "return__feedback") " | "
-              (field candidate "title"))))))))
+(define (revise-for goal)
+  (fn (current feedback)
+    (let* ((wire (effect revise (record
+                 (draft__title (field current "title"))
+                 (draft__score (field current "score"))
+                 (goal goal)
+                 (feedback__note (field feedback "note"))))))
+      (record (title (field wire "return__title"))
+              (score (field wire "return__score"))))))
 
-; After review has returned through its declared contract:
-(let* ((next (if (field reviewed "return__approved")
-               (fn (candidate) candidate)
-               ((make-annotator goal rubric) reviewed)))
-       (callbacks (record (next next))))
-  (apply-one (field callbacks "next") seed))
+(improve (record (title "draft") (score 0))
+         (review-for "tidy" "clarity") (revise-for "tidy") 1)
 ```
 
-`make-annotator` returns a function that receives the review, which returns a
-function that receives the candidate. The innermost function retains `goal`,
-`rubric` and `reviewed`; `apply-one` receives only the callback and candidate.
-The compiler infers the captures. A validated review chooses the callback,
-which is stored in a record and passed to an ordinary helper before invocation.
+This excerpt omits the caller-local `normalize-review` definition shown in the
+tested source; that function reconstructs the active `Decision` payload from
+the leaf's declared `return__…` result. UE03 also extends the compiled review
+leaf's input contract with `rubric`; the baseline `utility_leaves` review
+workflow accepts only `Draft` and `goal`, so this edited leaf contract is a
+prerequisite for the independent rubric input.
 
-There are no helper type parameters, `ProcRef` signatures, capture lists or
-context carrier declarations in that composition. The checked-in specimen also
-calls the same `identity` body with an integer and a record. An ordinary wrong
-call arity fails only if reached; an unbound lexical name still fails when
-compiling. The typed route already permits a single String context without a
-record, and proposed W3 would also remove explicit capture forwarding; neither
-is a unique dynamic-core gain.
+Both dynamic effects still pass through the declared compiled leaf input contracts.
+The current evidence credits the typed single-`String` context. Proposed W3
+could also remove explicit capture forwarding from the typed helper; it is not
+implemented, so closure capture is not counted as a unique gain here.
 
-The `return__…` names are the existing compiled leaf's wire fields. They are an
-explicit limitation of this adapter, not proposed final user-facing names.
-Public inputs/results still declare schemas; this specimen deliberately uses
-`Value` for its alternative final shapes. Real leaf inputs and outputs retain
-more precise contracts, including nested records/unions and document paths.
+## Evidence for utility authoring
 
-## Run the complete example
+The focused utility tests compare actual outcomes, full leaf payloads and their
+order against existing typed improve workflows. They cover approval, blocked
+and exhausted outcomes, failures at the declared leaf boundary, source
+assembly versus a caller-owned inline definition copy, and the public typed
+result schema. The search tests compare the complete `SearchResult` value and
+trace against the existing Python reference over the frozen evaluation
+budgets.
 
-From the repository/worktree root, use the following command. It creates a
-fresh temporary workspace and invokes a registered local Python provider plus
-a command through the real workflow executor. It makes no paid model calls.
-The provider requests revision for the `reject draft` input, so both operations
-execute. The JSON artifact is written to disk and read back before execution.
+The source-edit cases exercise a `Draft.origin` field through initialization,
+review and revision; a feedback/evidence field rename through producer,
+contract and consumer; independent rubric and goal context; and matching pure
+helpers that extract `Feedback.note` to a `String`. The failure cases record
+whether a bad name or arity is rejected before a leaf, whether a missing field
+or VM budget failure happens after a completed review, and what survives a
+restart. A fresh dynamic run repeats completed effects and retains their leaf
+run files. A typed public resume after a committed iteration continues without
+replaying the hooks. Receipts and exact source pairs are written under the
+pytest temporary directory by the tests; timings and paid-call costs are not
+measured.
+
+Ordinary source also supports bounded utility operations such as list append,
+list length and updates to existing record keys. These checks keep collections
+as ordinary lists and records rather than inventing a homogeneous internal
+schema.
+
+## Run the full improve consumer
+
+From the repository or worktree root, run this test-owned driver. It assembles
+the shared definition fragment with a real caller, compiles the existing local
+review/revise workflows, writes and reads the admitted artifact, and executes
+both effects. It makes no paid model calls and adds no runtime framework.
 
 ```bash
 python - <<'PY'
 from pathlib import Path
-import json, os, shutil, sys, tempfile
-from orchestrator.providers.types import InputMode, ProviderTemplate
-from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
-from experiments.dynamic_core_evaluation.leaf_bridge import LeafBridge
-from experiments.dynamic_core_evaluation.source import compile_source
-from experiments.dynamic_core_evaluation.program import DynamicProgram
-from experiments.dynamic_core_evaluation.evaluator import evaluate
+from tempfile import TemporaryDirectory
+import json
 
-workspace = Path(tempfile.mkdtemp(prefix='orc-dynamic-source-'))
-fixture = Path('experiments/dynamic_core_evaluation/fixtures')
-shutil.copytree(fixture, workspace / fixture)
-(workspace / 'docs').mkdir()
-(workspace / 'docs/goal.txt').write_text('DOC_A: Keep the boundary contracts strict.\n')
-log = workspace / 'dispatch.jsonl'
-os.environ['DYNAMIC_CORE_DISPATCH_LOG'] = str(log)
-provider = ProviderTemplate(name='dynamic-fixture',
-    command=[sys.executable, str(workspace / fixture / 'scripted_leaf.py'), 'provider'],
-    input_mode=InputMode.STDIN)
-bridge = LeafBridge.compile(workspace / fixture / 'leaf.orc', workspace,
-    operations={'review': 'leaf::review', 'annotate': 'leaf::annotate'},
-    provider_externs={'providers.review': 'dynamic-fixture'},
-    command_boundaries={'annotate': ExternalToolBinding(name='annotate',
-        stable_command=('python', str(fixture / 'scripted_leaf.py'), 'command'))},
-    provider_templates=(provider,))
-program = compile_source((fixture / 'composition.orc').read_text(),
-    source_path=str(fixture / 'composition.orc'), type_env=bridge.type_env)
-artifact = workspace / 'program.json'
-artifact.write_text(program.artifact())
-result = evaluate(DynamicProgram.from_artifact(artifact.read_text()),
-    {'goal': 'reject draft', 'rubric': 'clarity', 'target_doc': 'docs/goal.txt'}, leaf_bridge=bridge)
-print(json.dumps({'workspace': str(workspace), 'value': result.json_value(),
-                  'steps': result.steps, 'digest': program.digest,
-                  'dispatches': [json.loads(line)['mode'] for line in log.read_text().splitlines()]}, indent=2))
+from tests.experiments.test_dynamic_core_utility_improve import _dynamic_run
+
+with TemporaryDirectory(prefix="dynamic-core-improve-") as temporary:
+    workspace = Path(temporary) / "run"
+    outcome = _dynamic_run(workspace, seed="draft", limit=2, wrapped=True)
+    assert "error" not in outcome, outcome.get("error")
+    print(json.dumps({
+        "artifact_digest_after_disk_readback": outcome["digest"],
+        "evaluation_steps": outcome["steps"],
+        "result": outcome["value"],
+        "ordered_leaf_inputs": outcome["events"],
+    }, indent=2))
 PY
 ```
 
-The final JSON includes the temporary workspace, admitted artifact digest,
-node count, `provider` then `command` dispatches, and validated output. The
-annotation's feedback includes the captured goal/rubric and review feedback.
-Run with another goal that does not contain `reject` to take the approval
-branch: it returns the draft and does not invoke the annotation command.
+The printed event list contains the complete review and revision input records,
+including their order. `wrapped=True` exercises the captured review/revise
+callbacks. The helper verifies that the deserialized artifact has the same
+digest before passing it to the evaluator.
 
-## Limits and checks
+## Limits
 
-Each effect launches a fresh legacy leaf run, retaining its state, compiler
-machinery and startup cost. Restarting the composition repeats earlier effects;
-there is no candidate resume or static effect tracking. Required-output/path
-checks are retained where declared; ordinary output files are not rolled back
-and their presence does not prove freshness. Runtime diagnostics currently use
-artifact positions rather than complete source maps.
-
-This bounded grammar has no imports, macros, mutation or public launch route.
-It demonstrates source composition and boundary reuse; full improve/MLEvolve
-utility, net deletions and production adoption remain separate decisions in the
+Every effect still launches a fresh compiled legacy leaf with its existing
+state, contract validation and startup cost. Caller-authored normalizers map
+the leaf's `return__…` wire keys into the caller's record shape; the bridge
+validates and exposes the declared result unchanged. Source assembly is
+performed by the caller or test driver; the dynamic language has no imports,
+macros, mutation or public launch route. The evaluator has no static effect
+tracking or resumable continuation, so a fresh run repeats earlier effects.
+This evidence does not claim net deletion, lower total complexity or
+production readiness; those remain separate decisions in the
 [evaluation plan](../../docs/plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md).
 
+Run the focused checks from the repository root in a tmux session, as required
+by `AGENTS.md` for this slow pytest group:
+
 ```bash
-python -m pytest -q tests/experiments/test_dynamic_core_source.py
+pytest -q -n 16 --dist=worksteal \
+  tests/experiments/test_dynamic_core_utility_core.py \
+  tests/experiments/test_dynamic_core_utility_improve.py \
+  tests/experiments/test_dynamic_core_utility_search.py \
+  tests/experiments/test_dynamic_core_utility_edits.py
 ```

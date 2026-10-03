@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Callable
 from unittest.mock import patch
 
 import pytest
@@ -48,12 +49,17 @@ INLINE_IMPROVE_DEFINITIONS = '''(define (inline-improve initial review revise li
                     (fail "unknown_review_decision")))))))'''
 
 
-def _write_probes(root: Path) -> dict[str, Path]:
+def _write_probes(
+    root: Path,
+    *,
+    review_script: str = REVIEW_PROBE,
+    revise_script: str = REVISE_PROBE,
+) -> dict[str, Path]:
     root.mkdir(parents=True, exist_ok=True)
     probes = {}
     for name, script, hook in (
-        ("probe_review", REVIEW_PROBE, "review"),
-        ("probe_revise", REVISE_PROBE, "revise"),
+        ("probe_review", review_script, "review"),
+        ("probe_revise", revise_script, "revise"),
     ):
         marker = '    log.write(" ".join(sys.argv[1:]) + "\\n")\n'
         event_logger = (
@@ -90,9 +96,14 @@ def _typed_sources(root: Path, probes: dict[str, Path], *, seed: str, limit: int
 
 
 def _typed_run(root: Path, *, seed: str, limit: int, inline: bool = False,
-               wrapped: bool = False) -> tuple[dict[str, object], list[dict[str, object]]]:
-    probes = _write_probes(root)
-    _typed_sources(root, probes, seed=seed, limit=limit, inline=inline, wrapped=wrapped)
+               wrapped: bool = False, entry_source_text: str | None = None,
+               review_script: str = REVIEW_PROBE, revise_script: str = REVISE_PROBE
+               ) -> tuple[dict[str, object], list[dict[str, object]]]:
+    probes = _write_probes(root, review_script=review_script, revise_script=revise_script)
+    if entry_source_text is None:
+        _typed_sources(root, probes, seed=seed, limit=limit, inline=inline, wrapped=wrapped)
+    else:
+        _write_sources(root, {"grt/entry.orc": entry_source_text})
     from tests.test_workflow_lisp_improve_stdlib import _compile
     from tests.test_workflow_lisp_generic_stdlib_composition import _execute_bundle
 
@@ -163,11 +174,16 @@ def _candidate_source(root: Path, *, seed: str, limit: int, goal: str,
 
 
 def _dynamic_run(root: Path, *, seed: str, limit: int, goal: str = "tidy",
-                 assembled: bool = True, wrapped: bool = False) -> dict[str, object]:
+                 assembled: bool = True, wrapped: bool = False,
+                 utility_source_text: str | None = None,
+                 candidate_source_text: str | None = None,
+                 review_script: str = REVIEW_PROBE, revise_script: str = REVISE_PROBE,
+                 budget: int = 1000,
+                 after_effect: Callable[[str, object], None] | None = None) -> dict[str, object]:
     root.mkdir(parents=True, exist_ok=True)
-    probes = _write_probes(root)
+    probes = _write_probes(root, review_script=review_script, revise_script=revise_script)
     utility_source = root / "utility_leaves.orc"
-    source = UTILITY_LEAVES.read_text(encoding="utf-8")
+    source = utility_source_text or UTILITY_LEAVES.read_text(encoding="utf-8")
     source = source.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
     source = source.replace("PROBE_REVISE", probes["probe_revise"].as_posix())
     utility_source.write_text(source, encoding="utf-8")
@@ -195,6 +211,15 @@ def _dynamic_run(root: Path, *, seed: str, limit: int, goal: str = "tidy",
             },
         },
     )
+    if after_effect is not None:
+        original_invoke = bridge.invoke
+
+        def invoke_then_observe(operation, inputs, *, location, call_context):
+            result = original_invoke(operation, inputs, location=location, call_context=call_context)
+            after_effect(operation, result)
+            return result
+
+        bridge.invoke = invoke_then_observe
     if assembled:
         helper_definitions = IMPROVE_DEFINITIONS.read_text(encoding="utf-8")
         helper_name = "improve"
@@ -204,15 +229,16 @@ def _dynamic_run(root: Path, *, seed: str, limit: int, goal: str = "tidy",
         helper_definitions = INLINE_IMPROVE_DEFINITIONS
         helper_name = "inline-improve"
         source_owner = "caller-inline"
-    source_path = _candidate_source(
-        root,
-        seed=seed,
-        limit=limit,
-        goal=goal,
-        helper_definitions=helper_definitions,
-        helper_name=helper_name,
-        wrapped=wrapped,
-    )
+    source_path = _candidate_source(root, seed=seed, limit=limit, goal=goal,
+                                    helper_definitions=helper_definitions,
+                                    helper_name=helper_name, wrapped=wrapped)
+    if candidate_source_text is not None:
+        source_path.write_text(candidate_source_text, encoding="utf-8")
+    if budget != 1000:
+        source = source_path.read_text(encoding="utf-8")
+        changed = source.replace("(:budget 1000)", f"(:budget {budget})", 1)
+        assert changed != source
+        source_path.write_text(changed, encoding="utf-8")
     program = compile_source(source_path.read_text(encoding="utf-8"), source_path=source_path,
                              type_env=bridge.type_env)
     artifact_path = root / "candidate.json"
