@@ -190,6 +190,12 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
             builder.value(item, d, env) for item in perform.positional_args[len(tokens) :]
         ]
 
+    if "argv_transport" in payload:
+        effect["argv_transport"] = [
+            _command_transport_plan(plan, builder, d, env)
+            for plan in payload["argv_transport"]
+        ]
+
     provenance = builder.provenance(perform.metadata)
     if source_subjects:
         # The subject is diagnostic provenance and is removed by program_digest.
@@ -197,6 +203,23 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
     effect.update(provenance)
     builder.retain_generated_result_contract(effect, perform, d)
     return effect
+
+
+def _command_transport_plan(plan, builder, d, env):
+    if plan["kind"] == "value":
+        return dict(plan)
+    parts = []
+    for part in plan["parts"]:
+        projected = dict(part)
+        if part["kind"] == "slot":
+            name = part["name"]
+            if name[0] == "input":
+                projected["value"] = {**d.command_roots[name[1]],
+                    **builder.provenance(part["value"].metadata)}
+            else:
+                projected["value"] = builder.value(part["value"], d, env)
+        parts.append(projected)
+    return {"kind": "template", "parts": parts}
 
 
 def _translate_provider_result(

@@ -1196,6 +1196,73 @@ def test_same_signature_run_refs_finalize_inside_phantom_loop_carriers(
     assert digests[0] == digests[1]
 
 
+@pytest.mark.parametrize('mutation', ['none', 'signature', 'catalog'])
+def test_projected_union_tag_finalizes_its_phantom_run_ref_owner(tmp_path, mutation):
+    from tests.workflow_lisp_closed_program_helpers import BOUNDARIES
+
+    source = _CARRIER_RUN_REF_SOURCE.replace(':effects ((runs-ref child))',
+        ':effects ((runs-ref child) (uses-command fetch))').replace(
+        ':setup ())))) 0))', ':setup ())))) (command-result fetch :argv ("python" "probe.py" "${inputs.root}") :returns Int)))').replace(
+        '(defworkflow run ()', '(defworkflow run ((root Int))')
+    assert 'command-result fetch' in source
+    path = install(tmp_path, source)
+    typed = compile_typed_program(path, entry_workflow='run', source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries=BOUNDARIES)
+    path.unlink()
+    closed = _build_source_free(typed)
+    projections = [row for definition in closed.tree['definitions'].values()
+        for row in definition['key'][6]
+        if isinstance(row[0], list) and row[0][3]['path'] == ['variant']]
+    assert len(projections) == 1
+    selector, descriptor, literal = projections[0]
+    assert selector[:3] == ['projection', 'value', 0]
+    assert descriptor['kind'] == 'enum' and literal == {'k': 'lit', 'v': 'WRAP', 'type': descriptor}
+    assert descriptor['name']['member'] == 'variant'
+    assert descriptor['name']['owner']['args'][0]['kind'] == 'run-ref-result'
+    finalized = [row for name, row in closed.tree['types'].items()
+        if 'RunRefResult$' in name and row['kind'] == 'enum']
+    assert len(finalized) == 1 and finalized[0]['allowed'] == ['WRAP']
+    _assert_projected_tag_current_producer(closed, finalized[0])
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert restored.tree == closed.tree
+    if mutation != 'none':
+        _reject_forged_projected_run_ref_tag(restored, mutation)
+
+
+def _assert_projected_tag_current_producer(closed, enum):
+    (definition,) = [row for row in closed.tree['definitions'].values()
+        if any(isinstance(value[0], list) and value[0][3]['path'] == ['variant'] for value in row['key'][6])]
+    residual = definition['params'][-1][1]
+    assert enum['name'] == residual['name'] + '.variant'
+    producers = [node for node in _ast_nodes(closed.tree['body'])
+        if node['k'] == 'perform' and node['class'] == 'run_ref']
+    assert len(producers) == 2
+    config = decode_run_ref_static_config(base64.b64decode(producers[0]['config'], validate=True))
+    assert config.generated_result_type in residual['name']
+
+
+def _reject_forged_projected_run_ref_tag(closed, mutation):
+    from copy import deepcopy
+    from orchestrator.workflow_lisp.closed.program import ClosedProgramInvalid
+    from tests.test_workflow_lisp_closed_program_artifact import _closed, _refresh_projected_k6_negative_name_and_sites
+
+    tree = deepcopy(closed.tree)
+    (old_name, definition), = [(name, row) for name, row in tree['definitions'].items()
+        if any(isinstance(value[0], list) and value[0][3]['path'] == ['variant'] for value in row['key'][6])]
+    (projection,) = [row for row in definition['key'][6] if row[0][3]['path'] == ['variant']]
+    if mutation == 'signature':
+        projection[1]['name']['owner']['args'][0]['signature']['inputs'][0][1] = {'kind': 'primitive', 'name': 'Bool'}
+        projection[2]['type'] = deepcopy(projection[1])
+        _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition)
+    else:
+        for name, row in tree['types'].items():
+            if 'RunRefResult$' in name and row['kind'] == 'enum':
+                row['allowed'] = ['FORGED']
+    with pytest.raises(ClosedProgramInvalid) as error:
+        ClosedProgram.from_artifact(_closed(tree).artifact())
+    assert error.value.rule == 'definition_key'
+
+
 def test_public_run_ref_artifact_rejects_full_digest_and_reserved_type_tampering(
     tmp_path: Path,
 ) -> None:
@@ -1671,3 +1738,102 @@ def test_run_ref_compiler_pin_is_independent_of_package_location(
     assert [row.site_digest for row in first_configs] == [
         row.site_digest for row in second_configs
     ]
+
+
+def _rename_compiled_run_ref_results(body, replacements, *, retarget=False):
+    from dataclasses import replace
+    from orchestrator.workflow_lisp.wcc.model import WccLet, WccHalt, WccPureOp
+
+    if not isinstance(body, WccLet):
+        assert isinstance(body, WccHalt)
+        return body
+    value = body.bound_value
+    if retarget and isinstance(value, WccPureOp):
+        left, right = value.args
+        value = replace(value, args=(replace(left, base=right.base), right))
+    replacement = replacements.get(id(value))
+    if replacement is not None:
+        value = replace(value, metadata=replace(value.metadata, type_ref=replacement.metadata.type_ref),
+            returns_type_name=replacement.returns_type_name, operation_payload=replacement.operation_payload)
+    return replace(body, bound_value=value,
+        bound_type_ref=value.metadata.type_ref if replacement is not None else body.bound_type_ref,
+        body=_rename_compiled_run_ref_results(body.body, replacements, retarget=retarget))
+
+
+@pytest.mark.parametrize('retarget', [False, True])
+@pytest.mark.parametrize('nested', [False, True])
+def test_preparation_run_ref_generated_names_preserve_actual_producer_wiring(tmp_path, monkeypatch, retarget, nested):
+    from tests.test_workflow_lisp_closed_command_transport import _compile
+    from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
+    from tests.test_workflow_lisp_closed_preparation_integrity import _prepare_other_owner, _registrations, _forbid_emission
+    from tests.test_workflow_lisp_command_scopes import _walk
+    from orchestrator.workflow_lisp.wcc.model import WccPerform
+    from orchestrator.workflow_lisp.closed.names import _key_type_ref, _run_ref_signatures
+
+    run = '(run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567") '
+    run += ':program (:path "child.orc" :entry child) :inputs (:n VALUE) :returns Int '
+    run += ':policy (:environment :deterministic-effect-free :setup ()))'
+    declaration = '(defproc helper () -> Int :effects ((runs-ref child) (uses-command echo)) :lowering inline '
+    declaration += '(let* ((first ' + run.replace('VALUE', '1') + ') (second ' + run.replace('VALUE', '2')
+    declaration += ') '
+    if nested:
+        declaration += '(third ' + run.replace('VALUE', 'first') + ') (fourth ' + run.replace('VALUE', 'second') + ') '
+    declaration += '(out (command-result echo :argv ("python" "probe.py") :returns Int))) '
+    declaration += '(+ third.value fourth.value)))' if nested else '(+ first.value second.value)))'
+    first = _compile(tmp_path / 'first', '(helper)', declarations=declaration)
+    _, _, builder = _prepared_entry(first)
+    second = _compile(tmp_path / 'second', '(helper)', declarations=declaration)
+    registrations = _registrations(builder)
+    _forbid_emission(monkeypatch, builder)
+
+    def mutate(body, call, source):
+        if not call.definition.name.endswith('helper'):
+            return body
+        pair = [node for node in _walk(body) if isinstance(node, WccPerform) and node.perform_kind == 'run_ref']
+        assert len(pair) == (4 if nested else 2)
+        replacements = {}
+        for left, right in zip(pair[::2], pair[1::2], strict=True):
+            assert left.returns_type_name != right.returns_type_name
+            assert _key_type_ref(left.metadata.type_ref, typed=source, run_ref_signatures=_run_ref_signatures(source)) == _key_type_ref(
+                right.metadata.type_ref, typed=source, run_ref_signatures=_run_ref_signatures(source))
+            replacements.update({id(left): right, id(right): left})
+        return _rename_compiled_run_ref_results(body, replacements, retarget=retarget)
+
+    if retarget:
+        with pytest.raises(ValueError, match=r'contradictory prepared.*\.base'):
+            _prepare_other_owner(second, builder, monkeypatch, mutate)
+    else:
+        _prepare_other_owner(second, builder, monkeypatch, mutate)
+    assert _registrations(builder) == registrations
+
+
+def test_repeated_mixed_reference_calls_keep_both_original_materialized_bindings(tmp_path):
+    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command
+
+    declarations = '(defrecord Box (n Int)) (defworkflow child ((input Box)) -> Box '
+    declarations += '(command-result echo :argv ("python" "probe.py" input.n) :returns Box))'
+    declarations += '(defproc mapper ((n Box)) -> Box :effects () :lowering inline (record Box :n (+ n.n 1)))'
+    declarations += '(defproc invoke ((runner WorkflowRef[Box -> Box]) '
+    declarations += '(map ProcRef[Box -> Box]) (n Box)) -> Box '
+    declarations += ':effects ((calls-workflow runner)) :lowering inline '
+    declarations += '(let* ((mapped (map n))) (call runner :input mapped)))'
+    source = '(let* ((first (invoke (workflow-ref child) (proc-ref mapper) n))) '
+    source += '(invoke (workflow-ref child) (proc-ref mapper) first))'
+    program = _compile(tmp_path, source, params='(n Box)', declarations=declarations, returns='Box')
+    originals = [row for row in program.procedures.values()
+        if getattr(row.specialization, 'base_name', None) == 'cp/transport::invoke'
+        and row.specialization.workflow_ref_bindings and row.specialization.proc_ref_bindings]
+    assert len(originals) == 1
+    assert set(originals[0].specialization.workflow_ref_bindings) == {'runner'}
+    assert set(originals[0].specialization.proc_ref_bindings) == {'map'}
+    closed = build_closed_program(program)
+    (invoke,) = [row for row in closed.tree['definitions'].values() if row['key'][2] == 'invoke']
+    assert [row[0] for row in invoke['key'][4]] == ['map']
+    assert [row[0] for row in invoke['key'][5]] == ['runner']
+    assert len(invoke['params']) == 1
+    calls = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'call']
+    assert len(calls) == 2
+    assert calls[0]['callee'] == calls[1]['callee']
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree

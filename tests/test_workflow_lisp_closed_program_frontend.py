@@ -269,7 +269,10 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
           (defmodule cp/child) (export run)
           (defworkflow run ((n Int)) -> Int
-            (provider-result provider :prompt prompt :inputs (n) :returns Int)))''',
+            (let* ((provider-result (provider-result provider :prompt prompt
+                      :inputs (n) :returns Int)))
+              (command-result echo :argv ("python" "child-probe.py" "${inputs.n}")
+                :returns Int))))''',
         encoding="utf-8",
     )
     child_providers = tmp_path / "child-providers.json"
@@ -278,12 +281,20 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
     child_prompts.write_text(
         '{"prompt":{"input_file":"child.txt"}}', encoding="utf-8"
     )
+    child_commands = tmp_path / "child-commands.json"
+    child_commands.write_text(
+        '{"echo":{"kind":"external_tool",'
+        '"stable_command":["python","child-probe.py"],'
+        '"closure":["child-probe.py"]}}',
+        encoding="utf-8",
+    )
     child_build = build_frontend_bundle(
         FrontendBuildRequest(
             source_path=child_path,
             source_roots=(tmp_path,),
             provider_externs_path=child_providers,
             prompt_externs_path=child_prompts,
+            command_boundaries_path=child_commands,
             workspace_root=tmp_path,
             lowering_route="legacy",
         )
@@ -298,9 +309,11 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
           (defmodule cp/parent) (export run)
           (defworkflow run ((n Int)) -> Int
-            (let* ((child-result (call dep :n n)))
-              (provider-result provider :prompt prompt
-                :inputs (child-result) :returns Int))))''',
+            (let* ((child-result (call dep :n n))
+                   (parent-result (provider-result provider :prompt prompt
+                     :inputs (child-result) :returns Int)))
+              (command-result echo :argv ("python" "parent-probe.py" "${inputs.n}")
+                :returns Int))))''',
         encoding="utf-8",
     )
     parent_result = compile_stage3_entrypoint(
@@ -309,7 +322,13 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         provider_externs={"provider": "parent-provider"},
         prompt_externs={"prompt": {"input_file": "parent.txt"}},
         imported_workflow_bundles={"dep": child_bundle},
-        command_boundaries={},
+        command_boundaries={
+            "echo": ExternalToolBinding(
+                name="echo",
+                stable_command=("python", "parent-probe.py"),
+                closure=("parent-probe.py",),
+            )
+        },
         validate_shared=True,
         workspace_root=tmp_path,
         lowering_route="wcc_m4",
@@ -366,7 +385,9 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
     shutil.rmtree(child_build.build_root)
     child_path.unlink()
     parent_path.unlink()
+    child_commands.unlink()
     assert not child_build.build_root.exists()
+    assert not child_commands.exists()
     decoded = bundle_transport.decode_bundle_capsule(
         manifest_bytes=manifest_bytes.read_bytes(),
         pickle_bytes=pickle_bytes.read_bytes(),
@@ -427,17 +448,31 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         assert len(matches) == 1
         return matches[0]
 
-    for module, provider, prompt in (
-        ("cp/child", "child-provider", "child.txt"),
-        ("cp/parent", "parent-provider", "parent.txt"),
+    for module, provider, prompt, command in (
+        ("cp/child", "child-provider", "child.txt", ["python", "child-probe.py"]),
+        ("cp/parent", "parent-provider", "parent.txt", ["python", "parent-probe.py"]),
     ):
-        (effect,) = [
+        definition = owner_definition(module)
+        effects = [
             node
-            for node in _ast_nodes(owner_definition(module)["body"])
+            for node in _ast_nodes(definition["body"])
             if node["k"] == "perform"
         ]
-        assert effect["provider"] == provider
-        assert effect["prompt"]["path"] == prompt
+        assert len(effects) == 2
+        (provider_effect,) = [node for node in effects if node.get("provider")]
+        assert provider_effect["provider"] == provider
+        assert provider_effect["prompt"]["path"] == prompt
+
+        (command_effect,) = [
+            node
+            for node in effects
+            if node.get("class") == "command"
+        ]
+        assert command_effect["command"] == command
+        assert definition["command_params"] == [["n", 0]]
+        slot = command_effect["argv_transport"][0]["parts"][0]
+        assert slot["name"] == ["input", "n", "n"]
+        assert slot["value"]["n"] == definition["params"][0][0]
 
 
 def test_a_program_the_flat_route_refuses_typechecks_into_a_typed_program(tmp_path: Path) -> None:

@@ -620,15 +620,25 @@ def _setup_best(lowered, definition, owner, steps, names, refs):
     ] == [_closed_value(arg, names) for arg in closed_call["args"]]
 
 
-def _compare_improve_command(tree, lowered, step, context, owner, effect):
+def _improve_arm_call(tree, context):
     tag = _one(value for kind, value in context if kind == "case")
     (case,) = [node for node in _ast_nodes(tree["body"]) if node.get("k") == "case"]
     assert case["subject"]["n"] == "result"
     arm = _one(row for row in case["arms"] if row["variant"] == tag)
     call = _one(node for node in _ast_nodes(arm["body"]) if node.get("k") == "call")
+    return tag, arm, call
+
+
+def _compare_improve_command(tree, lowered, step, context, owner, effect):
+    tag, arm, call = _improve_arm_call(tree, context)
     assert call["callee"] == owner and call["frame"].startswith(tag + " / ")
     names = {arm["bind"]: _symbol(tree["entry"], "result", tag=tag)}
-    params = tree["definitions"][owner]["params"]
+    definition = tree["definitions"][owner]
+    assert definition['key'][:3] == ['improve_experiment_proposal', 'procedure', 'execute']
+    bound = {formal: value['v'] for formal, _type, value in definition['key'][6]}
+    assert bound == dict(outcome=tag.lower(), **({'note': ''} if tag == 'EXHAUSTED' else {}))
+    names.update({formal: _literal(value) for formal, value in bound.items()})
+    params = definition["params"]
     names.update(
         {
             name: _closed_value(arg, names)
@@ -685,7 +695,8 @@ def _compare_improve_command(tree, lowered, step, context, owner, effect):
     assert authored == emitted, (tag, authored, emitted)
     assert [
         value["v"] for value in effect["argv"] if value["k"] == "lit"
-    ] == ["--outcome", "--note", "--hypothesis", "--parameters"]
+    ] == ["--outcome", tag.lower(), "--note", *([""] if tag == "EXHAUSTED" else []),
+        "--hypothesis", "--parameters"]
 
 
 def _compare_improve_calls(tree, lowereds, entry):
@@ -868,7 +879,7 @@ def _compare_pair(name, flat, typed, closed, expected_counts):
     for owner, definition in definitions.items():
         for effect in _ast_nodes(definition["body"]):
             if effect.get("k") == "perform":
-                key = _closed_span_key(effect)
+                key = (_closed_span_key(effect), owner)
                 assert key not in effects, (key, effects.get(key), effect)
                 effects[key] = owner, effect
     assert len(effects) == len(closed.sites)
@@ -941,9 +952,13 @@ def _compare_pair(name, flat, typed, closed, expected_counts):
             if "provider" not in step and not is_launch:
                 continue
             key = _span_key(lowered.origin_map.step_spans[step["id"]])
-            assert key in effects, (flat_owner, step["id"], key)
-            effect_owner, effect = effects[key]
-            hits[key] += 1
+            candidates = [(owner, effect) for (span, owner), (_, effect) in effects.items() if span == key]
+            if is_launch:
+                _, _, call = _improve_arm_call(tree, context)
+                effect_owner, effect = _one(pair for pair in candidates if pair[0] == call['callee'])
+            else:
+                effect_owner, effect = _one(candidates)
+            hits[(key, effect_owner)] += 1
             assert _contract(step, typed, module) == effect["contract"]
             assert _type_descriptor(typed, module, source_results[key]) == effect["result"], (
                 key,
@@ -979,15 +994,14 @@ def _compare_pair(name, flat, typed, closed, expected_counts):
 
     if name == "improve_experiment_proposal":
         _compare_improve_calls(tree, lowereds, entry)
-        expected_owners = {
-            "procedure:improve_experiment_proposal::review-proposal": 1,
-            "procedure:improve_experiment_proposal::revise-proposal": 1,
-            "procedure:improve_experiment_proposal::execute": 3,
-        }
+        expected_owners = {'review-proposal': 1, 'revise-proposal': 1, 'execute': 3}
         actual_owners = {}
         for owner, _step, closed_owner, _site, context in pairings:
-            actual_owners[closed_owner] = actual_owners.get(closed_owner, 0) + 1
-            if closed_owner.endswith("::execute"):
+            declaration = tree['definitions'][closed_owner]['key'][:3]
+            assert declaration[:2] == ['improve_experiment_proposal', 'procedure']
+            authored_name = declaration[2]
+            actual_owners[authored_name] = actual_owners.get(authored_name, 0) + 1
+            if authored_name == "execute":
                 assert len(context) == 1 and context[0][0] == "case"
         assert actual_owners == expected_owners
     elif name == "reviewed_change":
@@ -1454,7 +1468,8 @@ def _reject_p3_mutations(pairs):
         }
 
     def change_execute_argv(tree):
-        effect = _effect(tree, owner="procedure:improve_experiment_proposal::execute", class_name="command")
+        _, _, call = _improve_arm_call(tree, (('case', 'APPROVED'),))
+        effect = _effect(tree, owner=call['callee'], class_name="command")
         effect["argv"][0]["v"] = "--mutated"
 
     _expect_projection_rejection("docs", pairs["docs"], (1, 1), alter_guidance)
@@ -1467,13 +1482,13 @@ def _reject_p3_mutations(pairs):
     _expect_projection_rejection(
         "improve_experiment_proposal",
         pairs["improve_experiment_proposal"],
-        (5, 3),
+        (5, 5),
         add_default_policy,
     )
     _expect_projection_rejection(
         "improve_experiment_proposal",
         pairs["improve_experiment_proposal"],
-        (5, 3),
+        (5, 5),
         change_execute_argv,
     )
 
@@ -1488,7 +1503,7 @@ def assert_p3_carriers(workflows: list[Workflow], scratch: Path) -> None:
         "best_of_n": "experiments/orc_vs_single_call/workflows/best_of_n.orc::best-of-n",
     }
     expected = {
-        "improve_experiment_proposal": (5, 3),
+        "improve_experiment_proposal": (5, 5),
         "reviewed_change": (4, 4),
         "best_of_n": (2, 2),
     }

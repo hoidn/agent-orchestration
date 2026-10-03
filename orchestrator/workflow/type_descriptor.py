@@ -519,6 +519,64 @@ def compiled_boundary_rows(
     return rows
 
 
+def command_boundary_rows(
+    source_formal: str, descriptor: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Derive command input rows, including a variant's payload-only view."""
+
+    validate_compiler_normalized_type_descriptor(descriptor)
+    if descriptor["kind"] != "variant_case":
+        return compiled_boundary_rows([(source_formal, descriptor)])
+    rows = []
+    for field in descriptor["fields"]:
+        field_name = field["name"]
+        for row in compiled_boundary_rows([(f"{source_formal}__{field_name}", field["type"])]):
+            rows.append({**row, "path": [source_formal, field_name, *row["path"][1:]]})
+    return rows
+
+
+def command_boundary_row(
+    source_formal: str, descriptor: Mapping[str, Any], native_wire_name: str,
+) -> dict[str, Any] | None:
+    """Select the exact derived wire row; authored suffixes are separate."""
+
+    return next((row for row in command_boundary_rows(source_formal, descriptor)
+        if row["name"] == native_wire_name), None)
+
+
+def command_boundary_value(
+    value: Any, descriptor: Mapping[str, Any], row: Mapping[str, Any],
+) -> Any:
+    """Select an input row through active union payloads, returning None if absent."""
+
+    current = value
+    current_type = descriptor
+    for field_name in row["path"][1:]:
+        if not isinstance(current, Mapping):
+            return None
+        fields = _command_active_fields(current, current_type)
+        if fields is None:
+            return None
+        if current_type["kind"] == "union" and field_name == "variant":
+            return current.get("variant")
+        selected = next((field for field in fields if field["name"] == field_name), None)
+        if selected is None:
+            return None
+        current_type = selected["type"]
+        current = current.get(field_name)
+        if current is None:
+            return None
+    return current
+
+
+def _command_active_fields(value, descriptor):
+    if descriptor["kind"] != "union":
+        return descriptor.get("fields", ())
+    variant = next((variant for variant in descriptor["variants"]
+        if variant["name"] == value.get("variant")), None)
+    return variant["fields"] if variant is not None else None
+
+
 def _flatten_descriptor_leaves(
     descriptor: Mapping[str, Any],
     *,

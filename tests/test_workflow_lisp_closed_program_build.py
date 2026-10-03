@@ -14,7 +14,7 @@ from orchestrator.workflow_lisp.closed import build as closed_build
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.workflow_lisp.closed.sites import _ast_nodes, _value_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
@@ -145,6 +145,28 @@ def test_authored_match_and_loop_labels_reach_closed_control_nodes(tmp_path: Pat
     assert closed_loop["label"] == "iteration"
 
 
+def test_macro_reference_calls_keep_their_exact_return_types(tmp_path: Path) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/macro_returns) (export run)
+      (defproc integer () -> Int :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py") :returns Int))
+      (defproc text () -> String :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py") :returns String))
+      (defproc apply :forall (T) ((hook ProcRef[() -> T])) -> T
+        :effects () :lowering inline (hook))
+      (defmacro invoke (hook) (apply (proc-ref hook)))
+      (defworkflow run () -> String
+        (let* ((number (invoke integer)) (answer (invoke text))) answer)))'''
+    program = build(tmp_path, source)
+    tree = program.tree
+    rows = [row for row in tree['definitions'].values()
+        if row['key'][:3] == ['cp/macro_returns', 'procedure', 'apply']]
+    assert len(rows) == 2
+    calls = [node for node in _ast_nodes(tree['body']) if node['k'] == 'call']
+    assert [tree['definitions'][call['callee']]['result']['name'] for call in calls] == ['Int', 'String']
+    assert ClosedProgram.from_artifact(program.artifact()).tree == tree
+
+
 def test_macro_parameter_origins_use_the_declaration_identifier(tmp_path: Path) -> None:
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/parameter_origin)
@@ -236,9 +258,8 @@ def test_authored_match_and_list_binders_retain_only_syntax_origins(tmp_path: Pa
     assert [arm.binding_label for arm in matched.arms] == ["yes_value", "no_value"]
 
 
-def test_three_call_sites_of_one_procedure_are_one_definition_and_three_frames(tmp_path: Path) -> None:
+def test_three_static_call_sites_retain_exact_value_keys_and_three_frames(tmp_path: Path) -> None:
     closed = build(tmp_path, fixture("three_call_sites"))
-    callee = "procedure:cp/three_call_sites::fetch"
     calls = []
     body = closed.tree["body"]
     while body["k"] == "let":
@@ -246,9 +267,18 @@ def test_three_call_sites_of_one_procedure_are_one_definition_and_three_frames(t
             calls.append(body["value"])
         body = body["body"]
 
-    assert sorted(closed.tree["definitions"]) == [callee]
-    assert closed.sites == ((callee, "#1"),)
-    assert [call["frame"] for call in calls] == [f"{name}={callee}" for name in ("a", "b", "c")]
+    assert len(calls) == len(closed.tree["definitions"]) == 3
+    first_key = closed.tree["definitions"][calls[0]["callee"]]["key"]
+    for value, call, name in zip((1, 2, 3), calls, ("a", "b", "c"), strict=True):
+        definition = closed.tree["definitions"][call["callee"]]
+        key = definition["key"]
+        assert key[:3] == ["cp/three_call_sites", "procedure", "fetch"]
+        int_type = {"kind": "primitive", "name": "Int"}
+        assert key[6] == [["n", int_type, {"k": "lit", "v": value, "type": int_type}]]
+        assert key[:6] + key[7:] == first_key[:6] + first_key[7:]
+        assert key[8]["params"] == definition["params"] == call["args"] == []
+        assert call["frame"] == f"{name}={call['callee']}"
+    assert closed.sites == tuple((call["callee"], "#1") for call in calls)
     restored = ClosedProgram.from_artifact(closed.artifact())
     assert (restored.tree, restored.sites, restored.digest) == (
         closed.tree,
@@ -282,7 +312,8 @@ def test_control_fixtures_build_and_read_back_after_source_removal(tmp_path: Pat
         restored.digest,
     )
     if name == "arms_in_loop":
-        callee = "procedure:cp/arms_in_loop::fetch"
+        (callee,) = [name for name, row in restored.tree['definitions'].items()
+            if row['key'][:3] == ['cp/arms_in_loop', 'procedure', 'fetch']]
         effects = [
             node
             for definition in {"entry": restored.tree["body"], **{
@@ -325,22 +356,26 @@ def test_control_fixtures_build_and_read_back_after_source_removal(tmp_path: Pat
             helper_program.sites,
             helper_program.digest,
         )
-        helper_definition = helper_restored.tree["definitions"]["workflow:cp/arms_in_loop::helper"]
+        (helper_name, helper_definition), = [(name, row)
+            for name, row in helper_restored.tree['definitions'].items()
+            if row['key'][:3] == ['cp/arms_in_loop', 'workflow', 'helper']]
+        (helper_callee,) = [name for name, row in helper_restored.tree['definitions'].items()
+            if row['key'][:3] == ['cp/arms_in_loop', 'procedure', 'fetch']]
         helper_calls = [
             node
             for node in _ast_nodes(helper_definition["body"])
-            if node.get("k") == "call" and node.get("callee") == callee
+            if node.get("k") == "call" and node.get("callee") == helper_callee
         ]
-        assert helper_restored.sites == ((callee, "#1"),)
+        assert helper_restored.sites == ((helper_callee, "#1"),)
         assert len(helper_calls) == 3
         assert [call["frame"] for call in helper_calls] == [
-            f"loop:state[*] / got / body / {variant} / #1={callee}"
+            f"loop:state[*] / got / body / {variant} / #1={helper_callee}"
             for variant in ("FIRST", "SECOND", "THIRD")
         ]
         entry_calls = [
             node for node in _ast_nodes(helper_restored.tree["body"])
             if node.get("k") == "call"
-            and node.get("callee") == "workflow:cp/arms_in_loop::helper"
+            and node.get("callee") == helper_name
         ]
         assert len(entry_calls) == 1
 
@@ -552,25 +587,51 @@ def test_captured_entry_parameter_is_frozen_before_a_same_name_shadow(tmp_path: 
     assert forwarding["args"][0] == {"k": "name", "n": captured_name}
 
 
+def _assert_shared_ref_static_variants(definitions):
+    invokes = [row for row in definitions.values() if row["key"][2] == "invoke"]
+    helpers = [row for row in definitions.values() if row["key"][2] == "helper"]
+    assert len(invokes) == len(helpers) == 2
+    assert invokes[0]["key"][4] == invokes[1]["key"][4]
+    (binding,) = invokes[0]["key"][4]
+    assert binding[0] == "runner"
+    integer = {"kind": "primitive", "name": "Int"}
+    assert binding[1]["bound"] == [["fixed", integer, {"capture": 0}]]
+    assert binding[1]["residual"] == {"params": [integer], "result": integer}
+    assert binding[1]["target"][6] == []
+    for variants in (invokes, helpers):
+        ordered = sorted(variants, key=lambda row: row["key"][6][0][2]["v"])
+        for row, value in zip(ordered, (2, 3), strict=True):
+            assert row["key"][6] == [["y", integer, {"k": "lit", "type": integer, "v": value}]]
+            assert row["key"][8] == {"params": [], "result": integer}
+            assert len(row["params"]) == len(row["key"][7]) == 1
+            assert row["params"][0][1] == integer
+
+
 @pytest.mark.parametrize(
-    ("body", "expected_ops", "expected_calls"),
+    ("body", "expected_ops", "expected_calls", "expected_performs", "expected_reached_calls"),
     (
         (
             "(let* ((z (+ x 1))) (invoke (bind-proc (proc-ref helper) :fixed z) x))",
             1,
             2,
+            1,
+            1,
         ),
         (
             "(invoke (bind-proc (proc-ref helper) :fixed (+ x 1)) x)",
             1,
             2,
+            1,
+            1,
         ),
         (
             "(let* ((hook (bind-proc (proc-ref helper) :fixed (+ x 1)))) "
             "(let* ((x 100) (first (invoke hook 2)) (second (invoke hook 3))) "
             "(+ first second)))",
             2,
-            3,
+            4,
+            2,
+            2,
         ),
     ),
     ids=("hoisted-control", "direct-computed", "stored-after-shadow"),
@@ -580,6 +641,8 @@ def test_computed_proc_ref_argument_is_evaluated_at_its_binding_region(
     body: str,
     expected_ops: int,
     expected_calls: int,
+    expected_performs: int,
+    expected_reached_calls: int,
 ) -> None:
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/computed_ref_capture) (export run)
@@ -613,7 +676,7 @@ def test_computed_proc_ref_argument_is_evaluated_at_its_binding_region(
         if isinstance(node, dict) and "k" in node
     ]
     assert len([node for node in nodes if node["k"] == "op"]) == expected_ops
-    assert len([node for node in nodes if node["k"] == "perform"]) == 1
+    assert len([node for node in nodes if node["k"] == "perform"]) == expected_performs
     assert len([node for node in nodes if node["k"] == "call"]) == expected_calls
     bindings = []
     body = program.tree["body"]
@@ -634,7 +697,9 @@ def test_computed_proc_ref_argument_is_evaluated_at_its_binding_region(
             checked_calls += 1
         bindings.append((body["name"], value))
         body = body["body"]
-    assert checked_calls == (2 if expected_calls == 3 else 1)
+    assert checked_calls == expected_reached_calls
+    if expected_performs == 2:
+        _assert_shared_ref_static_variants(program.tree["definitions"])
     for definition in program.tree["definitions"].values():
         if definition["key"][2] == "invoke":
             nested_call = next(
@@ -771,6 +836,27 @@ def test_one_bound_effect_creation_is_shared_by_direct_and_reference_calls(
     assert checked_calls == 2
 
 
+def _assert_created_ref_variants(definitions, *, nested=False):
+    integer = {"kind": "primitive", "name": "Int"}
+    helpers = [row for row in definitions.values() if row["key"][2] == "helper"]
+    assert len(helpers) == 2
+    ordered = sorted(helpers, key=lambda row: row["key"][6][0][2]["v"])
+    for row, value in zip(ordered, (2, 3), strict=True):
+        assert row["key"][6] == [["y", integer, {"k": "lit", "type": integer, "v": value}]]
+        assert row["key"][8] == {"params": [], "result": integer}
+        assert len(row["params"]) == len(row["key"][7]) == 1
+        assert row["params"][0][1] == integer
+    if nested:
+        references = [row for row in definitions.values() if row["key"][2] == "apply-one"]
+        assert len(references) == 2
+        assert references[0]["key"][4] == references[1]["key"][4]
+        (binding,) = references[0]["key"][4]
+        assert binding[0] == "callback"
+        assert binding[1]["bound"] == [["fixed", integer, {"capture": 0}]]
+        assert binding[1]["residual"] == {"params": [integer], "result": integer}
+        assert binding[1]["target"][6] == []
+
+
 def test_zero_input_effectful_bound_value_runs_at_creation_once(tmp_path: Path) -> None:
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/zero_input_bound_effect) (export run)
@@ -808,7 +894,8 @@ def test_zero_input_effectful_bound_value_runs_at_creation_once(tmp_path: Path) 
     assert sum(
         node.get("k") == "perform" for node in _walk_dataclasses(program.tree)
         if isinstance(node, dict)
-    ) == 3
+    ) == 4
+    _assert_created_ref_variants(program.tree["definitions"])
 
     creation_effects = []
     bindings = []
@@ -988,7 +1075,8 @@ def test_nested_zero_input_effectful_bound_value_runs_before_later_effects(
     assert sum(
         node.get("k") == "perform" for node in _walk_dataclasses(program.tree)
         if isinstance(node, dict)
-    ) == 3
+    ) == 4
+    _assert_created_ref_variants(program.tree["definitions"], nested=True)
     creation_effects = []
     bindings = []
     checked_calls = 0
@@ -1193,3 +1281,671 @@ def test_discriminant_operator_keeps_its_declared_enum_descriptor_after_source_r
         {"kind": "enum", "name": "choice::Choice.variant", "allowed": ["YES", "NO"]},
         {"kind": "enum", "name": "choice::Choice.variant", "allowed": ["YES", "NO"]},
     ]
+
+
+def test_retained_nested_match_cannot_read_same_typed_outer_binder(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from tests.test_workflow_lisp_closed_command_transport import _compile
+    from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
+    from tests.test_workflow_lisp_closed_preparation_integrity import _opaque_map_body, _prepare_other_owner, _registrations, _forbid_emission
+    from orchestrator.workflow_lisp.expressions import MatchExpr
+
+    declaration = '(defunion Choice (A (n Int)) (B (n Int)))'
+    declaration += '(defproc helper ((values List[Choice])) -> List[Int] :effects ((uses-command echo)) :lowering inline '
+    declaration += '(let* ((out (command-result echo :argv ("python" "probe.py") :returns Int))) '
+    declaration += '(list/map ((item values)) (match item ((A outer) '
+    declaration += '(match item ((A inner) inner.n) ((B fallback) fallback.n))) ((B other) other.n)))))'
+    first = _compile(tmp_path / 'first', '(helper values)', params='(values List[Choice])', declarations=declaration, returns='List[Int]')
+    _, _, builder = _prepared_entry(first)
+    second = _compile(tmp_path / 'second', '(helper values)', params='(values List[Choice])', declarations=declaration, returns='List[Int]')
+    registrations = _registrations(builder)
+    _forbid_emission(monkeypatch, builder)
+
+    def retarget(expr):
+        assert isinstance(expr, MatchExpr)
+        outer = expr.arms[0]
+        assert isinstance(outer.body, MatchExpr)
+        inner = outer.body.arms[0]
+        assert outer.variant_name == inner.variant_name == 'A'
+        assert outer.binding_identity != inner.binding_identity
+        changed = replace(inner.body, base=replace(inner.body.base, name=outer.binding_name))
+        nested = replace(outer.body, arms=(replace(inner, body=changed), outer.body.arms[1]))
+        return replace(expr, arms=(replace(outer, body=nested), expr.arms[1]))
+
+    def mutate(body, call, source):
+        return _opaque_map_body(body, retarget) if call.definition.name.endswith('helper') else body
+
+    with pytest.raises(ValueError, match=r'contradictory prepared.*\.base'):
+        _prepare_other_owner(second, builder, monkeypatch, mutate)
+    assert _registrations(builder) == registrations
+
+
+@pytest.mark.parametrize('formal,type_name,declaration,wire,suffix,active,inactive', [
+    ('pair', 'Pair', '(defrecord Pair (x Int))', 'pair__x', (), {'x': 7}, None),
+    ('payload', 'Value', '', 'payload', ('z', 'nested'), {'z': {'nested': 7}}, {'z': None}),
+    ('choice', 'Choice', '(defunion Choice (A (x Int)) (B))', 'choice__x', (),
+        {'variant': 'A', 'x': 7}, {'variant': 'B'}),
+])
+def test_source_owned_command_rows_preserve_native_projection_and_dynamic_suffix(
+    tmp_path, formal, type_name, declaration, wire, suffix, active, inactive,
+):
+    from orchestrator.variables.substitution import resolve_dictionary_suffix
+    from orchestrator.workflow.type_descriptor import command_boundary_row, command_boundary_value
+    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _commands
+
+    expression = 'inputs.' + wire + ''.join('.' + part for part in suffix)
+    body = _command('"${' + expression + '}" "${inputs.' + formal + '.x}"')
+    closed = build_closed_program(_compile(tmp_path, body,
+        params='(' + formal + ' ' + type_name + ')', declarations=declaration))
+    (command,) = _commands(closed.tree)
+    slot = command['argv_transport'][0]['parts'][0]
+    assert slot['name'] == ['input', formal, wire]
+    assert slot['path'] == list(suffix)
+    native_wire, descriptor = closed.tree['params'][0]
+    assert slot['value']['n'] == native_wire
+    assert closed.tree['command_params'] == [[formal, 0]]
+    row = command_boundary_row(formal, descriptor, wire)
+    assert row is not None
+    assert resolve_dictionary_suffix(command_boundary_value(active, descriptor, row), suffix) == 7
+    if inactive is not None:
+        assert resolve_dictionary_suffix(command_boundary_value(inactive, descriptor, row), suffix) is None
+    if formal != 'payload':
+        assert command['argv_transport'][1] == {'kind': 'template', 'parts': [
+            {'kind': 'missing', 'expression': 'inputs.' + formal + '.x'}]}
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+def test_reference_and_command_captures_keep_their_distinct_binding_owners(tmp_path):
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _commands
+
+    declarations = '(defproc helper ((fixed Int) (n Int)) -> Int '
+    declarations += ':effects ((uses-command echo)) :lowering inline '
+    declarations += _command('"${inputs.input}" fixed n') + ')'
+    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int '
+    declarations += ':effects () :lowering inline (runner n))'
+    source = '(let* ((hook (bind-proc (proc-ref helper) :fixed input))) (invoke hook 1))'
+    closed = build_closed_program(_compile(tmp_path, source, params='(input Int)',
+        declarations=declarations))
+    (invoke,) = [row for row in closed.tree['definitions'].values() if row['key'][2] == 'invoke']
+    assert [capture['routes'] for capture in invoke['key'][7]] == [
+        [['reference', ['runner'], ['parameter', 'fixed']]], [['command-input', 'input']]]
+    assert len(invoke['params']) == 2
+    (call,) = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'call']
+    assert len(call['args']) == len(invoke['params'])
+    bindings, body = [], closed.tree['body']
+    while body['k'] == 'let' and body['value'] is not call:
+        bindings.append((body['name'], body['value']))
+        body = body['body']
+    roots = [_resolve_closed_value(argument, bindings)[0] for argument in call['args']]
+    assert roots[0]['k'] == roots[1]['k'] == 'name'
+    assert roots[0]['n'] == roots[1]['n'] == closed.tree['params'][0][0]
+    assert call['args'][0]['n'] != call['args'][1]['n']
+    (command,) = _commands(closed.tree)
+    assert command['argv_transport'][0]['parts'][0]['name'] == ['input', 'input', 'input']
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"', *, local_command=False):
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command
+
+    declarations = '(defun make-block ((value Int)) -> Int (let* ((inside (+ value 1))) inside))'
+    declarations += '(defproc child ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations += _command(argument) + ')'
+    body = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
+    local = _command('"${inputs.root}:${loop.index}"') if local_command else '1'
+    body += '(let* ((held (make-block (+ (child state) ' + local + ')))) (done held))))'
+    return _compile(tmp_path, body, declarations=declarations, params='(root Int)')
+
+
+def _assert_opaque_body_continuity(program, body, builder):
+    from dataclasses import replace
+    from orchestrator.workflow_lisp.build_manifest_io import _json_data
+    from orchestrator.workflow_lisp.closed.command_templates import _wcc_call_nodes
+    from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
+    from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccOpaqueFrontendValue
+    from tests.test_workflow_lisp_closed_command_transport import (
+        _planned, _scope_inputs, _walk_wcc, _without_authorized_annotations, _commands,
+    )
+
+    (opaque,) = [node for node in _walk_wcc(body) if isinstance(node, WccOpaqueFrontendValue) and node.normalized_body is not None]
+    assert opaque.expr is None and normalize_wcc_body_to_anf(body) == body
+    inputs, _ = _scope_inputs(program, builder)
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    planned, _ = _planned(program)
+    assert _without_authorized_annotations(neutral) == _without_authorized_annotations(planned)
+    assert len(list(_wcc_call_nodes(neutral))) == len(list(_wcc_call_nodes(planned))) == 1
+    state = next(node for node in _walk_wcc(opaque.normalized_body) if isinstance(node, WccNameAtom) and node.name == 'state')
+    renamed = _renamed(opaque, {'state': replace(state, name='retained-state')})
+    assert 'retained-state' in _free_names(renamed) and 'state' not in _free_names(renamed)
+    assert 'normalized_body' not in _json_data(replace(opaque, expr=program.entry.typed_body, normalized_body=None))
+
+
+def test_opaque_normalized_child_inherits_loop_inputs_and_survives_anf_hygiene(tmp_path):
+    from orchestrator.workflow_lisp.closed.command_templates import _wcc_call_nodes
+    from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
+    from tests.test_workflow_lisp_closed_command_transport import _commands
+
+    program = _opaque_command_program(tmp_path, local_command=True)
+    body, children, builder = _prepared_entry(program)
+    (child,) = children.values()
+    assert builder.definitions == {} and builder.run_ref_producers == []
+    assert len(list(_wcc_call_nodes(body))) == len(children) == 1
+    _assert_opaque_body_continuity(program, body, builder)
+    assert child.command_interface['decisions']
+    closed = build_closed_program(program)
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (restored.tree, restored.sites, restored.digest) == (closed.tree, closed.sites, closed.digest)
+    commands = _commands(closed.tree)
+    assert len(commands) == 2
+    slots = [[part['name'] for part in command['argv_transport'][0]['parts'] if part['kind'] == 'slot'] for command in commands]
+    assert slots == [[['input', 'root', 'root'], ['loop-index']], []]
+
+
+def test_opaque_child_decisions_and_body_integrity_are_prepared_before_parent_key(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
+    from tests.test_workflow_lisp_closed_preparation_integrity import (
+        _forbid_emission, _prepare_other_owner, _registrations,
+    )
+
+    first = _opaque_command_program(tmp_path / 'first', '"first-${loop.index}"')
+    body, children, builder = _prepared_entry(first)
+    (request,) = children.values()
+    second = _opaque_command_program(tmp_path / 'second', '"second-${loop.index}"')
+    registrations = _registrations(builder)
+    _forbid_emission(monkeypatch, builder)
+    with pytest.raises(ValueError, match='contradictory prepared'):
+        _prepare_other_owner(second, builder, monkeypatch)
+    assert _registrations(builder) == registrations
+    assert request.canonical not in builder.definitions
+    changed = _opaque_command_program(tmp_path / 'value', 'n')
+    other_body, other_children, other_builder = _prepared_entry(changed)
+    (other,) = other_children.values()
+    assert request.key[:3] == other.key[:3]
+    assert request.command_interface['decisions'] != other.command_interface['decisions']
+    from orchestrator.workflow_lisp.closed.command_interfaces import command_interface
+
+    def interface(root, requests, owner, source):
+        return command_interface(root, native_rows=None, command_capture_rows=[],
+            child_interfaces={key: row.command_interface for key, row in requests.items()},
+            child_bearings={key: row.command_bearing for key, row in requests.items()},
+            call_declaration_identity=lambda call: owner._command_declaration_identity(call, source, source.entry.definition.name))
+
+    assert interface(body, children, builder, first)['decisions'] != interface(other_body, other_children, other_builder, changed)['decisions']
+
+
+def _assert_runtime_proof_frames(before, after):
+    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.type_env import VariantCaseTypeRef
+
+    assert before.values['choice'] == {'variant': RUNTIME_REFERENCE}
+    name = 'choice' if 'choice' in after.values and isinstance(after.control.local_type_bindings.get('choice'), VariantCaseTypeRef) else next(name for name in ('scalar', 'record') if name in after.values)
+    variant = after.control.local_type_bindings[name].variant_name
+    expected = {'value': RUNTIME_REFERENCE} if variant == 'SCALAR' else {'value': {'text': RUNTIME_REFERENCE}}
+    assert after.values[name] == expected
+    if name == 'choice':
+        original = before.operands[name]
+        current = after.operands[name]
+        assert original.metadata.binding_identity == current.metadata.binding_identity
+        assert before.retained_bindings[-1] in after.retained_bindings
+        assert after.retained_bindings[-1][3] == expected
+
+
+def test_compound_union_runtime_fact_uses_its_actual_proven_payload(tmp_path, monkeypatch):
+    from orchestrator.workflow_lisp.closed.command_templates import CommandScopeContext
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _commands
+
+    declarations = '(defrecord Payload (text String)) (defunion Choice (SCALAR (value Int)) (RECORD (value Payload)))'
+    body = '(match choice ((SCALAR scalar) ' + _command('scalar.value') + ') ((RECORD record) ' + _command('record.value.text') + '))'
+    transitions = []
+    actual = CommandScopeContext.arm
+
+    def observe(context, *args, **kwargs):
+        result = actual(context, *args, **kwargs)
+        child = result[1]
+        if child.values != context.values:
+            transitions.append((context, child))
+        return result
+
+    monkeypatch.setattr(CommandScopeContext, 'arm', observe)
+    program = _compile(tmp_path, body, params='(choice Choice)', declarations=declarations)
+    closed = build_closed_program(program)
+    assert len(transitions) == 2
+    for before, after in transitions:
+        _assert_runtime_proof_frames(before, after)
+    commands = _commands(closed.tree)
+    assert len(commands) == 2
+    assert [row['argv_transport'] for row in commands] == [[{'kind': 'value'}]] * 2
+    assert sorted(row['argv'][0]['path'] for row in commands) == [['value'], ['value', 'text']]
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (closed.tree, closed.sites, closed.digest) == (restored.tree, restored.sites, restored.digest)
+
+
+def test_compound_union_if_proof_updates_actual_elaboration_frames(tmp_path, monkeypatch):
+    """Isolate typed-expression transport; Stage3 retypecheck rejects this source."""
+    from orchestrator.workflow_lisp.closed.command_templates import CommandScopeContext, elaborate_command_scopes
+    from orchestrator.workflow_lisp.expressions import elaborate_expression
+    from orchestrator.workflow_lisp.typecheck import typecheck_expression
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _scope_inputs
+    from tests.test_workflow_lisp_command_scopes import _without_scopes
+    from tests.test_workflow_lisp_strict_boolean_control_flow import _expression_syntax
+
+    program = _compile(tmp_path, '0', params='(choice Choice)', declarations='(defrecord Payload (text String)) (defunion Choice (SCALAR (value Int)) (RECORD (value Payload)))')
+    inputs, facts = _scope_inputs(program, closed_build.Builder(program))
+    source = '(if (= choice.variant RECORD) ' + _command('choice.value.text') + ' ' + _command('choice.value') + ')'
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(inputs['value_env']), target_dsl_version='2.35')
+    typed = typecheck_expression(expr, type_env=inputs['type_env'], value_env=inputs['value_env'])
+    assert typed.expr.true_proof_context and typed.expr.false_proof_context
+    transitions = []
+    actual = CommandScopeContext.narrow
+
+    def observe(context, *args, **kwargs):
+        child = actual(context, *args, **kwargs)
+        if child.values != context.values:
+            transitions.append((context, child))
+        return child
+
+    monkeypatch.setattr(CommandScopeContext, 'narrow', observe)
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(typed, **inputs))
+    scoped = elaborate_command_scopes(typed, **inputs, incoming_command_facts=facts, producer_lowering_schema=program.producer_lowering_schema)
+    assert len(transitions) == 2
+    for before, after in transitions:
+        _assert_runtime_proof_frames(before, after)
+    assert _without_scopes(neutral) == _without_scopes(scoped)
+    assert normalize_wcc_body_to_anf(scoped) == scoped
+
+
+def _constructor_memo_source(kind):
+    from tests.test_workflow_lisp_closed_command_transport import _command
+
+    payload = '(record Payload :n seed :flag true :text "same")'
+    constructor = payload if kind == 'record' else '(variant Choice BOX :value ' + payload + ')'
+    declarations = '(defrecord Payload (n Int) (flag Bool) (text String)) (defunion Choice (BOX (value Payload)) (EMPTY))'
+    declarations += '(defproc carry ((value ' + ('Payload' if kind == 'record' else 'Choice') + ')) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('"${inputs.root}"') + ')'
+    body = '(let* ((seed 7) (saved ' + constructor + ') (alias saved) (first (carry saved)) (second (carry alias))) (let* ((seed 9) (last ' + constructor + ') (third (carry last)) (old (carry saved))) old))'
+    return declarations, body
+
+
+@pytest.mark.parametrize('kind', ['record', 'union'])
+def test_constructor_alias_memo_retains_nested_tags_and_original_shadowed_fact(tmp_path, monkeypatch, kind):
+    import json
+    from collections import Counter
+    from tests.test_workflow_lisp_closed_command_transport import _compile
+
+    declarations, body = _constructor_memo_source(kind)
+    program = _compile(tmp_path, body, params='(root Int)', declarations=declarations)
+    actual_inputs = closed_build.Builder._preparation_inputs
+    actual_prepare = closed_build.Builder._prepare_command_procedure
+    observed, prepared = [], []
+
+    def inputs(builder, procedure, source, captures, facts, actual_values, context):
+        result = actual_inputs(builder, procedure, source, captures, facts, actual_values, context)
+        observed.append(json.loads(result[-1])[0])
+        return result
+
+    def prepare(builder, procedure, *args, **kwargs):
+        prepared.append(procedure.definition.name)
+        return actual_prepare(builder, procedure, *args, **kwargs)
+
+    monkeypatch.setattr(closed_build.Builder, '_preparation_inputs', inputs)
+    monkeypatch.setattr(closed_build.Builder, '_prepare_command_procedure', prepare)
+    closed = build_closed_program(program)
+    payloads = []
+    for fact in observed:
+        if kind == 'union':
+            assert fact[:4] == ['retained-expression', 'union', True, ['literal', 'string', 'str', 'BOX']]
+            fact = dict(fact[4])['value']
+        assert fact[0] == 'fields'
+        fields = dict(fact[1])
+        assert fields['flag'] == ['literal', 'bool', 'bool', True]
+        assert fields['text'] == ['literal', 'string', 'str', 'same']
+        assert fields['n'][:3] == ['literal', 'int', 'int']
+        payloads.append(fields['n'][3])
+    assert Counter(payloads) == Counter({7: 3, 9: 1})
+    assert prepared == ['cp/transport::carry'] * 2
+    definitions = list(closed.tree['definitions'].values())
+    assert len(definitions) == 2
+    constants = []
+    for row in definitions:
+        assert len(row['key'][8]['params']) == len(row['key'][7]) == 1
+        assert len(row['params']) == 2
+        assert row['params'][-1][1] == row['key'][8]['params'][0]
+        rows = {tuple(selector[3]['path']): value for selector, descriptor, value in row['key'][6]}
+        prefix = ('value',) if kind == 'union' else ()
+        constants.append(rows[(*prefix, 'n')]['v'])
+        assert rows[(*prefix, 'flag')]['v'] is True
+        assert rows[(*prefix, 'text')]['v'] == 'same'
+    assert sorted(constants) == [7, 9]
+    assert len({json.dumps(row['key'], sort_keys=True) for row in definitions}) == 2
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+@pytest.mark.parametrize('kind', ['record', 'union'])
+def test_constructor_field_order_keeps_one_typed_memo_preparation(tmp_path, monkeypatch, kind):
+    from tests.test_workflow_lisp_closed_command_transport import _compile
+
+    declarations, _ = _constructor_memo_source(kind)
+    first = '(record Payload :n 7 :flag true :text "same")'
+    second = '(record Payload :text "same" :flag true :n 7)'
+    if kind == 'union':
+        first = '(variant Choice BOX :value ' + first + ')'
+        second = '(variant Choice BOX :value ' + second + ')'
+    program = _compile(tmp_path, '(let* ((a ' + first + ') (b ' + second + ') (x (carry a)) (y (carry b))) y)',
+        params='(root Int)', declarations=declarations)
+    prepared = []
+    original = closed_build.Builder._prepare_command_procedure
+
+    def prepare(builder, procedure, *args, **kwargs):
+        prepared.append(procedure.definition.name)
+        return original(builder, procedure, *args, **kwargs)
+
+    monkeypatch.setattr(closed_build.Builder, '_prepare_command_procedure', prepare)
+    closed = build_closed_program(program)
+    assert prepared == ['cp/transport::carry']
+    assert len(closed.tree['definitions']) == 1
+    records = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'record']
+    assert [[name for name, _ in node['fields']] for node in records] == [
+        ['n', 'flag', 'text'], ['text', 'flag', 'n']]
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+def _closed_alias_payload(row):
+    key = row['key']
+    projections = {tuple(selector[3]['path']): (selector, descriptor, value)
+        for selector, descriptor, value in key[6]}
+    assert set(projections) == {('n',), ('variant',)}
+    assert all(selector[:3] == ['projection', 'value', 0]
+        for selector, _, _ in projections.values())
+    assert projections[('variant',)][2]['v'] == 'YES'
+    assert key[8]['params'] == [row['params'][0][1]]
+    assert len(row['params']) == 1
+    selector, descriptor, literal = projections[('n',)]
+    assert descriptor == literal['type'] == {'kind': 'primitive', 'name': 'Int'}
+    assert literal['k'] == 'lit'
+    return literal['v']
+
+
+def _assert_alias_entry_operands(closed):
+    calls = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'call']
+    assert len(calls) == 2 and all(len(call['args']) == 1 for call in calls)
+    assert [call['args'][0]['n'] for call in calls] == ['seven', 'nine']
+    creations = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'inject']
+    assert [node['fields'][0][1]['v'] for node in creations] == [7, 9]
+    assert set(call['callee'] for call in calls) == set(closed.tree['definitions'])
+
+
+def test_retained_closed_union_aliases_keep_distinct_payload_keys_and_plans(tmp_path):
+    from tests.test_workflow_lisp_closed_command_transport import _commands
+    from tests.test_workflow_lisp_closed_shared_union_field import INT_SOURCE
+    source = INT_SOURCE.replace('(extract (variant Choice YES :n 7))', '(let* ((seven (variant Choice YES :n 7)) (nine (variant Choice YES :n 9)) (a (extract seven)) (b (extract nine))) b)')
+    path = install(tmp_path, source)
+    program = compile_typed_program(path, entry_workflow='probe/shared_int::run', source_roots=(tmp_path,), workspace_root=tmp_path, command_boundaries={'probe': ExternalToolBinding(name='probe', stable_command=('python', 'probe.py'), closure=('probe.py',))})
+    closed = build_closed_program(program)
+    definitions = list(closed.tree['definitions'].values())
+    assert len(definitions) == 2
+    assert all(row['key'][:3] == ['probe/shared_int', 'procedure', 'extract'] for row in definitions)
+    assert definitions[0]['key'][9] == definitions[1]['key'][9]
+    values = [_closed_alias_payload(row) for row in definitions]
+    assert sorted(values) == [7, 9]
+    assert sorted(row['argv_transport'][0]['parts'][0]['text'] for row in _commands(closed.tree)) == ['7', '9']
+    _assert_alias_entry_operands(closed)
+    path.unlink()
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (closed.tree, closed.sites, closed.digest) == (restored.tree, restored.sites, restored.digest)
+
+
+def _assert_retained_union_seed(value, expected):
+    from orchestrator.workflow_lisp.expressions import LiteralExpr
+    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RetainedExpressionFact
+
+    assert isinstance(value, RetainedExpressionFact) and value.form == 'union'
+    assert value.tag.value == 'BOX'
+    payload = dict(value.fields)['value']
+    seed = payload['n']
+    assert isinstance(seed, LiteralExpr)
+    assert (seed.literal_kind, type(seed.value), seed.value) == ('int', int, expected)
+
+
+def test_wrapper_mapping_keeps_old_constructor_beside_new_creation_fact(tmp_path, monkeypatch):
+    from orchestrator.workflow_lisp.closed.command_templates import CommandScopeContext
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command
+
+    payload = '(record Payload :n seed :flag true :text "same")'
+    constructor = '(variant Choice BOX :value ' + payload + ')'
+    declarations, _ = _constructor_memo_source('union')
+    declarations += '(defrecord Wrapper (u Choice)) (defrecord Duo (old Choice) (fresh Choice))'
+    declarations += '(defproc consume ((value Duo)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('"${inputs.root}"') + ')'
+    body = '(let* ((seed 7) (saved ' + constructor + ') (wrapped (record Wrapper :u ' + constructor + '))) (let* ((seed 9) (combined (record Duo :old saved :fresh ' + constructor + '))) (consume combined)))'
+    retained = {}
+    actual = CommandScopeContext.bind
+
+    def observe(context, expr, **kwargs):
+        child = actual(context, expr, **kwargs)
+        if kwargs['name'] in ('wrapped', 'combined'):
+            retained[kwargs['name']] = child.values[kwargs['name']]
+        return child
+
+    monkeypatch.setattr(CommandScopeContext, 'bind', observe)
+    program = _compile(tmp_path, body, params='(root Int)', declarations=declarations)
+    closed = build_closed_program(program)
+    _assert_retained_union_seed(retained['wrapped']['u'], 7)
+    _assert_retained_union_seed(retained['combined']['old'], 7)
+    _assert_retained_union_seed(retained['combined']['fresh'], 9)
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+def test_partial_union_constructor_labels_get_projected_keys_while_preserving_runtime_input(tmp_path):
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule probe/partial_owner) (export run)
+      (defrecord Output (n Int))
+      (defunion Choice (YES (n Int) (label String)) (NO (n Int) (label String)))
+      (defproc extract :forall (T) ((value T))
+        :where ((T has-shared-union-field n Int)
+                (T has-shared-union-field label String)) -> Output
+        :effects ((uses-command probe)) :lowering inline
+        (command-result probe
+          :argv ("python" "probe.py" value.n value.label) :returns Output))
+      (defworkflow run ((input Int)) -> Output
+        (let* ((saved (variant Choice YES :n input :label "before"))
+               (other (variant Choice YES :n input :label "after")))
+          (let* ((input 9) (a (extract saved)) (b (extract other))) b))))'''
+    path = install(tmp_path, source)
+    program = compile_typed_program(
+        path, entry_workflow='probe/partial_owner::run',
+        source_roots=(tmp_path,), workspace_root=tmp_path,
+        command_boundaries={'probe': ExternalToolBinding(
+            name='probe', stable_command=('python', 'probe.py'), closure=('probe.py',),
+        )},
+    )
+    path.unlink()
+    closed = build_closed_program(program)
+
+    definitions = [row for row in closed.tree['definitions'].values()
+        if row['key'][:3] == ['probe/partial_owner', 'procedure', 'extract']]
+    assert len(definitions) == 2
+    by_label = {}
+    projected_by_label = {}
+    for definition in definitions:
+        projected = {
+            tuple(selector[3]['path']): (selector, descriptor, literal)
+            for selector, descriptor, literal in definition['key'][6]
+            if isinstance(selector, list) and len(selector) == 4
+            and selector[0] == 'projection'
+        }
+        assert set(projected) == {('label',), ('variant',)}
+        assert all(row[0][:3] == ['projection', 'value', 0] for row in projected.values())
+        assert projected[('variant',)][2]['v'] == 'YES'
+        selector, descriptor, literal = projected[('label',)]
+        assert descriptor == {'kind': 'primitive', 'name': 'String'}
+        assert literal['k'] == 'lit' and literal['type'] == descriptor
+        label = literal['v']
+        assert label in {'before', 'after'}
+        by_label[label] = definition
+        projected_by_label[label] = projected
+        _assert_partial_command(definition, label)
+
+        # K8 keeps the original Choice argument as a residual parameter.
+        assert len(definition['params']) == 1
+        assert definition['params'][0][1]['kind'] == 'union'
+        assert definition['params'][0][1]['name'] == 'probe/partial_owner::Choice'
+        assert definition['key'][8]['params'] == [definition['params'][0][1]]
+
+    assert set(by_label) == {'before', 'after'}
+    before, after = by_label['before'], by_label['after']
+    assert before['key'][6] != after['key'][6]
+    assert before['key'][:6] + before['key'][7:] == after['key'][:6] + after['key'][7:]
+    assert projected_by_label['before'][('variant',)] == projected_by_label['after'][('variant',)]
+    assert projected_by_label['before'][('label',)][:2] == projected_by_label['after'][('label',)][:2]
+
+    _assert_partial_operands(closed)
+
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    assert (closed.tree, closed.sites, closed.digest) == (restored.tree, restored.sites, restored.digest)
+
+
+def _assert_partial_operands(closed):
+    bindings, body = [], closed.tree['body']
+    while body['k'] == 'let':
+        bindings.append((body['name'], body['value']))
+        body = body['body']
+    input_wire = closed.tree['params'][0][0]
+    _assert_partial_constructors(bindings, input_wire)
+    calls = [node for node in _ast_nodes(closed.tree['body'])
+        if node.get('k') == 'call'
+        and closed.tree['definitions'][node['callee']]['key'][2] == 'extract']
+    assert len(calls) == 2
+    assert all(len(call['args']) == 1 and call['args'][0]['k'] == 'name' for call in calls)
+    assert {call['args'][0]['n'] for call in calls} == {'saved', 'other'}
+
+
+
+def _assert_partial_command(definition, label):
+    (command,) = [node for node in _ast_nodes(definition['body'])
+        if node.get('k') == 'perform' and node.get('class') == 'command']
+    assert [row['kind'] for row in command['argv_transport']] == ['value', 'template']
+    assert command['argv_transport'][1]['parts'][0]['text'] == label
+    assert command['argv'][0]['k'] == command['argv'][1]['k'] == 'field'
+    assert command['argv'][0]['base']['n'] == command['argv'][1]['base']['n'] == 'value'
+    assert command['argv'][0]['path'] == ['n']
+    assert command['argv'][0]['shared'] == [{'kind': 'primitive', 'name': 'Int'}]
+    assert command['argv'][1]['path'] == ['label']
+    assert command['argv'][1]['shared'] == [{'kind': 'primitive', 'name': 'String'}]
+
+
+def test_retained_record_variant_field_is_distinct_from_union_tag(tmp_path):
+    from orchestrator.workflow_lisp.expression_traversal import walk_expr
+    from orchestrator.workflow_lisp.expressions import RecordExpr, UnionVariantExpr
+    from orchestrator.workflow_lisp.lowering.values import _resolve_inline_expr_value, _resolve_inline_field_value
+    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RetainedExpressionFact
+    from tests.test_workflow_lisp_closed_command_transport import _compile
+
+    program = _compile(tmp_path, '(let* ((record (record Payload :variant "ordinary" :n input)) (union (variant Choice YES :n input))) 0)',
+        params='(input Int)', declarations='(defrecord Payload (variant String) (n Int)) (defunion Choice (YES (n Int)) (NO))')
+    constructors = [node for node in walk_expr(program.entry.typed_body.expr)
+        if isinstance(node, (RecordExpr, UnionVariantExpr))]
+    assert len(constructors) == 2
+    selected = [_resolve_inline_expr_value(expr, local_values={}, retain_expression_facts=True)
+        for expr in constructors]
+    assert all(isinstance(fact, RetainedExpressionFact) for fact in selected)
+    values = [_resolve_inline_field_value(fact, field_path=('variant',), local_values={},
+        retain_expression_facts=True) for fact in selected]
+    assert [value.value for value in values] == ['ordinary', 'YES']
+    assert dict(selected[0].fields)['n'] is dict(selected[1].fields)['n'] is None
+
+
+def _assert_partial_constructors(bindings, input_wire):
+    constructor_indices = []
+    for name, label in (('saved', 'before'), ('other', 'after')):
+        index, value = next((i, value) for i, (bound, value) in enumerate(bindings)
+            if bound == name)
+        constructor_indices.append(index)
+        assert value['k'] == 'inject' and value['variant'] == 'YES'
+        fields = dict(value['fields'])
+        assert fields['n']['k'] == 'name' and fields['n']['n'] == input_wire
+        assert fields['label']['k'] == 'lit' and fields['label']['v'] == label
+    shadow_index = next(i for i, (_, value) in enumerate(bindings)
+        if value.get('k') == 'lit' and value.get('v') == 9)
+    assert max(constructor_indices) < shadow_index
+
+
+
+def test_constructor_memo_distinguishes_creation_runtime_from_shadow_literal_and_reuses_aliases(tmp_path, monkeypatch):
+    import json
+    from collections import Counter
+    from tests.test_workflow_lisp_closed_command_transport import _compile, _command
+
+    declarations = '(defunion Choice (YES (n Int) (label String)) (NO (n Int) (label String)))'
+    declarations += '(defproc extract :forall (T) ((value T)) :where ((T has-shared-union-field n Int) (T has-shared-union-field label String)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('value.n value.label') + ')'
+    body = '(let* ((saved (variant Choice YES :n input :label "same")) (other (variant Choice YES :n renamed :label "same")) (alias saved)) (let* ((input 9) (literal (variant Choice YES :n input :label "same")) (a (extract saved)) (b (extract other)) (c (extract alias)) (d (extract literal))) d))'
+    program = _compile(tmp_path, body, params='(input Int) (renamed Int)', declarations=declarations)
+    original_inputs = closed_build.Builder._preparation_inputs
+    original_prepare = closed_build.Builder._prepare_command_procedure
+    facts, preparations = [], []
+
+    def inputs(builder, *args):
+        result = original_inputs(builder, *args)
+        facts.append(json.loads(result[-1])[0])
+        return result
+
+    def prepare(builder, procedure, *args, **kwargs):
+        preparations.append(procedure.definition.name)
+        return original_prepare(builder, procedure, *args, **kwargs)
+
+    monkeypatch.setattr(closed_build.Builder, '_preparation_inputs', inputs)
+    monkeypatch.setattr(closed_build.Builder, '_prepare_command_procedure', prepare)
+    closed = build_closed_program(program)
+    assert len(facts) == 4
+    payloads = [dict(fact[4])['n'] for fact in facts]
+    assert Counter(json.dumps(value) for value in payloads) == Counter({json.dumps(['runtime']): 3, json.dumps(['literal', 'int', 'int', 9]): 1})
+    runtime_facts = [fact for fact in facts if dict(fact[4])['n'] == ['runtime']]
+    literal_facts = [fact for fact in facts if dict(fact[4])['n'] != ['runtime']]
+    assert runtime_facts[0] == runtime_facts[1] == runtime_facts[2] != literal_facts[0]
+    assert len(preparations) == 2 and len(set(preparations)) == 1
+    _assert_runtime_literal_variants(closed)
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+def _assert_runtime_literal_variants(closed):
+    definitions = list(closed.tree['definitions'].values())
+    assert len(definitions) == 2
+    paths = [set(tuple(selector[3]['path']) for selector, _, _ in row['key'][6]) for row in definitions]
+    assert {frozenset(path) for path in paths} == {frozenset({('variant',), ('label',)}), frozenset({('variant',), ('label',), ('n',)})}
+    assert all(len(row['key'][8]['params']) == len(row['params']) == 1 for row in definitions)
+    commands = [node for row in definitions for node in _ast_nodes(row['body']) if node.get('k') == 'perform']
+    assert sorted([plan['kind'] for plan in node['argv_transport']] for node in commands) == [['template', 'template'], ['value', 'template']]
+    _assert_shadow_constructor_operands(closed)
+
+
+def _assert_shadow_constructor_operands(closed):
+    bindings, body = [], closed.tree['body']
+    while body['k'] == 'let':
+        bindings.append((body['name'], body['value']))
+        body = body['body']
+    constructors = [(index, value) for index, (_, value) in enumerate(bindings) if value['k'] == 'inject']
+    shadow_index, shadow_name = next((index, name) for index, (name, value) in enumerate(bindings)
+        if value.get('k') == 'lit' and value.get('v') == 9)
+    assert len(constructors) == 3
+    names = [value['fields'][0][1]['n'] for _, value in constructors]
+    assert names[:2] == [row[0] for row in closed.tree['params']]
+    assert names[2] == shadow_name
+    assert constructors[1][0] < shadow_index < constructors[2][0]
+
+
+def test_retained_constructor_internal_let_and_if_freeze_selected_creation_facts(tmp_path):
+    from orchestrator.workflow_lisp.expressions import elaborate_expression
+    from orchestrator.workflow_lisp.lowering.values import _resolve_inline_expr_value
+    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE, RetainedExpressionFact
+    from orchestrator.workflow_lisp.typecheck import typecheck_expression
+    from tests.test_workflow_lisp_closed_command_transport import _compile
+    from tests.test_workflow_lisp_strict_boolean_control_flow import _expression_syntax
+
+    program = _compile(tmp_path, '0', declarations='(defunion Choice (YES (n Int) (label String)) (NO))')
+    env = program.workflow_type_env(program.entry.definition.name)
+    source = '(let* ((label "before") (saved (variant Choice YES :n runtime :label label))) (let* ((label "after")) (if true saved (variant Choice NO))))'
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset({'runtime'}), target_dsl_version='2.35')
+    typed = typecheck_expression(expr, type_env=env, value_env={'runtime': env.resolve_type('Int', span=expr.span, form_path=expr.form_path)})
+    fact = _resolve_inline_expr_value(typed.expr, local_values={'runtime': RUNTIME_REFERENCE}, retain_expression_facts=True)
+    assert isinstance(fact, RetainedExpressionFact) and fact.form == 'union'
+    assert fact.tag.value == 'YES'
+    assert dict(fact.fields)['n'] is RUNTIME_REFERENCE
+    assert dict(fact.fields)['label'].value == 'before'

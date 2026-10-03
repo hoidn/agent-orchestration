@@ -296,6 +296,9 @@ class WccPureOp:
 class WccOpaqueFrontendValue:
     metadata: WccNodeMetadata
     expr: object
+    normalized_body: "WccBody | None" = field(
+        default=None, repr=False, metadata={"json_omit_if_none": True},
+    )
 
 
 WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccPhaseTargetAtom | WccRecordAtom | WccOpaqueFrontendValue

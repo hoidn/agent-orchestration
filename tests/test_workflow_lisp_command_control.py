@@ -487,8 +487,9 @@ def test_command_scope_call_types_use_same_prepared_condition_owner(tmp_path, mo
         '(command-result echo :argv ("python" "probe.py") :returns Bool))')
     observed = []
     original = elaborate._elaboration_procedure_return_types
-    def observe(body, edges, returns):
-        result = original(body, edges, returns)
+    def observe(body, edges, returns, **kwargs):
+        assert kwargs['closed_program'] is True
+        result = original(body, edges, returns, **kwargs)
         observed.append((_without_scopes(body.expr), dict(edges), result))
         return result
     monkeypatch.setattr(elaborate, '_elaboration_procedure_return_types', observe)

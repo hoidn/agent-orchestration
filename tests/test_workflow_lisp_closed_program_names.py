@@ -717,8 +717,19 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
         for row in restored.tree["definitions"].values()
         if row["key"][:3] == ["std/improve", "procedure", "improve"]
     ]
-    assert persisted == key
+    assert persisted[:9] == key
+    decisions = persisted[9]['command_decisions']
+    assert {decision[0] for decision in decisions} == {'call'}
     procedure_refs = {name: value for name, value in persisted[4]}
+    assert {tuple(decision[1]) for decision in decisions} == {
+        tuple(reference['target'][:3]) for reference in procedure_refs.values()}
+    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    (definition,) = [row for row in restored.tree['definitions'].values() if row['key'] == persisted]
+    calls = [node for node in _ast_nodes(definition['body']) if node['k'] == 'call']
+    assert len(decisions) == len(calls)
+    for decision in decisions:
+        assert type(decision[2]) is int and decision[2] >= 0
+        assert len(decision[3]) == 64 and len(bytes.fromhex(decision[3])) == 32
     review_target = procedure_refs["review"]["target"]
     revise_target = procedure_refs["revise"]["target"]
     assert review_target[2] == "review" and revise_target[2] == "revise"

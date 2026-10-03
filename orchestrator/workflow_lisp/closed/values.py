@@ -179,6 +179,11 @@ def _payload(expression: dict[str, Any], result_type: dict[str, Any], arg_types:
 
 
 def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
+    if value.normalized_body is not None:
+        closed = builder.body(value.normalized_body, d.with_names(dict(d.names)), env)
+        if closed["k"] == "halt":
+            return closed["value"]
+        return {"k": "block", "body": closed, **builder.provenance(value.metadata)}
     expr = value.expr
     if isinstance(expr, UnionVariantTagExpr):
         result = {"k": "lit", "v": expr.variant_name, "type": builder.desc(value.metadata.type_ref, d)}

@@ -44,8 +44,8 @@ EXPECTED = {
     "workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack": Built(6),
     "workflows/examples/effectful_let_star_normalization.orc::run-effectful-let-star-normalization": Built(4),
     "workflows/examples/effectful_match_arm_normalization.orc::run-effectful-match-arm-normalization": Built(3),
-    "workflows/examples/improve_experiment_proposal.orc::run-experiment": Built(3),
-    "workflows/examples/kiss_backlog_item.orc::run-backlog-item": Built(7),
+    "workflows/examples/improve_experiment_proposal.orc::run-experiment": Built(5),
+    "workflows/examples/kiss_backlog_item.orc::run-backlog-item": Built(12),
     "workflows/examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
     "workflows/examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel": Built(2),
     "workflows/examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
@@ -257,22 +257,52 @@ def _control_calls(node: dict) -> list[dict]:
     return _control_nodes(node, "call")
 
 
-def _control_callee(node: dict) -> str:
-    return node["callee"].rsplit("::", 1)[-1]
+def _control_callee(node: dict, definitions: dict, expected_module: str) -> str:
+    declaration = definitions[node["callee"]]["key"]
+    assert declaration[:2] == [expected_module, "procedure"]
+    return declaration[2]
 
 
-def _assert_control_edge(case: str, body: dict) -> None:
+def _control_argument(node: dict, definitions: dict) -> dict:
+    definition = definitions[node["callee"]]
+    key = definition["key"]
+    assert key[2] in _CONTROL_COMMANDS  # Each authored control procedure has exactly n:Int.
+    integer = {"kind": "primitive", "name": "Int"}
+    closed = {name: (type_row, value) for name, type_row, value in key[6]}
+    if "n" in closed:
+        assert set(closed) == {"n"}
+        type_row, value = closed["n"]
+        assert type_row == integer
+        assert key[8]["params"] == definition["params"] == node["args"] == []
+        return value
+    assert closed == {}
+    assert key[8]["params"] == [integer]
+    ((wire, type_row),) = definition["params"]
+    assert type_row == integer
+    arguments = dict(zip((name for name, _ in definition["params"]), node["args"], strict=True))
+    return arguments[wire]
+
+
+def _assert_control_edge(
+    case: str, body: dict, definitions: dict, expected_module: str
+) -> None:
+    def callee(node: dict) -> str:
+        return _control_callee(node, definitions, expected_module)
+
+    def argument(node: dict) -> dict:
+        return _control_argument(node, definitions)
+
     if case == "effectful_if_branches":
         (branch,) = _control_nodes(body, "if")
         joins = _control_nodes(body, "join")
         for edge, literal in (("then", 11), ("else", 22)):
             rows, tail = _control_chain(branch[edge])
             calls = [row for row in rows if row["value"].get("k") == "call"]
-            assert [_control_callee(row["value"]) for row in calls] == ["arm-prefix", "arm-value"]
+            assert [callee(row["value"]) for row in calls] == ["arm-prefix", "arm-value"]
             assert " / " + edge + " / " in calls[0]["value"]["frame"]
             assert " / " + edge + " / " in calls[1]["value"]["frame"]
-            assert calls[0]["value"]["args"][0]["v"] == literal
-            assert calls[1]["value"]["args"][0]["n"] == calls[0]["name"]
+            assert argument(calls[0]["value"])["v"] == literal
+            assert argument(calls[1]["value"])["n"] == calls[0]["name"]
             assert tail["k"] == "jump"
             assert any(join["name"] == tail["join"] for join in joins)
     elif case == "pure_select_prefixes":
@@ -295,9 +325,9 @@ def _assert_control_edge(case: str, body: dict) -> None:
         assert len(block_rows) == 4
         first, add_argument, preserve_alias, inside = block_rows
         inside_call = first["value"]
-        assert inside_call["k"] == "call" and _control_callee(inside_call) == "body-val"
+        assert inside_call["k"] == "call" and callee(inside_call) == "body-val"
         assert "held / block / " in inside_call["frame"]
-        assert inside_call["args"][0]["k"] == "lit" and inside_call["args"][0]["v"] == 31
+        assert argument(inside_call)["k"] == "lit" and argument(inside_call)["v"] == 31
         assert add_argument["value"]["k"] == "op"
         assert add_argument["value"]["args"][0]["n"] == first["name"]
         assert preserve_alias["value"]["k"] == "name"
@@ -305,23 +335,23 @@ def _assert_control_edge(case: str, body: dict) -> None:
         assert inside.get("label") == "inside" and inside["value"]["k"] == "op"
         assert inside["value"]["args"][0]["n"] == preserve_alias["name"]
         assert block_tail["k"] == "halt" and block_tail["value"]["n"] == inside["name"]
-        after = [call for call in _control_calls(held["body"]) if _control_callee(call) == "after-val"]
+        after = [call for call in _control_calls(held["body"]) if callee(call) == "after-val"]
         assert len(after) == 1
-        assert after[0]["args"][0]["k"] == "name"
-        assert after[0]["args"][0]["n"] == "held"
+        assert argument(after[0])["k"] == "name"
+        assert argument(after[0])["n"] == "held"
     elif case == "join_body_and_continuation":
         join = next(
             row for row in _control_nodes(body, "join")
-            if [_control_callee(call) for call in _control_calls(row["body"])] == ["check"] * 3
+            if [callee(call) for call in _control_calls(row["body"])] == ["check"] * 3
         )
-        assert [_control_callee(call) for call in _control_calls(join["body"])] == ["check"] * 3
-        assert [_control_callee(call) for call in _control_calls(join["cont"]["then"])] == ["check"]
+        assert [callee(call) for call in _control_calls(join["body"])] == ["check"] * 3
+        assert [callee(call) for call in _control_calls(join["cont"]["then"])] == ["check"]
         assert not _control_calls(join["cont"]["else"])
-        assert [call["args"][0]["v"] for call in _control_calls(join["cont"]["then"])] == [4]
+        assert [argument(call)["v"] for call in _control_calls(join["cont"]["then"])] == [4]
         assert all(jump["join"] == join["name"] for jump in _control_nodes(join["body"], "jump"))
     elif case == "if_nested_in_if":
-        calls = [call for call in _control_calls(body) if _control_callee(call) == "check"]
-        by_literal = {call["args"][0]["v"]: call for call in calls}
+        calls = [call for call in _control_calls(body) if callee(call) == "check"]
+        by_literal = {argument(call)["v"]: call for call in calls}
         assert set(by_literal) == {0, 1, 2, 3, 4}
         assert "then / then / " in by_literal[2]["frame"]
         assert "then / else / " in by_literal[3]["frame"]
@@ -330,7 +360,7 @@ def _assert_control_edge(case: str, body: dict) -> None:
         (match_case,) = _control_nodes(body, "case")
         assert [arm["variant"] for arm in match_case["arms"]] == ["LEFT", "RIGHT"]
         arm_calls = [
-            [call for call in _control_calls(arm["body"]) if _control_callee(call) == "arm-value"]
+            [call for call in _control_calls(arm["body"]) if callee(call) == "arm-value"]
             for arm in match_case["arms"]
         ]
         assert [len(calls) for calls in arm_calls] == [1, 1]
@@ -338,13 +368,13 @@ def _assert_control_edge(case: str, body: dict) -> None:
             f"then / {arm['variant']} / " in calls[0]["frame"]
             for arm, calls in zip(match_case["arms"], arm_calls, strict=True)
         )
-        assert arm_calls[0][0]["args"][0]["k"] == "field"
-        assert arm_calls[0][0]["args"][0]["path"] == ["value"]
-        assert arm_calls[0][0]["args"][0]["base"]["n"] != arm_calls[1][0]["args"][0]["base"]["n"]
+        assert argument(arm_calls[0][0])["k"] == "field"
+        assert argument(arm_calls[0][0])["path"] == ["value"]
+        assert argument(arm_calls[0][0])["base"]["n"] != argument(arm_calls[1][0])["base"]["n"]
         assert any(
-            call["args"][0].get("v") == 99
+            argument(call).get("v") == 99
             for call in _control_calls(body)
-            if _control_callee(call) == "arm-value"
+            if callee(call) == "arm-value"
         )
     elif case == "loop_nested_in_if":
         (loop,) = _control_nodes(body, "loop")
@@ -354,10 +384,10 @@ def _assert_control_edge(case: str, body: dict) -> None:
         )
         assert _control_nodes(condition["then"], "loop") == [loop]
         assert [
-            call["args"][0]["v"] for call in _control_calls(condition["else"])
+            argument(call)["v"] for call in _control_calls(condition["else"])
         ] == [9]
         calls = _control_calls(loop["body"])
-        assert {_control_callee(call) for call in calls} == {"next-val", "done-val"}
+        assert {callee(call) for call in calls} == {"next-val", "done-val"}
         assert all("loop:state[*]" in call["frame"] for call in calls)
         transfer = next(node for node in _control_nodes(loop["body"], "continue"))
         assert transfer["loop"] == loop["name"]
@@ -365,15 +395,15 @@ def _assert_control_edge(case: str, body: dict) -> None:
         (loop,) = _control_nodes(body, "loop")
         rows, _tail = _control_chain(body)
         calls = [row["value"] for row in rows if row["value"].get("k") == "call"]
-        names = [_control_callee(call) for call in calls]
+        names = [callee(call) for call in calls]
         expected = ["budget", "seed"] if case == "loop_budget_before_seed" else ["seed", "budget"]
         assert names == expected
         bindings = {row["name"]: row["value"] for row in rows}
-        assert _control_callee(bindings[loop["budget"]["n"]]) == "budget"
+        assert callee(bindings[loop["budget"]["n"]]) == "budget"
         state = bindings[loop["init"]["n"]]
         seed_ref = state["fields"][0][1]["n"]
-        assert _control_callee(bindings[seed_ref]) == "seed"
-        assert [_control_callee(call) for call in _control_calls(loop["body"])] == ["done-val"]
+        assert callee(bindings[seed_ref]) == "seed"
+        assert [callee(call) for call in _control_calls(loop["body"])] == ["done-val"]
         assert not _control_calls(loop.get("exhausted", {}))
         assert any("loop:state[*]" in call["frame"] for call in _control_calls(loop["body"]))
     elif case == "loop_continue_and_done":
@@ -384,22 +414,22 @@ def _assert_control_edge(case: str, body: dict) -> None:
         assert {node["k"] for node in transfers} == {"continue", "done"}
         (continue_node,) = [node for node in transfers if node["k"] == "continue"]
         assert continue_node["loop"] == loop["name"]
-        assert {_control_callee(call) for call in _control_calls(loop["body"])} == {"next-val", "done-val"}
+        assert {callee(call) for call in _control_calls(loop["body"])} == {"next-val", "done-val"}
         condition = next(node for node in _control_nodes(loop["body"], "if"))
         then_rows, continued = _control_chain(condition["then"])
         else_rows, finished = _control_chain(condition["else"])
         assert continued["k"] == "continue" and finished["k"] == "done"
         assert any(
-            row["value"].get("k") == "call" and _control_callee(row["value"]) == "next-val"
+            row["value"].get("k") == "call" and callee(row["value"]) == "next-val"
             for row in then_rows
         )
         assert any(
-            row["value"].get("k") == "call" and _control_callee(row["value"]) == "done-val"
+            row["value"].get("k") == "call" and callee(row["value"]) == "done-val"
             for row in else_rows
         )
         next_binding = next(
             row for row in then_rows
-            if row["value"].get("k") == "call" and _control_callee(row["value"]) == "next-val"
+            if row["value"].get("k") == "call" and callee(row["value"]) == "next-val"
         )
         update_binding = next(
             row for row in then_rows
@@ -410,7 +440,7 @@ def _assert_control_edge(case: str, body: dict) -> None:
         assert continued["args"][0]["n"] == update_binding["name"]
         done_binding = next(
             row for row in else_rows
-            if row["value"].get("k") == "call" and _control_callee(row["value"]) == "done-val"
+            if row["value"].get("k") == "call" and callee(row["value"]) == "done-val"
         )
         assert finished["value"]["n"] == done_binding["name"]
     elif case == "nested_loop_in_done":
@@ -418,9 +448,9 @@ def _assert_control_edge(case: str, body: dict) -> None:
         assert len(loops) == 2
         outer, inner = loops
         calls = _control_calls(body)
-        seeded = [call for call in calls if _control_callee(call) in {"seed", "budget"}]
-        checked = [call for call in calls if _control_callee(call) == "check"]
-        assert {_control_callee(call) for call in seeded} == {"seed", "budget"}
+        seeded = [call for call in calls if callee(call) in {"seed", "budget"}]
+        checked = [call for call in calls if callee(call) == "check"]
+        assert {callee(call) for call in seeded} == {"seed", "budget"}
         assert len(checked) == 1
         assert "loop:outer[*]" in checked[0]["frame"]
         assert "loop:inner[*]" in checked[0]["frame"]
@@ -797,6 +827,29 @@ def test_selected_refusals_keep_their_original_target_flat_outcomes(
     assert result.outcome == EXPECTED[workflow.key]
 
 
+def _phase_reference_targets(row):
+    references = dict(row['key'][4])
+    return tuple(references[formal]['target'][2] for formal in ('review', 'fix'))
+
+
+def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
+    (workflow,) = [row for row in corpus() if row.key == 'workflows/examples/kiss_backlog_item.orc::run-backlog-item']
+    result = try_build(workflow, tmp_path)
+    assert result.program is not None
+    tree = result.program.tree
+    expected = {3: ('review-plan', 'fix-plan'), 5: ('review-implementation', 'fix-implementation')}
+    definitions = [row for row in tree['definitions'].values()
+        if row['key'][:3] == ['std/phase', 'procedure', 'review-revise-loop-proc']]
+    assert len(definitions) == 2
+    for row in definitions:
+        (limit,) = [value['v'] for formal, _, value in row['key'][6] if formal == 'max_iterations']
+        targets = _phase_reference_targets(row)
+        assert targets == expected[limit]
+        calls = [node for node in _ast_nodes(row['body']) if node['k'] == 'call']
+        assert [tree['definitions'][call['callee']]['key'][2] for call in calls] == list(targets)
+    assert ClosedProgram.from_artifact(result.program.artifact()).tree == tree
+
+
 def test_contracts_and_prompt_inputs_equal_the_flat_routes_for_the_real_programs(
     tmp_path: Path,
 ) -> None:
@@ -870,13 +923,23 @@ def test_admitted_control_edges_build_and_read_back_across_source_owners(
         program.digest,
     )
 
+    definitions = program.tree["definitions"]
+    helper_module = "cp/old" if route == "imported_old_source" else "cp/probe"
     if route == "direct":
         body = program.tree["body"]
     else:
-        helper_module = "cp/old" if route == "imported_old_source" else "cp/probe"
-        helper = program.tree["definitions"][f"workflow:{helper_module}::helper"]
+        declaration = [helper_module, "workflow", "helper"]
+        helper_calls = [
+            call
+            for call in _control_calls(program.tree["body"])
+            if call["callee"] in definitions
+            and definitions[call["callee"]]["key"][:3] == declaration
+        ]
+        assert len(helper_calls) == 1
+        helper = definitions[helper_calls[0]["callee"]]
+        assert helper["key"][:3] == declaration
         body = helper["body"]
-    _assert_control_edge(case, body)
+    _assert_control_edge(case, body, definitions, helper_module)
 
 
 @pytest.mark.parametrize(

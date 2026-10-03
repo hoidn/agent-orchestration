@@ -748,3 +748,50 @@ def workflow_catalog_for(source_program, owner):
     return WorkflowCatalog(signatures_by_name=signatures,
         definitions_by_name={name: workflow.definition for name, workflow in source_program.workflows.items()},
         imported_bundles_by_name={})
+
+
+def _retained_workflow_owner(source_program, names):
+    pending, seen = [source_program], set()
+    while pending:
+        program = pending.pop(0)
+        if id(program) in seen:
+            continue
+        seen.add(id(program))
+        owned = set(program.source_file_digests) or {program.entry_module}
+        for name in names:
+            workflow = program.workflows.get(name)
+            if workflow is not None and source_module_for(program, name, workflow) in owned:
+                return workflow, program
+        pending.extend(program.imported_programs.values())
+    return None
+
+
+def resolve_workflow_target(source_program, owner, target_name, *, workflow_owners=None):
+    """Select the retained call signature and original workflow snapshot."""
+    module = source_module_for(source_program, owner)
+    signatures = source_program.module_workflow_signatures.get(module, {})
+    caller_signature = signatures.get(target_name)
+    imported = source_program.imported_programs.get(target_name)
+    if caller_signature is not None and imported is not None:
+        workflow = imported.entry or imported.workflows.get(caller_signature.name)
+        if workflow is not None:
+            return caller_signature, workflow, imported
+    names = (target_name, f"{module}::{target_name}")
+    target = (_retained_workflow_owner(source_program, names) if workflow_owners is None
+        else next((workflow_owners[name] for name in names if name in workflow_owners), None))
+    if target is None:
+        return None
+    workflow, target_program = target
+    if caller_signature is None or caller_signature.name == workflow.signature.name:
+        caller_signature = workflow.signature
+    return caller_signature, workflow, target_program
+
+
+def workflow_import_is_admitted(source_program, owner, target_name, signature, workflow, target_program):
+    """Retain the compiler's imported caller/native boundary relation."""
+    module = source_module_for(source_program, owner)
+    signatures = source_program.module_workflow_signatures.get(module, {})
+    imported = source_program.imported_programs.get(target_name)
+    return (imported is target_program and signatures.get(target_name) is signature
+        and (getattr(imported, "entry", None) is workflow
+            or workflow in getattr(imported, "workflows", {}).values()))

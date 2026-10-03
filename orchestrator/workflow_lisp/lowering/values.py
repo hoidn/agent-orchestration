@@ -568,13 +568,19 @@ def _resolve_inline_field_value(
     *,
     field_path: tuple[str, ...],
     local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
 ) -> Any:
     """Resolve a nested field path through inline mappings or record expressions."""
 
+    from .command_transport_decisions import RetainedExpressionFact
+
     current = value
     for field_name in field_path:
+        if isinstance(current, RetainedExpressionFact):
+            current = current.tag if current.form == "union" and field_name == "variant" else dict(current.fields).get(field_name)
+            continue
         if current is not None and not isinstance(current, (Mapping, RecordExpr, UnionVariantExpr)):
-            next_current = _resolve_inline_expr_value(current, local_values=local_values)
+            next_current = _resolve_inline_expr_value(current, local_values=local_values, retain_expression_facts=retain_expression_facts)
             if next_current is current:
                 return None
             current = next_current
@@ -583,11 +589,11 @@ def _resolve_inline_field_value(
             continue
         if isinstance(current, RecordExpr):
             current = _record_field_value(current, field_name)
-            current = _resolve_inline_expr_value(current, local_values=local_values)
+            current = _resolve_inline_expr_value(current, local_values=local_values, retain_expression_facts=retain_expression_facts)
             continue
         if isinstance(current, UnionVariantExpr):
             current = _union_variant_expr_value_at_path(current, (field_name,), bound_record_fields=False)
-            current = _resolve_inline_expr_value(current, local_values=local_values)
+            current = _resolve_inline_expr_value(current, local_values=local_values, retain_expression_facts=retain_expression_facts)
             continue
         return None
     return current
@@ -612,8 +618,51 @@ def projected_union_field_activity(
     return None
 
 
-def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
+def _retained_inline_child(value):
+    from ..expressions import ExprNode
+    from .command_transport_decisions import RetainedExpressionFact
+    from .pure_projection import is_pure_projection_expr
+
+    if isinstance(value, ExprNode) and not isinstance(value, LiteralExpr):
+        return RetainedExpressionFact("opaque", is_pure_projection_expr(value))
+    return value
+
+
+def _retained_inline_constructor(expr, *, local_values):
+    from .command_transport_decisions import RetainedExpressionFact
+    from .pure_projection import is_pure_projection_expr
+
+    fields = tuple((name, _retained_inline_child(_resolve_inline_expr_value(child,
+        local_values=local_values, retain_expression_facts=True))) for name, child in expr.fields)
+    tag = _union_variant_expr_value_at_path(expr, ("variant",), bound_record_fields=False)
+    return RetainedExpressionFact("union", is_pure_projection_expr(expr), fields, tag)
+
+
+def _resolve_inline_record(expr, *, local_values, retain_expression_facts):
+    from .command_transport_decisions import RetainedExpressionFact
+    from .pure_projection import is_pure_projection_expr
+
+    fields = []
+    for name, child in expr.fields:
+        value = _resolve_inline_expr_value(child, local_values=local_values,
+            retain_expression_facts=retain_expression_facts)
+        if value is None and not retain_expression_facts:
+            return expr
+        fields.append((name, _retained_inline_child(value) if retain_expression_facts else value))
+    if any(value is None for _, value in fields):
+        return RetainedExpressionFact("record", is_pure_projection_expr(expr), tuple(fields))
+    return dict(fields)
+
+
+def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any], retain_expression_facts: bool = False) -> Any:
     """Resolve literals, names, fields, and record expressions for inline use."""
+    from .command_transport_decisions import RetainedExpressionFact
+
+    if isinstance(expr, RetainedExpressionFact):
+        return expr
+    if retain_expression_facts and isinstance(expr, UnionVariantExpr):
+        return _retained_inline_constructor(expr, local_values=local_values)
+
 
     if isinstance(expr, LiteralExpr | GeneratedRelpathSeedExpr | WorkflowRefLiteralExpr):
         return expr
@@ -628,41 +677,38 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
     if isinstance(expr, ProcRefLiteralExpr | BindProcExpr):
         return expr
     if isinstance(expr, RecordExpr):
-        inline_value: dict[str, Any] = {}
-        for field_name, field_expr in expr.fields:
-            resolved_value = _resolve_inline_expr_value(field_expr, local_values=local_values)
-            if resolved_value is None:
-                return expr
-            inline_value[field_name] = resolved_value
-        return inline_value
+        return _resolve_inline_record(expr, local_values=local_values,
+            retain_expression_facts=retain_expression_facts)
     if isinstance(expr, LoopStateSeedExpr):
-        return _loop_state_seed_inline_value(expr, local_values=local_values)
+        return _loop_state_seed_inline_value(expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if isinstance(expr, LoopStateUpdateExpr):
-        return _loop_state_update_inline_value(expr, local_values=local_values)
+        return _loop_state_update_inline_value(expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if isinstance(expr, LetStarExpr):
-        child_locals = _resolve_inline_let_bindings(expr.bindings, local_values=local_values)
+        child_locals = _resolve_inline_let_bindings(expr.bindings, local_values=local_values, retain_expression_facts=retain_expression_facts)
         if child_locals is None:
             return expr
-        return _resolve_inline_expr_value(expr.body, local_values=child_locals)
+        return _resolve_inline_expr_value(expr.body, local_values=child_locals, retain_expression_facts=retain_expression_facts)
     if isinstance(expr, IfExpr):
-        condition_value = _resolve_inline_expr_value(expr.condition_expr, local_values=local_values)
+        condition_value = _resolve_inline_expr_value(expr.condition_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
         if isinstance(condition_value, LiteralExpr) and condition_value.literal_kind == "bool":
             branch = expr.then_expr if condition_value.value else expr.else_expr
-            return _resolve_inline_expr_value(branch, local_values=local_values)
+            return _resolve_inline_expr_value(branch, local_values=local_values, retain_expression_facts=retain_expression_facts)
         return expr
     if isinstance(expr, ProviderBundlePathExpr):
-        source_value = _resolve_inline_expr_value(expr.source_expr, local_values=local_values)
+        source_value = _resolve_inline_expr_value(expr.source_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
         projected = _projected_provider_bundle_ref(source_value)
         if projected is None:
             return expr
         return projected
     resolved = _resolve_expr_local_value(expr, local_values=local_values)
+    if retain_expression_facts and isinstance(resolved, (RecordExpr, UnionVariantExpr)):
+        return _resolve_inline_expr_value(resolved, local_values=local_values, retain_expression_facts=True)
     if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr, ProjectedPathRef)):
         return resolved
     if resolved is not None:
         if resolved is expr:
             return expr
-        return _resolve_inline_expr_value(resolved, local_values=local_values)
+        return _resolve_inline_expr_value(resolved, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if isinstance(expr, NameExpr):
         bound = local_values.get(expr.name)
         if bound is None:
@@ -671,23 +717,24 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
             return bound
         if bound is expr:
             return expr
-        return _resolve_inline_expr_value(bound, local_values=local_values)
+        return _resolve_inline_expr_value(bound, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if isinstance(expr, FieldAccessExpr):
         return _resolve_inline_field_value(
             local_values.get(expr.base.name),
             field_path=tuple(expr.fields),
-            local_values=local_values,
+            local_values=local_values, retain_expression_facts=retain_expression_facts,
         )
     return expr
 
 
 def _resolve_inline_let_bindings(
     bindings: tuple[tuple[str, Any], ...], *, local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
 ) -> dict[str, Any] | None:
     """Resolve a suffix's aliases in order, without constructing another AST."""
     child_locals = dict(local_values)
     for name, expr in bindings:
-        value = _resolve_inline_expr_value(expr, local_values=child_locals)
+        value = _resolve_inline_expr_value(expr, local_values=child_locals, retain_expression_facts=retain_expression_facts)
         if value is None:
             return None
         child_locals[name] = value
@@ -698,10 +745,11 @@ def _loop_state_seed_inline_value(
     expr: LoopStateSeedExpr,
     *,
     local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
 ) -> Any:
     inline_value: dict[str, Any] = {}
     for field in expr.fields:
-        resolved_value = _resolve_inline_expr_value(field.value_expr, local_values=local_values)
+        resolved_value = _resolve_inline_expr_value(field.value_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
         if resolved_value is None:
             return expr
         inline_value[field.name] = resolved_value
@@ -712,13 +760,14 @@ def _loop_state_update_inline_value(
     expr: LoopStateUpdateExpr,
     *,
     local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
 ) -> Any:
-    base_value = _resolve_inline_expr_value(expr.base_expr, local_values=local_values)
+    base_value = _resolve_inline_expr_value(expr.base_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if not isinstance(base_value, Mapping):
         return expr
     updated_value = {name: _clone_inline_value(value) for name, value in base_value.items()}
     for field_name, field_expr in expr.overrides:
-        resolved_value = _resolve_inline_expr_value(field_expr, local_values=local_values)
+        resolved_value = _resolve_inline_expr_value(field_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
         if resolved_value is None:
             return expr
         updated_value[field_name] = resolved_value
@@ -1128,6 +1177,7 @@ def inline_expr_projection_source(
 def inline_expr_field_value(
     expr: Any, *, field_path: tuple[str, ...], local_values: Mapping[str, Any],
     bound_record_fields: bool, phase_target_values: Mapping[str, Any] | None,
+    retain_expression_facts: bool = False,
 ) -> Any:
     """Pure projected-leaf resolution using explicit phase availability."""
     selected = inline_expr_projection_source(
@@ -1137,20 +1187,20 @@ def inline_expr_field_value(
         return phase_target_values.get(selected.target_name)
     if isinstance(expr, LetStarExpr):
         return inline_let_field_value(
-            expr.bindings, body=expr.body, field_path=field_path, local_values=local_values,
+            expr.bindings, body=expr.body, field_path=field_path, local_values=local_values, retain_expression_facts=retain_expression_facts,
         )
-    value = _resolve_inline_expr_value(selected, local_values=local_values)
+    value = _resolve_inline_expr_value(selected, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if isinstance(expr, (RecordExpr, UnionVariantExpr)):
         return value
     return _resolve_nested_local_value(value, field_path) if field_path else value
 
 
-def inline_let_field_value(bindings: tuple[tuple[str, Any], ...], *, body: Any, field_path: tuple[str, ...], local_values: Mapping[str, Any]) -> Any:
+def inline_let_field_value(bindings: tuple[tuple[str, Any], ...], *, body: Any, field_path: tuple[str, ...], local_values: Mapping[str, Any], retain_expression_facts: bool = False) -> Any:
     """Project a complete suffix using the same resolved-value path as a Let node."""
-    child_values = _resolve_inline_let_bindings(bindings, local_values=local_values)
+    child_values = _resolve_inline_let_bindings(bindings, local_values=local_values, retain_expression_facts=retain_expression_facts)
     if child_values is None:
         return None
-    value = _resolve_inline_expr_value(body, local_values=child_values)
+    value = _resolve_inline_expr_value(body, local_values=child_values, retain_expression_facts=retain_expression_facts)
     return _resolve_nested_local_value(value, field_path) if field_path else value
 
 
