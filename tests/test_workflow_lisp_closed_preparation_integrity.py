@@ -197,10 +197,18 @@ def test_identical_completed_input_memo_hit_does_not_elaborate_or_compare_again(
             pytest.fail("completed input memo hit elaborated its child again")
         return actual(callable_def, *args, **kwargs)
 
+    def forbid_comparison(*args, **kwargs):
+        pytest.fail("completed input memo hit compared its child again")
+
     monkeypatch.setattr(builder, "_command_wcc_body", guard)
+    monkeypatch.setattr(
+        "orchestrator.workflow_lisp.closed.preparation_check.assert_same_prepared_body",
+        forbid_comparison,
+    )
     _, children, _ = _prepared_entry(program, builder=builder)
     (second,) = children.values()
-    assert second is first
+    assert first.prepared_body is not None and second.prepared_body is first.prepared_body
+    assert second.prepared_children is first.prepared_children
 
 
 def _shadow_program(tmp_path):
@@ -350,7 +358,9 @@ def test_irrelevant_inline_actuals_reuse_shape_and_keep_their_final_operands(tmp
     _, children, _ = _prepared_entry(program, builder=builder)
     assert len(preparations) == 1
     left, right = children.values()
-    assert left is right and not left.command_fact_demand
+    assert left.prepared_body is not None and right.prepared_body is left.prepared_body
+    assert right.prepared_children is left.prepared_children
+    assert not left.command_fact_demand and not right.command_fact_demand
     assert builder.definitions == {}
     closed = _build_with_builder(program, builder)
     calls = [node for node in _ast_nodes(closed.tree['body']) if node.get('k') == 'call']
