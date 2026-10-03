@@ -192,9 +192,11 @@ JSON (UTF-8, sorted object keys, compact separators, finite numbers only):
 
 The [Phase 2 shared key schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#canonical-definition-keys)
 fixes the nine-element base JSON array, reference bindings, capture routes,
-residual signature and source-independent checks. Binding maps use declared
-formal names, or `["local", index]` for a generated local's captured formal;
+residual signature and source-independent checks. Ordinary binding selectors
+use declared formal names, or `["local", index]` for a generated local's captured formal;
 local selectors sort by index before ordinary strings sorted by name.
+Only K6 additionally admits the residual projected-static selector and ordering
+defined in [§9.1.3](#projected-static-facts-in-k6); it is not a reference-formal selector.
 Ordered type arguments, residual parameter types and record fields retain
 declaration order. The residual signature excludes the capture prefix.
 The bounded command-transport specialization in §9.1.3 appends a tenth
@@ -218,9 +220,9 @@ key-to-name operation in `closed/names.py` is shared by builder and checker.
 | --- | --- |
 | Module and definition | The declared module identity, carried from linking, and the declared callable name; an unmoduled standalone entry uses a fixed entry namespace. Import aliases, source paths, spans, generated flat-route names and `repr(TypeRef)` are never identity |
 | Types | Nominals use declaring module, declared name and recursively canonical arguments, including private nominals; structural constructors use their kind and canonical children. The same rule applies recursively to every descriptor in the artifact, not only to specialization keys |
-| Procedure reference | The recursively canonical target key, residual signature and each bound argument's formal selector, type and binding; bound rows biject with the target's bound-formal facts, including category, value or mapped capture route. All views derive from one resolved binding; forwarding resolves to that target, not an alias |
+| Procedure reference | The recursively canonical target key, residual signature and each bound argument's formal selector, type and binding; bound rows biject with the target's complete bound-formal facts, including category, value or mapped capture route. Projected-static K6 rows describe residual parameters, not complete bindings, and do not enter `PRef.bound`. All views derive from one resolved binding; forwarding resolves to that target, not an alias |
 | Workflow reference | The canonical workflow key and its resolved extern-rebinding plan, by formal extern name and exact provider/prompt row from the shared schema; no unresolved alias or opaque payload |
-| Value binding | The checked, closed expression substituted into the specialized body, with canonical types and alpha-normalized local names; tagged literals preserve distinctions such as `Bool`, `Int` and `Float` |
+| Value binding | A complete binding is the checked, closed expression substituted into the specialized body, with canonical types and alpha-normalized local names. K6 also admits the typed literal projection of a parameter that remains residual, using the exclusive selector/wire in §9.1.3; that row neither substitutes the compound nor erases its parameter. Tagged literals preserve distinctions such as `Bool`, `Int` and `Float` |
 | Captured runtime value | An explicit typed parameter in the closed definition and a value argument at the call. The key records the capture's owning formal/argument route and type, not the captured runtime value or a caller's local spelling. Evaluation at the binding's lexical scope happens once, before forwarding; later calls pass that value |
 | Local `let-proc` definition | The enclosing declared definition, lexical local-procedure scope/name (same-name local declarations disambiguated in that scope), residual signature and capture schema; never the existing span-derived generated name or a digest of the body. Pure-binding insertion/renaming must not change this local key |
 
@@ -1754,6 +1756,183 @@ and document operands remain the only evaluated source operands. A plan's
 slots refer to those bindings and typed scope roots. ANF retains payloads
 when revisited; it never interprets a template or creates effects for it.
 
+#### Projected static facts in K6
+
+After the actual materialization decision, every retained compound actual,
+whether partly runtime or wholly constant, keeps its original residual
+parameter and operand. Do not reconstruct a constructor from a Mapping or
+promote a new Record/Union actual to a complete value binding. Existing scalar
+`LiteralExpr` promotion and historical complete bindings, including bound
+reference values, retain their semantics. Native/private or materialized
+boundaries still terminate literal propagation.
+
+For an inline edge with bottom-up `command_fact_demand`, retain the already
+selected literal leaves and union tag of its compound facts in K6. Walk the
+remaining real formals after scalar promotion, paired to actuals by retained
+argument indices. Opaque, unknown and runtime leaves emit no rows; do not fold
+expressions, resolve an old Name/FieldAccess again, or inspect runtime elements
+of List/Map/Optional. Keep all retained literal leaves under that callable
+demand, without adding field liveness analysis. A forwarding inline wrapper
+uses its own formal/index; it does not copy the child's body or K6 into K10.
+Runtime captures retain their existing propagation boundary.
+
+The exact additional K6 wire is:
+
+```text
+ProjectedSelector = ["projection", formal, residual_index, Projection]
+Projection = {"path": [field, ...]}
+           | {"path": [field, ...], "shared": [D_or_null, ...]}
+ProjectedRow = [ProjectedSelector, D, {"k":"lit", "v":literal, "type":D}]
+```
+
+`formal` is the existing declared string or `["local", n]` of that real
+parameter. `residual_index` is a nonnegative integer, excluding Bool, indexing
+`K[8].params` after scalar promotions and excluding the K7 capture prefix.
+`path` has one or more nonempty field names. All `D` values are runtime
+descriptors in the key domain, not compile-time reference signatures.
+`shared` uses the existing closed-field per-segment relation: its length equals
+`path`, entries are null or projected descriptors, and at least one is non-null.
+Omit an all-null array; no redundant shared destination is allowed for a record
+or variant-case view. There are no caller names, fictitious leaf formals or
+runtime/capture selectors in this row.
+
+For example, a retained Choice parameter `value` at residual position 0 can
+carry this row while its runtime field `n` has no static row:
+
+```json
+[["projection","value",0,{"path":["label"]}],
+ {"kind":"primitive","name":"String"},
+ {"k":"lit","v":"before","type":{"kind":"primitive","name":"String"}}]
+```
+
+Changing the retained label to `after` changes K6. Its known union tag has a
+separate `path:["variant"]` row with the existing discriminant descriptor and
+enum literal. K8 and the original compound argument remain unchanged.
+
+Complete K6 rows come first in their existing local-index/string-name order.
+Projected rows follow, ordered by `(residual_index, existing_formal_order,
+tuple(path))`; shared destinations, types and values never break a tie. A
+formal maps to exactly one residual position and a position to exactly one
+formal. Distinct paths of one formal are allowed; duplicate logical paths,
+including identical rows or rows with different shared destinations, and a
+literal leaf plus its descendant are invalid. The producer may coalesce
+identical discoveries, but contradictory discoveries fail integrity. A
+projected formal cannot also be completely bound in K6, bound in K4/K5 or
+converted to a direct K7 capture. Type-variable names do not become value
+formals. This grammar/order is exclusive to K6: K3/K4/K5, reference-formal
+paths and `PRef.bound` retain ordinary selectors. Without projections, K6
+bytes do not change.
+
+Validate each path from the descriptor `K[8].params[residual_index]` with the
+existing `_shared_field_type(..., key_domain=True)`, `_key_field_type`, nominal
+catalog and local C_K/F relation. At a union prefix `p`, a valid discriminant row of the same
+root at `p+["variant"]` selects the existing `variant_case` descriptor with
+exactly that member's catalog fields for payload traversal; shared must be
+null in that segment. The discriminant row itself is checked from the full
+union, not narrowed by itself. Its enum, allowed values and literal must
+agree; dependencies are strictly shorter prefixes and may be validated by
+depth independently of wire order. A retained union tag always emits its row,
+even for runtime-only payload or an empty variant.
+
+Without that row, a full union allows only a uniform field or a checked shared
+destination. Use the selected specialization's existing
+`SharedUnionFieldCapability`/`shared_field_types`, not the first variant's
+type. A residual variant-case descriptor already holds its proof: traverse
+payload fields without adding a discriminant. Nested records/unions repeat
+these rules. This reduction checks a static key fact; it does not narrow the
+body parameter or authorize a new field access. The original argv access
+keeps its own proof, shared destination and type, even when the key leaf has
+a narrower variant type.
+
+After validating row shape, K8, catalog and S, the checker validates roots,
+positions, exclusions, every segment and shared destination, tag/case and
+final type. `D` and `ClosedValue.type` must equal that final type. Reuse closed
+literal validation/inference, existing literal coercion and key-type checks;
+only `k=lit` is admitted here. Nominals, applied identities, generated markers
+and every shared target must agree with the catalog. This is typed artifact
+consistency, not source authentication or a runtime equality assertion.
+Executing the program does not evaluate a key projection.
+
+Creation and memo consume one transient `RetainedExpressionFact`, placed next
+to `RUNTIME_REFERENCE` in `command_transport_decisions.py`. It replaces a
+retained raw record/union constructor in the closed symbol table; it is not a
+parallel source cache and does not implement Mapping. Its finite content is
+`form` (`record`, `union`, `opaque`), the Bool `projection_candidate` from the
+existing `is_pure_projection_expr`, ordered selected field facts and a union
+tag Literal where applicable. An opaque leaf has no fields/tag and keeps its
+own candidate bit. It holds no source Expr, Name/FieldAccess, textual type name,
+frame, source position, operand identity or producer. Literal, runtime
+sentinel, existing typed references, Mapping and Unknown representations stay
+distinct; Unknown is None only when the creating resolver obtained None.
+
+The existing `_resolve_inline_expr_value` and `_resolve_inline_let_bindings`
+create this fact through a closed-only option, off by default and propagated
+through recursion while the real Let/If locals exist. A RecordExpr result
+already selected as Mapping stays Mapping; only a constructor otherwise
+retained as Expr becomes the fact. A residual nonliteral Expr leaf becomes
+opaque with its exact candidate category, without evaluation or retained AST.
+Reading an existing fact or field returns the frozen fact/leaf, without a
+later relookup. Install the candidate only when the actual binding/ANF/edge
+decision retains alias; otherwise discard it for the existing typed runtime
+binding fact. Original WCC operands are still the only evaluated computation.
+
+Enable that option at closed initial bindings, `CommandScopeContext.bind`,
+`compile_time_bind`, `prepare_call`, and the existing `facts.closed_program`
+creators in `command_control_summary`: `_binding_control_fact`,
+`_effectful_binding_control_fact`, `_let_control_fact`, `_procedure_control_fact`
+inline actuals and their inline-let field shortcuts. `capture_source` copies
+the real retained binding fact; `narrow` preserves static leaves and updates
+only its runtime shape/proof. The pure-projection candidate uses the fact's
+bit, including each subconstructor/opaque leaf. Its non-direct/non-Mapping
+category preserves the old Expr distinction for provider whole-value demand;
+outputs/nested-local shortcuts that required Mapping still do not cross it.
+Materialization discards the candidate and uses the original Expr for
+outputs/types, so no legacy emitter receives the fact. Use a local import in
+`values.py`; no new module, registry or expression walker is selected.
+
+Preparation normalizes that same fact as
+`["retained-expression", form, projection_candidate, tag_or_null, normalized_fields]`
+in typed field order before the existing memo lookup. Preserve the other
+Literal/runtime/Mapping/Unknown alternatives. No Name/FieldAccess spelling or
+source-expression identity is added to actual memo inputs, and constructors
+are not resolved under later caller locals. A creator's runtime input differs
+from Literal(9) under a later shadow=9, while renaming/aliasing that runtime
+operand preserves the input. An escaped raw Name/FieldAccess is a missing
+creation ingress to repair, not permission for a universal runtime fallback or
+new admission refusal. No-demand reuse may still omit the actuals component.
+
+The request carries `binding_facts["static_projections"]` with the real formal,
+final residual position, path, selected literal and original TypeRefs/owners.
+Key construction consumes it even without a specialization, projects both row
+type and literal type into the same D, and retains compound signature,
+arguments and indices. Projections alone require no second elaboration; scalar
+promotion retains its existing re-preparation. Complete K6 and the unchanged
+pure conflict guard precede interning/publication, without advancing another
+elaboration ahead of memo lookup. A PRef invocation uses its prepared request;
+its shared binding target/bound receives no new application facts. Projection
+indices in a target stay target-residual indices, never enclosing captures.
+
+The existing `CallableRequest` also holds an optional, default-empty tuple of
+projection type obligations `(residual_formal, TypeRef, typed_owner)`, coalesced
+and ordered by formal/canonical key descriptor. It contains no producers or
+second value table. Before definition emission, register types used only by
+projections, including discriminants/shared targets, through `Builder.desc`
+with the current residual parameter's freshly instantiated producers. Prepared
+comparison uses each original owner's key type projection, not Python identity;
+key construction/memo lookup does not call `desc` or register descriptors.
+
+The existing `_run_ref_type_refs` walker visits a DiscriminantTypeRef's
+`owner_union or applied_union`, in the same preference as canonical identity,
+using its existing Union recursion, phantom arguments, seen set and deduplication.
+Construct the tag discriminant from the real typed union with its retained
+owner; do not recover types from names or reopen source. This lets existing
+finalization reconstruct registered descriptors with the current residual
+argument's producers and re-register the catalog. K6 already contains S and
+is not patched after naming. Only rows, their name/digest contribution and
+ordinary catalog descriptors persist; creation facts, requests, owners, type
+obligations and memo do not. No runtime, source AST, legacy/capsule codec or
+generic serialization change is selected.
+
 #### Exact scope selection, including composition
 
 The substitution scope is separate from lexical locals:
@@ -2081,9 +2260,11 @@ and name.
 Those already belong to the nine-component key/program digest. Do not expand
 child rows into a caller. Omit the tenth component when the local inventory
 is empty; no raw iteration/composition/route flag is recorded. Static inline
-actuals continue to use existing tagged literal value-binding rows, not a
-second literal store. Entry keeps its declared name; it has no tenth-key
-field, and its semantic command/arm data already enters program digest.
+scalar actuals continue to use complete tagged literal value-binding rows;
+retained compounds use the projected K6 rows above and keep their residual
+operands. Both are in K6, not a second literal store. Entry keeps its declared
+name; it has no tenth-key field, and its semantic command/arm data already
+enters program digest.
 
 A same-nine-components pair for the call dimension is an inline `outer(s,
 flag)` that reads `${inputs.state_root}` itself and owns a loop in one arm,
@@ -2107,11 +2288,14 @@ binding used by a command has WCC projection versus surface inline-alias
 selection with identical typed binding and nine-component interface. A
 shared materialization-rule test must exercise both owners; the public
 `if`/`let` oracle separately fixes their non-interchangeability. An unrelated
-pure binding or changing only a literal template's text changes none of these
-categorical decisions; the latter changes program digest, not this key.
+pure binding or changing only a literal template's text in the declared body
+changes none of these categorical decisions; the latter changes program digest
+without requiring a K10 change. A retained literal of an actual instead
+distinguishes K6 under the rules above.
 
 This vector is sufficient because the original nine components supply all
-substituted literals, root/capture interfaces and types; the remaining
+complete literal substitutions, projected static literals of residual actuals,
+root/capture interfaces and types; the remaining
 context-sensitive choices are argument materialization and selected lookup
 roots, local reset selection and descendants' command interfaces/choices. Compute children
 bottom-up over the already finite closed call graph before interning. The
