@@ -176,6 +176,9 @@ def _dynamic_run(root: Path, *, seed: str, limit: int, goal: str = "tidy",
     from experiments.dynamic_core_evaluation.program import DynamicProgram
     from experiments.dynamic_core_evaluation.source import compile_source
     from experiments.dynamic_core_evaluation.evaluator import evaluate
+    from tests.experiments.test_evaluated_execution_spike_programs import compact_controller
+
+    _unused_sources, compact_boundaries = compact_controller(root)
 
     bridge = LeafBridge.compile(
         utility_source,
@@ -185,8 +188,11 @@ def _dynamic_run(root: Path, *, seed: str, limit: int, goal: str = "tidy",
             "revise": "utility_leaves::revise-draft",
         },
         command_boundaries={
-            name: ExternalToolBinding(name=name, stable_command=("python", path.as_posix()))
-            for name, path in probes.items()
+            **compact_boundaries,
+            **{
+                name: ExternalToolBinding(name=name, stable_command=("python", path.as_posix()))
+                for name, path in probes.items()
+            },
         },
     )
     if assembled:
