@@ -137,6 +137,8 @@ def _call_nodes(value: Any):
     elif kind == "case":
         yield from _value_calls(value["subject"])
         for arm in value["arms"]:
+            for root in _arm_root_values(arm):
+                yield from _bound_calls(root)
             yield from _call_nodes(arm["body"])
     elif kind == "join":
         yield from _call_nodes(value["body"])
@@ -202,6 +204,8 @@ def _ast_nodes(body: dict[str, Any]):
     elif kind == "case":
         yield from _value_nodes(body["subject"])
         for arm in body["arms"]:
+            for root in _arm_root_values(arm):
+                yield from _value_nodes(root)
             yield from _ast_nodes(arm["body"])
     elif kind == "join":
         yield from _ast_nodes(body["body"])
@@ -245,14 +249,21 @@ def _value_nodes(value: dict[str, Any]):
             yield from _value_nodes(child)
 
 
+def _arm_root_values(arm):
+    return [row[1] for row in arm.get("command_scope", [])]
+
+
 def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
     """Read expression operands from the explicit effect-node schema."""
 
     kind = node.get("class")
     if kind == "command":
-        if "document" in node:
-            return [row[1] for row in node.get("document", [])]
-        return list(node.get("argv", []))
+        children = list(node.get("argv", []))
+        for plan in node.get("argv_transport", []):
+            children.extend(part["value"] for part in plan.get("parts", [])
+                if part.get("kind") == "slot")
+        children.extend(row[1] for row in node.get("document", []))
+        return children
     if kind == "provider":
         children = [row[2] for row in node.get("inputs", [])]
         prompt = node.get("prompt")
@@ -307,6 +318,9 @@ class _SiteWalker:
             return then_effect or else_effect
         if kind == "case":
             self._require_pure_value(node["subject"])
+            for arm in node["arms"]:
+                for root in _arm_root_values(arm):
+                    self._require_pure_value(root)
             arm_effects = [self._body_has_effect(arm["body"]) for arm in node["arms"]]
             return any(arm_effects)
         if kind == "join":

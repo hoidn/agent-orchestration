@@ -418,10 +418,15 @@ The [design](../design/workflow_lisp_evaluated_execution.md#42-a-table-of-defini
 owns the semantic requirements; all producers and readers use this one
 representation, including hand-written Task 5 fixtures.
 
-A definition's `key` is exactly the nine-element JSON array below. All
+A definition's base `key` is exactly the nine-element JSON array below. Ordinary
 maps represented as binding rows use the formal ordering below and have
-no duplicate formal; descriptor fields, type arguments, signatures and the
-capture prefix keep their semantic order. No provenance, runtime capture
+no duplicate formal. K6 additionally admits the exclusive projected-static
+selector, order and checks in the design's
+[Projected static facts in K6](../design/workflow_lisp_evaluated_execution.md#projected-static-facts-in-k6):
+distinct projected paths of one residual formal are allowed, not duplicate
+logical paths or complete/projected binding overlap. The optional command
+extension remains governed by §9.1.3. Descriptor fields, type arguments,
+signatures and the capture prefix keep their semantic order. No provenance, runtime capture
 value, caller-local binder spelling, import alias, generated flat wire
 prefix, legacy generated callable name, source position or body digest
 appears in it. `closed/names.py:canonical_callee_name_from_key` is the sole
@@ -444,7 +449,7 @@ K = [module, kind, declaration, types, procedures, workflows, values,
 | 3 | `[[formal, T], ...]` | Canonical type substitutions. |
 | 4 | `[[formal, PRef], ...]` | Resolved procedure-reference substitutions. |
 | 5 | `[[formal, WRef], ...]` | Resolved workflow-reference substitutions, including extern rebinding. |
-| 6 | `[[formal, T, ClosedValue], ...]` | Actual closed-expression substitutions, not runtime captures. |
+| 6 | `[[selector, T, ClosedValue], ...]` | Complete closed-expression bindings use ordinary `formal`; only K6 also admits `ProjectedSelector` rows with a typed literal of a residual parameter, as defined in design §9.1.3. They neither substitute the compound nor erase its parameter; no runtime capture value is stored. |
 | 7 | `[{"type": D, "routes": [Route, ...]}, ...]` | Ordered runtime capture prefix. Array position is its zero-based capture index; no parameter-name or value field. |
 | 8 | `{"params": [T, ...], "result": T}` | Ordered residual parameter **types**, excluding runtime captures and erased compile-time parameters, plus result type. |
 
@@ -453,12 +458,17 @@ procedure's captured formal is instead `["local", n]`, using the same
 original capture-list index as its local capture route; this applies to
 compile-time reference/value captures as well as runtime captures. No raw
 caller capture name is copied into a binding map or `PRef.bound`. Bindings
-are ordered with local selectors first by integer index, then ordinary
-formal strings lexicographically. Type-variable formals in `types` remain
+with ordinary selectors are ordered with local selectors first by integer
+index, then ordinary formal strings lexicographically. Type-variable formals in `types` remain
 ordinary strings. These plain selectors also occur in reference-formal
 paths; they introduce no new runtime value or identity lookup.
 Extern formal names in `WRef.externs` remain ordinary nonempty strings;
 the local selector belongs only to callable parameter/capture bindings.
+Projected K6 rows follow all complete rows in their exclusive order; their
+underlying formal is still this ordinary selector. K3/K4/K5, reference-formal
+paths and `PRef.bound` do not accept the projected selector. Existing keys
+without projections retain their K6 bytes; this extension does not reopen
+the completed Phase 2 gates or change their historical results.
 
 `DId` is exactly `[module, kind, declaration]`, the first three fields of a
 key. Its local `owner` must be a top-level `DId`, so this is finite. It is
@@ -700,7 +710,7 @@ routes. Forwarding aliases are resolved before producing this data.
 
 ##### Mandatory `PRef.bound`/target agreement
 
-`PRef.bound` is a second view of the target's binding facts, not independent
+`PRef.bound` is a second view of the target's complete binding facts, not independent
 authority. Task 4/6 derives the converted target key, the bound rows and the
 residual signature from **one** resolved reference plus its already-merged
 specialization facts. It uses `ResolvedProcRefValue.signature_params`,
@@ -713,10 +723,14 @@ P5 derives the target's bound-formal table from these persisted facts:
 | --- | --- |
 | `target[4]` procedure binding | `procedure`; type is `{"kind":"procedure-reference","signature": selected_PRef.residual}`. |
 | `target[5]` workflow binding | `workflow`; type is `{"kind":"workflow-reference","signature": selected_WRef.target[8]}`. |
-| `target[6]` closed value binding | `value`; exact persisted type and alpha-normalized closed expression. |
+| `target[6]` complete closed value binding with an ordinary selector | `value`; exact persisted type and alpha-normalized closed expression. Projected-static rows are excluded. |
 | A target capture route `["parameter", f]` or `["local", n]` | `capture`; terminal formal selector `f` or `["local",n]` and the capture's exact projected type. |
 
-Type substitutions in `target[3]` are not bound value parameters. Captures
+Type substitutions in `target[3]` and projected-static rows in `target[6]` are
+not bound value parameters. A projection remains in the target key when present,
+without creating a `PRef.bound` row; its index belongs to that target's residual
+signature and is never remapped as an enclosing capture index. An invocation's
+new static actual facts do not alter its shared binding target/bound. Captures
 whose routes start with `reference` or `context` are carried requirements
 of those bindings/bodies, not additional root bound formals. A formal must
 have exactly one category across the table; overlapping value/ref/direct

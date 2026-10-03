@@ -194,9 +194,11 @@ JSON (UTF-8, sorted object keys, compact separators, finite numbers only):
 
 The [Phase 2 shared key schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#canonical-definition-keys)
 fixes the nine-element base JSON array, reference bindings, capture routes,
-residual signature and source-independent checks. Binding maps use declared
-formal names, or `["local", index]` for a generated local's captured formal;
+residual signature and source-independent checks. Ordinary binding selectors
+use declared formal names, or `["local", index]` for a generated local's captured formal;
 local selectors sort by index before ordinary strings sorted by name.
+Only K6 additionally admits the residual projected-static selector and ordering
+defined in [§9.1.3](#projected-static-facts-in-k6); it is not a reference-formal selector.
 Ordered type arguments, residual parameter types and record fields retain
 declaration order. The residual signature excludes the capture prefix.
 The bounded command-transport specialization in §9.1.3 appends a tenth
@@ -220,9 +222,9 @@ key-to-name operation in `closed/names.py` is shared by builder and checker.
 | --- | --- |
 | Module and definition | The declared module identity, carried from linking, and the declared callable name; an unmoduled standalone entry uses a fixed entry namespace. Import aliases, source paths, spans, generated flat-route names and `repr(TypeRef)` are never identity |
 | Types | Nominals use declaring module, declared name and recursively canonical arguments, including private nominals; structural constructors use their kind and canonical children. The same rule applies recursively to every descriptor in the artifact, not only to specialization keys |
-| Procedure reference | The recursively canonical target key, residual signature and each bound argument's formal selector, type and binding; bound rows biject with the target's bound-formal facts, including category, value or mapped capture route. All views derive from one resolved binding; forwarding resolves to that target, not an alias |
+| Procedure reference | The recursively canonical target key, residual signature and each bound argument's formal selector, type and binding; bound rows biject with the target's complete bound-formal facts, including category, value or mapped capture route. Projected-static K6 rows describe residual parameters, not complete bindings, and do not enter `PRef.bound`. All views derive from one resolved binding; forwarding resolves to that target, not an alias |
 | Workflow reference | The canonical workflow key and its resolved extern-rebinding plan, by formal extern name and exact provider/prompt row from the shared schema; no unresolved alias or opaque payload |
-| Value binding | The checked, closed expression substituted into the specialized body, with canonical types and alpha-normalized local names; tagged literals preserve distinctions such as `Bool`, `Int` and `Float` |
+| Value binding | A complete binding is the checked, closed expression substituted into the specialized body, with canonical types and alpha-normalized local names. K6 also admits the typed literal projection of a parameter that remains residual, using the exclusive selector/wire in §9.1.3; that row neither substitutes the compound nor erases its parameter. Tagged literals preserve distinctions such as `Bool`, `Int` and `Float` |
 | Captured runtime value | An explicit typed parameter in the closed definition and a value argument at the call. The key records the capture's owning formal/argument route and type, not the captured runtime value or a caller's local spelling. Evaluation at the binding's lexical scope happens once, before forwarding; later calls pass that value |
 | Local `let-proc` definition | The enclosing declared definition, lexical local-procedure scope/name (same-name local declarations disambiguated in that scope), residual signature and capture schema; never the existing span-derived generated name or a digest of the body. Pure-binding insertion/renaming must not change this local key |
 
@@ -1386,7 +1388,17 @@ remains `memo_inconsistent`. No legacy state is converted.
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
 the closed program (§4.2), and the interpreters fixed for the run (C3). The
-program artifact is written beside it. Initial publication is durable:
+program artifact is written beside it.
+
+Every newly published evaluated header also records `resume_request`, the immutable recipe for rebuilding the public entry. It has exactly `source_roots` (an ordered array), `entry_workflow` (the originally requested nonempty, NUL-free name or null), `provider_externs_path`, `prompt_externs_path`, `imported_workflow_bundles_path`, `command_boundaries_path`, `input_file` (each a locator or null), and `input_overrides` (a finite JSON object of explicitly supplied values before input binding). `workflow_file` is the source locator; the effective workspace of the run/resume entry supplies `workspace_root`. The remaining compiler options retain this public route's fixed defaults; resume emits no debug build artifacts. Capture the effective invocation, not process argv, monitor metadata, build-cache state or configuration recovered from the stored program.
+
+Persist normalized paths relative to that workspace when within it, and absolute otherwise; use `.` for its root, preserve source-root order and multiplicity, and preserve an omitted entry selection as null. Locators are nonempty, NUL-free canonical POSIX paths, with no parent components in relative paths. Resolve relative locators under the effective workspace on resume, without expanding environment variables or `~`; absolute locators retain their absolute destination. Header validation checks their shape without opening their targets. Process-descriptor paths are not durable locators: a reserved-root caller must supply stable logical locators while retaining its existing descriptor authority and identity checks for access/publication. A logical workflow locator alone does not supply the roots or manifest locators. Normalization preserves the initially resolved destination; retargeting the original flag's symlink spelling does not change the recorded locator. Subsequent reads follow the existing loaders, with no global confinement or relocation promise for external absolute paths.
+
+CLI overrides preserve the parser's values before binding: strings for `--input`, with the last duplicate name winning. An admitted service caller preserves its explicitly supplied JSON values before binding. Read the indicated input file anew, then apply these overrides and bind against the freshly built program; do not seed that operation from historical `bound_inputs` or copy applied defaults into the recipe. Missing or invalid requested files remain preflight failures even if overrides cover their fields. Compare the fresh program digest before binding inputs; only an equal program proceeds to the fresh input-digest comparison. The same recipe supplies initial binding and every resume, without a second read solely for publication; normalize `input_file` before that initial read and use that same locator. With no file or overrides, bind the fresh program's defaults again. The recipe itself adds no program/input identity component and no snapshot guarantee against concurrent file changes.
+
+Previously published headers without `resume_request` remain valid stored authority for read-only projection and invalidation. Resume refuses them with `resume_request_missing` before reading memo records or changing authority, memo, attempts or views; no recipe is inferred or backfilled. A present but malformed recipe is `memo_inconsistent`: its eight fields are mandatory and exact, including string keys and finite JSON-transportable override values; null for the object, missing/unknown fields or invalid locators are not historical absence. New publication requires a valid explicit recipe, validated before creating the run root. This preserves the existing profile/schema and does not convert or retire a run representation. Invalidation never requires current source/configuration/input equality or a rebuild recipe; ordinary stored-authority and journal validation still apply. A caller that selects additional semantic compiler options must have their preservation concretely specified before admission; the ordinary entry's fixed defaults do not silently cover such a caller.
+
+Initial publication is durable:
 
 1. Create the run root and empty journal, hold the writer lock, and synchronize
    every newly created ancestor's directory entry, including the run root's
@@ -1412,22 +1424,40 @@ an additional initialization journal or marker.
 Resume takes the existing writer locks without changing authority, memo,
 attempts or views. Lock-file ownership publication retains its existing
 operational seam and legacy defaults; it is not an exception allowing writes
-to that evidence, nor a new protocol requiring pre-existing locks. Freshly
-build the authored entry in memory with the current manifests/configuration,
-without publishing build caches, and compare that program digest and the
-newly bound input digest with the header. A mismatch refuses with
+to that evidence, nor a new protocol requiring pre-existing locks. First
+validate the header/profile/version/run identity and the recipe's shape without
+loading the stored artifact or any memo record. A valid header without a recipe
+refuses as above; malformed stored authority retains `memo_inconsistent`.
+Resolve the recipe's source, ordered roots and manifests under the effective
+workspace and freshly build the authored entry in memory with their current
+configuration, without publishing or recovering build caches. Compare the
+fresh program digest first; only after program equality read the requested
+input file, apply its explicit overrides, bind against that fresh program and
+compare the input digest. A mismatch refuses with
 `resume_program_changed` or `resume_inputs_changed` before reading any memo record or mutating run
 evidence. An invalid fresh build is also a preflight refusal. Formatting and
 provenance-only changes are allowed by P6, not raw source-byte equality.
 
 Then validate the stored artifact's checked form and header digest; execute
-that stored artifact after equality is established. Read complete memo records
+that stored artifact after equality is established. Rebind the physical
+provider context derived by the fresh build to this validated stored artifact;
+it is not replacement program authority. Check C3's recorded interpreter paths
+before any memo record. Fresh-build/file/binding errors are public preflight
+refusals (exit 2), not tracebacks or failed-terminal publication.
+Read complete memo records
 without repairing them yet and validate their classes, sites and settlements.
 Before any mutation of authority/memo/attempts/views, launch or coordinator
 reconciliation, replay the active committed prefix using stored result values,
 freshly resolving every input and checking it in commit order. This supplies later inputs dependent on earlier
-results. At the first uncommitted effect, also check any latest `started`
-implementation-file evidence under §8.1 before stopping preflight. An active
+results. At the first uncommitted effect, also check any latest command
+`started` implementation-file evidence under §8.1 before stopping preflight.
+For a provider with a pending start, resolve its pertinent local C6 inputs in
+memory before permitting torn-tail repair. A required source or dependency
+that is missing or unreadable refuses without changing authority, memo,
+attempts, views, the prior baseline or the next ordinal. This preparation does
+not reserve/start an attempt, prepare the provider executor, publish evidence
+or check other providers. Readable changed C6 may supply the new retry; there
+is no provider C4 implementation-file baseline comparison. An active
 later commit that replay cannot reach is inconsistent, not permission to
 launch past it. Only
 after preflight passes may M3 repair a torn tail and evaluation continue.
@@ -1756,6 +1786,183 @@ and document operands remain the only evaluated source operands. A plan's
 slots refer to those bindings and typed scope roots. ANF retains payloads
 when revisited; it never interprets a template or creates effects for it.
 
+#### Projected static facts in K6
+
+After the actual materialization decision, every retained compound actual,
+whether partly runtime or wholly constant, keeps its original residual
+parameter and operand. Do not reconstruct a constructor from a Mapping or
+promote a new Record/Union actual to a complete value binding. Existing scalar
+`LiteralExpr` promotion and historical complete bindings, including bound
+reference values, retain their semantics. Native/private or materialized
+boundaries still terminate literal propagation.
+
+For an inline edge with bottom-up `command_fact_demand`, retain the already
+selected literal leaves and union tag of its compound facts in K6. Walk the
+remaining real formals after scalar promotion, paired to actuals by retained
+argument indices. Opaque, unknown and runtime leaves emit no rows; do not fold
+expressions, resolve an old Name/FieldAccess again, or inspect runtime elements
+of List/Map/Optional. Keep all retained literal leaves under that callable
+demand, without adding field liveness analysis. A forwarding inline wrapper
+uses its own formal/index; it does not copy the child's body or K6 into K10.
+Runtime captures retain their existing propagation boundary.
+
+The exact additional K6 wire is:
+
+```text
+ProjectedSelector = ["projection", formal, residual_index, Projection]
+Projection = {"path": [field, ...]}
+           | {"path": [field, ...], "shared": [D_or_null, ...]}
+ProjectedRow = [ProjectedSelector, D, {"k":"lit", "v":literal, "type":D}]
+```
+
+`formal` is the existing declared string or `["local", n]` of that real
+parameter. `residual_index` is a nonnegative integer, excluding Bool, indexing
+`K[8].params` after scalar promotions and excluding the K7 capture prefix.
+`path` has one or more nonempty field names. All `D` values are runtime
+descriptors in the key domain, not compile-time reference signatures.
+`shared` uses the existing closed-field per-segment relation: its length equals
+`path`, entries are null or projected descriptors, and at least one is non-null.
+Omit an all-null array; no redundant shared destination is allowed for a record
+or variant-case view. There are no caller names, fictitious leaf formals or
+runtime/capture selectors in this row.
+
+For example, a retained Choice parameter `value` at residual position 0 can
+carry this row while its runtime field `n` has no static row:
+
+```json
+[["projection","value",0,{"path":["label"]}],
+ {"kind":"primitive","name":"String"},
+ {"k":"lit","v":"before","type":{"kind":"primitive","name":"String"}}]
+```
+
+Changing the retained label to `after` changes K6. Its known union tag has a
+separate `path:["variant"]` row with the existing discriminant descriptor and
+enum literal. K8 and the original compound argument remain unchanged.
+
+Complete K6 rows come first in their existing local-index/string-name order.
+Projected rows follow, ordered by `(residual_index, existing_formal_order,
+tuple(path))`; shared destinations, types and values never break a tie. A
+formal maps to exactly one residual position and a position to exactly one
+formal. Distinct paths of one formal are allowed; duplicate logical paths,
+including identical rows or rows with different shared destinations, and a
+literal leaf plus its descendant are invalid. The producer may coalesce
+identical discoveries, but contradictory discoveries fail integrity. A
+projected formal cannot also be completely bound in K6, bound in K4/K5 or
+converted to a direct K7 capture. Type-variable names do not become value
+formals. This grammar/order is exclusive to K6: K3/K4/K5, reference-formal
+paths and `PRef.bound` retain ordinary selectors. Without projections, K6
+bytes do not change.
+
+Validate each path from the descriptor `K[8].params[residual_index]` with the
+existing `_shared_field_type(..., key_domain=True)`, `_key_field_type`, nominal
+catalog and local C_K/F relation. At a union prefix `p`, a valid discriminant row of the same
+root at `p+["variant"]` selects the existing `variant_case` descriptor with
+exactly that member's catalog fields for payload traversal; shared must be
+null in that segment. The discriminant row itself is checked from the full
+union, not narrowed by itself. Its enum, allowed values and literal must
+agree; dependencies are strictly shorter prefixes and may be validated by
+depth independently of wire order. A retained union tag always emits its row,
+even for runtime-only payload or an empty variant.
+
+Without that row, a full union allows only a uniform field or a checked shared
+destination. Use the selected specialization's existing
+`SharedUnionFieldCapability`/`shared_field_types`, not the first variant's
+type. A residual variant-case descriptor already holds its proof: traverse
+payload fields without adding a discriminant. Nested records/unions repeat
+these rules. This reduction checks a static key fact; it does not narrow the
+body parameter or authorize a new field access. The original argv access
+keeps its own proof, shared destination and type, even when the key leaf has
+a narrower variant type.
+
+After validating row shape, K8, catalog and S, the checker validates roots,
+positions, exclusions, every segment and shared destination, tag/case and
+final type. `D` and `ClosedValue.type` must equal that final type. Reuse closed
+literal validation/inference, existing literal coercion and key-type checks;
+only `k=lit` is admitted here. Nominals, applied identities, generated markers
+and every shared target must agree with the catalog. This is typed artifact
+consistency, not source authentication or a runtime equality assertion.
+Executing the program does not evaluate a key projection.
+
+Creation and memo consume one transient `RetainedExpressionFact`, placed next
+to `RUNTIME_REFERENCE` in `command_transport_decisions.py`. It replaces a
+retained raw record/union constructor in the closed symbol table; it is not a
+parallel source cache and does not implement Mapping. Its finite content is
+`form` (`record`, `union`, `opaque`), the Bool `projection_candidate` from the
+existing `is_pure_projection_expr`, ordered selected field facts and a union
+tag Literal where applicable. An opaque leaf has no fields/tag and keeps its
+own candidate bit. It holds no source Expr, Name/FieldAccess, textual type name,
+frame, source position, operand identity or producer. Literal, runtime
+sentinel, existing typed references, Mapping and Unknown representations stay
+distinct; Unknown is None only when the creating resolver obtained None.
+
+The existing `_resolve_inline_expr_value` and `_resolve_inline_let_bindings`
+create this fact through a closed-only option, off by default and propagated
+through recursion while the real Let/If locals exist. A RecordExpr result
+already selected as Mapping stays Mapping; only a constructor otherwise
+retained as Expr becomes the fact. A residual nonliteral Expr leaf becomes
+opaque with its exact candidate category, without evaluation or retained AST.
+Reading an existing fact or field returns the frozen fact/leaf, without a
+later relookup. Install the candidate only when the actual binding/ANF/edge
+decision retains alias; otherwise discard it for the existing typed runtime
+binding fact. Original WCC operands are still the only evaluated computation.
+
+Enable that option at closed initial bindings, `CommandScopeContext.bind`,
+`compile_time_bind`, `prepare_call`, and the existing `facts.closed_program`
+creators in `command_control_summary`: `_binding_control_fact`,
+`_effectful_binding_control_fact`, `_let_control_fact`, `_procedure_control_fact`
+inline actuals and their inline-let field shortcuts. `capture_source` copies
+the real retained binding fact; `narrow` preserves static leaves and updates
+only its runtime shape/proof. The pure-projection candidate uses the fact's
+bit, including each subconstructor/opaque leaf. Its non-direct/non-Mapping
+category preserves the old Expr distinction for provider whole-value demand;
+outputs/nested-local shortcuts that required Mapping still do not cross it.
+Materialization discards the candidate and uses the original Expr for
+outputs/types, so no legacy emitter receives the fact. Use a local import in
+`values.py`; no new module, registry or expression walker is selected.
+
+Preparation normalizes that same fact as
+`["retained-expression", form, projection_candidate, tag_or_null, normalized_fields]`
+in typed field order before the existing memo lookup. Preserve the other
+Literal/runtime/Mapping/Unknown alternatives. No Name/FieldAccess spelling or
+source-expression identity is added to actual memo inputs, and constructors
+are not resolved under later caller locals. A creator's runtime input differs
+from Literal(9) under a later shadow=9, while renaming/aliasing that runtime
+operand preserves the input. An escaped raw Name/FieldAccess is a missing
+creation ingress to repair, not permission for a universal runtime fallback or
+new admission refusal. No-demand reuse may still omit the actuals component.
+
+The request carries `binding_facts["static_projections"]` with the real formal,
+final residual position, path, selected literal and original TypeRefs/owners.
+Key construction consumes it even without a specialization, projects both row
+type and literal type into the same D, and retains compound signature,
+arguments and indices. Projections alone require no second elaboration; scalar
+promotion retains its existing re-preparation. Complete K6 and the unchanged
+pure conflict guard precede interning/publication, without advancing another
+elaboration ahead of memo lookup. A PRef invocation uses its prepared request;
+its shared binding target/bound receives no new application facts. Projection
+indices in a target stay target-residual indices, never enclosing captures.
+
+The existing `CallableRequest` also holds an optional, default-empty tuple of
+projection type obligations `(residual_formal, TypeRef, typed_owner)`, coalesced
+and ordered by formal/canonical key descriptor. It contains no producers or
+second value table. Before definition emission, register types used only by
+projections, including discriminants/shared targets, through `Builder.desc`
+with the current residual parameter's freshly instantiated producers. Prepared
+comparison uses each original owner's key type projection, not Python identity;
+key construction/memo lookup does not call `desc` or register descriptors.
+
+The existing `_run_ref_type_refs` walker visits a DiscriminantTypeRef's
+`owner_union or applied_union`, in the same preference as canonical identity,
+using its existing Union recursion, phantom arguments, seen set and deduplication.
+Construct the tag discriminant from the real typed union with its retained
+owner; do not recover types from names or reopen source. This lets existing
+finalization reconstruct registered descriptors with the current residual
+argument's producers and re-register the catalog. K6 already contains S and
+is not patched after naming. Only rows, their name/digest contribution and
+ordinary catalog descriptors persist; creation facts, requests, owners, type
+obligations and memo do not. No runtime, source AST, legacy/capsule codec or
+generic serialization change is selected.
+
 #### Exact scope selection, including composition
 
 The substitution scope is separate from lexical locals:
@@ -2083,9 +2290,11 @@ and name.
 Those already belong to the nine-component key/program digest. Do not expand
 child rows into a caller. Omit the tenth component when the local inventory
 is empty; no raw iteration/composition/route flag is recorded. Static inline
-actuals continue to use existing tagged literal value-binding rows, not a
-second literal store. Entry keeps its declared name; it has no tenth-key
-field, and its semantic command/arm data already enters program digest.
+scalar actuals continue to use complete tagged literal value-binding rows;
+retained compounds use the projected K6 rows above and keep their residual
+operands. Both are in K6, not a second literal store. Entry keeps its declared
+name; it has no tenth-key field, and its semantic command/arm data already
+enters program digest.
 
 A same-nine-components pair for the call dimension is an inline `outer(s,
 flag)` that reads `${inputs.state_root}` itself and owns a loop in one arm,
@@ -2109,11 +2318,14 @@ binding used by a command has WCC projection versus surface inline-alias
 selection with identical typed binding and nine-component interface. A
 shared materialization-rule test must exercise both owners; the public
 `if`/`let` oracle separately fixes their non-interchangeability. An unrelated
-pure binding or changing only a literal template's text changes none of these
-categorical decisions; the latter changes program digest, not this key.
+pure binding or changing only a literal template's text in the declared body
+changes none of these categorical decisions; the latter changes program digest
+without requiring a K10 change. A retained literal of an actual instead
+distinguishes K6 under the rules above.
 
 This vector is sufficient because the original nine components supply all
-substituted literals, root/capture interfaces and types; the remaining
+complete literal substitutions, projected static literals of residual actuals,
+root/capture interfaces and types; the remaining
 context-sensitive choices are argument materialization and selected lookup
 roots, local reset selection and descendants' command interfaces/choices. Compute children
 bottom-up over the already finite closed call graph before interning. The
@@ -2384,9 +2596,10 @@ Codes this design introduces or keeps, and where each is raised:
 | `effect_input_invalid` | Before reserving a command attempt: a typed input value violates its checked contract, with field/value path and the existing violation code (§9.1.1) |
 | `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5) |
 | `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3) |
+| `resume_request_missing` | At resume before any memo record or evidence mutation: a previously published evaluated header lacks its durable rebuild recipe (§8.4); read-only projection and invalidation remain permitted |
 | `interpreter_changed` | A diagnostic, not a refusal, at resume (C3) |
 | `memo_busy` | A second writer (M1, C8) |
-| `memo_inconsistent` | Missing authority with journal activity (§8.4), an invalid range anchor/suffix (C8), or memo/terminal checks failing (V3) |
+| `memo_inconsistent` | Missing authority with journal activity or a present malformed rebuild recipe (§8.4), an invalid range anchor/suffix (C8), or memo/terminal checks failing (V3) |
 | `effect_input_diverged` | At the first committed effect whose input differs, or before retrying an uncommitted command whose implementation evidence differs from `started` (§8.1) |
 | `effect_rerun` | A diagnostic in the run's result and the view, naming the identity and its earlier attempts (§8.1) |
 | `lexical_restore_pending_effect_unsafe` | An uncommitted attempt of a `must_not_repeat` boundary (§8.1); the present code, kept |

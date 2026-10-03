@@ -130,7 +130,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
     effects: list[tuple[str, str]] = []
     dependencies: set[str] = set()
 
-    def perform(node, _operands, identity):
+    def perform(node, _operands, identity, _owner, _reader):
         provider = node["provider"]
         effects.append((provider, identity))
         dependencies.add(identity)

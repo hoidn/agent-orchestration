@@ -1277,6 +1277,7 @@ def compile_stage3_entrypoint(
         typed_program = replace(
             typed_program,
             source_file_digests=source_file_digests,
+            _io_workflow_bundles=compile_result.validated_bundles_by_name,
             _compiled_bundle_boundaries=_compiled_bundle_boundaries(
                 compile_result.validated_bundles_by_name
             ),
@@ -1538,6 +1539,8 @@ def compile_stage3_module(
         }
         typed_program = typed_program_from_graph(
             target=state.module.target_dsl_version,
+            source_paths={module_name: path},
+            imported_bundles=imported_workflow_bundles,
             entry_module=module_name,
             entry_dir=str(path.parent),
             type_env=state.type_env,
@@ -1595,6 +1598,7 @@ def compile_stage3_module(
                 source_read_records=source_read_trace.records,
                 source_revision_vector=source_read_trace.revision_vector,
             ),
+            _io_workflow_bundles=result.validated_bundles,
             _compiled_bundle_boundaries=_compiled_bundle_boundaries(
                 result.validated_bundles
             ),
@@ -2793,11 +2797,14 @@ def _run_stage3_validation_pipeline(
                             "proc_ref_bindings",
                             {},
                         ),
-                        owning_workflow_ref_bindings=getattr(
+                        owning_workflow_ref_bindings={
+                            **{name: None for name, ref in procedure.signature.params
+                                if isinstance(ref, WorkflowRefTypeRef)},
+                            **getattr(
                             getattr(procedure, "specialization", None),
                             "workflow_ref_bindings",
                             {},
-                        ),
+                        )},
                         procedure_catalog=resolved_state.procedure_catalog,
                         workflow_catalog=workflow_catalog,
                         typed_workflows_by_name={
@@ -3932,11 +3939,14 @@ def _compile_stage3_graph(
                         "proc_ref_bindings",
                         {},
                     ),
-                    owning_workflow_ref_bindings=getattr(
+                    owning_workflow_ref_bindings={
+                        **{name: None for name, ref in procedure.signature.params
+                            if isinstance(ref, WorkflowRefTypeRef)},
+                        **getattr(
                         getattr(procedure, "specialization", None),
                         "workflow_ref_bindings",
                         {},
-                    ),
+                    )},
                     procedure_catalog=procedure_catalog,
                     workflow_catalog=lowering_workflow_catalog,
                     typed_workflows_by_name={
@@ -4165,6 +4175,8 @@ def _compile_stage3_graph(
             }
             typed_program_snapshot = typed_program_from_graph(
                 target=module_source.syntax_module.target_dsl_version,
+                source_paths={name: source.path for name, source in graph.modules_by_name.items()},
+                imported_bundles=explicit_imported_bundles,
                 entry_module=module_name,
                 entry_dir=str(module_source.path.parent),
                 type_env=type_env,
@@ -6610,6 +6622,7 @@ def _discover_proc_ref_specializations(
     type_env: FrontendTypeEnvironment,
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    workflow_catalog=None,
 ) -> tuple[TypedProcedureDef, ...]:
     return _discover_proc_ref_specializations_owner(
         typed_procedures=typed_procedures,
@@ -6618,6 +6631,7 @@ def _discover_proc_ref_specializations(
         type_env=type_env,
         visible_typed_procedures_by_name=visible_typed_procedures_by_name,
         procedure_type_envs=procedure_type_envs,
+        workflow_catalog=workflow_catalog,
     )
 
 
@@ -6791,6 +6805,7 @@ def _infer_stage3_effect_summaries(
                 type_env=type_env,
                 visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
+                workflow_catalog=workflow_catalog,
             )
             added_specialization = False
             for specialized in discovered_from_procedures:
@@ -6916,6 +6931,7 @@ def _infer_stage3_effect_summaries(
                 type_env=type_env,
                 visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
+                workflow_catalog=workflow_catalog,
             )
             added_specialization = False
             for specialized in discovered_from_workflows:

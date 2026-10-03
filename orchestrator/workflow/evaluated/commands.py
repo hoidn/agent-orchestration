@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
+import json
 import os
 from pathlib import Path
 from importlib.machinery import PathFinder
@@ -21,6 +22,15 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .calls import _write_path
 from .closure import _package_root
 from .values import EvaluatedValue, coerce_evaluated_value
+from orchestrator.variables.substitution import (
+    apply_variable_filters,
+    render_variable_value,
+    resolve_dictionary_suffix,
+)
+from orchestrator.workflow.type_descriptor import (
+    command_boundary_row,
+    command_boundary_value,
+)
 
 
 class CommandPerformerError(RuntimeError):
@@ -36,6 +46,117 @@ class CommandPerformerError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.exit_info = None if exit_info is None else dict(exit_info)
+
+
+class CommandTemplateError(ValueError):
+    """A checked command template could not resolve a reached lookup."""
+
+    def __init__(self, message: str, *, code: str = "undefined_variables") -> None:
+        self.code = code
+        super().__init__(message)
+
+
+def inline_command_document(
+    node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
+) -> bytes | None:
+    if "document" not in node:
+        return None
+    slot_count = sum(
+        part.get("kind") == "slot"
+        for plan in node.get("argv_transport", ())
+        if plan.get("kind") == "template"
+        for part in plan["parts"]
+    )
+    values = operands[len(node["argv"]) + slot_count:]
+    if len(values) != len(node["document"]):
+        raise CommandTemplateError("checked command document operands are incomplete", code="memo_inconsistent")
+    payload = {
+        field: value.json_value()
+        for (field, _expression), value in zip(node["document"], values, strict=True)
+    }
+    try:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise CommandTemplateError(f"checked command document is not finite JSON: {exc}", code="effect_input_invalid") from exc
+
+
+def render_command_argv(
+    node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
+) -> tuple[str, ...]:
+    """Render the compiler-checked tail plans over the already evaluated children."""
+    plans = node.get("argv_transport")
+    argv_values = node["argv"]
+    if not isinstance(plans, list) or len(plans) != len(argv_values):
+        raise CommandTemplateError(
+            "checked command has no complete argv transport plan",
+            code="command_transport_required",
+        )
+    if len(operands) < len(argv_values):
+        raise CommandTemplateError("checked command operands are incomplete", code="memo_inconsistent")
+
+    slots = iter(operands[len(argv_values):])
+    rendered: list[str] = []
+    for plan, evaluated in zip(plans, operands):
+        if plan["kind"] == "value":
+            rendered.append(render_variable_value(evaluated.json_value()))
+        else:
+            rendered.append(_render_command_template(plan, slots))
+    return tuple(rendered)
+
+
+def _render_command_template(plan, slots) -> str:
+    return "".join(_render_command_part(part, slots) for part in plan["parts"])
+
+
+def _render_command_part(part, slots) -> str:
+    kind = part["kind"]
+    if kind == "text":
+        return part["text"]
+    if kind == "missing":
+        raise _undefined_command_lookup(part["expression"])
+    return _render_command_slot(part, next(slots))
+
+
+def _render_command_slot(part, evaluated: EvaluatedValue) -> str:
+    name = part["name"]
+    if name == ["loop-index"]:
+        value = evaluated.json_value()
+    else:
+        row = command_boundary_row(name[1], evaluated.descriptor, name[2])
+        if row is None:
+            raise _undefined_command_lookup(_command_slot_expression(part))
+        value = command_boundary_value(evaluated.json_value(), evaluated.descriptor, row)
+        if value is None:
+            raise _undefined_command_lookup(_command_slot_expression(part))
+    if part["path"]:
+        value = resolve_dictionary_suffix(value, part["path"])
+        if value is None:
+            raise _undefined_command_lookup(_command_slot_expression(part))
+    try:
+        value = apply_variable_filters(value, tuple(part["filters"]))
+    except ValueError as exc:
+        raise _undefined_command_lookup(_command_slot_expression(part), str(exc)) from exc
+    return render_variable_value(value)
+
+
+def _command_slot_expression(part: Mapping[str, Any]) -> str:
+    name = part["name"]
+    if name == ["loop-index"]:
+        path = "loop.index"
+    else:
+        path = f"inputs.{name[2]}"
+    if part["path"]:
+        path += "." + ".".join(part["path"])
+    if part["filters"]:
+        path += "|" + "|".join(part["filters"])
+    return path
+
+
+def _undefined_command_lookup(expression: str, detail: str | None = None) -> CommandTemplateError:
+    message = f"Undefined variables: ['${{{expression}}}']"
+    if detail:
+        message += f" ({detail})"
+    return CommandTemplateError(message)
 
 
 def perform_command(

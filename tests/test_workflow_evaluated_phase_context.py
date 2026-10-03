@@ -193,7 +193,7 @@ def test_fixed_phase_target_values_match_legacy_after_readback(
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
     new_targets = []
 
-    def perform(node, operands, identity):
+    def perform(node, operands, identity, _owner, _reader):
         assert node["class"] == "provider"
         new_targets.extend(value.json_value() for value in operands[-2:])
         return coerce_evaluated_value(payload, node["result"], dependencies={identity})

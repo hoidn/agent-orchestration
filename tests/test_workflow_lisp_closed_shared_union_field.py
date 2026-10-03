@@ -174,7 +174,7 @@ def test_shared_full_union_followed_by_real_match_keeps_variant_proof(tmp_path):
     restored = ClosedProgram.from_artifact(closed.artifact())
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
     from orchestrator.workflow.evaluated.values import coerce_evaluated_value
-    def command(node, args, site):
+    def command(node, args, site, _owner, _reader):
         return coerce_evaluated_value({"status": args[-1].value}, node["result"])
     assert evaluate_closed_program(restored, {"flag": True}, effect_handler=command).value == {"status": "left"}
     assert evaluate_closed_program(restored, {"flag": False}, effect_handler=command).value == {"status": "right"}
@@ -275,7 +275,7 @@ def test_shared_projection_survives_forwarding_and_bound_reference(tmp_path):
     deliver = next(d for d in closed.tree["definitions"].values() if d["key"][2] == "deliver")
     assert deliver["key"][7] == [{"type": {"kind": "primitive", "name": "Int"},
                                   "routes": [["parameter", "fixed"]]}]
-    def command(node, args, site):
+    def command(node, args, site, _owner, _reader):
         return coerce_evaluated_value({"n": args[-1].value}, node["result"])
     assert evaluate_closed_program(restored, {"flag": True}, effect_handler=command).value == {"n": 7}
     assert evaluate_closed_program(restored, {"flag": False}, effect_handler=command).value == {"n": 9}
@@ -300,7 +300,7 @@ def test_older_helper_nested_enum_union_and_containers_preserve_source_owners(tm
         assert closed.tree["types"]["entry::" + basename] != closed.tree["types"]["helper::" + basename]
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
     from orchestrator.workflow.evaluated.values import coerce_evaluated_value
-    def command(node, args, site):
+    def command(node, args, site, _owner, _reader):
         return coerce_evaluated_value({"status": args[-1].value}, node["result"])
     assert evaluate_closed_program(restored, {}, effect_handler=command).value == {"status": "seed"}
 

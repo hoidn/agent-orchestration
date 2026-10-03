@@ -74,7 +74,7 @@ def _direct_outputs_available(expr: Any, *, result_type: Any, facts: ControlFact
         is_direct_reference(inline_expr_field_value(
             expr, field_path=boundary.source_path[1:], local_values=local_values,
             bound_record_fields=target_dsl_supports_generic_unions(facts.type_env.target_dsl_version),
-            phase_target_values=facts.phase_target_values,
+            phase_target_values=facts.phase_target_values, retain_expression_facts=facts.closed_program,
         )) for boundary in fields
     )
 
@@ -125,7 +125,7 @@ def _with_phase_facts(expr: Any, *, facts: ControlFacts, local_values: Mapping[s
     from .context import _ActivePhaseScope
 
     scope, targets = selected_phase_scope(
-        _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values),
+        _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values, retain_expression_facts=facts.closed_program),
         phase_name=expr.phase_name, ctx_expr=expr.ctx_expr, span=expr.span, form_path=expr.form_path,
     )
     return replace(facts, phase_scope=_ActivePhaseScope(
@@ -200,7 +200,7 @@ def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_va
     from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_expr, workflow_ref_type_from_signature
 
     if facts.closed_program:
-        reference = _resolve_inline_expr_value(expr, local_values=local_values)
+        reference = _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=facts.closed_program)
         if isinstance(reference, ex.WorkflowRefLiteralExpr):
             reference = resolve_workflow_ref_expr(reference, workflow_catalog=facts.workflow_catalog,
                 span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
@@ -210,7 +210,7 @@ def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_va
             return False, reference, workflow_ref_type_from_signature(signature)
 
     if is_inline_let_binding_expr(expr):
-        value = _resolve_inline_expr_value(expr, local_values=local_values)
+        value = _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=facts.closed_program)
         if isinstance(expr, (ex.ProcRefLiteralExpr, ex.BindProcExpr)):
             value = resolved_surface_proc_ref(
                 value, typed_procedures=facts.typed_procedures, local_values=local_values,
@@ -237,7 +237,7 @@ def _effectful_binding_control_fact(expr: Any, *, name: str, facts: ControlFacts
         selected = "expression"
     else:
         selected, _ = surface_binding_materialization(
-            expr, resolved_binding=None if isinstance(expr, ex.MatchExpr) else _resolve_inline_expr_value(expr, local_values=local_values),
+            expr, resolved_binding=None if isinstance(expr, ex.MatchExpr) else _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=facts.closed_program),
         )
     if selected == "projection":
         control, output_names = False, _binding_projection_output_names(expr, name=name, result_type=type_ref, facts=facts)
@@ -259,7 +259,7 @@ def _suffix_outputs_available(expr: Any, bindings: tuple[Any, ...], *, result_ty
         expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
     )
     return direct_output_leaves_available(is_direct_reference(inline_let_field_value(
-        bindings, body=expr.body, field_path=boundary.source_path[1:], local_values=local_values,
+        bindings, body=expr.body, field_path=boundary.source_path[1:], local_values=local_values, retain_expression_facts=facts.closed_program,
     )) for boundary in boundaries)
 
 
@@ -293,6 +293,12 @@ def _procedure_return_types(procedure, *, facts, source_program):
     return return_types
 
 
+def _private_procedure_output_names(expr: Any, *, result_type: Any, closed_program: bool) -> tuple[str, ...]:
+    if closed_program:
+        return _leaf_output_names(expr, result_type=result_type)
+    return tuple(name for name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return"))
+
+
 def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
     from .procedures import LowerableProcedureCall
 
@@ -312,9 +318,11 @@ def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Map
         default_type_env=facts.type_env, typed_procedures=facts.typed_procedures,
         procedure_type_envs=facts.procedure_type_envs, workflow_signatures=facts.workflow_catalog.signatures_by_name,
     ):
-        return False, tuple(name for name, _ in _flatten_boundary_leaf_paths(procedure.typed_body.type_ref, generated_name="return"))
+        return False, _private_procedure_output_names(
+            expr, result_type=procedure.typed_body.type_ref, closed_program=facts.closed_program,
+        )
     values = inline_procedure_bindings(procedure, caller_values=local_values, actual_values=tuple(
-        _resolve_inline_expr_value(arg, local_values=local_values) for arg in args
+        _resolve_inline_expr_value(arg, local_values=local_values, retain_expression_facts=facts.closed_program) for arg in args
     ))
     owner_returns = facts.workflow_return_types
     owner_catalog, owner_workflows = facts.workflow_catalog, facts.workflows_by_name

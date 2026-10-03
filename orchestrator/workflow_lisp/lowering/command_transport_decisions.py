@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Literal
 
 from ..expressions import (
@@ -19,6 +19,17 @@ from .pure_projection import is_pure_projection_expr
 
 
 RUNTIME_REFERENCE = object()
+
+
+@dataclass(frozen=True)
+class RetainedExpressionFact:
+    """Closed-only constructor facts selected under their creation locals."""
+
+    form: Literal["record", "union", "opaque"]
+    projection_candidate: bool
+    fields: tuple[tuple[str, Any], ...] = ()
+    tag: LiteralExpr | None = None
+
 
 
 def is_direct_reference(value: Any) -> bool:
@@ -38,6 +49,8 @@ def is_inline_let_binding_expr(expr: Any) -> bool:
 
 
 def pure_projection_binding_candidate(resolved_binding: Any) -> Any | None:
+    if isinstance(resolved_binding, RetainedExpressionFact):
+        return resolved_binding if resolved_binding.projection_candidate else None
     if resolved_binding is None or is_direct_reference(resolved_binding) or isinstance(resolved_binding, Mapping):
         return None
     return resolved_binding if is_pure_projection_expr(resolved_binding) else None

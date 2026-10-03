@@ -174,6 +174,31 @@ def typed_prompt_input_value_digest(value: Any) -> str:
     return f"sha256:{sha256(payload).hexdigest()}"
 
 
+def render_typed_prompt_input_blocks(
+    rows: Sequence[tuple[str, str, int, Any]],
+) -> tuple[str, tuple[bytes, ...]]:
+    """Render labeled input blocks and return their original renderer bytes."""
+
+    blocks: list[str] = []
+    rendered_rows: list[bytes] = []
+    for binding_name, renderer_id, renderer_version, value in rows:
+        try:
+            rendered_bytes = render_view(renderer_id, renderer_version, value)
+        except ViewRendererError as exc:
+            code = (
+                "typed_prompt_input_renderer_shape_mismatch"
+                if exc.code == "view_value_shape_invalid"
+                else "typed_prompt_input_renderer_unknown"
+            )
+            raise ValueError(f"{code}: {exc}") from exc
+        rendered_text = rendered_bytes.decode("utf-8").rstrip("\n")
+        blocks.append(
+            "\n".join((f"## Typed Prompt Input: {binding_name}", rendered_text))
+        )
+        rendered_rows.append(rendered_bytes)
+    return "\n\n".join(blocks), tuple(rendered_rows)
+
+
 def render_typed_prompt_inputs(
     entries: Sequence[Mapping[str, Any]],
     *,
@@ -221,39 +246,29 @@ def render_typed_prompt_inputs(
         entries,
         resolved_typed_values=resolved_typed_values,
     )
-    rendered_blocks: list[str] = []
-    evidence_payloads: list[dict[str, Any]] = []
+    render_rows: list[tuple[str, str, int, Any]] = []
     for entry in normalized_entries:
         binding_name = entry["binding_name"]
         if binding_name not in resolved_typed_values:
             raise ValueError(
                 f"typed_prompt_input_value_unavailable: missing resolved typed value for `{binding_name}`"
             )
+        renderer = entry["renderer"]
+        render_rows.append(
+            (
+                binding_name,
+                str(renderer["renderer_id"]),
+                int(renderer["renderer_version"]),
+                resolved_typed_values[binding_name],
+            )
+        )
+    rendered_block, rendered_rows = render_typed_prompt_input_blocks(render_rows)
+    evidence_payloads: list[dict[str, Any]] = []
+    for entry, rendered_bytes in zip(normalized_entries, rendered_rows, strict=True):
+        binding_name = entry["binding_name"]
         resolved_value = resolved_typed_values[binding_name]
         value_digest = typed_prompt_input_value_digest(resolved_value)
         renderer = entry["renderer"]
-        try:
-            rendered_bytes = render_view(
-                str(renderer["renderer_id"]),
-                int(renderer["renderer_version"]),
-                resolved_value,
-            )
-        except ViewRendererError as exc:
-            code = (
-                "typed_prompt_input_renderer_shape_mismatch"
-                if exc.code == "view_value_shape_invalid"
-                else "typed_prompt_input_renderer_unknown"
-            )
-            raise ValueError(f"{code}: {exc}") from exc
-        rendered_text = rendered_bytes.decode("utf-8").rstrip("\n")
-        rendered_blocks.append(
-            "\n".join(
-                (
-                    f"## Typed Prompt Input: {binding_name}",
-                    rendered_text,
-                )
-            )
-        )
         evidence_payload = {
             "schema_version": TYPED_PROMPT_INPUT_EVIDENCE_SCHEMA_VERSION,
             "workflow_name": workflow_name,
@@ -287,7 +302,7 @@ def render_typed_prompt_inputs(
         workflow_name=workflow_name,
         step_id=step_id,
     )
-    return "\n\n".join(rendered_blocks), validated_evidence
+    return rendered_block, validated_evidence
 
 
 def validate_typed_prompt_input_composition(

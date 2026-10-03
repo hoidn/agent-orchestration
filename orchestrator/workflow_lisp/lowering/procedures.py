@@ -478,6 +478,12 @@ def _schema1_iteration_private_override_applies(
     )
 
 
+def effective_private_workflow_name(procedure: TypedProcedureDef) -> str:
+    return procedure.generated_workflow_name or (
+        f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
+    )
+
+
 def _lower_procedure_call(
     expr: LowerableProcedureCall,
     *,
@@ -573,9 +579,7 @@ def _lower_procedure_call(
     # iteration scopes so recursive loop state remains owned by loop lowering.
     if _schema1_iteration_private_override_applies(procedure, context=context):
         resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        generated_workflow_name = procedure.generated_workflow_name or (
-            f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
-        )
+        generated_workflow_name = effective_private_workflow_name(procedure)
         procedure = replace(
             procedure,
             resolved_lowering_mode=resolved_lowering_mode,

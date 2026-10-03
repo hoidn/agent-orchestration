@@ -642,6 +642,10 @@ class ProcedureCallExpr:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     authored_callee_span: SourceSpan | None = field(default=None, compare=False)
+    retained_reference_actuals: tuple[tuple[str, "ExprNode"], ...] = field(
+        default=(), repr=False, compare=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

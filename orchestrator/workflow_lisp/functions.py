@@ -921,6 +921,7 @@ def normalize_resolved_inline_procedure_calls(
                     resolved is None
                     and workflow_catalog is not None
                     and isinstance(arg, WorkflowRefLiteralExpr | NameExpr | EnumMemberExpr)
+                    and not (isinstance(arg, NameExpr) and arg.name in workflow_ref_bindings)
                 ):
                     resolved = resolve_workflow_ref_expr(
                         arg,
@@ -1046,7 +1047,10 @@ def normalize_resolved_inline_procedure_calls(
                             allow_extern_rebinding=True,
                         )
                     )
-                    if resolved_workflow_ref is not None:
+                    if resolved_workflow_ref is not None or (
+                        isinstance(rewritten_binding, NameExpr)
+                        and rewritten_binding.name in child_workflow_ref_bindings
+                    ):
                         child_workflow_ref_bindings[binding_name] = resolved_workflow_ref
             return replace(
                 expr,
