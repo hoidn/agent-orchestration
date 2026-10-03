@@ -1386,7 +1386,17 @@ remains `memo_inconsistent`. No legacy state is converted.
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
 the closed program (§4.2), and the interpreters fixed for the run (C3). The
-program artifact is written beside it. Initial publication is durable:
+program artifact is written beside it.
+
+Every newly published evaluated header also records `resume_request`, the immutable recipe for rebuilding the public entry. It has exactly `source_roots` (an ordered array), `entry_workflow` (the originally requested nonempty, NUL-free name or null), `provider_externs_path`, `prompt_externs_path`, `imported_workflow_bundles_path`, `command_boundaries_path`, `input_file` (each a locator or null), and `input_overrides` (a finite JSON object of explicitly supplied values before input binding). `workflow_file` is the source locator; the effective workspace of the run/resume entry supplies `workspace_root`. The remaining compiler options retain this public route's fixed defaults; resume emits no debug build artifacts. Capture the effective invocation, not process argv, monitor metadata, build-cache state or configuration recovered from the stored program.
+
+Persist normalized paths relative to that workspace when within it, and absolute otherwise; use `.` for its root, preserve source-root order and multiplicity, and preserve an omitted entry selection as null. Locators are nonempty, NUL-free canonical POSIX paths, with no parent components in relative paths. Resolve relative locators under the effective workspace on resume, without expanding environment variables or `~`; absolute locators retain their absolute destination. Header validation checks their shape without opening their targets. Process-descriptor paths are not durable locators: a reserved-root caller must supply stable logical locators while retaining its existing descriptor authority and identity checks for access/publication. A logical workflow locator alone does not supply the roots or manifest locators. Normalization preserves the initially resolved destination; retargeting the original flag's symlink spelling does not change the recorded locator. Subsequent reads follow the existing loaders, with no global confinement or relocation promise for external absolute paths.
+
+CLI overrides preserve the parser's values before binding: strings for `--input`, with the last duplicate name winning. An admitted service caller preserves its explicitly supplied JSON values before binding. Read the indicated input file anew, then apply these overrides and bind against the freshly built program; do not seed that operation from historical `bound_inputs` or copy applied defaults into the recipe. Missing or invalid requested files remain preflight failures even if overrides cover their fields. Compare the fresh program digest before binding inputs; only an equal program proceeds to the fresh input-digest comparison. The same recipe supplies initial binding and every resume, without a second read solely for publication; normalize `input_file` before that initial read and use that same locator. With no file or overrides, bind the fresh program's defaults again. The recipe itself adds no program/input identity component and no snapshot guarantee against concurrent file changes.
+
+Previously published headers without `resume_request` remain valid stored authority for read-only projection and invalidation. Resume refuses them with `resume_request_missing` before reading memo records or changing authority, memo, attempts or views; no recipe is inferred or backfilled. A present but malformed recipe is `memo_inconsistent`: its eight fields are mandatory and exact, including string keys and finite JSON-transportable override values; null for the object, missing/unknown fields or invalid locators are not historical absence. New publication requires a valid explicit recipe, validated before creating the run root. This preserves the existing profile/schema and does not convert or retire a run representation. Invalidation never requires current source/configuration/input equality or a rebuild recipe; ordinary stored-authority and journal validation still apply. A caller that selects additional semantic compiler options must have their preservation concretely specified before admission; the ordinary entry's fixed defaults do not silently cover such a caller.
+
+Initial publication is durable:
 
 1. Create the run root and empty journal, hold the writer lock, and synchronize
    every newly created ancestor's directory entry, including the run root's
@@ -1412,22 +1422,40 @@ an additional initialization journal or marker.
 Resume takes the existing writer locks without changing authority, memo,
 attempts or views. Lock-file ownership publication retains its existing
 operational seam and legacy defaults; it is not an exception allowing writes
-to that evidence, nor a new protocol requiring pre-existing locks. Freshly
-build the authored entry in memory with the current manifests/configuration,
-without publishing build caches, and compare that program digest and the
-newly bound input digest with the header. A mismatch refuses with
+to that evidence, nor a new protocol requiring pre-existing locks. First
+validate the header/profile/version/run identity and the recipe's shape without
+loading the stored artifact or any memo record. A valid header without a recipe
+refuses as above; malformed stored authority retains `memo_inconsistent`.
+Resolve the recipe's source, ordered roots and manifests under the effective
+workspace and freshly build the authored entry in memory with their current
+configuration, without publishing or recovering build caches. Compare the
+fresh program digest first; only after program equality read the requested
+input file, apply its explicit overrides, bind against that fresh program and
+compare the input digest. A mismatch refuses with
 `resume_program_changed` or `resume_inputs_changed` before reading any memo record or mutating run
 evidence. An invalid fresh build is also a preflight refusal. Formatting and
 provenance-only changes are allowed by P6, not raw source-byte equality.
 
 Then validate the stored artifact's checked form and header digest; execute
-that stored artifact after equality is established. Read complete memo records
+that stored artifact after equality is established. Rebind the physical
+provider context derived by the fresh build to this validated stored artifact;
+it is not replacement program authority. Check C3's recorded interpreter paths
+before any memo record. Fresh-build/file/binding errors are public preflight
+refusals (exit 2), not tracebacks or failed-terminal publication.
+Read complete memo records
 without repairing them yet and validate their classes, sites and settlements.
 Before any mutation of authority/memo/attempts/views, launch or coordinator
 reconciliation, replay the active committed prefix using stored result values,
 freshly resolving every input and checking it in commit order. This supplies later inputs dependent on earlier
-results. At the first uncommitted effect, also check any latest `started`
-implementation-file evidence under §8.1 before stopping preflight. An active
+results. At the first uncommitted effect, also check any latest command
+`started` implementation-file evidence under §8.1 before stopping preflight.
+For a provider with a pending start, resolve its pertinent local C6 inputs in
+memory before permitting torn-tail repair. A required source or dependency
+that is missing or unreadable refuses without changing authority, memo,
+attempts, views, the prior baseline or the next ordinal. This preparation does
+not reserve/start an attempt, prepare the provider executor, publish evidence
+or check other providers. Readable changed C6 may supply the new retry; there
+is no provider C4 implementation-file baseline comparison. An active
 later commit that replay cannot reach is inconsistent, not permission to
 launch past it. Only
 after preflight passes may M3 repair a torn tail and evaluation continue.
@@ -2566,9 +2594,10 @@ Codes this design introduces or keeps, and where each is raised:
 | `effect_input_invalid` | Before reserving a command attempt: a typed input value violates its checked contract, with field/value path and the existing violation code (§9.1.1) |
 | `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5) |
 | `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3) |
+| `resume_request_missing` | At resume before any memo record or evidence mutation: a previously published evaluated header lacks its durable rebuild recipe (§8.4); read-only projection and invalidation remain permitted |
 | `interpreter_changed` | A diagnostic, not a refusal, at resume (C3) |
 | `memo_busy` | A second writer (M1, C8) |
-| `memo_inconsistent` | Missing authority with journal activity (§8.4), an invalid range anchor/suffix (C8), or memo/terminal checks failing (V3) |
+| `memo_inconsistent` | Missing authority with journal activity or a present malformed rebuild recipe (§8.4), an invalid range anchor/suffix (C8), or memo/terminal checks failing (V3) |
 | `effect_input_diverged` | At the first committed effect whose input differs, or before retrying an uncommitted command whose implementation evidence differs from `started` (§8.1) |
 | `effect_rerun` | A diagnostic in the run's result and the view, naming the identity and its earlier attempts (§8.1) |
 | `lexical_restore_pending_effect_unsafe` | An uncommitted attempt of a `must_not_repeat` boundary (§8.1); the present code, kept |
