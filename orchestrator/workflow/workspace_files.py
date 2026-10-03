@@ -111,7 +111,13 @@ class WorkspaceFiles:
             raise ValueError("result path must be a non-empty workspace-relative path")
         return candidate
 
-    def _parent(self, path: str | Path, *, create: bool) -> tuple[int, str]:
+    def _parent(
+        self,
+        path: str | Path,
+        *,
+        create: bool,
+        sync_parents: bool = False,
+    ) -> tuple[int, str]:
         relative = self.relative(path)
         directory_fd = os.dup(self.root_fd)
         try:
@@ -121,6 +127,8 @@ class WorkspaceFiles:
                         os.mkdir(component, dir_fd=directory_fd)
                     except FileExistsError:
                         pass
+                    if sync_parents:
+                        os.fsync(directory_fd)
                 try:
                     child_fd = os.open(
                         component,
@@ -331,6 +339,33 @@ class WorkspaceFiles:
             os.close(child_fd)
         finally:
             os.close(parent_fd)
+
+    def mkdir_exclusive(self, path: str | Path) -> "WorkspaceFiles":
+        """Create a durable directory below this pinned root, refusing an existing leaf."""
+        relative = self.relative(path)
+        parent_fd, leaf = self._parent(relative, create=True, sync_parents=True)
+        descriptor: int | None = None
+        try:
+            os.mkdir(leaf, dir_fd=parent_fd)
+            os.fsync(parent_fd)
+            descriptor = os.open(leaf, _NOFOLLOW_DIRECTORY, dir_fd=parent_fd)
+        except BaseException:
+            try:
+                if descriptor is not None:
+                    os.close(descriptor)
+            finally:
+                os.close(parent_fd)
+            raise
+        try:
+            os.close(parent_fd)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return WorkspaceFiles(
+            self.workspace / relative,
+            root_fd=descriptor,
+            owns_root=True,
+        )
 
     def rmdir(self, path: str | Path) -> None:
         parent_fd, leaf = self._parent(path, create=False)
