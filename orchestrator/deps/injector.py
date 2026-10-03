@@ -116,7 +116,8 @@ class DependencyInjector:
             truncation_details=truncation_details
         )
         
-    def _get_default_instruction(self, mode: str, is_required: bool) -> str:
+    @staticmethod
+    def _get_default_instruction(mode: str, is_required: bool) -> str:
         """Get default instruction text based on mode.
         
         Args:
