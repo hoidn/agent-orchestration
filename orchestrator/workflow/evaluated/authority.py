@@ -20,6 +20,11 @@ from orchestrator.workflow.run_ref.contracts import (
     canonical_sha256,
 )
 from orchestrator.workflow_lisp.closed.program import ClosedProgram, REPRESENTATION
+from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.workflow.evaluated.interpreters import (
+    pin_command_interpreter,
+    validate_command_interpreter_pin_shape,
+)
 
 
 PROFILE = "evaluated_execution.v1"
@@ -146,14 +151,47 @@ def _validate_program_binding(
         raise ValueError("unsupported program representation")
 
 
+def _emitted_bare_interpreters(program: ClosedProgram) -> list[str]:
+    bodies = [
+        program.tree["body"],
+        *(definition["body"] for definition in program.tree["definitions"].values()),
+    ]
+    return sorted(
+        {
+            node["command"][0]
+            for body in bodies
+            for node in _ast_nodes(body)
+            if node.get("k") == "perform"
+            and node.get("class") == "command"
+            and "/" not in node["command"][0]
+        }
+    )
+
+
+def _pin_emitted_interpreters(program: ClosedProgram) -> dict[str, dict[str, str]]:
+    pins: dict[str, dict[str, str]] = {}
+    for token in _emitted_bare_interpreters(program):
+        pin = pin_command_interpreter((token,))
+        if pin is None:
+            raise ValueError(f"bare command interpreter {token!r} was not pinned")
+        pins[token] = pin
+    return pins
+
+
+def _validate_interpreter_pins(program: ClosedProgram, pins: object) -> None:
+    tokens = _emitted_bare_interpreters(program)
+    if not isinstance(pins, dict) or set(pins) != set(tokens):
+        raise ValueError("interpreter pins differ from emitted command interpreters")
+    for token in tokens:
+        validate_command_interpreter_pin_shape(pins[token])
+
+
 def _validate_header_metadata(run_root: Path, header: Mapping[str, Any]) -> None:
     for field in ("workflow_file", "workflow_checksum", "started_at"):
         if not isinstance(header[field], str) or not header[field]:
             raise ValueError(f"{field} is missing")
     if header["run_id"] != run_root.name:
         raise ValueError("run id differs from its root")
-    if not isinstance(header["interpreters"], dict):
-        raise ValueError("interpreter pins are not an object")
 
 
 def _checked_authority(run_root: Path, header: dict[str, Any]) -> RunAuthority:
@@ -162,6 +200,7 @@ def _checked_authority(run_root: Path, header: dict[str, Any]) -> RunAuthority:
             _read_file(run_root / PROGRAM_FILENAME).decode("utf-8")
         )
         _validate_program_binding(program, header)
+        _validate_interpreter_pins(program, header["interpreters"])
         bound_inputs = _validated_bound_inputs(program, header["bound_inputs"])
         if canonical_sha256(bound_inputs) != header["input_digest"]:
             raise ValueError("input digest differs from the run header")
@@ -252,6 +291,7 @@ def _header(
     workflow_file: str,
     workflow_checksum: str,
     bound_inputs: Mapping[str, Any],
+    interpreters: Mapping[str, Mapping[str, str]],
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -264,7 +304,7 @@ def _header(
         "input_digest": canonical_sha256(dict(bound_inputs)),
         "bound_inputs": dict(bound_inputs),
         "representation": REPRESENTATION,
-        "interpreters": {},
+        "interpreters": dict(interpreters),
     }
 
 
@@ -283,6 +323,7 @@ def publish_run_authority(
     if ClosedProgram.from_artifact(program.artifact()).digest != program.digest:
         raise RunAuthorityError("program is not a stable checked artifact")
     bound_inputs = _validated_bound_inputs(program, dict(bound_inputs))
+    interpreters = _pin_emitted_interpreters(program)
     _create_run_root(run_root)
     with run_writer_lock(run_root):
         memo_path = run_root / MEMO_FILENAME
@@ -296,6 +337,7 @@ def publish_run_authority(
             workflow_file=workflow_file,
             workflow_checksum=workflow_checksum,
             bound_inputs=bound_inputs,
+            interpreters=interpreters,
         )
         durable_atomic_write(
             run_root / HEADER_FILENAME,

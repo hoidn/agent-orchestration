@@ -70,17 +70,23 @@ def pin_command_interpreter(
     return {"path": recorded_path, "digest": digest}
 
 
-def check_command_interpreter(pin: Mapping[str, str]) -> str | None:
-    """Check the recorded executable, ignoring PATH, and report byte changes."""
-
+def validate_command_interpreter_pin_shape(pin: object) -> None:
+    """Validate the durable pin fields without observing the filesystem."""
     if (
         not isinstance(pin, Mapping)
         or set(pin) != {"path", "digest"}
         or not isinstance(pin.get("path"), str)
+        or "\x00" in pin["path"]
         or not os.path.isabs(pin["path"])
         or not _valid_digest(pin.get("digest"))
     ):
         raise ValueError("interpreter pin is malformed")
+
+
+def check_command_interpreter(pin: Mapping[str, str]) -> str | None:
+    """Check the recorded executable, ignoring PATH, and report byte changes."""
+
+    validate_command_interpreter_pin_shape(pin)
     try:
         current = _launchable_digest(pin["path"])
     except OSError as exc:
@@ -91,4 +97,9 @@ def check_command_interpreter(pin: Mapping[str, str]) -> str | None:
     return "interpreter_changed" if current != pin["digest"] else None
 
 
-__all__ = ["InterpreterError", "check_command_interpreter", "pin_command_interpreter"]
+__all__ = [
+    "InterpreterError",
+    "check_command_interpreter",
+    "pin_command_interpreter",
+    "validate_command_interpreter_pin_shape",
+]
