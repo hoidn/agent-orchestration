@@ -273,6 +273,29 @@ def elaborate_definition_module(
     )
 
 
+def _elaborate_declaration_members(
+    form: SyntaxNode,
+    *,
+    compiler_session: CompilerSession,
+    target_dsl_version: str,
+) -> tuple[tuple[RecordField | SchemaInclude, ...], tuple[str, ...]]:
+    """Read one selected declaration's dependencies before schema expansion."""
+
+    declaration = _elaborate_top_level_form(
+        form,
+        compiler_session=compiler_session,
+        target_dsl_version=target_dsl_version,
+    )
+    if isinstance(declaration, (SchemaDef, _AuthoredRecordDef)):
+        return declaration.members, ()
+    if isinstance(declaration, _AuthoredUnionDef):
+        return (
+            tuple(member for variant in declaration.variants for member in variant.members),
+            declaration.type_params,
+        )
+    return (), ()
+
+
 def _expand_concrete_definitions(
     forms: tuple[_TopLevelForm, ...] | list[_TopLevelForm],
     *,

@@ -46,10 +46,12 @@ from .definitions import (
     RecordField,
     ResourceDef,
     SchemaDef,
+    SchemaInclude,
     UnionDef,
     UnionVariant,
     TransitionDef,
     WorkflowLispModule,
+    _elaborate_declaration_members,
     _expand_schema_fields,
     elaborate_definition_module,
 )
@@ -118,6 +120,7 @@ from .modules import (
     ModuleExportSurface,
     ModuleImportScope,
     ModuleMemberBinding,
+    ResolvedModuleSource,
     build_import_scope,
     canonical_callable_key,
     derive_export_surface,
@@ -195,6 +198,7 @@ from .type_env import (
 )
 from .type_expressions import (
     AppliedTypeExpr,
+    ContextualTypeExpr,
     ListTypeExpr,
     MapTypeExpr,
     NamedTypeExpr,
@@ -202,6 +206,8 @@ from .type_expressions import (
     ProcRefTypeExpr,
     WorkflowRefTypeExpr,
     parse_type_expression,
+    type_expression_application_heads,
+    type_expression_names,
 )
 from .typecheck import consume_generated_local_procedures, reset_generated_local_procedure_state, typecheck_expression
 from .validation import (
@@ -716,6 +722,30 @@ def compile_stage1_entrypoint(
     """
 
     graph = resolve_module_graph(path, source_roots=_effective_source_roots(path, source_roots=source_roots))
+    return _compile_stage1_graph(graph)
+
+
+def _compile_stage1_selected_declarations_entrypoint(
+    path: Path,
+    *,
+    source_roots: tuple[Path, ...] | None = None,
+    source_read_trace: SourceReadTrace | None = None,
+) -> LinkedStage1CompileResult:
+    """Compile only imported type and prompt declarations reachable from an entrypoint."""
+
+    graph = resolve_module_graph(
+        path,
+        source_roots=_effective_source_roots(
+            path, source_roots=source_roots, source_read_trace=source_read_trace,
+        ),
+        source_read_trace=source_read_trace,
+    )
+    return _compile_stage1_graph(_select_stage1_source_declarations(graph))
+
+
+def _compile_stage1_graph(graph: LinkedModuleGraph) -> LinkedStage1CompileResult:
+    """Run the existing stage-1 pipeline over one already discovered graph."""
+
     compiled_modules_by_name: dict[str, WorkflowLispModule] = {}
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -759,6 +789,387 @@ def compile_stage1_entrypoint(
         ),
         entry_module=compiled_modules_by_name[graph.entry_module_name],
         compiled_modules_by_name=compiled_modules_by_name,
+    )
+
+
+def _select_stage1_source_declarations(graph: LinkedModuleGraph) -> LinkedModuleGraph:
+    """Filter source modules to selected type/prompt forms before Stage-1 passes."""
+
+    allowed_kinds = frozenset({"type", "schema", "prompt"})
+    selectable_heads = {
+        "defrecord": "type",
+        "defenum": "type",
+        "defunion": "type",
+        "defpath": "type",
+        "defschema": "schema",
+        "defprompt": "prompt",
+    }
+    declarations: dict[tuple[str, str, str], list[SyntaxNode]] = {}
+    macro_forms: dict[tuple[str, str], SyntaxNode] = {}
+    for module_name, source in graph.modules_by_name.items():
+        for form in source.syntax_module.forms:
+            datum = syntax_node_datum(form)
+            head = syntax_head_name(datum)
+            if not isinstance(datum, SyntaxList) or len(datum.items) < 2:
+                continue
+            name = syntax_identifier(datum.items[1])
+            if name is None:
+                continue
+            kind = selectable_heads.get(head or "")
+            if kind is not None:
+                declarations.setdefault((module_name, name.resolved_name, kind), []).append(form)
+            elif head == "defmacro":
+                macro_forms[(module_name, name.resolved_name)] = form
+
+    selected: set[tuple[str, str, str]] = set()
+    pending: list[tuple[str, str, str, tuple[str, ...]]] = []
+    required_imports: dict[str, dict[str, set[str]]] = {}
+
+    def refuse(message: str, *, span: SourceSpan, form_path: tuple[str, ...], chain: tuple[str, ...]) -> None:
+        rendered_chain = " -> ".join(chain)
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="dynamic_import_incompatible",
+                    message=f"{message}; selected import chain: {rendered_chain}",
+                    span=span,
+                    form_path=form_path,
+                ),
+            )
+        )
+
+    def add_selected(
+        module_name: str,
+        member_name: str,
+        kind: str,
+        chain: tuple[str, ...],
+        *,
+        fallback_span: SourceSpan,
+        fallback_form_path: tuple[str, ...],
+    ) -> None:
+        if kind not in allowed_kinds:
+            source = graph.modules_by_name[module_name]
+            form = next(
+                (
+                    form
+                    for form in source.syntax_module.forms
+                    if (datum := syntax_node_datum(form))
+                    and isinstance(datum, SyntaxList)
+                    and len(datum.items) > 1
+                    and syntax_identifier(datum.items[1]) is not None
+                    and syntax_identifier(datum.items[1]).resolved_name == member_name
+                ),
+                None,
+            )
+            refuse(
+                f"selected `{module_name}::{member_name}` requires executable `{kind}` source",
+                span=form.span if form is not None else fallback_span,
+                form_path=form.form_path if form is not None else fallback_form_path,
+                chain=(*chain, f"{module_name}::{member_name}"),
+            )
+        key = (module_name, member_name, kind)
+        if key not in declarations:
+            refuse(
+                f"selected `{module_name}::{member_name}` has no source declaration",
+                span=fallback_span,
+                form_path=fallback_form_path,
+                chain=(*chain, f"{module_name}::{member_name}"),
+            )
+        if key not in selected:
+            selected.add(key)
+            pending.append((module_name, member_name, kind, (*chain, f"{module_name}::{member_name}")))
+
+    def exported_macro_form(module_name: str, member_name: str) -> SyntaxNode | None:
+        source = graph.modules_by_name[module_name]
+        if member_name not in source.syntax_module.exports:
+            return None
+        return macro_forms.get((module_name, member_name))
+
+    entry_source = graph.modules_by_name[graph.entry_module_name]
+    for key in declarations:
+        if key[0] == graph.entry_module_name:
+            add_selected(
+                key[0],
+                key[1],
+                key[2],
+                (graph.entry_module_name,),
+                fallback_span=entry_source.syntax_module.span,
+                fallback_form_path=("workflow-lisp",),
+            )
+
+    for directive in entry_source.syntax_module.imports:
+        source = graph.modules_by_name[directive.module_name]
+        surface = graph.export_surfaces_by_name[directive.module_name]
+        requested_names = directive.only or source.syntax_module.exports
+        for member_name in requested_names:
+            binding = surface.binding_for(member_name)
+            macro_form = exported_macro_form(directive.module_name, member_name)
+            if binding is None and macro_form is not None:
+                refuse(
+                    f"selected `{directive.module_name}::{member_name}` requires executable `macro` source",
+                    span=macro_form.span,
+                    form_path=macro_form.form_path,
+                    chain=(graph.entry_module_name, f"{directive.module_name}::{member_name}"),
+                )
+            if binding is None:
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="module_export_missing",
+                            message=f"module `{directive.module_name}` does not export `{member_name}`",
+                            span=directive.span,
+                            form_path=directive.form_path,
+                        ),
+                    )
+                )
+            add_selected(
+                directive.module_name,
+                member_name,
+                binding.kind,
+                (graph.entry_module_name,),
+                fallback_span=directive.span,
+                fallback_form_path=directive.form_path,
+            )
+            required_imports.setdefault(graph.entry_module_name, {}).setdefault(
+                directive.module_name, set()
+            ).add(member_name)
+
+    scopes: dict[str, ModuleImportScope] = {}
+    compiler_session = CompilerSession()
+
+    def import_scope_for(module_name: str) -> ModuleImportScope:
+        cached = scopes.get(module_name)
+        if cached is not None:
+            return cached
+        source = graph.modules_by_name[module_name]
+        type_imports = []
+        for directive in source.syntax_module.imports:
+            surface = graph.export_surfaces_by_name[directive.module_name]
+            candidates = (
+                directive.only
+                if directive.only
+                else tuple((*surface.types_by_name, *surface.schemas_by_name))
+            )
+            names = tuple(
+                name
+                for name in candidates
+                if (binding := surface.binding_for(name)) is not None
+                and binding.kind in {"type", "schema"}
+            )
+            if names:
+                type_imports.append(replace(directive, only=names if directive.only else ()))
+        preliminary_module = WorkflowLispModule(
+            language_version=source.syntax_module.language_version,
+            target_dsl_version=source.syntax_module.target_dsl_version,
+            module_name=source.syntax_module.module_name,
+            imports=tuple(type_imports),
+            exports=source.syntax_module.exports,
+            definitions=(),
+            span=source.syntax_module.span,
+            schemas=(),
+        )
+        scope = build_import_scope(
+            preliminary_module,
+            export_surfaces_by_name=graph.export_surfaces_by_name,
+        )
+        scopes[module_name] = scope
+        return scope
+
+    def contains_proc_ref(parsed: object) -> bool:
+        if isinstance(parsed, ProcRefTypeExpr):
+            return True
+        if isinstance(parsed, (WorkflowRefTypeExpr,)):
+            return any(contains_proc_ref(item) for item in (*parsed.param_types, parsed.return_type))
+        if isinstance(parsed, AppliedTypeExpr):
+            return any(contains_proc_ref(item) for item in parsed.args)
+        if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
+            return contains_proc_ref(parsed.item_type)
+        if isinstance(parsed, MapTypeExpr):
+            return contains_proc_ref(parsed.key_type) or contains_proc_ref(parsed.value_type)
+        return False
+
+    def add_reference(
+        module_name: str,
+        reference: str,
+        reference_kind: str,
+        *,
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+        chain: tuple[str, ...],
+    ) -> None:
+        if (module_name, reference, reference_kind) not in declarations:
+            scope = import_scope_for(module_name)
+            reference = (
+                scope.resolve_schema_name(reference, span=span, form_path=form_path)
+                if reference_kind == "schema"
+                else scope.resolve_type_name(reference, span=span, form_path=form_path)
+            )
+        if (module_name, reference, reference_kind) in declarations:
+            add_selected(
+                module_name,
+                reference,
+                reference_kind,
+                chain,
+                fallback_span=span,
+                fallback_form_path=form_path,
+            )
+            return
+        owner, separator, imported_name = reference.rpartition("::")
+        if not separator or owner not in graph.modules_by_name:
+            return
+        surface = graph.export_surfaces_by_name[owner]
+        binding = (
+            surface.schemas_by_name.get(imported_name)
+            if reference_kind == "schema"
+            else surface.types_by_name.get(imported_name)
+        )
+        if binding is None:
+            return
+        required_imports.setdefault(module_name, {}).setdefault(owner, set()).add(imported_name)
+        add_selected(
+            owner,
+            imported_name,
+            binding.kind,
+            chain,
+            fallback_span=span,
+            fallback_form_path=form_path,
+        )
+
+    def add_type_expression(
+        module_name: str,
+        member_name: str,
+        type_name: str,
+        *,
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+        chain: tuple[str, ...],
+        type_params: frozenset[str] = frozenset(),
+    ) -> None:
+        parsed = parse_type_expression(type_name, span=span, form_path=form_path)
+        if contains_proc_ref(parsed):
+            refuse(
+                f"selected `{module_name}::{member_name}` contains an inadmissible `ProcRef` type",
+                span=span,
+                form_path=form_path,
+                chain=chain,
+            )
+        references = set(type_expression_names(parsed)) | set(type_expression_application_heads(parsed))
+        for reference in sorted(references - type_params):
+            add_reference(
+                module_name,
+                reference,
+                "type",
+                span=span,
+                form_path=form_path,
+                chain=chain,
+            )
+
+    pending_index = 0
+    while pending_index < len(pending):
+        module_name, member_name, kind, chain = pending[pending_index]
+        pending_index += 1
+        source = graph.modules_by_name[module_name]
+        for form in declarations[(module_name, member_name, kind)]:
+            if kind == "prompt":
+                prompt_module = replace(source.syntax_module, forms=(form,))
+                prompt_definitions = elaborate_prompt_definitions(prompt_module)
+                for prompt in prompt_definitions:
+                    add_type_expression(
+                        module_name,
+                        member_name,
+                        prompt.return_type_name,
+                        span=prompt.return_spec.span,
+                        form_path=prompt.form_path,
+                        chain=chain,
+                    )
+                    for slot in prompt.slots:
+                        if slot.refinement_type_name is not None:
+                            add_type_expression(
+                                module_name,
+                                member_name,
+                                slot.refinement_type_name,
+                                span=slot.refinement_span or slot.span,
+                                form_path=slot.form_path,
+                                chain=chain,
+                            )
+                continue
+            members, type_params = _elaborate_declaration_members(
+                form,
+                compiler_session=compiler_session,
+                target_dsl_version=source.syntax_module.target_dsl_version,
+            )
+            for member in members:
+                if isinstance(member, SchemaInclude):
+                    add_reference(
+                        module_name,
+                        member.schema_name,
+                        "schema",
+                        span=member.span,
+                        form_path=form.form_path,
+                        chain=chain,
+                    )
+                else:
+                    add_type_expression(
+                        module_name,
+                        member_name,
+                        member.type_name,
+                        span=member.span,
+                        form_path=form.form_path,
+                        chain=chain,
+                        type_params=frozenset(type_params),
+                    )
+
+    filtered_sources: dict[str, ResolvedModuleSource] = {}
+    for module_name, source in graph.modules_by_name.items():
+        syntax_module = source.syntax_module
+        retained_form_ids = {
+            id(form)
+            for key in selected
+            if key[0] == module_name
+            for form in declarations[key]
+        }
+        retained_forms = tuple(
+            form
+            for form in syntax_module.forms
+            if id(form) in retained_form_ids
+        )
+        module_imports = []
+        required_for_module = required_imports.get(module_name, {})
+        for directive in syntax_module.imports:
+            required_names = required_for_module.get(directive.module_name, set())
+            candidates = directive.only or tuple(sorted(required_names))
+            names = tuple(name for name in candidates if name in required_names)
+            if names:
+                module_imports.append(replace(directive, only=names if directive.only else ()))
+        retained_export_names = tuple(
+            name
+            for name in syntax_module.exports
+            if any(
+                (module_name, name, kind) in selected
+                for kind in allowed_kinds
+            )
+        )
+        export_directive = (
+            replace(syntax_module.export_directive, names=retained_export_names)
+            if syntax_module.export_directive is not None
+            else None
+        )
+        filtered_syntax = replace(
+            syntax_module,
+            imports=tuple(module_imports),
+            export_directive=export_directive,
+            forms=retained_forms,
+        )
+        filtered_sources[module_name] = replace(
+            source,
+            syntax_module=filtered_syntax,
+            imports=tuple(directive.module_name for directive in module_imports),
+        )
+    return LinkedModuleGraph(
+        entry_module_name=graph.entry_module_name,
+        modules_by_name=filtered_sources,
+        topological_order=graph.topological_order,
+        export_surfaces_by_name=graph.export_surfaces_by_name,
     )
 
 
