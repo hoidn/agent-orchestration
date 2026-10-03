@@ -1255,3 +1255,26 @@ Coordinator handoff verification at `ddec5698`: 71 routing checks passed in
 Exact command and stable document hashes are retained in
 `/tmp/orc-dc3-integration-z6_e0z2j/dc3-handoff-docs-result.json`; this receipt
 was appended after those checks without changing their checked contracts.
+
+### Task 1 — Exact Typed Routing
+
+At `c1df8106`, Luna Implementation replaced the shared numeric `>= 2.35`
+route predicate with exact registered typed-target selection. No target 3.0
+registration or other caller change was needed. New tests reject unregistered
+2.36/3.0 at real public compile/run entry without build/run roots or effects,
+and check all earlier supported targets plus malformed/future versions.
+
+The route regression failed before the change (1 failed, 2 public refusal cases
+already passed). Afterwards three narrow cases passed and 73 affected cases
+passed in 6.00s, including retained 2.34 and public pure 2.35 execution.
+Independent Sol conformity and quality passed with no findings; the reviewer
+collected the final 39-case module after a formatting-only test revision.
+Coordinator fresh integration: all four new/pure-smoke cases passed in 3.56s.
+
+Reviewed SHA256: `syntax.py`
+`7570a2e8191161b2fa7fec8233acbbea71baef2e80dd6592d2df9577285832a5`;
+target test `3a504d2557bfb5696986a61f51d13e60f254f9f0aa41d138640053cbeab26a4b`.
+Author RED/GREEN/collection/broad logs are `/tmp/orc-dc3-target-*.log`; exact
+coordinator command/HEAD/stable hashes are
+`/tmp/orc-dc3-integration-z6_e0z2j/target-root.{json,log}`. Task 1 is complete;
+Q1–Q5 and public dynamic availability remain pending.

@@ -158,7 +158,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
-| DC-3 — production readiness | Design and bounded plan independently reviewed; Task 1 in progress; no dynamic public target or production acceptance | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
+| DC-3 — production readiness | Design and bounded plan independently reviewed; Task 1 complete; further qualification pending; no dynamic public target or production acceptance | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
@@ -184,7 +184,7 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-Task 1 of the [reviewed DC-3 readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) after the owner's explicit
+Task 2 of the [reviewed DC-3 readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) after the owner's explicit
 DC-U continue on 2026-10-02. DC-F continue was also selected on that date. Existing
 executable selectors have no new item to consume.
 
@@ -519,7 +519,7 @@ design, removal/compatibility inventory, one consumer destination and the needed
 shared-runtime/public-route qualification. It does not accept production
 semantics or mark any readiness checklist item complete.
 
-**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Task 1 is executing; Q1–Q5 remain open. Exact files and independent verification
+**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Task 1 is complete; Task 2 is next and Q1–Q5 remain open. Exact files and independent verification
 belong to that plan; this task does not preallocate a language target or mutate
 normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
 

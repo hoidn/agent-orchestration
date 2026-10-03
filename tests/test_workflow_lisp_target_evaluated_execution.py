@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from orchestrator.workflow_lisp import build as workflow_lisp_build
 from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
 from orchestrator.workflow_lisp import syntax
 import orchestrator.workflow.evaluated.authority as evaluated_authority
+from orchestrator.cli.commands.compile import compile_workflow
 from orchestrator.workflow_lisp.closed.target import (
     entry_target_dsl_version,
     refuse_run_at_evaluated_execution_target,
@@ -58,6 +60,82 @@ def test_evaluated_execution_gate_starts_at_235() -> None:
     assert TARGET == "2.35"
     predicate = syntax.target_dsl_uses_evaluated_execution
     assert (predicate("2.34"), predicate(TARGET)) == (False, True)
+
+
+def test_evaluated_route_excludes_unknown_and_dynamic_targets() -> None:
+    predicate = syntax.target_dsl_uses_evaluated_execution
+
+    assert predicate(TARGET)
+    assert all(
+        not predicate(target)
+        for target in syntax.SUPPORTED_TARGET_DSL_VERSIONS
+        if target != TARGET
+    )
+    assert not any(
+        predicate(target)
+        for target in ("2.36", "3.0", "3.1", "invalid", None)
+    )
+
+
+@pytest.mark.parametrize("target", ["2.36", "3.0"])
+def test_unknown_target_public_compile_and_run_refuse_before_creation(
+    target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    files = _write_program(tmp_path, target)
+    line = next(
+        n for n, source_line in enumerate(files["source"].read_text().splitlines(), 1)
+        if ":target-dsl" in source_line
+    )
+    monkeypatch.chdir(tmp_path)
+    compile_args = Namespace(
+        workflow=str(files["source"]),
+        diagnostics_json=False,
+        entry_workflow="grt/entry::run",
+        source_root=[str(files["source_root"])],
+        provider_externs_file=str(files["providers"]),
+        prompt_externs_file=str(files["prompts"]),
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=str(files["commands"]),
+        emit_executable_ir=[],
+        emit_core_ast=[],
+        emit_runtime_plan=[],
+        emit_semantic_ir=[],
+        emit_source_map=[],
+        emit_debug_yaml=[],
+    )
+
+    assert compile_workflow(compile_args) == 2
+    assert caplog.text.count("[target_dsl_unsupported]") == 1
+    assert f"{files['source']}:{line}:" in caplog.text
+    assert not (tmp_path / ".orchestrate" / "build").exists()
+
+    caplog.clear()
+    from orchestrator.cli.commands import evaluated as evaluated_command
+    from orchestrator.cli.commands import run as run_command
+
+    monkeypatch.setattr(
+        run_command,
+        "WorkflowExecutor",
+        lambda **_kwargs: pytest.fail("unsupported target entered legacy execution"),
+    )
+    monkeypatch.setattr(
+        evaluated_command,
+        "run_evaluated_workflow",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unsupported target entered evaluated execution"
+        ),
+    )
+    result = _public_run(files)
+
+    assert result.exit_code == 2
+    assert result.run_id is None
+    assert caplog.text.count("[target_dsl_unsupported]") == 1
+    assert f"{files['source']}:{line}:" in caplog.text
+    assert not (tmp_path / ".orchestrate" / "runs").exists()
+    assert _log(tmp_path / "probe_revise.py") == []
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_PREDICATES | GATES_FROM_234))

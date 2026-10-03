@@ -185,16 +185,7 @@ def target_dsl_refuses_non_finite_floats(target_dsl_version: str) -> bool:
 
 def target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool:
     """Return whether a target routes execution through the evaluated runtime."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
+    return target_dsl_version == EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 
 
 def target_dsl_is_2_33_or_newer(target_dsl_version: str) -> bool:
