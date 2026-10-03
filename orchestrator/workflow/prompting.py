@@ -9,6 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 
+from .._common.io_text import read_text_with_sha256
 from ..deps.content_snapshot import (
     DependencyContentSnapshot,
     RenderedContentSnapshot,
@@ -674,9 +675,24 @@ class PromptComposer:
         contract_violation_result: Callable[[str, Dict[str, Any]], Dict[str, Any]],
     ) -> tuple[str, Optional[Dict[str, Any]]]:
         """Read either a workspace-relative input file or a source-relative asset."""
+        prompt, _digest, error = self.read_prompt_source_with_sha256(
+            step,
+            step_name=step_name,
+            contract_violation_result=contract_violation_result,
+        )
+        return prompt, error
+
+    def read_prompt_source_with_sha256(
+        self,
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        contract_violation_result: Callable[[str, Dict[str, Any]], Dict[str, Any]],
+    ) -> tuple[str, Optional[str], Optional[Dict[str, Any]]]:
+        """Read prompt source text with its raw digest, or None when input is absent."""
         if "asset_file" in step:
             if self.asset_resolver is None:
-                return "", contract_violation_result(
+                return "", None, contract_violation_result(
                     "Provider prompt asset resolution failed",
                     {
                         "step": step_name,
@@ -684,9 +700,9 @@ class PromptComposer:
                     },
                 )
             try:
-                return self.asset_resolver.read_text(step["asset_file"]), None
+                return (*self.asset_resolver.read_text_with_sha256(step["asset_file"]), None)
             except (AssetResolutionError, OSError) as exc:
-                return "", contract_violation_result(
+                return "", None, contract_violation_result(
                     "Provider prompt asset resolution failed",
                     {
                         "step": step_name,
@@ -697,11 +713,12 @@ class PromptComposer:
                 )
 
         prompt = ""
+        digest = None
         if "input_file" in step:
             input_path = self.workspace / step["input_file"]
             if input_path.exists():
-                prompt = input_path.read_text()
-        return prompt, None
+                prompt, digest = read_text_with_sha256(input_path)
+        return prompt, digest, None
 
     def apply_asset_depends_on_prompt_injection(
         self,
