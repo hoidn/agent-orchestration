@@ -21,8 +21,9 @@ execution, with the closed-program compiler selected as Phase 2 at target
 2.35. The owner's 2026-10-01 delivery amendment introduces an early migration
 pilot and consumer-driven later additions. The 2026-10-02 branch amendment
 preserves the integrated typed baseline while evaluating a dynamic core.
-Qualification and feasibility passed; the owner's DC-F continue activates DC-2
-utility comparison, with adoption still behind DC-U/DC-P; see
+Qualification, feasibility and finite utility comparison are complete; owner
+DC-F/DC-U continue on 2026-10-02 selects bounded DC-3 readiness qualification,
+with adoption and migration still behind DC-P; see
 [Dynamic-Core Evaluation](#dynamic-core-evaluation) and
 [Independent Work And Successor](#independent-work-and-successor).
 Publication alone does not select
@@ -366,7 +367,8 @@ On the dynamic evaluation route, reassess which effect enforcement, read-only
 restrictions and inspection remain useful with ordinary functions. Do not make
 static summary/inference cleanup a candidate prerequisite or assume static purity
 survives dynamic calls. EL-1 remains separately unselected; its typed proposal
-and completed evidence are retained.
+and completed evidence are retained. DC-U continue selects bounded DC-3
+qualification only; it does not select EL-1 or restore candidate static tracking.
 
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |
@@ -669,6 +671,9 @@ incumbent and clearly labeled proposed W1/W3 variants; do not require building
 W1/W3 to start dynamic evaluation. Count actual deletions, touched sites and edit
 locality, full helper behavior and diagnostics, not an arbitrary percentage.
 Use the proposal example and `reviewed_change.orc`; no new live study is implied.
+The reviewed DC-U packet credits these typed controls; owner continue selects
+bounded DC-3 qualification, with W3 delivery retained as fallback until the
+production/migration decision at DC-P.
 
 If the typed route is retained, Phase 3 and the caller assessment lead to Phase
 4c Tasks 11–14, then its single Phase 6b migration. If dynamic closures are
@@ -680,10 +685,16 @@ CF-1c hold and research allocations remain intact.
 
 ## Dynamic-Core Evaluation
 
-**Status:** execution started on `design/orc-dynamic-core-evaluation`; DC-0
-qualification and DC-1a pure mechanism complete and reviewed. Experimental
-source composition and compiled leaves are available in the
-[runnable specimen](../../experiments/dynamic_core_evaluation/README.md); DC-F passed by owner decision and DC-2 is active.
+**Status:** DC-0/DC-1/DC-2 are complete and independently reviewed on
+`design/orc-dynamic-core-evaluation`. Experimental complete-consumer composition
+and compiled leaves are available in the
+[runnable specimen](../../experiments/dynamic_core_evaluation/README.md). Owner
+DC-F/DC-U continue on 2026-10-02 selects bounded DC-3 readiness qualification:
+concrete design/plan, removal inventory, one consumer destination and needed
+shared-runtime/public-route qualification. Qualify the design before its bounded
+implementation plan. DC-3 is not implemented or production accepted; DC-P remains
+pending. No adoption, migration, paid calls, parallel or child-run expansion is
+authorized by this selection.
 The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns finite tasks and gate evidence; the
 [proposal](../design/workflow_lisp_dynamic_core_proposal.md) owns candidate
@@ -857,9 +868,9 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
   owns the current branch amendment: preserve completed Phase 2 and Phase 3
   Tasks 1–5; DC-0/DC-1a complete, source composition and real leaves implemented,
-  with DC-F passed and DC-2 utility evaluation active;
-  require explicit DC-F/DC-U/DC-P dispositions before later comparison,
-  readiness and migration. The prior typed order remains fallback. No new
+  with DC-F/DC-U owner continue after reviewed finite utility evidence;
+  bounded DC-3 readiness qualification is selected and DC-P remains pending
+  before adoption/migration. The prior typed order remains fallback. No new
   research study or source worktree task reselection follows.
 
 ## Routing And Historical Records
@@ -882,8 +893,9 @@ row, ready-to-run implementation plan, or live workflow selection is added.
 The 2026-10-01 W3 incorporation retains its 15 task numbers (Tasks 1–14
 pending, Task 15 deferred). The initial 2026-10-02 branch amendment selected
 **DC-0 qualification**, with W3 Task 4 as comparison input and typed Phase 4c
-as fallback. Of the four prose tranches (DC-0–DC-3), DC-0/DC-1 are now complete,
-DC-2 is active after owner approval of DC-F, and DC-3 remains conditional.
+as fallback. Of the four prose tranches (DC-0–DC-3), DC-0/DC-1/DC-2 are now
+complete; owner DC-U continue on 2026-10-02 selects bounded DC-3 readiness
+qualification. DC-P remains pending; no adoption or migration is selected.
 No machine-readable
 manifest/queue exists for this planset: machine tranche-count delta and
 ready/pending/completed/blocked count deltas are all **0**, no machine-selected

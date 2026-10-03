@@ -32,8 +32,9 @@ Read, in this order:
 The original typed Phases **3–7** order remains the fallback and the source
 control worktree's independently authorized scope. On this branch the
 [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) selects
-DC-1b qualification after reviewed DC-0/DC-1a completion; DC-F, DC-U and
-DC-P require explicit owner dispositions before their respective successors.
+bounded DC-3 readiness qualification after completed DC-0/DC-1/DC-2 and
+owner DC-F/DC-U continue on 2026-10-02. DC-P remains pending and requires an
+explicit owner disposition before migration.
 Do not interpret the historical whole-goal wording as permission to finish all
 typed tasks first, adopt the candidate, or migrate both routes. This plan neither
 retires targets nor selects a new effect class, W3 grammar or native sessions.
@@ -97,10 +98,13 @@ Every gate records evidence plus owner/date/continue-revise-stop. Continue names
 one successor; revise names a bounded correction and one reevaluation, then stop
 or a fresh owner allocation; stop returns to the unfinished typed tasks below.
 Pending gates block successors, not the evidence needed to reach the gate.
-The owner has started bounded evaluation; the
+The owner selected bounded DC-3 readiness qualification on 2026-10-02; the
 [execution report](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md)
-records DC-0 qualification and DC-1a scope. No production target or live study
-is selected. Shared dispatch/boundary work retains its upstream owners;
+records completed DC-2 evidence and DC-U continue. The selected work is concrete
+design/plan, removal inventory, one consumer destination and needed shared-runtime/
+public-route qualification. The implementation plan follows the qualified design.
+No production acceptance, adoption, migration, paid calls, parallel or child-run
+expansion is selected. Shared dispatch/boundary work retains its upstream owners;
 recovery is optional for the explicitly non-resuming candidate.
 
 ## Contract Decisions Before Dependent Code

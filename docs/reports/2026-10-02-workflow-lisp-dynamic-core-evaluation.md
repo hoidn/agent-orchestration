@@ -2,8 +2,9 @@
 
 Status: DC-0 and DC-1a/b/c implementation, verification and independent review
 complete; DC-F owner **continue** on 2026-10-02. All 110 DC-2 cases have executed
-and final code and independent document/utility reviews passed. DC-U/DC-P owner
-dispositions remain pending.
+and final code and independent document/utility reviews passed. DC-U owner
+**continue** on 2026-10-02 selects bounded DC-3 readiness qualification;
+DC-P remains pending.
 This report records actual source inspection,
 test collection and coordinator-supplied control execution. The
 [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
@@ -1117,6 +1118,61 @@ bounded plan and owner amendments before production edits. No paid/live calls,
 parallel or child-run expansion, migration or retirement follows from this
 recommendation; any such scope needs its own authorization.
 
-**DC-U owner + date + disposition + next scope: PENDING.** DC-3, DC-P, public
-syntax, adoption and Phase 6b/7 remain unselected. The coordinator concurs with
-the reviewed recommendation; only the owner can select its successor.
+**DC-U owner disposition, 2026-10-02: CONTINUE.** The user explicitly accepted
+the reviewed recommendation and selected bounded **DC-3 readiness qualification**:
+concrete design/plan, actual removal/compatibility inventory, one maintained
+consumer destination and needed shared-runtime/public-route qualification.
+Qualify the design before writing the bounded implementation plan; specific
+production tasks are not preallocated by this decision. DC-3 is selected
+qualification work, not implemented capability or an accepted production design.
+DC-P remains pending. This selects no adoption, migration, paid/live calls,
+parallel or child-run expansion; Phase 6b/7 remain unselected.
+
+Routing effect: four prose tranches remain; DC-0/DC-1/DC-2 are complete and
+bounded DC-3 qualification is selected. The existing major-project selector
+reads its explicitly supplied JSON manifest; frontend selector projection reads
+its own migration manifest. A scan of `workflows/library` and `state` found no
+machine entry for this dynamic planset or the follow-on research roadmap.
+Machine tranche-count and ready/pending/completed/blocked deltas are all **0**;
+the five research units and allocations remain unchanged, and no active run
+state is mutated. The human next work is the selected DC-3 design/plan
+qualification, not a newly machine-selected item.
+
+## 9. DC-3 Readiness Qualification
+
+Entry synchronization still found integration `b7d82fa1` and source
+`0f1bbc46`, already present through the integration/equivalent patch recorded
+above. Shared command/provider/document performers remain upstream work; no
+replacement performer is implemented here. The owner decision activates design
+and bounded planning, not a claim that the production route exists.
+
+### Native Root Contract Feasibility
+
+At `ac9079e2143d765506f1775e895e0579ca984b54`,
+`/root/impl_code_dynamic_core_search` (Luna 6 xhigh) ran two temporary probes
+using existing Stage-1 module compilation, linked type environments,
+`derive_prompt_guided_structured_result_contract(..., whole_value=True)` and
+`validate_output_bundle(..., document_bytes=...)`. Both commands exited 0; the
+coordinator inspected their scripts and raw output. No repository implementation
+or external dispatch was added.
+
+| Probe | Actual observation at targets 2.34 and 2.35 |
+| --- | --- |
+| `probe.py` | A root record containing a nested record and active union returns intact under `__result__` for both variants. Missing/extra nested fields, wrong scalar and inactive-variant fields refuse through the existing strict structural validator. The additional provider-context pair checks are incidental and do not select context capture for DC-3. |
+| `direct-root-union.py` | A bare union also derives one root `__result__` field at JSON pointer `""`; both variants return intact. Missing required, extra and inactive-variant fields refuse. No inverse projection or caller normalizer is used. |
+
+Scripts, exact commands, HEAD and raw output are under
+`/tmp/orc-dc3-whole-value-ac9079e2/`: `COMMAND.txt`, `raw-output.txt`,
+`direct-root-union.COMMAND.txt` and `direct-root-union.raw-output.txt`.
+Script SHA256 values are
+`a2587862105a79a4174683ec62d8f516c62a805c41e8d7f007da9617a4d72fff` and
+`aa525ecc9408a270c852771fcc8474cbaa39b2e95f5190df97c49275d1edf9c7`.
+An initial malformed temporary union fixture is retained as
+`direct-root-union.initial-parse-error.txt`; it was corrected before the successful
+run and is not evidence of a repository defect.
+
+The generic scalar validator still converts `"7"` to integer `7`. These probes
+prove direct structural result reuse, not universal strict policy, required-file
+publication, actual provider execution or public dynamic support. Q1's remaining
+integration obligations and Q2–Q5 remain to be implemented and qualified; typed
+closed artifacts keep their existing flattened result-contract rules.

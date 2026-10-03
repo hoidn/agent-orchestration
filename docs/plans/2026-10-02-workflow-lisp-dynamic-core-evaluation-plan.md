@@ -146,8 +146,8 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
-| DC-2 — utility comparison | All 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; owner decision pending | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; owner disposition pending |
-| DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
+| DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
+| DC-3 — production readiness | Bounded qualification selected by DC-U continue; design/plan preparation, not implemented or production accepted | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
@@ -173,8 +173,8 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-DC-U owner disposition on the independently reviewed packet;
-DC-F continue was explicitly selected by the owner on 2026-10-02. Existing
+bounded DC-3 readiness design/plan qualification after the owner's explicit
+DC-U continue on 2026-10-02. DC-F continue was also selected on that date. Existing
 executable selectors have no new item to consume.
 
 ## DC-0: Qualify Scope And Controls
@@ -378,7 +378,7 @@ failures remain documented and no global-suite PASS is claimed.
 | DC-2b — code implementation, improve; complete at `18121c76` | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
 | DC-2c — code implementation, search; complete at `e31e8282` | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py`; improve test `_dynamic_run` binding setup only | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion; rerun UI01–UI11 after shared-module integration |
 | DC-2d — code implementation, paired edits and diagnostics; complete at `4728b14e` | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; corrected receipts, final 10 passed in 8.89s, code/conformity PASS; exact full-consumer demo passed |
-| DC-2e — independent code/utility review and coordinator integration; independent reviews PASS | This plan and the same report; corrections return to the relevant implementer | Code findings closed; coordinator inspected final diff/receipts; 370-case integration plus affected ten-case supplement; DC-U packet independently reviewed and awaiting owner disposition |
+| DC-2e — independent code/utility review and coordinator integration; independent reviews PASS | This plan and the same report; corrections return to the relevant implementer | Code findings closed; coordinator inspected final diff/receipts; 370-case integration plus affected ten-case supplement; DC-U owner continue on 2026-10-02 selects bounded DC-3 qualification |
 
 No new helper framework, test registry, report family, schema converter, public
 CLI route or production stdlib migration belongs to these batches. The utility
@@ -489,20 +489,27 @@ requires rejection. Passing fresh-run parity establishes
 correctness only. Continue selects named DC-3 readiness work; stop retains typed
 execution and may qualify W3 under its existing plan, without shipping closures.
 
-**Owner disposition: PENDING.** The packet recommends continue only to bounded
-DC-3 readiness qualification. Its proposed named scope is a readiness plan for
+**Owner disposition, 2026-10-02: CONTINUE.** After the independently reviewed
+packet, the user explicitly selected bounded DC-3 readiness qualification.
+Its selected scope is a concrete design and readiness plan for
 the complete-consumer dynamic profile: target/artifact/import/stdlib and old-run
 owner contracts; one named maintained-consumer destination; actual removal and
 compatibility inventory; needed shared runtime and public execution/inspection
-qualification. The owner must select that finite scope before it executes.
-This recommendation allocates no production target, migration, live/paid calls,
-parallel effects or child-run expansion. Revise or stop remain available under
-the existing finite gate policy.
+qualification. This authorizes the bounded qualification work; the implementation
+plan follows a qualified design, without inventing task details beforehand.
+It allocates no accepted production target, adoption, migration, live/paid calls,
+parallel effects or child-run expansion. DC-P remains pending; revise or stop
+remain available under the existing finite gate policy.
 
 ## DC-3: Production Readiness And Gate DC-P
 
-**Artifacts:** only after DC-U continue, write a bounded production implementation
-plan and accepted owner amendments. Exact files and independent verification
+**Selected qualification, 2026-10-02:** DC-U continue authorizes the concrete
+design, removal/compatibility inventory, one consumer destination and the needed
+shared-runtime/public-route qualification. It does not accept production
+semantics or mark any readiness checklist item complete.
+
+**Artifacts:** qualify the design first, then write its bounded production
+implementation plan and owner amendments. Exact files and independent verification
 belong to that plan; this task does not preallocate a language target or mutate
 normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
 

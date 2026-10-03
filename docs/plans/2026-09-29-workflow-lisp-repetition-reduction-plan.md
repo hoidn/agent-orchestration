@@ -49,9 +49,15 @@ delivery, not a separately scheduled feature. The
 owns scheduling. The branch's
 [dynamic evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 now includes experimental source functions/closures and real compiled leaves
-after reviewed DC-0/DC-1a completion, with DC-F passed and DC-2 active; DC-U/DC-P remain pending. Effect tracking/resumability may be traded for composition gains;
-their preservation is not a candidate prerequisite. Task 4 and Phase 6a
-feed the typed comparison for DC-U. If the typed route is retained, Phase 3
+after completed DC-0/DC-1/DC-2, with owner DC-F/DC-U continue on 2026-10-02
+selecting bounded DC-3 readiness qualification; DC-P remains pending.
+Effect tracking/resumability may be traded for composition gains;
+their preservation is not a candidate prerequisite. The reviewed DC-U packet
+used the implemented typed baseline and labeled W1/W3 proposals as comparators;
+it does not complete Task 4 or the typed Phase 6a work. DC-3 now qualifies the design/plan, removal
+inventory, one consumer destination and needed shared-runtime/public route;
+W3 delivery remains fallback, not selected by this qualification. If the typed
+route is retained, Phase 3
 provides its runtime and Phase 4c delivers Tasks 11–14 after the open decisions
 and Task 6 registration. If dynamic closures are selected, ordinary functions
 replace future W3 delivery, with one Phase 6b migration after DC-P.
