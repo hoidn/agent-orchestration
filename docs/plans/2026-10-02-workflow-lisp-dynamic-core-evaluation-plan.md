@@ -366,7 +366,7 @@ failures remain documented and no global-suite PASS is claimed.
 | --- | --- | --- |
 | DC-2a — code implementation, bounded core; complete at `e7da6fd2` | `experiments/dynamic_core_evaluation/{program,source,evaluator,leaf_bridge}.py`; `tests/experiments/test_dynamic_core_utility_core.py` | UC01–UC12, including the two bridge groups; `/3` additions with frozen `/1` and `/2` admission; existing certified command adapter reaches the current compiler/executor |
 | DC-2b — code implementation, improve; complete at `18121c76` | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
-| DC-2c — code implementation, search | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py` | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion |
+| DC-2c — code implementation, search | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py`; improve test `_dynamic_run` binding setup only | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion; rerun UI01–UI11 after shared-module integration |
 | DC-2d — code implementation, paired edits and diagnostics | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; paired runnable edits, error timing, repeated work and one reproducible full-consumer demo |
 | DC-2e — independent code/utility review and coordinator integration | This plan and the same report; corrections return to the relevant implementer | Review code first, then benefit/cost evidence; inspect diff, run required final checks, prepare DC-U packet and stop for its owner disposition |
 
@@ -377,6 +377,15 @@ uses `Draft` for improve, and imports existing `Decision`/`Improvement`
 declarations. Its adapter bindings reuse
 `experiments/mlevolve_pair/commands_compact.json`; scripted fixture response
 data and Python reference logic stay owned by the frozen control tests.
+
+DC-2c setup handoff, 2026-10-02: the compiler validates every workflow in the
+shared module, including unselected adapter leaves. The improve test's
+`_dynamic_run` therefore also loads the exact existing adapter bindings and
+leaf files via `compact_controller(root)`, merging them with its probe bindings.
+This narrow adjacent setup edit is authorized; no module rename is needed.
+A fresh direct-adapter compile disproved the initial supposed `owner_module`
+equality restriction. Preserve the original manifest and all improve behavior;
+verify the eleven improve cases again when adding the search leaves.
 
 `fixtures/improve.orc` contains the shared ordinary helper definitions; the
 experiment driver explicitly assembles these with a caller/header. Compare
