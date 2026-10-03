@@ -900,10 +900,21 @@ def _typecheck(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
+            capture_source = (
+                expr.binding_capture_sources[index]
+                if index < len(expr.binding_capture_sources) else None
+            )
+            rhs_expr, rhs_env, rhs_binding_env = binding_expr, local_env, local_binding_env
+            if compiler_session.closed_program and capture_source is not None:
+                source_identity, source_type = capture_source
+                rhs_expr = NameExpr(name=source_identity.name, span=binding_expr.span,
+                    form_path=binding_expr.form_path, expansion_stack=binding_expr.expansion_stack)
+                rhs_env = {**local_env, source_identity.name: source_type}
+                rhs_binding_env = {**local_binding_env, source_identity.name: source_identity}
             typed_binding = recurse(
-                binding_expr,
-                value_env=local_env,
-                binding_env=local_binding_env,
+                rhs_expr,
+                value_env=rhs_env,
+                binding_env=rhs_binding_env,
                 proc_ref_value_env=local_proc_ref_env,
                 value_expr_env=local_value_expr_env,
                 session_artifact_allowed=context.session_artifact_allowed,

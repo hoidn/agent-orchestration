@@ -735,6 +735,9 @@ class WccCaseArm:
     binding_name: str
     binding_type_ref: TypeRef
     body: "WccBody"
+    command_scope: tuple[tuple[str, WccValue], ...] | None = field(
+        default=None, metadata={"json_omit_if_none": True},
+    )
     binding_label: str | None = field(
         default=None,
         repr=False,

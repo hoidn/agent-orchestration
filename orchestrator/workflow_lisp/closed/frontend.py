@@ -678,3 +678,73 @@ def compile_typed_program(
         entry=workflow,
         source_file_digests=digests,
     )
+
+
+def _candidate_source_module(program, owned, candidate):
+    if not isinstance(candidate, str):
+        return None
+    did = getattr(program, "local_definition_dids", {}).get(candidate)
+    if isinstance(did, (tuple, list)) and did and did[0] in owned:
+        return did[0]
+    if "::" in candidate:
+        module = candidate.split("::", 1)[0]
+        if (module in owned or module in getattr(program, "module_workflow_signatures", {})
+            or module in getattr(program, "module_externs", {})):
+            return module
+    return None
+
+
+def _declared_source_module(program, owned, owner):
+    for table_name in ("workflows", "procedures"):
+        for selected in getattr(program, table_name, {}).values():
+            if getattr(getattr(selected, "definition", None), "name", None) == owner:
+                module = source_module_for(program, owner, selected)
+                if module in owned:
+                    return module
+    for name, did in getattr(program, "local_definition_dids", {}).items():
+        if name == owner and isinstance(did, (tuple, list)) and did and did[0] in owned:
+            return did[0]
+    return None
+
+
+def source_module_for(program, owner, callable_def=None):
+    """Resolve a callable's source module from the retained declaration facts."""
+    owned = set(getattr(program, "source_file_digests", {}) or ())
+    if not owned:
+        return program.entry_module
+    candidates = [owner]
+    if callable_def is not None:
+        specialization = getattr(callable_def, "specialization", None)
+        candidates.extend((getattr(specialization, "base_name", None),
+            getattr(getattr(callable_def, "definition", None), "name", None)))
+    for candidate in candidates:
+        module = _candidate_source_module(program, owned, candidate)
+        if module is not None:
+            return module
+    if callable_def is None:
+        module = _declared_source_module(program, owned, owner)
+        if module is not None:
+            return module
+    return program.entry_module if program.entry_module in owned else next(iter(sorted(owned)))
+
+
+def workflow_return_types_for(source_program, owner, *, base_return_types):
+    """Return the original owner's retained call view, including imported aliases."""
+    result = dict(base_return_types)
+    module = source_module_for(source_program, owner)
+    signatures = getattr(source_program, "module_workflow_signatures", {}).get(module, {})
+    for name, signature in signatures.items():
+        result[name] = signature.return_type_ref
+    return result
+
+
+def workflow_catalog_for(source_program, owner):
+    """Retain the typed-only reference view of the original lexical owner."""
+    from ..workflows import WorkflowCatalog
+
+    signatures = {name: workflow.signature for name, workflow in source_program.workflows.items()}
+    module = source_module_for(source_program, owner)
+    signatures.update(getattr(source_program, "module_workflow_signatures", {}).get(module, {}))
+    return WorkflowCatalog(signatures_by_name=signatures,
+        definitions_by_name={name: workflow.definition for name, workflow in source_program.workflows.items()},
+        imported_bundles_by_name={})

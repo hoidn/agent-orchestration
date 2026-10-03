@@ -144,6 +144,7 @@ def _normalize_body(body: WccBody) -> WccBody:
                 body=_normalize_body(arm.body),
                 binding_label=arm.binding_label,
                 binding_identity=arm.binding_identity,
+                command_scope=arm.command_scope,
             )
             for arm in body.arms
         )

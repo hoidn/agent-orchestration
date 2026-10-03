@@ -324,46 +324,9 @@ class Builder:
 
     @staticmethod
     def _source_module_for(program: Any, owner: str, callable_def: Any | None = None) -> str:
-        """Resolve a callable's source module from retained declaration facts."""
+        from .frontend import source_module_for
 
-        owned = set(getattr(program, "source_file_digests", {}) or ())
-        if not owned:
-            return program.entry_module
-        candidates = [owner]
-        if callable_def is not None:
-            specialization = getattr(callable_def, "specialization", None)
-            candidates.extend(
-                [
-                    getattr(specialization, "base_name", None),
-                    getattr(getattr(callable_def, "definition", None), "name", None),
-                ]
-            )
-        local_dids = getattr(program, "local_definition_dids", {})
-        for candidate in candidates:
-            if not isinstance(candidate, str):
-                continue
-            did = local_dids.get(candidate)
-            if isinstance(did, (tuple, list)) and did and did[0] in owned:
-                return did[0]
-            if "::" in candidate:
-                module = candidate.split("::", 1)[0]
-                if (
-                    module in owned
-                    or module in getattr(program, "module_workflow_signatures", {})
-                    or module in getattr(program, "module_externs", {})
-                ):
-                    return module
-        if callable_def is None:
-            for table_name in ("workflows", "procedures"):
-                for selected in getattr(program, table_name, {}).values():
-                    if getattr(getattr(selected, "definition", None), "name", None) == owner:
-                        module = Builder._source_module_for(program, owner, selected)
-                        if module in owned:
-                            return module
-            for name, did in local_dids.items():
-                if name == owner and isinstance(did, (tuple, list)) and did and did[0] in owned:
-                    return did[0]
-        return program.entry_module if program.entry_module in owned else next(iter(sorted(owned)))
+        return source_module_for(program, owner, callable_def)
 
     def _module_for_owner(self, program: Any, owner: str, callable_def: Any | None = None) -> str:
         return self._source_module_for(program, owner, callable_def)
@@ -398,12 +361,9 @@ class Builder:
     def _workflow_return_types_for(self, source_program: Any, owner: str) -> dict[str, TypeRef]:
         """Return the owner's retained call view, including imported aliases."""
 
-        result = dict(self.workflow_return_types)
-        module = self._module_for_owner(source_program, owner)
-        signatures = getattr(source_program, "module_workflow_signatures", {}).get(module, {})
-        for name, signature in signatures.items():
-            result[name] = signature.return_type_ref
-        return result
+        from .frontend import workflow_return_types_for
+
+        return workflow_return_types_for(source_program, owner, base_return_types=self.workflow_return_types)
 
     def _resolve_workflow_target(
         self,
