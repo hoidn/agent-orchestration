@@ -1318,14 +1318,14 @@ def test_typed_snapshot_failure_publishes_closed_row_context_before_preparation(
     if category == "invalid_utf8_dependency":
         dependency.write_bytes(b"\xff")
     else:
-        original_read_text = Path.read_text
+        original_open = Path.open
 
-        def _read_text(path: Path, *args, **kwargs):
+        def _open(path: Path, *args, **kwargs):
             if path == dependency:
                 raise PermissionError("READ_FAILURE_SENTINEL")
-            return original_read_text(path, *args, **kwargs)
+            return original_open(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_text", _read_text)
+        monkeypatch.setattr(Path, "open", _open)
     executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
         pytest.fail("provider preparation must not be reached")
     )

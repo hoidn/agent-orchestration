@@ -121,7 +121,13 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest runtime import, 2026-10-02: reviewed integration `fc9c57d3` (command performer
+Latest runtime import, 2026-10-02: reviewed integration `8430b87f` (prompt-file
+capture `ec3a557b`) imported at `046a8b9d`. Raw hashes and rendered text now share
+one read; six new cases collected, eight narrow and 242 affected cases passed,
+including the public dependency E2E. The report records the corrected read-failure
+injection. This does not deliver provider execution or complete Task 4/Q3.
+
+Earlier reviewed integration `fc9c57d3` (command performer
 `d6d9469c`) imported at `ddec5698`. All 27 new cases and 157 affected cases
 passed; the report records the still-typed return seam and inherited empty-record
 limitation. This is shared component delivery, not dynamic readiness.
@@ -521,7 +527,7 @@ design, removal/compatibility inventory, one consumer destination and the needed
 shared-runtime/public-route qualification. It does not accept production
 semantics or mark any readiness checklist item complete.
 
-**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Tasks 1–2 are complete; Task 3 is next. Q1 has a qualified strict kernel; integrated Q1–Q5 remain open. Exact files and independent verification
+**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Tasks 1–2 are complete; Task 3 is in progress. Q1 has a qualified strict kernel; integrated Q1–Q5 remain open. Exact files and independent verification
 belong to that plan; this task does not preallocate a language target or mutate
 normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
 

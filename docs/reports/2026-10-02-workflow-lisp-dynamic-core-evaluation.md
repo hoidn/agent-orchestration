@@ -1343,3 +1343,58 @@ Exact coordinator command, HEAD `575f2de1`, stable hashes and output are in
 `/tmp/orc-dc3-integration-z6_e0z2j/boundaries-root.{json,log}`.
 The last upstream check still found `948f97b9` / source `0f1bbc46`.
 Task 2 is complete; Task 3 can proceed independently of the missing direct seam.
+
+### Task 4 Dependency Audit During Task 3
+
+A finite Sol review at local `4d348937` / upstream `948f97b9` distinguished
+missing integration from missing filenames. Existing memo-free owners include
+`ProviderExecutor.prepare_invocation/execute`, `render_prompt_fragment_base`,
+`render_typed_prompt_inputs`, `PromptComposer`, content snapshots and
+`WorkspaceFiles`. The command performer dispatches once but still projects and
+coerces to `EvaluatedValue`; it does not select the new strict native-root policy.
+Its current real command callers are component tests, while the public evaluated
+runtime remains pure-only.
+
+Still needed from the shared owners: qualified resolved request/snapshot/attempt
+assembly and strict native result/required-file publication (including the
+registered stdout materialization path), plus external-document operand/bytes/token
+transport. Merely writing supplied bytes to `inputs.json` is not that transport.
+The independent upstream prompt-preparation allocation can advance these owners;
+this branch will not duplicate them. Task 4 has an API inventory, not a PASS.
+
+The coordinator applied one sequencing clarification: Task 4 qualifies actual
+shared delivery with real dispatch and the existing consumer; Task 8 constructs
+and verifies the second real dynamic caller before the atomic cutover integrates.
+That removes the circular requirement to produce Task 8's caller before starting
+it. Both real callers and the same final proofs remain required; there is no
+new backend, simulated consumer, scope expansion or accepted release.
+Independent Sol conformity and quality review passed this sequencing clarification.
+
+### Shared Prompt-File Capture Import
+
+Reviewed upstream `8430b87f6eda35c028f3beaa208b0c580f8d1c32` (source
+`ec3a557b0642c84336bd2abd11bfdc79dd6869c1`) integrated at `046a8b9d`.
+Prompt sources, assets and content dependencies can now return the raw digest
+from the same captured bytes used for decoded text. Existing text-only APIs
+retain their defaults; optional absence differs from an empty present file.
+Hashes cover full raw bytes before newline normalization or prompt truncation.
+
+Independent Sol review found one stale test: the unreadable-dependency case
+intercepted `Path.read_text`, bypassed by the new raw reader. The coordinator
+reproduced its failure at the provider-preparation spy in an exact detached
+`ec3a557b` checkout (1 failed in 2.30s), then moved the injection to `Path.open`.
+All publication/category/operation/no-preparation assertions remain unchanged.
+This fixes fault injection, not a production validation bypass.
+Independent Sol conformity and quality rechecks passed the integrated code and
+test correction with no remaining findings.
+
+At `046a8b9d` plus that test correction, six new cases collected, eight narrow
+cases passed in 1.27s, and 242 affected cases passed in 6.21s. Affected selectors:
+`test_workflow_evaluated_prompt_files`, `test_prompt_dependency_content_snapshot`,
+`test_prompt_contract_injection`, `test_workflow_lisp_provider_prompt_dependencies`
+and its `_e2e` module. The latter exercises the public path without paid calls.
+Exact commands, stable hashes and raw output are in
+`/tmp/orc-dc3-integration-z6_e0z2j/prompt-{collect,narrow,affected}.{json,log}`.
+The disposable verification checkout was removed after use. Provider assembly,
+strict dynamic publication and Task 4/Q3 remain pending; the frozen comparison
+revision is unchanged.
