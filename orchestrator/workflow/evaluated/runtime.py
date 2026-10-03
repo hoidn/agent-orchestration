@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from pathlib import Path
 import time
@@ -20,6 +19,7 @@ from orchestrator.workflow.evaluated.commands import (
     inline_command_document,
     perform_command,
     render_command_argv,
+    workspace_relative_path,
 )
 from orchestrator.workflow.evaluated.memo import (
     MemoError,
@@ -32,6 +32,10 @@ from orchestrator.workflow.evaluated.values import EvaluatedValue, coerce_evalua
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 
+from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.providers.registry import ProviderRegistry
+from orchestrator.workflow_lisp.closed.frontend import ProviderIOContext
+from .providers import perform_provider, resolve_provider_input
 from .authority import RunAuthority
 from .machine import evaluate_closed_program, site_classes
 
@@ -60,6 +64,7 @@ def execute_pure_run(
     *,
     run_id: str,
     workspace: Path,
+    provider_io: ProviderIOContext | None = None,
 ) -> tuple[int, Any]:
     """Evaluate the checked table and persist its terminal outcome under its writer lock."""
     if not isinstance(authority, RunAuthority):
@@ -73,10 +78,17 @@ def execute_pure_run(
         if before.terminal is not None and before.terminal.data["outcome"] == "completed":
             return 0, before.terminal.data["value"]
 
-        def handle(node, operands, identity, _owner, _reader):
-            if node.get("class") != "command":
+        provider_executor = None
+
+        def handle(node, operands, identity, _owner, reader):
+            nonlocal provider_executor
+            if node.get("class") not in {"command", "provider"}:
                 raise RuntimeError("unsupported evaluated effect class")
-            return _execute_command(
+            if node["class"] == "provider" and provider_executor is None:
+                provider_executor = ProviderExecutor(
+                    workspace, ProviderRegistry(), provider_observation_enabled=False
+                )
+            return _execute_effect(
                 authority,
                 node,
                 operands,
@@ -85,6 +97,8 @@ def execute_pure_run(
                 run_files=run_files,
                 workspace_files=workspace_files,
                 site_classes=checked_site_classes,
+                reader=reader,
+                provider_executor=provider_executor,
             )
 
         try:
@@ -92,6 +106,7 @@ def execute_pure_run(
                 authority.program,
                 inputs,
                 effect_handler=handle,
+                provider_io=provider_io,
                 run_id=run_id,
             ).json_value()
         except Exception as exc:
@@ -154,7 +169,7 @@ def _append_failed_terminal_if_clear(
     )
 
 
-def _execute_command(
+def _execute_effect(
     authority: RunAuthority,
     node: Mapping[str, Any],
     operands: Sequence[EvaluatedValue],
@@ -164,59 +179,65 @@ def _execute_command(
     run_files: WorkspaceFiles,
     workspace_files: WorkspaceFiles,
     site_classes: Mapping[str, str],
+    reader,
+    provider_executor: ProviderExecutor | None,
 ) -> EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes)
     commit = snapshot.active_commits.get(identity)
     if commit is None:
-        _ensure_command_can_start(snapshot, identity)
-    latest_start = snapshot.latest_starts.get(identity)
-    baseline = None if commit is not None else _retry_baseline(snapshot, identity, latest_start)
-    previous_evidence = _previous_command_evidence(commit, baseline)
-    resolved_argv, document_bytes = _render_resolved_argv(node, operands, commit, identity)
-    ordinal, attempt_directory, result_path, destinations = _next_command_paths(
-        authority, snapshot, identity, commit
+        _ensure_effect_can_start(snapshot, identity)
+    baseline = None if commit is not None else _retry_baseline(
+        snapshot, identity, snapshot.latest_starts.get(identity))
+    ordinal, attempt_directory, result_path = (
+        attempt_paths(snapshot, identity) if commit is None
+        else (None, None, commit.data["result_path"]))
+    resolved, parts, implementation_files = _resolve_effect_input(
+        authority, node, operands, identity, workspace, reader,
+        commit, baseline, attempt_directory, result_path,
     )
-    implementation_files = _resolve_command_implementation(
-        node, workspace, identity, previous_evidence, destinations
-    )
-    _check_retry_implementation(identity, baseline, implementation_files)
-    parts = _command_input_parts(node, resolved_argv, implementation_files, document_bytes)
     input_digest = canonical_sha256(parts)
     dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
-
     if commit is not None:
-        return _reuse_command_commit(
-            commit, node, identity, parts, input_digest, dependencies
-        )
-
+        return _reuse_effect_commit(commit, node, identity, parts, input_digest, dependencies)
     if baseline is not None and node.get("repeat") == "never":
-        raise _PreflightRefusal(
-            "lexical_restore_pending_effect_unsafe",
-            f"{identity}: command declares that it must not be repeated",
-        )
-
-    assert ordinal is not None and attempt_directory is not None and result_path is not None
+        raise _PreflightRefusal("lexical_restore_pending_effect_unsafe",
+            f"{identity}: effect declares that it must not be repeated")
+    assert ordinal is not None and attempt_directory is not None
     if baseline is not None:
         logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
-    return _start_and_perform_command(
-        authority,
-        node,
-        identity,
-        ordinal,
-        result_path,
-        input_digest,
-        parts,
-        implementation_files,
-        dependencies,
-        resolved_argv,
-        workspace,
-        run_files,
-        workspace_files,
-        site_classes,
-    )
+    return _start_and_perform_effect(authority, node, identity, ordinal, result_path,
+        input_digest, parts, implementation_files, dependencies, resolved, workspace,
+        run_files, workspace_files, site_classes, provider_executor)
 
 
-def _ensure_command_can_start(snapshot: MemoSnapshot, identity: str) -> None:
+def _resolve_effect_input(
+    authority, node, operands, identity, workspace, reader,
+    commit, baseline, attempt_directory, result_path,
+):
+    """Resolve only the reached effect; command closure checks stay local."""
+    if node["class"] == "command":
+        previous = commit if commit is not None else baseline
+        resolved, document_bytes = _render_resolved_argv(node, operands, commit, identity)
+        destinations = () if commit is not None else _command_destinations(
+            authority, attempt_directory, result_path)
+        implementation_files = _resolve_command_implementation(node, workspace, identity,
+            None if previous is None else previous.data["implementation_files"], destinations)
+        _check_retry_implementation(identity, baseline, implementation_files)
+        parts = _command_input_parts(node, resolved, implementation_files, document_bytes)
+    else:
+        try:
+            resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
+                result_path=workspace_relative_path(workspace, authority.run_root / result_path))
+        except Exception as exc:
+            if commit is not None:
+                raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
+            raise
+        parts = dict(resolved.input_parts)
+        implementation_files = {}
+    return resolved, parts, implementation_files
+
+
+def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str) -> None:
     pending_elsewhere = sorted(set(snapshot.pending_starts) - {identity})
     if pending_elsewhere or snapshot.unsettled_coordinators:
         raise _PreflightRefusal(
@@ -231,11 +252,6 @@ def _ensure_command_can_start(snapshot: MemoSnapshot, identity: str) -> None:
         )
 
 
-def _previous_command_evidence(commit, baseline) -> Mapping[str, Any] | None:
-    previous = commit if commit is not None else baseline
-    return None if previous is None else previous.data["implementation_files"]
-
-
 def _render_resolved_argv(node, operands, commit, identity):
     try:
         tail = render_command_argv(node, operands)
@@ -248,14 +264,6 @@ def _render_resolved_argv(node, operands, commit, identity):
     if document is not None:
         argv.append(document.decode("utf-8"))
     return argv, document
-
-
-def _next_command_paths(authority, snapshot, identity, commit):
-    if commit is not None:
-        return None, None, None, ()
-    ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
-    destinations = _command_destinations(authority, attempt_directory, result_path)
-    return ordinal, attempt_directory, result_path, destinations
 
 
 def _resolve_command_implementation(node, workspace, identity, previous, destinations):
@@ -282,7 +290,7 @@ def _check_retry_implementation(identity, baseline, implementation_files) -> Non
     raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}")
 
 
-def _reuse_command_commit(commit, node, identity, parts, input_digest, dependencies):
+def _reuse_effect_commit(commit, node, identity, parts, input_digest, dependencies):
     row = commit.data
     changed_parts = sorted(
         name for name in set(parts) | set(row["input_parts"])
@@ -299,11 +307,11 @@ def _reuse_command_commit(commit, node, identity, parts, input_digest, dependenc
         node["result"],
         dependencies=(*dependencies, identity),
         committed_result_path=row["result_path"],
-        context="committed command result",
+        context=f"committed {node['class']} result",
     )
 
 
-def _start_and_perform_command(
+def _start_and_perform_effect(
     authority,
     node,
     identity,
@@ -313,11 +321,12 @@ def _start_and_perform_command(
     parts,
     implementation_files,
     dependencies,
-    resolved_argv,
+    resolved_request,
     workspace,
     run_files,
     workspace_files,
     site_classes,
+    provider_executor,
 ):
     started = {
         "record": "started",
@@ -331,12 +340,16 @@ def _start_and_perform_command(
     }
     attempt_files = allocate_attempt(run_files, authority.memo_path, started)
     try:
-        result, result_digest = _dispatch_command(
-            authority, node, resolved_argv, attempt_files, workspace_files
-        )
-        after_files = _rehash_command_implementation(
-            node, workspace, implementation_files
-        )
+        if node["class"] == "command":
+            result, result_digest = _dispatch_command(
+                authority, node, resolved_request, attempt_files, workspace_files)
+            after_files = _rehash_command_implementation(node, workspace, implementation_files)
+        else:
+            result, result_digest = perform_provider(node, resolved_request, identity,
+                executor=provider_executor, attempt_files=attempt_files,
+                workspace_files=workspace_files, result_path=workspace_relative_path(
+                    workspace, authority.run_root / result_path))
+            after_files = {}
         value = result.json_value()
         append_record(
             authority.memo_path,
@@ -351,7 +364,7 @@ def _start_and_perform_command(
                 "result_digest": result_digest,
                 "implementation_files": after_files,
                 "depends_on": dependencies,
-                "effect_class": "command",
+                "effect_class": node["class"],
                 "time": time.time(),
             },
         )
@@ -362,7 +375,7 @@ def _start_and_perform_command(
             committed_result_path=result_path,
         )
     except Exception as exc:
-        _fail_started_command(authority, identity, ordinal, site_classes, exc)
+        _fail_started_effect(authority, identity, ordinal, site_classes, exc)
         raise
     finally:
         attempt_files.close()
@@ -408,21 +421,22 @@ def _rehash_command_implementation(node, workspace, implementation_files):
     return after_files
 
 
-def _fail_started_command(authority, identity, ordinal, site_classes, exc) -> None:
+def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> None:
     try:
         after = read_memo(authority.memo_path, site_classes)
         pending = after.pending_starts.get(identity)
         if pending is not None and pending.data["attempt"] == ordinal:
-            append_record(
-                authority.memo_path,
-                {
-                    "record": "failed",
-                    "identity": identity,
-                    "attempt": ordinal,
-                    "code": getattr(exc, "code", "evaluated_execution_failed"),
-                    "exit_info": getattr(exc, "exit_info", None) or {},
-                },
-            )
+            failure = {
+                "record": "failed",
+                "identity": identity,
+                "attempt": ordinal,
+                "code": getattr(exc, "code", "evaluated_execution_failed"),
+                "exit_info": getattr(exc, "exit_info", None) or {},
+            }
+            violations = getattr(exc, "violations", None)
+            if violations is not None:
+                failure["violations"] = violations
+            append_record(authority.memo_path, failure)
     except (MemoError, OSError, ValueError):
         pass
 

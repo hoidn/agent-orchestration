@@ -114,14 +114,11 @@ def _with_dependencies(
     return prompt
 
 
-def _output_contract_prompt(
-    prompt: str,
-    node: Mapping[str, Any],
-    fills: Sequence[Mapping[str, Any]],
-    fill_values: Sequence[Any],
-    result_path: str,
-) -> str:
-    expected_outputs = [
+def provider_expected_outputs(
+    fills: Sequence[Mapping[str, Any]], fill_values: Sequence[Any]
+) -> list[dict[str, Any]]:
+    """The same output-position rows feed prompt rendering and validation."""
+    return [
         {
             "name": fill["name"],
             "path": value,
@@ -131,6 +128,16 @@ def _output_contract_prompt(
         for fill, value in zip(fills, fill_values, strict=True)
         if fill.get("output_role") == "required_string_file"
     ]
+
+
+def _output_contract_prompt(
+    prompt: str,
+    node: Mapping[str, Any],
+    fills: Sequence[Mapping[str, Any]],
+    fill_values: Sequence[Any],
+    result_path: str,
+) -> str:
+    expected_outputs = provider_expected_outputs(fills, fill_values)
     contributions: list[tuple[str, str]] = []
     if expected_outputs:
         contributions.append(

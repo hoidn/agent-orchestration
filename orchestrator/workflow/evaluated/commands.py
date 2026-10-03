@@ -173,7 +173,7 @@ def perform_command(
     if not launch_argv or any(not isinstance(token, str) for token in launch_argv):
         raise ValueError("final command argv must contain string tokens")
 
-    result_path = _workspace_relative_path(
+    result_path = workspace_relative_path(
         workspace_files.workspace,
         attempt_files.workspace / "result.json",
     )
@@ -225,6 +225,15 @@ def perform_command(
             f"cannot read evaluated command result at {result_path}: {exc}",
         ) from exc
 
+    value, digest, _artifacts = validate_effect_result(node, result_bytes, result_path, workspace_files)
+    return value, digest
+
+
+def validate_effect_result(
+    node: Mapping[str, Any], result_bytes: bytes, result_path: str,
+    workspace_files: WorkspaceFiles,
+) -> tuple[EvaluatedValue, str, dict[str, Any]]:
+    """Validate and project bytes acquired from either effect's pinned attempt."""
     artifacts = _validate_result_bytes(node, result_bytes, result_path, workspace_files)
     projected = _project_checked_result(node, artifacts)
     projected = _restore_record_containers(
@@ -236,12 +245,12 @@ def perform_command(
         projected,
         node["result"],
         committed_result_path=result_path,
-        context="evaluated command result",
+        context=f"evaluated {node['class']} result",
     )
-    return value, "sha256:" + sha256(result_bytes).hexdigest()
+    return value, "sha256:" + sha256(result_bytes).hexdigest(), artifacts
 
 
-def _workspace_relative_path(workspace: Path, target: Path) -> str:
+def workspace_relative_path(workspace: Path, target: Path) -> str:
     return os.path.relpath(target, workspace).replace(os.sep, "/")
 
 

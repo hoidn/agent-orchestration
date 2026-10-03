@@ -36,6 +36,7 @@ def _run_flat(
     inputs: dict[str, object],
     run_id: str,
     extra_outputs: tuple[str, ...] = (),
+    result_bytes: bytes = b"true\n",
 ) -> dict[str, object]:
     flat_compile = compile_stage3_module(
         workflow_path,
@@ -60,46 +61,32 @@ def _run_flat(
     )
     observed: dict[str, object] = {}
 
-    def prepare(_self, *_args, **kwargs):
-        observed["flat_prompt"] = kwargs["prompt_content"]
-        env = kwargs.get("env") or {}
-        observed["result_path"] = env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
-        return SimpleNamespace(
-            input_mode="stdin",
-            prompt=observed["flat_prompt"],
-            env=env,
-            prepared_prompt=observed["flat_prompt"],
-            prepared_provider_policy=SimpleNamespace(
-                to_dict=lambda: {
-                    "provider_name": kwargs["provider_name"],
-                    "model": None,
-                    "effort": None,
-                    "timeout_sec": kwargs.get("timeout_sec"),
-                    "input_mode": "stdin",
-                }
-            ),
-        ), None
+    real_prepare = ProviderExecutor.prepare_invocation
 
-    def execute(_self, invocation, **_kwargs):
+    def prepare(_self, *args, **kwargs):
+        observed["flat_prepare_args"] = args
+        observed["flat_prepare_kwargs"] = kwargs
+        observed["flat_prompt"] = kwargs["prompt_content"]
+        observed["result_path"] = kwargs["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        invocation, error = real_prepare(_self, *args, **kwargs)
+        assert error is None, error
+        observed["flat_invocation"] = invocation
+        return invocation, error
+
+    def execute(_self, *args, **kwargs):
+        invocation = args[0]
+        observed["flat_execute_args"] = args
+        observed["flat_execute_kwargs"] = kwargs
         output = workspace / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text("true\n", encoding="utf-8")
+        output.write_bytes(result_bytes)
         for relative in extra_outputs:
             artifact = workspace / relative
             artifact.parent.mkdir(parents=True, exist_ok=True)
             artifact.write_text("controlled output\n", encoding="utf-8")
-        return SimpleNamespace(
-            exit_code=0,
-            stdout=b"",
-            stderr=b"",
-            duration_ms=1,
-            error=None,
-            missing_placeholders=None,
-            invalid_prompt_placeholder=False,
-            raw_stdout=None,
-            normalized_stdout=None,
-            provider_session=None,
-        )
+        return SimpleNamespace(exit_code=0, stdout=b"", stderr=b"", duration_ms=1,
+            error=None, missing_placeholders=None, invalid_prompt_placeholder=False,
+            raw_stdout=None, normalized_stdout=None, provider_session=None)
 
     with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(
         ProviderExecutor, "execute", execute
@@ -108,6 +95,7 @@ def _run_flat(
             bundle, workspace, manager, retry_delay_ms=0
         ).execute(on_error="stop")
     assert completed["status"] == "completed"
+    observed["flat_outputs"] = completed["workflow_outputs"]
     return observed
 
 
@@ -233,7 +221,7 @@ def test_external_prompt_order_and_source_kind_match_flat_executor(
             **{source_kind: source_ref},
         )
     }
-    provider_externs = {"providers.reply": "capturing-provider"}
+    provider_externs = {"providers.reply": "codex"}
     inputs: dict[str, object] = {
         "name": "FIRST-INPUT-CAPTURE",
         "name__2": "AUTHORED-SUFFIX-CAPTURE",
@@ -308,7 +296,7 @@ def test_external_prompt_without_dependencies_matches_flat_executor(
     prompt_externs = {
         "prompts.base": PromptExtern(name="prompts.base", input_file=source_ref)
     }
-    provider_externs = {"providers.reply": "capturing-provider"}
+    provider_externs = {"providers.reply": "codex"}
     inputs: dict[str, object] = {"message": "INPUT-WITHOUT-DEPENDENCY"}
     source_text = _captured_source(
         workflow_path,
@@ -380,7 +368,7 @@ def test_evaluated_provider_labels_reserve_authored_suffixes(
         workflow_path,
         tmp_path,
         inputs=inputs,
-        provider_externs={"providers.reply": "capturing-provider"},
+        provider_externs={"providers.reply": "codex"},
         prompt_externs=prompt_externs,
         source_text=source_text,
         dependency_snapshot=None,
@@ -428,7 +416,7 @@ def test_defprompt_docs_and_output_positions_match_flat_executor(
     doc_file.parent.mkdir(parents=True)
     doc_file.write_text("DOC-CAPTURE\n", encoding="utf-8")
     prompt_externs: dict[str, PromptExtern] = {}
-    provider_externs = {"providers.reply": "capturing-provider"}
+    provider_externs = {"providers.reply": "codex"}
     inputs: dict[str, object] = {
         "document": doc_relpath,
         "message": "MESSAGE-CAPTURE\ncontinued\n",
