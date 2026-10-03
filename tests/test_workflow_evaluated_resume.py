@@ -187,19 +187,21 @@ def test_fresh_preparation_uses_stored_instance_and_rebound_carrier(tmp_path, mo
         authority = original_load(root, **kwargs)
         seen.append(authority.program)
         return authority
+    calls = []
     def execute(authority, inputs, **kwargs):
+        calls.append((authority, inputs, kwargs))
         assert authority.program is seen[0]
         assert kwargs['provider_io'].program_digest == authority.program.digest
         assert bindings[-1] is authority.program
         assert bindings[0] is not authority.program
         return 0, None
     monkeypatch.setattr(module, 'load_run_authority', load, raising=False)
-    monkeypatch.setattr(module, 'execute_pure_run', execute)
+    monkeypatch.setattr(module, 'execute_pure_resume', execute)
     def forbidden(*args, **kwargs):
         pytest.fail('resume attempted cache publication')
     monkeypatch.setattr('orchestrator.workflow_lisp.closed.artifact.atomic_write_text', forbidden)
     assert resume_workflow(run_root.name) == 0
-    assert len(seen) == 1
+    assert (len(calls), len(seen)) == (1, 1)
 
 
 @pytest.mark.parametrize('target,mode', [(t, m) for t in ('source', 'providers', 'prompts', 'commands', 'imports', 'producer') for m in ('invalid', 'missing', 'cycle')] + [('root', 'cycle')])

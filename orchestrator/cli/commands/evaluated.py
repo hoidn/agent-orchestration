@@ -16,7 +16,7 @@ from orchestrator.workflow.evaluated.authority import (
 )
 from orchestrator.workflow.evaluated.interpreters import check_command_interpreter
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
-from orchestrator.workflow.evaluated.runtime import execute_pure_run
+from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.signatures import (
     WorkflowSignatureError,
@@ -172,7 +172,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
             diagnostic = check_command_interpreter(pin)
             if diagnostic:
                 logger.warning("[%s] recorded interpreter bytes changed: %s", diagnostic, pin["path"])
-        exit_code, _ = execute_pure_run(authority, inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io)
+        exit_code, _ = execute_pure_resume(authority, inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io)
         return exit_code
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
