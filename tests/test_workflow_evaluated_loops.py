@@ -53,7 +53,7 @@ def test_loop_literal_result_retains_choices_without_reading_unused_state(
     choices = iter(decisions)
     effects = []
 
-    def perform(node, operands, identity):
+    def perform(node, operands, identity, _owner, _reader):
         dependencies = frozenset(
             dependency for operand in operands for dependency in operand.dependencies
         )
@@ -183,7 +183,7 @@ def test_loop_budget_result_dependency_does_not_leak_into_body_effect_inputs(
     def evaluate(budget):
         effects = []
 
-        def perform(node, operands, identity):
+        def perform(node, operands, identity, _owner, _reader):
             dependencies = frozenset(
                 dependency for operand in operands for dependency in operand.dependencies
             )

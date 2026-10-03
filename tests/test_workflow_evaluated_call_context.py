@@ -115,7 +115,7 @@ def test_forwarded_bind_proc_keeps_effect_lineage_without_rereading_path(
 
     effects: list[tuple[tuple[object, ...], str]] = []
 
-    def perform(node, operands, identity):
+    def perform(node, operands, identity, _owner, _reader):
         values = tuple(value.value for value in operands)
         effects.append((values, identity))
         return coerce_evaluated_value(

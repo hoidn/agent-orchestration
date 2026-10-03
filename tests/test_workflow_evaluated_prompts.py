@@ -153,7 +153,7 @@ def _evaluate(
     closed = build_closed_program(typed)
     observed: dict[str, object] = {}
 
-    def perform(node, operands, _identity):
+    def perform(node, operands, _identity, _owner, _reader):
         from orchestrator.workflow.evaluated.prompts import assemble_provider_prompt
 
         observed["node"] = node

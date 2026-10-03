@@ -73,7 +73,7 @@ def execute_pure_run(
         if before.terminal is not None and before.terminal.data["outcome"] == "completed":
             return 0, before.terminal.data["value"]
 
-        def handle(node, operands, identity):
+        def handle(node, operands, identity, _owner, _reader):
             if node.get("class") != "command":
                 raise RuntimeError("unsupported evaluated effect class")
             return _execute_command(

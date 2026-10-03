@@ -43,7 +43,7 @@ def test_read_back_machine_instantiates_call_sites_inside_loop(tmp_path: Path) -
     values = import_module("orchestrator.workflow.evaluated.values")
     dispatched: list[tuple[int, str]] = []
 
-    def perform(node, operands, identity):
+    def perform(node, operands, identity, _owner, _reader):
         command_argument, argument = operands
         assert command_argument.value == "fetch"
         dispatched.append((argument.value, identity))
@@ -256,7 +256,7 @@ def test_run_context_and_committed_result_path_are_machine_values(tmp_path: Path
     values = import_module("orchestrator.workflow.evaluated.values")
     effects = []
 
-    def provider(node, operands, identity):
+    def provider(node, operands, identity, _owner, _reader):
         effects.append(identity)
         return values.coerce_evaluated_value(
             {"text": "complete"}, node["result"], dependencies={identity},
@@ -353,7 +353,7 @@ def _build_read_back(
 
 
 def _effect_handler(values, effects):
-    def perform(node, operands, identity):
+    def perform(node, operands, identity, _owner, _reader):
         boundary = node["boundary"]
         arguments = tuple(value.value for value in operands)
         dependencies = frozenset(

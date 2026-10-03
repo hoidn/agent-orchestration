@@ -108,7 +108,7 @@ def test_imported_effect_uses_producer_configuration_on_name_conflicts(
 
     effects: list[tuple[dict, str]] = []
 
-    def perform(node, _operands, identity):
+    def perform(node, _operands, identity, _owner, _reader):
         effects.append((node, identity))
         value = 7 if node["class"] == "command" else 11
         return coerce_evaluated_value(
@@ -190,7 +190,7 @@ def test_projected_import_result_keeps_committed_file_lineage_without_reread(
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
     effects: list[str] = []
 
-    def perform(node, _operands, identity):
+    def perform(node, _operands, identity, _owner, _reader):
         effects.append(identity)
         return coerce_evaluated_value(
             {"payload__x": "reports/x.txt", "payload__y": "reports/y.txt"},

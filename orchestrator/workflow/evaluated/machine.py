@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from typing import Any
 
 from orchestrator.workflow.pure_expr import coerce_pure_value
+from orchestrator.workflow_lisp.closed.frontend import (
+    ProviderIOActivation,
+    ProviderIOContext,
+    WorkflowIOReader,
+)
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.sites import _ast_nodes, _effect_value_children
 
@@ -23,7 +28,8 @@ from .values import (
 
 
 EffectHandler = Callable[
-    [Mapping[str, Any], tuple[EvaluatedValue, ...], str], EvaluatedValue
+    [Mapping[str, Any], tuple[EvaluatedValue, ...], str, str, WorkflowIOReader | None],
+    EvaluatedValue,
 ]
 _LoopActivation = tuple[str, int]
 
@@ -77,6 +83,8 @@ class _Machine:
     program: ClosedProgram
     effect_handler: EffectHandler | None
     run_id: str | None
+    provider_io: ProviderIOContext | None
+    io_activation: ProviderIOActivation | None
 
     def evaluate(self, inputs: Mapping[str, Any]) -> EvaluatedValue:
         entry = self.program.tree
@@ -298,7 +306,17 @@ class _Machine:
         call_activation = activation
         if frame is not None:
             call_activation = (*activation, *self._segments(self._instantiate(frame, loops)))
-        result = self._body(
+        machine = self
+        if self.provider_io is not None:
+            if self.io_activation is None or self.io_activation.owner != owner:
+                raise ValueError("workflow IO activation does not match the checked call owner")
+            io_activation = (
+                self.provider_io.call(owner, frame, self.io_activation)
+                if frame is not None
+                else replace(self.io_activation, owner=node["callee"])
+            )
+            machine = replace(self, io_activation=io_activation)
+        result = machine._body(
             definition["body"], native_environment, node["callee"], call_activation, ()
         )
         return call_result(node, definition, result)
@@ -312,7 +330,12 @@ class _Machine:
         )
         site = self._instantiate(node["site"], loops)
         identity = self._identity((*activation, *self._segments(site)))
-        result = self.effect_handler(node, operands, identity)
+        reader = None
+        if self.provider_io is not None:
+            if self.io_activation is None:
+                raise ValueError("workflow IO activation is unavailable for a checked effect")
+            reader = self.provider_io.effect(owner, node["site"], self.io_activation)
+        result = self.effect_handler(node, operands, identity, owner, reader)
         if not isinstance(result, EvaluatedValue):
             raise TypeError("effect handler must return an EvaluatedValue")
         return self._coerce_result(result, node["result"], node)
@@ -408,10 +431,16 @@ def evaluate_closed_program(
     inputs: Mapping[str, Any],
     *,
     effect_handler: EffectHandler | None = None,
+    provider_io: ProviderIOContext | None = None,
     run_id: str | None = None,
 ) -> EvaluatedValue:
     """Evaluate a validated closed artifact using one structured control machine."""
 
     if not isinstance(program, ClosedProgram):
         raise TypeError("program must be a validated ClosedProgram")
-    return _Machine(program, effect_handler, run_id).evaluate(inputs)
+    if provider_io is not None:
+        if not isinstance(provider_io, ProviderIOContext):
+            raise TypeError("provider_io must be a checked ProviderIOContext")
+        provider_io = provider_io.bind(program)
+    activation = None if provider_io is None else provider_io.entry
+    return _Machine(program, effect_handler, run_id, provider_io, activation).evaluate(inputs)
