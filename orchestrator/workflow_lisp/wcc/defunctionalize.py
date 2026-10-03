@@ -87,6 +87,10 @@ from ..lowering.context import (
     _context_with_local_type_binding,
     _copy_context_with_phase_scope,
 )
+from ..lowering.command_transport_decisions import (
+    _wcc_continuation_binding_demands,
+    wcc_binding_materialization,
+)
 from ..lowering.control_dispatch import (
     _binding_local_value_from_terminal,
     _lower_pure_projection_binding_expr,
@@ -756,7 +760,7 @@ def _lower_one_wcc_workflow(
             route_schema_version=route_schema_version,
         )
     )
-    local_values = _signature_local_values(typed_workflow)
+    local_values = _signature_local_values(typed_workflow, type_env=type_env)
     wcc_body, _ = rename_capturing_binders(wcc_body, reserved=local_values)
     scope_analysis = analyze_wcc_body(wcc_body)
     continuation_binding_demands = _wcc_continuation_binding_demands(wcc_body)
@@ -2305,78 +2309,29 @@ def _defunctionalize_body(
                     for frame in binding_expr.expansion_stack
                 )
             )
-            if expansion_owned and is_pure_projection_expr(binding_expr):
-                # A direct ref is already the materialized actual result.  In
-                # particular, do not give every generated formal alias its own
-                # projection/bundle; mappings and deferred frontend nodes are
-                # deliberately not aliases because they do not prove evaluation.
-                existing_ref = (
-                    updated_locals.get(binding_expr.name)
-                    if isinstance(binding_expr, NameExpr)
-                    else None
+            expansion_projection = expansion_owned and is_pure_projection_expr(binding_expr)
+            resolved_binding = (
+                None if expansion_projection else _resolve_wcc_inline_expr_value(
+                    binding_expr, local_values=updated_locals,
                 )
-                if isinstance(existing_ref, str):
-                    updated_locals[body.bound_name] = existing_ref
-                else:
-                    binding_step_name = _expansion_binding_step_prefix(
-                        context,
-                        binding_name=body.bound_name,
-                        scope_id=body.metadata.scope_id,
-                    )
-                    binding_steps, binding_terminal = (
-                        _lower_pure_projection_binding_expr(
-                            binding_expr,
-                            source_expr=binding_expr,
-                            binding_name=body.bound_name,
-                            binding_type=binding_type,
-                            context=context,
-                            local_values=updated_locals,
-                            step_name_prefix=binding_step_name,
-                        )
-                    )
-                    if lexical_checkpoint_points is not None:
-                        lexical_checkpoint_points.append(
-                            _pure_projection_checkpoint_point_payload(
-                                workflow_name=context.workflow_name,
-                                let_binding=body,
-                                terminal=binding_terminal,
-                                context=context,
-                                local_values=updated_locals,
-                            )
-                        )
-                    binding_hidden_inputs.update(binding_terminal.hidden_inputs)
-                    updated_locals[body.bound_name] = (
-                        _binding_local_value_from_terminal(
-                            binding_expr,
-                            binding_type=binding_type,
-                            binding_terminal=binding_terminal,
-                            context=context,
-                        )
-                    )
-            else:
-                resolved_binding = _resolve_wcc_inline_expr_value(
-                    binding_expr,
-                    local_values=updated_locals,
+            )
+            binding_kind, selected_value = wcc_binding_materialization(
+                binding_expr,
+                expansion_owned=expansion_owned,
+                existing_ref=(updated_locals.get(binding_expr.name) if isinstance(binding_expr, NameExpr) else None),
+                resolved_binding=resolved_binding,
+                run_ref_demand=body.bound_name in run_ref_input_names,
+                provider_context_demand=body.bound_name in provider_context_names,
+                request_input_demand=body.bound_name in request_input_names,
+            )
+            if binding_kind == "expansion_projection":
+                binding_step_name = _expansion_binding_step_prefix(
+                    context,
+                    binding_name=body.bound_name,
+                    scope_id=body.metadata.scope_id,
                 )
-                if (
-                    is_pure_projection_expr(binding_expr)
-                    and body.bound_name in run_ref_input_names
-                ):
-                    resolved_binding = binding_expr
-                if (
-                    is_pure_projection_expr(binding_expr)
-                    and body.bound_name in provider_context_names
-                    and (
-                        not isinstance(binding_expr, FieldAccessExpr)
-                        or isinstance(resolved_binding, Mapping)
-                    )
-                ):
-                    binding_step_name = _expansion_binding_step_prefix(
-                        context,
-                        binding_name=body.bound_name,
-                        scope_id=body.metadata.scope_id,
-                    )
-                    binding_steps, binding_terminal = _lower_pure_projection_binding_expr(
+                binding_steps, binding_terminal = (
+                    _lower_pure_projection_binding_expr(
                         binding_expr,
                         source_expr=binding_expr,
                         binding_name=body.bound_name,
@@ -2384,78 +2339,102 @@ def _defunctionalize_body(
                         context=context,
                         local_values=updated_locals,
                         step_name_prefix=binding_step_name,
-                        whole_value=True,
                     )
-                    binding_hidden_inputs.update(binding_terminal.hidden_inputs)
-                    updated_locals[body.bound_name] = binding_terminal.output_refs["return"]
-                elif (
-                    is_pure_projection_expr(binding_expr)
-                    and body.bound_name in request_input_names
-                ):
-                    if isinstance(resolved_binding, (str, LiteralExpr)):
-                        updated_locals[body.bound_name] = resolved_binding
-                    else:
-                        binding_step_name = _binding_step_prefix(context, body.bound_name)
-                        binding_steps, binding_terminal = _lower_pure_projection_binding_expr(
-                            binding_expr,
-                            source_expr=binding_expr,
-                            binding_name=body.bound_name,
-                            binding_type=binding_type,
+                )
+                if lexical_checkpoint_points is not None:
+                    lexical_checkpoint_points.append(
+                        _pure_projection_checkpoint_point_payload(
+                            workflow_name=context.workflow_name,
+                            let_binding=body,
+                            terminal=binding_terminal,
                             context=context,
                             local_values=updated_locals,
-                            step_name_prefix=binding_step_name,
                         )
-                        binding_hidden_inputs.update(binding_terminal.hidden_inputs)
-                        updated_locals[body.bound_name] = _binding_local_value_from_terminal(
-                            binding_expr,
-                            binding_type=binding_type,
-                            binding_terminal=binding_terminal,
-                            context=context,
-                        )
-                elif (
-                    isinstance(binding_expr, IfExpr)
-                    and resolved_binding is not None
-                    and not isinstance(resolved_binding, (str, Mapping))
-                    and is_pure_projection_expr(resolved_binding)
-                ):
-                    binding_step_name = _binding_step_prefix(context, body.bound_name)
-                    binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
-                    lowered_projection = lower_pure_projection_step(
-                        resolved_binding,
-                        result_type=binding_type,
-                        context=context,
-                        local_values=updated_locals,
-                        step_name=binding_step_name,
-                        step_id=binding_step_id,
-                        stable_target="binding_projection",
                     )
-                    binding_steps = [lowered_projection.step]
-                    binding_terminal = _TerminalResult(
-                        step_name=binding_step_name,
-                        step_id=binding_step_id,
-                        output_refs=lowered_projection.output_refs,
-                        output_kind="projection",
-                        hidden_inputs={},
-                    )
-                    if lexical_checkpoint_points is not None:
-                        lexical_checkpoint_points.append(
-                            _pure_projection_checkpoint_point_payload(
-                                workflow_name=context.workflow_name,
-                                let_binding=body,
-                                terminal=binding_terminal,
-                                context=context,
-                                local_values=updated_locals,
-                            )
-                        )
-                    binding_hidden_inputs.update(binding_terminal.hidden_inputs)
-                    updated_locals[body.bound_name] = _binding_local_value_from_terminal(
+                binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                updated_locals[body.bound_name] = (
+                    _binding_local_value_from_terminal(
                         binding_expr,
                         binding_type=binding_type,
                         binding_terminal=binding_terminal,
                         context=context,
                     )
-                else:
-                    updated_locals[body.bound_name] = resolved_binding
+                )
+            elif binding_kind == "whole_value":
+                binding_step_name = _expansion_binding_step_prefix(
+                    context,
+                    binding_name=body.bound_name,
+                    scope_id=body.metadata.scope_id,
+                )
+                binding_steps, binding_terminal = _lower_pure_projection_binding_expr(
+                    binding_expr,
+                    source_expr=binding_expr,
+                    binding_name=body.bound_name,
+                    binding_type=binding_type,
+                    context=context,
+                    local_values=updated_locals,
+                    step_name_prefix=binding_step_name,
+                    whole_value=True,
+                )
+                binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                updated_locals[body.bound_name] = binding_terminal.output_refs["return"]
+            elif binding_kind == "request_projection":
+                binding_step_name = _binding_step_prefix(context, body.bound_name)
+                binding_steps, binding_terminal = _lower_pure_projection_binding_expr(
+                    binding_expr,
+                    source_expr=binding_expr,
+                    binding_name=body.bound_name,
+                    binding_type=binding_type,
+                    context=context,
+                    local_values=updated_locals,
+                    step_name_prefix=binding_step_name,
+                )
+                binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                updated_locals[body.bound_name] = _binding_local_value_from_terminal(
+                    binding_expr,
+                    binding_type=binding_type,
+                    binding_terminal=binding_terminal,
+                    context=context,
+                )
+            elif binding_kind == "if_projection":
+                binding_step_name = _binding_step_prefix(context, body.bound_name)
+                binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
+                lowered_projection = lower_pure_projection_step(
+                    selected_value,
+                    result_type=binding_type,
+                    context=context,
+                    local_values=updated_locals,
+                    step_name=binding_step_name,
+                    step_id=binding_step_id,
+                    stable_target="binding_projection",
+                )
+                binding_steps = [lowered_projection.step]
+                binding_terminal = _TerminalResult(
+                    step_name=binding_step_name,
+                    step_id=binding_step_id,
+                    output_refs=lowered_projection.output_refs,
+                    output_kind="projection",
+                    hidden_inputs={},
+                )
+                if lexical_checkpoint_points is not None:
+                    lexical_checkpoint_points.append(
+                        _pure_projection_checkpoint_point_payload(
+                            workflow_name=context.workflow_name,
+                            let_binding=body,
+                            terminal=binding_terminal,
+                            context=context,
+                            local_values=updated_locals,
+                        )
+                    )
+                binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                updated_locals[body.bound_name] = _binding_local_value_from_terminal(
+                    binding_expr,
+                    binding_type=binding_type,
+                    binding_terminal=binding_terminal,
+                    context=context,
+                )
+            else:
+                updated_locals[body.bound_name] = selected_value
         nested_steps, nested_terminal = _defunctionalize_body(
             body.body,
             context=lowering_core._context_with_local_type_binding(
@@ -6699,13 +6678,13 @@ def _lower_wcc_procedure_call(
         span=value.metadata.source_span,
         form_path=value.metadata.form_path,
     )
-    specialization_bindings: dict[str, Any] = {}
-    for kind in ("workflow_ref_bindings", "proc_ref_bindings", "value_bindings"):
-        specialization_bindings.update(dict(getattr(procedure.specialization, kind, {})))
-    child_locals = {**dict(local_values), **specialization_bindings}
+    from ..lowering.command_control_decisions import inline_procedure_bindings, procedure_specialization_bindings
+
+    specialization_bindings = procedure_specialization_bindings(procedure)
     arg_values = tuple(_resolve_wcc_inline_expr_value(arg_expr, local_values=local_values) for arg_expr in arg_exprs)
-    for arg_value, (param_name, _) in zip(arg_values, procedure.signature.params, strict=True):
-        child_locals[param_name] = arg_value
+    child_locals = inline_procedure_bindings(
+        procedure, caller_values=local_values, actual_values=arg_values,
+    )
 
     prefix_ordinal = context.inline_call_counters.get(value.callee_name, 0) + 1
     context.inline_call_counters[value.callee_name] = prefix_ordinal
@@ -6941,129 +6920,6 @@ def _wcc_tree_references_name(value: object, name: str) -> bool:
     return False
 
 
-def _wcc_continuation_binding_demands(
-    root: WccBody,
-) -> dict[int, tuple[frozenset[str], frozenset[str], frozenset[str]]]:
-    """Collect the operation operands demanded by every immutable WCC body.
-
-    ANF lowering consults the demand set for a ``WccLet`` continuation only.
-    Keeping the lookup local to this one lowering call avoids repeatedly
-    walking the same nested continuation for every earlier binding.
-    """
-
-    empty = (frozenset(), frozenset(), frozenset())
-    by_body_id: dict[
-        int,
-        tuple[frozenset[str], frozenset[str], frozenset[str]],
-    ] = {}
-
-    def merge(
-        *demands: tuple[frozenset[str], frozenset[str], frozenset[str]],
-    ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
-        if not demands:
-            return empty
-        merged = demands[0]
-        for incoming in demands[1:]:
-            fields = tuple(
-                existing
-                if incoming_field.issubset(existing)
-                else incoming_field
-                if existing.issubset(incoming_field)
-                else existing | incoming_field
-                for existing, incoming_field in zip(merged, incoming, strict=True)
-            )
-            if all(field is existing for field, existing in zip(fields, merged, strict=True)):
-                continue
-            if all(field is incoming_field for field, incoming_field in zip(fields, incoming, strict=True)):
-                merged = incoming
-                continue
-            merged = fields  # type: ignore[assignment]
-        return merged
-
-    def referenced_names(value: object) -> frozenset[str]:
-        if isinstance(value, WccNameAtom):
-            return frozenset((value.name,))
-        if isinstance(value, Mapping):
-            return frozenset().union(
-                *(referenced_names(item) for item in value.values())
-            )
-        if isinstance(value, (tuple, list)):
-            return frozenset().union(*(referenced_names(item) for item in value))
-        if is_dataclass(value):
-            return frozenset().union(
-                *(referenced_names(getattr(value, field_info.name)) for field_info in fields(value))
-            )
-        return frozenset()
-
-    def value_demand(
-        value: object,
-    ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
-        if isinstance(value, WccPerform):
-            if value.perform_kind == "run_ref":
-                return (referenced_names(value.keyword_args), frozenset(), frozenset())
-            if value.perform_kind == "provider_result":
-                payload = value.operation_payload
-                context_expr = (
-                    payload.get("context_expr") if isinstance(payload, Mapping) else None
-                )
-                return (frozenset(), referenced_names(context_expr), frozenset())
-            if value.perform_kind == "request_input":
-                return (frozenset(), frozenset(), referenced_names(value.positional_args))
-            return empty
-        if isinstance(value, (WccLet, WccCase, WccIf, WccJoin, WccRecJoin, WccHalt, WccJump, WccLoopContinue, WccLoopDone)):
-            return body_demand(value)
-        if isinstance(value, Mapping):
-            return merge(*(value_demand(item) for item in value.values()))
-        if isinstance(value, (tuple, list)):
-            return merge(*(value_demand(item) for item in value))
-        if is_dataclass(value):
-            return merge(
-                *(value_demand(getattr(value, field_info.name)) for field_info in fields(value))
-            )
-        return empty
-
-    def body_demand(
-        body: WccBody,
-    ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
-        existing = by_body_id.get(id(body))
-        if existing is not None:
-            return existing
-        if isinstance(body, WccLet):
-            demand = merge(value_demand(body.bound_value), body_demand(body.body))
-        elif isinstance(body, WccCase):
-            demand = merge(
-                value_demand(body.subject),
-                *(body_demand(arm.body) for arm in body.arms),
-            )
-        elif isinstance(body, WccIf):
-            demand = merge(
-                value_demand(body.condition),
-                body_demand(body.then_body),
-                body_demand(body.else_body),
-            )
-        elif isinstance(body, WccJoin):
-            demand = merge(body_demand(body.body), body_demand(body.continuation))
-        elif isinstance(body, WccRecJoin):
-            demand = merge(
-                value_demand(body.budget),
-                value_demand(body.initial_state),
-                body_demand(body.body),
-                value_demand(body.exhaustion),
-            )
-        elif isinstance(body, WccLoopContinue):
-            demand = value_demand(body.state_args)
-        elif isinstance(body, WccLoopDone):
-            demand = merge(value_demand(body.result), value_demand(body.state))
-        elif isinstance(body, WccJump):
-            demand = value_demand(body.args)
-        else:
-            demand = value_demand(body.result)
-        by_body_id[id(body)] = demand
-        return demand
-
-    body_demand(root)
-    return by_body_id
-
 
 def _wcc_workflow_call_exclusively_consumes_binding(
     body: WccBody,
@@ -7288,6 +7144,7 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             return FieldAccessExpr(
                 base=base_expr,
                 fields=value.fields,
+                shared_field_types=value.shared_field_types,
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,
@@ -7296,6 +7153,11 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             return FieldAccessExpr(
                 base=base_expr.base,
                 fields=(*base_expr.fields, *value.fields),
+                shared_field_types=(
+                    (*(base_expr.shared_field_types or (None,) * len(base_expr.fields)),
+                     *(value.shared_field_types or (None,) * len(value.fields)))
+                    if base_expr.shared_field_types or value.shared_field_types else ()
+                ),
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,
@@ -7681,6 +7543,7 @@ def _frontend_expr_from_wcc_value(value: WccValue):
         return FieldAccessExpr(
             base=_frontend_expr_from_wcc_value(value.base),
             fields=value.fields,
+            shared_field_types=value.shared_field_types,
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,

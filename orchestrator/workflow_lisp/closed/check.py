@@ -9,6 +9,7 @@ from hashlib import sha256
 import json
 import math
 import re
+from pathlib import PurePosixPath
 from itertools import product
 from dataclasses import dataclass, field as dataclass_field
 from typing import Any
@@ -19,6 +20,8 @@ from orchestrator.workflow.pure_expr import (
     _descriptors_match,
     canonical_json_for_pure_value,
     validate_pure_expr_payload,
+    value_coercion_descriptor as _value_coercion_descriptor,
+    value_coercion_payload,
 )
 from orchestrator.workflow.prompt_fragment_contract import (
     _RENDERERS_BY_KIND,
@@ -34,6 +37,7 @@ from orchestrator.workflow.run_ref.result_contract import (
 from orchestrator.workflow.type_descriptor import (
     COMPILER_PRIMITIVE_TYPE_NAMES,
     compiled_boundary_rows,
+    command_boundary_row,
     normalize_boundary_contract_definition,
     transport_schema_for_descriptor,
     validate_compiler_normalized_type_descriptor,
@@ -43,6 +47,8 @@ from orchestrator.workflow.view_renderer import (
     render_view,
     resolve_view_renderer,
 )
+
+from ..type_env import _named_type_basename
 
 from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .names import (
@@ -79,14 +85,14 @@ _BODY_KEYS = {
     "jump": {"k", "join", "args", "@"},
     "loop": {
         "k", "name", "param", "state_type", "result", "budget", "init",
-        "body", "exhausted", "code", "label", "@",
+        "body", "exhausted", "code", "label", "index", "@",
     },
     "continue": {"k", "loop", "args", "@"},
 }
 _VALUE_KEYS = {
     "lit": {"k", "v", "type", "@"},
     "name": {"k", "n", "@"},
-    "field": {"k", "base", "path", "@"},
+    "field": {"k", "base", "path", "shared", "@"},
     "record": {"k", "type", "fields", "@"},
     "inject": {"k", "type", "variant", "fields", "@"},
     "op": {"k", "payload", "args", "@"},
@@ -100,7 +106,7 @@ _VALUE_KEYS = {
     "call": {"k", "callee", "args", "type", "boundary", "frame", "@"},
     "perform": {
         "k", "class", "result", "repeat", "site", "@", "boundary", "command",
-        "closure", "contract", "argv", "document", "provider", "prompt", "inputs",
+        "closure", "contract", "argv", "document", "argv_transport", "provider", "prompt", "inputs",
         "dependencies", "policy", "config", "arm_inputs", "question",
     },
 }
@@ -192,34 +198,6 @@ def _prompt_value_type_is_renderable(descriptor: Any) -> bool:
     return False
 
 
-def _value_coercion_descriptor(descriptor: Any) -> Any:
-    """Use the catalog's JSON coercion for DSL Value, including nested slots."""
-
-    if not isinstance(descriptor, Mapping):
-        return descriptor
-    kind = descriptor.get("kind")
-    if kind == "primitive" and descriptor.get("name") == "Value":
-        return {"kind": "primitive", "name": "Json"}
-    projected = deepcopy(dict(descriptor))
-    if kind in {"optional", "list"} and "item" in projected:
-        projected["item"] = _value_coercion_descriptor(projected["item"])
-    elif kind == "map":
-        for field in ("key", "value"):
-            if field in projected:
-                projected[field] = _value_coercion_descriptor(projected[field])
-    elif kind in {"record", "variant_case"}:
-        for row in projected.get("fields", []):
-            if isinstance(row, Mapping) and "type" in row:
-                row["type"] = _value_coercion_descriptor(row["type"])
-    elif kind == "union":
-        for variant in projected.get("variants", []):
-            if isinstance(variant, Mapping):
-                for row in variant.get("fields", []):
-                    if isinstance(row, Mapping) and "type" in row:
-                        row["type"] = _value_coercion_descriptor(row["type"])
-    return projected
-
-
 def _coerce_checked_value(value: Any, descriptor: Mapping[str, Any], *, context: str) -> Any:
     """Coerce with strict catalog scalar tags while accepting JSON-valued Value."""
 
@@ -282,6 +260,7 @@ class _Checker:
         self.pending_boundaries: list[dict[str, Any]] = []
         self.definition_order: list[str] = []
         self._run_ref_visiting: set[str] = set()
+        self._shared_key_types: dict[str, Any] | None = None
 
     def fail(
         self,
@@ -300,7 +279,7 @@ class _Checker:
         self._validate_json(self.tree)
         if not isinstance(self.tree, dict):
             self.fail("program_shape", "closed program must be a JSON object")
-        if set(self.tree) != _TOP_FIELDS:
+        if set(self.tree) - {"command_params"} != _TOP_FIELDS:
             self.fail("program_shape", "closed program has missing or extra top-level fields")
         if self.tree.get("schema") != "workflow-lisp/closed-program/1":
             self.fail("program_schema", "unsupported closed-program schema")
@@ -341,7 +320,20 @@ class _Checker:
         self._check_run_ref_signatures_and_digests()
         self._check_pending_boundaries()
         self._check_key_runtime_agreement()
+        self._check_command_decision_agreement()
         self._check_context_capture_routes()
+
+    def _check_command_decision_agreement(self):
+        from .command_check import checked_command_interfaces
+
+        interfaces = checked_command_interfaces(self.tree, fail=self.fail,
+            project_type=lambda descriptor: key_type_descriptor(descriptor,
+                run_ref_signatures=self.run_ref_signatures))
+        for name, definition in self.definitions.items():
+            key = definition["key"]
+            expected = key[9]["command_decisions"] if len(key) == 10 else []
+            if not self._same(interfaces[name]["decisions"], expected):
+                self.fail("command_decisions", "definition key differs from its derived command decisions", definition)
 
     def _validate_labels(self, body: Any) -> None:
         """Validate label locations and visit AST children without reading data."""
@@ -398,6 +390,8 @@ class _Checker:
                 value(node.get("subject"))
                 for arm in node.get("arms", []) if isinstance(node.get("arms", []), list) else []:
                     if isinstance(arm, Mapping):
+                        for root in self._command_scope_values(arm):
+                            value(root)
                         walk_body(arm.get("body"))
             elif kind == "join":
                 label(node)
@@ -550,18 +544,40 @@ class _Checker:
             self.fail("node_kind", f"unknown value node kind {kind!r}", node)
         return []
 
+    def _command_scope_values(self, arm):
+        rows = arm.get("command_scope", [])
+        if not isinstance(rows, list):
+            self.fail("command_scope", "arm command scope must be an ordered root array", arm)
+        values = []
+        for row in rows:
+            if not isinstance(row, list) or len(row) != 2:
+                self.fail("command_scope", "arm command root must be a formal/value pair", arm)
+            values.append(row[1])
+        return values
+
     def _effect_children(self, node: Mapping[str, Any]) -> list[Any]:
         effect_class = node.get("class")
         if effect_class == "command":
-            if "document" in node:
-                rows = node.get("document", [])
-                return [row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else []
-            return list(node.get("argv", [])) if isinstance(node.get("argv"), list) else []
+            children = list(node.get("argv", [])) if isinstance(node.get("argv"), list) else []
+            plans = node.get("argv_transport", [])
+            if isinstance(plans, list):
+                for plan in plans:
+                    if isinstance(plan, Mapping) and isinstance(plan.get("parts"), list):
+                        children.extend(part.get("value") for part in plan["parts"]
+                            if isinstance(part, Mapping) and part.get("kind") == "slot")
+            rows = node.get("document", [])
+            if isinstance(rows, list):
+                children.extend(row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2)
+            return children
         if effect_class == "provider":
             children = []
             rows = node.get("inputs", [])
             if isinstance(rows, list):
                 children.extend(row[2] for row in rows if isinstance(row, (list, tuple)) and len(row) == 3)
+            prompt = node.get("prompt")
+            fills = prompt.get("fills", []) if isinstance(prompt, Mapping) else []
+            if isinstance(fills, list):
+                children.extend(fill.get("value") for fill in fills if isinstance(fill, Mapping))
             dependencies = node.get("dependencies")
             if isinstance(dependencies, Mapping):
                 for key in ("required", "optional"):
@@ -569,15 +585,16 @@ class _Checker:
             policy = node.get("policy")
             if isinstance(policy, Mapping):
                 children.extend(policy.values())
-            prompt = node.get("prompt")
-            fills = prompt.get("fills", []) if isinstance(prompt, Mapping) else []
-            if isinstance(fills, list):
-                children.extend(fill.get("value") for fill in fills if isinstance(fill, Mapping))
             return children
         if effect_class == "run_ref":
             rows = node.get("inputs", [])
             return [row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else []
         return []
+
+    def _check_document_argv(self, node):
+        if node.get("class") == "command" and "document" in node:
+            if not isinstance(node.get("argv"), list) or node["argv"]:
+                self.fail("effect_shape", "document invocation must carry an empty argv array", node)
 
     def _scan_identity_edges(self) -> None:
         """Enumerate declared AST edges, excluding payloads and literal data."""
@@ -591,6 +608,7 @@ class _Checker:
         self.call_edges[entry] = []
 
         def scan_effect(node: Mapping[str, Any], owner: str) -> None:
+            self._check_document_argv(node)
             for child in self._effect_children(node):
                 scan_value(child, owner)
 
@@ -656,8 +674,10 @@ class _Checker:
                 if not isinstance(node["arms"], list):
                     self.fail("case_shape", "case arms must be an array", node)
                 for arm in node["arms"]:
-                    if not isinstance(arm, Mapping) or set(arm) - {"variant", "bind", "body", "@"} or not {"variant", "bind", "body"}.issubset(arm):
+                    if not isinstance(arm, Mapping) or set(arm) - {"variant", "bind", "body", "command_scope", "@"} or not {"variant", "bind", "body"}.issubset(arm):
                         self.fail("case_shape", "case arm has invalid fields", node)
+                    for root in self._command_scope_values(arm):
+                        scan_value(root, owner)
                     scan_body(arm["body"], owner)
             elif kind == "join":
                 scan_body(node["body"], owner)
@@ -770,6 +790,8 @@ class _Checker:
                         binder = arm.get("bind")
                         if isinstance(binder, str):
                             nested[binder] = None
+                        for root in self._command_scope_values(arm):
+                            value(root, nested, owner)
                         body(arm.get("body"), nested, owner)
             elif kind == "join":
                 nested = dict(env)
@@ -801,7 +823,7 @@ class _Checker:
         for owner, definition in self.definitions.items():
             params = definition.get("params", []) if isinstance(definition, Mapping) else []
             key = definition.get("key", []) if isinstance(definition, Mapping) else []
-            captures = key[7] if isinstance(key, list) and len(key) == 9 and isinstance(key[7], list) else []
+            captures = key[7] if isinstance(key, list) and len(key) in (9, 10) and isinstance(key[7], list) else []
             env: dict[str, int | None] = {}
             if isinstance(params, list):
                 for index, row in enumerate(params):
@@ -1031,15 +1053,19 @@ class _Checker:
                 self.fail("run_ref_result", "run-ref config envelope name differs from its generated identity", node)
 
     def _check_key_markers(self, value: Any, signatures: set[str]) -> None:
-        if not isinstance(value, list) or len(value) != 9:
-            self.fail("definition_key", "key marker walk requires a validated nine-component key")
+        if not isinstance(value, list) or len(value) not in (9, 10):
+            self.fail("definition_key", "key marker walk requires a validated definition key")
         for _, descriptor in value[3]:
             self._check_key_type_markers(descriptor, signatures)
         for _, reference in value[4]:
             self._check_pref_markers(reference, signatures)
         for _, reference in value[5]:
             self._check_wref_markers(reference, signatures)
-        for _, descriptor, closed_value in value[6]:
+        for selector, descriptor, closed_value in value[6]:
+            if self._is_projected_selector(selector):
+                for target in selector[3].get("shared", []):
+                    if target is not None:
+                        self._check_key_type_markers(target, signatures)
             self._check_key_type_markers(descriptor, signatures)
             self._check_closed_value_markers(closed_value, signatures)
         for capture in value[7]:
@@ -1134,6 +1160,9 @@ class _Checker:
             self._check_key_type_markers(value.get("type"), signatures)
         elif kind == "field":
             self._check_closed_value_markers(value.get("base"), signatures)
+            for target in value.get("shared", []):
+                if target is not None:
+                    self._check_key_type_markers(target, signatures)
         elif kind in {"record", "inject"}:
             self._check_key_type_markers(value.get("type"), signatures)
             for row in value.get("fields", []):
@@ -1181,7 +1210,7 @@ class _Checker:
             self.fail("definition_key", "closed operator payload must use pure-expression schema version 2")
         projected = self._catalog_payload_from_key(payload, signatures)
         try:
-            validate_pure_expr_payload(projected)
+            validate_pure_expr_payload(projected, max_nodes=None)
         except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
             self.fail("definition_key", f"closed operator payload has invalid typed descriptors: {exc}")
 
@@ -1190,79 +1219,12 @@ class _Checker:
 
         if not isinstance(payload, Mapping):
             return payload
-        result = deepcopy(dict(payload))
 
         def descriptor(value: Any) -> Any:
             self._validate_key_type(value)
             self._check_key_type_markers(value, signatures)
             return _value_coercion_descriptor(self._neutralize_key_type(value))
-
-        bindings = result.get("bindings")
-        if isinstance(bindings, Mapping):
-            for row in bindings.values():
-                if isinstance(row, Mapping) and "type" in row:
-                    row["type"] = descriptor(row["type"])
-        if "result_type" in result:
-            result["result_type"] = descriptor(result["result_type"])
-
-        def expression(node: Any) -> None:
-            if not isinstance(node, Mapping):
-                return
-            kind = node.get("kind")
-            if kind in {"literal", "record", "union"} and "type" in node:
-                node["type"] = descriptor(node["type"])
-            elif kind == "record_update" and "record_type" in node:
-                node["record_type"] = descriptor(node["record_type"])
-            elif kind == "let":
-                for row in node.get("bindings", []):
-                    if isinstance(row, Mapping) and "type" in row:
-                        row["type"] = descriptor(row["type"])
-            elif kind == "list" and "element_type" in node:
-                node["element_type"] = descriptor(node["element_type"])
-            elif kind == "list_map":
-                binder = node.get("binder")
-                if isinstance(binder, Mapping) and "type" in binder:
-                    binder["type"] = descriptor(binder["type"])
-                if "result_element_type" in node:
-                    node["result_element_type"] = descriptor(node["result_element_type"])
-            elif kind == "path_join_under" and "path_type" in node:
-                node["path_type"] = descriptor(node["path_type"])
-            elif kind == "list_nonempty_head" and "element_type" in node:
-                node["element_type"] = descriptor(node["element_type"])
-
-            if kind in {"field_access"}:
-                expression(node.get("base"))
-            elif kind == "if":
-                for field in ("condition", "then", "else"):
-                    expression(node.get(field))
-            elif kind in {"record", "union"}:
-                for row in node.get("fields", []):
-                    if isinstance(row, Mapping):
-                        expression(row.get("value"))
-            elif kind == "record_update":
-                expression(node.get("base"))
-                for row in node.get("fields", []):
-                    if isinstance(row, Mapping):
-                        expression(row.get("value"))
-            elif kind == "let":
-                for row in node.get("bindings", []):
-                    if isinstance(row, Mapping):
-                        expression(row.get("value"))
-                expression(node.get("body"))
-            elif kind == "list":
-                for child in node.get("items", []):
-                    expression(child)
-            elif kind == "list_map":
-                expression(node.get("source"))
-                expression(node.get("body"))
-            elif kind in {"path_join_under", "list_nonempty_head"}:
-                expression(node.get("child" if kind == "path_join_under" else "source"))
-            elif kind == "op":
-                for child in node.get("args", []):
-                    expression(child)
-
-        expression(result.get("expr"))
-        return result
+        return value_coercion_payload(payload, descriptor_projector=descriptor)
 
     def _check_key_runtime_agreement(self) -> None:
         """Compare capture/residual/runtime facts through the shared S projection."""
@@ -1299,6 +1261,8 @@ class _Checker:
                 self.fail("definition_key", f"result descriptor cannot be projected: {exc}", definition)
             if not self._same(projected_result, key[8]["result"]):
                 self.fail("definition_key", "definition result differs from its key residual signature", definition)
+            if not self._same(definition.get("command_params"), key[8].get("command_params")):
+                self.fail("command_params", "native command certificate differs from the key signature", definition)
 
         visited: set[int] = set()
 
@@ -1306,6 +1270,7 @@ class _Checker:
             if id(key) in visited:
                 return
             visited.add(id(key))
+            self._check_projected_values(key)
             for _, descriptor, value in key[6]:
                 inferred = self._infer_closed_value(value, {})
                 self._require_key_type(inferred, descriptor, value)
@@ -1356,8 +1321,9 @@ class _Checker:
             path = value["path"]
             if not path or any(not isinstance(part, str) or not part for part in path):
                 self.fail("definition_key", "closed field path must be a nonempty string path", value)
-            for segment in path:
-                descriptor = self._key_field_type(descriptor, segment, value)
+            targets = self._shared_targets(value, key_domain=True)
+            for segment, target in zip(path, targets, strict=True):
+                descriptor = self._shared_field_type(descriptor, segment, target, value, key_domain=True)
             return descriptor
         if kind in {"record", "inject"}:
             descriptor = value["type"]
@@ -1384,14 +1350,14 @@ class _Checker:
             try:
                 signatures = {self._canonical(row) for row in self.run_ref_signatures.values()}
                 catalog_payload = self._catalog_payload_from_key(payload, signatures)
-                validate_pure_expr_payload(catalog_payload)
+                validate_pure_expr_payload(catalog_payload, max_nodes=None)
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
                 self.fail("definition_key", f"closed operator payload is invalid: {exc}", value)
             args = value["args"]
             bindings = payload["bindings"]
             expected_names = [f"a{index}" for index in range(len(args))]
-            if list(bindings) != expected_names:
-                self.fail("definition_key", "closed operator bindings do not match argument order", value)
+            if set(bindings) != set(expected_names):
+                self.fail("definition_key", "closed operator binding names do not match argument indexes", value)
             for index, child in enumerate(args):
                 descriptor = self._infer_closed_value(child, env)
                 expected = bindings[f"a{index}"]["type"]
@@ -1438,8 +1404,8 @@ class _Checker:
             descriptor = value["type"]
             base = self._infer_closed_value(value["base"], env)
             child = self._infer_closed_value(value["child"], env)
-            if descriptor.get("kind") != "path" or base.get("kind") != "path" or base.get("under") != descriptor.get("under"):
-                self.fail("definition_key", "closed path join does not preserve its path root", value)
+            if descriptor.get("kind") != "path" or base.get("kind") != "path" or not PurePosixPath(descriptor["under"]).is_relative_to(base["under"]):
+                self.fail("definition_key", "closed path join result root is outside its base path root", value)
             self._require_key_type(child, {"kind": "primitive", "name": "String"}, value["child"])
             if value["child"].get("k") != "lit" or not isinstance(value["child"].get("v"), str) or not value["child"]["v"] or "\\" in value["child"]["v"]:
                 self.fail("definition_key", "closed path join child is not a literal relative component", value["child"])
@@ -1596,6 +1562,8 @@ class _Checker:
                 pure_value(node["subject"])
                 any_effect = False
                 for arm in node["arms"]:
+                    for root in self._command_scope_values(arm):
+                        pure_value(root)
                     any_effect = body_effect(arm["body"]) or any_effect
                 return any_effect
             if kind == "join":
@@ -2113,13 +2081,15 @@ class _Checker:
         self._definition_keys = keys
 
     def _validate_key_shape(self, key: Any, *, nested: bool = False) -> None:
-        if not isinstance(key, list) or len(key) != 9:
-            self.fail("definition_key", "definition key must have exactly nine components")
-        module, kind, declaration, types, procedures, workflows, values, captures, residual = key
+        if not isinstance(key, list) or len(key) not in (9, 10):
+            self.fail("definition_key", "definition key must have nine or ten components")
+        module, kind, declaration, types, procedures, workflows, values, captures, residual = key[:9]
+        if len(key) == 10:
+            self._validate_command_key_decisions(key[9])
         if not isinstance(module, str) or not module or not isinstance(kind, str) or kind not in {"procedure", "workflow"}:
             self.fail("definition_key", "definition key has an invalid module or callable kind")
         self._validate_declaration_id([module, kind, declaration])
-        for index, rows in ((3, types), (4, procedures), (5, workflows), (6, values)):
+        for index, rows in ((3, types), (4, procedures), (5, workflows)):
             if not isinstance(rows, list):
                 self.fail("definition_key", f"definition key component {index} must be an array")
             previous_selector: tuple[int, Any] | None = None
@@ -2158,12 +2128,205 @@ class _Checker:
                 self.fail("definition_key", "capture routes must be unique and canonically ordered")
             for route in routes:
                 self._validate_capture_route(route)
-        if not isinstance(residual, Mapping) or set(residual) != {"params", "result"}:
-            self.fail("definition_key", "residual signature must contain exactly params and result")
+        if not isinstance(residual, Mapping) or set(residual) - {"command_params"} != {"params", "result"}:
+            self.fail("definition_key", "residual signature must contain params and result")
+        if "command_params" in residual and not isinstance(residual["command_params"], list):
+            self.fail("command_params", "residual command parameters must be an array")
         if not isinstance(residual["params"], list):
             self.fail("definition_key", "residual signature params must be an array")
         for descriptor in [*residual["params"], residual["result"]]:
             self._validate_key_type(descriptor, runtime_only=True)
+        self._validate_key_values(key)
+
+    @staticmethod
+    def _is_projected_selector(selector):
+        return isinstance(selector, list) and bool(selector) and selector[0] == "projection"
+
+    def _projection_selector_order(self, selector):
+        if len(selector) != 4:
+            self.fail("definition_key", "projected selector must have four components")
+        formal, index, projection = selector[1:]
+        order = self._formal_order(formal)
+        if type(index) is not int or index < 0:
+            self.fail("definition_key", "projected residual index must be a nonnegative integer")
+        if not isinstance(projection, Mapping) or set(projection) - {"shared"} != {"path"}:
+            self.fail("definition_key", "projection must contain path and optional shared targets")
+        self._projection_path_shape(projection)
+        return (1, index, *order, tuple(projection["path"]))
+
+    def _projection_path_shape(self, projection):
+        path = projection["path"]
+        if not isinstance(path, list) or not path:
+            self.fail("definition_key", "projected path must be a nonempty array")
+        if any(not isinstance(segment, str) or not segment for segment in path):
+            self.fail("definition_key", "projected fields must be nonempty strings")
+        for target in self._shared_targets(projection, key_domain=True):
+            if target is not None:
+                self._validate_key_type(target, runtime_only=True)
+
+    def _validate_key_values(self, key):
+        rows, previous = key[6], None
+        if not isinstance(rows, list):
+            self.fail("definition_key", "value bindings must be an array")
+        for row in rows:
+            if not isinstance(row, list) or len(row) != 3:
+                self.fail("definition_key", "value binding row must have three components")
+            projected = self._is_projected_selector(row[0])
+            order = self._projection_selector_order(row[0]) if projected else (0, *self._formal_order(row[0]))
+            if previous is not None and order <= previous:
+                self.fail("definition_key", "value bindings are duplicate or out of canonical order")
+            previous = order
+            self._validate_key_type(row[1], runtime_only=projected)
+            self._validate_closed_value(row[2])
+            if projected and row[2]["k"] != "lit":
+                self.fail("definition_key", "projected value binding must be a literal")
+        self._projection_root_exclusions(key)
+
+    def _projection_root_exclusions(self, key):
+        bound = {self._canonical(row[0]) for row in [*key[4], *key[5], *key[6]]
+            if not self._is_projected_selector(row[0])}
+        for capture in key[7]:
+            for route in capture["routes"]:
+                if route[0] in {"parameter", "local"}:
+                    formal = route[1] if route[0] == "parameter" else ["local", route[1]]
+                    bound.add(self._canonical(formal))
+        formals, positions, paths = {}, {}, {}
+        for selector, _, _ in key[6]:
+            if not self._is_projected_selector(selector):
+                continue
+            self._projection_root(selector, key, bound, formals, positions, paths)
+
+    def _projection_root(self, selector, key, bound, formals, positions, paths):
+        _, formal, index, projection = selector
+        encoded = self._canonical(formal)
+        if index >= len(key[8]["params"]) or encoded in bound:
+            self.fail("definition_key", "projected root is absent or completely bound/captured")
+        if formals.get(encoded, index) != index or positions.get(index, encoded) != encoded:
+            self.fail("definition_key", "projected formals and residual positions must be one-to-one")
+        formals[encoded], positions[index] = index, encoded
+        path = tuple(projection["path"])
+        previous = paths.setdefault(encoded, [])
+        if any(path[:len(old)] == old or old[:len(path)] == path for old in previous):
+            self.fail("definition_key", "projected literal paths duplicate or overlap")
+        previous.append(path)
+
+    def _check_projected_values(self, key):
+        rows = [row for row in key[6] if self._is_projected_selector(row[0])]
+        tags = {(self._canonical(selector[1]), selector[2], tuple(selector[3]["path"])): value
+            for selector, _, value in rows if selector[3]["path"][-1] == "variant"}
+        for selector, descriptor, value in sorted(rows, key=lambda row: len(row[0][3]["path"])):
+            actual = self._projection_path_type(selector, key, tags)
+            self._require_key_type(descriptor, actual, value)
+            self._shared_validate_descriptor(descriptor, value, key_domain=True)
+
+    def _projection_path_type(self, selector, key, tags):
+        _, formal, index, projection = selector
+        current = key[8]["params"][index]
+        self._shared_validate_descriptor(current, projection, key_domain=True)
+        targets = self._shared_targets(projection, key_domain=True)
+        prefix = ()
+        for segment, target in zip(projection["path"], targets, strict=True):
+            if current["kind"] == "union" and segment != "variant":
+                tag = tags.get((self._canonical(formal), index, (*prefix, "variant")))
+                if tag is not None:
+                    current = self._projection_case_type(current, tag, projection)
+            current = self._shared_field_type(current, segment, target, projection, key_domain=True)
+            prefix = (*prefix, segment)
+        return current
+
+    def _projection_case_type(self, union, tag, node):
+        discriminant = self._key_field_type(union, "variant", node)
+        self._require_key_type(tag["type"], discriminant, tag)
+        member = next((row for row in union["variants"] if row["name"] == tag["v"]), None)
+        if member is None:
+            self.fail("definition_key", "projected tag is absent from its union")
+        return {"kind": "variant_case", "union_name": union["name"],
+            "variant": member["name"], "fields": member["fields"]}
+
+    def _validate_command_key_decisions(self, component):
+        if not isinstance(component, Mapping) or set(component) != {"command_decisions"}:
+            self.fail("command_decisions", "tenth component must contain command decisions")
+        rows = component["command_decisions"]
+        if not isinstance(rows, list) or not rows:
+            self.fail("command_decisions", "empty command decisions must omit the tenth component")
+        for row in rows:
+            self._validate_command_decision_row(row)
+
+    def _validate_command_decision_row(self, row):
+        if not isinstance(row, list) or len(row) != 4:
+            self.fail("command_decisions", "command decision row must have four components")
+        if row[0] == "arg":
+            self._command_ordinal(row[1])
+            self._command_ordinal(row[2])
+            self._validate_command_argument_choice(row[3])
+        elif row[0] == "arm":
+            self._command_ordinal(row[1])
+            if not isinstance(row[2], str) or not row[2] or row[3] != "reset":
+                self.fail("command_decisions", "arm decision must identify a variant reset")
+        elif row[0] == "call":
+            self._validate_command_call_choice(row)
+        else:
+            self.fail("command_decisions", "unknown command decision tag")
+
+    def _command_ordinal(self, value):
+        if type(value) is not int or value < 0:
+            self.fail("command_decisions", "command ordinals must be nonnegative integers")
+
+    def _validate_command_call_choice(self, row):
+        self._validate_declaration_id(row[1])
+        self._command_ordinal(row[2])
+        digest = row[3]
+        if not isinstance(digest, str) or len(digest) != 64:
+            self.fail("command_decisions", "child interface digest must be a SHA-256 hex string")
+        if any(character not in "0123456789abcdef" for character in digest):
+            self.fail("command_decisions", "child interface digest must be lowercase hexadecimal")
+
+    def _validate_command_argument_choice(self, choice):
+        if choice == ["value"]:
+            return
+        if not isinstance(choice, list) or len(choice) != 2 or choice[0] != "template":
+            self.fail("command_decisions", "argument choice must select value or template")
+        if not isinstance(choice[1], list):
+            self.fail("command_decisions", "template decisions must be an array")
+        for lookup in choice[1]:
+            self._validate_command_lookup_choice(lookup)
+
+    def _validate_command_lookup_choice(self, lookup):
+        if lookup == ["missing"]:
+            return
+        if not isinstance(lookup, list) or not lookup:
+            self.fail("command_decisions", "lookup choice must be a tagged array")
+        if lookup[0] == "input" and len(lookup) == 3:
+            if not isinstance(lookup[2], str) or not lookup[2]:
+                self.fail("command_decisions", "input decision must retain a native wire name")
+        elif lookup[0] != "loop-index" or len(lookup) != 2:
+            self.fail("command_decisions", "lookup choice must select input or loop index")
+        self._validate_command_root_origin(lookup[1])
+
+    def _validate_command_root_origin(self, origin):
+        if not isinstance(origin, list) or not origin:
+            self.fail("command_decisions", "root origin must be a tagged array")
+        tag = origin[0]
+        if tag == "native" and len(origin) == 2:
+            self._formal_order(origin[1])
+        elif tag == "capture" and len(origin) == 2:
+            self._validate_command_capture_origin(origin[1])
+        elif tag == "loop" and len(origin) == 2:
+            self._command_ordinal(origin[1])
+        elif tag == "arm" and len(origin) == 4:
+            self._validate_command_arm_origin(origin)
+        else:
+            self.fail("command_decisions", "unknown or malformed command root origin")
+
+    def _validate_command_arm_origin(self, origin):
+        self._command_ordinal(origin[1])
+        self._formal_order(origin[2])
+        self._formal_order(origin[3])
+
+    def _validate_command_capture_origin(self, route):
+        self._validate_capture_route(route)
+        if route[0] not in {"command-input", "command-loop-index"}:
+            self.fail("command_decisions", "command origin must use a command capture route")
 
     def _formal_order(self, selector: Any) -> tuple[int, Any]:
         if isinstance(selector, str) and selector:
@@ -2309,6 +2472,10 @@ class _Checker:
         if not isinstance(route, list) or not route or not isinstance(route[0], str):
             self.fail("definition_key", "capture route must be a nonempty tagged array")
         tag = route[0]
+        if tag == "command-input" and len(route) == 2 and isinstance(route[1], str) and route[1]:
+            return
+        if route == ["command-loop-index"]:
+            return
         if tag == "parameter" and len(route) == 2 and isinstance(route[1], str) and route[1]:
             return
         if tag == "local" and len(route) == 2 and type(route[1]) is int and route[1] >= 0:
@@ -2570,6 +2737,8 @@ class _Checker:
                 {"workflow": nested},
             )
         for selector, descriptor, value in target[6]:
+            if self._is_projected_selector(selector):
+                continue
             add_expected(selector, descriptor, {"value": value})
 
         for capture_index, capture in enumerate(target[7]):
@@ -2738,9 +2907,12 @@ class _Checker:
             if set(value) != {"k", "n"} or not isinstance(value["n"], str):
                 self.fail("definition_key", "closed name has invalid fields")
         elif kind == "field":
-            if set(value) != {"k", "base", "path"} or not isinstance(value["path"], list):
+            if not {"k", "base", "path"}.issubset(value) or set(value) - {"k", "base", "path", "shared"} or not isinstance(value["path"], list):
                 self.fail("definition_key", "closed field value is malformed")
             self._validate_closed_value(value["base"])
+            for target in self._shared_targets(value, key_domain=True):
+                if target is not None:
+                    self._validate_key_type(target, runtime_only=True)
         elif kind in {"record", "inject"}:
             expected = {"k", "type", "fields"} if kind == "record" else {"k", "type", "variant", "fields"}
             if set(value) != expected:
@@ -2814,6 +2986,7 @@ class _Checker:
         self.call_edges[owner] = []
         self._check_signature_rows(self.tree.get("params"), self.tree.get("defaults"), self.tree.get("result"))
         env, _ = self._parameter_environment(self.tree["params"], self.tree.get("defaults", {}), node=self.tree)
+        command_roots, command_index = self._command_typed_context(owner)
         observed = self._body(
             self.tree["body"],
             env,
@@ -2822,6 +2995,7 @@ class _Checker:
             joins={},
             loops=(),
             scope=self._scope_for({}, node=self.tree),
+            command_roots=command_roots, command_index=command_index,
         )
         self._halt_body_type(
             observed,
@@ -2882,6 +3056,7 @@ class _Checker:
             self.calls[name] = []
             self.performs[name] = []
             self.call_edges[name] = []
+            command_roots, command_index = self._command_typed_context(name)
             observed = self._body(
                 definition["body"],
                 env,
@@ -2890,6 +3065,7 @@ class _Checker:
                 joins={},
                 loops=(),
                 scope=self._scope_for(definition, node=definition),
+                command_roots=command_roots, command_index=command_index,
             )
             self._halt_body_type(
                 observed,
@@ -2910,6 +3086,8 @@ class _Checker:
         loops: tuple[dict[str, Any], ...],
         scope: Mapping[str, Any],
         provider_origins: frozenset[str] = frozenset(),
+        command_roots=None,
+        command_index=None,
     ) -> tuple[_BodyOutcome, ...]:
         if not isinstance(node, Mapping):
             self.fail("node_kind", "body node must be an object")
@@ -2927,7 +3105,7 @@ class _Checker:
             value_type, provider = self._bound(
                 node.get("value"), env, owner=owner, loops=loops, scope=scope,
                 provider_origins=provider_origins,
-            )
+             command_roots=command_roots, command_index=command_index)
             nested = dict(env)
             nested[name] = value_type
             nested_origins = (provider_origins - {name}) | ({name} if provider else set())
@@ -2935,9 +3113,9 @@ class _Checker:
                 node.get("body"), nested, owner=owner, result=result,
                 joins=joins, loops=loops, scope=scope,
                 provider_origins=frozenset(nested_origins),
-            )
+             command_roots=command_roots, command_index=command_index)
         if kind in {"halt", "done"}:
-            value_type = self._value(node.get("value"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            value_type = self._value(node.get("value"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             if kind == "halt":
                 return (_BodyOutcome("halt", value_type),)
             if not loops:
@@ -2946,13 +3124,13 @@ class _Checker:
             self._require_type(value_type, loop["result"], "type_mismatch", node)
             return (_BodyOutcome("done", value_type, loop["name"]),)
         if kind == "if":
-            condition = self._value(node.get("cond"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            condition = self._value(node.get("cond"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(condition, {"kind": "primitive", "name": "Bool"}, "type_mismatch", node["cond"])
-            left = self._body(node.get("then"), dict(env), owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=provider_origins)
-            right = self._body(node.get("else"), dict(env), owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=provider_origins)
+            left = self._body(node.get("then"), dict(env), owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+            right = self._body(node.get("else"), dict(env), owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             return self._merge_body_outcomes((left, right))
         if kind == "case":
-            subject_type = self._value(node.get("subject"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            subject_type = self._value(node.get("subject"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             if subject_type.get("kind") != "union":
                 self.fail("type_mismatch", "case subject must have a union type", node["subject"])
             variants = {variant["name"]: variant for variant in subject_type["variants"]}
@@ -2962,7 +3140,7 @@ class _Checker:
             arm_names: list[str] = []
             results: list[tuple[_BodyOutcome, ...]] = []
             for arm in arms:
-                if not isinstance(arm, Mapping) or set(arm) - {"variant", "bind", "body", "@"}:
+                if not isinstance(arm, Mapping) or set(arm) - {"variant", "bind", "body", "command_scope", "@"}:
                     self.fail("node_kind", "case arm is malformed", arm)
                 variant = arm.get("variant")
                 if not isinstance(variant, str) or variant not in variants or variant in arm_names:
@@ -2979,7 +3157,13 @@ class _Checker:
                 arm_env = dict(env)
                 arm_env[binder] = variant_desc
                 arm_origins = provider_origins - {binder}
-                results.append(self._body(arm.get("body"), arm_env, owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=arm_origins))
+                arm_roots, arm_index = command_roots, command_index
+                if "command_scope" in arm:
+                    arm_roots = self._command_arm_roots(arm, arm_env, owner=owner,
+                        loops=loops, scope=scope, provider_origins=arm_origins,
+                        command_roots=command_roots, command_index=command_index)
+                    arm_index = None
+                results.append(self._body(arm.get("body"), arm_env, owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=arm_origins, command_roots=arm_roots, command_index=arm_index))
             if set(arm_names) != set(variants):
                 self.fail("variant_case", "case arms must cover each union variant once", node)
             return self._merge_body_outcomes(results)
@@ -3007,8 +3191,8 @@ class _Checker:
             cont_env = dict(env)
             cont_env[param_name] = param_type
             cont_origins = provider_origins - {param_name}
-            body_result = self._body(node.get("body"), inner_env, owner=owner, result=join_result, joins=inner_joins, loops=loops, scope=scope, provider_origins=provider_origins)
-            cont_result = self._body(node.get("cont"), cont_env, owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=cont_origins)
+            body_result = self._body(node.get("body"), inner_env, owner=owner, result=join_result, joins=inner_joins, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+            cont_result = self._body(node.get("cont"), cont_env, owner=owner, result=result, joins=joins, loops=loops, scope=scope, provider_origins=cont_origins, command_roots=command_roots, command_index=command_index)
             continue_into_continuation = False
             propagated: list[_BodyOutcome] = []
             for outcome in body_result:
@@ -3031,7 +3215,7 @@ class _Checker:
             if not isinstance(args, list) or len(args) != len(expected_args):
                 self.fail("jump_arity", "jump argument count differs from join arity", node)
             for argument, expected in zip(args, expected_args, strict=True):
-                observed = self._value(argument, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                observed = self._value(argument, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(observed, expected, "type_mismatch", argument)
             return (_BodyOutcome("jump", target=target),)
         if kind == "loop":
@@ -3043,19 +3227,27 @@ class _Checker:
             loop_result = node.get("result")
             self._validate_descriptor(state_type, node=node)
             self._validate_descriptor(loop_result, node=node)
-            budget_type = self._value(node.get("budget"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            budget_type = self._value(node.get("budget"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(budget_type, {"kind": "primitive", "name": "Int"}, "type_mismatch", node["budget"])
-            init_type = self._value(node.get("init"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            init_type = self._value(node.get("init"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(init_type, state_type, "type_mismatch", node["init"])
             loop_env = dict(env)
             loop_env[param_name] = state_type
             loop_origins = provider_origins - {param_name}
+            body_env = dict(loop_env)
+            body_index = None
+            if "index" in node:
+                index_name = self._binding_name(node["index"], node)
+                if index_name in loop_env or index_name in {loop_name, param_name}:
+                    self.fail("command_index", "loop index must be fresh and distinct from state and target", node)
+                body_env[index_name] = {"kind": "primitive", "name": "Int"}
+                body_index = {"k": "name", "n": index_name}
             current_loop = {"name": loop_name, "param": param_name, "state": state_type, "result": loop_result}
             body_result = self._body(
-                node.get("body"), loop_env, owner=owner, result=loop_result,
+                node.get("body"), body_env, owner=owner, result=loop_result,
                 joins={}, loops=(*loops, current_loop), scope=scope,
                 provider_origins=loop_origins,
-            )
+             command_roots=command_roots, command_index=body_index)
             for outcome in body_result:
                 if outcome.kind == "done" and outcome.target == loop_name:
                     self._require_type(outcome.value_type, loop_result, "type_mismatch", node["body"])
@@ -3071,7 +3263,7 @@ class _Checker:
                     exhausted, dict(loop_env), owner=owner, result=loop_result,
                     joins={}, loops=loops, scope=scope,
                     provider_origins=loop_origins,
-                )
+                 command_roots=command_roots, command_index=command_index)
                 self._halt_body_type(
                     exhausted_result,
                     loop_result,
@@ -3087,7 +3279,7 @@ class _Checker:
             args = node.get("args")
             if not isinstance(args, list) or len(args) != 1:
                 self.fail("continue_arity", "continue requires exactly one state value", node)
-            state_type = self._value(args[0], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            state_type = self._value(args[0], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(state_type, loops[-1]["state"], "type_mismatch", args[0])
             return (_BodyOutcome("continue", target=target),)
         self.fail("node_kind", f"unknown body node kind {kind!r}", node)
@@ -3101,6 +3293,8 @@ class _Checker:
         loops: tuple[dict[str, Any], ...],
         scope: Mapping[str, Any],
         provider_origins: frozenset[str] = frozenset(),
+        command_roots=None,
+        command_index=None,
     ) -> tuple[dict[str, Any], bool]:
         if not isinstance(node, Mapping):
             self.fail("node_kind", "bound value must be an object")
@@ -3109,11 +3303,11 @@ class _Checker:
             result = node.get("result")
             self._validate_descriptor(result, node=node)
             self.performs.setdefault(owner, []).append(node)
-            self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins)
+            self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             return result, node.get("class") == "provider"
         if kind == "call":
-            return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins), False
-        return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins), False
+            return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
+        return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
 
     def _value(
         self,
@@ -3125,6 +3319,8 @@ class _Checker:
         scope: Mapping[str, Any],
         allow_effect: bool,
         provider_origins: frozenset[str] = frozenset(),
+        command_roots=None,
+        command_index=None,
     ) -> dict[str, Any]:
         if not isinstance(node, Mapping):
             self.fail("node_kind", "value node must be an object")
@@ -3149,12 +3345,13 @@ class _Checker:
                 self.fail("unbound_name", f"name {name!r} is not bound", node)
             return env[name]
         if kind == "field":
-            descriptor = self._value(node.get("base"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            descriptor = self._value(node.get("base"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             path = node.get("path")
             if not isinstance(path, list) or not path or any(not isinstance(part, str) or not part for part in path):
                 self.fail("field_path", "field path must be a nonempty string array", node)
-            for segment in path:
-                descriptor = self._field_type(descriptor, segment, node)
+            targets = self._shared_targets(node, key_domain=False)
+            for segment, target in zip(path, targets, strict=True):
+                descriptor = self._shared_field_type(descriptor, segment, target, node, key_domain=False)
             return descriptor
         if kind == "record":
             descriptor = node.get("type")
@@ -3166,7 +3363,7 @@ class _Checker:
             if set(rows) != set(expected):
                 self.fail("record_fields", "record value fields differ from its descriptor", node)
             for name, value in rows.items():
-                actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(actual, expected[name], "type_mismatch", value)
             return descriptor
         if kind == "inject":
@@ -3183,13 +3380,13 @@ class _Checker:
             if set(fields) != set(expected):
                 self.fail("record_fields", "injected fields differ from the selected variant", node)
             for name, value in fields.items():
-                actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(actual, expected[name], "type_mismatch", value)
             return descriptor
         if kind == "op":
             payload = node.get("payload")
             try:
-                validate_pure_expr_payload(payload)
+                validate_pure_expr_payload(payload, max_nodes=None)
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
                 self.fail("payload_invalid", f"operator payload is invalid: {exc}", node)
             if payload.get("pure_expr_schema_version") != 2:
@@ -3199,16 +3396,16 @@ class _Checker:
                 self.fail("payload_invalid", "operator arguments must be an array", node)
             bindings = payload.get("bindings", {})
             expected_names = [f"a{index}" for index in range(len(args))]
-            if list(bindings) != expected_names:
-                self.fail("payload_invalid", "operator bindings do not match argument order", node)
+            if set(bindings) != set(expected_names):
+                self.fail("payload_invalid", "operator binding names do not match argument indexes", node)
             for index, argument in enumerate(args):
-                actual = self._value(argument, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(argument, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(actual, bindings[f"a{index}"]["type"], "type_mismatch", argument)
             result = payload.get("result_type")
             self._validate_descriptor(result, node=node)
             return result
         if kind == "select":
-            condition = self._value(node.get("cond"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            condition = self._value(node.get("cond"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(condition, {"kind": "primitive", "name": "Bool"}, "type_mismatch", node["cond"])
             branch_types: list[dict[str, Any]] = []
             for arm in (node.get("then"), node.get("else")):
@@ -3226,10 +3423,10 @@ class _Checker:
                     value_type, provider = self._bound(
                         row.get("value"), branch_env, owner=owner, loops=loops,
                         scope=scope, provider_origins=branch_origins,
-                    )
+                     command_roots=command_roots, command_index=command_index)
                     branch_env[name] = value_type
                     branch_origins = (branch_origins - {name}) | ({name} if provider else set())
-                branch_types.append(self._value(arm.get("value"), branch_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=frozenset(branch_origins)))
+                branch_types.append(self._value(arm.get("value"), branch_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=frozenset(branch_origins), command_roots=command_roots, command_index=command_index))
             self._require_type(branch_types[1], branch_types[0], "type_mismatch", node)
             return branch_types[0]
         if kind == "list":
@@ -3241,19 +3438,19 @@ class _Checker:
             if not isinstance(items, list):
                 self.fail("type_mismatch", "list items must be an array", node)
             for value in items:
-                actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(actual, descriptor["item"], "type_mismatch", value)
             return descriptor
         if kind == "list_map":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)
-            source = self._value(node.get("source"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            source = self._value(node.get("source"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             if source.get("kind") != "list" or descriptor.get("kind") != "list":
                 self.fail("type_mismatch", "list_map source and result must be lists", node)
             binder = self._binding_name(node.get("binder"), node)
             body_env = dict(env)
             body_env[binder] = source["item"]
-            body_type = self._value(node.get("body"), body_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins - {binder})
+            body_type = self._value(node.get("body"), body_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins - {binder}, command_roots=command_roots, command_index=command_index)
             self._require_type(body_type, descriptor["item"], "type_mismatch", node["body"])
             return descriptor
         if kind == "path_join":
@@ -3261,13 +3458,13 @@ class _Checker:
             self._validate_descriptor(descriptor, node=node)
             if descriptor.get("kind") != "path" or not descriptor.get("under"):
                 self.fail("path_root", "path_join requires a path descriptor with a root", node)
-            base = self._value(node.get("base"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
-            if base.get("kind") != "path" or base.get("under") != descriptor.get("under"):
-                self.fail("path_root", "path_join base does not have the same path root", node)
+            base = self._value(node.get("base"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+            if base.get("kind") != "path" or not PurePosixPath(descriptor["under"]).is_relative_to(base["under"]):
+                self.fail("path_root", "path_join result root is outside its base path root", node)
             child = node.get("child")
             if not isinstance(child, Mapping) or child.get("k") != "lit":
                 self.fail("path_child", "path_join child must be a literal", node)
-            child_type = self._value(child, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+            child_type = self._value(child, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(child_type, {"kind": "primitive", "name": "String"}, "type_mismatch", child)
             if not isinstance(child.get("v"), str) or not child["v"] or "\\" in child["v"]:
                 self.fail("path_child", "path_join child must be a nonempty relative component", child)
@@ -3275,7 +3472,7 @@ class _Checker:
         if kind == "block":
             if not allow_effect:
                 self._require_no_effect_value(node, env, owner=owner, loops=loops, scope=scope)
-            outcomes = self._body(node.get("body"), dict(env), owner=owner, result=None, joins={}, loops=loops, scope=scope, provider_origins=provider_origins)
+            outcomes = self._body(node.get("body"), dict(env), owner=owner, result=None, joins={}, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             return self._halt_body_type(
                 outcomes,
                 None,
@@ -3299,10 +3496,228 @@ class _Checker:
         if kind == "call":
             if not allow_effect:
                 self.fail("effect_in_value", "call appears in a value-only position", node)
-            return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins)
+            return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
         if kind == "perform":
             self.fail("effect_in_value", "perform appears in a value-only position", node)
         self.fail("node_kind", f"unknown value node kind {kind!r}", node)
+
+    def _shared_catalog(self, key_domain: bool) -> Mapping[str, Any]:
+        if not key_domain:
+            return self.types
+        if self._shared_key_types is None:
+            self._shared_key_types = {self._canonical(row.get("name", row)): row for row in (
+                key_type_descriptor(descriptor, run_ref_signatures=self.run_ref_signatures)
+                for descriptor in self.types.values()
+            )}
+        return self._shared_key_types
+
+    def _shared_lookup(self, identity: Any, *, key_domain: bool) -> Any:
+        key = self._canonical(identity) if key_domain else _render_key_identity(identity)
+        return self._shared_catalog(key_domain).get(key)
+
+    @staticmethod
+    def _shared_identity(identity: Any) -> Any:
+        return _parse_identity(identity) if isinstance(identity, str) else identity
+
+    def _shared_argument(self, identity: Any, *, key_domain: bool) -> Any:
+        parsed = self._shared_identity(identity)
+        if isinstance(parsed, Mapping) and parsed.get("head") in {"Optional", "List", "Map"}:
+            args = [self._shared_argument(arg, key_domain=key_domain) for arg in parsed["args"]]
+            if parsed["head"] == "Map":
+                return {"kind": "map", "key": args[0], "value": args[1]}
+            return {"kind": parsed["head"].lower(), "item": args[0]}
+        if isinstance(parsed, str) and parsed in COMPILER_PRIMITIVE_TYPE_NAMES:
+            return {"kind": "primitive", "name": parsed}
+        result = self._shared_lookup(parsed if key_domain else identity, key_domain=key_domain)
+        if result is None:
+            self.fail("definition_key" if key_domain else "nominal_definition", "shared field argument has no catalog fact")
+        return result
+
+    def _shared_owner_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        left, right = self._shared_identity(target), self._shared_identity(actual)
+        if isinstance(left, str) and isinstance(right, str):
+            return _named_type_basename(left) == _named_type_basename(right)
+        if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+            return False
+        if set(left) != {"head", "args"} or set(right) != {"head", "args"}:
+            return False
+        return left["head"] == right["head"] and len(left["args"]) == len(right["args"]) and all(
+            self._shared_compatible(
+                self._shared_argument(t, key_domain=key_domain),
+                self._shared_argument(a, key_domain=key_domain), key_domain=key_domain,
+            ) for t, a in zip(left["args"], right["args"])
+        )
+
+    def _shared_discriminant_owner(self, descriptor: Any, *, key_domain: bool) -> Any:
+        if descriptor.get("kind") != "enum":
+            return None
+        identity = self._shared_identity(descriptor["name"])
+        if isinstance(identity, str) and identity.endswith(".variant"):
+            owner = identity[:-len(".variant")]
+        elif isinstance(identity, Mapping) and set(identity) == {"owner", "member"}:
+            owner = identity["owner"]
+        else:
+            return None
+        union = self._shared_lookup(owner, key_domain=key_domain)
+        if not isinstance(union, Mapping) or union.get("kind") != "union":
+            return None
+        return union if descriptor["allowed"] == [row["name"] for row in union["variants"]] else None
+
+    @staticmethod
+    def _shared_generated(descriptor: Any) -> bool:
+        if descriptor.get("kind") == "run-ref-result":
+            return True
+        identity = descriptor.get("name", "")
+        head = identity.get("head", "") if isinstance(identity, Mapping) else identity
+        return head.startswith(("RunRefResult$", "workflow_lisp/private::loop-state-carrier$"))
+
+    def _shared_fields_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        targets = {row["name"]: row["type"] for row in target}
+        actuals = {row["name"]: row["type"] for row in actual}
+        return targets.keys() == actuals.keys() and all(
+            self._shared_compatible(targets[name], actuals[name], key_domain=key_domain)
+            for name in targets
+        )
+
+    def _shared_case_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        if target["kind"] == "variant_case":
+            if actual["variant"] != target["variant"]:
+                return False
+            owner, fields = target["union_name"], target["fields"]
+        elif target["kind"] == "union":
+            variant = next((row for row in target["variants"] if row["name"] == actual["variant"]), None)
+            if variant is None:
+                return False
+            owner, fields = target["name"], variant["fields"]
+        else:
+            return False
+        return self._shared_owner_compatible(owner, actual["union_name"], key_domain=key_domain) and self._shared_fields_compatible(fields, actual["fields"], key_domain=key_domain)
+
+    def _shared_union_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        if not self._shared_owner_compatible(target["name"], actual["name"], key_domain=key_domain):
+            return False
+        targets = {row["name"]: row["fields"] for row in target["variants"]}
+        actuals = {row["name"]: row["fields"] for row in actual["variants"]}
+        return targets.keys() == actuals.keys() and all(
+            self._shared_fields_compatible(targets[name], actuals[name], key_domain=key_domain)
+            for name in targets
+        )
+
+    @staticmethod
+    def _shared_scalar_compatible(target: Any, actual: Any) -> bool:
+        if _named_type_basename(target["name"]) != _named_type_basename(actual["name"]):
+            return False
+        slots = {"primitive": (), "enum": ("allowed",), "path": ("under", "must_exist_target")}
+        return all(target[slot] == actual[slot] for slot in slots[target["kind"]])
+
+    def _shared_declared_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        kind = target["kind"]
+        if kind in {"optional", "list"}:
+            return self._shared_compatible(target["item"], actual["item"], key_domain=key_domain)
+        if kind == "map":
+            return all(self._shared_compatible(target[slot], actual[slot], key_domain=key_domain) for slot in ("key", "value"))
+        if kind == "record":
+            return self._shared_owner_compatible(target["name"], actual["name"], key_domain=key_domain) and self._shared_fields_compatible(target["fields"], actual["fields"], key_domain=key_domain)
+        if kind == "union":
+            return self._shared_union_compatible(target, actual, key_domain=key_domain)
+        return self._shared_scalar_compatible(target, actual)
+
+    def _shared_discriminants_compatible(self, target, actual, left, right, *, key_domain):
+        if left is None or right is None:
+            return False
+        return target["allowed"] == actual["allowed"] and self._shared_owner_compatible(left["name"], right["name"], key_domain=key_domain)
+
+    def _shared_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        """Local C_R/C_K: conserve case activity at every recursive position."""
+        if self._same(target, actual):
+            return True
+        if actual["kind"] == "variant_case":
+            return self._shared_case_compatible(target, actual, key_domain=key_domain)
+        if target["kind"] == "variant_case":
+            return False
+        left = self._shared_discriminant_owner(target, key_domain=key_domain)
+        right = self._shared_discriminant_owner(actual, key_domain=key_domain)
+        if left is not None or right is not None:
+            return self._shared_discriminants_compatible(target, actual, left, right, key_domain=key_domain)
+        if target["kind"] != actual["kind"]:
+            return False
+        if self._shared_generated(target) or self._shared_generated(actual):
+            return False
+        return self._shared_declared_compatible(target, actual, key_domain=key_domain)
+
+    def _shared_assignable(self, actual: Any, target: Any, *, key_domain: bool) -> bool:
+        """F weakens path refinements only at the certified segment itself."""
+        if self._shared_compatible(target, actual, key_domain=key_domain):
+            return True
+        return actual["kind"] == target["kind"] == "path" and actual["under"] == target["under"] and (actual["must_exist_target"] or not target["must_exist_target"])
+
+    @staticmethod
+    def _shared_descriptor_children(descriptor: Any):
+        kind = descriptor["kind"]
+        if kind in {"optional", "list"}:
+            return (descriptor["item"],)
+        if kind == "map":
+            return descriptor["key"], descriptor["value"]
+        if kind in {"record", "variant_case"}:
+            return tuple(row["type"] for row in descriptor["fields"])
+        if kind == "union":
+            return tuple(row["type"] for variant in descriptor["variants"] for row in variant["fields"])
+        return ()
+
+    def _shared_key_nominals(self, descriptor: Any, node: Any) -> None:
+        kind = descriptor["kind"]
+        if kind in {"record", "union", "enum", "path", "run-ref-result"}:
+            registered = self._shared_lookup(descriptor.get("name", descriptor), key_domain=True)
+            if registered is None or not self._same(descriptor, registered):
+                self.fail("definition_key", "shared key type differs from projected nominal catalog", node)
+        elif kind == "variant_case":
+            owner = self._shared_lookup(descriptor["union_name"], key_domain=True)
+            variants = owner.get("variants", []) if isinstance(owner, Mapping) else []
+            variant = next((row for row in variants if row["name"] == descriptor["variant"]), None)
+            if variant is None or not self._same(descriptor["fields"], variant["fields"]):
+                self.fail("definition_key", "shared key case differs from its catalog owner", node)
+        for child in self._shared_descriptor_children(descriptor):
+            self._shared_key_nominals(child, node)
+
+    def _shared_validate_descriptor(self, descriptor: Any, node: Any, *, key_domain: bool) -> None:
+        if not key_domain:
+            self._validate_descriptor(descriptor, node=node)
+            return
+        self._validate_key_type(descriptor, runtime_only=True)
+        signatures = {self._canonical(row) for row in self.run_ref_signatures.values()}
+        self._check_key_type_markers(descriptor, signatures)
+        self._shared_key_nominals(descriptor, node)
+
+    def _shared_targets(self, node: Mapping[str, Any], *, key_domain: bool) -> list[Any]:
+        if "shared" not in node:
+            return [None] * len(node["path"])
+        targets = node["shared"]
+        if not isinstance(targets, list) or len(targets) != len(node["path"]) or not any(target is not None for target in targets):
+            self.fail("definition_key" if key_domain else "node_shape", "shared targets must be nonempty and aligned with field path", node)
+        return targets
+
+    def _shared_field_type(self, descriptor: Any, segment: str, target: Any, node: Any, *, key_domain: bool) -> Any:
+        if target is None:
+            ordinary = self._key_field_type if key_domain else self._field_type
+            return ordinary(descriptor, segment, node)
+        rule = "definition_key" if key_domain else "field_path"
+        self._shared_validate_descriptor(target, node, key_domain=key_domain)
+        for actual in self._shared_variant_fields(descriptor, segment, node, key_domain=key_domain):
+            if not self._shared_assignable(actual, target, key_domain=key_domain):
+                self.fail(rule, "shared field cannot be assigned to its certified target", node)
+        return target
+
+    def _shared_variant_fields(self, descriptor: Any, segment: str, node: Any, *, key_domain: bool):
+        rule = "definition_key" if key_domain else "field_path"
+        if descriptor.get("kind") != "union" or not descriptor["variants"] or segment == "variant":
+            self.fail(rule, "shared field target requires a nonempty union payload", node)
+        self._shared_validate_descriptor(descriptor, node, key_domain=key_domain)
+        for variant in descriptor["variants"]:
+            actual = next((row["type"] for row in variant["fields"] if row["name"] == segment), None)
+            if actual is None:
+                self.fail(rule, "shared field is absent from a variant", node)
+            self._shared_validate_descriptor(actual, node, key_domain=key_domain)
+            yield actual
 
     def _field_type(self, descriptor: Mapping[str, Any], segment: str, node: Any) -> dict[str, Any]:
         kind = descriptor.get("kind")
@@ -3522,6 +3937,8 @@ class _Checker:
         loops: tuple[dict[str, Any], ...],
         scope: Mapping[str, Any],
         provider_origins: frozenset[str],
+        command_roots=None,
+        command_index=None,
     ) -> None:
         fills = prompt["fills"]
         try:
@@ -3549,7 +3966,7 @@ class _Checker:
                 scope=scope,
                 allow_effect=False,
                 provider_origins=provider_origins,
-            )
+             command_roots=command_roots, command_index=command_index)
             self._require_type(actual, descriptor, "type_mismatch", node)
 
             slot_kind = fill["kind"]
@@ -3668,6 +4085,154 @@ class _Checker:
             return body or (exhausted is not None and self._body_has_effect(exhausted))
         return False
 
+    def _command_native_roots(self, owner):
+        definition = self.tree if owner == self.tree["entry"] else self.definitions[owner]
+        rows = definition.get("command_params", [])
+        if not isinstance(rows, list):
+            self.fail("command_params", "command parameters must be an array", definition)
+        roots, indexes = {}, set()
+        for row in rows:
+            formal, index = self._command_parameter_row(row, definition, roots, indexes)
+            roots[formal] = definition["params"][index]
+            indexes.add(index)
+        if [row[1] for row in rows] != sorted(indexes):
+            self.fail("command_params", "command parameters must follow native signature order", definition)
+        self._command_capture_roots(definition, roots)
+        return roots
+
+    def _command_capture_roots(self, definition, roots):
+        key = definition.get("key")
+        if key is None:
+            return
+        for index, capture in enumerate(key[7]):
+            for route in capture["routes"]:
+                if route[0] == "command-input":
+                    if route[1] in roots:
+                        self.fail("command_params", "command root has conflicting native and capture certificates", definition)
+                    roots[route[1]] = definition["params"][index]
+
+    def _command_typed_context(self, owner):
+        roots = {formal: [{"k": "name", "n": row[0]}, row[1]]
+            for formal, row in self._command_native_roots(owner).items()}
+        definition = self.tree if owner == self.tree["entry"] else self.definitions[owner]
+        index_root = None
+        for index, capture in enumerate(definition.get("key", [None] * 8)[7] or ()):
+            if ["command-loop-index"] not in capture["routes"]:
+                continue
+            if index_root is not None:
+                self.fail("command_index", "command index has multiple capture certificates", definition)
+            wire, descriptor = definition["params"][index]
+            self._require_type(descriptor, {"kind": "primitive", "name": "Int"}, "command_index", definition)
+            index_root = {"k": "name", "n": wire}
+        return roots, index_root
+
+    def _command_arm_roots(self, arm, env, **value_context):
+        rows = arm["command_scope"]
+        if not isinstance(rows, list):
+            self.fail("command_scope", "arm command scope must be an ordered root array", arm)
+        roots = {}
+        for row in rows:
+            if not isinstance(row, list) or len(row) != 2:
+                self.fail("command_scope", "arm command root must be a formal/value pair", arm)
+            formal, value = row
+            if not isinstance(formal, str) or not formal or formal in roots:
+                self.fail("command_scope", "arm command formals must be unique nonempty strings", arm)
+            descriptor = self._value(value, env, allow_effect=False, **value_context)
+            roots[formal] = [value, descriptor]
+        return roots
+
+    def _command_parameter_row(self, row, definition, roots, indexes):
+        if not isinstance(row, list) or len(row) != 2:
+            self.fail("command_params", "command parameter must be a formal/index pair", definition)
+        formal, index = row
+        if not isinstance(formal, str) or not formal or formal in roots:
+            self.fail("command_params", "command root names must be unique nonempty strings", definition)
+        if type(index) is not int or index < 0 or index >= len(definition["params"]) or index in indexes:
+            self.fail("command_params", "command parameter index is invalid or repeated", definition)
+        return formal, index
+
+    def _check_command_transport(self, node, env, **value_context):
+        plans = node["argv_transport"]
+        if not isinstance(plans, list) or len(plans) != len(node["argv"]):
+            self.fail("command_transport", "command plans must parallel tail argv", node)
+        roots = value_context["command_roots"]
+        for plan in plans:
+            if not isinstance(plan, Mapping):
+                self.fail("command_transport", "command plan must be an object", node)
+            if plan.get("kind") == "value" and set(plan) == {"kind"}:
+                continue
+            if set(plan) != {"kind", "parts"} or plan.get("kind") != "template" or not isinstance(plan["parts"], list):
+                self.fail("command_transport", "command template is malformed", node)
+            self._check_command_parts(plan["parts"], roots, env, value_context, node)
+
+    def _check_command_text(self, part, previous, node):
+        if set(part) != {"kind", "text"} or not isinstance(part["text"], str) or not part["text"] or previous == "text":
+            self.fail("command_transport", "template text must be merged and nonempty", node)
+
+    def _check_command_missing(self, part, roots, value_context, node):
+        if set(part) != {"kind", "expression"} or not isinstance(part["expression"], str) or not part["expression"]:
+            self.fail("command_transport", "missing lookup must retain its expression", node)
+        from orchestrator.variables.substitution import parse_variable_expression
+
+        path, _ = parse_variable_expression(part["expression"])
+        if path == "loop.index" and value_context["command_index"] is not None:
+            self.fail("command_transport", "missing lookup has an available loop index", node)
+        if path.startswith("inputs."):
+            wire = path[len("inputs."):].split(".", 1)[0]
+            if any(command_boundary_row(formal, root[1], wire) is not None for formal, root in roots.items()):
+                self.fail("command_transport", "missing lookup has an available derived input row", node)
+
+    def _check_command_parts(self, parts, roots, env, value_context, node):
+        previous = None
+        for part in parts:
+            if not isinstance(part, Mapping):
+                self.fail("command_transport", "template part must be an object", node)
+            kind = part.get("kind")
+            if kind == "text":
+                self._check_command_text(part, previous, node)
+            elif kind == "missing":
+                self._check_command_missing(part, roots, value_context, node)
+            elif kind == "slot":
+                self._check_command_slot(part, roots, env, value_context, node)
+            else:
+                self.fail("command_transport", "unknown template part", node)
+            previous = kind
+
+    def _command_string_array(self, value, node):
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            self.fail("command_transport", "slot name, suffix and filters must be string arrays", node)
+
+    def _command_input_root(self, name, value, roots, node):
+        if len(name) != 3 or name[0] != "input":
+            self.fail("command_transport", "slot must select a certified native root", node)
+        root = roots.get(name[1])
+        if root is None:
+            self.fail("command_transport", "slot has no certified native root", node)
+        if not isinstance(value, Mapping) or value.get("k") not in {"name", root[0]["k"]}:
+            self.fail("command_transport", "slot must read its whole certified root", node)
+        return root
+
+    def _check_command_slot(self, part, roots, env, value_context, node):
+        if set(part) != {"kind", "name", "path", "filters", "value"}:
+            self.fail("command_transport", "command slot is malformed", node)
+        for field in ("name", "path", "filters"):
+            self._command_string_array(part[field], node)
+        name = part["name"]
+        if name == ["loop-index"]:
+            self._check_command_index_slot(part, env, value_context, node)
+            return
+        root = self._command_input_root(name, part["value"], roots, node)
+        actual = self._value(part["value"], env, allow_effect=False, **value_context)
+        self._require_type(actual, root[1], "command_transport", node)
+        if command_boundary_row(name[1], actual, name[2]) is None:
+            self.fail("command_transport", "slot selects no derived native wire row", node)
+
+    def _check_command_index_slot(self, part, env, value_context, node):
+        if value_context["command_index"] is None:
+            self.fail("command_index", "loop index slot has no body binder or capture", node)
+        actual = self._value(part["value"], env, allow_effect=False, **value_context)
+        self._require_type(actual, {"kind": "primitive", "name": "Int"}, "command_index", node)
+
     def _check_effect_node(
         self,
         node: Mapping[str, Any],
@@ -3677,10 +4242,12 @@ class _Checker:
         loops: tuple[dict[str, Any], ...],
         scope: Mapping[str, Any],
         provider_origins: frozenset[str],
+        command_roots=None,
+        command_index=None,
     ) -> None:
         effect_class = node.get("class")
         if effect_class == "command":
-            if set(node) - {"k", "class", "result", "repeat", "site", "@", "boundary", "command", "closure", "contract", "argv", "document"}:
+            if set(node) - {"k", "class", "result", "repeat", "site", "@", "boundary", "command", "closure", "contract", "argv", "document", "argv_transport"}:
                 self.fail("effect_shape", "command effect has class-inappropriate fields", node)
             if not {"boundary", "command", "closure", "contract", "repeat"}.issubset(node):
                 self.fail("effect_shape", "command effect is missing a required field", node)
@@ -3706,20 +4273,23 @@ class _Checker:
                 self.fail("effect_contract", "command output contract is malformed", node)
             self._check_effect_result_contract(node)
             if "document" in node:
-                if not isinstance(node.get("argv"), list) or node["argv"]:
-                    self.fail("effect_shape", "document invocation must carry an empty argv array", node)
+                self._check_document_argv(node)
                 rows = node["document"]
                 if not isinstance(rows, list):
                     self.fail("effect_shape", "command document must be an array", node)
                 for row in rows:
                     if not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], str):
                         self.fail("effect_shape", "command document row is malformed", node)
-                    self._value(row[1], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    self._value(row[1], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             elif isinstance(node.get("argv"), list):
                 for value in node["argv"]:
-                    self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             else:
                 self.fail("effect_shape", "raw command invocation requires argv and cannot carry document", node)
+            if "argv_transport" in node:
+                self._check_command_transport(node, env, owner=owner, loops=loops,
+                    scope=scope, provider_origins=provider_origins,
+                    command_roots=command_roots, command_index=command_index)
             return
         if effect_class == "provider":
             if set(node) - {"k", "class", "result", "repeat", "site", "@", "provider", "prompt", "inputs", "dependencies", "policy", "contract"}:
@@ -3741,7 +4311,7 @@ class _Checker:
                 if not isinstance(row, list) or len(row) != 3 or not isinstance(row[0], str) or not row[0] or row[0] in names:
                     self.fail("effect_shape", "provider input row is malformed or duplicated", node)
                 names.add(row[0])
-                actual = self._value(row[2], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(row[2], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._provider_input_renderer(row[1], row[2], actual, node)
             dependencies = node.get("dependencies")
             if dependencies is not None:
@@ -3763,7 +4333,7 @@ class _Checker:
                     if len(instruction_bytes) > 261630:
                         self.fail("effect_shape", "provider dependency instruction exceeds its UTF-8 byte limit", node)
                 for value in [*dependencies["required"], *dependencies["optional"]]:
-                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                     if actual.get("kind") != "path":
                         self.fail("effect_shape", "provider dependencies require relpath values", value)
             policy = node.get("policy")
@@ -3775,13 +4345,13 @@ class _Checker:
                 for field_name in ("model", "effort"):
                     if field_name in policy:
                         value = policy[field_name]
-                        actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                        actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                         self._require_type(actual, string_type, "effect_shape", node)
                         if not isinstance(value, Mapping) or value.get("k") not in {"lit", "name", "field"}:
                             self.fail("effect_shape", f"provider policy {field_name} must be an inline String value", node)
                 if "timeout_sec" in policy:
                     value = policy["timeout_sec"]
-                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                     self._require_type(actual, int_type, "effect_shape", node)
                     if (
                         not isinstance(value, Mapping)
@@ -3792,7 +4362,7 @@ class _Checker:
                         self.fail("effect_shape", "provider timeout must be a positive Int literal", node)
                 if "delivery" in policy:
                     value = policy["delivery"]
-                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                     self._require_type(actual, string_type, "effect_shape", node)
                     if not isinstance(value, Mapping) or value.get("k") != "lit" or value.get("v") != "composed":
                         self.fail("effect_shape", "checked providers support only composed delivery", node)
@@ -3818,7 +4388,7 @@ class _Checker:
                     loops=loops,
                     scope=scope,
                     provider_origins=provider_origins,
-                )
+                 command_roots=command_roots, command_index=command_index)
             else:
                 self.fail("effect_shape", "provider prompt must be an extern source or typed template", node)
             return
@@ -3845,7 +4415,7 @@ class _Checker:
                 if not isinstance(row, list) or len(row) != 2 or row[0] != config_input.name or row[0] in seen:
                     self.fail("run_ref_config", "run-ref node input order differs from its config", node)
                 seen.add(row[0])
-                actual = self._value(row[1], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(row[1], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(actual, config_input.type_descriptor, "type_mismatch", row[1])
                 if config_input.binding.record != {"kind": "reference", "reference": f"inputs.{row[0]}"}:
                     self.fail("run_ref_config", "run-ref input must use its own inputs reference", node)
@@ -3863,6 +4433,8 @@ class _Checker:
         loops: tuple[dict[str, Any], ...],
         scope: Mapping[str, Any],
         provider_origins: frozenset[str],
+        command_roots=None,
+        command_index=None,
     ) -> dict[str, Any]:
         callee = node.get("callee")
         definition = self.definitions.get(callee) if isinstance(callee, str) else None
@@ -3871,7 +4443,7 @@ class _Checker:
         args = node.get("args")
         if not isinstance(args, list):
             self.fail("call_signature", "call arguments must be an array", node)
-        arg_types = [self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins) for value in args]
+        arg_types = [self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index) for value in args]
         call_type = node.get("type")
         self._validate_descriptor(call_type, node=node)
         params = definition.get("params")
@@ -4320,8 +4892,7 @@ class _Checker:
             native_row = native_by_name[name]
             left_contract = normalize_boundary_contract_definition(caller_row["contract"])
             right_contract = normalize_boundary_contract_definition(native_row["contract"])
-            if self._same(left_contract, right_contract):
-                continue
+            same_contract = self._same(left_contract, right_contract)
             left_terminals = caller["terminals"].get(name, [])
             right_terminals = native["terminals"].get(name, [])
             if not left_terminals or not right_terminals:
@@ -4343,6 +4914,10 @@ class _Checker:
                     if self._generated_activation_is_active(activation, assignment)
                 ]
                 if not left_active and not right_active:
+                    continue
+                if len(left_active) != len(right_active):
+                    return False
+                if same_contract:
                     continue
                 if (
                     not left_active

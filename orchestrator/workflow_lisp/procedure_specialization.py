@@ -245,7 +245,7 @@ def _procedure_private_body_valid(
     return _private_workflow_body_exports_step_backed_outputs(
         procedure.typed_body.expr,
         return_type_ref=procedure.signature.return_type_ref,
-        local_values=_procedure_signature_local_values(procedure),
+        local_values=_procedure_signature_local_values(procedure, type_env=current_type_env),
         local_type_bindings=_procedure_signature_local_type_bindings(procedure),
         typed_procedures_by_name=typed_procedures_by_name,
         type_env=current_type_env,
@@ -499,7 +499,10 @@ def _private_workflow_binding_local_value(
             return None
         child_locals = {
             **dict(local_values),
-            **_procedure_signature_local_values(callee),
+            **_procedure_signature_local_values(callee, type_env=(
+                procedure_type_envs.get(callee.definition.name, type_env)
+                if procedure_type_envs is not None else type_env
+            )),
         }
         child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
@@ -684,7 +687,10 @@ def _private_workflow_body_exports_step_backed_outputs(
             return False
         child_locals = {
             **dict(local_values),
-            **_procedure_signature_local_values(callee),
+            **_procedure_signature_local_values(callee, type_env=(
+                procedure_type_envs.get(callee.definition.name, type_env)
+                if procedure_type_envs is not None else type_env
+            )),
         }
         child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
@@ -1181,6 +1187,9 @@ def bound_proc_ref_request(
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     origin_span=None,
     origin_form_path: tuple[str, ...] | None = None,
+    workflow_catalog=None,
+    workflow_ref_env=None,
+    typed_workflows_by_name=None,
 ) -> TypedProcedureDef | None:
     if not resolved.bound_args:
         return None
@@ -1189,6 +1198,7 @@ def bound_proc_ref_request(
         return None
     proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
     value_bindings: dict[str, object] = {}
+    workflow_ref_bindings = {}
     for binding in resolved.bound_args:
         if isinstance(binding.type_ref, ProcRefTypeRef):
             resolved_binding = resolve_proc_ref_value(
@@ -1200,10 +1210,24 @@ def bound_proc_ref_request(
             if resolved_binding is not None:
                 proc_ref_bindings[binding.name] = resolved_binding
             continue
+        if isinstance(binding.type_ref, WorkflowRefTypeRef):
+            expression = binding.value_expr
+            if isinstance(expression, NameExpr) and expression.name in (workflow_ref_env or {}):
+                reference = workflow_ref_env[expression.name]
+                if reference is None:
+                    return None
+            else:
+                reference = resolve_workflow_ref_expr(expression, workflow_catalog=workflow_catalog,
+                    span=expression.span, form_path=expression.form_path,
+                    expansion_stack=expression.expansion_stack, expected_type=binding.type_ref,
+                    typed_workflows_by_name=typed_workflows_by_name, allow_extern_rebinding=True)
+            workflow_ref_bindings[binding.name] = reference
+            continue
         value_bindings[binding.name] = binding.value_expr
     return specialize_typed_procedure(
         base_procedure,
         proc_ref_bindings=proc_ref_bindings,
+        workflow_ref_bindings=workflow_ref_bindings,
         value_bindings=value_bindings,
         remaining_params=resolved.residual_params,
         workflow_path=Path(base_procedure.definition.span.start.path),
@@ -1233,6 +1257,7 @@ def discover_proc_ref_specializations(
     type_env: FrontendTypeEnvironment,
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    workflow_catalog=None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .expressions import LetStarExpr, ProcedureCallExpr
 
@@ -1251,7 +1276,7 @@ def discover_proc_ref_specializations(
             return
         discovered.setdefault(specialized.definition.name, specialized)
 
-    def walk(node: object, proc_ref_env: Mapping[str, ResolvedProcRefValue]) -> None:
+    def walk(node: object, proc_ref_env: Mapping[str, ResolvedProcRefValue], workflow_ref_env) -> None:
         if isinstance(node, ProcedureCallExpr):
             bound_proc_ref = proc_ref_env.get(node.callee_name)
             if bound_proc_ref is not None:
@@ -1265,6 +1290,9 @@ def discover_proc_ref_specializations(
                         procedure_type_envs=procedure_type_envs,
                         origin_span=node.span,
                         origin_form_path=node.form_path,
+                        workflow_catalog=workflow_catalog,
+                        workflow_ref_env=workflow_ref_env,
+                        typed_workflows_by_name={row.definition.name: row for row in typed_workflows},
                     )
                 )
             else:
@@ -1272,7 +1300,7 @@ def discover_proc_ref_specializations(
                 if signature is not None:
                     if len(node.args) != len(signature.params):
                         for arg in node.args:
-                            walk(arg, proc_ref_env)
+                            walk(arg, proc_ref_env, workflow_ref_env)
                         return
                     proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
                     for arg_expr, (param_name, param_type) in zip(node.args, signature.params, strict=True):
@@ -1319,12 +1347,13 @@ def discover_proc_ref_specializations(
                                 )
                             )
             for arg in node.args:
-                walk(arg, proc_ref_env)
+                walk(arg, proc_ref_env, workflow_ref_env)
             return
         if isinstance(node, LetStarExpr):
             child_env = dict(proc_ref_env)
+            child_workflow_env = dict(workflow_ref_env)
             for binding_name, binding_expr in node.bindings:
-                walk(binding_expr, child_env)
+                walk(binding_expr, child_env, child_workflow_env)
                 resolved_binding = resolve_proc_ref_value(
                     binding_expr,
                     procedure_catalog=procedure_catalog,
@@ -1332,16 +1361,27 @@ def discover_proc_ref_specializations(
                 )
                 if resolved_binding is not None:
                     child_env[binding_name] = resolved_binding
-            walk(node.body, child_env)
+                if isinstance(binding_expr, NameExpr) and binding_expr.name in child_workflow_env:
+                    child_workflow_env[binding_name] = child_workflow_env[binding_expr.name]
+                elif isinstance(binding_expr, WorkflowRefLiteralExpr):
+                    child_workflow_env[binding_name] = resolve_workflow_ref_expr(binding_expr,
+                        workflow_catalog=workflow_catalog, span=binding_expr.span,
+                        form_path=binding_expr.form_path, expansion_stack=binding_expr.expansion_stack,
+                        typed_workflows_by_name={row.definition.name: row for row in typed_workflows},
+                        allow_extern_rebinding=True)
+            walk(node.body, child_env, child_workflow_env)
             return
         for child in iter_child_exprs(node):
-            walk(child, proc_ref_env)
+            walk(child, proc_ref_env, workflow_ref_env)
 
     for procedure in typed_procedures:
         proc_ref_env = dict(getattr(procedure.specialization, "proc_ref_bindings", {}))
-        walk(procedure.typed_body.expr, proc_ref_env)
+        workflow_ref_env = {formal: None for formal, ref in procedure.signature.params
+            if isinstance(ref, WorkflowRefTypeRef)}
+        workflow_ref_env.update(getattr(procedure.specialization, "workflow_ref_bindings", {}))
+        walk(procedure.typed_body.expr, proc_ref_env, workflow_ref_env)
     for workflow in typed_workflows:
-        walk(workflow.typed_body.expr, {})
+        walk(workflow.typed_body.expr, {}, {})
     return tuple(discovered.values())
 
 
@@ -1512,6 +1552,9 @@ def discover_workflow_ref_specializations(
             child_workflow_env = dict(workflow_ref_env)
             for binding_name, binding_expr in node.bindings:
                 walk(binding_expr, child_workflow_env, proc_ref_env)
+                if isinstance(binding_expr, NameExpr) and binding_expr.name in child_workflow_env:
+                    child_workflow_env[binding_name] = child_workflow_env[binding_expr.name]
+                    continue
                 if isinstance(
                     binding_expr,
                     (WorkflowRefLiteralExpr, NameExpr, EnumMemberExpr),
@@ -1542,7 +1585,9 @@ def discover_workflow_ref_specializations(
         specialization = procedure.specialization
         walk(
             procedure.typed_body.expr,
-            dict(getattr(specialization, "workflow_ref_bindings", {})),
+            {**{formal: None for formal, ref in procedure.signature.params
+                if isinstance(ref, WorkflowRefTypeRef)},
+                **dict(getattr(specialization, "workflow_ref_bindings", {}))},
             dict(getattr(specialization, "proc_ref_bindings", {})),
         )
     for workflow in typed_workflows:

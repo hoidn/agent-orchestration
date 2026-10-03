@@ -11,13 +11,10 @@ from typing import Any
 from orchestrator.workflow.references import MaterializeViewBindingReference
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from ..expression_traversal import walk_expr
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
-    EnumMemberExpr,
     LetStarExpr,
-    LoopRecurExpr,
     MatchExpr,
     NameExpr,
     ProcRefLiteralExpr,
@@ -29,7 +26,6 @@ from ..expressions import (
 )
 from ..phase import eligible_private_context_source_param_names
 from ..procedure_refs import ResolvedProcRefValue
-from ..procedure_specialization import materialized_specialization_rows
 from ..procedures import (
     ProcedureLoweringMode,
     TypedProcedureDef,
@@ -429,7 +425,7 @@ def _procedure_private_call_site_analysis(
     for workflow in typed_workflows:
         walk(
             workflow.typed_body.expr,
-            local_values=_signature_local_values(workflow),
+            local_values=_signature_local_values(workflow, type_env=type_env),
             current_type_env=type_env,
         )
     return MappingProxyType(
@@ -469,38 +465,22 @@ def _schema1_iteration_private_override_applies(
 ) -> bool:
     """Expose the legacy call-local override as an observable boolean decision."""
 
-    # schema1_compatibility: classify the legacy iteration-scope override;
-    # default WCC lowering never applies this inline-only override.
-    if not (
-        procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
-        and context.iteration_scope is not None
-        and not context.workflow_name.startswith("%composition.")
-        and not any(
-            isinstance(node, LoopRecurExpr)
-            for node in walk_expr(procedure.typed_body.expr)
-        )
-    ):
-        return False
+    from .command_transport_decisions import schema1_iteration_private_override_applies
 
-    from ..procedure_specialization import (
-        _procedure_private_body_valid,
-        _procedure_private_boundary_valid,
+    return schema1_iteration_private_override_applies(
+        procedure,
+        iteration_scope=context.iteration_scope,
+        workflow_name=context.workflow_name,
+        default_type_env=context.type_env,
+        typed_procedures=context.typed_procedures,
+        procedure_type_envs=context.procedure_type_envs,
+        workflow_signatures=context.workflow_catalog.signatures_by_name,
     )
 
-    procedure_type_env = _procedure_type_env_for(
-        procedure,
-        procedure_type_envs=context.procedure_type_envs,
-        default=context.type_env,
-    )
-    return _procedure_private_boundary_valid(
-        procedure,
-        type_env=procedure_type_env,
-    ) and _procedure_private_body_valid(
-        procedure,
-        typed_procedures_by_name=context.typed_procedures,
-        type_env=procedure_type_env,
-        procedure_type_envs=context.procedure_type_envs,
-        workflow_signatures_by_name=context.workflow_catalog.signatures_by_name,
+
+def effective_private_workflow_name(procedure: TypedProcedureDef) -> str:
+    return procedure.generated_workflow_name or (
+        f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
     )
 
 
@@ -528,8 +508,6 @@ def _lower_procedure_call(
         _normalize_generated_step_id,
         _render_call_binding_ref,
         _render_record_call_bindings,
-        _resolved_proc_ref_value,
-        _resolved_workflow_ref_value,
     )
     from .values import (
         _flatten_boundary_leaf_paths,
@@ -558,104 +536,13 @@ def _lower_procedure_call(
         provenance_source=expr,
         runtime_erasure_inputs=(local_values, context.origin_notes),
     )
-    if expr.specialized_callee_name is not None:
-        procedure = context.typed_procedures.get(expr.specialized_callee_name)
-        if procedure is None:
-            raise _compile_error(
-                code="procedure_lowering_unresolved",
-                message=(
-                    "compiler-owned specialization row "
-                    f"`{expr.specialized_callee_name}` is missing during lowering"
-                ),
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-    else:
-        bound_proc_ref = _resolved_proc_ref_value(
-            local_values.get(expr.callee_name),
-            context=context,
-            local_values=local_values,
-        )
-        if bound_proc_ref is not None:
-            procedure = context.typed_procedures.get(bound_proc_ref.call_target_name)
-            if procedure is None:
-                raise _compile_error(
-                    code="procedure_lowering_unresolved",
-                    message=(
-                        "compiler-owned bound ProcRef specialization row "
-                        f"`{bound_proc_ref.call_target_name}` is missing during lowering"
-                    ),
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            arg_exprs = expr.args
-        else:
-            procedure = context.typed_procedures.get(expr.callee_name)
-            if procedure is None:
-                raise _compile_error(
-                    code="procedure_call_unknown",
-                    message=f"unknown procedure callee `{expr.callee_name}` during lowering",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-    workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
-    proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
-    remaining_args: list[Any] = []
-    for arg_expr, (param_name, param_type) in zip(
-        arg_exprs,
-        procedure.signature.params,
-        strict=True,
-    ):
-        if isinstance(param_type, WorkflowRefTypeRef):
-            candidate_expr = (
-                arg_expr
-                if isinstance(arg_expr, EnumMemberExpr)
-                else _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr
-            )
-            resolved_binding = _resolved_workflow_ref_value(
-                candidate_expr,
-                context=context,
-                expected_type=param_type,
-            )
-            if resolved_binding is None:
-                raise _compile_error(
-                    code="workflow_ref_literal_required",
-                    message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
-                    span=arg_expr.span,
-                    form_path=arg_expr.form_path,
-                )
-            workflow_ref_bindings[param_name] = resolved_binding
-            continue
-        if isinstance(param_type, ProcRefTypeRef):
-            resolved_binding = _resolved_proc_ref_value(
-                _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr,
-                context=context,
-                local_values=local_values,
-                expected_type=param_type,
-            )
-            if resolved_binding is not None:
-                proc_ref_bindings[param_name] = resolved_binding
-                continue
-        remaining_args.append(arg_expr)
-    if workflow_ref_bindings or proc_ref_bindings:
-        materialized_rows = materialized_specialization_rows(
-            procedure,
-            workflow_ref_bindings=workflow_ref_bindings,
-            proc_ref_bindings=proc_ref_bindings,
-            typed_procedures=context.typed_procedures,
-        )
-        if len(materialized_rows) != 1:
-            raise _compile_error(
-                code="procedure_lowering_unresolved",
-                message=(
-                    "compiler-owned procedure specialization row with exact "
-                    "compile-time bindings is missing or ambiguous during lowering"
-                ),
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        procedure = materialized_rows[0]
-        arg_exprs = tuple(remaining_args)
+    from .command_control_decisions import select_surface_procedure_call, inline_procedure_bindings
+
+    procedure, arg_exprs = select_surface_procedure_call(
+        expr, local_values=local_values, typed_procedures=context.typed_procedures,
+        procedure_catalog=getattr(context, "procedure_catalog", None),
+        workflow_catalog=context.workflow_catalog, typed_workflows=context.workflows_by_name,
+    )
     if procedure.signature.name in context.active_procedure_calls:
         raise _compile_error(
             code=(
@@ -692,9 +579,7 @@ def _lower_procedure_call(
     # iteration scopes so recursive loop state remains owned by loop lowering.
     if _schema1_iteration_private_override_applies(procedure, context=context):
         resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        generated_workflow_name = procedure.generated_workflow_name or (
-            f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
-        )
+        generated_workflow_name = effective_private_workflow_name(procedure)
         procedure = replace(
             procedure,
             resolved_lowering_mode=resolved_lowering_mode,
@@ -846,13 +731,11 @@ def _lower_procedure_call(
     prefix_ordinal = context.inline_call_counters.get(expr.callee_name, 0) + 1
     context.inline_call_counters[expr.callee_name] = prefix_ordinal
     context.origin_notes = procedure_notes
-    child_locals = dict(local_values)
-    if procedure.specialization is not None:
-        child_locals.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
-        child_locals.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
-        child_locals.update(dict(getattr(procedure.specialization, "value_bindings", {})))
-    for arg_expr, (param_name, _) in zip(arg_exprs, procedure.signature.params, strict=True):
-        child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
+    child_locals = inline_procedure_bindings(
+        procedure, caller_values=local_values, actual_values=tuple(
+            _resolve_inline_expr_value(arg, local_values=local_values) for arg in arg_exprs
+        ),
+    )
     child_context = _LoweringContext(
         workflow_name=context.workflow_name,
         step_name_prefix=_inline_procedure_step_prefix(

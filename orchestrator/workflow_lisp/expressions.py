@@ -114,6 +114,12 @@ class EnumMemberExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    resolved_type: "TypeRef | None" = field(
+        default=None,
+        repr=False,
+        hash=False,
+        metadata={"json_omit_if_none": True, "semantic_identity_omit": True},
+    )
 
     @property
     def name(self) -> str:
@@ -159,6 +165,10 @@ class FieldAccessExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    shared_field_types: tuple["TypeRef | None", ...] = field(
+        default=(), repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -397,6 +407,16 @@ class LetStarExpr:
         hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
+    # The actual lexical owner and checked type of a generated pure-call
+    # static-argument read. Parallel to bindings; closed elaboration consumes
+    # it instead of re-evaluating the copied source expression.
+    binding_capture_sources: tuple[tuple[object, "TypeRef"] | None, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
     # The checked condition expression replaced by this generated wrapper,
     # retained in the wrapper's incoming lexical scope for closed elaboration.
     condition_normalization_input: "ExprNode | None" = field(
@@ -622,6 +642,10 @@ class ProcedureCallExpr:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     authored_callee_span: SourceSpan | None = field(default=None, compare=False)
+    retained_reference_actuals: tuple[tuple[str, "ExprNode"], ...] = field(
+        default=(), repr=False, compare=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

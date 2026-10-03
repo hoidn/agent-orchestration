@@ -614,7 +614,7 @@ def test_compile_diagnostics_json_closes_io_failures_as_machine_diagnostics(
 ) -> None:
     compile_module = importlib.import_module("orchestrator.cli.commands.compile")
 
-    def fail_build(_request: object) -> None:
+    def fail_build(_request: object, **_kwargs: object) -> None:
         raise OSError("fixture I/O failure")
 
     monkeypatch.setattr(compile_module, "build_frontend_bundle", fail_build)

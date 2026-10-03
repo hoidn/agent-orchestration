@@ -645,11 +645,6 @@ def _validate_output_bundle_with_owner(
     *,
     finite_floats: bool = False,
 ) -> Dict[str, Any]:
-    resolved_workspace = workspace_files.workspace
-    artifacts: Dict[str, Any] = {}
-    violations: List[ContractViolation] = []
-    seen_names: set[str] = set()
-
     bundle_path = str(output_bundle.get("path", ""))
     bundle_file = _owner_contract_path(workspace_files, bundle_path)
     if bundle_file is None:
@@ -684,15 +679,50 @@ def _validate_output_bundle_with_owner(
         ])
 
     try:
-        document = _load_bundle_json(
-            (
-                document_bytes.decode("utf-8")
-                if document_bytes is not None
-                else workspace_files.read(bundle_file).decode("utf-8")
-            ),
-            reject_nonstandard_constants=_contract_contains_value(output_bundle) and not finite_floats,
+        captured_bytes = (
+            document_bytes
+            if document_bytes is not None
+            else workspace_files.read(bundle_file)
         )
     except (json.JSONDecodeError, ValueError, OSError, UnicodeDecodeError) as exc:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_json_document",
+                message="Output bundle file is not valid JSON",
+                context={"path": bundle_path, "error": str(exc)},
+            )
+        ])
+
+    return _validate_output_bundle_document_bytes(
+        output_bundle,
+        captured_bytes,
+        workspace_files,
+        finite_floats=finite_floats,
+    )
+
+
+def _validate_output_bundle_document_bytes(
+    output_bundle: Dict[str, Any],
+    document_bytes: bytes,
+    workspace_files: Any,
+    *,
+    finite_floats: bool = False,
+) -> Dict[str, Any]:
+    """Validate captured bytes; the path is diagnostic and values use the workspace owner."""
+    resolved_workspace = workspace_files.workspace
+    artifacts: Dict[str, Any] = {}
+    violations: List[ContractViolation] = []
+    seen_names: set[str] = set()
+
+    bundle_path = str(output_bundle.get("path", ""))
+    try:
+        document = _load_bundle_json(
+            document_bytes.decode("utf-8"),
+            reject_nonstandard_constants=(
+                _contract_contains_value(output_bundle) and not finite_floats
+            ),
+        )
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
         raise OutputContractError([
             ContractViolation(
                 type="invalid_json_document",
@@ -843,9 +873,6 @@ def _validate_variant_output_bundle_with_owner(
     *,
     finite_floats: bool = False,
 ) -> Dict[str, Any]:
-    resolved_workspace = workspace_files.workspace
-    violations: List[ContractViolation] = []
-
     bundle_path = str(variant_output.get("path", ""))
     bundle_file = _owner_contract_path(workspace_files, bundle_path)
     if bundle_file is None:
@@ -880,15 +907,48 @@ def _validate_variant_output_bundle_with_owner(
         ])
 
     try:
-        document = _load_bundle_json(
-            (
-                document_bytes.decode("utf-8")
-                if document_bytes is not None
-                else workspace_files.read(bundle_file).decode("utf-8")
-            ),
-            reject_nonstandard_constants=_contract_contains_value(variant_output) and not finite_floats,
+        captured_bytes = (
+            document_bytes
+            if document_bytes is not None
+            else workspace_files.read(bundle_file)
         )
     except (json.JSONDecodeError, ValueError, OSError, UnicodeDecodeError) as exc:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_json_document",
+                message="Variant output bundle file is not valid JSON",
+                context={"path": bundle_path, "error": str(exc)},
+            )
+        ])
+
+    return _validate_variant_output_bundle_document_bytes(
+        variant_output,
+        captured_bytes,
+        workspace_files,
+        finite_floats=finite_floats,
+    )
+
+
+def _validate_variant_output_bundle_document_bytes(
+    variant_output: Dict[str, Any],
+    document_bytes: bytes,
+    workspace_files: Any,
+    *,
+    finite_floats: bool = False,
+) -> Dict[str, Any]:
+    """Validate captured bytes; the path is diagnostic and values use the workspace owner."""
+    resolved_workspace = workspace_files.workspace
+    violations: List[ContractViolation] = []
+
+    bundle_path = str(variant_output.get("path", ""))
+    try:
+        document = _load_bundle_json(
+            document_bytes.decode("utf-8"),
+            reject_nonstandard_constants=(
+                _contract_contains_value(variant_output) and not finite_floats
+            ),
+        )
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
         raise OutputContractError([
             ContractViolation(
                 type="invalid_json_document",

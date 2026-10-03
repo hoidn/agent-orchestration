@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .conditionals import (
     CondClauseRewrite,
@@ -25,7 +25,7 @@ from .expressions import (
     UnionVariantTagExpr,
 )
 from .loops import LoopControlTypeRef
-from .parametric_constraints import SharedUnionFieldCapability
+from .parametric_constraints import SharedUnionFieldCapability, constraint_field_type_satisfied
 from .syntax import target_dsl_is_2_33_or_newer, target_dsl_supports_strict_boolean_control_flow
 from .type_env import (
     DiscriminantTypeRef,
@@ -279,7 +279,19 @@ def typecheck_field_access_expr(
     current_type = typed_base.type_ref
     base_name = expr.base.name if isinstance(expr.base, NameExpr) else ""
     binding_identity = context.binding_env.get(base_name) if base_name else None
-    for field_name in expr.fields:
+    shared_field_types = []
+    retained = expr.shared_field_types or (None,) * len(expr.fields)
+    for field_name, prior_target in zip(expr.fields, retained, strict=True):
+        capabilities = context.shared_union_field_capabilities
+        target = _shared_union_field_type(
+            base_type=current_type, field_name=field_name,
+            shared_union_field_capabilities=capabilities,
+        )
+        if target is None:
+            target = _validated_retained_shared_target(current_type, field_name, prior_target)
+            if target is not None:
+                capabilities = (*capabilities, SharedUnionFieldCapability(current_type.name, field_name, target))
+        shared_field_types.append(target)
         current_type = resolve_field_access(
             current_type,
             base_name=base_name,
@@ -289,9 +301,23 @@ def typecheck_field_access_expr(
             form_path=expr.form_path,
             type_env=context.type_env,
             proof_scope=context.proof_scope,
-            shared_union_field_capabilities=context.shared_union_field_capabilities,
+            shared_union_field_capabilities=capabilities,
         )
-    return typed_factory(expr=expr, type_ref=current_type, effect=typed_base.effect_summary)
+    typed_expr = replace(
+        expr, base=typed_base.expr,
+        shared_field_types=tuple(shared_field_types) if any(shared_field_types) else (),
+    )
+    return typed_factory(expr=typed_expr, type_ref=current_type, effect=typed_base.effect_summary)
+
+
+def _validated_retained_shared_target(base_type: TypeRef, field_name: str, target: TypeRef | None) -> TypeRef | None:
+    """Revalidate a typed segment when inline retyping has lost its local context."""
+    if target is None or isinstance(target, TypeParamRef) or not isinstance(base_type, UnionTypeRef) or not base_type.definition.variants:
+        return None
+    actuals = (base_type.variant_field_types.get(variant.name, {}).get(field_name)
+               for variant in base_type.definition.variants)
+    return target if all(actual is not None and constraint_field_type_satisfied(actual, target)
+                         for actual in actuals) else None
 
 
 def _shared_union_field_type(
@@ -341,6 +367,11 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
     from .prompts import PromptApplicationExpr
 
+    if any(
+        isinstance(node, FieldAccessExpr) and node.shared_field_types
+        for node in walk_expr(typed_subject_expr)
+    ):
+        return typed_subject_expr
     if not target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or ""):
         return expr.subject
     if any(

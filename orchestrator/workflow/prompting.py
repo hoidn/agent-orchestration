@@ -9,6 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 
+from .._common.io_text import read_text_with_sha256
 from ..deps.content_snapshot import (
     DependencyContentSnapshot,
     RenderedContentSnapshot,
@@ -516,20 +517,14 @@ def render_prompt_fragment_base(
         contract.rendered_slots
     ):
         value = resolved_slot_values[slot.name]
+        substitution_text, rendered = render_prompt_fragment_value(
+            slot.renderer_id,
+            value,
+        )
+        rendered_by_name[slot.name] = substitution_text
         if slot.renderer_id == "raw-utf8-string":
-            if not isinstance(value, str):
-                raise TypeError(
-                    "raw-utf8-string prompt fragment values must be strings"
-                )
-            try:
-                value.encode("utf-8", errors="strict")
-            except UnicodeEncodeError as exc:
-                raise ValueError(
-                    "raw-utf8-string prompt fragment value is not valid UTF-8"
-                ) from exc
-            rendered_by_name[slot.name] = value
             if trace_required:
-                raw_bytes = value.encode("utf-8", errors="strict")
+                raw_bytes = rendered
                 trace_rows.append(
                     PromptFragmentRenderTraceRow(
                         rendered_slot_ordinal=rendered_slot_ordinal,
@@ -551,21 +546,6 @@ def render_prompt_fragment_base(
                     )
                 )
             continue
-        try:
-            rendered = render_view(slot.renderer_id, 1, value)
-        except ViewRendererError as exc:
-            raise ValueError(
-                f"{slot.renderer_id} prompt fragment rendering failed: {exc}"
-            ) from exc
-        try:
-            substitution_text = (
-                rendered.decode("utf-8", errors="strict").removesuffix("\n")
-            )
-        except UnicodeDecodeError as exc:
-            raise ValueError(
-                f"{slot.renderer_id} prompt fragment renderer returned invalid UTF-8"
-            ) from exc
-        rendered_by_name[slot.name] = substitution_text
         if trace_required:
             substitution_bytes = substitution_text.encode(
                 "utf-8",
@@ -592,8 +572,58 @@ def render_prompt_fragment_base(
                 )
             )
 
+    rendered_base = substitute_prompt_template(
+        contract.template_utf8,
+        rendered_by_name,
+    )
+    if not trace_required:
+        return rendered_base
+    trace = tuple(trace_rows)
+    return PromptFragmentRenderResult(
+        rendered_base=rendered_base,
+        trace=trace,
+        _trace_sha256=_trace_sha256(trace),
+    )
+
+
+def render_prompt_fragment_value(
+    renderer_id: str,
+    value: Any,
+) -> tuple[str, bytes]:
+    """Render one fragment substitution using the shared v1 renderer rules."""
+
+    if renderer_id == "raw-utf8-string":
+        if not isinstance(value, str):
+            raise TypeError("raw-utf8-string prompt fragment values must be strings")
+        try:
+            rendered = value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                "raw-utf8-string prompt fragment value is not valid UTF-8"
+            ) from exc
+        return value, rendered
+    try:
+        rendered = render_view(renderer_id, 1, value)
+    except ViewRendererError as exc:
+        raise ValueError(
+            f"{renderer_id} prompt fragment rendering failed: {exc}"
+        ) from exc
+    try:
+        text = rendered.decode("utf-8", errors="strict").removesuffix("\n")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"{renderer_id} prompt fragment renderer returned invalid UTF-8"
+        ) from exc
+    return text, rendered
+
+
+def substitute_prompt_template(
+    template: str,
+    rendered_by_name: Mapping[str, str],
+) -> str:
+    """Substitute rendered slots while preserving Workflow Lisp brace escapes."""
+
     output: list[str] = []
-    template = contract.template_utf8
     index = 0
     while index < len(template):
         character = template[index]
@@ -629,15 +659,7 @@ def render_prompt_fragment_base(
             )
         output.append(character)
         index += 1
-    rendered_base = "".join(output)
-    if not trace_required:
-        return rendered_base
-    trace = tuple(trace_rows)
-    return PromptFragmentRenderResult(
-        rendered_base=rendered_base,
-        trace=trace,
-        _trace_sha256=_trace_sha256(trace),
-    )
+    return "".join(output)
 
 
 class PromptCompletionError(Exception):
@@ -674,9 +696,24 @@ class PromptComposer:
         contract_violation_result: Callable[[str, Dict[str, Any]], Dict[str, Any]],
     ) -> tuple[str, Optional[Dict[str, Any]]]:
         """Read either a workspace-relative input file or a source-relative asset."""
+        prompt, _digest, error = self.read_prompt_source_with_sha256(
+            step,
+            step_name=step_name,
+            contract_violation_result=contract_violation_result,
+        )
+        return prompt, error
+
+    def read_prompt_source_with_sha256(
+        self,
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        contract_violation_result: Callable[[str, Dict[str, Any]], Dict[str, Any]],
+    ) -> tuple[str, Optional[str], Optional[Dict[str, Any]]]:
+        """Read prompt source text with its raw digest, or None when input is absent."""
         if "asset_file" in step:
             if self.asset_resolver is None:
-                return "", contract_violation_result(
+                return "", None, contract_violation_result(
                     "Provider prompt asset resolution failed",
                     {
                         "step": step_name,
@@ -684,9 +721,9 @@ class PromptComposer:
                     },
                 )
             try:
-                return self.asset_resolver.read_text(step["asset_file"]), None
+                return (*self.asset_resolver.read_text_with_sha256(step["asset_file"]), None)
             except (AssetResolutionError, OSError) as exc:
-                return "", contract_violation_result(
+                return "", None, contract_violation_result(
                     "Provider prompt asset resolution failed",
                     {
                         "step": step_name,
@@ -697,11 +734,12 @@ class PromptComposer:
                 )
 
         prompt = ""
+        digest = None
         if "input_file" in step:
             input_path = self.workspace / step["input_file"]
             if input_path.exists():
-                prompt = input_path.read_text()
-        return prompt, None
+                prompt, digest = read_text_with_sha256(input_path)
+        return prompt, digest, None
 
     def apply_asset_depends_on_prompt_injection(
         self,
@@ -1129,10 +1167,15 @@ class PromptComposer:
             workflow_name=workflow_name,
             step_id=step_id,
         )
-        if not rendered_block:
-            return prompt, evidence
-        if not prompt:
-            return rendered_block, evidence
-        if prompt.endswith("\n"):
-            return f"{prompt}\n{rendered_block}", evidence
-        return f"{prompt}\n\n{rendered_block}", evidence
+        return append_prompt_block(prompt, rendered_block), evidence
+
+
+def append_prompt_block(prompt: str, block: str) -> str:
+    """Append one rendered block with the established prompt separator."""
+
+    if not block:
+        return prompt
+    if not prompt:
+        return block
+    separator = "\n" if prompt.endswith("\n") else "\n\n"
+    return f"{prompt}{separator}{block}"

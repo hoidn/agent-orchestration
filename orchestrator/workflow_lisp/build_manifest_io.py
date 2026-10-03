@@ -9,6 +9,7 @@ byte-identical to the pre-split build.py definitions.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 from collections.abc import Mapping
@@ -151,6 +152,38 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         lint_profile=request.lint_profile,
         lowering_route=request.lowering_route,
     )
+
+
+def _require_build_path_within_workspace(
+    path: Path,
+    *,
+    workspace_root: Path,
+) -> None:
+    """Reject a build destination if following symlinks leaves WORKSPACE."""
+
+    # ponytail: path checks leave a symlink-swap race; use descriptor-rooted
+    # publication if concurrent hostile mutation must be covered.
+    try:
+        workspace = Path(workspace_root).resolve(strict=False)
+        resolved_path = Path(path).resolve(strict=False)
+        resolved_path.relative_to(workspace)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="workflow_lisp_build_path_escapes_workspace",
+                    message=(
+                        f"build output path `{path}` does not resolve within "
+                        f"WORKSPACE `{workspace_root}`"
+                    ),
+                    path=Path(path),
+                    notes=(
+                        "build output paths must stay under WORKSPACE "
+                        "after following symlinks",
+                    ),
+                ),
+            )
+        ) from exc
 
 
 def _load_string_mapping(
@@ -920,7 +953,10 @@ def _load_json_file(
 def _resolve_manifest_relative_path(manifest_path: Path, entry_path: str) -> Path:
     candidate = Path(entry_path)
     if not candidate.is_absolute():
-        candidate = (manifest_path.parent / candidate).resolve()
+        try:
+            candidate = (manifest_path.parent / candidate).resolve()
+        except RuntimeError as exc:
+            raise OSError(errno.ELOOP, str(exc), str(manifest_path.parent / candidate)) from exc
     return candidate
 
 

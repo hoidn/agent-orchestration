@@ -169,6 +169,7 @@ class WccIdentityFactory:
         proof_context: tuple[object, ...] = (),
         allocation_requests: tuple[object, ...] = (),
         phase_scope: "WccPhaseScope | None" = None,
+        binding_identity: object | None = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="atom",
@@ -181,6 +182,7 @@ class WccIdentityFactory:
             proof_context=proof_context,
             allocation_requests=allocation_requests,
             phase_scope=phase_scope,
+            binding_identity=binding_identity,
         )
 
     def value_metadata(
@@ -258,6 +260,10 @@ class WccFieldAccessAtom:
     metadata: WccNodeMetadata
     base: "WccAtom"
     fields: tuple[str, ...]
+    shared_field_types: tuple[TypeRef | None, ...] = field(
+        default=(), repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -290,6 +296,9 @@ class WccPureOp:
 class WccOpaqueFrontendValue:
     metadata: WccNodeMetadata
     expr: object
+    normalized_body: "WccBody | None" = field(
+        default=None, repr=False, metadata={"json_omit_if_none": True},
+    )
 
 
 WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccPhaseTargetAtom | WccRecordAtom | WccOpaqueFrontendValue
@@ -729,6 +738,9 @@ class WccCaseArm:
     binding_name: str
     binding_type_ref: TypeRef
     body: "WccBody"
+    command_scope: tuple[tuple[str, WccValue], ...] | None = field(
+        default=None, metadata={"json_omit_if_none": True},
+    )
     binding_label: str | None = field(
         default=None,
         repr=False,

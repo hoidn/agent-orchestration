@@ -2233,22 +2233,48 @@ def test_historical_q2_index_routes_current_selection_to_evolution_entry_gates()
 
     assert "q3" in normalized_q2_section
     assert "closed" in normalized_q2_section
-    canonical = _canonical_routing_paths(q2_section)
+    index_owner = REPO_ROOT / "docs/index.md"
+    q2_links = {
+        (index_owner.parent / href.split("#", 1)[0]).resolve()
+        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", q2_section)
+    }
     for path in (LANGUAGE_QUALITY_ROADMAP_PATH, EVOLUTION_FOLLOW_ON_ROADMAP_PATH):
-        assert path in canonical
+        assert (REPO_ROOT / path).resolve() in q2_links
         assert (REPO_ROOT / path).is_file()
     historical_roadmap = (REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
     assert re.search(r"(?m)^- \*\*Status:\*\* complete\b", historical_roadmap)
-    entry_gate = _markdown_table_row(
-        REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH, "| R1a "
-    ).split("|")[3]
-    assert re.search(r"\bOwner\b.*\bbefore execution\b", entry_gate)
-    assert all(
-        prerequisite in entry_gate
-        for prerequisite in ("design", "scope", "budget", "ES disposition")
+    roadmap_owner = REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH
+    r1a_row = _markdown_table_row(roadmap_owner, "| R1a ")
+    plan_owner = REPO_ROOT / "docs/plans/2026-09-08-orc-research-demonstration-plan.md"
+    proposal_anchor = "proposed-follow-on--explicit-current-value-handoff"
+    r1a_links = {
+        ((roadmap_owner.parent / href.partition("#")[0]).resolve(), href.partition("#")[2])
+        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", r1a_row)
+    }
+    assert (plan_owner.resolve(), proposal_anchor) in r1a_links
+    proposal = _markdown_heading_section(
+        plan_owner.read_text(encoding="utf-8"),
+        "### Proposed follow-on — explicit current-value handoff",
     )
+    normalized_proposal = " ".join(proposal.split())
+    assert "Owner decision required:" in normalized_proposal
+    assert "authorizes no implementation" in normalized_proposal
+    assert "receipt-interface implementation remains unselected" in normalized_proposal
+    roadmap = roadmap_owner.read_text(encoding="utf-8")
+    pc1 = _markdown_heading_section(
+        roadmap, "## PC-1 — First-Class Provider Context (Pending, Unselected)"
+    ).split("\n## ", 1)[0]
+    pc1_links = re.findall(r"\[[^\]]*\]\(([^)]+)\)", pc1)
+    assert "#current-research-sequence" in pc1_links
+    assert "## Current Research Sequence" in roadmap
+    assert any(
+        (roadmap_owner.parent / href.partition("#")[0]).resolve() == plan_owner.resolve()
+        and href.partition("#")[2] == proposal_anchor
+        for href in pc1_links
+    )
+    assert "separate selection/funding" in pc1
     assert (
         "current q series selection starts with q3 implementation"
         not in normalized_q2_section

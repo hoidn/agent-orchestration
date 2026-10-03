@@ -11,7 +11,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from orchestrator import __version__ as ORCHESTRATOR_VERSION
 from orchestrator.exceptions import ValidationSubjectRef, serialize_validation_subject_ref
@@ -271,6 +271,7 @@ def derive_prompt_guided_structured_result_contract(
     form_path: tuple[str, ...] = (),
     guidance: ResultGuidance | None = None,
     whole_value: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> GeneratedBundleContract:
     """Derive a provider/command prompt contract with normalized guidance."""
 
@@ -286,6 +287,7 @@ def derive_prompt_guided_structured_result_contract(
         type_env=type_env,
         include_guidance=True,
         whole_value=whole_value,
+        descriptor_projector=descriptor_projector,
     )
 
 
@@ -300,6 +302,7 @@ def _derive_structured_result_contract(
     type_env: Any | None,
     include_guidance: bool,
     whole_value: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> GeneratedBundleContract:
     """Derive the runtime-validated result contract for a provider/command form.
 
@@ -337,6 +340,7 @@ def _derive_structured_result_contract(
             form_path=form_path,
             type_env=type_env,
             allow_nested_structures=allow_nested_structures,
+            descriptor_projector=descriptor_projector,
         )
         if whole_value and include_guidance:
             field_definition = _annotate_result_field_guidance(
@@ -386,6 +390,7 @@ def _derive_structured_result_contract(
                 form_path=form_path,
                 type_env=type_env,
                 include_guidance=include_guidance,
+                descriptor_projector=descriptor_projector,
             ),
         }
         return GeneratedBundleContract(
@@ -401,6 +406,7 @@ def _derive_structured_result_contract(
         form_path=form_path,
         type_env=type_env,
         include_guidance=include_guidance,
+        descriptor_projector=descriptor_projector,
     )
     variant_fields = {
         variant.name: _flatten_variant_structured_result_fields(
@@ -410,6 +416,7 @@ def _derive_structured_result_contract(
             form_path=form_path,
             type_env=type_env,
             include_guidance=include_guidance,
+            descriptor_projector=descriptor_projector,
         )
         for variant in type_ref.definition.variants
     }
@@ -420,6 +427,7 @@ def _derive_structured_result_contract(
         span=span,
         form_path=form_path,
         type_env=type_env,
+        descriptor_projector=descriptor_projector,
     )
     for variant_name, fields in variant_fields.items():
         for field in fields:
@@ -1437,6 +1445,7 @@ def _flatten_structured_result_fields(
     form_path: tuple[str, ...],
     type_env: Any | None = None,
     include_guidance: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     flattened: list[dict[str, Any]] = []
     for field in type_ref.definition.fields:
@@ -1450,6 +1459,7 @@ def _flatten_structured_result_fields(
                 field_guidance=field.guidance,
                 type_env=type_env,
                 include_guidance=include_guidance,
+                descriptor_projector=descriptor_projector,
             )
         )
     return flattened
@@ -1463,6 +1473,7 @@ def _derive_union_contract_field_lineage(
     span: SourceSpan | None,
     form_path: tuple[str, ...],
     type_env: Any | None = None,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> tuple[
     dict[str, dict[str, ValidationSubjectRef]],
     tuple[GeneratedContractFieldOrigin, ...],
@@ -1488,6 +1499,7 @@ def _derive_union_contract_field_lineage(
                 span=span,
                 form_path=form_path,
                 type_env=type_env,
+                descriptor_projector=descriptor_projector,
             )
             for flattened_field in flattened_fields:
                 subject_ref = ValidationSubjectRef(
@@ -1527,6 +1539,7 @@ def _flatten_variant_structured_result_fields(
     form_path: tuple[str, ...],
     type_env: Any | None = None,
     include_guidance: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     shared_field_names = {
         field["name"]
@@ -1536,6 +1549,7 @@ def _flatten_variant_structured_result_fields(
             form_path=form_path,
             type_env=type_env,
             include_guidance=include_guidance,
+            descriptor_projector=descriptor_projector,
         )
     }
     flattened: list[dict[str, Any]] = []
@@ -1549,6 +1563,7 @@ def _flatten_variant_structured_result_fields(
             field_guidance=field.guidance,
             type_env=type_env,
             include_guidance=include_guidance,
+            descriptor_projector=descriptor_projector,
         ):
             if flattened_field["name"] not in shared_field_names:
                 flattened.append(flattened_field)
@@ -1562,6 +1577,7 @@ def _shared_variant_structured_result_fields(
     form_path: tuple[str, ...],
     type_env: Any | None = None,
     include_guidance: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if not type_ref.definition.variants:
         return []
@@ -1579,6 +1595,7 @@ def _shared_variant_structured_result_fields(
                 field_guidance=field.guidance,
                 type_env=type_env,
                 include_guidance=include_guidance,
+                descriptor_projector=descriptor_projector,
             ):
                 flattened_fields[flattened_field["name"]] = flattened_field
         variant_field_maps.append(flattened_fields)
@@ -1601,6 +1618,7 @@ def _shared_variant_structured_result_fields(
             field_guidance=field.guidance,
             type_env=type_env,
             include_guidance=include_guidance,
+            descriptor_projector=descriptor_projector,
         ):
             field_name = flattened_field["name"]
             if field_name not in common_names:
@@ -1654,6 +1672,7 @@ def _flatten_structured_result_field(
     guidance_context: tuple[dict[str, Any], ...] = (),
     type_env: Any | None = None,
     include_guidance: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if isinstance(type_ref, RecordTypeRef):
         nested_context = guidance_context
@@ -1684,6 +1703,7 @@ def _flatten_structured_result_field(
                     guidance_context=nested_context,
                     type_env=type_env,
                     include_guidance=include_guidance,
+                    descriptor_projector=descriptor_projector,
                 )
             )
         return flattened
@@ -1711,6 +1731,7 @@ def _flatten_structured_result_field(
                     type_env.target_dsl_version
                 )
             ),
+            descriptor_projector=descriptor_projector,
         ),
         **({"guidance_context": list(guidance_context)} if guidance_context else {}),
         **(direct_guidance or {}),
@@ -1754,6 +1775,7 @@ def _structured_result_field_definition(
     form_path: tuple[str, ...],
     type_env: Any | None = None,
     allow_nested_structures: bool = False,
+    descriptor_projector: Callable[[TypeRef], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if isinstance(type_ref, OptionalTypeRef):
         return {
@@ -1764,6 +1786,7 @@ def _structured_result_field_definition(
                 form_path=form_path,
                 type_env=type_env,
                 allow_nested_structures=allow_nested_structures,
+                descriptor_projector=descriptor_projector,
             ),
         }
     if isinstance(type_ref, ListTypeRef):
@@ -1775,6 +1798,7 @@ def _structured_result_field_definition(
                 form_path=form_path,
                 type_env=type_env,
                 allow_nested_structures=allow_nested_structures,
+                descriptor_projector=descriptor_projector,
             ),
         }
     if isinstance(type_ref, MapTypeRef):
@@ -1787,19 +1811,24 @@ def _structured_result_field_definition(
                 form_path=form_path,
                 type_env=type_env,
                 allow_nested_structures=allow_nested_structures,
+                descriptor_projector=descriptor_projector,
             ),
         }
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         if allow_nested_structures and type_env is not None:
-            from .normalized_type_descriptor import (
-                compiler_normalized_type_descriptor,
-            )
+            if descriptor_projector is None:
+                from .normalized_type_descriptor import (
+                    compiler_normalized_type_descriptor,
+                )
 
-            return transport_schema_for_descriptor(
-                compiler_normalized_type_descriptor(
+                descriptor = compiler_normalized_type_descriptor(
                     type_ref,
                     type_env=type_env,
-                ),
+                )
+            else:
+                descriptor = descriptor_projector(type_ref)
+            return transport_schema_for_descriptor(
+                descriptor,
                 allow_nested_structures=True,
             )
         _raise_contract_error(

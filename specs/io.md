@@ -29,6 +29,27 @@
       the credential-minimized projection; OMP journals remain separate
       observations as defined in `state.md`.
   - Deterministic artifact contracts:
+    - Target 2.35 command boundary manifests accept `closure`, an array of
+      literal file or directory paths for both `external_tool` and
+      `certified_adapter`. C1 requires it on every supplied declaration
+      (including unused rows) and every used compiler-injected binding;
+      omission refuses with `command_boundary_closure_missing`. An explicit
+      `[]` is valid; `null`, non-arrays, non-string entries, empty strings and
+      NUL refuse with `command_boundary_manifest_invalid`. Below 2.35 the
+      valid field is accepted and ignored by binding serialization and effect
+      identity. Existing raw-manifest cache hashing stays unchanged; editing
+      the manifest can still change the build key.
+      At build, C2 means canonical logical declarations enter configuration
+      and program identity; compilation does not read, traverse, resolve
+      symlinks or hash closure file bytes. Runtime content hashes and
+      read-only/interpreter enforcement remain open in Phase 3. See
+      [command closure declaration](../docs/design/workflow_command_adapter_contract.md#command-closure-declaration),
+      `closed/effects.py::require_command_closures`,
+      `closed/program.py::_canonical_closure` (under
+      `orchestrator/workflow_lisp/`) and
+      `tests/test_workflow_lisp_command_boundary_closure.py`;
+      `tests/test_workflow_lisp_closed_program_compile_cli.py` checks that
+      changed closure bytes do not change compile identity.
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
     - v2.15 guidance is metadata only. Bundle `guidance` and top-level

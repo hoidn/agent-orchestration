@@ -289,10 +289,10 @@ def _project_identity_argument_dependencies(value: Any, found: list[str]) -> Non
 
 
 def canonical_callee_name_from_key(key: list[Any]) -> str:
-    """Derive the stable readable name from one canonical nine-part key."""
+    """Derive the stable readable name from the complete canonical key."""
 
-    if not isinstance(key, list) or len(key) != 9:
-        raise ValueError("definition key must be a nine-element list")
+    if not isinstance(key, list) or len(key) not in (9, 10):
+        raise ValueError("definition key must have nine or ten components")
     module, kind, declaration = key[:3]
     if not isinstance(module, str) or not module:
         raise ValueError("definition key module must be a non-empty string")
@@ -315,7 +315,7 @@ def canonical_callee_name_from_key(key: list[Any]) -> str:
         raise ValueError("definition key declaration has invalid shape")
 
     base = f"{kind}:{module}::{declared_name}"
-    if not is_local and not any(key[3:8]):
+    if not is_local and not any(key[3:8]) and len(key) == 9:
         return base
     encoded = canonical_json_for_pure_value(key).encode("utf-8")
     return f"{base}[{sha256(encoded).hexdigest()}]"
@@ -528,7 +528,18 @@ def _definition_owner_identity(type_ref: Any, *, typed: Any) -> str:
     if isinstance(type_ref, PrimitiveTypeRef) and not type_ref.allowed_values:
         return type_ref.name
 
-    environments = _typed_type_envs(typed)
+    environments = list(_typed_type_envs(typed))
+    seen_programs = {id(typed)}
+    pending = list(getattr(typed, "imported_programs", {}).values())
+    while pending:
+        program = pending.pop(0)
+        if id(program) in seen_programs:
+            continue
+        seen_programs.add(id(program))
+        for environment in _typed_type_envs(program):
+            if all(environment is not old for old in environments):
+                environments.append(environment)
+        pending.extend(getattr(program, "imported_programs", {}).values())
     if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values:
         for environment in environments:
             module = environment.declaring_module(type_ref)
@@ -657,7 +668,7 @@ def _loop_carrier_identity(
         [
             name,
             run_refs.key_type(field_type)
-            if isinstance(run_refs, _RunRefProjection)
+            if hasattr(run_refs, "key_type")
             else key_type_descriptor(
                 canonical_type_descriptor(field_type, typed=typed),
                 run_ref_signatures=run_refs,
@@ -1180,10 +1191,14 @@ def _source_expression_identity(value: Any, *, typed: Any) -> Any:
 def _capture_fact_type(capture: Any, *, typed: Any, run_refs: Mapping[str, Any]) -> Any:
     if isinstance(capture, Mapping):
         type_ref = capture.get("type", capture.get("type_ref"))
+        owner = capture.get("type_program")
     else:
         type_ref = getattr(capture, "type_ref", None)
+        owner = getattr(capture, "type_program", None)
     if type_ref is None:
         raise ValueError("capture facts require a typed capture type")
+    if owner is not None:
+        typed, run_refs = owner, _run_ref_signatures(owner)
     return _key_type_ref(type_ref, typed=typed, run_ref_signatures=run_refs)
 
 
@@ -1258,6 +1273,19 @@ def _unify_type_params(pattern: Any, actual: Any, *, typed: Any, bindings: dict[
         _unify_type_params(pattern.return_type_ref, actual.return_type_ref, typed=typed, bindings=bindings)
         return
     if isinstance(pattern, RecordTypeRef) and isinstance(actual, RecordTypeRef):
+        pattern_origin = getattr(pattern, "run_ref_origin", None)
+        actual_origin = getattr(actual, "run_ref_origin", None)
+        if pattern_origin is not None or actual_origin is not None:
+            if pattern_origin is None or actual_origin is None:
+                raise ValueError("resolved signature changes a generated run-ref result")
+            projection = _run_ref_signatures(typed)
+            if _key_type_ref(pattern, typed=typed, run_ref_signatures=projection) != _key_type_ref(
+                actual,
+                typed=typed,
+                run_ref_signatures=projection,
+            ):
+                raise ValueError("resolved signature changes a generated run-ref result")
+            return
         if (
             _definition_owner_identity(pattern, typed=typed)
             != _definition_owner_identity(actual, typed=typed)
@@ -1472,8 +1500,8 @@ def _remap_capture_fact_scope(facts: Any, index_map: Mapping[int, int]) -> Any:
     """Translate checked nested binding facts into an immediate target scope."""
 
     if not isinstance(facts, Mapping):
-        return deepcopy(facts)
-    result = deepcopy(dict(facts))
+        return facts
+    result = dict(facts)
     bound = result.get("bound")
     if isinstance(bound, Mapping):
         remapped = {}
@@ -1498,7 +1526,7 @@ def _remap_capture_fact_scope(facts: Any, index_map: Mapping[int, int]) -> Any:
     return result
 
 
-def _normalize_closed_value(value: Any) -> Any:
+def _normalize_closed_value(value: Any, *, run_ref_signatures=None) -> Any:
     """Project one checked closed expression without source names or labels."""
     # Checked closed values retain binder/reference links but no binder
     # provenance. Reserving source spellings would break alpha equivalence
@@ -1521,11 +1549,17 @@ def _normalize_closed_value(value: Any) -> Any:
         if kind == "name":
             return {"k": "name", "n": renamer.ref(node["n"], env=env)}
         if kind == "field":
-            return {
+            result = {
                 "k": "field",
                 "base": closed_value(node["base"], env),
                 "path": deepcopy(node["path"]),
             }
+            if "shared" in node:
+                result["shared"] = [
+                    key_type_descriptor(target, run_ref_signatures=run_ref_signatures or {})
+                    if target is not None else None for target in node["shared"]
+                ]
+            return result
         if kind in {"record", "inject"}:
             fields = [
                 [field_name, closed_value(field_value, env)]
@@ -1727,6 +1761,23 @@ def _callable_header(definition: Any, *, typed: Any) -> tuple[str, str, Any, boo
     return module, kind, declared_name, False
 
 
+def _projected_value_rows(definition, facts, *, typed, run_refs):
+    rows = []
+    for fact in facts.get("static_projections", ()):
+        descriptor = _key_type_ref(fact["type"], typed=typed, run_ref_signatures=run_refs)
+        projection = {"path": list(fact["path"])}
+        targets = fact["shared"]
+        if any(target is not None for target in targets):
+            projection["shared"] = [_key_type_ref(target, typed=typed, run_ref_signatures=run_refs)
+                if target is not None else None for target in targets]
+        selector = ["projection", _formal_selector(definition, fact["formal"], typed=typed),
+            fact["index"], projection]
+        value = {"k": "lit", "v": fact["literal"].value, "type": descriptor}
+        rows.append([selector, descriptor, _normalize_closed_value(value, run_ref_signatures=run_refs.signatures)])
+    rows.sort(key=lambda row: (row[0][2], _formal_sort_key(row[0][1]), tuple(row[0][3]["path"])))
+    return rows
+
+
 def _definition_key(
     definition: Any,
     *,
@@ -1735,6 +1786,7 @@ def _definition_key(
     capture_parameters: Sequence[Any],
     residual_signature: Mapping[str, Any] | None,
     active: set[Any],
+    command_decisions: Sequence[Any] | None = None,
 ) -> list[Any]:
     from ..type_env import (
         ProcRefTypeRef,
@@ -1745,7 +1797,9 @@ def _definition_key(
         id(definition),
         canonical_json_for_pure_value(
             _source_expression_identity(
-                (binding_facts, capture_parameters, residual_signature), typed=typed
+                (binding_facts, [{"type": _capture_fact_type(capture, typed=typed,
+                    run_refs=_run_ref_signatures(typed)), "routes": _capture_fact_routes(capture)}
+                    for capture in capture_parameters], residual_signature), typed=typed
             )
         ),
     )
@@ -1796,6 +1850,7 @@ def _definition_key(
                     _workflow_reference_key(
                         resolved,
                         typed=typed,
+                        owner=definition.definition.name,
                         binding_facts=_binding_fact(
                             workflow_facts, formal, selector=selector
                         ) or {},
@@ -1828,21 +1883,16 @@ def _definition_key(
                 [
                     selector,
                     _key_type_ref(type_ref, typed=typed, run_ref_signatures=run_refs),
-                    _normalize_closed_value(value),
+                    _normalize_closed_value(value, run_ref_signatures=run_refs.signatures),
                 ]
             )
         values.sort(key=lambda row: _formal_sort_key(row[0]))
+        values.extend(_projected_value_rows(definition, binding_facts, typed=typed, run_refs=run_refs))
 
         captures = []
         for capture in capture_parameters:
-            if isinstance(capture, Mapping):
-                capture_type = capture.get("type", capture.get("type_ref"))
-                routes = capture.get("routes")
-            else:
-                capture_type = getattr(capture, "type_ref", None)
-                routes = getattr(capture, "routes", None)
-            if capture_type is None or not isinstance(routes, Sequence) or isinstance(routes, (str, bytes)):
-                raise ValueError("capture parameter facts require type and routes")
+            capture_type = _capture_fact_type(capture, typed=typed, run_refs=run_refs)
+            routes = _capture_fact_routes(capture)
             canonical_routes = sorted(
                 {canonical_json_for_pure_value(route): deepcopy(route) for route in routes}.values(),
                 key=canonical_json_for_pure_value,
@@ -1851,7 +1901,7 @@ def _definition_key(
                 raise ValueError("runtime capture requires at least one owner route")
             captures.append(
                 {
-                    "type": _key_type_ref(capture_type, typed=typed, run_ref_signatures=run_refs),
+                    "type": capture_type,
                     "routes": canonical_routes,
                 }
             )
@@ -1907,10 +1957,15 @@ def _definition_key(
             ],
             "result": _key_type_ref(result_ref, typed=typed, run_ref_signatures=run_refs),
         }
+        if residual_signature is not None and "command_params" in residual_signature:
+            residual["command_params"] = deepcopy(residual_signature["command_params"])
         if is_local:
             owner_did = declaration["owner"]
             module = owner_did[0]
-        return [module, kind, declaration, types, procedures, workflows, values, captures, residual]
+        key = [module, kind, declaration, types, procedures, workflows, values, captures, residual]
+        if command_decisions:
+            key.append({"command_decisions": deepcopy(list(command_decisions))})
+        return key
     finally:
         active.remove(marker)
 
@@ -2289,6 +2344,8 @@ def _procedure_reference_key(
     for selector, nested in target_key[5]:
         add_expected(selector, {"kind": "workflow-reference", "signature": deepcopy(nested["target"][8])}, {"workflow": nested})
     for selector, descriptor, value in target_key[6]:
+        if isinstance(selector, list) and selector[0] == "projection":
+            continue
         add_expected(selector, descriptor, {"value": value})
 
     capture_map: dict[int, int] = {}
@@ -2335,10 +2392,18 @@ def _procedure_reference_key(
         if encoded not in actual:
             raise ValueError(f"resolved bound formal is absent from target K: {formal!r}")
         descriptor, binding = actual[encoded]
-        if descriptor != _key_type_ref(bound_args[formal].type_ref, typed=typed, run_ref_signatures=run_refs):
+        expected_descriptor = descriptor
+        if category == "workflow":
+            resolved_workflow = workflow_bindings[formal]
+            expected_descriptor = {"kind": "workflow-reference", "signature": {
+                "params": [_key_type_ref(type_ref, typed=typed, run_ref_signatures=run_refs)
+                    for _, type_ref in resolved_workflow.signature_params],
+                "result": _key_type_ref(resolved_workflow.return_type_ref,
+                    typed=typed, run_ref_signatures=run_refs)}}
+        if expected_descriptor != _key_type_ref(bound_args[formal].type_ref, typed=typed, run_ref_signatures=run_refs):
             raise ValueError(f"resolved bound formal type disagrees with target K: {formal!r}")
         if category == "value":
-            supplied = {"value": _normalize_closed_value(payload)}
+            supplied = {"value": _normalize_closed_value(payload, run_ref_signatures=run_refs.signatures)}
             if canonical_json_for_pure_value(supplied) != canonical_json_for_pure_value(binding):
                 raise ValueError(f"closed bound expression disagrees with target K: {formal!r}")
         elif category == "capture":
@@ -2360,12 +2425,16 @@ def _workflow_reference_key(
     resolved: Any,
     *,
     typed: Any,
+    owner: str,
     binding_facts: Mapping[str, Any],
     active: set[int],
 ) -> dict[str, Any]:
-    target = _find_typed_definition(typed, "workflow", resolved.workflow_name)
-    if target is None:
+    from .frontend import resolve_workflow_target, workflow_import_is_admitted
+
+    selected = resolve_workflow_target(typed, owner, resolved.workflow_name)
+    if selected is None:
         raise ValueError(f"resolved workflow target is unavailable: {resolved.workflow_name!r}")
+    caller_signature, target, target_program = selected
     target_facts = dict(binding_facts.get("target", {}) or {})
     target_facts.pop("residual_signature", None)
     target_facts.pop("target_residual", None)
@@ -2376,7 +2445,7 @@ def _workflow_reference_key(
     ) or ()
     target_key = _definition_key(
         target,
-        typed=typed,
+        typed=target_program,
         binding_facts=target_facts,
         capture_parameters=target_captures,
         residual_signature=None,
@@ -2392,7 +2461,16 @@ def _workflow_reference_key(
             resolved.return_type_ref, typed=typed, run_ref_signatures=run_refs
         ),
     }
-    if target_key[8] != resolved_residual:
+    expected_residual = target_key[8]
+    if workflow_import_is_admitted(typed, owner, resolved.workflow_name,
+        caller_signature, target, target_program):
+        expected_residual = {
+            "params": [_key_type_ref(type_ref, typed=typed, run_ref_signatures=run_refs)
+                for _, type_ref in caller_signature.params],
+            "result": _key_type_ref(caller_signature.return_type_ref, typed=typed,
+                run_ref_signatures=run_refs),
+        }
+    if expected_residual != resolved_residual:
         raise ValueError("resolved workflow signature does not match its typed target")
     externs = binding_facts.get("externs")
     if externs is None:
@@ -2466,6 +2544,7 @@ def canonical_definition_key(
     binding_facts: Mapping[str, Any],
     capture_parameters: Sequence[Any],
     residual_signature: Mapping[str, Any] | None,
+    command_decisions: Sequence[Any] | None = None,
 ) -> list[Any]:
     """Construct the complete canonical key from one retained typed callable."""
 
@@ -2478,6 +2557,7 @@ def canonical_definition_key(
         capture_parameters=capture_parameters,
         residual_signature=residual_signature,
         active=set(),
+        command_decisions=command_decisions,
     )
 
 

@@ -101,6 +101,35 @@ inside a called workflow the refusal has no location yet, a known defect
 recorded in `specs/state.md`. A validated committed command result is reused
 and never dispatched again.
 
+### Command closure declaration
+
+At target 2.35 both `external_tool` and `certified_adapter` manifest rows
+require `closure`, an array of literal file or directory paths. Declare
+`"closure": ["tool.py", "lib/"]`, or `"closure": []` explicitly when no
+implementation files are declared. C1 checks all supplied rows, including
+unused rows, and every used compiler-injected binding in retained source or
+imported owners. Omission refuses with `command_boundary_closure_missing`;
+`null`, non-arrays, non-string entries, empty strings and NUL refuse with
+`command_boundary_manifest_invalid`. Never infer an empty closure.
+
+Build-time C2 canonicalizes separators and empty/`.` path components,
+preserves `..`, sorts and deduplicates declarations, and records a logical
+base: `workspace` for relative supplied paths, `absolute` for absolute paths,
+or `package:orchestrator` for trusted relative injected bindings. A manifest
+override remains workspace-based. These declarations enter configuration and
+program identity; compilation reads no closure file bytes and performs no
+traversal or symlink resolution. Runtime file hashes, read-only enforcement,
+output disjointness and interpreter pinning remain open in Phase 3, as owned
+by [evaluated execution §7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares).
+Targets through 2.34 accept valid declarations and ignore them in legacy
+binding identity/artifacts.
+
+Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closures`,
+`closed/program.py::_canonical_closure`, `closed/artifact.py` (same directory),
+[closure tests](../../tests/test_workflow_lisp_command_boundary_closure.py),
+[build tests](../../tests/test_workflow_lisp_closed_program_build.py) and
+[public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py).
+
 ## Certified Command Adapter
 
 A certified command adapter is a named command boundary that is allowed to

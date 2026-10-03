@@ -704,3 +704,277 @@ def test_readback_rejects_non_operator_type_tampering(builder, mutation, rule) -
         ClosedProgram.from_artifact(artifact)
 
     assert (excinfo.value.code, excinfo.value.rule) == ("closed_program_invalid", rule)
+
+
+@pytest.mark.parametrize("tamper", ["forwarded-input", "direct-pair"])
+def test_source_free_readback_rejects_forged_command_capture_routes(tmp_path, tamper):
+    from orchestrator.workflow_lisp.closed.build import Builder, build_closed_program
+    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from tests.test_workflow_lisp_closed_command_transport import _command, _commands, _compile
+
+    declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) '
+    declaration += ':lowering inline ' + _command('"${inputs.x}"') + ')'
+    closed = build_closed_program(_compile(tmp_path, '(helper other)',
+        params='(x Bool) (other Bool)', declarations=declaration))
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+    tree = deepcopy(closed.tree)
+    (command,) = _commands(tree)
+    assert command['class'] == 'command'
+    (call,) = [node for node in _ast_nodes(tree['body']) if node.get('k') == 'call']
+    assert call['args'][0] != call['args'][1]
+    if tamper == 'forwarded-input':
+        call['args'][0] = deepcopy(call['args'][1])
+        rule = 'command_transport'
+    else:
+        # A checked relation gate on actual endpoints; this same-type source
+        # call does not need to emit a boundary of its own.
+        native = tree['definitions'][call['callee']]
+        call['boundary'] = Builder._boundary_relation(native['params'], native['params'],
+            call['type'], native['result'], direct_capture_count=1)
+        control = ClosedProgram(tree=tree, sites=closed.sites, digest=program_digest(tree))
+        assert ClosedProgram.from_artifact(control.artifact()).tree == tree
+        capture_pair = next(pair for pair in call['boundary']['direct'] if pair[1] == 0)
+        assert capture_pair == [0, 0]
+        capture_pair[0] = 1
+        rule = 'call_boundary'
+    altered = ClosedProgram(tree=tree, sites=closed.sites, digest=program_digest(tree))
+    with pytest.raises(ClosedProgramInvalid, match=rule):
+        ClosedProgram.from_artifact(altered.artifact())
+
+
+def test_source_free_readback_rejects_command_index_without_its_loop_body(tmp_path):
+    from orchestrator.workflow_lisp.closed.build import build_closed_program
+    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from tests.test_workflow_lisp_closed_command_transport import _command, _commands, _compile
+
+    source = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
+    source += '(let* ((result ' + _command('"${loop.index}"') + ')) (done result))))'
+    closed = build_closed_program(_compile(tmp_path, source))
+    tree = deepcopy(closed.tree)
+    (command,) = _commands(tree)
+    (loop,) = [node for node in _ast_nodes(tree['body']) if node.get('k') == 'loop']
+    assert command['argv_transport'][0]['parts'][0]['value']['n'] == loop['index']
+    del loop['index']
+    altered = ClosedProgram(tree=tree, sites=closed.sites, digest=program_digest(tree))
+    with pytest.raises(ClosedProgramInvalid, match='command_index'):
+        ClosedProgram.from_artifact(altered.artifact())
+
+
+def _projected_k6_negative_target(tree):
+    old_name = None
+    definition = None
+    for name, item in tree["definitions"].items():
+        if item["key"][2] == "extract":
+            old_name, definition = name, item
+            break
+    assert old_name is not None and definition is not None
+
+    key = definition["key"]
+    label_row = None
+    tag_row = None
+    for row in key[6]:
+        selector = row[0]
+        if isinstance(selector, list) and selector[:2] == ["projection", "value"]:
+            if selector[3].get("path") == ["label"]:
+                label_row = row
+            elif selector[3].get("path") == ["variant"]:
+                tag_row = row
+    assert label_row is not None and tag_row is not None
+    assert len(key[8]["params"]) == 2
+    assert key[8]["params"][0] == key[8]["params"][1]
+    assert label_row[0][2] == 0
+    assert label_row[1] == STRING
+    assert label_row[2] == _lit("before", STRING)
+    assert tag_row[2]["v"] == "YES"
+    assert "shared" not in label_row[0][3]
+    return old_name, definition, key, label_row
+
+
+def _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition):
+    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from tests.test_workflow_lisp_closed_program_build import _walk_dataclasses
+
+    key = definition["key"]
+    key[6].sort(
+        key=lambda row: (0, row[0])
+        if isinstance(row[0], str)
+        else (1, row[0][2], row[0][1], tuple(row[0][3]["path"]))
+    )
+    new_name = canonical_callee_name_from_key(key)
+    assert new_name != old_name
+    tree["definitions"].pop(old_name)
+    tree["definitions"][new_name] = definition
+
+    for node in _walk_dataclasses(tree):
+        if (
+            isinstance(node, dict)
+            and node.get("k") == "call"
+            and node.get("callee") == old_name
+        ):
+            node["callee"] = new_name
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "diagnostic_term"),
+    [
+        ("boolean_index", "residual"),
+        ("out_of_range_index", "root"),
+        ("formal_position_mismatch", "formal"),
+        ("duplicate_path_different_shared", "duplicate"),
+        ("whole_projection_overlap", "bound"),
+        ("projected_descriptor_type", "type"),
+        ("projected_literal_type", "literal"),
+    ],
+)
+def test_projected_k6_rejects_invalid_rows_after_valid_round_trip(
+    tmp_path, mutation: str, diagnostic_term: str
+) -> None:
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    program = _projected_k6_negative_program(tmp_path)
+    baseline = ClosedProgram.from_artifact(_closed(program.tree).artifact())
+    assert baseline.tree == program.tree
+    tree = deepcopy(baseline.tree)
+    old_name, definition, key, label_row = _projected_k6_negative_target(tree)
+
+    if mutation == "boolean_index":
+        label_row[0][2] = True
+    elif mutation == "out_of_range_index":
+        label_row[0][2] = len(key[8]["params"])
+    elif mutation == "formal_position_mismatch":
+        label_row[0][2] = 1
+    elif mutation == "duplicate_path_different_shared":
+        duplicate = deepcopy(label_row)
+        duplicate[0][3]["shared"] = [deepcopy(label_row[1])]
+        key[6].append(duplicate)
+    elif mutation == "whole_projection_overlap":
+        choice_type = deepcopy(key[8]["params"][0])
+        key[6].append(
+            [
+                "value",
+                choice_type,
+                {
+                    "k": "inject",
+                    "type": deepcopy(choice_type),
+                    "variant": "YES",
+                    "fields": [
+                        ["n", _lit(2)],
+                        ["label", _lit("complete", STRING)],
+                    ],
+                },
+            ]
+        )
+    elif mutation == "projected_descriptor_type":
+        label_row[1] = deepcopy(INT)
+    elif mutation == "projected_literal_type":
+        label_row[2]["v"] = 7
+    else:
+        raise AssertionError(f"unknown projected K6 mutation: {mutation}")
+
+    _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition)
+    with pytest.raises(ClosedProgramInvalid) as excinfo:
+        ClosedProgram.from_artifact(_closed(tree).artifact())
+
+    assert (excinfo.value.code, excinfo.value.rule) == (
+        "closed_program_invalid",
+        "definition_key",
+    )
+    assert diagnostic_term in str(excinfo.value).lower()
+
+
+def _projected_k6_negative_program(tmp_path):
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/projected_k6_negative)
+      (export run)
+      (defunion Choice (YES (n Int) (label String))
+                       (NO (n Int) (label String)))
+      (defproc extract
+        :forall (ChoiceT)
+        ((value ChoiceT) (other ChoiceT))
+        :where ((ChoiceT is-union)
+                (ChoiceT has-shared-union-field n Int)
+                (ChoiceT has-shared-union-field label String))
+        -> Int
+        :effects ((uses-command fetch))
+        :lowering inline
+        (command-result fetch
+          :argv ("python" "probe.py" value.label other.n)
+          :returns Int))
+      (defworkflow run ((runtime Choice)) -> Int
+        (let* ((saved (variant Choice YES :n 1 :label "before")))
+          (extract saved runtime))))'''
+    return build(tmp_path, source)
+
+
+@pytest.mark.parametrize('lane', ['K4', 'K5', 'PRef.bound'])
+def test_projected_selector_cannot_enter_reference_binding_rows(lane):
+    from tests.test_workflow_lisp_closed_program_check import _captured_reference_tree
+
+    tree, key = _captured_reference_tree()
+    assert ClosedProgram.from_artifact(_closed(tree).artifact()).tree == tree
+    old_name = canonical_callee_name_from_key(key)
+    definition = tree['definitions'][old_name]
+    selector = ['projection', 'captured', 0, {'path': ['n']}]
+    if lane == 'K4':
+        key[4][0][0] = selector
+    elif lane == 'K5':
+        key[5] = [[selector, {'target': deepcopy(key[4][0][1]['target']), 'externs': {}}]]
+    else:
+        key[4][0][1]['bound'][0][0] = selector
+    _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition)
+    with pytest.raises(ClosedProgramInvalid) as error:
+        ClosedProgram.from_artifact(_closed(tree).artifact())
+    assert error.value.rule == 'definition_key'
+    assert 'formal' in str(error.value)
+
+
+@pytest.mark.parametrize('mutation', ['empty_path', 'invalid_shared', 'redundant_shared', 'uniform_without_tag'])
+def test_projected_path_and_shared_relation_require_checked_types(tmp_path, mutation):
+    program = _projected_k6_negative_program(tmp_path)
+    tree = ClosedProgram.from_artifact(program.artifact()).tree
+    old_name, definition, key, label = _projected_k6_negative_target(tree)
+    if mutation == 'empty_path':
+        label[0][3]['path'] = []
+    elif mutation == 'invalid_shared':
+        label[0][3]['shared'] = [True]
+    elif mutation == 'redundant_shared':
+        label[0][3]['shared'] = [deepcopy(STRING)]
+    else:
+        key[6] = [row for row in key[6] if row[0][3]['path'] != ['variant']]
+    _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition)
+    artifact = _closed(tree).artifact()
+    if mutation == 'uniform_without_tag':
+        assert ClosedProgram.from_artifact(artifact).tree == tree
+    else:
+        with pytest.raises(ClosedProgramInvalid) as error:
+            ClosedProgram.from_artifact(artifact)
+        assert error.value.rule == 'definition_key'
+
+
+def test_projected_nonuniform_payload_requires_its_same_root_tag(tmp_path):
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/projected_k6_tag) (export run)
+      (defunion Choice (YES (n Int)) (NO (text String)))
+      (defproc extract ((value Choice)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (match value
+          ((YES payload) (command-result fetch :argv ("python" "probe.py" payload.n) :returns Int))
+          ((NO payload) 0)))
+      (defworkflow run () -> Int
+        (let* ((saved (variant Choice YES :n 1))) (extract saved))))'''
+    program = build(tmp_path, source)
+    tree = ClosedProgram.from_artifact(program.artifact()).tree
+    (old_name, definition), = tree['definitions'].items()
+    key = definition['key']
+    assert {tuple(row[0][3]['path']) for row in key[6]} == {('n',), ('variant',)}
+    key[6] = [row for row in key[6] if row[0][3]['path'] != ['variant']]
+    _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition)
+    with pytest.raises(ClosedProgramInvalid) as error:
+        ClosedProgram.from_artifact(_closed(tree).artifact())
+    assert error.value.rule == 'definition_key'
+    assert 'variant' in str(error.value)

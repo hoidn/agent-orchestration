@@ -17,6 +17,9 @@ from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any
 
+from orchestrator._common.safe_tree import SafeTreePathError, validate_relative_path
+from orchestrator.contracts.output_contract import non_finite_number
+
 
 PURE_EXPR_SCHEMA_VERSION = 1
 PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, 3})
@@ -327,10 +330,10 @@ def pure_expr_payload_digest(payload: Mapping[str, Any]) -> str:
 def validate_pure_expr_payload(
     payload: Mapping[str, Any],
     *,
-    max_nodes: int = DEFAULT_PURE_EXPR_MAX_NODES,
+    max_nodes: int | None = DEFAULT_PURE_EXPR_MAX_NODES,
     diagnostic_sources: Mapping[int, tuple[str, str, int, int]] | None = None,
 ) -> Mapping[str, Any]:
-    """Validate one pure-expression payload and raise on structural violations."""
+    """Validate one pure-expression payload; `None` skips only its node-count ceiling."""
 
     if not isinstance(payload, Mapping):
         _raise("pure_expr_payload_invalid", "pure-expression payload must be a mapping")
@@ -373,7 +376,7 @@ def validate_pure_expr_payload(
         diagnostic_sources=diagnostic_sources,
         subtree_counts=subtree_counts,
     )
-    if node_count > max_nodes:
+    if max_nodes is not None and node_count > max_nodes:
         contributors = _largest_pure_expr_contributors(
             diagnostic_sources or {}, subtree_counts
         )
@@ -426,9 +429,9 @@ def evaluate_pure_expr(
     payload: Mapping[str, Any],
     *,
     resolved_bindings: Mapping[str, Any] | None = None,
-    max_nodes: int = DEFAULT_PURE_EXPR_MAX_NODES,
+    max_nodes: int | None = DEFAULT_PURE_EXPR_MAX_NODES,
 ) -> Any:
-    """Evaluate one validated pure-expression payload."""
+    """Evaluate a pure-expression payload, optionally without its node-count ceiling."""
 
     validate_pure_expr_payload(payload, max_nodes=max_nodes)
     bindings = payload["bindings"]
@@ -458,6 +461,300 @@ def evaluate_pure_expr(
             },
         )
     return _coerce_value(result_value, expected_type, context="result")
+
+
+def coerce_pure_value(
+    value: Any,
+    descriptor: Mapping[str, Any],
+    *,
+    context: str = "value",
+) -> Any:
+    """Apply the catalog's pure typed-value coercion without effect checks."""
+
+    _validate_type_descriptor(descriptor, context=f"{context}.type")
+    coerced = _coerce_value(
+        value,
+        value_coercion_descriptor(descriptor),
+        context=context,
+        path_validator=_validate_pure_path_value,
+    )
+    violation = non_finite_number(coerced)
+    if violation is not None:
+        _raise(
+            "pure_expr_float_not_finite",
+            violation.message,
+            metadata=violation.context,
+        )
+    return coerced
+
+
+def value_coercion_descriptor(descriptor: Any) -> Any:
+    """Project DSL `Value` slots to catalog `Json` without changing the source descriptor."""
+
+    if not isinstance(descriptor, Mapping):
+        return descriptor
+    kind = descriptor.get("kind")
+    if kind == "primitive" and descriptor.get("name") == "Value":
+        return {"kind": "primitive", "name": "Json"}
+    projector = _VALUE_DESCRIPTOR_PROJECTORS.get(kind)
+    return dict(descriptor) if projector is None else projector(descriptor)
+
+
+def _project_value_descriptor_slots(
+    descriptor: Mapping[str, Any],
+    slots: tuple[str, ...],
+) -> Mapping[str, Any]:
+    return {
+        **descriptor,
+        **{
+            slot: value_coercion_descriptor(descriptor[slot])
+            for slot in slots
+            if slot in descriptor
+        },
+    }
+
+
+def _project_value_descriptor_fields(fields: Any) -> list[Any]:
+    return [
+        {
+            **field,
+            "type": value_coercion_descriptor(field["type"]),
+        }
+        if isinstance(field, Mapping) and "type" in field
+        else field
+        for field in fields
+    ]
+
+
+def _project_value_descriptor_union(
+    descriptor: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    variants = []
+    for variant in descriptor.get("variants", []):
+        if isinstance(variant, Mapping):
+            variants.append(
+                {
+                    **variant,
+                    "fields": _project_value_descriptor_fields(variant.get("fields", [])),
+                }
+            )
+        else:
+            variants.append(variant)
+    return {**descriptor, "variants": variants}
+
+
+_VALUE_DESCRIPTOR_PROJECTORS: Mapping[str, Callable[[Mapping[str, Any]], Any]] = {
+    "optional": lambda descriptor: _project_value_descriptor_slots(descriptor, ("item",)),
+    "list": lambda descriptor: _project_value_descriptor_slots(descriptor, ("item",)),
+    "map": lambda descriptor: _project_value_descriptor_slots(
+        descriptor, ("key", "value")
+    ),
+    "record": lambda descriptor: {
+        **descriptor,
+        "fields": _project_value_descriptor_fields(descriptor.get("fields", [])),
+    },
+    "variant_case": lambda descriptor: {
+        **descriptor,
+        "fields": _project_value_descriptor_fields(descriptor.get("fields", [])),
+    },
+    "union": _project_value_descriptor_union,
+}
+
+
+def value_coercion_payload(
+    payload: Mapping[str, Any],
+    *,
+    descriptor_projector: Callable[[Any], Any] | None = None,
+) -> Mapping[str, Any]:
+    """Project catalog descriptor slots without touching literal data."""
+
+    project_descriptor = descriptor_projector or value_coercion_descriptor
+    projected = dict(payload)
+    if "result_type" in projected:
+        projected["result_type"] = project_descriptor(projected["result_type"])
+    bindings = projected.get("bindings")
+    if isinstance(bindings, Mapping):
+        projected["bindings"] = {
+            name: {
+                **row,
+                "type": project_descriptor(row["type"]),
+            }
+            if isinstance(row, Mapping) and "type" in row
+            else row
+            for name, row in bindings.items()
+        }
+    if isinstance(projected.get("expr"), Mapping):
+        projected["expr"] = _value_coercion_expr(
+            projected["expr"], project_descriptor
+        )
+    return projected
+
+
+def _value_coercion_expr(
+    node: Mapping[str, Any], project_descriptor: Callable[[Any], Any]
+) -> Mapping[str, Any]:
+    if not isinstance(node, Mapping):
+        return node
+    result = dict(node)
+    kind = node.get("kind")
+    for field in node.keys() & _VALUE_EXPR_DESCRIPTOR_FIELDS.get(kind, ()):
+        result[field] = project_descriptor(node.get(field))
+    for field in node.keys() & _VALUE_EXPR_CHILD_FIELDS.get(kind, ()):
+        result[field] = _value_coercion_expr(node.get(field), project_descriptor)
+    for field in node.keys() & _VALUE_EXPR_CHILD_LIST_FIELDS.get(kind, ()):
+        result[field] = _value_coercion_children(node[field], project_descriptor)
+    if kind in {"record", "union", "record_update"} and "fields" in node:
+        result["fields"] = _value_coercion_rows(
+            node["fields"], project_descriptor
+        )
+    elif kind == "let" and "bindings" in node:
+        result["bindings"] = _value_coercion_rows(
+            node["bindings"], project_descriptor, project_types=True
+        )
+    elif kind == "list_map":
+        binder = node.get("binder")
+        result["binder"] = {
+            **binder,
+            "type": project_descriptor(binder.get("type")),
+        }
+    return result
+
+
+def _value_coercion_children(
+    children: Any, project_descriptor: Callable[[Any], Any]
+) -> Any:
+    if not _is_sequence(children):
+        return children
+    return [_value_coercion_expr(child, project_descriptor) for child in children]
+
+
+def _value_coercion_rows(
+    rows: Any,
+    project_descriptor: Callable[[Any], Any],
+    *,
+    project_types: bool = False,
+) -> Any:
+    if not _is_sequence(rows):
+        return rows
+    projected_rows = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            projected_rows.append(row)
+            continue
+        projected = dict(row)
+        if project_types and "type" in projected:
+            projected["type"] = project_descriptor(projected["type"])
+        if "value" in projected:
+            projected["value"] = _value_coercion_expr(
+                projected["value"], project_descriptor
+            )
+        projected_rows.append(projected)
+    return projected_rows
+
+
+_VALUE_EXPR_DESCRIPTOR_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "literal": ("type",),
+    "record": ("type",),
+    "union": ("type",),
+    "record_update": ("record_type",),
+    "list": ("element_type",),
+    "list_map": ("result_element_type",),
+    "path_join_under": ("path_type",),
+    "list_nonempty_head": ("element_type",),
+}
+_VALUE_EXPR_CHILD_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "field_access": ("base",),
+    "if": ("condition", "then", "else"),
+    "record_update": ("base",),
+    "let": ("body",),
+    "list_map": ("source", "body"),
+    "path_join_under": ("child",),
+    "list_nonempty_head": ("source",),
+}
+_VALUE_EXPR_CHILD_LIST_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "list": ("items",),
+    "op": ("args",),
+}
+
+
+def evaluate_pure_path_join(
+    base: str,
+    child: str,
+    descriptor: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], str]:
+    """Join one closed path base and child using the catalog's containment rules."""
+
+    _validate_path_join_descriptor(descriptor)
+    allowed_root = _validated_join_root(
+        descriptor["under"], path_type_name=str(descriptor["name"])
+    )
+    base_root = _validated_join_root(base, path_type_name=str(descriptor["name"]))
+    try:
+        base_root.relative_to(allowed_root)
+    except ValueError:
+        _raise(
+            "path_join_under_escape",
+            "path_join base is outside its selected root",
+            metadata={"path_type": descriptor["name"], "base": base},
+        )
+    return descriptor, _join_relative_child_under_root(
+        base_root, child, path_type_name=str(descriptor["name"])
+    )
+
+
+def _validate_pure_path_value(
+    value: str,
+    descriptor: Mapping[str, Any],
+) -> str:
+    if (
+        descriptor.get("kind") != "path"
+        or not isinstance(descriptor.get("name"), str)
+        or not descriptor.get("name")
+    ):
+        _raise(
+            "pure_expr_payload_invalid",
+            "path value requires a resolved path descriptor",
+            metadata={"observed_type": descriptor},
+        )
+    _validate_type_descriptor(descriptor, context="value.type")
+    if type(descriptor.get("must_exist_target")) is not bool:
+        _raise(
+            "pure_expr_payload_invalid",
+            "path value descriptor requires a boolean must_exist_target policy",
+            metadata={"path_type": descriptor.get("name")},
+        )
+    root_value = descriptor.get("under")
+    if not isinstance(root_value, str):
+        _raise(
+            "pure_expr_payload_invalid",
+            "path value descriptor requires a relative root",
+            metadata={"path_type": descriptor["name"]},
+        )
+    try:
+        if value != ".":
+            validate_relative_path(value)
+        if root_value != ".":
+            validate_relative_path(root_value)
+    except SafeTreePathError:
+        _raise(
+            "pure_expr_operand_type_mismatch",
+            "path value and declared root must be normalized relative paths",
+            metadata={"path_type": descriptor["name"], "value": value},
+        )
+    root = (
+        PurePosixPath(".")
+        if root_value == "."
+        else _validated_join_root(root_value, path_type_name=str(descriptor["name"]))
+    )
+    try:
+        PurePosixPath(value).relative_to(root)
+    except ValueError:
+        _raise(
+            "pure_expr_operand_type_mismatch",
+            "path value is outside its declared root",
+            metadata={"path_type": descriptor["name"], "value": value, "under": root_value},
+        )
+    return value
 
 
 def _raise(code: str, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
@@ -1990,7 +2287,13 @@ def evaluate_pure_operator(
     )
 
 
-def _coerce_value(value: Any, descriptor: Mapping[str, Any], *, context: str) -> Any:
+def _coerce_value(
+    value: Any,
+    descriptor: Mapping[str, Any],
+    *,
+    context: str,
+    path_validator: Callable[[str, Mapping[str, Any]], str] | None = None,
+) -> Any:
     kind = _descriptor_kind(descriptor)
 
     if kind == "primitive":
@@ -2032,26 +2335,40 @@ def _coerce_value(value: Any, descriptor: Mapping[str, Any], *, context: str) ->
     if kind == "path":
         if not isinstance(value, str):
             _raise("pure_expr_operand_type_mismatch", f"{context} must be path `{descriptor['name']}`")
+        if path_validator is not None:
+            return path_validator(value, descriptor)
         return value
 
     if kind == "optional":
         if value is None:
             return None
-        return _coerce_value(value, descriptor["item"], context=context)
+        return _coerce_value(
+            value, descriptor["item"], context=context, path_validator=path_validator
+        )
 
     if kind == "list":
         if not isinstance(value, (list, tuple)):
             _raise("pure_expr_operand_type_mismatch", f"{context} must be a list")
-        return [_coerce_value(item, descriptor["item"], context=f"{context}[]") for item in value]
+        return [
+            _coerce_value(
+                item, descriptor["item"], context=f"{context}[]",
+                path_validator=path_validator,
+            )
+            for item in value
+        ]
 
     if kind == "map":
         if not isinstance(value, Mapping):
             _raise("pure_expr_operand_type_mismatch", f"{context} must be a map")
         return {
-            _coerce_value(key, descriptor["key"], context=f"{context}.key"): _coerce_value(
+            _coerce_value(
+                key, descriptor["key"], context=f"{context}.key",
+                path_validator=path_validator,
+            ): _coerce_value(
                 item,
                 descriptor["value"],
                 context=f"{context}[{key!r}]",
+                path_validator=path_validator,
             )
             for key, item in value.items()
         }
@@ -2065,7 +2382,10 @@ def _coerce_value(value: Any, descriptor: Mapping[str, Any], *, context: str) ->
             field_name = field["name"]
             if field_name not in value:
                 _raise("pure_expr_operand_type_mismatch", f"{context} is missing record field `{field_name}`")
-            result[field_name] = _coerce_value(value[field_name], field["type"], context=f"{context}.{field_name}")
+            result[field_name] = _coerce_value(
+                value[field_name], field["type"], context=f"{context}.{field_name}",
+                path_validator=path_validator,
+            )
         extra = sorted(set(value) - set(expected_names))
         if extra:
             _raise("pure_expr_operand_type_mismatch", f"{context} has unexpected record fields: {', '.join(extra)}")
@@ -2090,7 +2410,10 @@ def _coerce_value(value: Any, descriptor: Mapping[str, Any], *, context: str) ->
             field_name = field["name"]
             if field_name not in value:
                 _raise("pure_expr_operand_type_mismatch", f"{context} is missing variant field `{field_name}`")
-            result[field_name] = _coerce_value(value[field_name], field["type"], context=f"{context}.{field_name}")
+            result[field_name] = _coerce_value(
+                value[field_name], field["type"], context=f"{context}.{field_name}",
+                path_validator=path_validator,
+            )
         if kind == "variant_case":
             extra = []
         else:

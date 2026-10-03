@@ -41,14 +41,16 @@ from ..expressions import (
 )
 from ..procedure_refs import ResolvedProcRefValue
 from ..syntax import (
-    ProcedureExpansionFrame,
     target_dsl_supports_pure_call_composition,
     target_dsl_supports_rich_loop_values,
     target_dsl_supports_union_prompt_input,
 )
-from ..expression_traversal import walk_expr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
+from .command_transport_decisions import (
+    is_inline_let_binding_expr,
+    surface_binding_materialization,
+)
 from .context import (
     _compile_error,
     _context_with_local_type_binding,
@@ -72,7 +74,6 @@ from .phase_scope import (
     _resolved_proc_ref_value,
 )
 from .pure_projection import (
-    is_pure_projection_expr,
     lower_pure_projection_step,
     output_contracts_for_boundary_type,
 )
@@ -241,13 +242,9 @@ def _control_lower_expression_impl(
             step_name_prefix=context.step_name_prefix,
         )
     if isinstance(expr, LetStarExpr):
-        if (
-            target_dsl_supports_pure_call_composition(
-                context.type_env.target_dsl_version
-            )
-            and _is_compiler_owned_procedure_let(expr)
-            and is_pure_projection_expr(expr)
-        ):
+        from .command_transport_decisions import compiler_owned_pure_let
+
+        if compiler_owned_pure_let(expr, target_dsl_version=context.type_env.target_dsl_version):
             lowered = lower_pure_projection_step(
                 expr,
                 result_type=typed_expr.type_ref,
@@ -273,16 +270,6 @@ def _control_lower_expression_impl(
         message=f"workflow `{context.workflow_name}` cannot lower expression `{type(expr).__name__}` in Stage 3",
         span=typed_expr.span,
         form_path=typed_expr.form_path,
-    )
-
-
-def _is_compiler_owned_procedure_let(expr: LetStarExpr) -> bool:
-    """Limit schema-3 preservation to procedure-expansion bindings."""
-
-    return any(
-        isinstance(frame, ProcedureExpansionFrame)
-        for node in walk_expr(expr)
-        for frame in node.expansion_stack
     )
 
 
@@ -369,24 +356,7 @@ def _control_lower_let_star_impl(
 
 
 def _control_is_inline_let_binding_expr_impl(expr: Any) -> bool:
-    return isinstance(
-        expr,
-        (
-            NameExpr,
-            FieldAccessExpr,
-            PhaseTargetExpr,
-            LiteralExpr,
-            RecordExpr,
-            RecordUpdateExpr,
-            LoopStateSeedExpr,
-            LoopStateUpdateExpr,
-            UnionVariantExpr,
-            ProviderBundlePathExpr,
-            ProcRefLiteralExpr,
-            BindProcExpr,
-            PureOpExpr,
-        ),
-    )
+    return is_inline_let_binding_expr(expr)
 
 
 def _normalize_let_binding(
@@ -473,7 +443,14 @@ def _lower_effectful_binding_expr(
             step_name=step_name_prefix,
         )
     # schema1_compatibility: retained for explicit legacy composed match lowering.
-    if isinstance(expr, MatchExpr):
+    binding_kind, candidate = surface_binding_materialization(
+        expr, resolved_binding=(
+            None if isinstance(expr, MatchExpr) else _resolve_inline_expr_value(
+                expr, local_values=local_values,
+            )
+        ),
+    )
+    if binding_kind == "match":
         from .control_match import _lower_binding_match_expr
 
         return _lower_binding_match_expr(
@@ -483,13 +460,9 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name_prefix=step_name_prefix,
         )
-    pure_projection_candidate = _pure_projection_binding_candidate(
-        expr,
-        local_values=local_values,
-    )
-    if pure_projection_candidate is not None:
+    if binding_kind == "projection":
         return _lower_pure_projection_binding_expr(
-            pure_projection_candidate,
+            candidate,
             source_expr=expr,
             binding_name=step_name_prefix.rsplit("__", 1)[-1],
             binding_type=binding_type,
@@ -510,19 +483,6 @@ def _lower_effectful_binding_expr(
         ),
         local_values=local_values,
     )
-
-
-def _pure_projection_binding_candidate(
-    expr: Any,
-    *,
-    local_values: Mapping[str, Any],
-) -> Any | None:
-    candidate = _resolve_inline_expr_value(expr, local_values=local_values)
-    if candidate is None or isinstance(candidate, (str, Mapping)):
-        return None
-    if is_pure_projection_expr(candidate):
-        return candidate
-    return None
 
 
 def _lower_pure_projection_binding_expr(
@@ -597,16 +557,15 @@ def _lower_pure_projection_binding_expr(
         ),
     )
     output_refs = lowered.output_refs
-    if (
-        not whole_value
-        and boundary_fields
-        and target_dsl_supports_pure_call_composition(context.type_env.target_dsl_version)
-    ):
+    from .command_control_decisions import binding_projection_output_aliases
+
+    aliases = binding_projection_output_aliases(
+        boundary_fields, whole_value=whole_value,
+        pure_call_composition=target_dsl_supports_pure_call_composition(context.type_env.target_dsl_version),
+    )
+    if aliases is not None:
         output_refs = {
-            f"return__{'__'.join(field.source_path[1:])}": lowered.output_refs[
-                field.generated_name
-            ]
-            for field in boundary_fields
+            name: lowered.output_refs[original_name] for name, original_name in aliases.items()
         }
     return [lowered.step], _TerminalResult(
         step_name=step_name_prefix,

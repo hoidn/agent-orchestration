@@ -39,7 +39,12 @@ Phases 0 and 1 were selected as follows. The owner approved on 2026-09-29 the sp
 of Phase 1, the repairs of the
 [shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md),
 and decisions 1 to 4 below. Gate G1 selected evaluated execution; Phase 2
-execution is authorized at target 2.35 and has its own selected [implementation plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md).
+compiler Tasks 1–11 are integrated at target 2.35 under the selected [implementation plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md).
+The [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md)
+records compilation/compatibility checks and the completed red-suite result;
+Phase 2 compiler closeout is complete: code/verification review passed at
+`17049e79`, documentation review passed at `a6efc7e7`, and both were integrated
+at `a7b157d8`.
 The owner's 2026-10-01 amendment sets the downstream order below. Phases 3
 to 7 remain pending; this amendment records neither implementation nor
 completion of those phases.
@@ -408,9 +413,14 @@ remain separately scoped. None becomes a prerequisite for Phases 2–3.
 
 ### Phase 2: The Closed Program
 
-Reviewed Tasks 1–7 are integrated from `d178ad7e` (2026-10-01). Tasks 8–11
-remain pending; public CLI compilation at 2.35 is not yet available, and
-execution/resume remain Phase 3 work. This checkpoint does not close Phase 2.
+All eleven compiler/documentation tasks and the reviewed compatibility and
+build-path safety repairs are integrated. Public CLI compilation at 2.35
+writes the checked closed-program artifact; execution/resume remain Phase 3
+work. The [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md)
+records the exact corpus, fresh public smokes, raw compatibility and completed
+red-suite diagnosis. Code/verification review passed at `17049e79`,
+documentation review passed at `a6efc7e7`, and both were integrated at
+`a7b157d8`; Phase 2 compiler closeout is complete.
 
 Entry: gate G1. Execute the selected
 [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
@@ -431,6 +441,10 @@ remain explicit release gaps, not extra Phase 2 prerequisites.
 ### Phase 3: Evaluator, Memo And State Profile
 
 Entry: Phase 2.
+
+Execution follows the reviewed [Phase 3 implementation plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
+Its task checklist owns implementation progress; this link does not mark
+the runtime or later phases complete.
 
 Deliver a coherent executable core for the admitted effect classes, not a
 collection of preferred syntactic positions. A failure to close or evaluate

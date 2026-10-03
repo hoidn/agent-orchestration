@@ -150,6 +150,7 @@ def _inline_expr_from_wcc_value(value: WccValue, env: Mapping[str, object]):
             return FieldAccessExpr(
                 base=base_expr,
                 fields=value.fields,
+                shared_field_types=value.shared_field_types,
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,

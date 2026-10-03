@@ -32,13 +32,19 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
     if isinstance(value, w.WccLiteralAtom):
         result = {"k": "lit", "v": value.value, "type": builder.desc(value.metadata.type_ref, d)}
     elif isinstance(value, w.WccNameAtom):
-        result = {"k": "name", "n": d.ref(value.name)}
+        result = {
+            "k": "name",
+            "n": d.ref(value.name, value.metadata.binding_identity),
+        }
     elif isinstance(value, w.WccFieldAccessAtom):
         result = {
             "k": "field",
             "base": translate_value(builder, value.base, d, env),
             "path": list(value.fields),
         }
+        if value.shared_field_types:
+            result["shared"] = [builder.desc(target, d) if target is not None else None
+                                for target in value.shared_field_types]
     elif isinstance(value, w.WccRecordAtom):
         result = {
             "k": "record",
@@ -73,10 +79,15 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
 def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
     local_names = dict(d.names)
     binding_aliases = dict(d.binding_aliases or {})
+    run_ref_names = dict(d.run_ref_names or {})
     local_types = dict(env)
     prefix = []
     for let in arm.prefix:
-        current = d.with_names(local_names, binding_aliases=binding_aliases)
+        current = d.with_names(
+            local_names,
+            binding_aliases=binding_aliases,
+            run_ref_names=run_ref_names,
+        )
         value = builder.binding(let.bound_value, current, local_types)
         nested = dict(local_names)
         name = d.renamer.bind(
@@ -85,14 +96,33 @@ def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, Typ
             env=nested,
         )
         prefix.append({"name": name, "value": value})
-        bound = d.with_names(nested, binding_aliases=binding_aliases)
+        producer = builder.run_ref_producers_by_effect.get(id(value))
+        if producer is None and isinstance(let.bound_value, w.WccNameAtom):
+            resolved_name = current.resolved_binding_name(
+                let.bound_value.name,
+                let.bound_value.metadata.binding_identity,
+            )
+            producers = run_ref_names.get(resolved_name, ())
+        elif producer is not None:
+            producers = (producer,)
+        else:
+            producers = builder._run_ref_context_for_value(let.bound_value, current)
+        if producers:
+            run_ref_names[let.bound_name] = producers
+        bound = d.with_names(
+            nested,
+            binding_aliases=binding_aliases,
+            run_ref_names=run_ref_names,
+        )
         bound, aliases = builder._freeze_bound_capture(
             bound,
             let.metadata.binding_identity,
             name,
+            producers,
         )
         binding_aliases = dict(bound.binding_aliases or {})
         local_names = dict(bound.names)
+        run_ref_names = dict(bound.run_ref_names or {})
         prefix.extend({"name": row["name"], "value": row["value"]} for row in aliases)
         local_types[let.bound_name] = let.bound_type_ref
     return {
@@ -100,7 +130,11 @@ def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, Typ
         "value": translate_value(
             builder,
             arm.value,
-            d.with_names(local_names, binding_aliases=binding_aliases),
+            d.with_names(
+                local_names,
+                binding_aliases=binding_aliases,
+                run_ref_names=run_ref_names,
+            ),
             local_types,
         ),
     }
@@ -131,7 +165,7 @@ def _operator(builder: Any, op: w.WccPureOp, d: Any, env: Mapping[str, TypeRef])
     else:
         expression = {"kind": "op", "operator": op.operator, "args": refs}
     payload = _payload(expression, result_type, arg_types)
-    validate_pure_expr_payload(payload)
+    validate_pure_expr_payload(payload, max_nodes=None)
     return {"k": "op", "payload": payload, "args": args}
 
 
@@ -145,6 +179,11 @@ def _payload(expression: dict[str, Any], result_type: dict[str, Any], arg_types:
 
 
 def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
+    if value.normalized_body is not None:
+        closed = builder.body(value.normalized_body, d.with_names(dict(d.names)), env)
+        if closed["k"] == "halt":
+            return closed["value"]
+        return {"k": "block", "body": closed, **builder.provenance(value.metadata)}
     expr = value.expr
     if isinstance(expr, UnionVariantTagExpr):
         result = {"k": "lit", "v": expr.variant_name, "type": builder.desc(value.metadata.type_ref, d)}
@@ -181,7 +220,7 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
                 *[frontend_value(builder, item, d, env) for _, item in expr.overrides],
             ],
         }
-        validate_pure_expr_payload(result["payload"])
+        validate_pure_expr_payload(result["payload"], max_nodes=None)
     elif isinstance(expr, ListExpr):
         result = {
             "k": "list",
@@ -205,7 +244,7 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
             ),
             "args": [frontend_value(builder, expr.source_expr, d, env)],
         }
-        validate_pure_expr_payload(result["payload"])
+        validate_pure_expr_payload(result["payload"], max_nodes=None)
     elif isinstance(expr, ListMapExpr):
         source = frontend_value(builder, expr.source_expr, d, env)
         body_env = dict(env)
@@ -239,7 +278,7 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
             path_desc,
             [{"kind": "primitive", "name": "String"}],
         )
-        validate_pure_expr_payload(payload)
+        validate_pure_expr_payload(payload, max_nodes=None)
         result = {
             "k": "op",
             "payload": payload,
@@ -257,6 +296,9 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
     elif isinstance(expr, GeneratedRelpathSeedExpr):
         result = {"k": "lit", "v": expr.literal_path, "type": builder.desc(value.metadata.type_ref, d)}
     elif isinstance(expr, ProviderBundlePathExpr) and isinstance(expr.source_expr, NameExpr):
+        from ..typecheck_effects import require_evaluated_provider_bundle_path_target
+
+        require_evaluated_provider_bundle_path_target(expr, value.metadata.type_ref)
         result = {
             "k": "result_path",
             "n": d.ref(expr.source_expr.name),

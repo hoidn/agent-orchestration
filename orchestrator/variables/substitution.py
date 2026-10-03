@@ -5,8 +5,90 @@ Per specs/variables.md.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Union
 import json
+
+
+_VARIABLE_PATTERN = re.compile(r'(?<!\$)\$\{([^}]+)\}')
+_ESCAPED_DOLLAR = "\x00"
+
+
+def tokenize_template(
+    text: str,
+    *,
+    pattern: re.Pattern[str] = _VARIABLE_PATTERN,
+) -> tuple[tuple[bool, str], ...]:
+    """Return ordered (is_expression, text) tokens after legacy dollar escaping.
+
+    Escaped dollars in literal tokens use ``\x00`` until ``render_template``
+    restores them. Expression tokens contain only the text inside ``${...}``.
+    """
+    protected = text.replace("$$", _ESCAPED_DOLLAR)
+    tokens: list[tuple[bool, str]] = []
+    position = 0
+    for match in pattern.finditer(protected):
+        if position < match.start():
+            tokens.append((False, protected[position:match.start()]))
+        tokens.append((True, match.group(1)))
+        position = match.end()
+    if position < len(protected):
+        tokens.append((False, protected[position:]))
+    return tuple(tokens)
+
+
+def parse_variable_expression(expression: str) -> tuple[str, tuple[str, ...]]:
+    """Split a variable expression into its path and non-empty filters."""
+    parts = expression.split("|")
+    return parts[0], tuple(part for part in parts[1:] if part)
+
+
+def resolve_dictionary_suffix(value: Any, path: Sequence[str]) -> Optional[Any]:
+    """Follow dictionary keys, returning ``None`` for missing or non-dict hops."""
+    current = value
+    for part in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+        if current is None:
+            return None
+    return current
+
+
+def apply_variable_filters(value: Any, filters: tuple[str, ...]) -> Any:
+    """Apply the existing ordered variable filters to a resolved value."""
+    filtered = value
+    for filter_name in filters:
+        if filter_name == "json":
+            filtered = json.dumps(filtered, separators=(",", ":"), ensure_ascii=False)
+            continue
+        raise ValueError(f"Unsupported variable filter: {filter_name}")
+    return filtered
+
+
+def render_variable_value(value: Any) -> str:
+    """Coerce a substituted runtime value to the legacy string form."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
+def render_template(
+    tokens: Sequence[tuple[bool, str]],
+    resolve: Callable[[str], Any],
+) -> str:
+    """Render tokens once; a ``None`` result preserves the original placeholder."""
+    rendered: list[str] = []
+    for is_expression, token in tokens:
+        if not is_expression:
+            rendered.append(token)
+            continue
+        value = resolve(token)
+        rendered.append(f"${{{token}}}" if value is None else render_variable_value(value))
+    return "".join(rendered).replace(_ESCAPED_DOLLAR, "$")
 
 
 class VariableSubstitutor:
@@ -23,7 +105,7 @@ class VariableSubstitutor:
     """
 
     # Pattern to match ${...} variables, handling escaped $$
-    VAR_PATTERN = re.compile(r'(?<!\$)\$\{([^}]+)\}')
+    VAR_PATTERN = _VARIABLE_PATTERN
 
     def __init__(self):
         """Initialize the substitutor."""
@@ -81,38 +163,21 @@ class VariableSubstitutor:
         Returns:
             String with variables substituted
         """
-        # First handle escape sequences: $$ -> $
-        text = text.replace('$$', '\x00')  # Use null byte as temporary marker
-
-        def replace_var(match):
-            expression = match.group(1)
+        def resolve_expression(expression: str) -> Any:
             var_path, filters = self._parse_variable_expression(expression)
             value = self._resolve_variable(var_path, variables)
 
             if value is None:
                 self.undefined_vars.add(expression)
-                # Return original for now, error will be raised later if tracking
-                return match.group(0)
+                # The shared renderer preserves unresolved placeholders.
+                return None
 
-            value = self._apply_filters(value, filters)
+            return self._apply_filters(value, filters)
 
-            # Convert to string
-            if isinstance(value, bool):
-                return 'true' if value else 'false'
-            elif isinstance(value, (int, float)):
-                return str(value)
-            elif isinstance(value, str):
-                return value
-            else:
-                # Complex types get JSON representation
-                return json.dumps(value)
-
-        result = self.VAR_PATTERN.sub(replace_var, text)
-
-        # Restore escaped $ from temporary marker
-        result = result.replace('\x00', '$')
-
-        return result
+        return render_template(
+            tokenize_template(text, pattern=self.VAR_PATTERN),
+            resolve_expression,
+        )
 
     def _resolve_variable(self, var_path: str, variables: Dict[str, Any]) -> Optional[Any]:
         """
@@ -168,18 +233,11 @@ class VariableSubstitutor:
 
     @staticmethod
     def _parse_variable_expression(expression: str) -> tuple[str, tuple[str, ...]]:
-        parts = expression.split("|")
-        return parts[0], tuple(part for part in parts[1:] if part)
+        return parse_variable_expression(expression)
 
     @staticmethod
     def _apply_filters(value: Any, filters: tuple[str, ...]) -> Any:
-        filtered = value
-        for filter_name in filters:
-            if filter_name == "json":
-                filtered = json.dumps(filtered, separators=(",", ":"), ensure_ascii=False)
-                continue
-            raise ValueError(f"Unsupported variable filter: {filter_name}")
-        return filtered
+        return apply_variable_filters(value, filters)
 
     def _resolve_path(self, obj: Any, path: List[str]) -> Optional[Any]:
         """
@@ -192,15 +250,7 @@ class VariableSubstitutor:
         Returns:
             Resolved value or None
         """
-        current = obj
-        for part in path:
-            if isinstance(current, dict):
-                current = current.get(part)
-                if current is None:
-                    return None
-            else:
-                return None
-        return current
+        return resolve_dictionary_suffix(obj, path)
 
     def _resolve_steps_variable(self, steps: Dict[str, Any], path: List[str]) -> Optional[Any]:
         """

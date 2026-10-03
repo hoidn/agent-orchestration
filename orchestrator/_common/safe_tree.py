@@ -67,7 +67,10 @@ def resolve_path_preserving_fd(path: Path | str) -> Path:
         if not stat.S_ISDIR(info.st_mode):
             raise SafeTreePathError("retained path root fd is not a directory")
         return candidate
-    return candidate.resolve()
+    try:
+        return candidate.resolve()
+    except RuntimeError as exc:
+        raise OSError(errno.ELOOP, str(exc), str(candidate)) from exc
 
 
 def open_directory(path: str) -> int:

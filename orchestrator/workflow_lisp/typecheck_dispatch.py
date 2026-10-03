@@ -379,7 +379,11 @@ def _typecheck(
         )
     if isinstance(expr, EnumMemberExpr):
         try:
-            enum_type = type_env.resolve_type(
+            enum_type = (
+                expr.resolved_type
+                if context.compiler_session.closed_program
+                else None
+            ) or type_env.resolve_type(
                 expr.enum_name,
                 span=expr.span,
                 form_path=expr.form_path,
@@ -411,7 +415,15 @@ def _typecheck(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        return _typed(expr=expr, type_ref=enum_type, effect=EMPTY_EFFECT_SUMMARY)
+        return _typed(
+            expr=(
+                replace(expr, resolved_type=enum_type)
+                if context.compiler_session.closed_program
+                else expr
+            ),
+            type_ref=enum_type,
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
     if isinstance(expr, NameExpr):
         try:
             type_ref = value_env[expr.name]
@@ -504,6 +516,7 @@ def _typecheck(
             )
         expected_bindings = dict(base_value.signature_params)
         seen_bindings: set[str] = {binding.name for binding in base_value.bound_args}
+        typed_bindings = []
         for binding in expr.bindings:
             expected_type = expected_bindings.get(binding.name)
             if expected_type is None:
@@ -533,6 +546,8 @@ def _typecheck(
                     form_path=binding.value_expr.form_path,
                     expansion_stack=binding.value_expr.expansion_stack,
                 )
+            typed_bindings.append(replace(binding, value_expr=typed_binding.expr))
+        expr = replace(expr, base_expr=base_typed.expr, bindings=tuple(typed_bindings))
         resolved = resolve_proc_ref_value(
             expr,
             procedure_catalog=procedure_catalog,
@@ -885,10 +900,21 @@ def _typecheck(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
+            capture_source = (
+                expr.binding_capture_sources[index]
+                if index < len(expr.binding_capture_sources) else None
+            )
+            rhs_expr, rhs_env, rhs_binding_env = binding_expr, local_env, local_binding_env
+            if compiler_session.closed_program and capture_source is not None:
+                source_identity, source_type = capture_source
+                rhs_expr = NameExpr(name=source_identity.name, span=binding_expr.span,
+                    form_path=binding_expr.form_path, expansion_stack=binding_expr.expansion_stack)
+                rhs_env = {**local_env, source_identity.name: source_type}
+                rhs_binding_env = {**local_binding_env, source_identity.name: source_identity}
             typed_binding = recurse(
-                binding_expr,
-                value_env=local_env,
-                binding_env=local_binding_env,
+                rhs_expr,
+                value_env=rhs_env,
+                binding_env=rhs_binding_env,
                 proc_ref_value_env=local_proc_ref_env,
                 value_expr_env=local_value_expr_env,
                 session_artifact_allowed=context.session_artifact_allowed,
@@ -936,6 +962,7 @@ def _typecheck(
             expansion_stack=expr.expansion_stack,
             binding_labels=expr.binding_labels,
             binding_identities=tuple(binding_identities),
+            binding_capture_sources=expr.binding_capture_sources,
             condition_normalization_input=expr.condition_normalization_input,
         )
         return _typed(

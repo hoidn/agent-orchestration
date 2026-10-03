@@ -4,12 +4,14 @@ Covers AT-1, AT-2, AT-45, AT-52: Output capture modes and truncation.
 """
 
 import json
+import sys
 import pytest
 from pathlib import Path
 import tempfile
 import shutil
 
 from orchestrator.exec import OutputCapture, CaptureMode, CaptureResult, StepExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 
 class TestOutputCapture:
@@ -366,6 +368,14 @@ class TestStepExecutor:
         """Create StepExecutor instance."""
         return StepExecutor(temp_workspace)
 
+    @pytest.fixture
+    def attempt_capture_files(self, temp_workspace):
+        attempt_dir = temp_workspace / "attempt"
+        attempt_dir.mkdir()
+        files = WorkspaceFiles(attempt_dir)
+        yield files
+        files.close()
+
     def test_command_execution_text_mode(self, executor):
         """Test basic command execution with text capture."""
         result = executor.execute_command(
@@ -452,3 +462,178 @@ class TestStepExecutor:
         assert "duration_ms" in state
         assert "output" in state
         assert "truncated" in state
+
+    def test_attempt_capture_creates_empty_stream_files(self, temp_workspace, attempt_capture_files):
+        executor = StepExecutor(temp_workspace, attempt_capture_files=attempt_capture_files)
+
+        result = executor.execute_command(
+            step_name="empty_attempt",
+            command=[sys.executable, "-c", "pass"],
+        )
+
+        assert result.exit_code == 0
+        assert (attempt_capture_files.workspace / "stdout.txt").read_bytes() == b""
+        assert (attempt_capture_files.workspace / "stderr.txt").read_bytes() == b""
+        assert sorted(path.name for path in attempt_capture_files.workspace.iterdir()) == [
+            "stderr.txt",
+            "stdout.txt",
+        ]
+        assert not (temp_workspace / "logs").exists()
+
+    def test_attempt_capture_keeps_nonzero_bytes_and_existing_stderr_redaction(
+        self, temp_workspace, attempt_capture_files
+    ):
+        executor = StepExecutor(temp_workspace, attempt_capture_files=attempt_capture_files)
+        token = "attempt-secret-token"
+        script = (
+            "import os, sys; os.write(1, b'\\x00stdout'); "
+            "os.write(2, b'prefix-\\x00attempt-secret-token-suffix'); sys.exit(7)"
+        )
+
+        result = executor.execute_command(
+            step_name="failed_attempt",
+            command=[sys.executable, "-c", script],
+            env={"OMP_AUTH_BROKER_TOKEN": token},
+        )
+
+        assert result.exit_code == 7
+        assert (attempt_capture_files.workspace / "stdout.txt").read_bytes() == b"\x00stdout"
+        assert (attempt_capture_files.workspace / "stderr.txt").read_bytes() == (
+            b"prefix-\x00[redacted]-suffix"
+        )
+
+    def test_attempt_capture_keeps_timeout_partial_bytes(self, temp_workspace, attempt_capture_files):
+        executor = StepExecutor(temp_workspace, attempt_capture_files=attempt_capture_files)
+        script = (
+            "import os, threading; os.write(1, b'partial-out'); "
+            "os.write(2, b'partial-err'); threading.Event().wait()"
+        )
+
+        result = executor.execute_command(
+            step_name="timed_attempt",
+            command=[sys.executable, "-c", script],
+            timeout_sec=1,
+        )
+
+        assert result.exit_code == 124
+        assert result.error is not None and result.error["type"] == "timeout"
+        assert (attempt_capture_files.workspace / "stdout.txt").read_bytes() == b"partial-out"
+        assert (attempt_capture_files.workspace / "stderr.txt").read_bytes() == b"partial-err"
+
+    @pytest.mark.parametrize(
+        ("mode", "script", "expected", "allow_parse_error"),
+        [
+            (
+                CaptureMode.TEXT,
+                "import os; os.write(1, b'x' * 8300)",
+                b"x" * 8300,
+                False,
+            ),
+            (
+                CaptureMode.LINES,
+                "import os; os.write(1, b'x\\n' * 10001)",
+                b"x\n" * 10001,
+                False,
+            ),
+            (
+                CaptureMode.JSON,
+                "import os; os.write(1, b'x' * 8300)",
+                b"x" * 8300,
+                True,
+            ),
+            (
+                CaptureMode.JSON,
+                "import os; os.write(1, b'x' * 1048577)",
+                b"x" * 1048577,
+                True,
+            ),
+        ],
+        ids=["text", "lines", "json-parse-spill", "json-overflow"],
+    )
+    def test_attempt_capture_oversize_has_only_complete_attempt_files(
+        self,
+        temp_workspace,
+        attempt_capture_files,
+        mode,
+        script,
+        expected,
+        allow_parse_error,
+    ):
+        executor = StepExecutor(temp_workspace, attempt_capture_files=attempt_capture_files)
+
+        result = executor.execute_command(
+            step_name="oversize_attempt",
+            command=[sys.executable, "-c", script],
+            output_capture=mode,
+            allow_parse_error=allow_parse_error,
+        )
+
+        assert result.capture_result.truncated is True
+        assert (attempt_capture_files.workspace / "stdout.txt").read_bytes() == expected
+        assert (attempt_capture_files.workspace / "stderr.txt").read_bytes() == b""
+        assert sorted(path.name for path in attempt_capture_files.workspace.iterdir()) == [
+            "stderr.txt",
+            "stdout.txt",
+        ]
+
+    def test_attempt_capture_rejects_output_file_before_dispatch(
+        self, temp_workspace, attempt_capture_files
+    ):
+        executor = StepExecutor(temp_workspace, attempt_capture_files=attempt_capture_files)
+        marker = temp_workspace / "dispatched"
+        script = "from pathlib import Path; Path('dispatched').write_text('ran')"
+
+        with pytest.raises(ValueError, match="output_file"):
+            executor.execute_command(
+                step_name="conflicting_attempt",
+                command=[sys.executable, "-c", script],
+                output_file=temp_workspace / "tee.txt",
+            )
+
+        assert not marker.exists()
+        assert not (temp_workspace / "logs").exists()
+
+    def test_direct_capture_rejects_output_file_with_attempt_owner(self, temp_workspace, attempt_capture_files):
+        capture = OutputCapture(temp_workspace, attempt_capture_files=attempt_capture_files)
+
+        with pytest.raises(ValueError, match="output_file"):
+            capture.capture(
+                stdout=b"out",
+                stderr=b"err",
+                step_name="direct_attempt",
+                output_file=temp_workspace / "tee.txt",
+            )
+
+        assert list(attempt_capture_files.workspace.iterdir()) == []
+
+    def test_attempt_capture_writes_through_pinned_owner_after_path_swap(
+        self, temp_workspace, attempt_capture_files
+    ):
+        attempt_dir = attempt_capture_files.workspace
+        moved_attempt = temp_workspace / "moved_attempt"
+        external_dir = temp_workspace / "external"
+        external_dir.mkdir()
+        attempt_dir.rename(moved_attempt)
+        attempt_dir.symlink_to(external_dir, target_is_directory=True)
+        capture = OutputCapture(temp_workspace, attempt_capture_files=attempt_capture_files)
+
+        capture.capture(stdout=b"pinned", stderr=b"", step_name="pinned_attempt")
+
+        assert (moved_attempt / "stdout.txt").read_bytes() == b"pinned"
+        assert (moved_attempt / "stderr.txt").read_bytes() == b""
+        assert list(external_dir.iterdir()) == []
+        assert not (temp_workspace / "logs").exists()
+
+    def test_attempt_capture_does_not_follow_existing_file_symlink(
+        self, temp_workspace, attempt_capture_files
+    ):
+        sentinel = temp_workspace / "sentinel.txt"
+        sentinel.write_bytes(b"unchanged")
+        (attempt_capture_files.workspace / "stdout.txt").symlink_to(sentinel)
+        capture = OutputCapture(temp_workspace, attempt_capture_files=attempt_capture_files)
+
+        with pytest.raises(FileExistsError):
+            capture.capture(stdout=b"replace", stderr=b"err", step_name="symlink_attempt")
+
+        assert sentinel.read_bytes() == b"unchanged"
+        assert not (attempt_capture_files.workspace / "stderr.txt").exists()
