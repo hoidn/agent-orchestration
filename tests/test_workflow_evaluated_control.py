@@ -57,15 +57,21 @@ def test_read_back_machine_instantiates_call_sites_inside_loop(tmp_path: Path) -
 
     assert result.value == 100
     assert [argument for argument, _ in dispatched] == [1, 2, 3, 4]
+    fetch_keys = [
+        key for key, definition in program.tree["definitions"].items()
+        if definition["key"][:3] == ["spk/arms_in_loop", "procedure", "fetch"]
+    ]
+    assert len(fetch_keys) == 1
+    fetch_key = fetch_keys[0]
     assert [identity for _, identity in dispatched] == [
         "workflow:spk/arms_in_loop::run / loop:state[1] / got / body / FIRST / "
-        "#1=procedure:spk/arms_in_loop::fetch / #1",
+        f"#1={fetch_key} / #1",
         "workflow:spk/arms_in_loop::run / loop:state[2] / got / body / SECOND / "
-        "#1=procedure:spk/arms_in_loop::fetch / #1",
+        f"#1={fetch_key} / #1",
         "workflow:spk/arms_in_loop::run / loop:state[3] / got / body / THIRD / "
-        "#1=procedure:spk/arms_in_loop::fetch / #1",
+        f"#1={fetch_key} / #1",
         "workflow:spk/arms_in_loop::run / loop:state[4] / got / body / FIRST / "
-        "#1=procedure:spk/arms_in_loop::fetch / #1",
+        f"#1={fetch_key} / #1",
     ]
     assert result.dependencies == frozenset(dispatched_identity for _, dispatched_identity in dispatched)
 
@@ -104,17 +110,23 @@ def test_selected_select_prefix_uses_the_machine_binding_callback(tmp_path: Path
     effectful_sources, effectful_entry = _control_sources("effectful_if_branches", "direct")
     effectful = _build_read_back(tmp_path / "effectful", effectful_sources, effectful_entry)
     tree = deepcopy(compiled.tree)
-    arm_prefix = next(
-        name for name in effectful.tree["definitions"]
-        if name.endswith("::arm-prefix")
-    )
+    arm_prefix_keys = [
+        key for key, definition in effectful.tree["definitions"].items()
+        if definition["key"][:3] == ["cp/probe", "procedure", "arm-prefix"]
+        and any(
+            name == "n" and value == {"k": "lit", "type": INT, "v": 11}
+            for name, _type, value in definition["key"][6]
+        )
+    ]
+    assert len(arm_prefix_keys) == 1
+    arm_prefix = arm_prefix_keys[0]
     tree["definitions"][arm_prefix] = deepcopy(effectful.tree["definitions"][arm_prefix])
     select = next(node for node in _ast_nodes(tree["body"]) if node.get("k") == "select")
     prefix = select["then"]["prefix"][0]
     prefix["value"] = {
         "k": "call",
         "callee": arm_prefix,
-        "args": [{"k": "lit", "v": 11, "type": INT}],
+        "args": [],
         "type": INT,
     }
     tree["sites"] = [list(row) for row in assign_sites(tree)]
@@ -132,9 +144,7 @@ def test_selected_select_prefix_uses_the_machine_binding_callback(tmp_path: Path
 
     assert result.value == 13
     assert [row[0] for row in effects] == ["arm-prefix"]
-    assert effects[0][2] == (
-        "workflow:cp/probe::run / chosen / then / left=procedure:cp/probe::arm-prefix / #1"
-    )
+    assert effects[0][2] == f"workflow:cp/probe::run / chosen / then / left={arm_prefix} / #1"
     assert "input:flag" not in effects[0][3]
     assert result.dependencies == frozenset({"input:flag", effects[0][2]})
 

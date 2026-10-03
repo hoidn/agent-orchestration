@@ -124,7 +124,7 @@ def continuation_binding_demands(body):
     scanned = _wcc_continuation_binding_demands(body)
     result = {}
 
-    def visit(node, variants=()):
+    def record_binding_demand(node, variants):
         if isinstance(node, WccLet):
             names = (node.bound_name,)
             continuation = node.body
@@ -132,14 +132,23 @@ def continuation_binding_demands(body):
             names = tuple(param.name for param in node.params)
             continuation = node.continuation
         else:
-            names = ()
+            return
         for name in names:
             key = (*binding_demand_key(node.metadata, variants), name)
             result.setdefault(key[:-1], []).append((name, tuple(name in demand for demand in scanned[id(continuation)])))
+
+    def visit(node, variants=()):
+        record_binding_demand(node, variants)
         if isinstance(node, WccCase):
             visit(node.subject, variants)
             for arm in node.arms:
                 visit(arm.body, (*variants, arm.variant_name))
+            return
+        if isinstance(node, w.WccSelectArm):
+            for binding in node.prefix:
+                record_binding_demand(binding, variants)
+                visit(binding.bound_value, variants)
+            visit(node.value, variants)
             return
         for child in _children(node):
             visit(child, variants)
