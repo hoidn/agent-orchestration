@@ -115,7 +115,7 @@ def _mentioned_names(node: object) -> set[str]:
 # The fields of a WCC node that its own binders scope over, and the names they bind.
 _BINDERS: dict[type, tuple[frozenset[str], Callable[[object], Iterable[str]]]] = {
     WccLet: (frozenset({"body"}), lambda node: (node.bound_name,)),
-    WccCaseArm: (frozenset({"body"}), lambda node: (node.binding_name,)),
+    WccCaseArm: (frozenset({"body", "command_scope"}), lambda node: (node.binding_name,)),
     WccJoin: (frozenset({"continuation"}), lambda node: (param.name for param in node.params)),
     WccRecJoin: (frozenset({"body", "exhaustion"}), lambda node: (param.name for param in node.params)),
     WccProviderSupervision: (frozenset({"settlement_body"}), lambda node: (member.binding_name for member in node.members)),

@@ -1,6 +1,7 @@
 """Selected surface control is checked against independent pre-hoist fragments."""
 
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
@@ -260,31 +261,6 @@ def _assert_selected_phase_shortcuts(expr, *, context, local_values):
     assert _suffix_outputs_available(let, (), result_type=result_type, facts=facts, local_values=local_values)
 
 
-def test_retained_capture_type_precedes_partial_surface_inference(monkeypatch):
-    from types import SimpleNamespace
-    from orchestrator.workflow_lisp.expressions import ProviderResultExpr
-    from orchestrator.workflow_lisp.context_types import _record, contextual_type
-    from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-    from orchestrator.workflow_lisp.lowering import core
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts, _binding_control_fact
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
-
-    scalar = PrimitiveTypeRef(name="String")
-    captured = contextual_type(_record("Nested", (("leaf", scalar),)), _record("Context", (("schema", scalar),)))
-    expr = ProviderResultExpr(provider=NameExpr(name="provider", span=SPAN, form_path=()), prompt=_literal("prompt"), inputs=(), capture_context="portable", returns_type_name="Nested", span=SPAN, form_path=())
-    facts = ControlFacts(
-        signature=None, type_env=SimpleNamespace(target_dsl_version="2.31"), local_type_bindings={},
-        typed_procedures={}, workflow_catalog=None, workflows_by_name={}, procedure_type_envs={},
-        workflow_name="run", retained_binding_types={"captured": captured},
-    )
-    def rejected_legacy_inference(*args, **kwargs):
-        pytest.fail("retained type must not depend on partial surface inference")
-    monkeypatch.setattr(core, "_resolve_lowering_expr_type", rejected_legacy_inference)
-    assert _binding_control_fact(expr, name="captured", facts=facts, local_values={}) == (
-        False, {"result": RUNTIME_REFERENCE, "context": RUNTIME_REFERENCE}, captured,
-    )
-
-
 @pytest.mark.parametrize("expr", [_literal(True), NameExpr(name="pure", span=SPAN, form_path=())])
 def test_typed_pure_values_have_an_explicit_noncontrol_rule(expr):
     from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
@@ -293,34 +269,433 @@ def test_typed_pure_values_have_an_explicit_noncontrol_rule(expr):
     assert not expression_control_summary(expr, result_type=PrimitiveTypeRef(name="Bool"), facts=None, local_values={})
 
 
-@pytest.mark.parametrize("helper_has_retained_type", [False, True])
-def test_selected_inline_helper_replaces_caller_binding_type_facts(monkeypatch, helper_has_retained_type):
-    from types import SimpleNamespace
-    from orchestrator.workflow_lisp.expressions import ProcedureCallExpr
-    from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode
-    from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
+
+@pytest.mark.parametrize("caller_value", ['"caller"', '42'])
+def test_selected_inline_helper_uses_its_real_lexical_types(tmp_path, monkeypatch, caller_value):
+    from tests.test_workflow_lisp_command_scopes import _compile
+    from orchestrator.workflow_lisp.lowering import command_control_summary as summary, core
+    from orchestrator.workflow_lisp.expressions import LiteralExpr
+
+    program, inputs, facts = _compile(tmp_path,
+        f'(let* ((shadow {caller_value}) (hook (bind-proc (proc-ref helper) :fixed true))) (hook 1))',
+        declarations='(defproc helper ((fixed Bool) (n Int)) -> Result :effects ((uses-command echo)) :lowering inline '
+        '(let* ((shadow true) (r (command-result echo :argv ("python" "probe.py" fixed n) :returns Result))) r))')
+    typed = summary.ControlFacts(**facts, closed_program=True,
+        workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
+    observed = []
+    original = summary._closed_binding_type
+
+    def lookup(expr, **kwargs):
+        result = original(expr, **kwargs)
+        if isinstance(expr, LiteralExpr) and expr.value is True:
+            observed.append((result, kwargs["facts"].local_type_bindings))
+        return result
+
+    def reject_legacy(*args, **kwargs):
+        pytest.fail("closed selected helper reached legacy type inference")
+
+    monkeypatch.setattr(core, "_infer_inline_binding_type", reject_legacy)
+    monkeypatch.setattr(core, "_resolve_lowering_expr_type", reject_legacy)
+    monkeypatch.setattr(summary, "_closed_binding_type", lookup)
+    assert not summary.expression_control_summary(program.entry.typed_body.expr,
+        result_type=program.entry.typed_body.type_ref, facts=typed, local_values={})
+    assert observed
+    assert observed[-1][0].name == "Bool"
+    assert "shadow" not in observed[-1][1]
+    assert set(observed[-1][1]) == {"fixed", "n"}
+
+
+@pytest.mark.parametrize("reference,provider", [(False, False), (True, False), (True, True)])
+def test_imported_helper_reads_its_original_snapshot_alias_view(tmp_path, monkeypatch, reference, provider):
+    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+    from orchestrator.workflow_lisp.closed.build import Builder
+    from orchestrator.workflow_lisp.lowering import command_control_summary as summary
+    from orchestrator.workflow_lisp.workflows import WorkflowCatalog
+    from orchestrator.workflow_lisp.procedures import ProcedureCatalog
+    from orchestrator.workflow_lisp.expressions import CallExpr
+
+    leaf_path = tmp_path / "leaf.orc"
+    (tmp_path / "prompt.md").write_text("Return the requested Leaf record.")
+    leaf_body = '(provider-result providers.execute :prompt prompts.execute :inputs () :returns Leaf)' if provider else '(record Leaf :n 7)'
+    leaf_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.32") '
+        '(defmodule leaf) (export get) (defrecord Leaf (n Int)) '
+        f'(defworkflow get () -> Leaf {leaf_body}))')
+    leaf = compile_stage3_entrypoint(leaf_path, source_roots=(tmp_path,), workspace_root=tmp_path,
+        provider_externs={"providers.execute": "selected-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        lowering_route="legacy", validate_shared=True).validated_bundles_by_name["leaf::get"]
+    owner_path = tmp_path / "owner.orc"
+    owner_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.32") '
+        '(defmodule owner) (export get) (defrecord Leaf (n Int)) (defrecord Result (i Int) (s String)) '
+        '(defproc helper () -> Result :effects ((calls-workflow dep)) :lowering inline '
+        '(let* ((r (call dep)) (shadow true)) (record Result :i r.n :s "owner"))) '
+        '(defworkflow get () -> Result (helper)))')
+    if reference:
+        owner_path.write_text(owner_path.read_text().replace("(let* ((r (call dep))", "(let* ((ref (workflow-ref dep)) (r (call dep))"))
+        owner_path.write_text(owner_path.read_text().replace('"2.32"', '"2.35"'))
+        snapshot = compile_typed_program(owner_path, entry_workflow="get", source_roots=(tmp_path,),
+            workspace_root=tmp_path, command_boundaries={}, imported_programs={"dep": leaf.typed_program})
+    else:
+        owner = compile_stage3_entrypoint(owner_path, source_roots=(tmp_path,), workspace_root=tmp_path,
+            imported_workflow_bundles={"dep": leaf}, lowering_route="legacy", validate_shared=True)
+        snapshot = owner.validated_bundles_by_name["owner::get"].typed_program
+    snapshot = replace(snapshot, entry=snapshot.workflows["owner::get"])
+    leaf_path.unlink()
+    owner_path.unlink()
+    caller_path = tmp_path / "caller.orc"
+    caller_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(defmodule caller) (export run) (defrecord Result (i Int) (s String)) (defworkflow run ((shadow String)) -> String '
+        '(let* ((r (call dep))) shadow)))')
+    caller = compile_typed_program(caller_path, entry_workflow="run", workspace_root=tmp_path,
+        source_roots=(tmp_path,), command_boundaries={}, imported_programs={"dep": snapshot})
+    builder = Builder(caller)
+    assert builder.procedure_owners["owner::helper"][1] is snapshot
+    assert snapshot.producer_lowering_schema == (2 if reference else 1) and caller.producer_lowering_schema == 2
+    entry = caller.entry
+    facts = summary.ControlFacts(signature=entry.signature, type_env=caller.workflow_type_env(entry.definition.name),
+        local_type_bindings=dict(entry.signature.params), typed_procedures=caller.procedures,
+        workflow_catalog=WorkflowCatalog(signatures_by_name={**{name: item.signature for name, item in caller.workflows.items()},
+                **caller.module_workflow_signatures[caller.entry_module]},
+            definitions_by_name={name: item.definition for name, item in caller.workflows.items()}, imported_bundles_by_name={}),
+        workflows_by_name=caller.workflows, procedure_type_envs=caller.procedure_type_envs,
+        workflow_name=entry.definition.name, closed_program=True,
+        procedure_catalog=ProcedureCatalog(signatures_by_name={name: item.signature for name, item in caller.procedures.items()},
+            definitions_by_name={name: item.definition for name, item in caller.procedures.items()}, call_graph={}),
+        workflow_return_types=builder._workflow_return_types_for(caller, entry.definition.name),
+        procedure_return_types=builder.procedure_return_types, procedure_owners=builder.procedure_owners,
+        base_workflow_return_types=builder.workflow_return_types)
+    observed = []
+    original = summary._closed_binding_type
+    references = []
+    original_binding = summary._binding_control_fact
+    def binding(expr, **kwargs):
+        result = original_binding(expr, **kwargs)
+        if isinstance(expr, summary.ex.WorkflowRefLiteralExpr):
+            references.append((expr, result))
+        return result
+    monkeypatch.setattr(summary, "_binding_control_fact", binding)
+
+    def lookup(expr, **kwargs):
+        result = original(expr, **kwargs)
+        if isinstance(expr, CallExpr):
+            observed.append((result, kwargs["facts"].workflow_return_types))
+        return result
+
+    monkeypatch.setattr(summary, "_closed_binding_type", lookup)
+    assert not summary.expression_control_summary(snapshot.entry.typed_body.expr,
+        result_type=snapshot.entry.typed_body.type_ref, facts=facts, local_values={})
+    assert observed
+    own_alias = snapshot.module_workflow_signatures["owner"]["dep"].return_type_ref
+    caller_alias = facts.workflow_return_types["dep"]
+    assert own_alias != caller_alias
+    assert observed[0][0] == own_alias
+    assert observed[0][1]["dep"] == own_alias
+    if reference:
+        assert references
+        assert references[0][0].target_name == "dep"
+        assert references[0][1][1].return_type_ref == own_alias
+        assert references[0][1][2].return_type_ref == own_alias
+        assert references[0][1][1].extern_rebinding_plan.is_empty
+        assert references[0][1][1].authority_source.workflow_name == "dep"
+        if provider:
+            assert leaf.typed_program.externs["providers.execute"].provider_id == "selected-provider"
+
+
+def test_closed_workflow_ref_aliases_remain_compile_time_values(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_command_scopes import _compile, _walk
+    from orchestrator.workflow_lisp.lowering import command_control_summary as summary, core
+    from orchestrator.workflow_lisp.wcc.model import WccLet
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.type_env import WorkflowRefTypeRef
+    from orchestrator.workflow_lisp.workflow_refs import ResolvedWorkflowRef
+
+    program, inputs, facts = _compile(tmp_path,
+        '(let* ((original (workflow-ref leaf)) (alias original)) (record Result :i 1 :s "done"))',
+        declarations='(defworkflow leaf () -> Result (record Result :i 7 :s "leaf"))')
+    typed = summary.ControlFacts(**facts, closed_program=True,
+        workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
+    def reject_legacy(*args, **kwargs):
+        pytest.fail("closed compile-time workflow alias reached legacy inference")
+    monkeypatch.setattr(core, "_resolve_lowering_expr_type", reject_legacy)
+    expr = program.entry.typed_body.expr
+    _, value, type_ref = summary._binding_control_fact(expr.bindings[0][1],
+        name="original", facts=typed, local_values={})
+    assert isinstance(value, ResolvedWorkflowRef)
+    assert isinstance(type_ref, WorkflowRefTypeRef)
+    assert summary._binding_control_fact(expr.bindings[1][1], name="alias", facts=typed,
+        local_values={"original": value}) == (False, value, type_ref)
+    assert not summary.expression_control_summary(expr, result_type=program.entry.typed_body.type_ref,
+        facts=typed, local_values={})
+    assert all(item.bound_name not in {"original", "alias"} for item in _walk(
+        elaborate_typed_workflow_body(program.entry.typed_body, **inputs)) if isinstance(item, WccLet))
+
+
+def test_command_scope_capture_retains_real_loop_state_frame(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes, _walk
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
+
+    program, inputs, facts = _compile(tmp_path,
+        '(loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0 (fn (state) '
+        '(let-proc (local ((n Choice)) -> Int :captures (state) '
+        '(match n ((A a) (+ state.i a.i)) ((B b) state.i))) '
+        '(let* ((hook (proc-ref local)) (state "shadow") (answer (hook choice))) (done answer)))))',
+        params='(choice Choice)', returns='Int')
+    captured = []
+    original = CommandScopeContext.bind
+    def observe(context, expr, **kwargs):
+        child = original(context, expr, **kwargs)
+        if kwargs['capture_source'] is not None:
+            captured.append((kwargs, child.values[kwargs['name']]))
+        return child
+    monkeypatch.setattr(CommandScopeContext, 'bind', observe)
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    assert captured
+    assert captured[0][0]['capture_source'][0].name == 'state'
+    assert isinstance(captured[0][1], dict) and 'i' in captured[0][1]
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    assert _without_scopes(annotated) == _without_scopes(neutral)
+
+
+@pytest.mark.parametrize('body,code', [
+    ('(let* ((input "shadow") (answer (+ input 1))) (record Result :i answer :s input))', 'pure_expr_operand_type_mismatch'),
+    ('(let* ((hook (bind-proc (proc-ref helper) :fixed "bad"))) (record Result :i (hook 1) :s "done"))', 'proc_ref_binding_type_invalid'),
+])
+def test_closed_capture_changes_preserve_unrelated_type_errors(tmp_path, body, code):
+    from tests.test_workflow_lisp_command_scopes import _compile
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile(tmp_path, body, params='(input Int)',
+            declarations='(defproc helper ((fixed Int) (n Int)) -> Int :effects () :lowering inline (+ fixed n))')
+    assert code in {item.code for item in caught.value.diagnostics}
+
+
+def test_command_scope_call_types_use_same_prepared_condition_owner(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc import elaborate
+
+    program, inputs, facts = _compile(tmp_path,
+        '(if (let* ((b (helper))) b) (record Result :i 1 :s "yes") (record Result :i 2 :s "no"))',
+        declarations='(defproc helper () -> Bool :effects ((uses-command echo)) :lowering inline '
+        '(command-result echo :argv ("python" "probe.py") :returns Bool))')
+    observed = []
+    original = elaborate._elaboration_procedure_return_types
+    def observe(body, edges, returns):
+        result = original(body, edges, returns)
+        observed.append((_without_scopes(body.expr), dict(edges), result))
+        return result
+    monkeypatch.setattr(elaborate, '_elaboration_procedure_return_types', observe)
+    elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    assert len(observed) == 3
+    assert observed[0] == observed[1] == observed[2]
+
+
+def test_loop_exhaustion_command_facts_keep_enclosing_owner(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_command_scopes import _compile
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+
+    program, inputs, facts = _compile(tmp_path,
+        '(loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted '
+        '(match choice ((A a) (if flag 1 0)) '
+        '((B b) 0)) (fn (state) (done 1)))', params='(choice Choice) (flag Bool)', returns='Int')
+    observed = []
+    original = CommandScopeContext.arm
+    def observe(context, expr, **kwargs):
+        observed.append(context)
+        return original(context, expr, **kwargs)
+    monkeypatch.setattr(CommandScopeContext, 'arm', observe)
+    elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    assert observed
+    assert all(context.owner == 'wcc' and context.control.iteration_scope is None for context in observed)
+    assert all(any(row[1] == program.entry.typed_body.expr.binding_identity for row in context.retained_bindings)
+        for context in observed)
+
+
+def test_proof_branch_command_facts_consume_actual_narrowed_environment(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
+    from orchestrator.workflow_lisp.type_env import VariantCaseTypeRef, UnionTypeRef
+
+    body = '(let* ((choice (variant ImplementationState COMPLETED :execution_report report))) (if (= choice.variant COMPLETED) (let* ((x choice.execution_report)) '
+    body += '(command-result echo :argv ("python" "probe.py" x) :returns Result)) (record Result :i 0 :s "no")))'
+    program, inputs, facts = _compile(tmp_path, body,
+        params='(report WorkReport)', target='2.26', schema=2, declarations='''
+        (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)
+        (defunion ImplementationState (COMPLETED (execution_report WorkReport))
+          (BLOCKED (progress_report WorkReport)))''')
+    seen = []
+    original = CommandScopeContext.bind
+    def observe(context, expr, **kwargs):
+        if kwargs['name'] == 'x': seen.append(context)
+        return original(context, expr, **kwargs)
+    monkeypatch.setattr(CommandScopeContext, 'bind', observe)
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    assert seen
+    context = seen[0]
+    narrowed = context.control.local_type_bindings['choice']
+    assert isinstance(narrowed, VariantCaseTypeRef) and narrowed.variant_name == 'COMPLETED'
+    operand = context.operands['choice']
+    assert operand.metadata.type_ref == narrowed
+    rows = [row for row in context.retained_bindings if row[1] == operand.metadata.binding_identity]
+    assert isinstance(rows[-2][2], UnionTypeRef) and rows[-1][2] == narrowed
+    assert rows[-2][0] == rows[-1][0] and rows[-2][3] is rows[-1][3]
+    assert context.owner == 'wcc'
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    assert _without_scopes(annotated) == _without_scopes(neutral)
+
+
+@pytest.mark.parametrize('alias', [False, True])
+@pytest.mark.parametrize('reset_before', [False, True])
+def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monkeypatch, alias, reset_before):
+    from tests.test_workflow_lisp_command_scopes import _compile, _walk, _without_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
+    from orchestrator.workflow_lisp.wcc.model import WccCase, WccLet
+    from orchestrator.workflow_lisp.procedure_refs import ResolvedProcRefValue
     from orchestrator.workflow_lisp.lowering import command_control_summary as summary
 
-    caller_type = PrimitiveTypeRef(name="String")
-    retained_helper_types = {"shadow": PrimitiveTypeRef(name="Bool")} if helper_has_retained_type else {}
-    body = _literal(True)
-    procedure = SimpleNamespace(
-        signature=SimpleNamespace(name="selected-helper", params=()), specialization=None,
-        resolved_lowering_mode=ProcedureLoweringMode.INLINE,
-        typed_body=SimpleNamespace(expr=body, type_ref=PrimitiveTypeRef(name="Bool")),
-    )
-    facts = summary.ControlFacts(
-        signature=None, type_env=None, local_type_bindings={}, typed_procedures={},
-        workflow_catalog=SimpleNamespace(signatures_by_name={}), workflows_by_name={},
-        procedure_type_envs={}, workflow_name="run", retained_binding_types={"shadow": caller_type},
-        procedure_binding_types={"selected-helper": retained_helper_types, "authored-helper": {"shadow": PrimitiveTypeRef(name="Int")}},
-    )
-    monkeypatch.setattr(summary, "select_surface_procedure_call", lambda *args, **kwargs: (procedure, ()))
-    monkeypatch.setattr(summary, "procedure_type_env_for", lambda *args, **kwargs: None)
-    monkeypatch.setattr(summary, "_procedure_signature_local_type_bindings", lambda *args: {})
-    observed = []
-    monkeypatch.setattr(summary, "_expression_control_fact", lambda *args, **kwargs: (observed.append(kwargs["facts"].retained_binding_types) or False, ("return",)))
-    call = ProcedureCallExpr(callee_name="authored-helper", args=(), span=SPAN, form_path=())
-    assert summary._procedure_control_fact(call, facts=facts, local_values={}) == (False, ("return",))
-    assert observed == [retained_helper_types]
-    assert facts.retained_binding_types == {"shadow": caller_type}
+    bindings = '((hook (proc-ref helper)) (alias hook))' if alias else '((hook (proc-ref helper)))'
+    callee = 'alias' if alias else 'hook'
+    arm = f'({callee} flag)'
+    if reset_before:
+        arm = f'(if flag (match other ((A item) {arm}) ((B item) (record Result :i 0 :s "inner"))) (record Result :i 0 :s "no"))'
+    program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
+        f':on-exhausted (record Result :i 0 :s "stop") (fn (state) (let* {bindings[:-1]} '
+        f'(answer (match choice ((A a) {arm}) ((B b) (record Result :i 0 :s b.s))))) '
+        '(done answer))))', params='(choice Choice) (other Choice) (flag Bool)',
+        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
+        '(if flag (command-result echo :argv ("python" "probe.py") :returns Result) (record Result :i 0 :s "no")))')
+    seen = []
+    original = summary._procedure_control_fact
+    def observe(expr, **kwargs):
+        seen.append(kwargs['local_values'].get(callee))
+        return original(expr, **kwargs)
+    monkeypatch.setattr(summary, '_procedure_control_fact', observe)
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    case = next(node for node in _walk(annotated) if isinstance(node, WccCase))
+    assert seen and all(isinstance(value, ResolvedProcRefValue) for value in seen)
+    if reset_before:
+        assert tuple(name for name, _ in case.arms[0].command_scope) == ('other', 'flag')
+    else:
+        assert case.arms[0].command_scope is None  # The actual loop owner selects the private helper override.
+    _assert_erased_proc_ref_binders(annotated)
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    assert _without_scopes(annotated) == _without_scopes(neutral)
+
+
+def _assert_erased_proc_ref_binders(body):
+    from tests.test_workflow_lisp_command_scopes import _walk
+    from orchestrator.workflow_lisp.wcc.model import WccLet
+    assert not any(isinstance(node, WccLet) and node.bound_name in {'hook', 'alias'} for node in _walk(body))
+
+
+def test_runtime_shadow_removes_erased_reference_before_command_reset(tmp_path, monkeypatch):
+    from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
+
+    source = '(loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted (record Result :i 0 :s "stop") '
+    source += '(fn (state) (let* ((hook (proc-ref helper))) (let* ((hook "shadow") '
+    source += '(answer (match choice ((A a) (if flag (helper flag) (record Result :i 0 :s "no"))) '
+    source += '((B b) (record Result :i 0 :s "b"))))) (done answer)))))'
+    program, inputs, facts = _compile(tmp_path, source, params='(choice Choice) (flag Bool)',
+        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
+        '(if flag (command-result echo :argv ("python" "probe.py") :returns Result) (record Result :i 0 :s "no")))')
+    resets = []
+    original = CommandScopeContext.arm
+    def observe(context, expr, **kwargs):
+        roots, child = original(context, expr, **kwargs)
+        if roots is not None: resets.append(child)
+        return roots, child
+    monkeypatch.setattr(CommandScopeContext, 'arm', observe)
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    assert resets
+    assert all('hook' not in child.values and 'hook' not in child.operands for child in resets)
+    assert all('hook' not in child.control.local_type_bindings for child in resets)
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    assert _without_scopes(annotated) == _without_scopes(neutral)
+
+
+@pytest.mark.parametrize('nested', ['loop', 'match'])
+def test_nested_command_owners_preserve_names_removed_by_reset(tmp_path, monkeypatch, nested):
+    from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
+
+    result = '(record Result :i x :s "done")'
+    if nested == 'loop':
+        inner = '(loop/recur :max 1 :state (record State :i 0) :on-exhausted (record Result :i 0 :s "stop") '
+        inner += f'(fn (state) (let* ((x 1)) (done {result}))))'
+    else:
+        inner = '(let* ((inner (command-result echo :argv ("python" "probe.py") :returns Choice))) (match inner '
+        inner += f'((A item) (let* ((x 1)) {result})) ((B item) (record Result :i 0 :s "b"))))'
+    source = f'(match choice ((A a) (if true {inner} (record Result :i 0 :s "no"))) '
+    source += '((B b) (record Result :i 0 :s "b")))'
+    program, inputs, facts = _compile(tmp_path, source, params='(choice Choice) (unused Int)',
+        schema=1, target='2.32', declarations='(defrecord State (i Int))')
+    seen = []
+    original = CommandScopeContext.bind
+    def observe(context, expr, **kwargs):
+        if kwargs['name'] == 'x': seen.append(context)
+        return original(context, expr, **kwargs)
+    monkeypatch.setattr(CommandScopeContext, 'bind', observe)
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    assert seen
+    assert all('unused' not in context.control.local_type_bindings for context in seen)
+    assert all('unused' not in context.values and 'unused' not in context.operands for context in seen)
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    assert _without_scopes(annotated) == _without_scopes(neutral)
+
+
+def test_forwarded_workflow_reference_is_not_a_runtime_command_root(tmp_path):
+    from tests.test_workflow_lisp_command_scopes import _compile, _walk, _without_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
+    from orchestrator.workflow_lisp.expressions import NameExpr, ProcedureCallExpr
+    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
+    from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
+    from orchestrator.workflow_lisp.wcc.model import WccCase
+
+    program, inputs, facts = _compile(tmp_path,
+        '(loop/recur :max 1 :state (loop-state (i Int 0)) '
+        ':on-exhausted (record Result :i 0 :s "stop") (fn (state) '
+        '(let* ((runner (workflow-ref leaf)) '
+        '(answer (match choice ((A a) (if flag (invoke runner a.i) '
+        '(record Result :i 0 :s "no"))) ((B b) (record Result :i 0 :s b.s))))) (done answer))))',
+        params='(choice Choice) (flag Bool)', declarations='''
+        (defworkflow leaf ((n Int)) -> Result (record Result :i n :s "leaf"))
+        (defproc invoke ((runner WorkflowRef[Int -> Result]) (n Int)) -> Result
+          :effects ((calls-workflow runner)) :lowering inline (call runner :n n))''')
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    forwarded = [expr for expr in _walk(program.entry.typed_body.expr) if isinstance(expr, ProcedureCallExpr)
+        and any(isinstance(arg, NameExpr) and arg.name == 'runner' for arg in expr.args)]
+    assert forwarded
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    case = next(node for node in _walk(annotated) if isinstance(node, WccCase))
+    assert tuple(name for name, _ in case.arms[0].command_scope) == ('flag', 'a')
+    assert _without_scopes(annotated) == _without_scopes(neutral)
+    assert normalize_wcc_body_to_anf(annotated) == annotated

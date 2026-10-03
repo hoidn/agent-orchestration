@@ -13,8 +13,11 @@ import re
 from hashlib import sha256
 from pathlib import Path
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from ..workflow.workspace_files import WorkspaceFiles
 
 
 class CaptureMode(str, Enum):
@@ -75,17 +78,26 @@ class OutputCapture:
     JSON_BUFFER_LIMIT = 1024 * 1024  # 1 MiB for JSON parsing
     LOG_FILENAME_LIMIT_BYTES = 240
 
-    def __init__(self, workspace: Path, logs_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        workspace: Path,
+        logs_dir: Optional[Path] = None,
+        *,
+        attempt_capture_files: Optional["WorkspaceFiles"] = None,
+    ):
         """
         Initialize output capture.
 
         Args:
             workspace: Base workspace directory
             logs_dir: Directory for overflow logs (default: workspace/logs)
+            attempt_capture_files: Pinned owner for an existing attempt directory
         """
         self.workspace = workspace
         self.logs_dir = logs_dir or workspace / "logs"
-        self.logs_dir.mkdir(exist_ok=True, parents=True)
+        self.attempt_capture_files = attempt_capture_files
+        if attempt_capture_files is None:
+            self.logs_dir.mkdir(exist_ok=True, parents=True)
 
     def _log_file(self, step_name: str, suffix: str) -> Path:
         """Return a deterministic log path whose filename fits common filesystems."""
@@ -131,11 +143,20 @@ class OutputCapture:
         Returns:
             CaptureResult with processed output
         """
-        # Handle stderr (always written to logs if non-empty). The OMP
-        # broker token must never persist in captured output.
+        if self.attempt_capture_files is not None and output_file is not None:
+            raise ValueError("output_file cannot be used with attempt capture")
+
+        # Redact stderr before it is persisted to attempt files or legacy logs.
         if stderr and redact_token:
             stderr = stderr.replace(redact_token.encode("utf-8"), b"[redacted]")
-        if stderr:
+        if self.attempt_capture_files is not None:
+            self.attempt_capture_files.create(
+                "stdout.txt", stdout, exclusive=True, mode=0o600
+            )
+            self.attempt_capture_files.create(
+                "stderr.txt", stderr, exclusive=True, mode=0o600
+            )
+        elif stderr:
             stderr_file = self._log_file(step_name, "stderr")
             stderr_file.parent.mkdir(parents=True, exist_ok=True)
             stderr_file.write_bytes(stderr)
@@ -183,9 +204,10 @@ class OutputCapture:
                 output = output[:-1]
 
             # Write full output to logs
-            stdout_file = self._log_file(step_name, "stdout")
-            stdout_file.parent.mkdir(parents=True, exist_ok=True)
-            stdout_file.write_bytes(raw_stdout)
+            if self.attempt_capture_files is None:
+                stdout_file = self._log_file(step_name, "stdout")
+                stdout_file.parent.mkdir(parents=True, exist_ok=True)
+                stdout_file.write_bytes(raw_stdout)
 
         return CaptureResult(
             mode=CaptureMode.TEXT,
@@ -213,9 +235,10 @@ class OutputCapture:
             lines = lines[:self.LINES_LIMIT]
 
             # Write full output to logs
-            stdout_file = self._log_file(step_name, "stdout")
-            stdout_file.parent.mkdir(parents=True, exist_ok=True)
-            stdout_file.write_bytes(raw_stdout)
+            if self.attempt_capture_files is None:
+                stdout_file = self._log_file(step_name, "stdout")
+                stdout_file.parent.mkdir(parents=True, exist_ok=True)
+                stdout_file.write_bytes(raw_stdout)
 
         return CaptureResult(
             mode=CaptureMode.LINES,
@@ -244,9 +267,10 @@ class OutputCapture:
                     truncated_output = truncated_output[:-1]
 
                 # Write full output to logs (AT-52: spill consistency with text mode)
-                stdout_file = self._log_file(step_name, "stdout")
-                stdout_file.parent.mkdir(parents=True, exist_ok=True)
-                stdout_file.write_bytes(raw_stdout)
+                if self.attempt_capture_files is None:
+                    stdout_file = self._log_file(step_name, "stdout")
+                    stdout_file.parent.mkdir(parents=True, exist_ok=True)
+                    stdout_file.write_bytes(raw_stdout)
 
                 return CaptureResult(
                     mode=CaptureMode.JSON,
@@ -290,9 +314,10 @@ class OutputCapture:
                         output = output[:-1]
 
                     # Write full output to logs
-                    stdout_file = self._log_file(step_name, "stdout")
-                    stdout_file.parent.mkdir(parents=True, exist_ok=True)
-                    stdout_file.write_bytes(raw_stdout)
+                    if self.attempt_capture_files is None:
+                        stdout_file = self._log_file(step_name, "stdout")
+                        stdout_file.parent.mkdir(parents=True, exist_ok=True)
+                        stdout_file.write_bytes(raw_stdout)
 
                 return CaptureResult(
                     mode=CaptureMode.JSON,

@@ -45,8 +45,11 @@ class ControlFacts:
     procedure_catalog: Any = None
     active_procedure_calls: frozenset[str] = frozenset()
     lowered_callees: Mapping[str, Any] = field(default_factory=dict)
-    retained_binding_types: Mapping[str, Any] = field(default_factory=dict)
-    procedure_binding_types: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    closed_program: bool = False
+    workflow_return_types: Mapping[str, Any] = field(default_factory=dict)
+    procedure_return_types: Mapping[str, Any] = field(default_factory=dict)
+    procedure_owners: Mapping[str, Any] = field(default_factory=dict)
+    base_workflow_return_types: Mapping[str, Any] = field(default_factory=dict)
 
 
 def control_facts_for_context(context: Any) -> ControlFacts:
@@ -181,9 +184,30 @@ def _materialized_binding_value(type_ref: Any, *, output_names: tuple[str, ...],
     )
 
 
-def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_values: Mapping[str, Any]) -> tuple[bool, Any, Any]:
+def _closed_binding_type(expr, *, facts, capture_source=None):
+    from ..wcc.elaborate import binding_type_for_elaboration
+
+    return binding_type_for_elaboration(
+        expr, type_env=facts.type_env, value_env=facts.local_type_bindings,
+        workflow_return_types=facts.workflow_return_types, procedure_return_types=facts.procedure_return_types,
+        closed_program=True, capture_source=capture_source,
+    )
+
+
+def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_values: Mapping[str, Any], capture_source=None) -> tuple[bool, Any, Any]:
     from .core import _infer_inline_binding_type
     from ..procedure_refs import ResolvedProcRefValue
+    from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_expr, workflow_ref_type_from_signature
+
+    if facts.closed_program:
+        reference = _resolve_inline_expr_value(expr, local_values=local_values)
+        if isinstance(reference, ex.WorkflowRefLiteralExpr):
+            reference = resolve_workflow_ref_expr(reference, workflow_catalog=facts.workflow_catalog,
+                span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+                typed_workflows_by_name=facts.workflows_by_name, allow_extern_rebinding=True)
+        if isinstance(reference, ResolvedWorkflowRef):
+            signature = facts.workflow_catalog.signatures_by_name[reference.workflow_name]
+            return False, reference, workflow_ref_type_from_signature(signature)
 
     if is_inline_let_binding_expr(expr):
         value = _resolve_inline_expr_value(expr, local_values=local_values)
@@ -192,19 +216,23 @@ def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_va
                 value, typed_procedures=facts.typed_procedures, local_values=local_values,
                 procedure_catalog=facts.procedure_catalog,
             )
-        type_ref = facts.retained_binding_types.get(name)
-        if type_ref is None:
-            type_ref = value.residual_type_ref if isinstance(value, ResolvedProcRefValue) else _infer_inline_binding_type(expr, context=facts)
+        if isinstance(value, ResolvedProcRefValue):
+            type_ref = value.residual_type_ref
+        elif facts.closed_program:
+            type_ref = _closed_binding_type(expr, facts=facts, capture_source=capture_source)
+        else:
+            type_ref = _infer_inline_binding_type(expr, context=facts)
         return False, value, type_ref
-    return _effectful_binding_control_fact(expr, name=name, facts=facts, local_values=local_values)
+    return _effectful_binding_control_fact(expr, name=name, facts=facts, local_values=local_values, capture_source=capture_source)
 
 
-def _effectful_binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_values: Mapping[str, Any]) -> tuple[bool, Any, Any]:
+def _effectful_binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_values: Mapping[str, Any], capture_source=None) -> tuple[bool, Any, Any]:
     from .core import _resolve_lowering_expr_type
 
-    type_ref = facts.retained_binding_types.get(name)
-    if type_ref is None:
-        type_ref = _resolve_lowering_expr_type(expr, context=facts)
+    type_ref = (
+        _closed_binding_type(expr, facts=facts, capture_source=capture_source)
+        if facts.closed_program else _resolve_lowering_expr_type(expr, context=facts)
+    )
     if isinstance(expr, (ex.WithPhaseExpr, ex.ProviderResultExpr)):
         selected = "expression"
     else:
@@ -238,7 +266,10 @@ def _suffix_outputs_available(expr: Any, bindings: tuple[Any, ...], *, result_ty
 def _let_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts, local_values: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
     values = dict(local_values)
     for index, (name, bound) in enumerate(expr.bindings):
-        control, value, type_ref = _binding_control_fact(bound, name=name, facts=facts, local_values=values)
+        capture_source = expr.binding_capture_sources[index] if index < len(expr.binding_capture_sources) else None
+        control, value, type_ref = _binding_control_fact(
+            bound, name=name, facts=facts, local_values=values, capture_source=capture_source,
+        )
         if control:
             return True, ()
         if value is not None:
@@ -250,6 +281,16 @@ def _let_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts, local
                 expr.body, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
             ))
     return _expression_control_fact(expr.body, result_type=result_type, facts=facts, local_values=values)
+
+
+def _procedure_return_types(procedure, *, facts, source_program):
+    from ..wcc.elaborate import prepare_elaboration_call_types
+
+    _, return_types = prepare_elaboration_call_types(
+        procedure.typed_body, resolved_procedures_by_name=source_program.procedures,
+        procedure_return_types=facts.procedure_return_types, closed_program=True,
+    )
+    return return_types
 
 
 def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
@@ -275,11 +316,24 @@ def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Map
     values = inline_procedure_bindings(procedure, caller_values=local_values, actual_values=tuple(
         _resolve_inline_expr_value(arg, local_values=local_values) for arg in args
     ))
+    owner_returns = facts.workflow_return_types
+    owner_catalog, owner_workflows = facts.workflow_catalog, facts.workflows_by_name
+    if facts.closed_program:
+        from ..closed.frontend import workflow_catalog_for, workflow_return_types_for
+
+        _indexed_procedure, source_program = facts.procedure_owners[procedure.definition.name]
+        owner_returns = workflow_return_types_for(source_program, procedure.definition.name,
+            base_return_types=facts.base_workflow_return_types)
+        owner_catalog = workflow_catalog_for(source_program, procedure.definition.name)
+        owner_workflows = source_program.workflows
     child = replace(
         facts, type_env=env,
-        local_type_bindings={**facts.local_type_bindings, **_procedure_signature_local_type_bindings(procedure)},
+        local_type_bindings=(_procedure_signature_local_type_bindings(procedure) if facts.closed_program
+            else {**facts.local_type_bindings, **_procedure_signature_local_type_bindings(procedure)}),
         active_procedure_calls=facts.active_procedure_calls | {procedure.signature.name},
-        retained_binding_types=facts.procedure_binding_types.get(procedure.signature.name, {}),
+        workflow_return_types=owner_returns,
+        workflow_catalog=owner_catalog, workflows_by_name=owner_workflows,
+        procedure_return_types=(_procedure_return_types(procedure, facts=facts, source_program=source_program) if facts.closed_program else facts.procedure_return_types),
     )
     body = procedure.typed_body
     if isinstance(body.expr, ex.NameExpr) and not isinstance(body.type_ref, (RecordTypeRef, UnionTypeRef)) and _direct_outputs_available(
