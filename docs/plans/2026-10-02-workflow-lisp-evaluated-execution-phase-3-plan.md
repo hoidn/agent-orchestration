@@ -350,7 +350,7 @@ with `-q -n 16 --dist=worksteal`. No broad run belongs to design preparation.
 
 ## Task 7: Executor-Free Prompt Assembly And Portable Providers
 
-**Role/artifact:** Implementation / prompt assembly and provider performer code. **Prerequisite:** Tasks 3, 5–6; reviewed artifact delta if required.
+**Role/artifact:** Implementation / prompt assembly and provider performer code. **Prerequisite:** Pure prompt assembly/parity and shared C6 read helpers may start after Tasks 3 and 5 plus accepted R4/C6 design, independently of Task 6's R12 command transport. Provider performer/runtime hookup and Task 7 closeout still require Tasks 3, 5–6; reviewed artifact delta if required. Every code edit remains subject to exclusive owner transfer. The independent sub-batch supplies no provider-execution evidence, does not close Task 7 and does not unlock Task 8.
 
 **Files:** Create `orchestrator/workflow/evaluated/prompts.py`, `orchestrator/workflow/evaluated/providers.py`, `tests/test_workflow_evaluated_prompts.py`, `tests/test_workflow_evaluated_providers.py`. Narrow shared extractions in `orchestrator/workflow/prompting.py`, `orchestrator/workflow_lisp/typed_prompt_inputs.py`, `orchestrator/providers/executor.py`, `orchestrator/workflow/executor.py` only where both routes must call the same primitive; modify `runtime.py` dispatch.
 
