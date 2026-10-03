@@ -8,8 +8,11 @@ import subprocess
 import shlex
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from ..workflow.workspace_files import WorkspaceFiles
 
 from .output_capture import OutputCapture, CaptureMode, CaptureResult
 from ..fsq.wait import WaitFor, WaitForConfig
@@ -43,7 +46,14 @@ class StepExecutor:
     Handles command execution, environment setup, and result processing.
     """
 
-    def __init__(self, workspace: Path, logs_dir: Optional[Path] = None, secrets_manager: Optional[SecretsManager] = None):
+    def __init__(
+        self,
+        workspace: Path,
+        logs_dir: Optional[Path] = None,
+        secrets_manager: Optional[SecretsManager] = None,
+        *,
+        attempt_capture_files: Optional["WorkspaceFiles"] = None,
+    ):
         """
         Initialize step executor.
 
@@ -51,9 +61,14 @@ class StepExecutor:
             workspace: Base workspace directory
             logs_dir: Directory for logs (default: workspace/logs)
             secrets_manager: Manager for secrets handling and masking
+            attempt_capture_files: Pinned owner for an already-created attempt directory
         """
         self.workspace = workspace
-        self.output_capture = OutputCapture(workspace, logs_dir)
+        self.output_capture = OutputCapture(
+            workspace,
+            logs_dir,
+            attempt_capture_files=attempt_capture_files,
+        )
         self.secrets_manager = secrets_manager or SecretsManager()
 
     def execute_command(
@@ -86,6 +101,8 @@ class StepExecutor:
         Returns:
             ExecutionResult with captured output and metadata
         """
+        if self.output_capture.attempt_capture_files is not None and output_file is not None:
+            raise ValueError("output_file cannot be used with attempt capture")
 
         # Setup working directory
         working_dir = cwd or self.workspace
