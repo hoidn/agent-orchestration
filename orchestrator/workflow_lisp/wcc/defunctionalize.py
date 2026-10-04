@@ -7436,6 +7436,8 @@ def _frontend_expr_from_wcc_loop_binding_value(
                 return_spec=operation_payload.get("return_spec"),
                 returns_type_name=value.returns_type_name or "",
                 adapter_name=operation_payload.get("adapter_name"),
+                inputs_present=operation_payload.get("inputs_present", False),
+                operand_order=operation_payload.get("operand_order", ()),
                 adapter_inputs=tuple(
                     (field_name, _frontend_expr_from_wcc_value(input_value))
                     for field_name, input_value in adapter_inputs

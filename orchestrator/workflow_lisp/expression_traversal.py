@@ -108,6 +108,21 @@ def _finalize_selected_item_children(spec: FinalizeSelectedItemSpec) -> tuple[Ex
     )
 
 
+def command_operands(expr: CommandResultExpr):
+    """Yield section, slot and value in expanded command source order."""
+    sections = {
+        "argv": tuple(("argv", index, value) for index, value in enumerate(expr.argv)),
+        "inputs": tuple(("inputs", name, value) for name, value in expr.adapter_inputs),
+    }
+    return tuple(item for section in (expr.operand_order or ("argv", "inputs")) for item in sections[section])
+
+
+def map_command_operands(expr: CommandResultExpr, transform):
+    values = {(section, slot): transform(section, slot, value) for section, slot, value in command_operands(expr)}
+    return replace(expr, argv=tuple(values["argv", index] for index in range(len(expr.argv))),
+                   adapter_inputs=tuple((name, values["inputs", name]) for name, _ in expr.adapter_inputs))
+
+
 def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     """Return the direct child expressions for one authored expression node."""
 
@@ -203,9 +218,7 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, ProviderBundlePathExpr):
         return (expr.source_expr,)
     if isinstance(expr, CommandResultExpr):
-        return expr.argv + tuple(
-            value_expr for _, value_expr in expr.adapter_inputs
-        )
+        return tuple(value for _, _, value in command_operands(expr))
     if isinstance(expr, RequestInputExpr):
         return (expr.question,)
     if isinstance(expr, ContinueExpr):

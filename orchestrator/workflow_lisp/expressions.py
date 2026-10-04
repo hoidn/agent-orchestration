@@ -78,6 +78,7 @@ from .syntax import (
     target_dsl_supports_run_ref,
     target_dsl_supports_session_artifact,
     target_dsl_supports_trial,
+    target_dsl_uses_evaluated_execution,
 )
 
 if TYPE_CHECKING:
@@ -944,6 +945,9 @@ class CommandResultExpr:
         metadata={"json_name": "returns_type_name", "json_value_attr": "type_name"},
     )
     returns_type_name: InitVar[str | None] = None
+
+    inputs_present: bool = field(default=False, metadata={"json_omit_if_empty": True})
+    operand_order: tuple[str, ...] = field(default=(), metadata={"json_omit_if_empty": True})
 
     def __post_init__(self, returns_type_name: str | None) -> None:
         if self.return_spec is None:
@@ -6162,106 +6166,11 @@ def _elaborate_request_input(
     )
 
 
-def _elaborate_command_result(
-    datum: SyntaxList,
-    *,
-    form_path: tuple[str, ...],
-    bound_names: frozenset[str],
-    procedure_names: frozenset[str],
-    session_state: ElaborationSessionState,
-) -> CommandResultExpr:
-    if len(datum.items) < 5:
-        _raise_error(
-            "`command-result` requires a step name plus either :argv or :adapter/:inputs and :returns",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    step_name_node = datum.items[1]
-    step_identifier = syntax_identifier(step_name_node)
-    if step_identifier is None:
-        _raise_error(
-            "`command-result` step name must be a symbol",
-            span=step_name_node.span,
-            form_path=form_path,
-            expansion_stack=step_name_node.expansion_stack,
-        )
-    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`command-result`")
-    argv_node = sections.get(":argv")
-    adapter_node = sections.get(":adapter")
-    inputs_node = sections.get(":inputs")
-    returns_node = sections.get(":returns")
-    uses_raw_argv = argv_node is not None
-    uses_adapter = adapter_node is not None or inputs_node is not None
-    if returns_node is None:
-        _raise_error(
-            "`command-result` requires :returns",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    return_spec = parse_return_spec(
-        returns_node,
-        form_path=form_path,
-        label="`command-result :returns`",
-    )
-    if uses_raw_argv and uses_adapter:
-        _raise_error(
-            "`command-result` must use exactly one of :argv or :adapter/:inputs",
-            code="command_result_adapter_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    if uses_raw_argv:
-        if not isinstance(argv_node, SyntaxList):
-            _raise_error(
-                "`command-result :argv` must be a list",
-                span=argv_node.span,
-                form_path=form_path,
-                expansion_stack=argv_node.expansion_stack,
-            )
-        return CommandResultExpr(
-            step_name=step_identifier.resolved_name,
-            argv=tuple(
-                _elaborate(
-                    item,
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                    session_state=session_state,
-                )
-                for item in argv_node.items
-            ),
-            adapter_name=None,
-            adapter_inputs=(),
-            returns_type_name=return_spec.type_name,
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-            return_spec=return_spec,
-        )
-    if adapter_node is None or inputs_node is None:
-        _raise_error(
-            "`command-result` adapter mode requires both :adapter and :inputs",
-            code="command_result_adapter_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    adapter_identifier = syntax_identifier(adapter_node)
-    if adapter_identifier is None:
-        _raise_error(
-            "`command-result :adapter` must be a symbol",
-            code="command_result_adapter_invalid",
-            span=adapter_node.span,
-            form_path=form_path,
-            expansion_stack=adapter_node.expansion_stack,
-        )
+def _parse_command_inputs(inputs_node, *, code, form_path, **elaboration):
     if not isinstance(inputs_node, SyntaxList):
         _raise_error(
             "`command-result :inputs` must be a list of (field expr) pairs",
-            code="command_result_adapter_invalid",
+            code=code,
             span=inputs_node.span,
             form_path=form_path,
             expansion_stack=inputs_node.expansion_stack,
@@ -6272,16 +6181,16 @@ def _elaborate_command_result(
         if not isinstance(item, SyntaxList) or len(item.items) != 2:
             _raise_error(
                 "`command-result :inputs` entries must be (field expr) pairs",
-                code="command_result_adapter_invalid",
+                code=code,
                 span=item.span if isinstance(item, SyntaxList) else inputs_node.span,
                 form_path=form_path,
                 expansion_stack=getattr(item, "expansion_stack", inputs_node.expansion_stack),
             )
         field_identifier = syntax_identifier(item.items[0])
-        if field_identifier is None:
+        if field_identifier is None or (code == "command_result_inputs_invalid" and not field_identifier.resolved_name):
             _raise_error(
                 "`command-result :inputs` field names must be symbols",
-                code="command_result_adapter_invalid",
+                code=code,
                 span=item.items[0].span,
                 form_path=form_path,
                 expansion_stack=item.items[0].expansion_stack,
@@ -6290,7 +6199,7 @@ def _elaborate_command_result(
         if field_name in seen_input_names:
             _raise_error(
                 f"`command-result :inputs` duplicates field `{field_name}`",
-                code="command_result_adapter_invalid",
+                code=code,
                 span=item.items[0].span,
                 form_path=form_path,
                 expansion_stack=item.items[0].expansion_stack,
@@ -6302,23 +6211,96 @@ def _elaborate_command_result(
                 _elaborate(
                     item.items[1],
                     form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                    session_state=session_state,
+                    **elaboration,
                 ),
             )
         )
+    return tuple(adapter_inputs)
+
+
+def _command_argv(argv_node, *, form_path, **elaboration):
+    if not isinstance(argv_node, SyntaxList):
+        _raise_error("`command-result :argv` must be a list", span=argv_node.span,
+                     form_path=form_path, expansion_stack=argv_node.expansion_stack)
+    return tuple(_elaborate(item, form_path=form_path, **elaboration) for item in argv_node.items)
+
+
+def _command_adapter_inputs(adapter_node, inputs_node, *, datum, form_path, **elaboration):
+    if adapter_node is None or inputs_node is None:
+        _raise_error("`command-result` adapter mode requires both :adapter and :inputs",
+                     code="command_result_adapter_invalid", span=datum.span,
+                     form_path=form_path, expansion_stack=datum.expansion_stack)
+    identifier = syntax_identifier(adapter_node)
+    if identifier is None:
+        _raise_error("`command-result :adapter` must be a symbol", code="command_result_adapter_invalid",
+                     span=adapter_node.span, form_path=form_path, expansion_stack=adapter_node.expansion_stack)
+    return identifier.resolved_name, _parse_command_inputs(
+        inputs_node, code="command_result_adapter_invalid", form_path=form_path, **elaboration)
+
+
+def _elaborate_command_result(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> CommandResultExpr:
+    if len(datum.items) < 5:
+        _raise_error("`command-result` requires a step name plus either :argv or :adapter/:inputs and :returns",
+                     span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
+    step_identifier = syntax_identifier(datum.items[1])
+    if step_identifier is None:
+        _raise_error("`command-result` step name must be a symbol", span=datum.items[1].span,
+                     form_path=form_path, expansion_stack=datum.items[1].expansion_stack)
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`command-result`")
+    returns_node = sections.get(":returns")
+    if returns_node is None:
+        _raise_error("`command-result` requires :returns", span=datum.span,
+                     form_path=form_path, expansion_stack=datum.expansion_stack)
+    return_spec = parse_return_spec(returns_node, form_path=form_path, label="`command-result :returns`")
+    elaboration = dict(bound_names=bound_names, procedure_names=procedure_names, session_state=session_state)
+    argv, adapter_name, inputs, present, order = _command_operands_from_sections(
+        sections, datum=datum, form_path=form_path, **elaboration)
     return CommandResultExpr(
         step_name=step_identifier.resolved_name,
-        argv=(),
-        adapter_name=adapter_identifier.resolved_name,
-        adapter_inputs=tuple(adapter_inputs),
-        returns_type_name=return_spec.type_name,
+        argv=argv,
+        adapter_name=adapter_name,
+        adapter_inputs=inputs,
+        return_spec=return_spec,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
-        return_spec=return_spec,
+        inputs_present=present,
+        operand_order=order,
     )
+
+
+def _command_document_mode(argv_node, adapter_node, inputs_node, session_state):
+    return (argv_node is not None and inputs_node is not None and adapter_node is None
+            and target_dsl_uses_evaluated_execution(session_state.target_dsl_version or ""))
+
+
+def _validate_command_operand_mode(argv_node, adapter_node, inputs_node, document, *, datum, form_path):
+    if argv_node is not None and not document and (adapter_node is not None or inputs_node is not None):
+        _raise_error("`command-result` must use exactly one of :argv or :adapter/:inputs",
+                     code="command_result_adapter_invalid", span=datum.span,
+                     form_path=form_path, expansion_stack=datum.expansion_stack)
+
+
+def _command_operands_from_sections(sections, *, datum, form_path, **elaboration):
+    argv_node, adapter_node, inputs_node = (sections.get(key) for key in (":argv", ":adapter", ":inputs"))
+    document = _command_document_mode(argv_node, adapter_node, inputs_node, elaboration["session_state"])
+    _validate_command_operand_mode(argv_node, adapter_node, inputs_node, document, datum=datum, form_path=form_path)
+    if argv_node is None:
+        name, inputs = _command_adapter_inputs(adapter_node, inputs_node, datum=datum, form_path=form_path, **elaboration)
+        return (), name, inputs, False, ()
+    argv = _command_argv(argv_node, form_path=form_path, **elaboration)
+    inputs = ()
+    if document:
+        inputs = _parse_command_inputs(inputs_node, code="command_result_inputs_invalid", form_path=form_path, **elaboration)
+    order = tuple(key[1:] for key in sections if key in (":argv", ":inputs")) if document else ()
+    return argv, None, inputs, document, order
 
 
 def _elaborate_run_provider_phase(

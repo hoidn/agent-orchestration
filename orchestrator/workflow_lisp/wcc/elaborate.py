@@ -15,7 +15,7 @@ from ..conditionals import (
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
-from ..expression_traversal import map_expr, walk_expr
+from ..expression_traversal import map_expr, walk_expr, map_command_operands
 from ..expressions import (
     BindProcExpr,
     CallExpr,
@@ -5276,6 +5276,30 @@ def _prebind_direct_bind_proc_arguments(
     )
 
 
+def _prebind_command_operands(expr, replace_arg, *, scope):
+    input_roles = {name: f"command-adapter-input:{name}" for name, _ in expr.adapter_inputs}
+    generated_names = {
+        _generated_effect_binding_name_from_scope(scope, role=role)
+        for role in input_roles.values()
+    }
+    if len(generated_names) != len(input_roles):
+        input_roles = {
+            name: f"command-adapter-input-slot:{index}"
+            for index, (name, _) in enumerate(expr.adapter_inputs)
+        }
+    def bind(section, slot, value):
+        if section == "inputs" and not scope.closed_program:
+            return value
+        role = f"command-arg:{slot}" if section == "argv" else input_roles[slot]
+        return replace_arg(
+            value,
+            role=role,
+            force_prebind=expr.inputs_present or (scope.closed_program and expr.adapter_name is not None),
+        )
+
+    return map_command_operands(expr, bind)
+
+
 def _prebind_effect_argument_matches(
     expr,
     *,
@@ -5411,30 +5435,7 @@ def _prebind_effect_argument_matches(
             tuple(match_bindings),
         )
     if isinstance(expr, CommandResultExpr):
-        return (
-            replace(
-                expr,
-                argv=tuple(
-                    replace_arg(arg_expr, role=f"command-arg:{index}")
-                    for index, arg_expr in enumerate(expr.argv)
-                ),
-                adapter_inputs=(
-                    tuple(
-                        (
-                            input_name,
-                            replace_arg(
-                                input_expr,
-                                role=f"command-adapter-input:{input_name}",
-                            ),
-                        )
-                        for input_name, input_expr in expr.adapter_inputs
-                    )
-                    if scope.closed_program
-                    else expr.adapter_inputs
-                ),
-            ),
-            tuple(match_bindings),
-        )
+        return _prebind_command_operands(expr, replace_arg, scope=scope), tuple(match_bindings)
     if isinstance(expr, RequestInputExpr):
         return (
             replace(
@@ -5787,6 +5788,72 @@ def _elaborate_live_provider_peer_group(
         members=members,
         settlement_body=settlement_body,
     )
+
+
+
+
+def _elaborate_command_perform(
+    expr, *, scope, metadata_kwargs, type_env, value_env,
+    workflow_return_types, procedure_return_types, effect_summary,
+    procedure_edges_by_site, compile_time_bindings, active_phase_scope,
+):
+    adapter_inputs = tuple(
+        (
+            field_name,
+            _elaborate_atomic_value(
+                value_expr,
+                scope=scope.child_scope("command-adapter-input", authored_binding_name=field_name),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            ),
+        )
+        for field_name, value_expr in expr.adapter_inputs
+    )
+    perform = WccPerform(
+        metadata=scope.value_metadata(role="perform:command_result", **metadata_kwargs),
+        perform_kind="command_result",
+        target_name=expr.step_name,
+        prompt_name=None,
+        positional_args=tuple(
+            _elaborate_atomic_value(
+                item,
+                scope=scope.child_scope("command-arg", authored_binding_name=str(index)),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            for index, item in enumerate(expr.argv)
+        ),
+        keyword_args=(),
+        returns_type_name=expr.returns_type_name,
+        operation_payload={
+            "adapter_name": expr.adapter_name,
+            "adapter_inputs": adapter_inputs,
+            "return_spec": expr.return_spec,
+        },
+    )
+    if expr.inputs_present:
+        perform = replace(
+            perform,
+            operation_payload={
+                **perform.operation_payload,
+                "inputs_present": True,
+                "operand_order": expr.operand_order,
+            },
+        )
+    command_context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
+    return command_context.plan_command(expr, perform) if command_context is not None else perform
 
 
 def _elaborate_effect_expr_to_binding_value(
@@ -6244,54 +6311,11 @@ def _elaborate_effect_expr_to_binding_value(
             returns_type_name=HUMAN_REPLY_TYPE_NAME,
         )
     if isinstance(expr, CommandResultExpr):
-        adapter_inputs = tuple(
-            (
-                field_name,
-                _elaborate_atomic_value(
-                    value_expr,
-                    scope=scope.child_scope("command-adapter-input", authored_binding_name=field_name),
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                ),
-            )
-            for field_name, value_expr in expr.adapter_inputs
-        )
-        perform = WccPerform(
-            metadata=scope.value_metadata(role="perform:command_result", **metadata_kwargs),
-            perform_kind="command_result",
-            target_name=expr.step_name,
-            prompt_name=None,
-            positional_args=tuple(
-                _elaborate_atomic_value(
-                    item,
-                    scope=scope.child_scope("command-arg", authored_binding_name=str(index)),
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                )
-                for index, item in enumerate(expr.argv)
-            ),
-            keyword_args=(),
-            returns_type_name=expr.returns_type_name,
-            operation_payload={
-                "adapter_name": expr.adapter_name,
-                "adapter_inputs": adapter_inputs,
-                "return_spec": expr.return_spec,
-            },
-        )
-        command_context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
-        return command_context.plan_command(expr, perform) if command_context is not None else perform
+        return _elaborate_command_perform(expr, scope=scope, metadata_kwargs=metadata_kwargs,
+            type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope)
     if isinstance(expr, RunProviderPhaseExpr):
         ctx_value = _elaborate_atomic_value(
             expr.ctx_expr,
