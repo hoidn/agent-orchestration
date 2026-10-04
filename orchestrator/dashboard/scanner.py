@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 from orchestrator.dashboard.models import RunRecord, ScanResult, WorkspaceRecord
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
 
 
 class RunScanner:
@@ -54,12 +55,36 @@ class RunScanner:
                 continue
             for run_root in run_dirs:
                 state_path = run_root / "state.json"
-                if not state_path.exists() and not state_path.is_symlink():
-                    continue
-                runs.append(self._read_run(workspace, run_root, state_path))
+                run = self._read_run(workspace, run_root, state_path)
+                if run is not None:
+                    runs.append(run)
         return ScanResult(workspaces=list(self.workspaces), runs=runs, errors=errors)
 
-    def _read_run(self, workspace: WorkspaceRecord, run_root: Path, state_path: Path) -> RunRecord:
+    def _read_run(self, workspace: WorkspaceRecord, run_root: Path, state_path: Path) -> RunRecord | None:
+        try:
+            resolved_root = run_root.resolve(strict=True)
+            resolved_root.relative_to(workspace.root)
+        except ValueError:
+            return RunRecord(workspace, run_root.name, run_root, state_path,
+                             read_error=f"run root escapes workspace: {run_root}")
+        except (OSError, RuntimeError) as exc:
+            return RunRecord(workspace, run_root.name, run_root, state_path, read_error=str(exc))
+        if has_evaluated_authority(resolved_root):
+            return self._read_evaluated_run(workspace, run_root.name, resolved_root, state_path)
+        if not state_path.exists() and not state_path.is_symlink():
+            return None
+        return self._read_legacy_run(workspace, run_root, state_path)
+
+    def _read_evaluated_run(self, workspace, run_dir_id, run_root, state_path):
+        try:
+            state = load_evaluated_view(run_root)
+        except (OSError, ValueError) as exc:
+            return RunRecord(workspace, run_dir_id, run_root, state_path,
+                             parse_error=f"{getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
+        return RunRecord(workspace, run_dir_id, run_root, state_path,
+                         state=state, state_run_id=state["run_id"])
+
+    def _read_legacy_run(self, workspace: WorkspaceRecord, run_root: Path, state_path: Path) -> RunRecord:
         run_dir_id = run_root.name
         warnings: list[str] = []
         try:

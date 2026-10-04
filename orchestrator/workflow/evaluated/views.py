@@ -7,10 +7,11 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from orchestrator._common.safe_tree import SafeTreeRejectionError
 
 from orchestrator.run_lock import ReservedRunRootError, run_writer_active
 from orchestrator.workflow.evaluated.authority import (
-    HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, RunAuthorityError,
+    HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, PROFILE, SCHEMA_VERSION, RunAuthorityError,
     load_run_authority_from_bytes, _require_retained_root,
 )
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program, site_classes
@@ -21,10 +22,38 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 
-def has_evaluated_authority(run_root: Path) -> bool:
-    """Authority siblings select checked evaluated loading before state views."""
-    return any(os.path.lexists(Path(run_root) / name)
-               for name in (HEADER_FILENAME, PROGRAM_FILENAME, MEMO_FILENAME))
+def has_evaluated_authority(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> bool:
+    """Select checked loading from authority or a view hint, never trust the view."""
+    names = (HEADER_FILENAME, PROGRAM_FILENAME, MEMO_FILENAME)
+    if run_files is not None:
+        return any(_authority_sibling_present(run_files, name) for name in names) or _evaluated_view_hint(run_files)
+    if any(os.path.lexists(Path(run_root) / name) for name in names):
+        return True
+    try:
+        files = WorkspaceFiles(run_root)
+    except (OSError, ValueError, SafeTreeRejectionError):
+        return False
+    try:
+        return _evaluated_view_hint(files)
+    finally:
+        files.close()
+
+
+def _authority_sibling_present(files, name):
+    try:
+        os.stat(name, dir_fd=files.root_fd, follow_symlinks=False)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _evaluated_view_hint(files):
+    try:
+        state = json.loads(files.read("state.json"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(state, dict) and (
+        state.get("schema_version") == SCHEMA_VERSION or state.get("result_persistence_profile") == PROFILE)
 
 
 class _MissingCommit(Exception):

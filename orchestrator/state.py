@@ -569,9 +569,9 @@ class StateManager:
         """Read and validate state without changing the manager's current object."""
         from .workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
         from .workflow.workspace_files import WorkspaceFiles
-        if has_evaluated_authority(self.io_run_root):
-            run_files = (WorkspaceFiles(self.run_root, root_fd=self._run_root_fd)
-                         if self._run_root_fd is not None else None)
+        run_files = (WorkspaceFiles(self.run_root, root_fd=self._run_root_fd)
+                     if self._run_root_fd is not None else None)
+        if has_evaluated_authority(self.io_run_root, run_files=run_files):
             return RunState.from_dict(load_evaluated_view(self.run_root, run_files=run_files))
         with open(self.state_file, "r", encoding="utf-8") as state_stream:
             payload = json.load(state_stream)
@@ -801,9 +801,6 @@ class StateManager:
             json.JSONDecodeError: If state file is corrupted
         """
         with self._lock:
-            from .workflow.evaluated.views import has_evaluated_authority
-            if not has_evaluated_authority(self.io_run_root) and not self.state_file.exists():
-                raise FileNotFoundError(f"State file not found: {self.state_file}")
             self.state = self._read_state_from_disk()
             return self.state
 

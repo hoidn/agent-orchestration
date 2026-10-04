@@ -141,7 +141,7 @@ class DashboardRunDetail:
     steps: list[DashboardStep] = field(default_factory=list)
     cursor: Any = None
     bound_inputs: Mapping[str, Any] = field(default_factory=dict)
-    workflow_outputs: Mapping[str, Any] = field(default_factory=dict)
+    workflow_outputs: Any = field(default_factory=dict)
     finalization: Mapping[str, Any] = field(default_factory=dict)
     error: Any = None
     artifact_versions: Mapping[str, Any] = field(default_factory=dict)
