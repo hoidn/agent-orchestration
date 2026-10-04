@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 from typing import Any
 
-from orchestrator.run_lock import run_writer_active
+from orchestrator.run_lock import ReservedRunRootError, run_writer_active
 from orchestrator.workflow.evaluated.authority import (
     HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, RunAuthorityError,
-    load_run_authority_from_bytes,
+    load_run_authority_from_bytes, _require_retained_root,
 )
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program, site_classes
 from orchestrator.workflow.evaluated.memo import MemoError, _DYNAMIC_INDEX, reduce_memo
 from orchestrator.workflow.evaluated.values import EvaluatedValueError, coerce_evaluated_value
+from orchestrator.workflow.pure_expr import PureExprEvaluationError
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 
@@ -44,12 +46,7 @@ def _replay(authority, snapshot):
         if consumed >= len(commits) or commits[consumed].offset != commit.offset:
             raise MemoError("memo_inconsistent", "active commits are not reachable in journal order")
         consumed += 1
-        return coerce_evaluated_value(
-            commit.data["value"], node["result"],
-            dependencies=(*commit.data["depends_on"], identity),
-            committed_result_path=commit.data["result_path"],
-            context=f"committed {node['class']} result",
-        )
+        return _committed_value(node, commit, identity)
 
     try:
         value = evaluate_closed_program(
@@ -59,12 +56,24 @@ def _replay(authority, snapshot):
     except _MissingCommit as boundary:
         return None, boundary.identity, False
     except EvaluatedValueError as exc:
-        if consumed != len(commits) or snapshot.terminal is None or snapshot.terminal.data["outcome"] != "failed":
+        if consumed != len(commits) or snapshot.pending_starts:
             raise MemoError("memo_inconsistent", str(exc)) from exc
         return None, None, False
     if consumed != len(commits) or snapshot.pending_starts:
         raise MemoError("memo_inconsistent", "evaluated halt leaves unreachable effect evidence")
     return value, None, True
+
+
+def _committed_value(node, commit, identity):
+    try:
+        return coerce_evaluated_value(
+            commit.data["value"], node["result"],
+            dependencies=(*commit.data["depends_on"], identity),
+            committed_result_path=commit.data["result_path"],
+            context=f"committed {node['class']} result",
+        )
+    except PureExprEvaluationError as exc:
+        raise MemoError("memo_inconsistent", str(exc)) from exc
 
 
 def _checked_terminal(snapshot, value, halted):
@@ -85,6 +94,28 @@ def _status(snapshot, halted, writer_active):
     if not writer_active:
         return "interrupted"
     return "settling" if halted else "running"
+
+
+class ViewPublicationError(OSError):
+    """The memo is already durable; stop without publishing another failure."""
+
+    code = "view_write_failed"
+
+
+def publish_evaluated_view(authority, entry):
+    """Publish exactly the synchronized prefix using the writer's borrowed owner."""
+    try:
+        files = authority.run_files
+        snapshot = reduce_memo(files.read(MEMO_FILENAME)[:entry.end], site_classes(authority.program))
+        if snapshot.complete_bytes != entry.end or snapshot.entries[-1] != entry:
+            raise MemoError("memo_inconsistent", "published prefix differs from synchronized append")
+        value, next_effect, halted = _replay(authority, snapshot)
+        terminal = _checked_terminal(snapshot, value, halted)
+        view = _view(authority, snapshot, terminal, next_effect, halted, True)
+        _require_retained_root(files)
+        files.write_atomic("state.json", json.dumps(view, ensure_ascii=False, allow_nan=False).encode() + b"\n")
+    except (OSError, OverflowError, TypeError, ValueError, ReservedRunRootError) as exc:
+        raise ViewPublicationError(f"derived view publication failed at memo byte {entry.end}: {exc}") from exc
 
 
 def load_evaluated_view(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:

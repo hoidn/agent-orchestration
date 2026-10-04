@@ -88,7 +88,7 @@ def settle_evaluated_run_ref(authority, resolved, identity, attempt, workspace, 
         persisted_settled_result=commit.data["proof"]["settled_result"])
     _require_retained_root(authority.run_files)
     append_record(authority.memo_path, {"record": "settled", "identity": identity,
-        "attempt": attempt, "by": "settle"}, run_files=authority.run_files)
+        "attempt": attempt, "by": "settle"}, run_files=authority.run_files, checked_authority=authority)
 
 
 def validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, *, settled):
@@ -116,4 +116,4 @@ def reconcile_evaluated_run_ref(authority, resolved, identity, workspace, expect
         reconcile_pending=True)
     _require_retained_root(authority.run_files)
     append_record(authority.memo_path, {"record": "settled", "identity": identity,
-        "attempt": attempt, "by": "reconcile"}, run_files=authority.run_files)
+        "attempt": attempt, "by": "reconcile"}, run_files=authority.run_files, checked_authority=authority)

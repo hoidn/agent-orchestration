@@ -65,7 +65,7 @@ def test_reserved_publication_and_runtime_keep_retained_root(reserved):
     assert header["bound_inputs"] == {"score": 0.75, "threshold": 0.5}
     assert read_memo(root / "memo.jsonl", {}).terminal.data["value"] == dict(result.workflow_outputs)
     assert (root / "closed_program.json").is_file()
-    assert not (root / "state.json").exists()
+    assert json.loads((root / "state.json").read_bytes())["workflow_outputs"] == dict(result.workflow_outputs)
     assert not (root / "build").exists()
 
 

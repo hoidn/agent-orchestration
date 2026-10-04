@@ -32,12 +32,14 @@ def _completed(root: Path) -> tuple[Path, Path]:
     assert (run_root / 'run.json').is_file()
     terminal = read_memo(run_root / 'memo.jsonl', {}).terminal
     assert terminal is not None and terminal.data['outcome'] == 'completed'
-    assert not (run_root / 'state.json').exists()
+    assert json.loads((run_root / 'state.json').read_bytes())['memo_offset'] == (run_root / 'memo.jsonl').stat().st_size
     return source, run_root
 
 
 def test_public_completed_resume_uses_authority_without_state_view(tmp_path, monkeypatch):
     _, run_root = _completed(tmp_path)
+    (run_root / 'state.json').unlink()
+    assert not (run_root / 'state.json').exists()
     monkeypatch.chdir(tmp_path)
     before = _snapshot(tmp_path / '.orchestrate')
     for _ in range(2):

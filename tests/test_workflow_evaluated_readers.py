@@ -93,6 +93,9 @@ def test_report_reconstructs_missing_stale_and_invalid_views(tmp_path, capsys, v
     run_root = _pure_run(tmp_path)
     if view is not None:
         (run_root / "state.json").write_text(view)
+    else:
+        (run_root / "state.json").unlink(missing_ok=True)
+        assert not (run_root / "state.json").exists()
     (tmp_path / "evaluated" / "inputs.orc").unlink()
     before = _tree_bytes(tmp_path)
     assert report_workflow(runs_root=str(run_root.parent), format="json") == 0
@@ -143,6 +146,8 @@ def test_authority_corruption_refuses_before_state_fallback(tmp_path, capsys, ch
 
 def test_public_report_subprocess_reconstructs_without_source_or_state(tmp_path):
     run_root = _pure_run(tmp_path)
+    (run_root / "state.json").unlink(missing_ok=True)
+    assert not (run_root / "state.json").exists()
     (tmp_path / "evaluated" / "inputs.orc").unlink()
     before = _tree_bytes(tmp_path)
     result = subprocess.run([sys.executable, "-m", "orchestrator", "report", "--run-id", run_root.name,

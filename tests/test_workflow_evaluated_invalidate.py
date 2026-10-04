@@ -11,6 +11,7 @@ import pytest
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
+from orchestrator.workflow.evaluated.views import load_evaluated_view
 
 
 PROGRAM = '''\
@@ -161,6 +162,19 @@ def _refuse_changed_writer_readonly(case: dict[str, object]) -> None:
     assert (root / "dispatches.txt").read_text(encoding="utf-8") == case["dispatches"]
 
 
+def _assert_invalidated_publication(root, run_root, before):
+    state_path = run_root / "state.json"
+    state_key = state_path.relative_to(root / ".orchestrate").as_posix()
+    after = _tree_bytes(root / ".orchestrate", omit_memo=run_root / "memo.jsonl")
+    assert {key: value for key, value in after.items() if key != state_key} == {
+        key: value for key, value in before.items() if key != state_key}
+    published = json.loads(state_path.read_text(encoding="utf-8"))
+    view = load_evaluated_view(run_root)
+    assert view["status"] == "interrupted" and view["workflow_outputs"] is None
+    assert published == {**view, "status": "running"}
+    assert published["memo_offset"] == (run_root / "memo.jsonl").stat().st_size
+
+
 def _append_first_range(case: dict[str, object]) -> dict[str, object]:
     root, run_root = case["root"], case["run_root"]
     commits, identity = case["commits"], case["identity"]
@@ -174,7 +188,7 @@ def _append_first_range(case: dict[str, object]) -> dict[str, object]:
     assert len(rows) == len(case["rows"]) + 1
     assert rows[-1] == row
     assert set(snapshot.active_commits) == {commits[0].data["identity"]}
-    assert _tree_bytes(root / ".orchestrate", omit_memo=run_root / "memo.jsonl") == before
+    _assert_invalidated_publication(root, run_root, before)
     assert (root / "dispatches.txt").read_text(encoding="utf-8") == case["dispatches"]
     assert {path: path.read_bytes() for path in case["attempts"]} == case["attempts"]
     return {"row": row, "memo": (run_root / "memo.jsonl").read_bytes()}
@@ -311,7 +325,7 @@ def test_public_invalidate_does_not_read_current_sources_or_recipe_locators(
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["from_commit"] == commit.offset
     assert ("resume_request" not in json.loads(header_path.read_text(encoding="utf-8"))) == without_recipe
-    assert _tree_bytes(tmp_path / ".orchestrate", omit_memo=run_root / "memo.jsonl") == before
+    _assert_invalidated_publication(tmp_path, run_root, before)
 
 
 @pytest.mark.parametrize(

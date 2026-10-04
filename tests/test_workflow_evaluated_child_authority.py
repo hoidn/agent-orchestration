@@ -53,7 +53,7 @@ def test_child_terminal_proof_binds_exact_authority_bytes(tmp_path, monkeypatch)
         assert evidence["paths"]["child_state"] == (root / "run.json").as_posix()
         row = ledger.load_attempt_ledger(request.ledger_path, run_files=owner).rows[-1]
         assert (row.stage, row.attempt_ordinal, request.parent_attempt) == ("completed_pending_parent_commit", 1, 2)
-        assert not (root / "state.json").exists()
+        assert json.loads((root / "state.json").read_bytes())["status"] == "completed"
 
 
 @pytest.mark.parametrize("field,value", [("program_identity", 17), ("schema_version", []), ("schema_version", {})])
@@ -108,6 +108,16 @@ def test_initial_finalize_recovery_reuse_share_terminal_validator(tmp_path, monk
             artifacts=prepared.artifacts, reconcile_pending=False)
         assert len(calls) == 5
         assert finalized.envelope == recovered.envelope == reused.envelope == prepared.envelope
+        assert _tree_bytes(tmp_path) == before
+
+
+def test_completed_child_proof_does_not_need_published_view(tmp_path):
+    with _prepared_child(tmp_path) as (_request, _owner, prepared, root, arguments):
+        (root / "state.json").unlink()
+        before = _tree_bytes(tmp_path)
+        value, path, digest = evaluated_child.validate_evaluated_child_terminal(**arguments)
+        assert (value, path, digest) == ("direct", root / "run.json", prepared.settled_result.child_terminal_state_digest)
+        assert not (root / "state.json").exists()
         assert _tree_bytes(tmp_path) == before
 
 

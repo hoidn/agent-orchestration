@@ -45,6 +45,7 @@ from .run_ref import (
 )
 from .authority import RunAuthority, _require_retained_root
 from .machine import evaluate_closed_program, site_classes
+from .views import ViewPublicationError
 
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ def execute_pure_run(
             code = getattr(exc, "code", "evaluated_execution_failed")
             message = str(exc) or code
             logger.error("[%s] %s", code, message)
-            if not getattr(exc, "preflight", False):
+            if _can_append_failure_terminal(exc):
                 _append_failed_terminal_if_clear(
                     authority, checked_site_classes, code=code, message=message
                 )
@@ -143,6 +144,10 @@ def execute_pure_run(
 
 class _ResumeBoundary(Exception):
     pass
+
+
+def _can_append_failure_terminal(exc):
+    return not isinstance(exc, ViewPublicationError) and not getattr(exc, "preflight", False)
 
 
 def execute_pure_resume(
@@ -294,6 +299,7 @@ def _persist_completed_terminal(
         authority.memo_path,
         {"record": "terminal", "outcome": "completed", "value": value},
         run_files=authority.run_files,
+        checked_authority=authority,
     )
     _require_retained_root(authority.run_files)
     return 0, value
@@ -316,6 +322,7 @@ def _append_failed_terminal_if_clear(
         authority.memo_path,
         {"record": "terminal", "outcome": "failed", "code": code, "message": message},
         run_files=authority.run_files,
+        checked_authority=authority,
     )
 
 
@@ -510,7 +517,7 @@ def _start_and_perform_effect(
         "time": time.time(),
     }
     _require_retained_root(run_files)
-    attempt_files = allocate_attempt(run_files, authority.memo_path, started)
+    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority)
     try:
         _require_retained_root(run_files)
         proof = None
@@ -546,7 +553,7 @@ def _start_and_perform_effect(
                 "time": time.time(),
                 **({"proof": proof} if proof is not None else {}),
             }
-        append_record(authority.memo_path, committed_record, run_files=run_files)
+        append_record(authority.memo_path, committed_record, run_files=run_files, checked_authority=authority)
         if prepared is not None:
             settle_evaluated_run_ref(authority, resolved_request, identity, ordinal,
                 workspace, site_classes, prepared, committed_record)
@@ -556,6 +563,8 @@ def _start_and_perform_effect(
             dependencies=(*dependencies, identity),
             committed_result_path=result_path,
         )
+    except ViewPublicationError:
+        raise
     except Exception as exc:
         _fail_started_effect(authority, identity, ordinal, site_classes, exc)
         raise
@@ -618,7 +627,9 @@ def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Non
             violations = getattr(exc, "violations", None)
             if violations is not None:
                 failure["violations"] = violations
-            append_record(authority.memo_path, failure, run_files=authority.run_files)
+            append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
+    except ViewPublicationError:
+        raise
     except (MemoError, OSError, ValueError):
         pass
 

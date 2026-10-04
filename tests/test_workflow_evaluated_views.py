@@ -33,6 +33,9 @@ from tests.test_workflow_evaluated_resume_replay_boundary import (
     _create_two_command_run, _make_committed_branch_unreachable, _reverse_active_commit_journal,
 )
 from tests.test_workflow_evaluated_run_ref import _authority, _repeated_fixture
+from tests.test_workflow_evaluated_run_ref import _public_fixture
+from tests.test_workflow_evaluated_run_ref_settlement import _commit_gap
+from tests.test_workflow_evaluated_resume_retry import _start_and_kill
 
 
 def _snapshot(run_root):
@@ -368,3 +371,73 @@ def test_evaluated_run_state_roundtrip_omits_legacy_audit_fields(tmp_path, statu
     assert payload == view
     assert not {"context", "heartbeat", "step_visits", "transition_count", "call_frames",
                 "observability", "runtime_observability", "provider_sessions", "for_each"}.intersection(payload)
+
+
+def test_unsettled_coordinator_view_is_settling_without_reconciliation(tmp_path, monkeypatch):
+    parent, source, refs = _public_fixture(tmp_path)
+    authority, snapshot = _commit_gap(monkeypatch, parent, source, refs)
+    _forbid_mutable_paths(monkeypatch)
+    with _subprocess_writer(authority.run_root):
+        before = _tree_bytes(tmp_path)
+        view = load_evaluated_view(authority.run_root)
+        row, = view["steps"].values()
+        assert view["status"] == "settling" and view["workflow_outputs"] is None
+        assert row["effect_class"] == "run_ref" and row["status"] == "settling"
+        assert view["current_step"]["identity"] == row["identity"]
+        assert view["memo_offset"] == snapshot.complete_bytes
+        assert _tree_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize("corruption", ["class", "proof", "attempt", "adjacent-terminal"])
+def test_coordinator_terminal_corruption_remains_readonly_refusal(tmp_path, monkeypatch, corruption):
+    parent, source, refs = _public_fixture(tmp_path)
+    result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
+    assert result.returncode == 0, result.stderr
+    authority, snapshot = _authority(parent)
+    rows = [entry.data for entry in snapshot.entries]
+    commit = next(row for row in rows if row["record"] == "committed")
+    if corruption == "class":
+        commit["effect_class"] = "command"
+    elif corruption == "proof":
+        commit["proof"] = {}
+    elif corruption == "attempt":
+        commit["attempt"] += 1
+    else:
+        rows.append(dict(rows[-1]))
+    authority.memo_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _forbid_mutable_paths(monkeypatch)
+    before = _tree_bytes(tmp_path)
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        load_evaluated_view(authority.run_root)
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_pure_failure_cannot_hide_unreachable_pending_effect(tmp_path, monkeypatch):
+    source = tmp_path / "pending-pure.orc"
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule pending-pure) (export run)
+      (defworkflow run ((divisor Float)) -> Float
+        (if (command-result choose :argv ("python" "choose.py") :returns Bool)
+            (command-result yes :argv ("python" "yes.py") :returns Float)
+            (/ 1.0 divisor))))''')
+    (tmp_path / "choose.py").write_text('import os\nfrom pathlib import Path\n'
+        'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("true")\n')
+    (tmp_path / "yes.py").write_text('import time\nfrom pathlib import Path\n'
+        'Path("pending-marker").write_text("yes")\ntime.sleep(60)\n')
+    boundaries = tmp_path / "commands.json"
+    boundaries.write_text(json.dumps({name: {"stable_command": ["python", f"{name}.py"],
+        "closure": [f"{name}.py"]} for name in ("choose", "yes")}))
+    _start_and_kill([os.sys.executable, "-m", "orchestrator", "run", str(source),
+        "--command-boundaries-file", str(boundaries), "--input", "divisor=0.0"],
+        root=tmp_path, env=_env(tmp_path), marker=tmp_path / "pending-marker")
+    run_root = _run_root(tmp_path)
+    path = run_root / "memo.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    next(row for row in rows if row["record"] == "committed")["value"] = False
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    assert len(_snapshot(run_root).pending_starts) == 1
+    _forbid_mutable_paths(monkeypatch)
+    before = _tree_bytes(tmp_path)
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        load_evaluated_view(run_root)
+    assert _tree_bytes(tmp_path) == before
