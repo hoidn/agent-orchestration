@@ -187,23 +187,26 @@ def _compile(
     try:
         result = build_frontend_bundle(request)
     except LispFrontendCompileError as exc:
-        document = build_rejected_compile_diagnostics_document(exc.diagnostics)
-        diagnostic_codes = tuple(
-            str(row["code"]) for row in document["diagnostics"]
-        )
-        code = (
-            "trial_candidate_environment_not_admissible"
-            if _EFFECT_DIAGNOSTIC_CODES.intersection(diagnostic_codes)
-            else "trial_program_compile_rejected"
-        )
-        raise _refuse(
-            code,
-            {"program": program.record, "compile_diagnostics": document},
-            secondary_causes=diagnostic_codes,
-            diagnostics=document,
-        ) from exc
+        raise _compile_refusal(exc, program) from exc
     return result, build_accepted_compile_diagnostics_document(result)
 
+
+def _compile_refusal(exc, program):
+    document = build_rejected_compile_diagnostics_document(exc.diagnostics)
+    diagnostic_codes = tuple(
+        str(row["code"]) for row in document["diagnostics"]
+    )
+    code = (
+        "trial_candidate_environment_not_admissible"
+        if _EFFECT_DIAGNOSTIC_CODES.intersection(diagnostic_codes)
+        else "trial_program_compile_rejected"
+    )
+    return _refuse(
+        code,
+        {"program": program.record, "compile_diagnostics": document},
+        secondary_causes=diagnostic_codes,
+        diagnostics=document,
+    )
 
 def _selected_typed_workflow(result: FrontendBuildResult) -> TypedWorkflowDef:
     canonical_name = result.entry_selection.canonical_name
@@ -328,7 +331,10 @@ def _effect_atom_fact(atom: object) -> dict[str, object]:
 
 
 def _effect_facts(workflow: TypedWorkflowDef) -> dict[str, object]:
-    summary = workflow.effect_summary
+    return _effect_summary_facts(workflow.effect_summary)
+
+
+def _effect_summary_facts(summary: EffectSummary) -> dict[str, object]:
     if type(summary) is not EffectSummary:
         raise TypeError("typed workflow effect summary is malformed")
     if not isinstance(summary.direct_effects, frozenset) or not isinstance(
@@ -357,13 +363,7 @@ def _effect_facts(workflow: TypedWorkflowDef) -> dict[str, object]:
     }
 
 
-def compile_and_admit_path_program(
-    *,
-    materialized_source: MaterializedSource,
-    step_config: RunRefStepConfig,
-) -> AdmittedPathProgram:
-    """Compile and admit one exact path-mode program without launching it."""
-
+def _validate_path_compile_authority(materialized_source, step_config):
     if type(materialized_source) is not MaterializedSource:
         raise TypeError("path compile requires exact MaterializedSource authority")
     if type(step_config) is not RunRefStepConfig:
@@ -375,6 +375,11 @@ def compile_and_admit_path_program(
         raise ValueError("path compile forbids a compiled-bundle capsule binding")
 
     program = step_config.run_ref.program
+    _validate_materialized_source_identity(materialized_source, step_config)
+    return program, _require_path_compiler_identity(step_config)
+
+
+def _validate_materialized_source_identity(materialized_source, step_config):
     source_record = canonical_source_request(step_config.run_ref.source)
     revision = materialized_source.repository_revision_id
     source_identity_matches = (
@@ -407,6 +412,8 @@ def compile_and_admit_path_program(
             },
             secondary_causes=("source_identity_mismatch",),
         )
+
+def _require_path_compiler_identity(step_config):
     local_compiler_identity = compute_compiler_runtime_identity().digest
     if local_compiler_identity != step_config.run_ref.compiler_runtime_identity_digest:
         raise _refuse(
@@ -419,6 +426,44 @@ def compile_and_admit_path_program(
             },
             secondary_causes=("compiler_runtime_identity_mismatch",),
         )
+
+    return local_compiler_identity
+
+
+def _path_compile_evidence(materialized_source, step_config, local_compiler_identity,
+                           program_identity, signature, effect_facts, diagnostics):
+    program = step_config.run_ref.program
+    input_facts = signature["inputs"]
+    return_fact = signature["return"]
+    evidence_components = {
+        "schema_version": PATH_COMPILE_EVIDENCE_SCHEMA,
+        "repository_revision_digest": materialized_source.repository_revision_id.digest,
+        "verified_git_tree": materialized_source.verified_git_tree.value,
+        "step_config_digest": step_config.step_config_digest,
+        "compiler_runtime_identity_digest": local_compiler_identity,
+        "program_identity_digest": program_identity["digest"],
+        "signature_digest": canonical_sha256(signature),
+        "input_digest": canonical_sha256(input_facts),
+        "return_digest": canonical_sha256(return_fact),
+        "effect_digest": canonical_sha256(effect_facts),
+        "diagnostics_digest": canonical_sha256(diagnostics),
+        "environment": program.environment,
+    }
+    evidence = {
+        **evidence_components,
+        "digest": canonical_sha256(evidence_components),
+    }
+    return evidence
+
+
+def compile_and_admit_path_program(
+    *,
+    materialized_source: MaterializedSource,
+    step_config: RunRefStepConfig,
+) -> AdmittedPathProgram:
+    """Compile and admit one exact path-mode program without launching it."""
+
+    program, local_compiler_identity = _validate_path_compile_authority(materialized_source, step_config)
 
     build_result, diagnostics = _compile(materialized_source, program)
     workflow = _selected_typed_workflow(build_result)
@@ -500,26 +545,8 @@ def compile_and_admit_path_program(
             secondary_causes=("program_identity_compiler_mismatch",),
             diagnostics=diagnostics,
         )
-    input_facts = signature["inputs"]
-    return_fact = signature["return"]
-    evidence_components = {
-        "schema_version": PATH_COMPILE_EVIDENCE_SCHEMA,
-        "repository_revision_digest": materialized_source.repository_revision_id.digest,
-        "verified_git_tree": materialized_source.verified_git_tree.value,
-        "step_config_digest": step_config.step_config_digest,
-        "compiler_runtime_identity_digest": local_compiler_identity,
-        "program_identity_digest": program_identity["digest"],
-        "signature_digest": canonical_sha256(signature),
-        "input_digest": canonical_sha256(input_facts),
-        "return_digest": canonical_sha256(return_fact),
-        "effect_digest": canonical_sha256(effect_facts),
-        "diagnostics_digest": canonical_sha256(diagnostics),
-        "environment": program.environment,
-    }
-    evidence = {
-        **evidence_components,
-        "digest": canonical_sha256(evidence_components),
-    }
+    evidence = _path_compile_evidence(materialized_source, step_config, local_compiler_identity,
+                                      program_identity, signature, effect_facts, diagnostics)
     return AdmittedPathProgram(
         build_result=build_result,
         _diagnostics_json=canonical_json_bytes(diagnostics),

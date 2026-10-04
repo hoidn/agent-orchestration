@@ -56,6 +56,7 @@ class TypedProgram:
     imported_programs: Mapping[str, "TypedProgram"]
     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]
     producer_lowering_schema: int
+    compile_diagnostics: tuple[LispFrontendDiagnostic, ...] | None = field(default=None, repr=False, compare=False)
     _compiled_bundle_boundaries: Mapping[
         str,
         tuple[
@@ -838,6 +839,7 @@ def compile_typed_program(
         program,
         entry=workflow,
         source_file_digests=digests,
+        compile_diagnostics=result.diagnostics,
     )
 
 

@@ -1229,10 +1229,8 @@ def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
 
     _validate_path_launch_authority(request)
     try:
-        admitted = compile_and_admit_path_program(
-            materialized_source=request.materialized_source,
-            step_config=request.step_config,
-        )
+        admitted = _admit_path_request(request)
+        _validate_closed_admission(request, admitted)
     except Exception as exc:
         from .path_compile import RunRefPathCompileRefusal
 
@@ -1261,6 +1259,10 @@ def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
         request.test_control,
         boundary="mode_2_compile",
     )
+    from .closed_path import AdmittedClosedPathProgram
+
+    if isinstance(admitted, AdmittedClosedPathProgram):
+        return _execute_closed_path(request, admitted)
     workflow_outputs = _execute_bundle(
         admitted.build_result.validated_bundle,
         clone_root=request.clone_root,
@@ -1283,6 +1285,55 @@ def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
             "evidence": admitted.evidence,
         },
     }
+
+
+def _admit_path_request(request):
+    if request.request_document is not None:
+        from .closed_path import compile_closed_path_if_evaluated
+
+        admitted = compile_closed_path_if_evaluated(materialized_source=request.materialized_source,
+                                                    step_config=request.step_config)
+        if admitted is not None:
+            return admitted
+    return compile_and_admit_path_program(materialized_source=request.materialized_source,
+                                         step_config=request.step_config)
+
+
+def _validate_closed_admission(request, admitted):
+    from .closed_path import AdmittedClosedPathProgram, validate_closed_path_facts
+
+    if isinstance(admitted, AdmittedClosedPathProgram):
+        validate_closed_path_facts(admitted.path_compile, program=admitted.build_result.program,
+                                  materialized_source=request.materialized_source,
+                                  step_config=request.step_config)
+
+
+def _execute_closed_path(request, admitted):
+    from orchestrator.cli.commands.evaluated import bind_program_inputs
+    from orchestrator.workflow.evaluated.authority import publish_run_authority
+    from orchestrator.workflow.evaluated.runtime import execute_pure_run
+
+    program = admitted.build_result.program
+    path_program = request.step_config.run_ref.program
+    recipe = {"source_roots": ["."], "entry_workflow": path_program.entry_name,
+              "provider_externs_path": None, "prompt_externs_path": None,
+              "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+              "input_file": None, "input_overrides": _plain_json(request.inputs)}
+    try:
+        bound = bind_program_inputs(program, request.inputs, workspace=request.clone_root)
+    except Exception as exc:
+        raise _ChildCommandError("run_ref_child_launch_failed", "input_binding_rejected") from exc
+    with publish_run_authority(request.child_state_dir / request.child_run_id, program,
+        run_id=request.child_run_id, workflow_file=path_program.path,
+        workflow_checksum=admitted.workflow_checksum, bound_inputs=bound, resume_request=recipe) as authority:
+        status, value = execute_pure_run(authority, bound, run_id=request.child_run_id,
+                                        workspace=request.clone_root)
+    if status != 0:
+        raise _ChildCommandError("run_ref_child_launch_failed", "workflow_execution_failed", exit_code=1)
+    return {"schema_version": "run_ref_path_child_result.v2", "status": "completed",
+            "step_config_digest": request.step_config.step_config_digest,
+            "target_workflow_name": program.tree["entry"], "child_run_id": request.child_run_id,
+            "workflow_outputs": {"__result__": value}, "path_compile": admitted.path_compile}
 
 
 def _path_request_fields(request: RunRefPathChildRequest) -> dict[str, object]:
