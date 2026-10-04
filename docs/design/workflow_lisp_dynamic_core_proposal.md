@@ -1127,6 +1127,35 @@ Dynamic admission independently checks the common static payload contract and
 every operand; extracting those checks is a prerequisite, not permission to skip
 typed P5 or claim its type proofs for dynamic nodes.
 
+Bindings are indexed by canonical module. Each row contains exactly `owner`
+(`module`, `asset_base`), `configuration` (the existing canonical `commands`,
+`providers`, `prompts` rows), and `types`. The last maps certified bindings'
+used `input_signature`/`output_type_name` names to schema-catalog references,
+resolved by that module's type environment. It is not inferred from runtime
+values or added to binding manifests. Pure programs may have no binding rows.
+
+A dynamic command `perform` retains `k`, `class`, `result`, `repeat`, `boundary`,
+`command`, `closure`, `contract` and `argv`, with optional `document` and
+`input_type`. External documents require both optional fields together;
+certified documents use their binding signatures and forbid `input_type`.
+A dynamic provider `perform` retains `k`, `class`, `result`, `repeat`, `provider`,
+`prompt`, `inputs`, `dependencies`, `policy` and `contract`, plus `prompt_owner`
+(`module`, `asset_base`). Its `inputs` is empty; composed prompt fills retain
+their existing declaration metadata and dynamic `value` operand. These exact
+envelopes omit typed `site`, `@` and `argv_transport`; typed admission keeps
+its own required fields and proofs unchanged. Result, input and fill descriptors
+must agree with the shared schema catalog.
+
+The definition owner selects command/provider configuration; `prompt_owner`
+selects prompt configuration and the prompt reader's logical source location.
+Map the effect and fill-value expressions to their caller, but prompt/template,
+fill-declaration and prompt-result subjects to the defining prompt module.
+Every subject remains an actual artifact pointer with pinned source provenance.
+Use the shared effect operand walk, with ordinary `let` bindings when needed to
+preserve written evaluation order before signature/declaration ordering. Normalize
+policy object traversal to canonical key order; object serialization order must
+not change the meaning of a semantic digest.
+
 Admission requires exact fields/version, strict finite JSON, unique declarations,
 resolved lexical names/code IDs, capture arity, valid defaults/descriptors,
 closed authorized effect classes/bindings, and valid module/source-map references.
@@ -1175,8 +1204,8 @@ current flattened contracts.
 | Boundary | Input/type authority | Result and failure rule |
 | --- | --- | --- |
 | Public workflow | Declared parameters/defaults and result type | Strict entry values before run creation; strict result before terminal publication. Imported named workflow calls apply the same data check in memory. |
-| `defprompt` provider | Existing fill declarations; `:doc`, `:value`, `:path :out`; prompt-owned return schema | Runtime values checked before rendering/launch. Same snapshot dependencies, path aliases and required-file checks; native root result after all output checks. |
-| Extern-backed provider | Existing declared `:inputs` contracts and explicit `:returns` | No inferred schema from the first observed value. Reject an uncontracted dynamic fill before dispatch. |
+| `defprompt` provider | Declared fill refinements; `:text` uses `String`, unrefined `:value` uses `Value`; `:doc`/`:path` require an explicit existing `defpath` refinement; prompt-owned return schema | Runtime values checked before rendering/launch. Same snapshot dependencies, path aliases and required-file checks; native root result after all output checks. |
+| Extern-backed provider | Explicit `:returns`, with no nonempty `:inputs` | Current extern bindings declare no input schemas. Reject nonempty inputs during admission, including unreachable bodies; use `defprompt` fills for data inputs. Never infer schemas from observed values. |
 | Certified command adapter | Existing `input_signature`, signature-ordered transport keys and invocation protocol; explicit `:returns` | Strict checks precede existing canonical inline JSON construction; no argv wrapper or replacement adapter. |
 | External command argv | Existing command binding and the built-in argv contract of strict transportable data: scalars, records, unions, lists, optionals and paths; never closures/host objects | Preserve the shared renderer's request rules, including literal/runtime Bool spelling and JSON aggregate rendering. Runtime values are rendered once; a dynamic string is not reinterpreted as a reference/template. This transport contract does not validate a tool's semantic arguments; use a declared document schema where their shape matters. |
 | External command document | Proposed `:input-type InputRecord` alongside existing `:inputs ((field expression) ...)`; explicit `:returns` | One existing record schema replaces the typed target's inferred field descriptors. Required when `:inputs` is present, forbidden otherwise and for certified adapters. Exact fields, even for an empty record; reuse Task 12's document bytes/path transport. |
@@ -1191,6 +1220,13 @@ boundary, not another schema language or new binding-manifest format:
   :inputs ((candidate current) (history trials))
   :input-type EvalInput :returns Evaluation)
 ```
+
+Argv literals retain the existing scalar literal renderer (`True`/`False` for
+Bool); computed values use the shared value renderer (`true`/`false`, JSON for
+aggregates). A dynamic alias is a computed value. Strings remain opaque values,
+without template/reference reinterpretation. Fill schemas come from declared
+refinements rather than the filled expression's inferred type; requiring a
+`defpath` refinement for `:doc`/`:path` avoids inventing nominal path types.
 
 Missing/extra fields, wrong Bool, inactive union fields, nonfinite numbers,
 closure/host values and path escapes fail before launch or exposure as appropriate.
