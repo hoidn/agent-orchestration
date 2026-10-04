@@ -51,8 +51,8 @@ The 2026-10-01 downstream order is retained as the typed fallback, amended on
 Tasks 1–5 and their receipts are integrated from pinned source `7af8ebf6`;
 Task 8 and its command/provider public-resume gates are complete; Tasks 6–7
 retain later consumer campaigns; Tasks 9–11 have reviewed completion receipts.
-Task 12 document delivery is imported through `a024397b`; its phase completion
-receipt and Tasks 13–17 remain open. Public dry-run, pure execution,
+Task 12 document delivery and closeout `98b3f3d9` are integrated at `970ac933`;
+Tasks 13–17 remain open. Public dry-run, pure execution,
 commands and portable composed-provider execution are integrated; the current [Phase 3 receipts](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-7-executor-free-prompt-assembly-and-portable-providers)
 record the bounded runtime handoffs. Ordinary typed public resume and suffix
 invalidation, path run-reference dispatch and public report/dashboard/operations
