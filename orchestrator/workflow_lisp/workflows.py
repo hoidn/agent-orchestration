@@ -842,6 +842,7 @@ def build_workflow_catalog(
     allow_collection_return_boundaries: bool = False,
     allow_transportable_input_boundaries: bool = False,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    closed_program: bool = False,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
     from .contracts import is_transportable_result_type
@@ -913,46 +914,14 @@ def build_workflow_catalog(
                 )
             )
             continue
-        if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
-            # Root-valued public returns are a DSL v2.15 contract; transportability
-            # (checked above) is the only additional gate for them, so the Stage 3
-            # record/union boundary-flattening analysis below does not apply.
-            if not _target_dsl_supports_root_workflow_returns(module.target_dsl_version):
-                diagnostics.append(
-                    LispFrontendDiagnostic(
-                        code="workflow_root_return_target_dsl_unsupported",
-                        message=(
-                            f"workflow `{workflow_def.name}` returns "
-                            f"`{workflow_def.return_type_name}` directly, which requires "
-                            'DSL 2.15; declare `(:target-dsl "2.15")` in the module header'
-                        ),
-                        span=workflow_def.span,
-                        form_path=workflow_def.form_path,
-                        expansion_stack=workflow_def.expansion_stack,
-                    )
-                )
-                continue
-        else:
-            return_analysis = analyze_workflow_boundary_type(
-                return_type_ref,
-                source_path=("return",),
-                allow_union=True,
-                allow_nested_unions=(
-                    allow_collection_return_boundaries
-                    and target_dsl_supports_rich_loop_values(module.target_dsl_version)
-                ),
-            )
-            return_diagnostic = _boundary_diagnostic(
-                workflow_name=workflow_def.name,
-                analysis=return_analysis,
-                span=workflow_def.span,
-                form_path=workflow_def.form_path,
-                expansion_stack=workflow_def.expansion_stack,
-                allow_collection_boundaries=allow_collection_return_boundaries,
-            )
-            if return_diagnostic is not None:
-                diagnostics.append(return_diagnostic)
-                continue
+        return_diagnostic = _workflow_return_boundary_diagnostic(
+            module, workflow_def, return_type_ref,
+            allow_collection_return_boundaries=allow_collection_return_boundaries,
+            closed_program=closed_program,
+        )
+        if return_diagnostic is not None:
+            diagnostics.append(return_diagnostic)
+            continue
         params: list[tuple[str, TypeRef]] = []
         private_compatibility_bridge_types: dict[str, TypeRef] = {}
         param_defaults: dict[str, WorkflowParamDefault] = {}
@@ -2948,6 +2917,45 @@ def typecheck_workflow_definitions(
             )
         )
     return tuple(typed_workflows)
+
+
+def _workflow_return_boundary_diagnostic(
+    module, workflow_def, return_type_ref, *, allow_collection_return_boundaries, closed_program,
+) -> LispFrontendDiagnostic | None:
+    # Transportability was checked by the catalog owner before this decision.
+    if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+        if not _target_dsl_supports_root_workflow_returns(module.target_dsl_version):
+            return LispFrontendDiagnostic(
+                code="workflow_root_return_target_dsl_unsupported",
+                message=(
+                    f"workflow `{workflow_def.name}` returns "
+                    f"`{workflow_def.return_type_name}` directly, which requires "
+                    'DSL 2.15; declare `(:target-dsl "2.15")` in the module header'
+                ),
+                span=workflow_def.span,
+                form_path=workflow_def.form_path,
+                expansion_stack=workflow_def.expansion_stack,
+            )
+        return None
+    if closed_program:
+        return None
+    return_analysis = analyze_workflow_boundary_type(
+        return_type_ref,
+        source_path=("return",),
+        allow_union=True,
+        allow_nested_unions=(
+            allow_collection_return_boundaries
+            and target_dsl_supports_rich_loop_values(module.target_dsl_version)
+        ),
+    )
+    return _boundary_diagnostic(
+        workflow_name=workflow_def.name,
+        analysis=return_analysis,
+        span=workflow_def.span,
+        form_path=workflow_def.form_path,
+        expansion_stack=workflow_def.expansion_stack,
+        allow_collection_boundaries=allow_collection_return_boundaries,
+    )
 
 
 def _boundary_diagnostic(
