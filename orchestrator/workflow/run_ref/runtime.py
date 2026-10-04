@@ -474,6 +474,8 @@ class RunRefRuntimeRequest:
     capsule_dir: Path | None = None
     parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None = None
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
+    parent_identity: str | None = None
+    parent_attempt: int | None = None
 
     def __post_init__(self) -> None:
         paths = _validate_run_ref_runtime_request_authority(
@@ -500,6 +502,7 @@ class RunRefRuntimeRequest:
                 raise RunRefRuntimeError(
                     "run_ref_ledger_invalid", "parent_run_files_authority_disagrees",
                 )
+        _request_parent_authority(self)
 
     @property
     def ledger_path(self) -> Path:
@@ -515,6 +518,7 @@ class RunRefChildLaunch:
     request_document: Mapping[str, Any]
     workspace: Path
     child_run_id: str
+    parent_root_fd: int | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,6 +557,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
         "runpy.run_module('orchestrator.workflow.run_ref.child',"
         "run_name='__main__')"
     )
+    private_args, descriptor_options = _child_descriptor_transport(launch)
     completed = subprocess.run(
         (
             sys.executable,
@@ -562,6 +567,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
             controller_root.as_posix(),
             selector,
             launch.request_path.as_posix(),
+            *private_args,
         ),
         cwd=launch.workspace,
         env=process_env,
@@ -569,6 +575,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         shell=False,
+        **descriptor_options,
     )
     return RunRefChildProcessResult(
         returncode=completed.returncode,
@@ -576,6 +583,51 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
         stderr=completed.stderr,
         duration_ms=(time.monotonic_ns() - started_ns) // 1_000_000,
     )
+
+
+def _child_descriptor_transport(launch: RunRefChildLaunch) -> tuple[tuple[str, ...], dict[str, Any]]:
+    from .launch_authority import PATH_REQUEST_V2
+
+    if launch.request_document.get("schema_version") == PATH_REQUEST_V2:
+        if launch.mode != "path" or type(launch.parent_root_fd) is not int or launch.parent_root_fd < 0:
+            raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid")
+        return ("--parent-root-fd", str(launch.parent_root_fd)), {"pass_fds": (launch.parent_root_fd,)}
+    if launch.parent_root_fd is not None:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid")
+    return (), {}
+
+
+def _request_parent_authority(request: RunRefRuntimeRequest) -> dict[str, Any] | None:
+    from .launch_authority import checked_parent_authority
+
+    if request.parent_identity is None and request.parent_attempt is None:
+        return None
+    if request.run_files is None or not isinstance(request.step_config.run_ref.program, PathProgram):
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid")
+    try:
+        return checked_parent_authority({"parent_authority": {
+            "run_root": request.parent_run_root.as_posix(),
+            "identity": request.parent_identity, "attempt": request.parent_attempt,
+        }})
+    except (TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid") from exc
+
+
+def _checked_launch_descriptor(request, document, materialized, acknowledgement):
+    from .launch_authority import validate_parent_launch
+
+    triple = _request_parent_authority(request)
+    if triple is None:
+        return None
+    try:
+        if document.get("parent_authority") != triple:
+            raise ValueError("checked caller and request disagree")
+        validate_parent_launch(document, parent_root_fd=request.run_files.root_fd,
+                               step_config=request.step_config, materialized_source=materialized,
+                               expected_row_digest=acknowledgement.authority_digest)
+    except (OSError, TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid") from exc
+    return request.run_files.root_fd
 
 
 def _default_discard_workspace(workspace: Path) -> None:
@@ -1513,9 +1565,9 @@ def _input_digest(
     )
 
 
-def _policy_digest(request: RunRefRuntimeRequest) -> str:
-    source = canonical_source_request(request.step_config.run_ref.source)
-    program = request.step_config.run_ref.program
+def _policy_digest(step_config: RunRefStepConfig) -> str:
+    source = canonical_source_request(step_config.run_ref.source)
+    program = step_config.run_ref.program
     return canonical_sha256(
         {
             "schema_version": "run_ref_runtime_policy.v1",
@@ -1620,7 +1672,7 @@ def _attempt_bindings(
         source_digest=canonical_sha256(canonical_source_request(static.source)),
         program_digest=canonical_sha256(program.record),
         input_digest=_input_digest(request, parent_values),
-        policy_digest=_policy_digest(request),
+        policy_digest=_policy_digest(request.step_config),
         step_config_digest=request.step_config.step_config_digest,
         capsule_or_compiler_digest=capsule_or_compiler_digest,
         child_run_id=_child_run_id(
@@ -1975,8 +2027,11 @@ def _build_child_request(
         }
     from .child import materialized_source_record
 
+    parent_authority = _request_parent_authority(request)
     return "path", {
-        "schema_version": "run_ref_path_child_request.v1",
+        "schema_version": ("run_ref_path_child_request.v1" if parent_authority is None
+                           else "run_ref_path_child_request.v2"),
+        **({} if parent_authority is None else {"parent_authority": parent_authority}),
         "clone_root": materialized.workspace_path.as_posix(),
         "child_state_dir": child_state_dir.as_posix(),
         "child_run_id": child_run_id,
@@ -2541,19 +2596,22 @@ def drive_run_ref_lifecycle(
         launch_digest = canonical_sha256(child_request)
         launch_updates = {"child_launch_digest": launch_digest}
         bindings = replace(bindings, **launch_updates)
-        emit(
+        launch_acknowledgement = emit(
             stage="launched",
             event_kind="progress",
             attempt_ordinal=ordinal,
             payload={"binding_updates": launch_updates},
         )
         effects.crash_hook("launch")
+        parent_root_fd = _checked_launch_descriptor(request, child_request, materialized,
+                                                    launch_acknowledgement)
         launch = RunRefChildLaunch(
             mode=mode,
             request_path=request_path,
             request_document=child_request,
             workspace=workspace,
             child_run_id=bindings.child_run_id,
+            parent_root_fd=parent_root_fd,
         )
         try:
             require_before_deadline()
@@ -2860,18 +2918,19 @@ def _validate_child_request_document(
             )
         mode = "bundle"
     else:
+        version, parent_keys = _durable_path_request_version(request, document)
         expected_keys = common | {
             "materialized_source",
             "run_ref_static_config_base64",
             "expected_step_config_digest",
-        }
+        } | parent_keys
         expected_static = base64.b64encode(
             encode_run_ref_static_config(request.step_config.run_ref)
         ).decode("ascii")
         materialized_record = document.get("materialized_source")
         if (
             set(document) != expected_keys
-            or document.get("schema_version") != "run_ref_path_child_request.v1"
+            or document.get("schema_version") != version
             or document.get("test_control") is not None
             or document.get("run_ref_static_config_base64") != expected_static
             or document.get("expected_step_config_digest")
@@ -2918,6 +2977,20 @@ def _validate_child_request_document(
             "child_request_inputs_invalid",
         )
     return mode, dict(document)
+
+
+def _durable_path_request_version(request, document):
+    from .launch_authority import PATH_REQUEST_V2, checked_parent_authority
+
+    expected = _request_parent_authority(request)
+    if expected is None:
+        return "run_ref_path_child_request.v1", set()
+    try:
+        if checked_parent_authority(document) != expected:
+            raise ValueError("durable checked caller disagrees")
+    except (TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_binding_invalid") from exc
+    return PATH_REQUEST_V2, {"parent_authority"}
 
 
 def _validate_bound_authority(

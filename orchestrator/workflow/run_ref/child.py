@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import io
 import json
 import math
@@ -43,7 +43,7 @@ from .contracts import (
     canonical_sha256,
     compute_compiler_runtime_identity,
 )
-from .config import decode_run_ref_static_config
+from .config import decode_run_ref_static_config, encode_run_ref_static_config
 from .source import MaterializedSource, canonical_repository_revision_result
 from .workspace import TreeEntry, TreeManifest, freeze_tree, manifest_from_entries
 
@@ -177,6 +177,8 @@ class RunRefPathChildRequest:
     step_config: RunRefStepConfig
     inputs: Mapping[str, Any]
     test_control: RunRefChildTestControl | None
+    request_document: Mapping[str, Any] | None = field(default=None, compare=False, repr=False)
+    parent_root_fd: int | None = field(default=None, compare=False, repr=False)
 
 
 class _ChildCommandError(ValueError):
@@ -942,11 +944,26 @@ def load_request(path: Path) -> RunRefChildRequest:
         ) from exc
 
 
-def _path_request_from_payload(payload: object) -> RunRefPathChildRequest:
-    if not isinstance(payload, dict) or set(payload) != _PATH_REQUEST_KEYS:
+def _path_request_authority(payload, parent_root_fd):
+    from .launch_authority import PATH_REQUEST_V2, checked_parent_authority
+
+    if not isinstance(payload, dict):
         raise ValueError("path request shape is invalid")
-    if payload.get("schema_version") != RUN_REF_PATH_CHILD_REQUEST_SCHEMA:
-        raise ValueError("path request schema version is invalid")
+    schema = payload.get("schema_version")
+    if schema == RUN_REF_PATH_CHILD_REQUEST_SCHEMA:
+        if set(payload) != _PATH_REQUEST_KEYS or parent_root_fd is not None:
+            raise ValueError("legacy path request authority is invalid")
+        return None
+    if schema != PATH_REQUEST_V2 or set(payload) != _PATH_REQUEST_KEYS | {"parent_authority"}:
+        raise ValueError("path request schema or shape is invalid")
+    if parent_root_fd is None:
+        raise ValueError("checked path request has no parent descriptor")
+    checked_parent_authority(payload)
+    return payload
+
+
+def _path_request_from_payload(payload: object, *, parent_root_fd: int | None = None) -> RunRefPathChildRequest:
+    authority_document = _path_request_authority(payload, parent_root_fd)
     clone_root = _canonical_existing_directory(payload.get("clone_root"))
     child_state_dir = _canonical_future_directory(
         payload.get("child_state_dir")
@@ -1003,10 +1020,12 @@ def _path_request_from_payload(payload: object) -> RunRefPathChildRequest:
         step_config=step_config,
         inputs=_plain_json(inputs),
         test_control=test_control,
+        request_document=authority_document,
+        parent_root_fd=parent_root_fd,
     )
 
 
-def load_path_request(path: Path) -> RunRefPathChildRequest:
+def load_path_request(path: Path, *, parent_root_fd: int | None = None) -> RunRefPathChildRequest:
     """Load and validate one strict versioned path-child request."""
 
     try:
@@ -1016,7 +1035,7 @@ def load_path_request(path: Path) -> RunRefPathChildRequest:
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_nonfinite_constant,
         )
-        return _path_request_from_payload(payload)
+        return _path_request_from_payload(payload, parent_root_fd=parent_root_fd)
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise _ChildCommandError(
             "run_ref_child_launch_failed",
@@ -1208,6 +1227,7 @@ def execute_request(request: RunRefChildRequest) -> dict[str, Any]:
 def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
     """Full-compile and execute one exact path program in this child process."""
 
+    _validate_path_launch_authority(request)
     try:
         admitted = compile_and_admit_path_program(
             materialized_source=request.materialized_source,
@@ -1265,7 +1285,58 @@ def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
     }
 
 
-def _request_selection(argv: Sequence[str]) -> tuple[str, Path]:
+def _path_request_fields(request: RunRefPathChildRequest) -> dict[str, object]:
+    """Bind every executable field to the exact decoded v2 document."""
+    from .launch_authority import PATH_REQUEST_V2
+
+    control = request.test_control
+    if control is not None and type(control) is not RunRefChildTestControl:
+        raise TypeError("child test control must be exact")
+    return {
+        "schema_version": PATH_REQUEST_V2,
+        "clone_root": request.clone_root.as_posix(),
+        "child_run_id": request.child_run_id,
+        "child_state_dir": request.child_state_dir.as_posix(),
+        "materialized_source": materialized_source_record(request.materialized_source),
+        "run_ref_static_config_base64": base64.b64encode(
+            encode_run_ref_static_config(request.step_config.run_ref)).decode("ascii"),
+        "expected_step_config_digest": request.step_config.step_config_digest,
+        "inputs": _plain_json(request.inputs),
+        "test_control": None if control is None else {
+            "schema_version": RUN_REF_CHILD_TEST_CONTROL_SCHEMA,
+            "boundary": control.boundary, "progress_path": control.progress_path.as_posix(),
+        },
+    }
+
+
+def _validate_path_launch_authority(request: RunRefPathChildRequest) -> None:
+    if request.request_document is None:
+        if request.parent_root_fd is not None:
+            raise _ChildCommandError("run_ref_child_launch_failed", "request_invalid")
+        return
+    from .launch_authority import validate_parent_launch
+
+    try:
+        fields = {key: value for key, value in request.request_document.items()
+                  if key != "parent_authority"}
+        if canonical_json_bytes(_path_request_fields(request)) != canonical_json_bytes(fields):
+            raise ValueError("decoded executable fields disagree with the request")
+        validate_parent_launch(request.request_document, parent_root_fd=request.parent_root_fd,
+                               step_config=request.step_config, materialized_source=request.materialized_source)
+    except (OSError, TypeError, ValueError) as exc:
+        raise _ChildCommandError("run_ref_child_launch_failed", "request_invalid") from exc
+
+
+def _request_selection(argv: Sequence[str]) -> tuple[str, Path, int | None]:
+    descriptor = None
+    if len(argv) == 4 and argv[0] == "--path-request" and argv[2] == "--parent-root-fd":
+        try:
+            descriptor = int(argv[3])
+            if descriptor < 0 or str(descriptor) != argv[3]:
+                raise ValueError("parent descriptor is not canonical")
+        except ValueError as exc:
+            raise _ChildCommandError("run_ref_child_launch_failed", "request_invalid") from exc
+        argv = argv[:2]
     if (
         len(argv) != 2
         or argv[0] not in {"--request", "--path-request"}
@@ -1275,7 +1346,7 @@ def _request_selection(argv: Sequence[str]) -> tuple[str, Path]:
             "run_ref_child_launch_failed",
             "request_invalid",
         )
-    return argv[0], Path(argv[1])
+    return argv[0], Path(argv[1]), descriptor
 
 
 def _write_document(stream, payload: Mapping[str, Any]) -> None:
@@ -1289,12 +1360,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = tuple(sys.argv[1:] if argv is None else argv)
     try:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            selection, request_path = _request_selection(arguments)
+            selection, request_path, parent_root_fd = _request_selection(arguments)
             if selection == "--request":
                 request = load_request(request_path)
                 execute = execute_request
             else:
-                request = load_path_request(request_path)
+                request = load_path_request(request_path, parent_root_fd=parent_root_fd)
                 execute = execute_path_request
             with workspace_run_lock(request.clone_root, request.child_run_id):
                 result = execute(request)
