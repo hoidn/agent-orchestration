@@ -1068,7 +1068,7 @@ existing compile/run CLI + FrontendBuildRequest
 | `type_env.py`, `normalized_type_descriptor.py`, `contracts.py`, `typed_prompt_inputs.py` | Retain schema type applications, refinements, guidance, fill roles and contract compilation. Internal helper calls bypass type unification/specialization; boundary types do not. |
 | `closed/effects.py`, `closed/check.py` and shared request builders | Extract only reusable declaration/contract checks needed by both representations. Existing checked typed effects and P5 stay unchanged; a dynamic artifact is never passed off as a typed `ClosedProgram`. |
 | Proposed `workflow_lisp/dynamic/` source/admission owner and `workflow/dynamic/` evaluator/run owner | Move and revise the qualified experimental core, replacing its source wrapper, hand-linked effects and artifact versions. No second maintained copy under `experiments/`; no new general backend/plugin interface. |
-| Delivered `evaluated/commands.py`, `prompts.py`, `providers.py`, `inputs.py` | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Their native whole-root strict result mode, plain validated-value provider preparation and certified inline serialization are qualified. Task 8 supplies the dynamic caller, strict input checks and publication. Reviewed Task 12 now delivers `inputs.py` and the typed external document path-token protocol. Task 4 now qualifies shared plain document preparation, serialization and attempt-path transport at `866dcd99`; `_prepare_command_document_fields`, `_serialize_command_document` and `_command_document_argv` retain their typed consumers. Task 5 is selected next; Task 8 still owes the actual dynamic caller and publication. |
+| Delivered `evaluated/commands.py`, `prompts.py`, `providers.py`, `inputs.py` | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Their native whole-root strict result mode, plain validated-value provider preparation and certified inline serialization are qualified. Task 8 supplies the dynamic caller, strict input checks and publication. Reviewed Task 12 now delivers `inputs.py` and the typed external document path-token protocol. Task 4 now qualifies shared plain document preparation, serialization and attempt-path transport at `866dcd99`; `_prepare_command_document_fields`, `_serialize_command_document` and `_command_document_argv` retain their typed consumers. |
 | `StepExecutor`, `ProviderExecutor`, `WorkspaceFiles`, content-snapshot/output-contract owners | Keep dispatch, process controls, sandbox/permissions, pinned reads/writes and result validation. The candidate does not call a stateful `WorkflowExecutor` for each effect. |
 | `evaluated/attempts.py`, `authority.py`, `runtime.py` | Preserve typed memo/authority. `allocate_attempt` appends memo records and `attempt_paths` consumes `MemoSnapshot`; neither is a memo-free allocator. Reuse lower filesystem/lock helpers, or one owner-approved shared extraction with both real callers; do not synthesize a memo. |
 | CLI/state/report/dashboard/monitor readers | Route by exact profile before typed/legacy checks. Share data presentation and log-path handling; the fresh profile supplies its own truthful state interpretation, not typed pure replay. |
@@ -1133,6 +1133,8 @@ Bindings are indexed by canonical module. Each row contains exactly `owner`
 used `input_signature`/`output_type_name` names to schema-catalog references,
 resolved by that module's type environment. It is not inferred from runtime
 values or added to binding manifests. Pure programs may have no binding rows.
+Include exactly the type associations needed by certified commands used in any
+included body, including unreachable bodies; unused configuration rows need none.
 
 A dynamic command `perform` retains `k`, `class`, `result`, `repeat`, `boundary`,
 `command`, `closure`, `contract` and `argv`, with optional `document` and
@@ -1150,11 +1152,16 @@ The definition owner selects command/provider configuration; `prompt_owner`
 selects prompt configuration and the prompt reader's logical source location.
 Map the effect and fill-value expressions to their caller, but prompt/template,
 fill-declaration and prompt-result subjects to the defining prompt module.
+An extern prompt's explicit call-authored result annotation stays caller-owned.
 Every subject remains an actual artifact pointer with pinned source provenance.
 Use the shared effect operand walk, with ordinary `let` bindings when needed to
 preserve written evaluation order before signature/declaration ordering. Normalize
 policy object traversal to canonical key order; object serialization order must
 not change the meaning of a semantic digest.
+Policy model/effort operands have a `String` boundary; timeout remains a positive
+literal `Int`, delivery is absent or literal `"composed"`, and
+`materialization_attempts` is not admitted. These static restrictions do not
+restrict ordinary dynamic expressions in model/effort or dependency positions.
 
 Admission requires exact fields/version, strict finite JSON, unique declarations,
 resolved lexical names/code IDs, capture arity, valid defaults/descriptors,

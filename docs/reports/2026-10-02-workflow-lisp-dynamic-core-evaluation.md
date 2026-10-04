@@ -572,9 +572,11 @@ handoff above authorizes only its explicitly bounded shared hook extension.
 
 ## 6. DC-1a Execution Evidence
 
-Implemented only [artifact admission](../../experiments/dynamic_core_evaluation/program.py),
-[pure evaluation](../../experiments/dynamic_core_evaluation/evaluator.py) and the
-[48-case module](../../tests/experiments/test_dynamic_core_evaluation.py).
+Implemented only artifact admission, pure evaluation and the 48-case module.
+Their historical owners are retained at `6844e05e`:
+`experiments/dynamic_core_evaluation/{program,evaluator}.py` and
+`tests/experiments/test_dynamic_core_evaluation.py` (read with
+`git show 6844e05e:PATH`). The later cutover moves are not this historical proof.
 The candidate reuses the existing primitive catalog and normalized boundary
 validator. Production code and existing targets are unchanged. Public `.orc`
 authoring, actual candidate effects and full DC-F feasibility remain unproved.
@@ -1717,3 +1719,39 @@ the actual dynamic caller, strict boundary inputs, imported asset ownership and
 publication. Public `3.0` remains unregistered, Q1–Q5 remain open and DC-P has not
 adopted the candidate; no maintained application migration or paid/live campaign
 is claimed.
+
+### Pure Core Cutover And Phase 3 Totality Import
+
+On 2026-10-04 the atomic Tasks 5–8 work moved to
+`feat/orc-dynamic-core-cutover`; `design/orc-dynamic-core-evaluation` stays at
+`3a7f8efd` until that whole unit is qualified. Pure program admission is reviewed
+at `5388ccca`; the iterative evaluator move is reviewed at `a1eced06`. Existing
+experiment consumers temporarily depend on removed owners inside this isolated
+cutover; they must receive the planned replacements before integration.
+
+The pure evaluator applies declared workflow defaults and boundary validation,
+uses one invocation budget, preserves frozen ordinary closures and uses persisted
+source maps. Its shared validator opts into redacted runtime map-key diagnostics;
+old callers retain their previous policy. Independent conformity and quality
+reviews passed after corrections to diagnostic provenance, literal failure reasons
+and exception-chain redaction. Final pure collection/execution: **57/57 PASS in
+1.19s**. Before the last diagnostic-only changes, the shared-owner affected run
+collected and passed **483 cases in 7.61s**, with unchanged source hashes. These
+overlapping counts are not additive. Logs and source freezes are under
+`/dev/shm/orc-dc3-task5-evaluator/` and
+`/dev/shm/orc-dc3-task5-evaluator-affected/`.
+
+The next upstream check found reviewed Phase 3 Task 13A at `93a33ae2`: public
+totality checks and bounded typed composition repairs. Its six committed owners
+and ordered independent review receipts matched their recorded hashes. It is
+merged at `ead7716f`. Fresh combined collection/execution passed **546/546 cases
+in 128.98s**, exit 0, including the imported public matrix, dynamic declaration
+selection/core/boundary/performer checks and retained target routing. All 517
+runtime/test hashes were unchanged. Exact commands, selectors and hashes are in
+`/dev/shm/orc-dc3-import-13a/{collect,affected}.{json,log}`. This completes that
+import, not Phase 3 Tasks 13B–D or the remaining phase qualification.
+
+**Task 5 remains in progress:** shared static effect admission is next. The
+public dynamic frontend, fresh-run authority, direct effects and complete
+replacement consumers remain Tasks 6–8; Q1–Q5/DC-P remain open. Neither the pure
+core nor this upstream import establishes a runnable public dynamic target.
