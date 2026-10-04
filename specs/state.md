@@ -17,6 +17,12 @@
     readers remain pending; they are not prerequisites for the implemented
     authority-based resume/invalidation. This does not convert legacy runs or
     make the dynamic fresh-only candidate resumable.
+    New evaluated headers persist a resolved canonical `run_ref_root` outside
+    recipe/input/program digests, without creating that directory. Explicit
+    mismatching resume selection refuses read-only with
+    `resume_run_ref_root_changed`, malformed present roots are `memo_inconsistent`,
+    and historical absent fields are not backfilled; this does not implement
+    child dispatch or complete Task 9.
 
 - Legacy state file schema (authoritative record for schema 2.1)
   - `schema_version: "2.1"`

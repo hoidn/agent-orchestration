@@ -16,11 +16,13 @@ The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#d
 
 This plan registers target `3.0` on the development branch only when its checked route can be exercised. Its program schema is `workflow-lisp/dynamic-program/1`; its state pair is `3.1` / `dynamic_execution.v1`. No default target changes, release claim, maintained application migration, paid provider work, child runs, parallel effects, resume, invalidation or effect-tracking implementation is selected. Resume/invalidation **refusal** is required. After DC-P only, the proposed single application destination is `experiments/mlevolve_pair/search_compact.orc`, entry `run-search`; its maintained file and command manifest remain unchanged during this plan. Qualification uses a fixture with the same complete policy. `std/dynamic/improve` is the required library integration, not a second application migration.
 
-Design and plan reviews passed; **Tasks 1–3 are complete**; Task 4 has imported reviewed typed command/provider runtime delivery but still lacks a qualified native strict seam (authorized and in progress) and external input-document transport; Tasks 5–9 remain pending. Q2 has declaration-only source selection; public/source-free linking remains unqualified. Q1 is partial: the strict native-root kernel is proved, with direct publication still pending Task 8. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. Its native strict dynamic seam remains unqualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
+Design and plan reviews passed; **Tasks 1–3 are complete**; Task 4 has imported reviewed typed command/provider runtime delivery and its native strict result/provider-preparation and certified inline serialization sub-slice is qualified; external input-document transport and its integrated qualification remain pending; Tasks 5–9 remain pending. Q2 has declaration-only source selection; public/source-free linking remains unqualified. Q1 is partial: the strict native-root kernel is proved, with direct publication still pending Task 8. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. At that import, its native strict dynamic seam was not yet qualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
 
 Earlier synchronization, 2026-10-03: reviewed `b5b07ceb` integrated at `a672985d`; provider handoff `7e2282a4` / receipt `21b78d16` integrated at `103dc8cd`. Command and portable provider public runs, pure prompt assembly and captured C6 reads are available. The [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-commandprovider-runtime-import) records APIs, verification and the remaining Task 4 gaps. Public-resume/full typed release acceptance remains separate; DC-P and Q1–Q5 are unchanged.
 
-Current synchronization, 2026-10-04: reviewed Task 8 and retained-descriptor writer delivery through `e17bd61f` integrated at `d3b68c0a`; the [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-typed-resumeinvalidation-import) records ordinary typed public resume/suffix invalidation and exact affected-suite limitations. This does not add dynamic recovery. The native strict request/result adaptation is authorized under Task 4 ownership and in progress; external Task 12 document transport remains missing. Task 4 is not PASS and Tasks 5–8 remain unstarted.
+Current synchronization, 2026-10-04: reviewed Task 8 and retained-descriptor writer delivery through `e17bd61f` integrated at `d3b68c0a`; the [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-typed-resumeinvalidation-import) records ordinary typed public resume/suffix invalidation and exact affected-suite limitations. This does not add dynamic recovery. The native strict result/provider-preparation and certified inline serialization sub-slice is qualified at `ee4ae46b` under Task 4 ownership; its [current receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records that bounded evidence separately from external Task 12 document transport and its integrated qualification, which remain missing. Task 4 is not PASS and Tasks 5–8 remain unstarted.
+
+The final shared cutoff `4ca7a0fb` is integrated at `eb9c9e30`, including the reviewed durable-locator alias correction; the [native/shared receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records 878 affected checks and the remaining Task 12 dependency. This does not complete Phase 3 Task 9 or advance dynamic gates.
 
 ### Sequencing And Unavailable Owners
 
@@ -113,16 +115,22 @@ See the [receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md
 is imported at `d3b68c0a`, retaining command runtime/R12 rendering, pure prompt
 assembly, captured provider IO and the portable provider performer/lifecycle,
 and adding ordinary typed public resume/invalidation.
-Provider required output-file checks are delivered. The actual request APIs still
-consume checked typed nodes/`EvaluatedValue` operands and return projected
-`EvaluatedValue` results; their captured-byte validators use the default typed
-policy. Native resolved-value/strict-result adaptation in the existing three
-performer owners is authorized and in progress under Task 4; it is not yet
-delivered or qualified. It must retain existing required-file validation before
-returning. Task 12 still owes
-external document operand/bytes/path-token transport. Certified inline JSON is
-already delivered. The [API handoff and exact evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-commandprovider-runtime-import)
-record this gap without inventing a second executor or typed memo adapter.
+Provider required output-file checks are delivered. The native sub-slice adds
+`native_result=True` to the existing command/provider performers and captured-byte
+validator: it requires one strictly transportable whole-root result contract
+before dispatch, preserves one captured result read, and validates required
+provider files and overlap before return. Typed defaults retain projection.
+Private plain validated-value provider preparation avoids `EvaluatedValue`
+construction and uses the existing path-only `WorkflowIOReader`; Task 8 owns
+strict input validation, imported-asset module ownership, the actual dynamic
+caller and publication. Argv rendering reuses `render_variable_value` after
+strict validation; no second template extraction or reader is required.
+Certified inline JSON serialization is qualified through the plain ordered-field
+`_serialize_inline_command_document(fields)` kernel; its typed wrapper preserves
+absent-document, slot-offset and operand-count rules. The [current native receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice)
+records the qualified sub-slice and exact remaining checks. Task 12 still owes
+external document operand/bytes/path-token transport, including absent/empty
+semantics; the existing inline protocol does not deliver it.
 Task 4 is **not PASS**; Tasks 5–8 remain dependent and have not started.
 
 **Owned changes:** Integration receipts in the existing evaluation report/Phase 3 evidence matrix; shared source remains with its owner unless explicitly transferred. No new performer implementation is assigned by this task.
@@ -133,7 +141,7 @@ Upstream observation during drafting: `d6d9469c10718ca993f32df15bf9ce8102944ac3`
 - [ ] Verify requests take resolved values, declaration-owned contracts and caller-owned attempt files without reading typed memo, `EvaluatedValue` internals or dynamic state. If not, route one shared extraction to its owner. Task 4 qualifies the delivered shared contract with real dispatch and its existing consumer; Task 8 adds the real dynamic caller and verifies both before integrating the atomic cutover. Requiring that second caller before starting its implementation would be circular. No fake typed `ClosedProgram`, `MemoSnapshot`, attempt journal or per-effect `WorkflowExecutor`.
 - [ ] Import reviewed delivery and run its exact selectors in `tests/test_workflow_evaluated_commands.py`, `tests/test_workflow_evaluated_prompts.py`, `tests/test_workflow_evaluated_providers.py`, `tests/test_workflow_evaluated_input_documents.py`, plus changed closure/interpreter/attempt checks. These test files are planned upstream locations; verify their existence rather than substituting mocks or silently ignoring them.
 - [ ] Confirm whole-value contracts, captured-byte strict policy, provider document roles/required files, explicit cwd/permissions, one dispatch, certified signature ordering and external document transport can pass through that seam. Task 8 owns dynamic public source evidence; these are interface prerequisites.
-- [x] Record PASS or the exact missing owner/slice (current receipt records native strict result seam and missing Task 12 external document transport; **not PASS**). Only PASS releases Tasks 5–8. Continue or close independent Tasks 1–3 while this remains unavailable; never report the overall goal completed because upstream work is missing.
+- [x] Record PASS or the exact missing owner/slice (current receipt records the qualified native/inline sub-slice and missing Task 12 external document transport plus its integrated qualification; **not PASS**). Only PASS releases Tasks 5–8. Continue or close independent Tasks 1–3 while this remains unavailable; never report the overall goal completed because upstream work is missing.
 
 ## Tasks 5–8: Atomic Production Cutover
 

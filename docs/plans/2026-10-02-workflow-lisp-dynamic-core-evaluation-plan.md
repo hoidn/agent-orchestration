@@ -129,8 +129,11 @@ available with recipe/profile/force-restart limits; path run-reference dispatch,
 complete readers and external Task 12 document transport remain pending. The
 [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-typed-resumeinvalidation-import)
 records exact pins and the affected red-suite baseline disposition. The native
-strict seam is separately authorized and in progress, not delivered; Task 4 and
-DC-P remain unpassed. The dynamic candidate remains fresh-only.
+strict result/provider-preparation and certified inline serialization sub-slice
+is qualified at `ee4ae46b`; the
+[current native receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records its bounded evidence; external Task 12 transport and its integrated qualification remain pending. Task 4 and DC-P remain unpassed. The dynamic candidate remains fresh-only.
+
+The final shared cutoff `4ca7a0fb` is integrated at `eb9c9e30`, including the reviewed durable-locator alias correction; the [native/shared receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records 878 affected checks and the remaining Task 12 dependency. This does not complete Phase 3 Task 9 or advance dynamic gates.
 
 Earlier runtime import, 2026-10-03: reviewed `b5b07ceb` integrated at
 `a672985d`; provider runtime `7e2282a4` and receipt `21b78d16` integrated at
@@ -189,7 +192,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
-| DC-3 — production readiness | Design and bounded plan independently reviewed; Tasks 1–3 complete; typed command/provider/resume delivery imported; native strict adaptation in progress and external document transport awaited; no dynamic public target or production acceptance | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
+| DC-3 — production readiness | Design and bounded plan independently reviewed; Tasks 1–3 complete; typed command/provider/resume delivery imported; native result/provider-preparation and certified inline serialization sub-slice qualified; external document transport and its integrated qualification awaited; no dynamic public target or production acceptance | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
@@ -550,7 +553,7 @@ design, removal/compatibility inventory, one consumer destination and the needed
 shared-runtime/public-route qualification. It does not accept production
 semantics or mark any readiness checklist item complete.
 
-**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Tasks 1–3 are complete; Task 4 has imported typed command/provider delivery; native strict adaptation is authorized and in progress, while external Task 12 document transport remains missing. Q1 has a qualified strict kernel and Q2 has selective source declarations; integrated Q1–Q5 remain open. Exact files and independent verification
+**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Tasks 1–3 are complete; Task 4 has imported typed command/provider delivery; the native strict result/provider-preparation and certified inline serialization sub-slice is qualified, while external Task 12 document transport and its integrated qualification remain pending. Q1 has a qualified strict kernel and Q2 has selective source declarations; integrated Q1–Q5 remain open. Exact files and independent verification
 belong to that plan; this task does not preallocate a language target or mutate
 normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
 

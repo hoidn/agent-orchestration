@@ -60,6 +60,11 @@ workspace as the working directory.
       `resume_request_missing`; malformed present recipes are `memo_inconsistent`.
       `--force-restart` remains unavailable for this profile. See
       [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
+      New evaluated headers persist the resolved canonical `run_ref_root` outside
+      recipe/input/program digests without creating it. Explicit mismatching
+      resume selection refuses read-only with `resume_run_ref_root_changed`,
+      malformed present roots are `memo_inconsistent`, and historical absent
+      fields are not backfilled; child dispatch/Task 9 completion remains pending.
       The following provider/host-request policies describe the legacy profile.
     - If persisted authoritative state proves an exact interrupted in-flight
       ordinary, session, supervision, peer-group, phased, or adjudicated

@@ -1572,3 +1572,87 @@ and in progress; it is not yet delivered or qualified by this receipt. External
 Task 12 is still missing, **Task 4 is not PASS**, and dynamic Tasks 5–8 remain
 unstarted. Q1–Q5, DC-P, public dynamic target 3.0, adoption and maintained
 application migration remain unqualified.
+
+
+### Shared Native Performer Sub-Slice
+
+Under the existing Task 4 ownership transfer, the bounded native adaptation of
+`evaluated/{commands,prompts,providers}.py` is independently Sol-reviewed PASS.
+It builds on the strict whole-root boundary kernel at `4d348937`, retaining the
+existing performer/reader/validator owners. Integration commit:
+`ee4ae46bebaa7c17536bb7cf5a2ab8fab5c463e3`. Native qualification uses the
+imported `e17bd61f` baseline; the frozen comparator is unchanged.
+
+The existing command/provider performers and captured-byte result validator
+accept `native_result=True`. Before dispatch this mode requires a single
+required `__result__` field at the root pointer with a strictly transportable
+descriptor. It validates captured bytes with the strict whole-value policy and
+returns the native root and digest without typed projection or coercion. The
+result is read once through caller-owned attempt files. Provider required-file
+validation and artifact-name overlap checks complete before returning. Typed
+defaults retain their prior projected result behavior.
+
+Private plain validated-value provider preparation reuses captured source and
+dependency reads and pure prompt assembly. `WorkflowIOReader` is a path-only
+carrier suitable for the defining module's owner; an alternate reader is not
+required. The dynamic caller must strictly validate inputs before using this
+preparation or `render_variable_value` for argv. No separate argv template
+extraction, second executor, fake typed values or typed memo is introduced.
+
+Coordinator affected verification of the reviewed result/preparation sub-slice,
+before the final inline serialization extraction:
+**867 passed in 45.66s**, with stable before/after hashes, across the explicit
+53-module selection in
+`/tmp/orc-dc3-native-seam-20261003/coordinator-affected.{json,log}`. The command
+uses `pytest -q -n 16 --dist=worksteal` in tmux. This is affected-scope evidence,
+not a full-repository claim; the preceding upstream import's 55 baseline failures
+remain recorded as RED above.
+
+The final extraction delivers
+`commands.py::_serialize_inline_command_document(fields: Sequence[tuple[str, Any]]) -> bytes`
+for ordered, already-validated plain fields. The typed wrapper preserves
+absent-document, slot-offset and operand-count rules. Sol incremental conformity
+and quality review passed, retaining the prior review. Twenty new module cases
+collected; three document cases passed, and the native module plus typed command
+selectors passed 44 cases in 9.21s (`focused.log`). Final coordinator verification
+passed **870 cases in 83.94s** across the same explicit 53-module selection,
+including public recovery smoke, typed/dynamic boundaries and experimental
+consumers. Before/after hashes are stable and match commit `ee4ae46b` contents;
+exact commands/hashes/output are in
+`/tmp/orc-dc3-native-seam-20261003/coordinator-final.{json,log}`. The earlier 867
+result remains a separate pre-extraction receipt; these overlapping counts are
+not summed.
+
+The real-dispatch document check uses the existing `input_document` byte
+primitive and a manually supplied path. It qualifies that primitive, not authored
+Task 12 grammar, absent/empty semantics or automatic document path-token append.
+The serialization kernel is certified inline transport; external `inputs.json`
+transport is still missing. **Task 4 is not PASS** until that actual Task 12
+delivery and its integrated qualification complete. Task 8 owns the actual
+dynamic caller, strict input checks, imported-asset module ownership and native publication; those are
+future cutover obligations, not circular prerequisites to Task 4's shared-seam
+qualification. Tasks 5–8 remain unstarted, dynamic recovery is unsupported, and
+Q1–Q5/DC-P/public target/adoption/migration remain unqualified.
+
+The final clean upstream cutoff `4ca7a0fbf721c392753ae8745db45aa82a6b4427`
+is integrated at `eb9c9e30e05c54e425082d15ad1147171dbc094e`, extending
+`e17bd61f` with persisted evaluated run-reference root/resume-selection checks.
+Independent Sol review found that standard `/dev/stdin`, `/dev/stdout` and
+`/dev/stderr` aliases were still accepted as durable paths. The merge corrects
+this in the shared locator validator, rejecting those aliases and `/dev/fd`,
+including descendants, without path IO; the existing malformed-header test
+covers all six additional spellings. This reusable correction is the two-file
+delta from `4ca7a0fb` to `eb9c9e30` in `evaluated/authority.py` and
+`tests/test_workflow_evaluated_run_ref_root.py`. It is not yet applied to the
+upstream branch.
+
+The regression failed before the correction and passed after it; independent
+conformity and quality review then passed. Eight cases collected and passed
+in 14.04s; the final 54-module affected suite passed **878 cases in 57.40s**,
+with stable hashes matching the integrated code. Exact commands and output are
+in `/tmp/orc-dc3-native-seam-20261003/cutoff-corrected-{collect,narrow,affected}.{json,log}`;
+the causal check is `alias-{red,green}.log` in the same directory. These checks
+supersede the earlier 878-case pre-correction run for this import and are not
+summed with overlapping native checks. No Task 9 completion, Task 12 delivery
+or new dynamic gate follows. Tasks 5–8 still await Task 12 and its integrated
+qualification; no shared document transport was independently reimplemented.
