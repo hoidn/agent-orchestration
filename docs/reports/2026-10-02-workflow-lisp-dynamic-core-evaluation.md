@@ -1856,3 +1856,51 @@ is selected. Public runs still refuse `dynamic_fresh_run_unsupported` before
 publication until that owner lands. Direct effects/replacement consumers remain
 Task 8 and full Q1–Q5/DC-P remain open. This branch qualification does not adopt
 the profile or migrate the maintained search consumer.
+
+### Task 7A Fresh Authority And Pure Run Gate
+
+`9ad5059e` connects the candidate public run route to real source-free pure
+evaluation. Before evaluation, the fresh owner publishes the checked program,
+immutable header and authoritative initial state under existing workspace/writer
+locks. Exact schemas, pins, source references, ordered effect rows and atomic
+transitions are checked by one dynamic state owner. Native `0`, `false` and
+`null` results survive terminal publication and the public result carrier.
+State-write/allocation failure stops the writer; collisions do not adopt earlier
+files. Local effect-row tests qualify those transitions, not command/provider
+dispatch.
+
+Read-only profile selection precedes resume/invalidation locks and legacy
+`RunState` conversion. Dynamic runs refuse recovery with the declared diagnostic
+codes and fresh-run/repeated-work guidance. Visible dynamic artifact markers
+also prevent a mixed header from reaching typed recovery. Existing state-only
+legacy repair remains with its established loader. The new validated view uses
+writer-lock liveness, not an invented heartbeat, to distinguish interruption.
+
+The first 26-module check collected 883 cases and recorded **2 failed, 881
+passed in 32.46s**. Both failures passed on exact baseline `e60c6a99`: **2 passed
+in 2.42s**. The revision preserves legacy repair and profile diagnostics without
+changing their assertions. Independent conformity review additionally reproduced
+a mixed-authority write, runtime-key disclosure in stored-value diagnostics, and
+a rejection-code/guidance mismatch; all four findings were corrected using the
+existing selection, validation and diagnostic owners.
+
+Final narrow verification passed **175 cases in 10.44s**, including 172 dynamic
+cases and three retained compatibility cases; **172 dynamic cases were
+collected**. Independent recheck passed **12 cases in 2.60s**, followed by
+conformity PASS and quality APPROVED. Coordinator collection and final execution
+passed **893/893 cases in 33.22s**, exit 0, across 26 modules, with all 542
+runtime/test hashes unchanged before/after and at integration. Evidence is in
+`/dev/shm/orc-dc3-fresh-state-final/`, the initial failure packet in
+`/dev/shm/orc-dc3-fresh-state-affected/`, and the baseline log in
+`/dev/shm/dc3-7a-baseline.log`. The ten-file author freezes are
+`/dev/shm/orc-dc3-task7a-freeze.json` and
+`/dev/shm/orc-dc3-task7a-revision-freeze.json`. Overlapping counts are not additive;
+the clean disposable baseline worktree was removed after verification.
+
+The subsequent fetch still found upstream `93a33ae2` and main `be327102`.
+Task 7B public report/dashboard/monitor/probe/watcher integration is selected.
+Reached effects currently fail explicitly as `dynamic_effect_unsupported` and
+publish a failed terminal; actual command/provider dispatch remains Task 8.
+Task 9 owns the external-kill campaign, full Q1–Q5 and DC-P handoff. The stable
+evaluation branch remains at `3a7f8efd` until the atomic cutover is qualified;
+this receipt does not authorize adoption or application migration.
