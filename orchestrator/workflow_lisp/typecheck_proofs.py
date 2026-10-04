@@ -41,6 +41,7 @@ from .type_env import (
 from .typecheck_context import (
     _type_label,
     _unify_loop_control_types,
+    effect_summary_requires_run_ref_placement_refusal,
     raise_error,
     raise_run_ref_placement_invalid,
 )
@@ -413,7 +414,9 @@ def typecheck_match_expr(
     from dataclasses import replace
 
     typed_subject = recurse(expr.subject)
-    if effect_summary_contains_runs_ref(typed_subject.effect_summary):
+    if effect_summary_requires_run_ref_placement_refusal(
+        typed_subject.effect_summary, context=context
+    ):
         raise_run_ref_placement_invalid(
             typed_subject.expr,
             reason="is not permitted in a `match` discriminant",

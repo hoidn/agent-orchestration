@@ -18,6 +18,7 @@ from .typecheck_context import (
     TypecheckContext,
     TypedExpr,
     _type_label,
+    effect_summary_requires_run_ref_placement_refusal,
     raise_error,
     raise_run_ref_placement_invalid,
 )
@@ -48,7 +49,9 @@ def typecheck_loop_recur_expr(
     session_state = context.session_state
 
     typed_max = recurse(expr.max_iterations_expr)
-    if effect_summary_contains_runs_ref(typed_max.effect_summary):
+    if effect_summary_requires_run_ref_placement_refusal(
+        typed_max.effect_summary, context=context
+    ):
         raise_run_ref_placement_invalid(
             typed_max.expr,
             reason="is not permitted in `loop/recur` :max",
@@ -62,7 +65,9 @@ def typecheck_loop_recur_expr(
             form_path=expr.max_iterations_expr.form_path,
         )
     typed_state = recurse(expr.initial_state_expr)
-    if effect_summary_contains_runs_ref(typed_state.effect_summary):
+    if effect_summary_requires_run_ref_placement_refusal(
+        typed_state.effect_summary, context=context
+    ):
         raise_run_ref_placement_invalid(
             typed_state.expr,
             reason="is not permitted in `loop/recur` state",
@@ -95,7 +100,9 @@ def typecheck_loop_recur_expr(
         )
     finally:
         session_state.loop_context.pop()
-    if effect_summary_contains_runs_ref(typed_body.effect_summary):
+    if effect_summary_requires_run_ref_placement_refusal(
+        typed_body.effect_summary, context=context
+    ):
         raise_run_ref_placement_invalid(
             typed_body.expr,
             reason="is not permitted in a `loop/recur` body",

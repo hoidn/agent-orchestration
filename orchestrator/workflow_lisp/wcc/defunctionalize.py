@@ -2589,6 +2589,13 @@ def _normalized_inline_procedure_wcc_body(
         for name, candidate in context.typed_procedures.items()
     }
     route_schema_version = value.metadata.node_id.split(":", 2)[1]
+    closed_context = {}
+    if getattr(context, "closed_program", False):
+        closed_context = {
+            "closed_program": True,
+            "resolved_procedures_by_name": context.typed_procedures,
+            "procedure_type_envs": context.procedure_type_envs,
+        }
     return normalize_wcc_body_to_anf(
         elaborate_typed_workflow_body(
             procedure.typed_body,
@@ -2602,6 +2609,7 @@ def _normalized_inline_procedure_wcc_body(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             route_schema_version=route_schema_version,
+            **closed_context,
         )
     )
 

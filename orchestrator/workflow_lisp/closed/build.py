@@ -1114,6 +1114,16 @@ class Builder:
         self.run_ref_producers_by_effect[id(node)] = producer
         return producer
 
+    def _run_ref_context_for_binding(self, value, d, seen):
+        if isinstance(value, WccNameAtom):
+            resolved_name = d.resolved_binding_name(
+                value.name, value.metadata.binding_identity)
+            return (d.run_ref_names or {}).get(resolved_name, ())
+        if isinstance(value, WccLet):
+            return self._run_ref_context_for_value(value.body, d, seen=seen)
+        producer = self.run_ref_producers_by_effect.get(id(value))
+        return (producer,) if producer is not None else ()
+
     def _run_ref_context_for_value(
         self,
         value: Any,
@@ -1136,12 +1146,8 @@ class Builder:
         if id(value) in seen:
             return ()
         seen.add(id(value))
-        if isinstance(value, WccNameAtom):
-            resolved_name = d.resolved_binding_name(
-                value.name,
-                value.metadata.binding_identity,
-            )
-            return (d.run_ref_names or {}).get(resolved_name, ())
+        if isinstance(value, (WccNameAtom, WccLet, WccRecJoin)):
+            return self._run_ref_context_for_binding(value, d, seen)
         if isinstance(value, WccFieldAccessAtom):
             return self._run_ref_context_for_value(value.base, d, seen=seen)
         if isinstance(value, WccOpaqueFrontendValue):
@@ -1869,7 +1875,13 @@ class Builder:
         target_local, target = self.bind(d, node.join_name, label=None)
         param = node.params[0]
         cont_local, param_wire = self.bind(target_local, param.name, label=node.metadata.binding_label)
+        descriptor_start = len(self.emitted_descriptors)
         body = self.body(node.body, target_local, dict(env))
+        body_producers = self._run_ref_context_for_value(node.body, d)
+        if body_producers:
+            self._retain_map_result_descriptors(descriptor_start, body_producers)
+            cont_local = cont_local.with_names(cont_local.names,
+                run_ref_names={**(cont_local.run_ref_names or {}), param.name: body_producers})
         continuation_env = dict(env)
         continuation_env[param.name] = param.type_ref
         continuation_local, alias_prefix = self._freeze_bound_capture(
@@ -1883,8 +1895,8 @@ class Builder:
         result = {
             "k": "join",
             "name": target,
-            "params": [[param_wire, self.desc(param.type_ref, d)]],
-            "result": self.desc(param.type_ref, d),
+            "params": [[param_wire, self.desc(param.type_ref, cont_local)]],
+            "result": self.desc(param.type_ref, cont_local),
             "body": body,
             "cont": continuation,
         }
@@ -1892,9 +1904,55 @@ class Builder:
             result["label"] = node.metadata.binding_label
         return result
 
+    def _check_loop_effect_cardinality(self, node: WccRecJoin, d: Definition) -> None:
+        if node.single_iteration_effect_kinds is None:
+            return
+        from types import SimpleNamespace
+
+        from ..wcc.defunctionalize import (
+            _effect_boundary_step_kind,
+            _iter_specialized_loop_effect_values,
+            _loop_effect_compile_error,
+        )
+        from .frontend import workflow_catalog_for
+
+        context = SimpleNamespace(
+            closed_program=True,
+            typed_procedures=d.source_program.procedures,
+            workflows_by_name=d.source_program.workflows,
+            workflow_catalog=workflow_catalog_for(d.source_program, d.owner),
+            procedure_type_envs=d.source_program.procedure_type_envs,
+            type_env=d.type_env,
+        )
+        effects = list(_iter_specialized_loop_effect_values(node.body, context=context))
+        kinds = [_effect_boundary_step_kind(effect) for effect in effects]
+        if len(kinds) != 1 or kinds[0] not in node.single_iteration_effect_kinds:
+            raise _loop_effect_compile_error(node,
+                code=node.effect_cardinality_diagnostic_code or "closed_program_gap",
+                message="loop iteration must contain exactly one permitted effect boundary after specialization")
+
+    def _retain_map_result_descriptors(self, descriptor_start, producers):
+        for index in range(descriptor_start, len(self.emitted_descriptors)):
+            descriptor, type_ref, typed, context, hint = self.emitted_descriptors[index]
+            self.emitted_descriptors[index] = (
+                descriptor, type_ref, typed, tuple(dict.fromkeys((*context, *producers))), hint)
+
+    def _bind_map_run_ref_result(self, node, descriptor_start, producer_start):
+        if node.single_iteration_effect_kinds is None:
+            return
+        producers = tuple(self.run_ref_producers[producer_start:])
+        if not producers or not self._run_ref_type_refs(node.metadata.type_ref):
+            return
+        self._retain_map_result_descriptors(descriptor_start, producers)
+        if len(producers) == 1:
+            self.run_ref_producers_by_effect[id(node)] = producers[0]
+
     def _loop(self, node: WccRecJoin, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
         if len(node.params) != 1 or node.initial_state is None:
             raise ValueError("closed loop requires one state parameter and an initial state")
+        self._check_loop_effect_cardinality(node, d)
+        descriptor_start = len(self.emitted_descriptors)
+        producer_start = len(self.run_ref_producers)
         budget = self.value(node.budget, d, env)
         initial = self.value(node.initial_state, d, env)
         loop_local, loop_wire = self.bind(d, node.loop_name, label=None)
@@ -1952,6 +2010,7 @@ class Builder:
             result["label"] = node.metadata.binding_label
         if index_wire is not None:
             result["index"] = index_wire
+        self._bind_map_run_ref_result(node, descriptor_start, producer_start)
         return result
 
     def binding(self, value: Any, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:

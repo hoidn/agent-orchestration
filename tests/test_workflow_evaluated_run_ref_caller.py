@@ -17,6 +17,7 @@ from orchestrator.workflow.run_ref import child, ledger, runtime
 from orchestrator.workflow.run_ref import launch_authority
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
+from orchestrator.workflow.run_ref.source import materialize_source
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
@@ -40,6 +41,9 @@ def _checked_parent_program(root, fixture, structure="direct", returns="String")
             body = '(call leaf :payload payload)'
         definitions += f'(defworkflow helper ((payload String)) -> String {body})'
         body = '(call helper :payload payload)'
+    elif structure == "loop":
+        body = f'''(loop/recur :max 2 :state (loop-state (current String payload))
+          :on-exhausted "exhausted" (fn (state) (done {body})))'''
     source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule parent) (export run) {definitions}
       (defworkflow run ((payload String)) -> String {body}))''')
@@ -80,7 +84,7 @@ def _allocate_launched(request, fixture, document, owner):
 
 
 @contextmanager
-def _checked_launch_fixture(tmp_path, *, allocate=True, structure="direct"):
+def _checked_launch_fixture(tmp_path, *, allocate=True, structure="direct", dynamic_index=0):
     fixture = _build_path_fixture(tmp_path)
     parent_workspace = tmp_path / "parent-workspace"
     parent_workspace.mkdir()
@@ -98,7 +102,7 @@ def _checked_launch_fixture(tmp_path, *, allocate=True, structure="direct"):
         run_ref_root=fixture.materialized_source.workspace_path.parents[4].as_posix(),
     ) as authority:
         owner = authority.run_files
-        identity = next(iter(site_classes(program))).replace("[*]", "[3]")
+        identity = next(iter(site_classes(program))).replace("[*]", f"[{dynamic_index}]")
         append_record(authority.memo_path, _started(identity), run_files=owner)
         append_record(authority.memo_path, {"record": "failed", "identity": identity,
                       "attempt": 1, "code": "fixture_retry", "exit_info": {}}, run_files=owner)
@@ -121,7 +125,7 @@ def _checked_launch_fixture(tmp_path, *, allocate=True, structure="direct"):
         yield request, fixture, document, owner
 
 
-@pytest.mark.parametrize("structure", ["direct", "call", "nested"])
+@pytest.mark.parametrize("structure", ["direct", "call", "nested", "loop"])
 def test_private_v2_requires_current_parent_launch_authority(tmp_path, monkeypatch, capsys, structure):
     compiled = []
     real_compile = child.compile_and_admit_path_program
@@ -142,6 +146,68 @@ def test_private_v2_requires_current_parent_launch_authority(tmp_path, monkeypat
         assert returned["workflow_outputs"] == {"__result__": "mode2-child-input"}
         assert document["parent_authority"]["attempt"] == 2
         assert ledger.load_attempt_ledger(_request.ledger_path, run_files=owner).rows[-1].attempt_ordinal == 1
+
+
+@pytest.mark.parametrize("issued_index", [0, 1])
+def test_private_loop_activation_cannot_use_other_iterations_launch(
+    tmp_path, monkeypatch, capsys, issued_index
+):
+    with _checked_launch_fixture(tmp_path, allocate=False, structure="loop", dynamic_index=issued_index) as (
+        request, fixture, document, owner
+    ):
+        issued_identity = document["parent_authority"]["identity"]
+        wrong_identity = issued_identity.replace(f"[{issued_index}]", f"[{1 - issued_index}]")
+        assert wrong_identity != issued_identity
+        memo_path = request.parent_run_root / "memo.jsonl"
+        append_record(memo_path, _started(wrong_identity), run_files=owner)
+        append_record(memo_path, {"record": "failed", "identity": wrong_identity,
+                      "attempt": 1, "code": "fixture_retry", "exit_info": {}}, run_files=owner)
+        append_record(memo_path, _started(wrong_identity, 2), run_files=owner)
+        authority = load_run_authority(request.parent_run_root, run_files=owner)
+        memo = read_memo(memo_path, site_classes(authority.program), run_files=owner)
+        assert set(memo.pending_starts) == {issued_identity, wrong_identity}
+        _allocate_other_loop_launch(request, fixture, wrong_identity, owner)
+        _allocate_launched(request, fixture, document, owner)
+        launch_authority.validate_parent_launch(document, parent_root_fd=owner.root_fd,
+            step_config=request.step_config, materialized_source=fixture.materialized_source)
+        assert ledger.load_attempt_ledger(request.ledger_path, run_files=owner).rows[-1].attempt_ordinal == 1
+        document["parent_authority"]["identity"] = wrong_identity
+        fixture.request_path.write_bytes(canonical_json_bytes(document))
+        before = _tree_bytes(request.parent_run_root)
+        observed = []
+        real_validate = launch_authority.validate_parent_launch
+
+        def observe_authority(*args, **kwargs):
+            try:
+                return real_validate(*args, **kwargs)
+            except ValueError as error:
+                observed.append(str(error))
+                raise
+
+        monkeypatch.setattr(launch_authority, "validate_parent_launch", observe_authority)
+        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        assert child.main(["--path-request", fixture.request_path.as_posix(),
+                           "--parent-root-fd", str(owner.root_fd)]) == 2
+        assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
+        assert observed == ["parent current head is not this launched visit"]
+        assert _tree_bytes(request.parent_run_root) == before
+
+
+def _allocate_other_loop_launch(request, fixture, identity, owner):
+    workspace = fixture.materialized_source.workspace_path.with_name("other-iteration")
+    materialized = materialize_source(request.step_config.run_ref.source,
+        run_ref_root=request.run_ref_root, workspace=workspace)
+    other = replace(fixture, materialized_source=materialized,
+        state_dir=workspace / ".orchestrate" / "runs")
+    visit = replace(request.visit,
+        step_id="root." + canonical_sha256(identity).removeprefix("sha256:"))
+    other_request = replace(request, visit=visit)
+    document = _path_request(other)
+    document.update(schema_version="run_ref_path_child_request.v2", parent_authority={
+        "run_root": request.parent_run_root.as_posix(), "identity": identity, "attempt": 2})
+    _allocate_launched(other_request, other, document, owner)
+    launch_authority.validate_parent_launch(document, parent_root_fd=owner.root_fd,
+        step_config=request.step_config, materialized_source=materialized)
 
 
 @pytest.mark.parametrize("field", ["inputs", "child_run_id", "clone_root", "child_state_dir", "test_control"])

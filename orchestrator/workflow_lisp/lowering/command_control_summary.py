@@ -95,6 +95,7 @@ _LEAF_EMITTERS = (
     ex.NameExpr, ex.FieldAccessExpr, ex.LiteralExpr, ex.PhaseTargetExpr, ex.PureOpExpr,
     ex.RecordUpdateExpr, ex.LoopStateSeedExpr, ex.LoopStateUpdateExpr, ex.ProviderBundlePathExpr,
     ex.EnumMemberExpr, ex.ListExpr, ex.ListMapExpr, ex.CompilerListNonemptyHeadExpr,
+    ex.RunRefExpr,
     ex.PathJoinUnderExpr, ex.UnionVariantTagExpr, ex.GeneratedRelpathSeedExpr,
 )
 
