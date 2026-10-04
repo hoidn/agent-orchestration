@@ -1885,6 +1885,7 @@ def _resolve_stage3_procedure_lowering(
     state: ValidationPipelineState,
     *,
     workflow_path: Path,
+    closed_program: bool = False,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> ValidationPipelineState:
     """Resolve module-level procedure lowering once after Stage-3 typing/effects."""
@@ -1894,6 +1895,7 @@ def _resolve_stage3_procedure_lowering(
     resolved_by_name = _resolve_procedure_lowering(
         state.typed_procedures,
         typed_workflows=state.typed_workflows,
+        closed_program=closed_program,
         workflow_path=workflow_path,
         type_env=state.type_env,
         procedure_type_envs=(
@@ -2366,6 +2368,7 @@ def _run_stage3_validation_pipeline(
                 },
             ),
             workflow_path=path,
+            closed_program=compiler_session.closed_program,
         )
         resolved_procedures_by_name = {
             procedure.definition.name: procedure
@@ -2461,6 +2464,7 @@ def _run_stage3_validation_pipeline(
                     typed_workflows=strict_workflows,
                 ),
                 workflow_path=path,
+                closed_program=compiler_session.closed_program,
             )
             typed_functions = retypecheck_resolved_function_definitions(
                 typed_functions,
@@ -3500,6 +3504,7 @@ def _compile_stage3_graph(
                 typed_workflows=typed_workflows,
             ),
             workflow_path=module_source.path,
+            closed_program=compiler_session.closed_program,
             procedure_type_envs={
                 procedure.definition.name: combined_procedure_type_envs[
                     procedure.definition.name
@@ -3621,6 +3626,7 @@ def _compile_stage3_graph(
                     typed_workflows=strict_workflows,
                 ),
                 workflow_path=module_source.path,
+                closed_program=compiler_session.closed_program,
                 procedure_type_envs=combined_procedure_type_envs,
             )
             typed_procedures = strict_state.typed_procedures

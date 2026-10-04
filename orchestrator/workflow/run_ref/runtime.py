@@ -65,6 +65,7 @@ from .ledger import (
     select_committed_reuse,
     settled_result_binding,
     settled_result_binding_from_record,
+    validate_pending_parent_commit,
 )
 from .source import (
     MaterializedSource,
@@ -3363,6 +3364,42 @@ def validate_completed_run_ref_authority(
     )
 
 
+def validate_run_ref_memo_authority(request, *, settled_result, artifacts, allow_pending):
+    """Validate an exact memo proof readonly, including the memo-to-ledger gap."""
+    try:
+        settled = settled_result_binding_from_record(settled_result)
+        if settled.visit != request.visit:
+            raise RunRefLedgerError("settled parent result disagrees with the expected visit")
+        ledger = load_attempt_ledger(request.ledger_path, run_files=request.run_files)
+        committed = any(row.visit == settled.visit and row.attempt_ordinal == settled.attempt_ordinal
+            and row.stage == "committed" for row in ledger.rows)
+        if committed or not allow_pending:
+            result = validate_completed_run_ref_authority(request, settled_result=settled_result,
+                artifacts=artifacts, reconcile_pending=False)
+            return result.envelope, result.artifacts
+        return _validate_pending_memo_authority(request, settled, artifacts, ledger)
+    except RunRefLedgerError as exc:
+        raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
+    except RunRefDeltaError as exc:
+        raise RunRefRuntimeError("run_ref_delta_capture_failed", ",".join(exc.secondary_causes)) from exc
+
+
+def _validate_pending_memo_authority(request, settled, artifacts, ledger):
+    validate_pending_parent_commit(request.ledger_path, visit=request.visit,
+        attempt_ordinal=settled.attempt_ordinal,
+        current_step_config_digest=request.step_config.step_config_digest,
+        settled_result=settled, run_files=request.run_files)
+    pending = [row for row in ledger.rows if row.row_digest == settled.pending_row_digest]
+    if len(pending) != 1:
+        raise RunRefLedgerError("pending parent settlement is ambiguous")
+    envelope, rebuilt = _validate_bound_authority(request, pending[0])
+    if dict(artifacts) != rebuilt:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "persisted_artifacts_binding_invalid")
+    if load_attempt_ledger(request.ledger_path, run_files=request.run_files) != ledger:
+        raise RunRefLedgerError("ledger changed while pending memo authority was validated")
+    return envelope, rebuilt
+
+
 def recover_run_ref_settlement(
     request: RunRefRuntimeRequest,
     *,
@@ -3556,6 +3593,7 @@ __all__ = [
     "reuse_run_ref_settlement",
     "select_run_ref_lifecycle_allocation",
     "validate_completed_run_ref_authority",
+    "validate_run_ref_memo_authority",
     "validate_run_ref_lifecycle_attempt_authority",
     "validate_run_ref_lifecycle_allocation",
 ]
