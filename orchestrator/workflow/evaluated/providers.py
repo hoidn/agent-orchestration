@@ -27,8 +27,12 @@ from orchestrator.contracts.output_contract import (
     ContractViolation, OutputContractError, validate_expected_outputs,
 )
 
-from .commands import CommandPerformerError, validate_effect_result
-from .prompts import assemble_provider_prompt, provider_expected_outputs
+from .commands import (
+    CommandPerformerError,
+    _require_native_result_contract,
+    validate_effect_result,
+)
+from .prompts import provider_expected_outputs
 
 
 class ProviderPerformerError(RuntimeError):
@@ -71,8 +75,20 @@ def resolve_provider_io(
     workspace: Path,
     reader: WorkflowIOReader | None,
 ) -> ProviderIOReads:
-    """Read one reached provider's source and dependency snapshot exactly once."""
+    """Read one checked provider's source and dependency snapshot exactly once."""
+    values = _checked_provider_values(node, operands)
+    return _resolve_provider_io_values(
+        node,
+        values,
+        workspace=workspace,
+        reader=reader,
+    )
 
+
+def _checked_provider_values(
+    node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
+) -> tuple[Any, ...]:
+    """Keep the legacy checked-node/value guard at the typed entry point."""
     if node.get("class") != "provider":
         raise TypeError("checked provider effect required")
     children = _effect_value_children(dict(node))
@@ -80,7 +96,17 @@ def resolve_provider_io(
         isinstance(value, EvaluatedValue) for value in operands
     ):
         raise ValueError("provider operands do not match the checked effect node")
-    values = tuple(value.json_value() for value in operands)
+    return tuple(value.json_value() for value in operands)
+
+
+def _resolve_provider_io_values(
+    node: Mapping[str, Any],
+    values: Sequence[Any],
+    *,
+    workspace: Path,
+    reader: WorkflowIOReader | None,
+) -> ProviderIOReads:
+    """Prepare captured source/dependency evidence from already-validated values."""
     prompt = node.get("prompt")
     if not isinstance(prompt, Mapping):
         raise ValueError("checked provider prompt shape is invalid")
@@ -163,16 +189,41 @@ def _snapshot_dependencies(node, values, workspace):
 
 def resolve_provider_input(node, operands, *, workspace, reader, result_path):
     """Capture a reached provider's request and all content-bound input parts."""
-    reads = resolve_provider_io(node, operands, workspace=workspace, reader=reader)
-    values = [value.json_value() for value in operands]
+    values = _checked_provider_values(node, operands)
+    return _resolve_provider_input_values(
+        node,
+        values,
+        workspace=workspace,
+        reader=reader,
+        result_path=result_path,
+    )
+
+
+def _resolve_provider_input_values(
+    node,
+    values: Sequence[Any],
+    *,
+    workspace,
+    reader,
+    result_path,
+):
+    """Prepare a provider request from plain values checked at its caller boundary."""
+    reads = _resolve_provider_io_values(
+        node,
+        values,
+        workspace=workspace,
+        reader=reader,
+    )
     fills = node["prompt"].get("fills", ())
     cursor = len(node["inputs"])
     fill_values = values[cursor : cursor + len(fills)]
     policy_count = len(node["policy"])
     policy_values = values[-policy_count:] if policy_count else ()
     policy = dict(zip(node["policy"], policy_values, strict=True))
-    prompt = assemble_provider_prompt(
-        node, operands, source_text=reads.source_text,
+    from .prompts import _assemble_provider_prompt_values
+
+    prompt = _assemble_provider_prompt_values(
+        node, values, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path,
     )
     dependency_rows = (
@@ -204,8 +255,18 @@ def perform_provider(
     node, resolved, identity, *, executor: ProviderExecutor,
     attempt_files: WorkspaceFiles, workspace_files: WorkspaceFiles,
     result_path: str,
+    native_result: bool = False,
 ):
     """Prepare once, dispatch at most once, and keep exclusive attempt evidence."""
+    if type(native_result) is not bool:
+        raise TypeError("native_result must be a boolean")
+    if native_result:
+        try:
+            _require_native_result_contract(node)
+        except CommandPerformerError as exc:
+            raise ProviderPerformerError(
+                "provider_result_contract", str(exc), exit_info=exc.exit_info
+            ) from exc
     attempt_files.create("prompt.txt", resolved.prompt.encode("utf-8"), exclusive=True)
     stdout, stderr = b"", b""
     try:
@@ -237,7 +298,14 @@ def perform_provider(
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
-    return _provider_result(node, resolved, attempt_files, workspace_files, result_path)
+    return _provider_result(
+        node,
+        resolved,
+        attempt_files,
+        workspace_files,
+        result_path,
+        native_result=native_result,
+    )
 
 
 def _prepare_provider_invocation(node, resolved, result_path, executor):
@@ -263,7 +331,9 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
     )
 
 
-def _provider_result(node, resolved, attempt_files, workspace_files, result_path):
+def _provider_result(
+    node, resolved, attempt_files, workspace_files, result_path, *, native_result=False
+):
     try:
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:
@@ -278,7 +348,11 @@ def _provider_result(node, resolved, attempt_files, workspace_files, result_path
             workspace_files=workspace_files, finite_floats=True,
         )
         result, digest, artifacts = validate_effect_result(
-            node, result_bytes, result_path, workspace_files
+            node,
+            result_bytes,
+            result_path,
+            workspace_files,
+            native_result=native_result,
         )
         overlap = sorted(set(expected) & set(artifacts))
         if overlap:

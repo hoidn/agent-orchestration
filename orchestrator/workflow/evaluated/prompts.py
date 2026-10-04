@@ -173,12 +173,31 @@ def assemble_provider_prompt(
     result_path: str,
 ) -> str:
     """Assemble a prompt from one checked provider operation and captured inputs."""
+    if checked_node.get("class") != "provider":
+        raise TypeError("checked provider effect node required")
+    operand_values = _evaluated_values(checked_node, evaluated_operands)
+    return _assemble_provider_prompt_values(
+        checked_node,
+        operand_values,
+        source_text=source_text,
+        dependency_snapshot=dependency_snapshot,
+        result_path=result_path,
+    )
 
+
+def _assemble_provider_prompt_values(
+    checked_node: Mapping[str, Any],
+    operand_values: Sequence[Any],
+    *,
+    source_text: str | None,
+    dependency_snapshot: DependencyContentSnapshot | None,
+    result_path: str,
+) -> str:
+    """Assemble from plain values already checked at the provider boundary."""
     if checked_node.get("class") != "provider":
         raise TypeError("checked provider effect node required")
     if not isinstance(result_path, str) or not result_path:
         raise ValueError("explicit provider result path is required")
-    operand_values = _evaluated_values(checked_node, evaluated_operands)
     input_rows = checked_node.get("inputs", ())
     prompt_data = checked_node.get("prompt")
     if not isinstance(prompt_data, Mapping):

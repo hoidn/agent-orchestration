@@ -30,6 +30,8 @@ from orchestrator.variables.substitution import (
 from orchestrator.workflow.type_descriptor import (
     command_boundary_row,
     command_boundary_value,
+    is_transportable_type_descriptor,
+    transport_descriptor_for_schema,
 )
 
 
@@ -56,6 +58,15 @@ class CommandTemplateError(ValueError):
         super().__init__(message)
 
 
+def _serialize_inline_command_document(fields: Sequence[tuple[str, Any]]) -> bytes:
+    """Serialize ordered, already-validated command document fields."""
+    payload = {field: value for field, value in fields}
+    try:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise CommandTemplateError(f"checked command document is not finite JSON: {exc}", code="effect_input_invalid") from exc
+
+
 def inline_command_document(
     node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
 ) -> bytes | None:
@@ -70,14 +81,11 @@ def inline_command_document(
     values = operands[len(node["argv"]) + slot_count:]
     if len(values) != len(node["document"]):
         raise CommandTemplateError("checked command document operands are incomplete", code="memo_inconsistent")
-    payload = {
-        field: value.json_value()
+    fields = (
+        (field, value.json_value())
         for (field, _expression), value in zip(node["document"], values, strict=True)
-    }
-    try:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
-        raise CommandTemplateError(f"checked command document is not finite JSON: {exc}", code="effect_input_invalid") from exc
+    )
+    return _serialize_inline_command_document(tuple(fields))
 
 
 def render_command_argv(
@@ -167,8 +175,13 @@ def perform_command(
     workspace_files: WorkspaceFiles,
     input_document: bytes | None = None,
     timeout_sec: float | None = None,
-) -> tuple[EvaluatedValue, str]:
+    native_result: bool = False,
+) -> tuple[Any, str]:
     """Launch one already-resolved command and validate its attempt-owned result."""
+    if type(native_result) is not bool:
+        raise TypeError("native_result must be a boolean")
+    if native_result:
+        _require_native_result_contract(node)
     launch_argv = list(argv)
     if not launch_argv or any(not isinstance(token, str) for token in launch_argv):
         raise ValueError("final command argv must contain string tokens")
@@ -225,16 +238,43 @@ def perform_command(
             f"cannot read evaluated command result at {result_path}: {exc}",
         ) from exc
 
-    value, digest, _artifacts = validate_effect_result(node, result_bytes, result_path, workspace_files)
+    value, digest, _artifacts = validate_effect_result(
+        node,
+        result_bytes,
+        result_path,
+        workspace_files,
+        native_result=native_result,
+    )
     return value, digest
 
 
 def validate_effect_result(
     node: Mapping[str, Any], result_bytes: bytes, result_path: str,
     workspace_files: WorkspaceFiles,
-) -> tuple[EvaluatedValue, str, dict[str, Any]]:
+    *,
+    native_result: bool = False,
+) -> tuple[Any, str, dict[str, Any]]:
     """Validate and project bytes acquired from either effect's pinned attempt."""
-    artifacts = _validate_result_bytes(node, result_bytes, result_path, workspace_files)
+    if type(native_result) is not bool:
+        raise TypeError("native_result must be a boolean")
+    if native_result:
+        _require_native_result_contract(node)
+    artifacts = _validate_result_bytes(
+        node,
+        result_bytes,
+        result_path,
+        workspace_files,
+        strict_transport_values=native_result,
+    )
+    digest = "sha256:" + sha256(result_bytes).hexdigest()
+    if native_result:
+        try:
+            return artifacts["__result__"], digest, artifacts
+        except KeyError as exc:
+            raise CommandPerformerError(
+                "command_result_contract",
+                "native result contract did not validate its root value",
+            ) from exc
     projected = _project_checked_result(node, artifacts)
     projected = _restore_record_containers(
         projected,
@@ -247,7 +287,40 @@ def validate_effect_result(
         committed_result_path=result_path,
         context=f"evaluated {node['class']} result",
     )
-    return value, "sha256:" + sha256(result_bytes).hexdigest(), artifacts
+    return value, digest, artifacts
+
+
+def _require_native_result_contract(node: Mapping[str, Any]) -> None:
+    """Require one strict transportable whole-value root before dispatch."""
+    try:
+        if not isinstance(node, Mapping):
+            raise ValueError("native results require a checked effect mapping")
+        contract = node.get("contract")
+        if not isinstance(contract, Mapping) or contract.get("kind") != "output_bundle":
+            raise ValueError("native results require an output-bundle contract")
+        payload = contract.get("payload")
+        fields = payload.get("fields") if isinstance(payload, Mapping) else None
+        if not isinstance(fields, list) or len(fields) != 1:
+            raise ValueError("native results require exactly one root field")
+        root = fields[0]
+        if (
+            not isinstance(root, Mapping)
+            or root.get("name") != "__result__"
+            or root.get("json_pointer") != ""
+            or root.get("required", True) is not True
+        ):
+            raise ValueError("native results require a required __result__ at the root pointer")
+        descriptor = transport_descriptor_for_schema(root)
+        if not is_transportable_type_descriptor(
+            descriptor,
+            allow_nested_structures=True,
+        ):
+            raise ValueError("native result root is not strictly transportable")
+    except (RecursionError, TypeError, ValueError, KeyError) as exc:
+        raise CommandPerformerError(
+            "command_result_contract",
+            f"native result contract is invalid: {exc}",
+        ) from exc
 
 
 def workspace_relative_path(workspace: Path, target: Path) -> str:
@@ -259,6 +332,8 @@ def _validate_result_bytes(
     result_bytes: bytes,
     result_path: str,
     workspace_files: WorkspaceFiles,
+    *,
+    strict_transport_values: bool = False,
 ) -> dict[str, Any]:
     contract = node["contract"]
     kind = contract["kind"]
@@ -270,6 +345,7 @@ def _validate_result_bytes(
             result_bytes,
             workspace_files,
             finite_floats=True,
+            strict_transport_values=strict_transport_values,
         )
     if kind == "variant_output":
         return _validate_variant_output_bundle_document_bytes(
