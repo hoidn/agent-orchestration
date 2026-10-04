@@ -9,12 +9,44 @@ from typing import Any, Mapping
 
 from orchestrator._common.status import is_run_terminal
 from orchestrator.dashboard.cursor import ExecutionCursorProjector
+from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.workflow.evaluated.views import load_evaluated_view
 
 from .models import MonitorEvent, MonitorEventKind, MonitorRun
 from .process import process_identity_matches
 
 
-def classify_run(
+def classify_run(run: MonitorRun, *, now: datetime | None = None,
+                 stale_after_seconds: int) -> MonitorEvent | None:
+    if run.state is not None and run.state.get("result_persistence_profile") == PROFILE:
+        return _classify_evaluated_run(run, now=now)
+    return _classify_legacy_run(run, now=now, stale_after_seconds=stale_after_seconds)
+
+
+def _classify_evaluated_run(run, *, now):
+    run = _refresh_evaluated_run(run)
+    if run.state is None:
+        return None
+    event = {
+        "completed": (MonitorEventKind.COMPLETED, "state_completed"),
+        "failed": (MonitorEventKind.FAILED, "state_failed"),
+        "interrupted": (MonitorEventKind.CRASHED, "evaluated_writer_lock_released_interrupted"),
+    }.get(run.state["status"])
+    if event is None:
+        return None
+    return MonitorEvent(event[0], run, event[1], _normalize_now(now).isoformat())
+
+
+def _refresh_evaluated_run(run):
+    try:
+        state = load_evaluated_view(run.run_root)
+    except (OSError, ValueError) as exc:
+        return replace(run, state=None, process=None,
+                       read_error=f"{getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
+    return replace(run, state=state, process=None, read_error=None)
+
+
+def _classify_legacy_run(
     run: MonitorRun,
     *,
     now: datetime | None = None,

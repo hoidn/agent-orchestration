@@ -173,3 +173,43 @@ def test_pure_failed_terminal_reports_its_error_without_outputs(tmp_path, capsys
     assert payload["run"]["error"]["code"] == "pure_expr_division_by_zero"
     assert payload["run"]["workflow_outputs"] is None
     assert _tree_bytes(tmp_path) == before
+
+
+def test_monitor_reads_evaluated_root_without_state(tmp_path, monkeypatch, capsys):
+    from orchestrator.cli.main import main
+    from orchestrator.monitor.emailer import SmtpEmailSender
+    from tests.test_monitor_cli import _write_config
+    from tests.test_workflow_evaluated_views import _forbid_mutable_paths
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    (run_root / "state.json").unlink()
+    config = _write_config(tmp_path, workspace)
+    ledger = tmp_path / "notifications.json"
+    sent = []
+    send = SmtpEmailSender.send
+
+    def preview(sender, message, *, dry_run=False):
+        result = send(sender, message, dry_run=dry_run)
+        sent.append((dry_run, result.sent))
+        return result
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("dry-run monitor attempted SMTP delivery")
+
+    monkeypatch.setattr("smtplib.SMTP.send_message", forbidden)
+    monkeypatch.setattr("smtplib.SMTP", forbidden)
+    monkeypatch.setattr(SmtpEmailSender, "send", preview)
+    _forbid_mutable_paths(monkeypatch)
+    before = _tree_bytes(workspace)
+    result = main(["monitor", "--config", str(config), "--once", "--dry-run", "--ledger", str(ledger)])
+    output = capsys.readouterr().out
+    assert result == 0
+    assert f"[orchestrator] COMPLETED repo {run_root.name}" in output
+    assert sent == [(True, False)]
+    from tests.test_workflow_evaluated_invalidate import _cli
+    public = _cli(workspace, "monitor", "--config", str(config), "--once", "--dry-run", "--ledger", str(ledger))
+    assert public.returncode == 0 and "COMPLETED" in public.stdout
+    assert not ledger.exists()
+    assert _tree_bytes(workspace) == before

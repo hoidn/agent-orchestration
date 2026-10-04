@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Mapping
 
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+
 from .models import MonitorConfig, MonitorRun, MonitorWorkspace
 from .process import read_process_metadata
 
@@ -40,13 +42,36 @@ def _scan_workspace(workspace: MonitorWorkspace) -> list[MonitorRun]:
     runs: list[MonitorRun] = []
     for run_root in run_dirs:
         state_path = run_root / "state.json"
-        if not state_path.exists() and not state_path.is_symlink():
-            continue
-        runs.append(_read_run(workspace, run_root, state_path))
+        run = _read_run(workspace, run_root, state_path)
+        if run is not None:
+            runs.append(run)
     return runs
 
 
-def _read_run(workspace: MonitorWorkspace, run_root: Path, state_path: Path) -> MonitorRun:
+def _read_run(workspace: MonitorWorkspace, run_root: Path, state_path: Path) -> MonitorRun | None:
+    try:
+        resolved = run_root.resolve(strict=True)
+        resolved.relative_to(workspace.path.expanduser().resolve(strict=False))
+    except (OSError, ValueError, RuntimeError) as exc:
+        return MonitorRun(workspace, run_root.name, run_root, state_path,
+                          read_error=f"run root is unsafe or escapes workspace: {exc}")
+    if has_evaluated_authority(resolved):
+        return _read_evaluated_run(workspace, run_root.name, resolved, state_path)
+    if not state_path.exists() and not state_path.is_symlink():
+        return None
+    return _read_legacy_run(workspace, run_root, state_path)
+
+
+def _read_evaluated_run(workspace, run_dir_id, run_root, state_path):
+    try:
+        state = load_evaluated_view(run_root)
+    except (OSError, ValueError) as exc:
+        return MonitorRun(workspace, run_dir_id, run_root, state_path,
+                          read_error=f"{getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
+    return MonitorRun(workspace, run_dir_id, run_root, state_path, state=state)
+
+
+def _read_legacy_run(workspace: MonitorWorkspace, run_root: Path, state_path: Path) -> MonitorRun:
     try:
         resolved_run_root = run_root.resolve(strict=False)
         resolved_state_path = state_path.resolve(strict=True)

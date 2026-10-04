@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Mapping
 
+from orchestrator.workflow.evaluated.authority import PROFILE
+
 from .models import MonitorConfig, MonitorEvent
 
 MAX_STREAM_PREVIEW_CHARS = 4096
 MAX_TOTAL_LOG_PREVIEW_CHARS = 8192
-SECRET_LINE_RE = re.compile(r"(?i)\\b(password|secret|token|api[_-]?key)\\b\\s*[:=]")
+SECRET_LINE_RE = re.compile(r"(?i)\b(password|secret|token|api[_-]?key)\b\s*[:=]")
 
 
 def render_event_email(event: MonitorEvent, config: MonitorConfig) -> EmailMessage:
@@ -40,19 +43,15 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
         f"Persisted status: {state.get('status', '')}",
         f"Started at: {state.get('started_at', '')}",
         f"Updated at: {state.get('updated_at', '')}",
-        f"Heartbeat at: {_heartbeat_at(state) or ''}",
+        *([] if state.get("result_persistence_profile") == PROFILE else [f"Heartbeat at: {_heartbeat_at(state) or ''}"]),
         f"Observed at: {event.observed_at}",
         f"Current/failed step: {step_name or ''}",
     ]
+    lines.extend(_attempt_lines(state, step_name))
     error = _error_summary(state, step_name)
     if error:
         lines.append(f"Error: {error}")
-    workflow_outputs = state.get("workflow_outputs")
-    if isinstance(workflow_outputs, Mapping) and workflow_outputs:
-        lines.append("")
-        lines.append("Workflow outputs:")
-        for key, value in workflow_outputs.items():
-            lines.append(f"- {key}: {value}")
+    lines.extend(_workflow_output_lines(state))
     lines.extend(
         [
             "",
@@ -62,7 +61,7 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
             f"- python -m orchestrator resume {event.run.run_dir_id}",
         ]
     )
-    previews = _safe_log_previews(event.run.run_root, step_name, _secret_values(config))
+    previews = _safe_log_previews(event.run.run_root, step_name, _secret_values(config), state)
     if previews:
         lines.append("")
         lines.append("Log previews:")
@@ -70,7 +69,45 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _workflow_output_lines(state):
+    outputs = state.get("workflow_outputs")
+    if state.get("result_persistence_profile") == PROFILE:
+        if state["status"] != "completed":
+            return []
+        return ["", "Workflow outputs:", json.dumps(outputs, ensure_ascii=False, allow_nan=False)]
+    if isinstance(outputs, Mapping) and outputs:
+        return ["", "Workflow outputs:", *[f"- {key}: {value}" for key, value in outputs.items()]]
+    return []
+
+
+def _evaluated_step_identity(state):
+    current = state["current_step"]
+    if current is not None:
+        return current["identity"]
+    return state["next_effect"] or next((identity for identity, row in reversed(state["steps"].items())
+        if row["status"] != "invalidated"), None)
+
+
+def _attempt_lines(state, step_name):
+    if state.get("result_persistence_profile") == PROFILE and step_name in state["steps"] and state["steps"][step_name]["status"] != "invalidated":
+        return [f"Attempt: {state['steps'][step_name]['attempt']}"]
+    return []
+
+
+def _stream_paths(run_root, step_name, state):
+    if state.get("result_persistence_profile") == PROFILE:
+        row = state["steps"].get(step_name)
+        if row is None or row["status"] == "invalidated":
+            return ()
+        directory = run_root / Path(row["result_path"]).parent
+        return tuple(directory / f"{suffix}.txt" for suffix in ("stdout", "stderr"))
+    directory = (run_root / "logs").resolve(strict=False)
+    return tuple(directory / f"{step_name}.{suffix}" for suffix in ("stdout", "stderr"))
+
+
 def _current_or_failed_step(state: Mapping[str, Any]) -> str | None:
+    if state.get("result_persistence_profile") == PROFILE:
+        return _evaluated_step_identity(state)
     current_step = state.get("current_step")
     if isinstance(current_step, Mapping):
         name = current_step.get("name") or current_step.get("step_id")
@@ -85,6 +122,8 @@ def _current_or_failed_step(state: Mapping[str, Any]) -> str | None:
 
 
 def _error_summary(state: Mapping[str, Any], step_name: str | None) -> str:
+    if state.get("result_persistence_profile") == PROFILE:
+        return _evaluated_error_summary(state, step_name)
     error = state.get("error")
     if isinstance(error, Mapping):
         return _format_error(error)
@@ -98,6 +137,13 @@ def _error_summary(state: Mapping[str, Any], step_name: str | None) -> str:
             if isinstance(payload, Mapping) and isinstance(payload.get("error"), Mapping):
                 return _format_error(payload["error"])
     return ""
+
+
+def _evaluated_error_summary(state, step_name):
+    row = state["steps"].get(step_name, {})
+    row_error = None if row.get("status") == "invalidated" else row.get("error")
+    error = state["error"] or row_error
+    return _format_error(error) if isinstance(error, Mapping) else ""
 
 
 def _format_error(error: Mapping[str, Any]) -> str:
@@ -118,20 +164,20 @@ def _heartbeat_at(state: Mapping[str, Any]) -> str | None:
     return heartbeat if isinstance(heartbeat, str) else None
 
 
-def _safe_log_previews(run_root: Path, step_name: str | None, secrets: tuple[str, ...]) -> list[str]:
+def _safe_log_previews(run_root: Path, step_name: str | None, secrets: tuple[str, ...], state: Mapping[str, Any]) -> list[str]:
     if not step_name:
         return []
-    logs_root = (run_root / "logs").resolve(strict=False)
     previews: list[str] = []
     total = 0
-    for suffix in ("stdout", "stderr"):
-        path = logs_root / f"{step_name}.{suffix}"
+    for path in _stream_paths(run_root, step_name, state):
         try:
             resolved = path.resolve(strict=True)
             resolved.relative_to(run_root.resolve(strict=False))
+            if not resolved.is_file():
+                continue
         except (OSError, ValueError):
             continue
-        if resolved.name.endswith(".prompt.txt") or "provider_sessions" in resolved.parts:
+        if resolved.name == "prompt.txt" or resolved.name.endswith(".prompt.txt") or "provider_sessions" in resolved.parts:
             continue
         try:
             text = resolved.read_text(encoding="utf-8", errors="replace")
