@@ -1083,6 +1083,14 @@ refuse. Apply the same principle to stored-profile selection before
 `StateManager` or typed authority loading, without a second independent target
 flag. See the [Task 1 receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-1--exact-typed-routing).
 
+A public CLI source read/header failure before target selection refuses without invoking
+any backend or allocating state. Preserve the reader/header diagnostic and
+existing CLI request/export diagnostic precedence. Configuration that has not
+been loaded cannot supply an elaborated compile-request identity; do not load
+or compile imports to reconstruct it. Source errors therefore precede errors
+in that unobserved configuration. The [LSP parity contract](workflow_lisp_language_server.md#compile-request-and-diagnostic-parity)
+separates this refusal evidence from full F2 for actual compilation attempts.
+
 Each effect is one request to an existing performer, not a compiled leaf workflow
 or child run. Shared callable boundaries receive immutable resolved inputs and
 the allocated attempt files. State transitions belong to the calling run owner;

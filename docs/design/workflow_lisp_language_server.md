@@ -861,6 +861,17 @@ LSP messages.
 
 ### Compile-request and diagnostic parity
 
+Full F2 applies when both paths reach the selected frontend compiler. A public CLI
+source read/header refusal before frontend dispatch is a separate check: retain the
+available source/read evidence and compare the complete diagnostic identity
+after `with_diagnostic_metadata`, without that CLI path invoking a backend or publishing
+files. That CLI refusal has no elaborated `compile_request_capture`; do not load
+configuration or recursively compile imports merely to manufacture one. The LSP
+retains its existing compilation path and any real capture it produces; its
+configuration failure remains a distinct initialization failure. Preserve full
+F2 coverage for failed compilations with a valid header and a real compiler
+error, including a nonempty diagnostic sequence and the complete capture.
+
 F2 is an equality contract, not a comparison of whichever diagnostics happen
 to be rendered. The server and the parity dry-run CLI must expose the following
 normalized compile-request tuple at the shared seam **before** CLI entry
@@ -2562,8 +2573,9 @@ production compiler.
 
 ## Stop / Revise Criteria
 
-- The LSP and CLI cannot construct exactly equal normalized pre-entry
-  compile-request tuples through production loaders → stop; do not weaken F2
+- For requests reaching the selected compiler, the LSP and CLI cannot construct
+  exactly equal normalized pre-entry compile-request tuples through production
+  loaders → stop; do not weaken F2
   to output similarity or add LSP-only defaults.
 - Initialization cannot establish exactly one immutable canonical workspace
   root plus the exact compiler-owned builtin stdlib dependency root, with
