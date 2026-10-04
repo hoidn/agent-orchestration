@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import json
 import math
 
@@ -22,6 +23,27 @@ from orchestrator.workflow.type_descriptor import (
 from orchestrator.workflow.run_ref.result_contract import (
     is_transportable_type_descriptor as run_ref_is_transportable,
 )
+
+
+def test_transport_path_callback_keeps_two_arguments_and_valueerror_message():
+    import pytest
+    from orchestrator.workflow.type_descriptor import validate_transport_value
+
+    path_type = {"kind": "path", "name": "Report", "under": "artifacts", "must_exist_target": False}
+    descriptor = {"kind": "list", "item": path_type}
+    seen = []
+
+    def reject(path, contract):
+        seen.append((path, contract))
+        raise ValueError("original callback rejection")
+
+    with pytest.raises(ValueError) as caught:
+        validate_transport_value(["artifacts/report.md"], descriptor,
+            allow_nested_structures=True, path_validator=reject)
+    assert seen == [("artifacts/report.md", path_type)]
+    assert str(caught.value) == "original callback rejection"
+    assert caught.value.value_path == "$/0"
+    assert caught.value.violation is None
 
 
 def _primitive(name: str) -> dict[str, object]:

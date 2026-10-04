@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing, nullcontext
 from dataclasses import replace
 import hashlib
 import logging
@@ -17,7 +18,6 @@ from orchestrator.workflow.evaluated.closure import (
 from orchestrator.workflow.evaluated.commands import (
     CommandPerformerError,
     CommandTemplateError,
-    inline_command_document,
     perform_command,
     render_command_argv,
     workspace_relative_path,
@@ -46,6 +46,7 @@ from .run_ref import (
 from .authority import RunAuthority, _require_retained_root
 from .machine import evaluate_closed_program, site_classes
 from .views import ViewPublicationError
+from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def execute_pure_run(
 
         provider_executor = None
 
-        def handle(node, operands, identity, _owner, reader):
+        def handle(node, operands, identity, owner, reader):
             nonlocal provider_executor
             if node.get("class") not in {"command", "provider", "run_ref"}:
                 raise RuntimeError("unsupported evaluated effect class")
@@ -104,6 +105,7 @@ def execute_pure_run(
                 node,
                 operands,
                 identity,
+                owner=owner,
                 workspace=workspace,
                 run_files=run_files,
                 workspace_files=workspace_files,
@@ -190,20 +192,20 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     consumed = 0
 
-    def handle(node, operands, identity, _owner, reader):
+    def handle(node, operands, identity, owner, reader):
         nonlocal consumed
         commit = snapshot.active_commits.get(identity)
         if commit is not None:
             if consumed >= len(commits) or commits[consumed].offset != commit.offset:
                 raise MemoError("memo_inconsistent", "active commits are not reachable in journal order")
             result = _replay_committed_effect(
-                authority, node, operands, identity, reader, commit, workspace, snapshot
+                authority, node, operands, identity, reader, commit, workspace, snapshot, owner
             )
             consumed += 1
             return result
         if consumed != len(commits):
             raise MemoError("memo_inconsistent", "an active commit is unreachable from the evaluated program")
-        _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace)
+        _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner)
         raise _ResumeBoundary
 
     try:
@@ -240,11 +242,11 @@ def _replayed_halt_result(snapshot, value, reached_boundary):
     return 0, terminal.data["value"]
 
 
-def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot):
+def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner):
     resolved, parts, _implementation_files = _resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, None, None, commit.data["result_path"],
-        check_command_destinations=False,
+        check_command_destinations=False, owner=owner,
     )
     dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
     result = _reuse_effect_commit(
@@ -256,7 +258,7 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     return result
 
 
-def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace) -> None:
+def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner) -> None:
     _ensure_effect_can_start(snapshot, identity, allow_unsettled=True)
     if node["class"] == "run_ref":
         require_run_ref_root(authority)
@@ -265,14 +267,14 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
         _ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
-            None, baseline, attempt_directory, result_path,
+            None, baseline, attempt_directory, result_path, owner=owner,
             check_command_destinations=False,
         )
     elif node["class"] == "provider" and identity in snapshot.pending_starts:
         _ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
-            None, baseline, attempt_directory, result_path,
+            None, baseline, attempt_directory, result_path, owner=owner,
         )
     if baseline is not None and node.get("repeat") == "never":
         raise _PreflightRefusal(
@@ -332,6 +334,7 @@ def _execute_effect(
     operands: Sequence[EvaluatedValue],
     identity: str,
     *,
+    owner: str,
     workspace: Path,
     run_files: WorkspaceFiles,
     workspace_files: WorkspaceFiles,
@@ -350,7 +353,7 @@ def _execute_effect(
         else (None, None, commit.data["result_path"]))
     resolved, parts, implementation_files = _resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
-        commit, baseline, attempt_directory, result_path,
+        commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files,
     )
     input_digest = canonical_sha256(parts)
     dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
@@ -381,21 +384,12 @@ def _reuse_reached_commit(authority, node, identity, parts, input_digest, depend
 
 def _resolve_effect_input(
     authority, node, operands, identity, workspace, reader,
-    commit, baseline, attempt_directory, result_path, *, check_command_destinations=True,
+    commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True,
 ):
     """Resolve only the reached effect; command closure checks stay local."""
     if node["class"] == "command":
-        previous = commit if commit is not None else baseline
-        resolved, document_bytes = _render_resolved_argv(node, operands, commit, identity)
-        destinations = (
-            _command_destinations(authority, attempt_directory, result_path)
-            if commit is None and check_command_destinations
-            else ()
-        )
-        implementation_files = _resolve_command_implementation(node, workspace, identity,
-            None if previous is None else previous.data["implementation_files"], destinations)
-        _check_retry_implementation(identity, baseline, implementation_files)
-        parts = _command_input_parts(node, resolved, implementation_files, document_bytes)
+        return _resolve_command_input(authority, node, operands, identity, owner, workspace,
+            commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations)
     elif node["class"] == "run_ref":
         require_run_ref_root(authority)
         resolved, parts = resolve_run_ref_input(node, operands)
@@ -428,18 +422,43 @@ def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_uns
         )
 
 
-def _render_resolved_argv(node, operands, commit, identity):
+def _resolve_command_input(authority, node, operands, identity, owner, workspace,
+    commit, baseline, attempt_directory, result_path, workspace_files, check_destinations):
+    previous = commit if commit is not None else baseline
+    external = command_binding_kind(authority.program, owner, node["boundary"]) == "external_tool"
+    with nullcontext(workspace_files) if workspace_files is not None else closing(WorkspaceFiles(workspace)) as files:
+        argv, document, contract = _render_resolved_argv(node, operands, commit, identity,
+            external=external, workspace=workspace, workspace_files=files)
+    destinations = (_command_destinations(authority, attempt_directory, result_path,
+        include_input=external and document is not None)
+        if commit is None and check_destinations else ())
+    implementation_files = _resolve_command_implementation(node, workspace, identity,
+        None if previous is None else previous.data["implementation_files"], destinations)
+    _check_retry_implementation(identity, baseline, implementation_files)
+    parts = _command_input_parts(node, argv, implementation_files, document)
+    if external and document is not None:
+        parts["input_contract"] = canonical_sha256(contract)
+    return (argv, document if external else None), parts, implementation_files
+
+
+def _render_resolved_argv(node, operands, commit, identity, *, external, workspace, workspace_files):
     try:
         tail = render_command_argv(node, operands)
-    except CommandTemplateError as exc:
+        document, contract = prepare_command_document(node, operands, external=external,
+            workspace=workspace, workspace_files=workspace_files)
+    except (CommandTemplateError, DocumentInputError) as exc:
         if commit is not None:
-            raise _EffectInputDiverged(identity, f"template resolution failed: {exc}") from exc
+            detail = "document validation failed" if isinstance(exc, DocumentInputError) else "template resolution failed"
+            error = _EffectInputDiverged(identity, f"{detail}: {exc}")
+            if isinstance(exc, DocumentInputError):
+                error.field, error.value_path, error.violation = exc.field, exc.value_path, exc.violation
+                error.violations = exc.violations
+            raise error from exc
         raise
-    document = inline_command_document(node, operands)
     argv = [*node["command"], *tail]
-    if document is not None:
+    if document is not None and not external:
         argv.append(document.decode("utf-8"))
-    return argv, document
+    return argv, document, contract
 
 
 def _resolve_command_implementation(node, workspace, identity, previous, destinations):
@@ -572,8 +591,12 @@ def _start_and_perform_effect(
         attempt_files.close()
 
 
-def _dispatch_command(authority, node, resolved_argv, attempt_files, workspace_files):
+def _dispatch_command(authority, node, resolved_request, attempt_files, workspace_files):
+    resolved_argv, document = resolved_request
     launch_argv = list(resolved_argv)
+    if document is not None:
+        launch_argv.append(workspace_relative_path(workspace_files.workspace,
+            attempt_files.workspace / "inputs.json"))
     interpreter = node["command"][0]
     if "/" not in interpreter:
         pin = authority.header["interpreters"].get(interpreter)
@@ -588,6 +611,7 @@ def _dispatch_command(authority, node, resolved_argv, attempt_files, workspace_f
         launch_argv,
         attempt_files=attempt_files,
         workspace_files=workspace_files,
+        input_document=document,
     )
 
 
@@ -666,6 +690,7 @@ def _command_destinations(
     authority: RunAuthority,
     attempt_directory: str,
     result_path: str,
+    *, include_input: bool = False,
 ) -> tuple[Path, ...]:
     run_root = authority.run_root
     attempt_root = run_root / attempt_directory
@@ -676,6 +701,8 @@ def _command_destinations(
         attempt_root / "stderr.txt",
         authority.memo_path,
     ]
+    if include_input:
+        paths.append(attempt_root / "inputs.json")
     return tuple(paths)
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
-import json
 import os
 from pathlib import Path
 from importlib.machinery import PathFinder
@@ -56,11 +55,7 @@ class CommandTemplateError(ValueError):
         super().__init__(message)
 
 
-def inline_command_document(
-    node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
-) -> bytes | None:
-    if "document" not in node:
-        return None
+def command_document_operands(node, operands):
     slot_count = sum(
         part.get("kind") == "slot"
         for plan in node.get("argv_transport", ())
@@ -70,14 +65,7 @@ def inline_command_document(
     values = operands[len(node["argv"]) + slot_count:]
     if len(values) != len(node["document"]):
         raise CommandTemplateError("checked command document operands are incomplete", code="memo_inconsistent")
-    payload = {
-        field: value.json_value()
-        for (field, _expression), value in zip(node["document"], values, strict=True)
-    }
-    try:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
-        raise CommandTemplateError(f"checked command document is not finite JSON: {exc}", code="effect_input_invalid") from exc
+    return values
 
 
 def render_command_argv(

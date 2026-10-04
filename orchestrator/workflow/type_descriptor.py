@@ -20,6 +20,15 @@ COMPILER_PRIMITIVE_TYPE_NAMES = frozenset(
 )
 
 
+class _TransportValueError(ValueError):
+    """A transport failure retains its known leaf and optional path violation."""
+
+    def __init__(self, message, *, value_path=None, violation=None):
+        super().__init__(message)
+        self.value_path = value_path
+        self.violation = violation
+
+
 def _require_exact_descriptor_keys(
     descriptor: Mapping[str, Any],
     expected: set[str],
@@ -872,14 +881,14 @@ def validate_transport_value(
     try:
         validate_compiler_normalized_type_descriptor(descriptor)
     except (RecursionError, TypeError, ValueError) as exc:
-        raise ValueError("normalized type descriptor is invalid") from exc
+        raise _TransportValueError("normalized type descriptor is invalid", value_path="$") from exc
     if _descriptor_exceeds_transport_depth(descriptor, depth=0):
-        raise ValueError("transport descriptor exceeds the maximum depth")
+        raise _TransportValueError("transport descriptor exceeds the maximum depth", value_path="$")
     if not is_transportable_type_descriptor(
         descriptor,
         allow_nested_structures=allow_nested_structures,
     ):
-        raise ValueError("normalized type descriptor is not transportable")
+        raise _TransportValueError("normalized type descriptor is not transportable", value_path="$")
     normalized = _validate_descriptor_value(
         value,
         descriptor,
@@ -897,9 +906,9 @@ def validate_transport_value(
             allow_nan=False,
         ).encode("utf-8")
     except (TypeError, ValueError) as exc:
-        raise ValueError("transport value is not canonical JSON") from exc
+        raise _TransportValueError("transport value is not canonical JSON", value_path="$") from exc
     if len(encoded) > MAX_TRANSPORT_VALUE_BYTES:
-        raise ValueError("transport value exceeds the canonical JSON byte limit")
+        raise _TransportValueError("transport value exceeds the canonical JSON byte limit", value_path="$")
     return normalized
 
 
@@ -954,7 +963,7 @@ def _validate_descriptor_value(
     path_validator: Callable[[str, Mapping[str, Any]], Any] | None,
 ) -> Any:
     if depth > MAX_TRANSPORT_VALUE_DEPTH:
-        raise ValueError("transport value exceeds the maximum depth")
+        raise _TransportValueError("transport value exceeds the maximum depth", value_path=value_path)
     kind = descriptor["kind"]
     if kind == "primitive":
         return _validate_primitive_value(
@@ -966,14 +975,10 @@ def _validate_descriptor_value(
         )
     if kind == "enum":
         if type(value) is not str or value not in descriptor["allowed"]:
-            raise ValueError(f"{value_path} is not an allowed enum value")
+            raise _TransportValueError(f"{value_path} is not an allowed enum value", value_path=value_path)
         return value
     if kind == "path":
-        if type(value) is not str:
-            raise ValueError(f"{value_path} is not a path string")
-        if path_validator is None:
-            return value
-        return path_validator(value, descriptor)
+        return _validate_transport_path(value, descriptor, value_path, path_validator)
     if kind == "optional":
         if value is None:
             return None
@@ -987,9 +992,10 @@ def _validate_descriptor_value(
         )
     if kind == "list":
         if type(value) is not list:
-            raise ValueError(f"{value_path} is not a list")
+            raise _TransportValueError(f"{value_path} is not a list", value_path=value_path)
         return _validate_container(
             value,
+            value_path=value_path,
             active_container_ids=active_container_ids,
             visit=lambda: [
                 _validate_descriptor_value(
@@ -1005,12 +1011,13 @@ def _validate_descriptor_value(
         )
     if kind == "map":
         if type(value) is not dict:
-            raise ValueError(f"{value_path} is not a map")
+            raise _TransportValueError(f"{value_path} is not a map", value_path=value_path)
         for key in value:
             if type(key) is not str:
-                raise ValueError(f"{value_path} map key is not a string")
+                raise _TransportValueError(f"{value_path} map key is not a string", value_path=value_path)
         return _validate_container(
             value,
+            value_path=value_path,
             active_container_ids=active_container_ids,
             visit=lambda: {
                 key: _validate_descriptor_value(
@@ -1026,12 +1033,13 @@ def _validate_descriptor_value(
         )
     if kind == "record":
         if type(value) is not dict:
-            raise ValueError(f"{value_path} record fields are invalid")
+            raise _TransportValueError(f"{value_path} record fields are invalid", value_path=value_path)
         expected = [field["name"] for field in descriptor["fields"]]
         if set(value) != set(expected):
-            raise ValueError(f"{value_path} record fields are missing or extra")
+            raise _TransportValueError(f"{value_path} record fields are missing or extra", value_path=value_path)
         return _validate_container(
             value,
+            value_path=value_path,
             active_container_ids=active_container_ids,
             visit=lambda: {
                 field["name"]: _validate_descriptor_value(
@@ -1049,18 +1057,19 @@ def _validate_descriptor_value(
         )
     if kind == "union":
         if type(value) is not dict or type(value.get("variant")) is not str:
-            raise ValueError(f"{value_path} union tag is invalid")
+            raise _TransportValueError(f"{value_path} union tag is invalid", value_path=value_path)
         variants = {
             variant["name"]: variant for variant in descriptor["variants"]
         }
         variant = variants.get(value["variant"])
         if variant is None:
-            raise ValueError(f"{value_path} union tag is unknown")
+            raise _TransportValueError(f"{value_path} union tag is unknown", value_path=value_path)
         expected = {"variant", *(field["name"] for field in variant["fields"])}
         if set(value) != expected:
-            raise ValueError(f"{value_path} union record fields are missing or extra")
+            raise _TransportValueError(f"{value_path} union record fields are missing or extra", value_path=value_path)
         return _validate_container(
             value,
+            value_path=value_path,
             active_container_ids=active_container_ids,
             visit=lambda: {
                 "variant": value["variant"],
@@ -1079,7 +1088,7 @@ def _validate_descriptor_value(
                 },
             },
         )
-    raise ValueError("normalized type descriptor is not transportable")
+    raise _TransportValueError("normalized type descriptor is not transportable", value_path=value_path)
 
 
 def _validate_primitive_value(
@@ -1099,27 +1108,27 @@ def _validate_primitive_value(
         )
     if name == "String" or name not in {"Int", "Float", "Bool"}:
         if type(value) is not str:
-            raise ValueError(f"{value_path} is not a {name} string")
+            raise _TransportValueError(f"{value_path} is not a {name} string", value_path=value_path)
         return value
     if name == "Int":
         if type(value) is not int:
-            raise ValueError(f"{value_path} is not an Int")
+            raise _TransportValueError(f"{value_path} is not an Int", value_path=value_path)
         return value
     if name == "Float":
         if type(value) not in {int, float}:
-            raise ValueError(f"{value_path} is not a finite Float")
+            raise _TransportValueError(f"{value_path} is not a finite Float", value_path=value_path)
         try:
             normalized_float = float(value)
         except (OverflowError, ValueError):
-            raise ValueError(f"{value_path} is not a finite Float") from None
+            raise _TransportValueError(f"{value_path} is not a finite Float", value_path=value_path) from None
         if not math.isfinite(normalized_float):
-            raise ValueError(f"{value_path} is not a finite Float")
+            raise _TransportValueError(f"{value_path} is not a finite Float", value_path=value_path)
         return normalized_float
     if name == "Bool":
         if type(value) is not bool:
-            raise ValueError(f"{value_path} is not a Bool")
+            raise _TransportValueError(f"{value_path} is not a Bool", value_path=value_path)
         return value
-    raise ValueError(f"{value_path} is not transportable")
+    raise _TransportValueError(f"{value_path} is not transportable", value_path=value_path)
 
 
 def _validate_json_value(
@@ -1130,16 +1139,17 @@ def _validate_json_value(
     active_container_ids: set[int],
 ) -> Any:
     if depth > MAX_TRANSPORT_VALUE_DEPTH:
-        raise ValueError("transport value exceeds the maximum depth")
+        raise _TransportValueError("transport value exceeds the maximum depth", value_path=value_path)
     if value is None or type(value) in {bool, int, str}:
         return value
     if type(value) is float:
         if not math.isfinite(value):
-            raise ValueError(f"{value_path} is not a finite JSON number")
+            raise _TransportValueError(f"{value_path} is not a finite JSON number", value_path=value_path)
         return value
     if type(value) is list:
         return _validate_container(
             value,
+            value_path=value_path,
             active_container_ids=active_container_ids,
             visit=lambda: [
                 _validate_json_value(
@@ -1154,9 +1164,10 @@ def _validate_json_value(
     if type(value) is dict:
         for key in value:
             if type(key) is not str:
-                raise ValueError(f"{value_path} map key is not a string")
+                raise _TransportValueError(f"{value_path} map key is not a string", value_path=value_path)
         return _validate_container(
             value,
+            value_path=value_path,
             active_container_ids=active_container_ids,
             visit=lambda: {
                 key: _validate_json_value(
@@ -1168,18 +1179,34 @@ def _validate_json_value(
                 for key, item in value.items()
             },
         )
-    raise ValueError(f"{value_path} is not a transportable JSON value")
+    raise _TransportValueError(f"{value_path} is not a transportable JSON value", value_path=value_path)
+
+
+def _validate_transport_path(value, descriptor, value_path, path_validator):
+    if type(value) is not str:
+        raise _TransportValueError(f"{value_path} is not a path string", value_path=value_path)
+    if path_validator is None:
+        return value
+    try:
+        return path_validator(value, descriptor)
+    except _TransportValueError as exc:
+        if exc.value_path is None:
+            exc.value_path = value_path
+        raise
+    except ValueError as exc:
+        raise _TransportValueError(str(exc), value_path=value_path) from exc
 
 
 def _validate_container(
     value: list[Any] | dict[Any, Any],
     *,
     active_container_ids: set[int],
+    value_path: str,
     visit: Any,
 ) -> Any:
     container_id = id(value)
     if container_id in active_container_ids:
-        raise ValueError("transport value contains a container cycle")
+        raise _TransportValueError("transport value contains a container cycle", value_path=value_path)
     active_container_ids.add(container_id)
     try:
         return visit()
