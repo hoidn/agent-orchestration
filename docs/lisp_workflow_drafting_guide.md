@@ -563,9 +563,10 @@ output of a step
 [Evaluated execution](design/workflow_lisp_evaluated_execution.md) is a
 model accepted at gate G1 that addresses that cause. At target 2.35,
 `compile` builds a checked closed program; validated public dry-run and public
-pure, command and portable composed-provider run are integrated. Use 2.35 only
-within that bounded runtime subset. Choose a target through 2.34 when public
-resume, path run-reference dispatch or effects excluded from 2.35 are needed.
+pure, command and portable composed-provider run, ordinary resume and suffix
+invalidation are integrated. Use 2.35 only within that bounded runtime subset.
+Choose a target through 2.34 when path run-reference dispatch, excluded effects
+or legacy force restart are needed.
 The [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
 and [public CLI tests](../tests/test_workflow_evaluated_cli.py) distinguish the
 bounded runtime from complete release qualification. The
@@ -617,12 +618,13 @@ path-mode run references are admitted by the compiler. Public dry-run validates
 without launching effects. Public pure, command and portable composed-provider
 run are implemented; the latter uses captured prompt/dependency bytes, typed
 result projection and required output-file checks. Public provider tests use
-controlled local transport, not paid or live-vendor qualification. Public resume
-still refuses with `evaluated_execution_unavailable`; path run-reference dispatch
-and complete runtime readers remain pending. Compilation is not evidence of
+controlled local transport, not paid or live-vendor qualification. Ordinary typed
+public resume and suffix invalidation are implemented. Path run-reference
+dispatch and complete runtime readers remain pending. Compilation is not evidence of
 complete effectful runtime parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
 [public runtime tests](../tests/test_workflow_evaluated_cli.py),
-[provider runtime tests](../tests/test_workflow_evaluated_providers.py) and
+[provider runtime tests](../tests/test_workflow_evaluated_providers.py),
+[public recovery smoke](../tests/test_workflow_evaluated_invalidate_smoke.py) and
 [target admission tests](../tests/test_workflow_lisp_target_evaluated_execution.py).
 
 Selected `request-input`, `trial`, phased provider delivery,
@@ -645,7 +647,8 @@ Omission refuses with `command_boundary_closure_missing`; malformed values
 refuse with `command_boundary_manifest_invalid`. Build records canonical
 logical paths without reading closure contents. Runtime command-local closure
 hashing, destination checks, post-dispatch rehash and pinned interpreter launch
-are implemented; public-resume checks remain pending.
+are implemented. Ordinary resume validates committed inputs and pending retry
+evidence before repairing a torn tail or dispatching.
 See [command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration)
 and [closure tests](../tests/test_workflow_lisp_command_boundary_closure.py).
 
@@ -668,7 +671,32 @@ python -m pytest -q \
 
 These create real command/provider-process fixtures in temporary workspaces and
 check one dispatch, typed commits and attempt evidence. They do not require a paid
-provider. The evaluated run authority is `closed_program.json`, `run.json` and
+provider. To check the complete public compile → run → resume → invalidate →
+resume path with commands and controlled provider transport, use:
+
+```bash
+python -m pytest -q \
+  tests/test_workflow_evaluated_invalidate_smoke.py::test_public_compile_run_resume_invalidate_resume_keeps_provider_command_evidence
+```
+
+For an evaluated run, `python -m orchestrator resume <run_id>` requires the
+original source, declaration manifests and input-file locators recorded by its
+rebuild recipe. It rebuilds in memory and refuses changed semantic programs or
+bound inputs before mutating run evidence; formatting-only changes are admitted.
+Completed resume reuses committed results and leaves authority, memo, attempts
+and views unchanged. Historical headers without `resume_request` refuse resume
+with `resume_request_missing`; malformed present recipes are `memo_inconsistent`.
+`--force-restart` remains unavailable for this profile.
+
+`python -m orchestrator invalidate <run_id> <identity> [--state-dir <runs-root>]`
+uses the full active committed identity from the checked memo, not a display
+label. It appends one invalidation range for that commit and the later active
+commits, without reading current sources or recompiling. The next ordinary
+resume reruns the suffix. Inactive identities, historical profiles and a
+coordinator anywhere in the suffix refuse without appending a range. The smoke
+above obtains the identity from checked authority/memo and verifies this flow.
+
+The evaluated run authority is `closed_program.json`, `run.json` and
 `memo.jsonl` under the run root. The legacy `state.json` output recipe above does
 not apply to this profile; its derived views and complete reader integration
 remain pending.

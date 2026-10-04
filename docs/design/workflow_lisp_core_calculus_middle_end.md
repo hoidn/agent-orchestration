@@ -805,8 +805,8 @@ oracles can catch it.
   inversion): selected at gate G1 on 2026-09-29 in
   [evaluated execution](workflow_lisp_evaluated_execution.md). Phase 2's
   target-2.35 compiler and bounded public pure/command/portable-provider run
-  are implemented; public resume and complete runtime qualification remain
-  open in Phase 3. WCC feeds the closed program, retaining callee bodies and sites
+  and ordinary public resume/suffix invalidation are implemented; complete runtime
+  qualification remains open in Phase 3. WCC feeds the closed program, retaining callee bodies and sites
   instead of flattening them. The [delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
   owns later delivery; targets through 2.34 retain the flat route. Evidence:
   `tests/test_workflow_lisp_closed_program_compile_cli.py` and

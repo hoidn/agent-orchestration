@@ -51,6 +51,16 @@ workspace as the working directory.
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory warnings that do not change the exit code. A pure-result replay-index failure is an error only when the compiled structure guarantees that the call is reached; failures along a path under a branch, match arm, or loop body are warnings. Conditions are not evaluated, and a real run is refused if it reaches the call.
   - `orchestrate resume <run_id>`
+    - Target-2.35 evaluated runs select their persisted authority profile before
+      legacy state loading. Resume rebuilds the saved request in memory, compares
+      the semantic program then bound inputs, and checks the active committed
+      prefix before mutable continuation. Committed results are reused without
+      redispatch; pending retries follow command closure/provider captured-input
+      checks. Missing historical rebuild recipes refuse with
+      `resume_request_missing`; malformed present recipes are `memo_inconsistent`.
+      `--force-restart` remains unavailable for this profile. See
+      [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
+      The following provider/host-request policies describe the legacy profile.
     - If persisted authoritative state proves an exact interrupted in-flight
       ordinary, session, supervision, peer-group, phased, or adjudicated
       provider visit, resume preserves completed-boundary reuse, discards only
@@ -65,6 +75,16 @@ workspace as the working directory.
       after ordinary source, scope, node, visit, and reply validation; a
       consumed reply uses the existing completed-effect recovery policy or
       fails closed. Resume never creates a replacement question automatically.
+  - `orchestrate invalidate <run_id> <identity> [--state-dir <runs-root>]`
+    - Target-2.35 evaluated authority supports one append-only invalidation range
+      from the full active committed identity through the active suffix. It uses
+      checked stored authority and the run writer lock, without reading current
+      sources, rebuilding or dispatching. The next ordinary resume reruns that
+      suffix; future retry commits remain active. An inactive identity, historical
+      profile, or coordinator anywhere in the suffix refuses with exit 2. No
+      per-effect replacement journal or automatic file-dependency selection is
+      implied. See [evaluated execution §8.5](../docs/design/workflow_lisp_evaluated_execution.md#85-explicit-continuation-after-a-divergence)
+      and `tests/test_workflow_evaluated_invalidate_smoke.py`.
   - `orchestrate input get <run_id> [--state-dir <runs-root>]`
     - Prints the current root host-request record. It does not resume or
       mutate execution.

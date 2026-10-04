@@ -12,14 +12,27 @@ case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
 with `.orc required` before a run root or `state.json` is created. There is no
 production YAML parser.
 
-`resume` loads the selected run's persisted state first. Once state is loaded,
+For legacy runs, `resume` loads the selected run's persisted state first. Once state is loaded,
 every recorded workflow suffix other than `.orc` fails closed with `.orc
 required`, regardless of run terminality or force-restart selection. A
 non-`.orc` source is neither compiled nor executed. `report` and dashboard
 views remain state-only observability for legacy runs; they do not parse
 authored source or reconstruct executable workflow structure from it.
 
+At target 2.35, public run/resume select the checked evaluated profile before
+legacy state handling. Ordinary resume rebuilds its recorded request, compares
+program and bound inputs, then replays the active committed prefix before
+mutable continuation; suffix invalidation uses stored authority without reading
+current sources. These operations use `run.json`, `closed_program.json` and
+`memo.jsonl`, independently of a derived `state.json` view. Path run-reference
+dispatch and complete reader integration remain pending. The
+[evaluated execution contract](design/workflow_lisp_evaluated_execution.md)
+owns this separate route; the dynamic fresh-only candidate does not inherit its
+resume/invalidation behavior.
+
 ## Execution Timeline
+
+The timeline below describes the legacy flat route through target 2.34.
 
 ```text
 1) Enforce the `.orc` source boundary, then parse/typecheck Workflow Lisp

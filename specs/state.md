@@ -8,7 +8,17 @@
     [CLI](cli.md), "Workspace execution ownership"). They are not run state and
     are never removed.
 
-- State file schema (authoritative record)
+- Evaluated-profile routing
+  - Target 2.35 uses checked `run.json` / `closed_program.json` authority and
+    `memo.jsonl`, with the exact schema/profile defined in
+    [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
+    Ordinary resume and suffix invalidation route through that profile before
+    the legacy state loader. Derived `state.json` views and complete public
+    readers remain pending; they are not prerequisites for the implemented
+    authority-based resume/invalidation. This does not convert legacy runs or
+    make the dynamic fresh-only candidate resumable.
+
+- Legacy state file schema (authoritative record for schema 2.1)
   - `schema_version: "2.1"`
   - `run_id`, `workflow_file`, `workflow_checksum`
   - Timestamps: `started_at`, `updated_at`

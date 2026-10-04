@@ -1513,3 +1513,62 @@ remaining shared-owner slices are concrete:
 Tasks 5–8 have not started under the reviewed atomic-cutover sequencing. Q1–Q5,
 public dynamic target 3.0 and DC-P remain unqualified; no adoption, application
 migration or repinning follows from this synchronization.
+
+
+### Shared Typed Resume/Invalidation Import
+
+The coordinator rechecked and imported reviewed upstream
+`e17bd61faf1ea7a2b255e1b3dc3edb2396b455f4` at
+`d3b68c0a2e2665684c81759abcc270c89a91ee81` on 2026-10-04, from development
+baseline `12f1e8ab5cac624d212fe9aac6ea4d40449ca480`. This includes typed Task 8
+request/public-resume preflight (`29c52006`), replay/retry (`6d3a6494`), public
+invalidation and acceptance (`0a937167`), completion receipt (`12f6c325`) and the
+retained-descriptor authority/writer correction (`e17bd61f`). Independent Sol
+conformity/quality review passed the import, including two mechanical test
+resolutions that preserve dynamic exact-target routing and prepared-body reuse.
+No dirty upstream work was imported. The frozen DC-2 comparator remains
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8`.
+
+Ordinary public target-2.35 resume now rebuilds the persisted request in memory,
+compares the semantic program before bound inputs, then checks/replays the active
+committed prefix before mutable continuation. Completed commits are reused
+without redispatch; pending command/provider retries retain closure and captured
+input checks. Historical missing rebuild recipes refuse with
+`resume_request_missing`; malformed present recipes are `memo_inconsistent`.
+`--force-restart` remains unavailable. Public
+`invalidate <run_id> <identity> [--state-dir <runs-root>]` uses checked stored
+authority under the writer lock, without rebuilding sources or dispatching, to
+append one active suffix invalidation. The next ordinary resume reruns that
+suffix. Inactive identities, historical profiles and suffixes containing a
+coordinator refuse. The descriptor correction keeps publication checks attached
+to retained directory/file authority rather than reopening an unchecked path.
+
+Fresh coordinator verification:
+
+| Check | Observed result and limit |
+| --- | --- |
+| New-case collection | 142 cases collected in 3.16s |
+| Narrow integration | 112 passed in 14.92s, including public compile/run/resume/invalidate/resume, reserved descriptor controls, and dynamic routing/preparation boundaries |
+| Affected integration | 936 passed and 55 failed in 59.09s across 991 cases; this run remains RED |
+| Exact pre-import baseline | All 55 failed selectors reproduced in `tests/test_prompt_resume_child.py` at `12f1e8ab`: 55 failed and two passed in 10.16s at the pinned executable version-probe gate. The failed-selector comparison found no new failures; it does not turn the affected run green |
+
+Exact commands, hashes, raw output and the failed-selector disposition are in
+`/tmp/orc-dc3-resume-upstream-20261004/`: `config.json`,
+`{collect,narrow,affected,legacy-base}.{json,log}` and
+`failure-disposition.json`. Broad verification uses
+`pytest -q -n 16 --dist=worksteal` in tmux. These overlapping checks are not summed
+and do not establish a full-repository PASS. The drafting guide points to the
+real public CLI smoke selector in
+`tests/test_workflow_evaluated_invalidate_smoke.py`; provider evidence remains
+controlled local transport, not paid/live-vendor qualification.
+
+Typed Task 8 is complete within this delivery scope. Path run-reference dispatch,
+complete profile readers, external Task 12 input-document bytes/path-token
+transport, later command/provider campaigns and full Phase 3 acceptance remain
+pending. Dynamic recovery remains unsupported and the proposed dynamic profile
+is fresh-run only. Under existing Task 4 ownership, native resolved-value and
+strict-result adaptation in the three existing performer owners is authorized
+and in progress; it is not yet delivered or qualified by this receipt. External
+Task 12 is still missing, **Task 4 is not PASS**, and dynamic Tasks 5–8 remain
+unstarted. Q1–Q5, DC-P, public dynamic target 3.0, adoption and maintained
+application migration remain unqualified.

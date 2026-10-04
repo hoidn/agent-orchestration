@@ -49,10 +49,12 @@ at `a7b157d8`.
 The 2026-10-01 downstream order is retained as the typed fallback, amended on
 2026-10-02 for this branch by the dynamic evaluation route below. Phase 3
 Tasks 1–5 and their receipts are integrated from pinned source `7af8ebf6`;
-Tasks 6–17 and later delivery remain unfinished. Public dry-run, pure execution,
+Task 8 and its command/provider public-resume gates are complete; Tasks 6–7
+retain later consumer campaigns and Tasks 9–17 remain unfinished. Public dry-run, pure execution,
 commands and portable composed-provider execution are integrated; the current [Phase 3 receipts](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-7-executor-free-prompt-assembly-and-portable-providers)
-record the bounded runtime handoffs. Public resume, external command input-document
-transport, path run-reference dispatch and complete runtime qualification remain
+record the bounded runtime handoffs. Ordinary typed public resume and suffix
+invalidation are available; external command input-document transport, path
+run-reference dispatch and complete runtime qualification remain
 pending. This is not a Phase 3 closeout.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):

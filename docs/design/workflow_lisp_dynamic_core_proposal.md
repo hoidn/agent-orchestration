@@ -1068,18 +1068,20 @@ existing compile/run CLI + FrontendBuildRequest
 | `type_env.py`, `normalized_type_descriptor.py`, `contracts.py`, `typed_prompt_inputs.py` | Retain schema type applications, refinements, guidance, fill roles and contract compilation. Internal helper calls bypass type unification/specialization; boundary types do not. |
 | `closed/effects.py`, `closed/check.py` and shared request builders | Extract only reusable declaration/contract checks needed by both representations. Existing checked typed effects and P5 stay unchanged; a dynamic artifact is never passed off as a typed `ClosedProgram`. |
 | Proposed `workflow_lisp/dynamic/` source/admission owner and `workflow/dynamic/` evaluator/run owner | Move and revise the qualified experimental core, replacing its source wrapper, hand-linked effects and artifact versions. No second maintained copy under `experiments/`; no new general backend/plugin interface. |
-| `evaluated/commands.py`, `prompts.py`, `providers.py`, `inputs.py` as delivered by their shared owners | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Their filenames are planned delivery locations, not evidence those APIs already exist. |
+| Delivered `evaluated/commands.py`, `prompts.py`, `providers.py`; planned `inputs.py` | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Command/provider owners exist, but their native strict seam is authorized and in progress, not qualified. `inputs.py` and the external document path-token protocol remain upstream Task 12 delivery. |
 | `StepExecutor`, `ProviderExecutor`, `WorkspaceFiles`, content-snapshot/output-contract owners | Keep dispatch, process controls, sandbox/permissions, pinned reads/writes and result validation. The candidate does not call a stateful `WorkflowExecutor` for each effect. |
 | `evaluated/attempts.py`, `authority.py`, `runtime.py` | Preserve typed memo/authority. `allocate_attempt` appends memo records and `attempt_paths` consumes `MemoSnapshot`; neither is a memo-free allocator. Reuse lower filesystem/lock helpers, or one owner-approved shared extraction with both real callers; do not synthesize a memo. |
 | CLI/state/report/dashboard/monitor readers | Route by exact profile before typed/legacy checks. Share data presentation and log-path handling; the fresh profile supplies its own truthful state interpretation, not typed pure replay. |
 
-The current `target_dsl_uses_evaluated_execution` comparison is numeric
-`>= 2.35`; merely registering 3.0 would incorrectly select typed compilation.
-Change the existing target-selection owner and every compiler/CLI/import caller
-to select the exact supported profile before its loader. Known typed targets
-remain typed, 3.0 selects this candidate, unknown targets refuse. Apply the same
-principle to stored-profile selection before `StateManager` or typed authority
-loading. This is a routing prerequisite, not a second independent target flag.
+Readiness Task 1 replaced the former numeric `>= 2.35` comparison in
+`target_dsl_uses_evaluated_execution` with exact typed target `2.35` selection;
+unknown targets and unregistered `3.0` refuse before execution or creation.
+That routing prerequisite is implemented and does not make the dynamic public
+route available. The proposed dynamic registration still must select its own
+loader/profile; known typed targets retain their route and unknown targets
+refuse. Apply the same principle to stored-profile selection before
+`StateManager` or typed authority loading, without a second independent target
+flag. See the [Task 1 receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-1--exact-typed-routing).
 
 Each effect is one request to an existing performer, not a compiled leaf workflow
 or child run. Shared callable boundaries receive immutable resolved inputs and

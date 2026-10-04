@@ -6,14 +6,15 @@
   Closed-program compilation and bounded pure, command and portable
   composed-provider execution are implemented at target 2.35.
   `orchestrator compile` writes the checked artifact; `run --dry-run` validates
-  inputs and
-  `run` publishes durable authority, terminal results and effect attempt evidence.
+  inputs, and `run` publishes durable authority, terminal results and effect
+  attempt evidence. Ordinary typed public resume and suffix invalidation are
+  implemented for this subset.
   Certified adapter documents use inline JSON. External command input-document
-  transport, path run-reference dispatch, public resume and full profile
-  readers remain unfinished; this is not the complete Phase 3 release. Evidence:
+  transport, path run-reference dispatch and full profile readers remain unfinished; this is not the complete Phase 3 release. Evidence:
   [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
   [pure/command-run and dry-run tests](../../tests/test_workflow_evaluated_cli.py),
   [controlled local provider tests](../../tests/test_workflow_evaluated_providers.py),
+  [public recovery smoke](../../tests/test_workflow_evaluated_invalidate_smoke.py),
   [target routing tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
   and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
   Phase-wide checks and the completed red-suite diagnosis are recorded in
@@ -985,9 +986,12 @@ At build, the implemented C1 checks explicit declarations and the C2 projection
 records canonical logical paths in configuration/program identity. It does
 not read closure bytes. The command runtime implements C2 content hashes, C3
 pinned interpreter launch and command-local C4 destination checks before attempt
-creation, post-dispatch rehash and internal retry evidence checks. Public resume
-and its preflight obligations remain pending; helper/internal replay evidence
-does not establish that public entry.
+creation, post-dispatch rehash and retry evidence checks. Ordinary public resume
+replays the active committed prefix and preflights pending attempts before repair
+or dispatch; changed closure evidence refuses before mutation. Required provider
+C6 reads are recaptured for pending retry. Public command/provider recovery
+evidence is in `tests/test_workflow_evaluated_resume_retry.py` and
+`tests/test_workflow_evaluated_resume_replay_boundary.py`.
 Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closures`,
 `closed/program.py::_canonical_closure` and `closed/artifact.py` (same directory),
 [closure tests](../../tests/test_workflow_lisp_command_boundary_closure.py)
@@ -2807,7 +2811,11 @@ apart from R1 to R12.
 
 Each requirement holds for the first release through the public run and
 resume entries. Where the spike met it, the reference is the measure to
-repeat.
+repeat. The Spike column below preserves historical results. Current bounded
+command/provider resume and suffix-invalidation evidence belongs to
+[Phase 3 Task 8](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-8-resume-preflight-retry-and-public-invalidation)
+and `tests/test_workflow_evaluated_invalidate_smoke.py`; it does not close the
+full consumer/live-provider/crash campaigns of Tasks 13–15.
 
 | Requirement | Measure | Spike |
 | --- | --- | --- |
@@ -2841,15 +2849,15 @@ repeat.
 ## 18. Feasibility Obligations
 
 These rows distinguish historical spike evidence from implemented Phase 2
-compiler evidence and bounded Phase 3 runtime evidence. Public recovery, complete
-consumer/live-provider qualification and full reader integration remain open; the [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+compiler evidence and bounded Phase 3 runtime/recovery evidence. Complete
+consumer/live-provider/crash qualification and full reader integration remain open; the [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
 owns compiler completion; the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md) owns runtime handoffs and remaining acceptance.
 
 | Claim | Fixture | Evidence and remaining work |
 | --- | --- | --- |
 | The closed program can be built for the corpus | P1 to P7 hold for every workflow whose forms/classes are admitted; inventory every refusal against §1.1, including stdlib command closures. Never seed an unknown implementation closure as empty merely to pass | Historical spike: 38 of 52 built in iteration 3, 39 in iteration 4; phased calls were treated as ordinary calls. Implemented Phase 2 corpus: 37 Built, 10 Gap, 4 Refused, 1 NotSynthesizable, owned by `tests/test_workflow_lisp_closed_program_corpus.py`; every Built artifact is validated/read back and its perform/site bijection checked. Neither count establishes runtime parity |
 | A lexical path distinguishes every effect site, across inlined copies | A procedure with one effect, called from three arms of one `match`, in a loop | Met (gate report, §2, criterion 6) |
-| Prompt assembly can run outside the executor | Public compile/run fixtures distinguish `asset_file` and `input_file` using different texts at their lookup locations; a document-slot `defprompt` and dependency snapshots assemble the same prompt as the flat route, apart from R3 | Implemented pure assembly and captured C6 source/dependency reads: `tests/test_workflow_evaluated_prompts.py` and `tests/test_workflow_evaluated_provider_reads.py`. `tests/test_workflow_evaluated_providers.py` compares complete flat requests and exercises public nested asset/input-file/document slots through controlled local transport; public resume and later live-provider qualification remain pending |
+| Prompt assembly can run outside the executor | Public compile/run fixtures distinguish `asset_file` and `input_file` using different texts at their lookup locations; a document-slot `defprompt` and dependency snapshots assemble the same prompt as the flat route, apart from R3 | Implemented pure assembly and captured C6 source/dependency reads: `tests/test_workflow_evaluated_prompts.py` and `tests/test_workflow_evaluated_provider_reads.py`. `tests/test_workflow_evaluated_providers.py` compares complete flat requests and exercises public nested asset/input-file/document slots through controlled local transport; public command/provider resume is implemented in `tests/test_workflow_evaluated_invalidate_smoke.py`; later live-provider qualification remains pending |
 | Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Met (spike iteration 1, commit `92d47fe0`). Open: path existence checks, variant selection by workspace digest and secrets are each an effect or part of a resolved input; secrets are not designed |
 | The views satisfy their readers | Every V9 adapter reads the evaluated profile through its public entry, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit | Only report-shaped in-memory rows/status shown in iteration 2; durable publication, status adapters and public-reader integration remain prerequisites |
 | A run-reference adapter can reuse its runtime and ledger | A compiled path-mode run reference, killed at both gaps, with the changed caller adapter | Met in the spike (iteration 3, E); public evaluator integration remains required |
@@ -2860,8 +2868,8 @@ owns compiler completion; the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-e
 | Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Implemented compiler evidence: canonical keys distinguish selected targets/bindings and retain lexical creation bindings. Public formatting/relocation builds preserve keys/digests in `tests/test_workflow_lisp_closed_program_compile_cli.py`; typed evaluator capture/once-only checks are implemented in `tests/test_workflow_evaluated_call_captures.py`; complete public consumer campaigns remain pending |
 | Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical at identical identity inputs (§13); an old entry calling a new-target module is refused | Implemented public compile: the evaluated entry skips flat lowering across selected imported typed bodies; old entries retain their route and refuse evaluated dependencies. `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_target_evaluated_execution.py` |
 | Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Implemented: local callable identities, private nominal descriptors and finalized run-reference signatures omit paths/positions while preserving owners; public relocation/read-back coverage is in `tests/test_workflow_lisp_closed_program_effects.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
-| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Implemented declaration/build checks for both kinds, unused configuration identity, and public CLI carriage; `tests/test_workflow_lisp_command_boundary_closure.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py`. Compile reads no closure bytes. Command-local filesystem/content-hash and attempt checks are implemented in `tests/test_workflow_evaluated_closure.py` and `tests/test_workflow_evaluated_command_lifecycle.py`; public-resume recovery checks remain pending |
-| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Implemented public compile: used injected declarations retain trusted package origin and explicit closure through construction/read-back; `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_closed_program_build.py`. Runtime launch-origin and command-local changed-byte/internal-retry checks are implemented in `tests/test_workflow_evaluated_command_origin.py` and `tests/test_workflow_evaluated_command_lifecycle.py`; public-resume and complete cache-placement acceptance remain pending |
+| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Implemented declaration/build checks for both kinds, unused configuration identity, and public CLI carriage; `tests/test_workflow_lisp_command_boundary_closure.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py`. Compile reads no closure bytes. Command-local filesystem/content-hash and attempt checks are implemented in `tests/test_workflow_evaluated_closure.py` and `tests/test_workflow_evaluated_command_lifecycle.py`; public command/provider preflight/retry checks are implemented in `tests/test_workflow_evaluated_resume_retry.py`; full later recovery campaigns remain pending |
+| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Implemented public compile: used injected declarations retain trusted package origin and explicit closure through construction/read-back; `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_closed_program_build.py`. Runtime launch-origin and command-local changed-byte/internal-retry checks are implemented in `tests/test_workflow_evaluated_command_origin.py` and `tests/test_workflow_evaluated_command_lifecycle.py`; public-resume package/closure checks are implemented in `tests/test_workflow_evaluated_resume_retry.py`; complete later cache-placement acceptance remains pending |
 
 ## 19. Decisions Still Open
 

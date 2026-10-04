@@ -44,7 +44,8 @@
       symlinks or hash closure file bytes. Command runtime content hashes,
       command-local output disjointness,
       post-dispatch read-only checks and pinned interpreter launch are implemented.
-      Public-resume enforcement and complete Phase 3 qualification remain open. See
+      Ordinary public resume enforces committed-prefix and pending-retry checks;
+      complete Phase 3 qualification remains open. See
       [command closure declaration](../docs/design/workflow_command_adapter_contract.md#command-closure-declaration),
       `closed/effects.py::require_command_closures`,
       `closed/program.py::_canonical_closure` (under

@@ -51,8 +51,11 @@ dependency history; source uncommitted work is excluded. The seventeen numbered
 tasks, checkboxes and original receipts below remain intact. Tasks 1–5 are
 integrated. Subsequent reviewed command and portable composed-provider runtime
 handoffs are imported at `103dc8cd` from upstream receipt `21b78d16` (2026-10-03),
-alongside public pure run/dry-run. Provider checks use controlled local transport;
-public resume and complete Phase 3 qualification remain unfinished. A command
+alongside public pure run/dry-run. The subsequent reviewed Task 8 delivery
+through upstream `e17bd61f` is imported at `d3b68c0a` (2026-10-04), adding ordinary
+typed public resume and suffix invalidation. Provider checks use controlled local
+transport; path run-reference dispatch, full readers, external Task 12 transport
+and complete Phase 3 qualification remain unfinished. A command
 **closure** in Tasks 5–8 is file/content evidence, not a lexical runtime closure.
 
 On this dynamic branch, shared implementations come from the upstream Phase 3
@@ -618,7 +621,8 @@ Implement in sequential cuts, transferring shared owners one at a time: retained
 - [ ] Publish exact availability for each public operation and selected profile:
   retain qualified pure/command/portable composed-provider run and dry-run
   evidence, distinguishing controlled local provider transport from later
-  live-provider qualification; public resume remains pending;
+  live-provider qualification; retain implemented ordinary typed public resume
+  and suffix-invalidation evidence without claiming complete Phase 3 readiness;
   remove each remaining refusal only after its required executable evidence passes. Preserve later effect exclusions, C5 promise limits, genuine open later-admission questions and old-target/runtime retention. Route this branch through DC-F/DC-U/DC-P and Phase 6a evidence; the typed
   fallback still hands off to its pilot. Do not call Phase 3 the end of the goal
   or let the old whole-goal instruction bypass a candidate gate.

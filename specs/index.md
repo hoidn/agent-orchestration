@@ -34,11 +34,12 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     proposal; see [versioning](versioning.md) for the implemented surface.
   - DSL v2.35 is the selected typed evaluated-execution target. Public closed-program
     compilation, validated dry-run, pure execution, command execution and portable
-    composed-provider execution are integrated. Public resume, path run-reference
-    dispatch and complete runtime readers remain pending; this is not a complete
+    composed-provider execution, ordinary typed resume and suffix invalidation are
+    integrated. Path run-reference dispatch and complete runtime readers remain pending; this is not a complete
     Phase 3 release. The bounded runtime evidence is
     [the public CLI suite](../tests/test_workflow_evaluated_cli.py) and
-    [controlled provider suite](../tests/test_workflow_evaluated_providers.py).
+    [controlled provider suite](../tests/test_workflow_evaluated_providers.py), plus
+    [public recovery smoke](../tests/test_workflow_evaluated_invalidate_smoke.py).
     The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
     owns the accepted model; [versioning](versioning.md) owns target admission.
   - Legacy state schema: `schema_version: "2.1"`. The partial evaluated profile
