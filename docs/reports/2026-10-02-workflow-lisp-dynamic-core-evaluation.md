@@ -1755,3 +1755,29 @@ import, not Phase 3 Tasks 13B–D or the remaining phase qualification.
 public dynamic frontend, fresh-run authority, direct effects and complete
 replacement consumers remain Tasks 6–8; Q1–Q5/DC-P remain open. Neither the pure
 core nor this upstream import establishes a runnable public dynamic target.
+
+### Task 5 Static Effect Admission Gate
+
+`982d5463` completes the reviewed core/admission handoff on the isolated cutover
+branch. Declaration checks now have two real callers: the existing typed checker
+retains its value/site/P5 checks and flattened result contract, while dynamic
+admission independently checks module bindings, native root contracts, all
+effect operands and imported prompt provenance. All included bodies are checked.
+Both actual certified command lanes remain: raw argv without a document, and
+the declared document protocol. Reserved primitive type names keep their meaning;
+explicit imported/local type associations remain supported.
+
+Independent conformity PASS preceded quality APPROVED. The author collected
+256 changed-test cases and passed 328 focused cases in 7.00s. Fresh coordinator
+verification collected and passed **1484 cases in 145.22s**, exit 0, across 29
+modules, including real public typed execution. All 540 runtime/test hashes were
+unchanged. Evidence is in `/dev/shm/orc-dc3-effect-admission-affected/`; the exact
+eight-file source freeze is `/dev/shm/dc3-effect-admission-code.sha256`. Counts
+overlap and are not additive. The declaration-first check may change which of
+multiple simultaneous invalid-fill errors is reported first; no valid-program
+behavior or governing diagnostic guarantee changes.
+
+The upstream check before this handoff still found `93a33ae2`, already imported.
+Task 6 source/build/CLI work is selected. Effect execution, fresh-run authority,
+replacement experiment consumers and Q1–Q5/DC-P remain pending; this admission
+gate creates no runnable public dynamic target or independently releasable cut.
