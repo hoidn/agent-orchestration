@@ -4,6 +4,26 @@ import pytest
 
 from orchestrator.workflow_lisp.closed.sites import assign_sites
 from orchestrator.workflow_lisp.closed.sites import SiteAssignmentError
+from orchestrator.workflow_lisp.closed.sites import effect_value_operands, _effect_value_children
+
+
+def test_effect_operand_pointer_walk_preserves_typed_request_order():
+    values = [{"k": "lit", "v": index} for index in range(7)]
+    command = {"class": "command", "argv": values[:1],
+               "argv_transport": [{"parts": [{"kind": "text", "text": "prefix"}, {"kind": "slot", "value": values[1]}]}],
+               "document": [["payload", values[2]]]}
+    assert list(effect_value_operands(command)) == [
+        (("argv", 0), values[0]), (("argv_transport", 0, "parts", 1, "value"), values[1]),
+        (("document", 0, 1), values[2])]
+    assert _effect_value_children(command) == values[:3]
+    provider = {"class": "provider", "inputs": [["item", "canonical-json", values[0]]],
+                "prompt": {"fills": [{"value": values[1]}]},
+                "dependencies": {"required": [values[2]], "optional": [values[3]]},
+                "policy": {"model": values[4], "effort": values[5], "timeout_sec": values[6]}}
+    assert _effect_value_children(provider) == values
+    assert [path for path, _ in effect_value_operands(provider)] == [
+        ("inputs", 0, 2), ("prompt", "fills", 0, "value"), ("dependencies", "required", 0),
+        ("dependencies", "optional", 0), ("policy", "model"), ("policy", "effort"), ("policy", "timeout_sec")]
 
 
 def _let(name, value, body, *, label=None):

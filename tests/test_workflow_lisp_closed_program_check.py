@@ -2289,6 +2289,15 @@ def test_provider_template_fills_retain_all_closed_slot_semantics():
     validate(tree)
 
 
+def test_provider_fill_invalid_descriptor_retains_the_typed_error_rule():
+    fills, _document, _output = _provider_prompt_fills()
+    fill = deepcopy(fills[1])
+    fill["placeholder_ordinals"] = [0]
+    fill["type"] = None
+    tree, _provider = _provider_prompt_tree("{title}", [fill])
+    _rule(tree, "type_descriptor")
+
+
 def _provider_value_select_fill_tree():
     string = {"kind": "primitive", "name": "String"}
     selected = {

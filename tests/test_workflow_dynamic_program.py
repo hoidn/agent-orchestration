@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 
 import pytest
 
@@ -367,3 +368,301 @@ def test_strict_json_rejects_duplicate_keys_and_non_finite_values():
     duplicate_key = '{"schema":"workflow-lisp/dynamic-program/1","schema":"workflow-lisp/dynamic-program/1"}'
     _invalid(lambda: _read(duplicate_key))
     _invalid(lambda: _read('{"not":"a complete artifact","number":NaN}'))
+
+
+STRING = {"kind": "primitive", "name": "String"}
+VALUE = {"kind": "primitive", "name": "Value"}
+INPUT = {"kind": "record", "name": "demo::Input", "fields": [{"name": "payload", "type": INT}]}
+
+
+def _native_contract(descriptor):
+    from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
+    return {"kind": "output_bundle", "payload": {"fields": [
+        {"name": "__result__", "json_pointer": "", **transport_schema_for_descriptor(descriptor, allow_nested_structures=True)}
+    ]}}
+
+
+def _binding(module="demo", *, commands=None, providers=None, prompts=None, types=None):
+    from orchestrator.workflow_lisp.closed.program import logical_asset_base_for_module
+    return {"owner": {"module": module, "asset_base": logical_asset_base_for_module(module)},
+            "configuration": {"commands": commands or {}, "providers": providers or {}, "prompts": prompts or {}},
+            "types": types or {}}
+
+
+def _command_fixture(*, certified=False, document=False, result=INT):
+    from tests.test_workflow_lisp_closed_program_check import _external_command_row, _certified_command_row
+    row = _certified_command_row(signature=[{"name": "payload", "type_name": "Int", "required": True, "transport_key": "payload"}]) if certified else _external_command_row()
+    name = row["name"]
+    node = {"k": "perform", "class": "command", "result": deepcopy(result), "repeat": "rerun",
+            "boundary": name, "command": row["stable_command"], "closure": row["closure"],
+            "contract": _native_contract(result), "argv": []}
+    schemas = {"Int": INT, "Bool": BOOL, "String": STRING, "Value": VALUE, INPUT["name"]: INPUT}
+    if result != INT:
+        from orchestrator.workflow_lisp.dynamic.program import schema_reference
+        schemas[schema_reference(result)] = result
+    if document or certified:
+        node["document"] = [["payload", {"k": "name", "n": "n"}]]
+    if document and not certified:
+        node["input_type"] = INPUT
+    tree = _artifact(node, schemas=schemas, bindings={"demo": _binding(commands={name: row}, types={"Int": "Int"} if certified else {})})
+    return tree, node, row
+
+
+def _provider_fixture(*, composed=True, prompt_module="demo"):
+    owner = _binding(prompt_module)["owner"]
+    prompt = {"template": "{payload}", "fills": [
+        {"name": "payload", "kind": "value", "type": VALUE, "value": {"k": "name", "n": "n"},
+         "renderer_id": "canonical-json", "output_role": None, "placeholder_ordinals": [0]}
+    ]} if composed else {"source_kind": "asset_file", "path": "prompt.md", "asset_base": owner["asset_base"]}
+    node = {"k": "perform", "class": "provider", "result": INT, "repeat": "rerun",
+            "provider": "provider-id", "prompt_owner": owner, "prompt": prompt,
+            "inputs": [], "dependencies": None, "policy": None, "contract": _native_contract(INT)}
+    bindings = {"demo": _binding(providers={"providers.run": {"provider_id": "provider-id"}})}
+    if prompt_module not in bindings:
+        bindings[prompt_module] = _binding(prompt_module)
+    if not composed:
+        bindings[prompt_module]["configuration"]["prompts"] = {"prompts.run": deepcopy(prompt)}
+    return _artifact(node, schemas={"Int": INT, "Bool": BOOL, "String": STRING, "Value": VALUE}, bindings=bindings), node
+
+
+@pytest.mark.parametrize("kind", ["command", "document", "certified", "composed", "extern"])
+def test_static_effect_payloads_round_trip_without_typed_sites_or_host_registry(kind):
+    tree, *_ = (_provider_fixture(composed=kind == "composed") if kind in {"composed", "extern"}
+                else _command_fixture(certified=kind == "certified", document=kind == "document"))
+    program = _read(tree)
+    assert _read(program.artifact()).semantic_digest == program.semantic_digest
+    assert "site" not in program.definitions[program.entry]["body"]
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda tree, node, row: node.update(site="forged"),
+    lambda tree, node, row: node.update(**{"@": {}}),
+    lambda tree, node, row: node.update(argv_transport=[]),
+    lambda tree, node, row: node.pop("argv"),
+    lambda tree, node, row: node.update(**{"class": "run_ref"}),
+    lambda tree, node, row: node.update(command=["different"]),
+    lambda tree, node, row: node.update(closure=[]),
+    lambda tree, node, row: node.update(repeat="never"),
+    lambda tree, node, row: node.update(boundary="unknown"),
+    lambda tree, node, row: node["contract"]["payload"]["fields"][0].update(type="boolean"),
+    lambda tree, node, row: node["contract"]["payload"].update(path="forged.json"),
+    lambda tree, node, row: node.update(argv=[7]),
+    lambda tree, node, row: node.update(argv=[{"k": "name", "n": "unbound"}]),
+])
+def test_command_static_tampering_is_rejected_in_unreachable_bodies(mutation):
+    from tests.workflow_dynamic_helpers import _definition
+    tree, node, row = _command_fixture()
+    mutation(tree, node, row)
+    tree["definitions"]["demo::unused"] = _definition(node)
+    tree["definitions"][tree["entry"]]["body"] = {"k": "lit", "v": 0}
+    error = _invalid(lambda: _read(tree))
+    assert error.location != "/source_map/entries"
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda tree: tree["bindings"]["demo"].update(extra=True),
+    lambda tree: tree["bindings"]["demo"]["owner"].update(module="unknown"),
+    lambda tree: tree["bindings"]["demo"]["owner"].update(asset_base="other"),
+    lambda tree: tree["bindings"]["demo"]["configuration"].update(imports={}),
+    lambda tree: tree["bindings"]["demo"]["configuration"]["commands"]["fetch"].update(extra=True),
+    lambda tree: tree["bindings"]["demo"]["configuration"]["commands"]["fetch"].update(stable_command=[]),
+    lambda tree: tree["bindings"]["demo"]["configuration"]["commands"]["fetch"].update(closure=[{"base": "workspace", "path": "./probe.py"}]),
+    lambda tree: tree["bindings"]["demo"]["types"].update(Int="missing"),
+    lambda tree: tree["bindings"]["demo"]["types"].update(Int="Int"),
+])
+def test_bindings_require_canonical_owners_configuration_and_only_used_type_associations(mutation):
+    tree, *_ = _command_fixture()
+    mutation(tree)
+    _invalid(lambda: _read(tree))
+
+
+def test_certified_type_associations_are_declared_aliases_and_match_the_result():
+    tree, node, row = _command_fixture(certified=True)
+    row["input_signature"][0]["type_name"] = "shared.Payload"
+    tree["bindings"]["demo"]["types"]["shared.Payload"] = INPUT["name"]
+    assert _read(tree).bindings["demo"]["types"]["shared.Payload"] == INPUT["name"]
+    missing = deepcopy(tree)
+    missing["bindings"]["demo"]["types"].pop("shared.Payload")
+    _invalid(lambda: _read(missing))
+    node["result"] = BOOL
+    node["contract"] = _native_contract(BOOL)
+    _invalid(lambda: _read(tree))
+
+
+def test_certified_type_associations_cannot_rebind_reserved_primitive_names():
+    tree, node, _ = _command_fixture(certified=True)
+    tree["bindings"]["demo"]["types"]["Int"] = "Bool"
+    node["result"] = BOOL
+    node["contract"] = _native_contract(BOOL)
+    _invalid(lambda: _read(tree))
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda node: node.pop("input_type"),
+    lambda node: node.pop("document"),
+    lambda node: node.update(input_type=INT),
+    lambda node: node.update(document=[]),
+    lambda node: node["document"].append(deepcopy(node["document"][0])),
+    lambda node: node["document"][0].__setitem__(0, "unknown"),
+])
+def test_external_document_requires_an_exact_declared_record(mutation):
+    tree, node, _ = _command_fixture(document=True)
+    mutation(node)
+    _invalid(lambda: _read(tree))
+
+
+def test_certified_document_uses_signature_order_and_forbids_external_input_type():
+    tree, node, _ = _command_fixture(certified=True)
+    node["document"][0][0] = "other"
+    _invalid(lambda: _read(tree))
+    tree, node, _ = _command_fixture(certified=True)
+    node["input_type"] = INPUT
+    _invalid(lambda: _read(tree))
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda node: node.update(inputs=[["data", "canonical-json", {"k": "name", "n": "n"}]]),
+    lambda node: node.update(provider="unknown"),
+    lambda node: node.update(repeat="never"),
+    lambda node: node["prompt"]["fills"][0].update(renderer_id="wrong"),
+    lambda node: node["prompt"]["fills"][0].update(placeholder_ordinals=[]),
+    lambda node: node["prompt"]["fills"][0].update(value=7),
+    lambda node: node["prompt"]["fills"][0].update(type={"kind": "primitive", "name": "Provider"}),
+    lambda node: node.update(policy={"timeout_sec": {"k": "lit", "v": True}}),
+    lambda node: node.update(policy={"timeout_sec": {"k": "name", "n": "n"}}),
+    lambda node: node.update(policy={"delivery": {"k": "lit", "v": "other"}}),
+    lambda node: node.update(policy={"materialization_attempts": {"k": "lit", "v": 1}}),
+    lambda node: node.update(dependencies={"required": [None], "optional": [], "position": "prepend", "instruction": None}),
+])
+def test_provider_static_tampering_never_hides_malformed_operands(mutation):
+    tree, node = _provider_fixture()
+    mutation(node)
+    _invalid(lambda: _read(tree))
+
+
+@pytest.mark.parametrize("composed", [False, True])
+def test_imported_prompt_keeps_declaration_and_caller_expression_provenance(composed):
+    tree, node = _provider_fixture(composed=composed, prompt_module="library/prompts")
+    program = _read(tree)
+    entries = program.source_map["entries"]
+    root = "/definitions/demo::main/body"
+    assert entries[root]["source"] == "demo"
+    assert entries[root + "/prompt"]["source"] == "library/prompts"
+    assert entries[root + "/result"]["source"] == ("library/prompts" if composed else "demo")
+    if composed:
+        for subject in ("/prompt/template", "/prompt/fills/0"):
+            assert entries[root + subject]["source"] == "library/prompts"
+        assert entries[root + "/prompt/fills/0/value"]["source"] == "demo"
+    altered = deepcopy(tree)
+    altered["source_map"]["entries"][root + "/prompt"]["source"] = "demo"
+    _invalid(lambda: _read(altered))
+    altered = deepcopy(tree)
+    altered["source_map"]["entries"].pop(root + "/result")
+    _invalid(lambda: _read(altered))
+
+
+def test_dynamic_policy_order_and_operand_paths_survive_canonical_read_back():
+    from orchestrator.workflow_lisp.closed.sites import effect_value_operands
+    tree, node = _provider_fixture()
+    node["policy"] = {"model": {"k": "op", "name": "string/concat", "args": [{"k": "lit", "v": "a"}, {"k": "lit", "v": "b"}]},
+                      "effort": {"k": "name", "n": "n"}}
+    tree = _artifact(node, schemas=tree["schemas"], bindings=tree["bindings"])
+    program = _read(tree)
+    checked = program.definitions[program.entry]["body"]
+    assert list(checked["policy"]) == ["effort", "model"]
+    assert list(_read(program.artifact()).definitions[program.entry]["body"]["policy"]) == ["effort", "model"]
+    operands = list(effect_value_operands(checked, canonical_policy=True))
+    assert [path for path, _ in operands] == [("prompt", "fills", 0, "value"), ("policy", "effort"), ("policy", "model")]
+    permuted = deepcopy(tree)
+    permuted["definitions"][tree["entry"]]["body"]["policy"] = dict(reversed(list(node["policy"].items())))
+    assert _read(permuted).semantic_digest == program.semantic_digest
+
+
+def test_effect_root_contracts_are_independently_derived_for_records_and_unions():
+    union = {"kind": "union", "name": "demo::Outcome", "variants": [
+        {"name": "ready", "fields": [{"name": "payload", "type": INT}]}, {"name": "empty", "fields": []}]}
+    for descriptor in (INPUT, union):
+        tree, node, _ = _command_fixture(result=descriptor)
+        assert _read(tree).definitions[tree["entry"]]["body"]["contract"]["payload"]["fields"][0]["json_pointer"] == ""
+        node["contract"] = {"kind": "output_bundle", "payload": {"fields": [{"name": "payload", "json_pointer": "/payload", "type": "integer"}]}}
+        _invalid(lambda: _read(tree))
+
+
+def test_certified_raw_argv_lane_and_unused_canonical_rows_remain_admissible():
+    from tests.test_workflow_lisp_closed_program_check import _certified_command_row
+    tree, node, row = _command_fixture(certified=True)
+    node.pop("document")
+    node["argv"] = [{"k": "lit", "v": "opaque"}]
+    # The established typed raw-argv lane does not invoke the promoted protocol.
+    row["invocation_protocol"] = None
+    tree["bindings"]["demo"]["configuration"]["commands"]["unused"] = _certified_command_row()
+    tree = _artifact(node, schemas=tree["schemas"], bindings=tree["bindings"])
+    assert _read(tree).bindings["demo"]["types"] == {"Int": "Int"}
+    tree, node, row = _command_fixture(certified=True)
+    row["invocation_protocol"] = "unsupported"
+    _invalid(lambda: _read(tree))
+
+
+def test_unreachable_certified_effects_still_require_their_type_associations():
+    from tests.workflow_dynamic_helpers import _definition
+    tree, node, row = _command_fixture(certified=True)
+    row["input_signature"][0]["type_name"] = "String"
+    tree["bindings"]["demo"]["types"]["String"] = "String"
+    tree = _artifact(definitions={"demo::unused": _definition(node, params=("n",))}, schemas=tree["schemas"], bindings=tree["bindings"])
+    assert "String" in _read(tree).bindings["demo"]["types"]
+    tree["bindings"]["demo"]["types"].pop("String")
+    error = _invalid(lambda: _read(tree))
+    assert error.location == "/definitions/demo::unused/body"
+
+
+def test_unreachable_extern_provider_inputs_refuse_before_provenance_validation():
+    from tests.workflow_dynamic_helpers import _definition
+    tree, node = _provider_fixture(composed=False)
+    node["inputs"] = [["data", "canonical-json", {"k": "name", "n": "n"}]]
+    tree["definitions"]["demo::unused"] = _definition(node)
+    tree["definitions"][tree["entry"]]["body"] = {"k": "lit", "v": 0}
+    error = _invalid(lambda: _read(tree))
+    assert error.location == "/definitions/demo::unused/body/inputs"
+
+
+def test_prompt_refinements_use_catalog_descriptors_without_inferring_expression_types():
+    path = {"kind": "path", "name": "demo::Document", "under": "documents", "must_exist_target": True}
+    tree, node = _provider_fixture()
+    tree["schemas"].update({INPUT["name"]: INPUT, path["name"]: path})
+    node["prompt"]["fills"][0]["type"] = INPUT
+    node["prompt"]["fills"].append({"name": "document", "kind": "doc", "type": path,
+        "value": {"k": "name", "n": "n"}, "renderer_id": None, "output_role": None, "placeholder_ordinals": []})
+    tree = _artifact(node, schemas=tree["schemas"], bindings=tree["bindings"])
+    # The Int parameter's shape is checked against the declaration at runtime.
+    assert _read(tree).definitions[tree["entry"]]["body"]["prompt"]["fills"][0]["type"]["kind"] == "record"
+    missing = deepcopy(tree)
+    missing["schemas"].pop(path["name"])
+    _invalid(lambda: _read(missing))
+    node["prompt"]["fills"][1]["type"] = STRING
+    tree = _artifact(node, schemas=tree["schemas"], bindings=tree["bindings"])
+    _invalid(lambda: _read(tree))
+
+
+def test_empty_external_document_retains_present_semantics():
+    tree, node, _ = _command_fixture(document=True)
+    empty = {"kind": "record", "name": "demo::Empty", "fields": []}
+    tree["schemas"][empty["name"]] = empty
+    node["input_type"] = empty
+    node["document"] = []
+    tree = _artifact(node, schemas=tree["schemas"], bindings=tree["bindings"])
+    assert "document" in _read(tree).definitions[tree["entry"]]["body"]
+
+
+def test_source_map_uses_real_operand_and_record_array_positions():
+    tree, node = _provider_fixture(prompt_module="library/prompts")
+    node["prompt"]["fills"][0]["value"] = {"k": "record", "fields": [["a~/b", {"k": "lit", "v": 7}]]}
+    node["dependencies"] = {"required": [{"k": "name", "n": "n"}], "optional": [], "position": "prepend", "instruction": None}
+    node["policy"] = {"model": {"k": "name", "n": "n"}, "effort": {"k": "lit", "v": "low"}}
+    tree = _artifact(node, schemas=tree["schemas"], bindings=tree["bindings"])
+    program = _read(tree)
+    root = "/definitions/demo::main/body"
+    for subject in ("/prompt/fills/0/value/fields/0/1", "/dependencies/required/0", "/policy/model", "/policy/effort"):
+        assert program.source_map["entries"][root + subject]["source"] == "demo"
+        altered = deepcopy(tree)
+        altered["source_map"]["entries"].pop(root + subject)
+        _invalid(lambda altered=altered: _read(altered))

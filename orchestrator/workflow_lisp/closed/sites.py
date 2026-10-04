@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -253,34 +254,48 @@ def _arm_root_values(arm):
     return [row[1] for row in arm.get("command_scope", [])]
 
 
-def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
-    """Read expression operands from the explicit effect-node schema."""
+def effect_value_operands(node: Mapping[str, Any], *, canonical_policy: bool = False):
+    """Yield actual operand pointer segments and expressions in request order.
 
+    Admission owns exact shapes. This walk does not discard malformed operands;
+    typed callers retain their historical projection and policy insertion order.
+    """
     kind = node.get("class")
     if kind == "command":
-        children = list(node.get("argv", []))
-        for plan in node.get("argv_transport", []):
-            children.extend(part["value"] for part in plan.get("parts", [])
-                if part.get("kind") == "slot")
-        children.extend(row[1] for row in node.get("document", []))
-        return children
+        for index, value in enumerate(node.get("argv", [])):
+            yield ("argv", index), value
+        for index, plan in enumerate(node.get("argv_transport", [])):
+            for part_index, part in enumerate(plan.get("parts", [])):
+                if part.get("kind") == "slot":
+                    yield ("argv_transport", index, "parts", part_index, "value"), part["value"]
+        for index, row in enumerate(node.get("document", [])):
+            yield ("document", index, 1), row[1]
     if kind == "provider":
-        children = [row[2] for row in node.get("inputs", [])]
+        for index, row in enumerate(node.get("inputs", [])):
+            yield ("inputs", index, 2), row[2]
         prompt = node.get("prompt")
-        fills = prompt.get("fills", []) if isinstance(prompt, dict) else []
-        if isinstance(fills, list):
-            children.extend(row.get("value") for row in fills if isinstance(row, dict))
+        fills = prompt.get("fills", []) if isinstance(prompt, Mapping) else []
+        if isinstance(fills, Sequence):
+            for index, row in enumerate(fills):
+                if isinstance(row, Mapping):
+                    yield ("prompt", "fills", index, "value"), row.get("value")
         dependencies = node.get("dependencies")
-        if isinstance(dependencies, dict):
-            children.extend(dependencies.get("required", []))
-            children.extend(dependencies.get("optional", []))
+        if isinstance(dependencies, Mapping):
+            for role in ("required", "optional"):
+                for index, value in enumerate(dependencies.get(role, [])):
+                    yield ("dependencies", role, index), value
         policy = node.get("policy")
-        if isinstance(policy, dict):
-            children.extend(policy.values())
-        return [child for child in children if isinstance(child, dict)]
+        if isinstance(policy, Mapping):
+            for name in sorted(policy) if canonical_policy else policy:
+                yield ("policy", name), policy[name]
     if kind == "run_ref":
-        return [row[1] for row in node.get("inputs", [])]
-    return []
+        for index, row in enumerate(node.get("inputs", [])):
+            yield ("inputs", index, 1), row[1]
+
+
+def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
+    children = [value for _, value in effect_value_operands(node)]
+    return [child for child in children if isinstance(child, dict)] if node.get("class") == "provider" else children
 
 
 class _SiteWalker:

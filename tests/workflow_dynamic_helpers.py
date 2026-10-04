@@ -43,6 +43,15 @@ def _children(node):
         return (("base", (), node["base"]), *[("fields", (index, 1), child) for index, (_, child) in enumerate(node["fields"])])
     if kind == "effect":
         return (("inputs", (), node["inputs"]),)
+    if kind == "perform":
+        if node["class"] == "command":
+            return (*[("argv", (i,), child) for i, child in enumerate(node["argv"])],
+                    *[("document", (i, 1), child) for i, (_, child) in enumerate(node.get("document", []))])
+        prompt = node["prompt"]
+        dependencies = node["dependencies"] or {}
+        return (*[("prompt", ("fills", i, "value"), fill["value"]) for i, fill in enumerate(prompt.get("fills", []))],
+                *[("dependencies", (role, i), child) for role in ("required", "optional") for i, child in enumerate(dependencies.get(role, []))],
+                *[("policy", (key,), child) for key, child in sorted((node["policy"] or {}).items())])
     return ()
 
 
@@ -70,12 +79,31 @@ def _source_paths(code, definition):
     return paths
 
 
-def _definition(body, *, params=(), captures=(), owner_module="demo", asset_base=".", boundary=None):
+def _prompt_subjects(node, path):
+    if node.get("k") == "perform":
+        yield _pointer(path, "result"), None
+        if node["class"] == "provider":
+            prompt = node["prompt"]
+            owner = node["prompt_owner"]["module"]
+            yield _pointer(path, "prompt"), owner
+            if "template" in prompt:
+                yield _pointer(path, "result"), owner
+                yield _pointer(_pointer(path, "prompt"), "template"), owner
+                for i, _ in enumerate(prompt["fills"]):
+                    yield _pointer(_pointer(_pointer(path, "prompt"), "fills"), str(i)), owner
+    for field, indices, child in _children(node):
+        child_path = _pointer(path, field)
+        for index in indices:
+            child_path = _pointer(child_path, str(index))
+        yield from _prompt_subjects(child, child_path)
+
+
+def _definition(body, *, params=(), captures=(), owner_module="demo", asset_base=None, boundary=None):
     return {
         "params": list(params),
         "captures": list(captures),
         "body": body,
-        "owner": {"module": owner_module, "asset_base": asset_base},
+        "owner": {"module": owner_module, "asset_base": asset_base if asset_base is not None else owner_module.rpartition("/")[0] or "."},
         "boundary": boundary,
     }
 
@@ -116,7 +144,7 @@ def _artifact(
     )
     all_definitions = {entry: entry_definition, **definitions}
     if sources is None:
-        modules = {definition["owner"]["module"] for definition in all_definitions.values()}
+        modules = {definition["owner"]["module"] for definition in all_definitions.values()} | set(bindings or {})
         sources = {}
         for source_module in modules:
             relative_path = source_module.replace(".", "/") + "/main.orc"
@@ -133,6 +161,13 @@ def _artifact(
             source_map_entries[node_pointer] = {
                 "source": source,
                 "span": _span(sources[source]["relative_path"]),
+                "form_path": ["workflow-lisp", "definition", code],
+            }
+        for node_pointer, prompt_source in _prompt_subjects(definition["body"], _pointer(_pointer("/definitions", code), "body")):
+            subject_source = prompt_source or source
+            source_map_entries[node_pointer] = {
+                "source": subject_source,
+                "span": _span(sources[subject_source]["relative_path"]),
                 "form_path": ["workflow-lisp", "definition", code],
             }
     return {

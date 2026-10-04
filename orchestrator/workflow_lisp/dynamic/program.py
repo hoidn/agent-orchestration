@@ -6,7 +6,9 @@ resolve through the existing normalized descriptor table. `semantic_digest`
 pins executable declarations, while `provenance_digest` pins source bytes and
 the RFC 6901 source map. Source-map entries point to real artifact locations:
 definition bodies, nested expressions, and each boundary parameter/default/
-result subject.
+result subject. Static command/provider payloads use the same declaration checks
+as typed admission; dynamic expressions retain lexical checks and declaration
+owned boundary descriptors without claiming the typed program's value proofs.
 
 `schema_reference` is the frontend helper for the same descriptor keys used by
 admission: canonical declaration names for nominal descriptors and canonical
@@ -26,6 +28,7 @@ from orchestrator.contracts.output_contract import strict_json_loads
 from orchestrator.workflow.evaluated.values import EvaluatedValueError, _freeze, _thaw
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from orchestrator.workflow.type_descriptor import (
+    COMPILER_PRIMITIVE_TYPE_NAMES,
     is_transportable_type_descriptor,
     transport_schema_for_descriptor,
     validate_compiler_normalized_type_descriptor,
@@ -36,6 +39,8 @@ from orchestrator.workflow_lisp.closed.program import (
     canonical_digest,
     logical_asset_base_for_module,
 )
+from orchestrator.workflow_lisp.closed import static_effects
+from orchestrator.workflow_lisp.closed.sites import effect_value_operands
 
 
 SCHEMA = "workflow-lisp/dynamic-program/1"
@@ -299,15 +304,13 @@ def _names(value: Any, context: str) -> list[str]:
     return names
 
 
-def _validate_owner(value: Any, code: str, sources: Mapping[str, Any], context: str) -> dict[str, Any]:
+def _validate_module_owner(value: Any, module: str, sources: Mapping[str, Any], context: str) -> dict[str, Any]:
     owner = _object(value, context)
     _expect_fields(owner, {"module", "asset_base"}, context)
-    module = _identifier(owner["module"], _pointer(context, "module"))
+    if _identifier(owner["module"], _pointer(context, "module")) != module:
+        raise _invalid("owner differs from its binding module", context)
     if module not in sources:
         raise _invalid("definition owner has no pinned source", _pointer(context, "module"))
-    code_module, separator, member = code.rpartition("::")
-    if not separator or code_module != module or not member.strip() or "::" in module:
-        raise _invalid("code identifier does not belong to its canonical owner module", context)
     asset_base = owner["asset_base"]
     if not isinstance(asset_base, str) or "\x00" in asset_base:
         raise _invalid("asset_base must be a logical relative path", _pointer(context, "asset_base"))
@@ -318,6 +321,185 @@ def _validate_owner(value: Any, code: str, sources: Mapping[str, Any], context: 
     if asset_base != expected_asset_base:
         raise _invalid("asset_base must equal the canonical module asset base", _pointer(context, "asset_base"))
     return owner
+
+
+def _validate_owner(value: Any, code: str, sources: Mapping[str, Any], context: str) -> dict[str, Any]:
+    code_module, separator, member = code.rpartition("::")
+    if not separator or not member.strip() or "::" in code_module:
+        raise _invalid("code identifier does not belong to its canonical owner module", context)
+    return _validate_module_owner(value, code_module, sources, context)
+
+
+def _static_check(check, *args, context: str):
+    try:
+        return check(*args)
+    except static_effects.StaticEffectError as exc:
+        raise _invalid(f"{exc.rule}: {exc}", context) from exc
+
+
+def _validate_bindings(value: Any, sources: Mapping[str, Any], schemas: Mapping[str, Any]) -> dict[str, Any]:
+    bindings = _object(value, "/bindings")
+    for module, row in bindings.items():
+        pointer = _pointer("/bindings", module)
+        row = _object(row, pointer)
+        _expect_fields(row, {"owner", "configuration", "types"}, pointer)
+        _validate_module_owner(row["owner"], module, sources, _pointer(pointer, "owner"))
+        configuration = _object(row["configuration"], _pointer(pointer, "configuration"))
+        _expect_fields(configuration, {"commands", "providers", "prompts"}, _pointer(pointer, "configuration"))
+        _static_check(static_effects._validate_resolved_extern_rows, configuration, context=_pointer(pointer, "configuration"))
+        for prompt in configuration["prompts"].values():
+            if prompt["source_kind"] == "asset_file" and prompt["asset_base"] != row["owner"]["asset_base"]:
+                raise _invalid("prompt configuration asset base differs from its owner", _pointer(pointer, "configuration"))
+        types = _object(row["types"], _pointer(pointer, "types"))
+        for name, reference in types.items():
+            location = _pointer(_pointer(pointer, "types"), name)
+            _identifier(name, location)
+            _identifier(reference, location)
+            if reference not in schemas:
+                raise _invalid("binding type association refers to an unknown schema", location)
+            if name in COMPILER_PRIMITIVE_TYPE_NAMES and (
+                reference != name or schemas[reference] != {"kind": "primitive", "name": name}
+            ):
+                raise _invalid("binding type association cannot redefine a reserved primitive", location)
+    return bindings
+
+
+def _effect_descriptor(value: Any, schemas: Mapping[str, Any], pointer: str) -> dict[str, Any]:
+    descriptor = _object(value, pointer)
+    try:
+        validate_compiler_normalized_type_descriptor(descriptor, context=pointer)
+        reference = schema_reference(descriptor)
+        if schemas.get(reference) != descriptor:
+            raise _invalid("effect descriptor differs from its schema catalog row", pointer)
+        _validate_catalog_references(descriptor, schemas, pointer)
+        transport_schema_for_descriptor(descriptor, allow_nested_structures=True)
+    except EvaluatedValueError:
+        raise
+    except (TypeError, ValueError, KeyError, RecursionError) as exc:
+        raise _invalid(f"invalid effect descriptor: {exc}", pointer) from exc
+    return descriptor
+
+
+def _validate_effect(node: dict[str, Any], pointer: str, context: Mapping[str, Any]) -> None:
+    kind = node.get("class")
+    common = {"k", "class", "result", "repeat", "contract"}
+    if kind == "command":
+        expected = common | {"boundary", "command", "closure", "argv"}
+        if "document" in node:
+            expected.add("document")
+        if "input_type" in node:
+            expected.add("input_type")
+    elif kind == "provider":
+        expected = common | {"provider", "prompt_owner", "prompt", "inputs", "dependencies", "policy"}
+    else:
+        raise _invalid("unsupported dynamic effect class", pointer)
+    _expect_fields(node, expected, pointer)
+    schemas, bindings = context["schemas"], context["bindings"]
+    module = context["owner"]
+    binding = bindings.get(module)
+    if binding is None:
+        raise _invalid("effect owner has no closed configuration binding", pointer)
+    configuration = binding["configuration"]
+    descriptor = _effect_descriptor(node["result"], schemas, _pointer(pointer, "result"))
+    contract = _object(node["contract"], _pointer(pointer, "contract"))
+    _expect_fields(contract, {"kind", "payload"}, _pointer(pointer, "contract"))
+    payload = _object(contract["payload"], _pointer(_pointer(pointer, "contract"), "payload"))
+    if "path" in payload:
+        raise _invalid("effect contract must omit its generated output path", pointer)
+    expected_contract = static_effects._checked_effect_result_contract(descriptor, whole_value=True)
+    actual_contract = {"kind": contract["kind"], "payload": static_effects._result_contract_view(payload)}
+    if _canonical_json(actual_contract) != _canonical_json(expected_contract):
+        raise _invalid("effect result differs from its independently derived whole-root contract", pointer)
+    if kind == "command":
+        boundary = _identifier(node["boundary"], _pointer(pointer, "boundary"))
+        row = configuration["commands"].get(boundary)
+        if row is None:
+            raise _invalid("command boundary is absent from its owner's configuration", pointer)
+        _array(node["argv"], _pointer(pointer, "argv"))
+        stable = _static_check(static_effects._command_configuration_stable_tokens, row, node, context=pointer)
+        _static_check(static_effects._check_command_configuration_identity, node, row, stable, context=pointer)
+        certified = row["kind"] == "certified_adapter"
+        if certified:
+            if "input_type" in node:
+                raise _invalid("certified commands forbid an external input_type", pointer)
+            names = {row["output_type_name"], *(item["type_name"] for item in row["input_signature"])}
+            context["used_types"][module].update(names)
+            if not names.issubset(binding["types"]):
+                raise _invalid("certified binding omits a used declared type association", pointer)
+            if schemas[binding["types"][row["output_type_name"]]] != descriptor:
+                raise _invalid("certified result differs from its declared output type association", pointer)
+        elif ("document" in node) != ("input_type" in node):
+            raise _invalid("external documents require document and input_type together", pointer)
+        if "document" in node:
+            document = _array(node["document"], _pointer(pointer, "document"))
+            for index, item in enumerate(document):
+                if type(item) is not list or len(item) != 2 or not isinstance(item[0], str):
+                    raise _invalid("command document row must be [name, expression]", _pointer(_pointer(pointer, "document"), index))
+            if certified:
+                _static_check(static_effects._check_certified_document_configuration, node, row, context=pointer)
+            else:
+                _static_check(static_effects._check_external_document_keys, node, context=pointer)
+                input_type = _effect_descriptor(node["input_type"], schemas, _pointer(pointer, "input_type"))
+                if input_type["kind"] != "record":
+                    raise _invalid("external document input_type must be a declared record", pointer)
+                if [item[0] for item in document] != [field["name"] for field in input_type["fields"]]:
+                    raise _invalid("external document keys differ from its declared record fields", pointer)
+        return
+
+    if node["repeat"] != "rerun":
+        raise _invalid("provider repeat must be rerun", pointer)
+    provider = _identifier(node["provider"], _pointer(pointer, "provider"))
+    if provider not in configuration["providers"] and not any(row["provider_id"] == provider for row in configuration["providers"].values()):
+        raise _invalid("provider is absent from its owner's configuration", pointer)
+    if _array(node["inputs"], _pointer(pointer, "inputs")):
+        raise _invalid("extern provider inputs have no declared schemas; use defprompt fills", _pointer(pointer, "inputs"))
+    owner = _object(node["prompt_owner"], _pointer(pointer, "prompt_owner"))
+    prompt_module = _identifier(owner.get("module"), _pointer(pointer, "prompt_owner"))
+    _validate_module_owner(owner, prompt_module, context["sources"], _pointer(pointer, "prompt_owner"))
+    prompt_binding = bindings.get(prompt_module)
+    if prompt_binding is None:
+        raise _invalid("prompt owner has no closed configuration binding", pointer)
+    prompt = _object(node["prompt"], _pointer(pointer, "prompt"))
+    if prompt.get("source_kind") in ("asset_file", "input_file"):
+        expected_prompt = {"source_kind", "path"} | ({"asset_base"} if prompt["source_kind"] == "asset_file" else set())
+        _expect_fields(prompt, expected_prompt, _pointer(pointer, "prompt"))
+        if prompt not in prompt_binding["configuration"]["prompts"].values():
+            raise _invalid("prompt source differs from its defining module's configuration", _pointer(pointer, "prompt"))
+    else:
+        _expect_fields(prompt, {"template", "fills"}, _pointer(pointer, "prompt"))
+        if not isinstance(prompt["template"], str):
+            raise _invalid("prompt template must be text", _pointer(pointer, "prompt"))
+        fills = _array(prompt["fills"], _pointer(_pointer(pointer, "prompt"), "fills"))
+        for index, fill in enumerate(fills):
+            location = _pointer(_pointer(_pointer(pointer, "prompt"), "fills"), index)
+            fill = _object(fill, location)
+            _expect_fields(fill, {"name", "kind", "type", "value", "renderer_id", "output_role", "placeholder_ordinals"}, location)
+            _effect_descriptor(fill["type"], schemas, _pointer(location, "type"))
+        _static_check(static_effects._check_provider_prompt_fill_declarations, prompt, context=_pointer(pointer, "prompt"))
+    dependencies = node["dependencies"]
+    if dependencies is not None:
+        dependencies = _object(dependencies, _pointer(pointer, "dependencies"))
+        _expect_fields(dependencies, {"required", "optional", "position", "instruction"}, _pointer(pointer, "dependencies"))
+        for role in ("required", "optional"):
+            _array(dependencies[role], _pointer(_pointer(pointer, "dependencies"), role))
+        if dependencies["position"] not in ("prepend", "append"):
+            raise _invalid("provider dependency position must be prepend or append", pointer)
+        instruction = dependencies["instruction"]
+        if instruction is not None and (not isinstance(instruction, str) or len(instruction.encode("utf-8")) > 261630):
+            raise _invalid("provider dependency instruction must be bounded UTF-8 text or null", pointer)
+    policy = node["policy"]
+    if policy is not None:
+        policy = _object(policy, _pointer(pointer, "policy"))
+        if set(policy) - {"model", "effort", "timeout_sec", "delivery"}:
+            raise _invalid("provider policy fields are outside the composed surface", pointer)
+        timeout = policy.get("timeout_sec")
+        if "timeout_sec" in policy and (type(timeout) is not dict or timeout.get("k") != "lit" or type(timeout.get("v")) is not int or timeout["v"] <= 0):
+            raise _invalid("provider timeout must be a positive Int literal", pointer)
+        if "delivery" in policy and policy["delivery"] != {"k": "lit", "v": "composed"}:
+            raise _invalid("provider delivery must be literal composed", pointer)
+        # Canonical JSON ignores object insertion order, so the checked request
+        # must use the same policy order as its operand walk and native consumer.
+        node["policy"] = dict(sorted(policy.items()))
 
 
 def _validate_boundary(value: Any, params: list[str], schemas: Mapping[str, Any], context: str) -> dict[str, Any] | None:
@@ -365,6 +547,14 @@ def _validate_boundary(value: Any, params: list[str], schemas: Mapping[str, Any]
 
 def _node_children(node: Mapping[str, Any], pointer: str) -> tuple[tuple[str, Any], ...]:
     kind = node.get("k")
+    if kind == "perform":
+        children = []
+        for segments, child in effect_value_operands(node, canonical_policy=True):
+            child_pointer = pointer
+            for segment in segments:
+                child_pointer = _pointer(child_pointer, segment)
+            children.append((child_pointer, child))
+        return tuple(children)
     if kind == "let":
         return tuple(
             (_pointer(_pointer(_pointer(pointer, "bindings"), index), 1), row[1])
@@ -395,19 +585,37 @@ def _node_children(node: Mapping[str, Any], pointer: str) -> tuple[tuple[str, An
     return ()
 
 
-def _node_paths(node: Mapping[str, Any], pointer: str):
-    yield pointer
+def _node_subjects(node: Mapping[str, Any], pointer: str, module: str):
+    yield pointer, module
+    if node["k"] == "perform":
+        result_module = module
+        if node["class"] == "provider":
+            prompt = node["prompt"]
+            prompt_module = node["prompt_owner"]["module"]
+            prompt_pointer = _pointer(pointer, "prompt")
+            yield prompt_pointer, prompt_module
+            if "template" in prompt:
+                result_module = prompt_module
+                yield _pointer(prompt_pointer, "template"), prompt_module
+                for index, _ in enumerate(prompt["fills"]):
+                    yield _pointer(_pointer(prompt_pointer, "fills"), index), prompt_module
+        yield _pointer(pointer, "result"), result_module
     for child_pointer, child in _node_children(node, pointer):
-        yield from _node_paths(child, child_pointer)
+        yield from _node_subjects(child, child_pointer, module)
 
 
-def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], pointer: str) -> None:
+def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], pointer: str, effect_context: Mapping[str, Any]) -> None:
     if type(node) is not dict:
         raise _invalid("expression must be an object", pointer)
     kind = node.get("k")
+    if kind == "perform":
+        _validate_effect(node, pointer, effect_context)
+        for child_pointer, child in _node_children(node, pointer):
+            _validate_node(child, bound, definitions, child_pointer, effect_context)
+        return
     if not isinstance(kind, str) or kind not in _NODE_FIELDS:
         if kind == "effect":
-            raise _invalid("effect nodes await shared static-payload admission", pointer)
+            raise _invalid("registry effect nodes are not production requests", pointer)
         raise _invalid("unsupported dynamic expression node", pointer)
     _expect_fields(node, {"k", *_NODE_FIELDS[kind]}, pointer)
     if kind == "lit":
@@ -430,10 +638,10 @@ def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], p
             name = _identifier(row[0], _pointer(location, 0))
             if name in names:
                 raise _invalid("let binding names must be unique", location)
-            _validate_node(row[1], local, definitions, _pointer(location, 1))
+            _validate_node(row[1], local, definitions, _pointer(location, 1), effect_context)
             names.add(name)
             local.add(name)
-        _validate_node(node["body"], local, definitions, _pointer(pointer, "body"))
+        _validate_node(node["body"], local, definitions, _pointer(pointer, "body"), effect_context)
     elif kind == "fn":
         code = _identifier(node["code"], _pointer(pointer, "code"))
         definition = definitions.get(code)
@@ -443,14 +651,14 @@ def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], p
         if len(captures) != len(definition["captures"]):
             raise _invalid("closure capture count differs from its definition", _pointer(pointer, "captures"))
         for index, child in enumerate(captures):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "captures"), index))
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "captures"), index), effect_context)
     elif kind == "call":
-        _validate_node(node["callee"], bound, definitions, _pointer(pointer, "callee"))
+        _validate_node(node["callee"], bound, definitions, _pointer(pointer, "callee"), effect_context)
         for index, child in enumerate(_array(node["args"], _pointer(pointer, "args"))):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index))
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index), effect_context)
     elif kind == "if":
         for field in ("cond", "then", "else"):
-            _validate_node(node[field], bound, definitions, _pointer(pointer, field))
+            _validate_node(node[field], bound, definitions, _pointer(pointer, field), effect_context)
     elif kind == "record":
         seen: set[str] = set()
         for index, row in enumerate(_array(node["fields"], _pointer(pointer, "fields"))):
@@ -461,16 +669,16 @@ def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], p
             if name in seen:
                 raise _invalid("record field names must be unique", location)
             seen.add(name)
-            _validate_node(row[1], bound, definitions, _pointer(location, 1))
+            _validate_node(row[1], bound, definitions, _pointer(location, 1), effect_context)
     elif kind == "field":
         _identifier(node["name"], _pointer(pointer, "name"))
-        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"))
+        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effect_context)
     elif kind == "list":
         for index, child in enumerate(_array(node["items"], _pointer(pointer, "items"))):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "items"), index))
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "items"), index), effect_context)
     elif kind == "at":
-        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"))
-        _validate_node(node["index"], bound, definitions, _pointer(pointer, "index"))
+        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effect_context)
+        _validate_node(node["index"], bound, definitions, _pointer(pointer, "index"), effect_context)
     elif kind == "op":
         name = _identifier(node["name"], _pointer(pointer, "name"))
         if name not in _OPERATORS:
@@ -480,9 +688,9 @@ def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], p
         if len(args) < spec.min_arity or (spec.max_arity is not None and len(args) > spec.max_arity):
             raise _invalid(f"primitive {name!r} has an invalid operand count", _pointer(pointer, "args"))
         for index, child in enumerate(args):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index))
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index), effect_context)
     elif kind == "record-update":
-        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"))
+        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effect_context)
         seen: set[str] = set()
         for index, row in enumerate(_array(node["fields"], _pointer(pointer, "fields"))):
             location = _pointer(_pointer(pointer, "fields"), index)
@@ -492,7 +700,7 @@ def _validate_node(node: Any, bound: set[str], definitions: Mapping[str, Any], p
             if name in seen:
                 raise _invalid("record update fields must be unique", location)
             seen.add(name)
-            _validate_node(row[1], bound, definitions, _pointer(location, 1))
+            _validate_node(row[1], bound, definitions, _pointer(location, 1), effect_context)
         if not seen:
             raise _invalid("record updates must replace at least one field", _pointer(pointer, "fields"))
     elif kind == "fail":
@@ -506,8 +714,8 @@ def _source_subjects(definitions: Mapping[str, Any]) -> dict[str, str]:
         definition_pointer = _pointer("/definitions", code)
         subjects[definition_pointer] = module
         body_pointer = _pointer(definition_pointer, "body")
-        for node_pointer in _node_paths(definition["body"], body_pointer):
-            subjects[node_pointer] = module
+        for node_pointer, subject_module in _node_subjects(definition["body"], body_pointer, module):
+            subjects[node_pointer] = subject_module
         boundary = definition["boundary"]
         if boundary is not None:
             boundary_pointer = _pointer(definition_pointer, "boundary")
@@ -583,9 +791,7 @@ def _validate_artifact(raw: Any) -> tuple[dict[str, Any], dict[str, Any], dict[s
 
     schemas = _validate_schemas(tree["schemas"])
     sources = _validate_sources(tree["sources"])
-    bindings = _object(tree["bindings"], "/bindings")
-    if bindings:
-        raise _invalid("nonempty effect bindings await shared static-payload admission", "/bindings")
+    bindings = _validate_bindings(tree["bindings"], sources, schemas)
     definitions = _object(tree["definitions"], "/definitions")
     if not definitions:
         raise _invalid("definitions must contain the entry", "/definitions")
@@ -610,9 +816,15 @@ def _validate_artifact(raw: Any) -> tuple[dict[str, Any], dict[str, Any], dict[s
     if entry["captures"] or entry["boundary"] is None:
         raise _invalid("entry must have no captures and a declared boundary", _pointer("/definitions", entry_code))
 
+    used_types = {module: set() for module in bindings}
     for code, definition in definition_rows.items():
         pointer = _pointer(_pointer("/definitions", code), "body")
-        _validate_node(definition["body"], set(definition["params"]) | set(definition["captures"]), definition_rows, pointer)
+        effect_context = {"owner": definition["owner"]["module"], "bindings": bindings,
+                          "schemas": schemas, "sources": sources, "used_types": used_types}
+        _validate_node(definition["body"], set(definition["params"]) | set(definition["captures"]), definition_rows, pointer, effect_context)
+    for module, binding in bindings.items():
+        if set(binding["types"]) != used_types[module]:
+            raise _invalid("binding types must contain exactly the used certified declaration names", _pointer(_pointer("/bindings", module), "types"))
 
     source_map = _validate_source_map(tree["source_map"], sources, definition_rows)
     return definition_rows, schemas, sources, source_map
@@ -675,15 +887,7 @@ class DynamicProgram:
 
         boundary = self.definitions[self.entry]["boundary"]
         descriptor = self.schemas[boundary["result"]]
-        schema = transport_schema_for_descriptor(descriptor, allow_nested_structures=True)
-        return _freeze({
-            "kind": "output_bundle",
-            "payload": {
-                "fields": [
-                    {"name": "__result__", "json_pointer": "", **schema}
-                ]
-            },
-        })
+        return _freeze(static_effects._checked_effect_result_contract(descriptor, whole_value=True))
 
     def artifact(self) -> str:
         """Return canonical checked JSON with one final newline."""
