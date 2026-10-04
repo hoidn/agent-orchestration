@@ -26,6 +26,7 @@ from .type_env import (
     ProcRefTypeRef,
     RecordTypeRef,
     TypeRef,
+    UnionTypeRef,
     WorkflowRefTypeRef,
     type_refs_compatible,
 )
@@ -275,6 +276,15 @@ def typecheck_proc_ref_argument(
     )
 
 
+def _ordinary_call_binding_types_compatible(expected_type, actual_type, *, context):
+    if (context.compiler_session.closed_program
+            and isinstance(expected_type, UnionTypeRef)
+            and isinstance(actual_type, UnionTypeRef)):
+        return (expected_type.definition == actual_type.definition
+                and type_refs_compatible(expected_type, actual_type))
+    return type_refs_compatible(expected_type, actual_type)
+
+
 def typecheck_call_expr(
     expr: CallExpr,
     *,
@@ -390,7 +400,7 @@ def typecheck_call_expr(
             continue
         typed_binding = recurse(binding_expr, expected_type=expected_type)
         binding_summaries.append(typed_binding.effect_summary)
-        if not type_refs_compatible(expected_type, typed_binding.type_ref):
+        if not _ordinary_call_binding_types_compatible(expected_type, typed_binding.type_ref, context=context):
             raise_error(
                 f"call binding `{binding_name}` expected `{_type_label(expected_type)}`"
                 f" but got `{_type_label(typed_binding.type_ref)}`",

@@ -2242,6 +2242,7 @@ def _run_stage3_validation_pipeline(
                 or target_dsl_supports_provider_context_values(module.target_dsl_version)
             ),
             family_profile_catalog=family_profile_catalog,
+            closed_program=compiler_session.closed_program,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
         function_catalog = build_function_catalog(function_defs, type_env=type_env)
@@ -3272,6 +3273,7 @@ def _compile_stage3_graph(
                 )
             ),
             family_profile_catalog=family_profile_catalog,
+            closed_program=compiler_session.closed_program,
         )
         module_workflow_signatures[module_name] = dict(
             workflow_catalog.signatures_by_name

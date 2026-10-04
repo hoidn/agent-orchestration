@@ -147,6 +147,12 @@ from .type_env import (
 )
 from .workflow_refs import resolve_workflow_ref_name, workflow_ref_type_from_signature
 
+def _kept_continue_state(expr: ContinueExpr, typed_state: TypedExpr, *, context):
+    if context.compiler_session.closed_program:
+        return replace(expr, state_expr=typed_state.expr)
+    return expr
+
+
 if TYPE_CHECKING:
     from .functions import FunctionCatalog
     from .procedures import ProcedureCatalog
@@ -813,7 +819,7 @@ def _typecheck(
                 form_path=expr.state_expr.form_path,
             )
         return _typed(
-            expr=expr,
+            expr=_kept_continue_state(expr, typed_state, context=context),
             type_ref=LoopControlTypeRef(
                 state_type_ref=loop_context.state_type_ref,
                 result_type_ref=loop_context.result_type_ref,
