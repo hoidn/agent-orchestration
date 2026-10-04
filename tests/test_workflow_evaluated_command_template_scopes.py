@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
+from orchestrator.workflow.evaluated.authority import load_run_authority
+from orchestrator.workflow.evaluated.machine import site_classes
+from orchestrator.workflow.evaluated.memo import read_memo
 from tests.test_workflow_evaluated_cli import _run_cli
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
@@ -51,6 +57,57 @@ def _run_entry(root: Path, source: Path, boundaries: Path, *extra: str):
     )
 
 
+def _resume_snapshot(roots: list[Path], run_id: str, state_dir: Path | None):
+    from tests.test_workflow_evaluated_resume import _snapshot
+
+    snapshot = [_snapshot(path) for path in roots]
+    if state_dir:
+        snapshot[-1].pop(f"{run_id}/run.lock", None)
+    return snapshot
+
+
+def _resume_command(root: Path, run_id: str, state_dir: Path | None):
+    args = [sys.executable, "-m", "orchestrator", "resume", run_id]
+    if state_dir:
+        args.extend(["--state-dir", str(state_dir)])
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1]),
+           "PYTHONDONTWRITEBYTECODE": "1"}
+    return subprocess.run(args, cwd=root, env=env, capture_output=True, text=True)
+
+
+def _assert_resume_unchanged(
+    roots, before, run_root, state_dir, markers, marker_bytes, authority, terminal
+):
+    assert _resume_snapshot(roots, run_root.name, state_dir) == before
+    assert [path.read_bytes() for path in markers] == marker_bytes
+    resumed = read_memo(
+        authority.memo_path, site_classes(authority.program)
+    ).terminal
+    assert resumed == terminal
+
+
+def _assert_two_public_resumes(
+    root: Path, *markers: Path, state_dir: Path | None = None
+) -> None:
+    workspace_state = root / ".orchestrate"
+    runs_root = state_dir or workspace_state / "runs"
+    (run_root,) = runs_root.iterdir()
+    roots = [workspace_state] + ([state_dir] if state_dir else [])
+    before = _resume_snapshot(roots, run_root.name, state_dir)
+    marker_bytes = [path.read_bytes() for path in markers]
+    authority = load_run_authority(run_root)
+    terminal = read_memo(
+        authority.memo_path, site_classes(authority.program)
+    ).terminal
+    assert terminal is not None and terminal.data["outcome"] == "completed"
+    for _ in range(2):
+        result = _resume_command(root, run_root.name, state_dir)
+        assert result.returncode == 0, result.stderr
+        _assert_resume_unchanged(
+            roots, before, run_root, state_dir, markers, marker_bytes, authority, terminal
+        )
+
+
 def _assert_undefined_before_dispatch(root: Path, result) -> None:
     assert result.returncode == 1
     assert "[undefined_variables]" in result.stderr
@@ -85,6 +142,7 @@ def test_imported_inline_helper_keeps_native_input_root_outside_loops(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "argv.jsonl").read_bytes() == b'["imported-proc", "IMPORTED", "PARENT"]\n'
+    _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 def test_nested_direct_loops_use_the_innermost_zero_based_command_index(tmp_path: Path) -> None:
@@ -116,6 +174,7 @@ def test_nested_direct_loops_use_the_innermost_zero_based_command_index(tmp_path
         b'["0", "0", "0"]\n["0", "1", "1"]\n'
         b'["1", "0", "0"]\n["1", "1", "1"]\n'
     )
+    _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 def test_imported_helper_without_own_loop_resets_loop_index_before_dispatch(tmp_path: Path) -> None:
@@ -186,6 +245,7 @@ def test_private_and_native_helpers_receive_their_exact_input_argv(
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "argv.jsonl").read_bytes() == f'["{edge}", "payload"]\n'.encode()
+    _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 @pytest.mark.parametrize("edge", ("private", "native"), ids=("private-procedure", "native-workflow"))
@@ -236,6 +296,7 @@ def test_input_slots_select_native_rows_and_keep_value_suffixes_as_paths(
         _assert_undefined_before_dispatch(tmp_path, result)
     else:
         assert (tmp_path / "argv.jsonl").read_bytes() == expected_argv
+        _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 _FILTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -245,6 +306,41 @@ _FILTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (command-result emit :argv ("python" "probe.py" "${inputs.payload.z|unknown-filter}") :returns Int)
       (command-result emit :argv ("python" "probe.py" "fallback") :returns Int))))
 '''
+
+
+def _c9_memo(run_root: Path):
+    authority = load_run_authority(run_root)
+    return read_memo(authority.memo_path, site_classes(authority.program))
+
+
+def _assert_c9_commits(run_root: Path) -> None:
+    memo = _c9_memo(run_root)
+    rows = [entry.data for entry in memo.entries]
+    commits = [row for row in rows if row["record"] == "committed"]
+    assert [row["record"] for row in rows] == [
+        "started", "committed", "started", "committed", "started", "committed", "terminal"
+    ]
+    assert len(commits) == 3
+    choose, branch, dependent = commits
+    assert choose["value"] is True
+    expected_argv = [
+        ["python", "probe.py", "choose"],
+        ["python", "probe.py", "branch"],
+        ["python", "probe.py", "dependent", "7"],
+    ]
+    assert [row["input_parts"]["argv"] for row in commits] == [
+        canonical_sha256(argv) for argv in expected_argv
+    ]
+    assert [row["input_digest"] for row in commits] == [
+        canonical_sha256(row["input_parts"]) for row in commits
+    ]
+    assert branch["depends_on"] == []
+    assert dependent["depends_on"] == [choose["identity"]]
+
+
+def _assert_c9_terminal(run_root: Path) -> None:
+    terminal = _c9_memo(run_root).terminal
+    assert terminal is not None and terminal.data["value"] == 17
 
 
 @pytest.mark.parametrize(
@@ -270,6 +366,7 @@ def test_unknown_filter_is_checked_only_in_the_selected_command(
         _assert_undefined_before_dispatch(tmp_path, result)
     else:
         assert (tmp_path / "argv.jsonl").read_bytes() == expected_argv
+        _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 def test_persisted_dependencies_follow_values_not_selected_branch_control(
@@ -307,31 +404,8 @@ def test_persisted_dependencies_follow_values_not_selected_branch_control(
     result = _run_entry(tmp_path, source, boundaries)
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "argv.jsonl").read_bytes() == (
-        b'["choose"]\n["branch"]\n["dependent", "7"]\n'
-    )
     (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
-    rows = [
-        json.loads(line)
-        for line in (run_root / "memo.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    commits = [row for row in rows if row["record"] == "committed"]
-    assert [row["record"] for row in rows] == [
-        "started", "committed", "started", "committed", "started", "committed", "terminal"
-    ]
-    assert len(commits) == 3
-    choose, branch, dependent = commits
-    assert choose["value"] is True
-    expected_argv = [
-        ["python", "probe.py", "choose"],
-        ["python", "probe.py", "branch"],
-        ["python", "probe.py", "dependent", "7"],
-    ]
-    assert [row["input_parts"]["argv"] for row in commits] == [
-        canonical_sha256(argv) for argv in expected_argv
-    ]
-    assert [row["input_digest"] for row in commits] == [
-        canonical_sha256(row["input_parts"]) for row in commits
-    ]
-    assert branch["depends_on"] == []
-    assert dependent["depends_on"] == [choose["identity"]]
+    assert (tmp_path / "argv.jsonl").read_bytes() == b'["choose"]\n["branch"]\n["dependent", "7"]\n'
+    _assert_c9_commits(run_root)
+    _assert_c9_terminal(run_root)
+    _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")

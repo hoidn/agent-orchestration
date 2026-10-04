@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+import math
+from pathlib import Path, PurePosixPath
 import stat
 from typing import Any
 
-from orchestrator._common.io_atomic import durable_atomic_write
-from orchestrator.run_lock import run_writer_lock
+from orchestrator.run_lock import ReservedRunRootError, run_root_matches_fd, run_writer_lock
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.run_ref.contracts import (
     canonical_json_bytes,
@@ -24,6 +25,7 @@ from orchestrator.workflow_lisp.closed.sites import _ast_nodes
 from orchestrator.workflow.evaluated.interpreters import (
     pin_command_interpreter,
     validate_command_interpreter_pin_shape,
+    _valid_digest,
 )
 
 
@@ -56,6 +58,7 @@ class RunAuthority:
     run_root: Path
     header: Mapping[str, Any]
     program: ClosedProgram
+    run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
 
     @property
     def header_path(self) -> Path:
@@ -70,6 +73,67 @@ class RunAuthority:
         return self.run_root / MEMO_FILENAME
 
 
+_RESUME_REQUEST_FIELDS = {
+    "source_roots", "entry_workflow", "provider_externs_path", "prompt_externs_path",
+    "imported_workflow_bundles_path", "command_boundaries_path", "input_file", "input_overrides",
+}
+
+
+def _validate_locator(value: object) -> None:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise RunAuthorityError("resume locator is empty or invalid")
+    path = PurePosixPath(value)
+    if not path.is_absolute() and ".." in path.parts:
+        raise RunAuthorityError("resume locator is not normalized")
+    if os.path.normpath(value) != value or value.startswith("//"):
+        raise RunAuthorityError("resume locator is not canonical")
+    if value.startswith("/dev/fd/") or (value.startswith("/proc/") and "fd" in path.parts):
+        raise RunAuthorityError("process descriptor paths are not durable locators")
+
+
+def _validate_json_value(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise RunAuthorityError("resume override keys are not strings")
+            _validate_json_value(item)
+    elif isinstance(value, list):
+        for item in value:
+            _validate_json_value(item)
+    elif value is not None and type(value) not in (str, bool, int, float):
+        raise RunAuthorityError("resume override is not JSON")
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise RunAuthorityError("resume override is non-finite")
+
+
+def _validate_requested_entry(entry: object) -> None:
+    if not isinstance(entry, str) or not entry or "\x00" in entry:
+        raise RunAuthorityError("requested entry is invalid")
+
+
+def validate_resume_request(value: object) -> None:
+    """Check the exact durable recipe without opening any of its locators."""
+    if not isinstance(value, dict) or set(value) != _RESUME_REQUEST_FIELDS:
+        raise RunAuthorityError("resume request has missing or unknown fields")
+    if not isinstance(value["source_roots"], list):
+        raise RunAuthorityError("resume source roots are not an array")
+    for root in value["source_roots"]:
+        _validate_locator(root)
+    entry = value["entry_workflow"]
+    if entry is not None:
+        _validate_requested_entry(entry)
+    for field in _RESUME_REQUEST_FIELDS - {"source_roots", "entry_workflow", "input_overrides"}:
+        if value[field] is not None:
+            _validate_locator(value[field])
+    if not isinstance(value["input_overrides"], dict):
+        raise RunAuthorityError("resume overrides are not an object")
+    try:
+        canonical_json_bytes(value)
+    except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
+        raise RunAuthorityError("resume overrides are not finite transportable JSON") from exc
+    _validate_json_value(value["input_overrides"])
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
@@ -79,7 +143,9 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return value
 
 
-def _read_file(path: Path) -> bytes:
+def _read_file(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
+    if run_files is not None:
+        return run_files.read(path)
     descriptor = os.open(
         path,
         os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -95,13 +161,13 @@ def _read_file(path: Path) -> bytes:
         os.close(descriptor)
 
 
-def _read_header(path: Path) -> dict[str, Any]:
+def _read_header_json(path: Path, run_files: WorkspaceFiles | None = None) -> Any:
     def reject_constant(value: str) -> None:
         raise ValueError(f"non-finite JSON constant {value}")
 
     try:
         value = json.loads(
-            _read_file(path).decode("utf-8"),
+            _read_file(path, run_files).decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=reject_constant,
         )
@@ -112,15 +178,30 @@ def _read_header(path: Path) -> dict[str, Any]:
     try:
         json.dumps(value, allow_nan=False)
     except (TypeError, ValueError) as exc:
+        raise RunAuthorityError("run header contains a non-finite or non-JSON value") from exc
+    return value
+
+
+def _read_header(path: Path, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:
+    return _validate_header_shape(_read_header_json(path, run_files))
+
+
+def _validate_header_shape(value: object) -> dict[str, Any]:
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError) as exc:
         raise RunAuthorityError(
             "run header contains a non-finite or non-JSON value"
         ) from exc
-    if not isinstance(value, dict) or set(value) != _HEADER_FIELDS:
+    if not isinstance(value, dict) or set(value) not in (_HEADER_FIELDS, _HEADER_FIELDS | {"resume_request"}):
         raise RunAuthorityError("run header has missing or unknown fields")
     if value.get("schema_version") != SCHEMA_VERSION:
         raise RunAuthorityError("unsupported evaluated run schema")
     if value.get("result_persistence_profile") != PROFILE:
         raise RunAuthorityError("unsupported result persistence profile")
+    if "resume_request" in value:
+        validate_resume_request(value["resume_request"])
+        _validate_locator(value["workflow_file"])
     return value
 
 
@@ -211,12 +292,21 @@ def _validate_header_metadata(run_root: Path, header: Mapping[str, Any]) -> None
             raise ValueError(f"{field} is missing")
     if header["run_id"] != run_root.name:
         raise ValueError("run id differs from its root")
+    for field in ("program_digest", "input_digest"):
+        if not _valid_digest(header[field]):
+            raise ValueError(f"{field} is invalid")
+    if header["representation"] != REPRESENTATION:
+        raise ValueError("unsupported program representation")
+    if not isinstance(header["bound_inputs"], dict) or not isinstance(header["interpreters"], dict):
+        raise ValueError("bound inputs or interpreter pins are not objects")
+    for pin in header["interpreters"].values():
+        validate_command_interpreter_pin_shape(pin)
 
 
-def _checked_authority(run_root: Path, header: dict[str, Any]) -> RunAuthority:
+def _checked_authority(run_root: Path, header: dict[str, Any], run_files: WorkspaceFiles | None = None) -> RunAuthority:
     try:
         program = ClosedProgram.from_artifact(
-            _read_file(run_root / PROGRAM_FILENAME).decode("utf-8")
+            _read_file(run_root / PROGRAM_FILENAME, run_files).decode("utf-8")
         )
         _validate_program_binding(program, header)
         if not _has_command_transport(program):
@@ -230,42 +320,36 @@ def _checked_authority(run_root: Path, header: dict[str, Any]) -> RunAuthority:
         if isinstance(exc, RunAuthorityError):
             raise
         raise RunAuthorityError(f"invalid evaluated authority: {exc}") from exc
-    return RunAuthority(run_root, header, program)
+    return RunAuthority(run_root, header, program, run_files)
 
 
-def load_run_authority(run_root: Path) -> RunAuthority:
-    """Read and check immutable run authority without repairing any file."""
+def load_run_header(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:
+    """Validate header metadata before opening the artifact or memo records."""
     run_root = Path(run_root)
     try:
-        header = _read_header(run_root / HEADER_FILENAME)
-    except FileNotFoundError as exc:
-        memo_path = run_root / MEMO_FILENAME
-        try:
-            memo = _read_file(memo_path)
-        except OSError:
-            memo = b""
-        if memo:
-            raise RunAuthorityError("memo exists without run authority") from exc
-        raise RunAuthorityError("run authority header is missing") from exc
-    return _checked_authority(run_root, header)
+        header = _read_header(run_root / HEADER_FILENAME, run_files)
+        _validate_header_metadata(run_root, header)
+        return header
+    except (OSError, TypeError, ValueError) as exc:
+        if isinstance(exc, RunAuthorityError):
+            raise
+        raise RunAuthorityError(f"invalid evaluated run header: {exc}") from exc
+
+
+def load_run_authority(run_root: Path, *, header: dict[str, Any] | None = None, run_files: WorkspaceFiles | None = None) -> RunAuthority:
+    """Read and check immutable run authority without repairing any file."""
+    run_root = Path(run_root)
+    checked_header = load_run_header(run_root, run_files=run_files) if header is None else _validate_header_shape(header)
+    try:
+        _validate_header_metadata(run_root, checked_header)
+    except (TypeError, ValueError) as exc:
+        raise RunAuthorityError(f"invalid evaluated run header: {exc}") from exc
+    return _checked_authority(run_root, checked_header, run_files)
 
 
 def _sync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def _sync_file(path: Path) -> None:
-    descriptor = os.open(
-        path,
-        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-    )
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise OSError(f"{path.name} is not a regular file")
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
@@ -290,21 +374,6 @@ def _create_run_root(run_root: Path) -> None:
     _sync_directory(run_root)
 
 
-def _create_empty_memo(path: Path) -> None:
-    descriptor = os.open(
-        path,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0),
-        0o600,
-    )
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise OSError("memo journal is not a regular file")
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
 def _header(
     program: ClosedProgram,
     *,
@@ -313,6 +382,7 @@ def _header(
     workflow_checksum: str,
     bound_inputs: Mapping[str, Any],
     interpreters: Mapping[str, Mapping[str, str]],
+    resume_request: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -326,6 +396,7 @@ def _header(
         "bound_inputs": dict(bound_inputs),
         "representation": REPRESENTATION,
         "interpreters": dict(interpreters),
+        "resume_request": dict(resume_request),
     }
 
 
@@ -338,8 +409,12 @@ def publish_run_authority(
     workflow_file: str,
     workflow_checksum: str,
     bound_inputs: Mapping[str, Any],
+    resume_request: Mapping[str, Any],
+    run_files: WorkspaceFiles | None = None,
 ) -> Iterator[RunAuthority]:
     """Publish the checked program, header and empty memo under the run lock."""
+    validate_resume_request(resume_request)
+    _validate_locator(workflow_file)
     run_root = Path(run_root)
     if ClosedProgram.from_artifact(program.artifact()).digest != program.digest:
         raise RunAuthorityError("program is not a stable checked artifact")
@@ -349,13 +424,11 @@ def publish_run_authority(
             "checked command has no argv transport; rebuild from its source"
         )
     interpreters = _pin_emitted_interpreters(program)
-    _create_run_root(run_root)
-    with run_writer_lock(run_root):
-        memo_path = run_root / MEMO_FILENAME
-        _create_empty_memo(memo_path)
-        _sync_directory(run_root)
-        program_path = run_root / PROGRAM_FILENAME
-        durable_atomic_write(program_path, program.artifact().encode("utf-8"))
+    if run_files is None:
+        _create_run_root(run_root)
+    with (run_writer_lock(run_root) if run_files is None else nullcontext(run_files.root_fd)) as fd:
+        physical = run_files or WorkspaceFiles(run_root, root_fd=fd)
+        _publish_retained_program(physical, program)
         header = _header(
             program,
             run_id=run_id,
@@ -363,12 +436,26 @@ def publish_run_authority(
             workflow_checksum=workflow_checksum,
             bound_inputs=bound_inputs,
             interpreters=interpreters,
+            resume_request=resume_request,
         )
-        durable_atomic_write(
-            run_root / HEADER_FILENAME,
-            canonical_json_bytes(header),
-        )
-        _sync_file(memo_path)
-        _sync_directory(run_root)
-        authority = load_run_authority(run_root)
-        yield authority
+        _require_retained_root(physical)
+        physical.write_atomic(HEADER_FILENAME, canonical_json_bytes(header))
+        os.fsync(physical.root_fd)
+        _require_retained_root(physical)
+        yield load_run_authority(run_root, run_files=physical)
+
+
+def _require_retained_root(run_files: WorkspaceFiles) -> None:
+    if not run_root_matches_fd(run_files.workspace, run_files.root_fd):
+        raise ReservedRunRootError(run_files.workspace, "changed after the writer lock")
+
+
+def _publish_retained_program(run_files: WorkspaceFiles, program: ClosedProgram) -> None:
+    _require_retained_root(run_files)
+    if any(run_files.exists(name) for name in (HEADER_FILENAME, PROGRAM_FILENAME, MEMO_FILENAME)):
+        raise RunAuthorityError("reserved run authority already exists")
+    run_files.create(MEMO_FILENAME, b"", exclusive=True)
+    os.fsync(run_files.root_fd)
+    _require_retained_root(run_files)
+    run_files.write_atomic(PROGRAM_FILENAME, program.artifact().encode("utf-8"))
+    _require_retained_root(run_files)

@@ -75,14 +75,14 @@ def closed_build_key(
     ).hexdigest()[:16]
 
 
-def build_closed_program_bundle(
+def _prepare_closed_program_bundle(
     request: FrontendBuildRequest,
     *,
     source_read_trace: SourceReadTrace | None = None,
 ) -> ClosedProgramBuildResult:
-    """Compile, validate and atomically publish a closed-program artifact."""
+    """Prepare a checked program and carrier in memory, without cache writes."""
 
-    resolved = _resolve_request(request)
+    resolved = request
     configuration_trace = ConfigurationReadTrace()
     provider_externs = _load_string_mapping(
         resolved.provider_externs_path,
@@ -159,12 +159,9 @@ def build_closed_program_bundle(
     )
     read_back = ClosedProgram.from_artifact(program.artifact())
     if (
-        read_back.digest != program.digest
-        or read_back.tree["entry"] != program.tree["entry"]
-        or read_back.tree["target"] != typed.target
-        or read_back.tree["schema"] != SCHEMA
-        or read_back.tree["representation"] != REPRESENTATION
-        or read_back.sites != program.sites
+        (read_back.digest, read_back.tree["entry"], read_back.tree["target"],
+         read_back.tree["schema"], read_back.tree["representation"], read_back.sites)
+        != (program.digest, program.tree["entry"], typed.target, SCHEMA, REPRESENTATION, program.sites)
     ):
         raise RuntimeError("closed program artifact readback did not match the validated build")
 
@@ -176,26 +173,6 @@ def build_closed_program_bundle(
             path,
             workspace_root=resolved.workspace_root,
         )
-    artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(artifact_path, program.artifact())
-    manifest = {
-        "schema_version": "closed-program-build/1",
-        "build_key": build_key,
-        "program_digest": program.digest,
-        "representation": REPRESENTATION,
-        "target": typed.target,
-        "entry_workflow": entry_workflow,
-        "source_path": str(resolved.source_path),
-        "source_roots": [str(path) for path in resolved.source_roots],
-        "sites": len(program.sites),
-        "artifact_paths": {
-            "closed_program": f"build/{build_key}/closed_program.json"
-        },
-    }
-    atomic_write_text(
-        manifest_path,
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-    )
     return ClosedProgramBuildResult(
         build_root=build_root,
         build_key=build_key,
@@ -205,6 +182,43 @@ def build_closed_program_bundle(
         entry_workflow=entry_workflow,
         provider_io=builder.provider_io.bind(read_back),
     )
+
+
+def prepare_closed_program_bundle(
+    request: FrontendBuildRequest,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> ClosedProgramBuildResult:
+    """Resolve once and prepare a checked program without cache publication."""
+    return _prepare_closed_program_bundle(_resolve_request(request), source_read_trace=source_read_trace)
+
+
+def build_closed_program_bundle(
+    request: FrontendBuildRequest,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> ClosedProgramBuildResult:
+    """Prepare, validate and atomically publish a closed-program artifact."""
+    resolved = _resolve_request(request)
+    built = _prepare_closed_program_bundle(resolved, source_read_trace=source_read_trace)
+    built.artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(built.artifact_path, built.program.artifact())
+    manifest = {
+        "schema_version": "closed-program-build/1",
+        "build_key": built.build_key,
+        "program_digest": built.program.digest,
+        "representation": REPRESENTATION,
+        "target": built.program.tree["target"],
+        "entry_workflow": built.entry_workflow,
+        "source_path": str(resolved.source_path),
+        "source_roots": [str(path) for path in resolved.source_roots],
+        "sites": len(built.program.sites),
+        "artifact_paths": {
+            "closed_program": f"build/{built.build_key}/closed_program.json"
+        },
+    }
+    atomic_write_text(built.manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return built
 
 
 def _load_closed_imports(

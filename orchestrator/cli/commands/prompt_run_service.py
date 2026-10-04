@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from argparse import Namespace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from orchestrator.cli.commands.prompt_io import (
     _create_prompt_inputs_root,
 )
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.cli.commands.evaluated import _request
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.prompt_contract import SemanticContract, contracts_structurally_equal
 from orchestrator.prompt_scaffold import (
@@ -118,6 +120,15 @@ def materialize_and_run(
                 prompt_externs_file=str(authority / "prompts.json"),
             )
             no_tools_root = None
+            ns.physical_build_request = _request(ns, authority / "run.orc", workspace)
+            ns.logical_build_request = replace(
+                ns.physical_build_request,
+                source_path=snapshot.run_orc,
+                source_roots=(snapshot.root,),
+                provider_externs_path=snapshot.root / "providers.json",
+                prompt_externs_path=snapshot.root / "prompts.json",
+            )
+            ns.logical_input_file = None
             no_tools_identity = None
             no_tools_digest = None
             if captured.provider == "omp_no_tools":

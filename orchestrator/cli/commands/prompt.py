@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Mapping
 from argparse import Namespace
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from orchestrator import prompt_scaffold
 from orchestrator._common.safe_tree import SafeTreeError, read_regular_file
@@ -35,6 +35,7 @@ from orchestrator.cli.commands.prompt_run_service import (
 )
 from orchestrator.run_lock import ReservedRunRootError, reserved_run_writer_lock
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.cli.commands.evaluated import _request
 from orchestrator.omp_assets import inference_output_contract_path
 from orchestrator.prompt_contract import (
     SemanticContract,
@@ -299,6 +300,15 @@ def _infer_output_contract(
                 provider_externs_file=str(authority / "providers.json"),
                 prompt_externs_file=str(authority / "prompts.json"),
             )
+            ns.physical_build_request = _request(ns, authority / "infer-output-contract.orc", workspace)
+            ns.logical_build_request = replace(
+                ns.physical_build_request,
+                source_path=prompt_inputs / "infer-output-contract.orc",
+                source_roots=(prompt_inputs,),
+                provider_externs_path=prompt_inputs / "providers.json",
+                prompt_externs_path=prompt_inputs / "prompts.json",
+            )
+            ns.logical_input_file = None
             result = run_workflow(
                 ns,
                 run_id=run_id,

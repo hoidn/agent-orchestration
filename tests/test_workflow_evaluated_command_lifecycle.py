@@ -69,6 +69,10 @@ def _publish(root: Path, program):
         run_id="run-1",
         workflow_file="lifecycle.orc",
         workflow_checksum="sha256:" + hashlib.sha256(b"lifecycle source").hexdigest(),
+        resume_request={"source_roots": [], "entry_workflow": None,
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": {}},
         bound_inputs={},
     ) as authority:
         yield authority
@@ -266,8 +270,8 @@ def test_committed_command_replay_does_not_redispatch_or_revalidate_result_file(
     with publisher as authority:
         real_append = runtime_module.append_record
 
-        def interrupt_after_commit(path, record):
-            entry = real_append(path, record)
+        def interrupt_after_commit(path, record, **kwargs):
+            entry = real_append(path, record, **kwargs)
             if record.get("record") == "committed":
                 raise _InterruptedRun()
             return entry
