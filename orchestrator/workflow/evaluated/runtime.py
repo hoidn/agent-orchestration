@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import logging
 from pathlib import Path
@@ -37,7 +38,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow_lisp.closed.frontend import ProviderIOContext
 from .providers import perform_provider, resolve_provider_input
-from .authority import RunAuthority
+from .authority import RunAuthority, _require_retained_root
 from .machine import evaluate_closed_program, site_classes
 
 
@@ -72,10 +73,13 @@ def execute_pure_run(
         raise TypeError("authority must be a checked RunAuthority")
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
-    run_files = WorkspaceFiles(authority.run_root)
+    run_files = authority.run_files or WorkspaceFiles(authority.run_root)
+    owns_run_files = authority.run_files is None
+    authority = replace(authority, run_files=run_files)
     workspace_files = WorkspaceFiles(workspace)
     try:
-        before = read_memo(authority.memo_path, checked_site_classes)
+        _require_retained_root(run_files)
+        before = read_memo(authority.memo_path, checked_site_classes, run_files=authority.run_files)
         if before.terminal is not None and before.terminal.data["outcome"] == "completed":
             return 0, before.terminal.data["value"]
 
@@ -128,7 +132,8 @@ def execute_pure_run(
         return 1, None
     finally:
         workspace_files.close()
-        run_files.close()
+        if owns_run_files:
+            run_files.close()
 
 
 class _ResumeBoundary(Exception):
@@ -162,7 +167,7 @@ def execute_pure_resume(
         return terminal_result
     if snapshot.tail:
         try:
-            repair_torn_tail(authority.memo_path, snapshot)
+            repair_torn_tail(authority.memo_path, snapshot, run_files=authority.run_files)
         except Exception as exc:
             return _resume_refusal(exc)
     return execute_pure_run(
@@ -171,7 +176,7 @@ def execute_pure_resume(
 
 
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes):
-    snapshot = read_memo(authority.memo_path, site_classes)
+    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     consumed = 0
 
@@ -265,7 +270,7 @@ def _persist_completed_terminal(
     site_classes: Mapping[str, str],
     value: Any,
 ) -> tuple[int, Any]:
-    after = read_memo(authority.memo_path, site_classes)
+    after = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     if after.pending_starts or after.unsettled_coordinators:
         message = "evaluation returned with an unsettled effect"
         logger.error("[memo_inconsistent] %s", message)
@@ -273,10 +278,13 @@ def _persist_completed_terminal(
     if after.terminal is not None:
         # A prior failed terminal can only be reopened by a new durable start.
         return 1, None
+    _require_retained_root(authority.run_files)
     append_record(
         authority.memo_path,
         {"record": "terminal", "outcome": "completed", "value": value},
+        run_files=authority.run_files,
     )
+    _require_retained_root(authority.run_files)
     return 0, value
 
 
@@ -288,7 +296,7 @@ def _append_failed_terminal_if_clear(
     message: str,
 ) -> None:
     try:
-        snapshot = read_memo(authority.memo_path, site_classes)
+        snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     except (MemoError, OSError, ValueError):
         return
     if snapshot.pending_starts or snapshot.unsettled_coordinators or snapshot.terminal is not None:
@@ -296,6 +304,7 @@ def _append_failed_terminal_if_clear(
     append_record(
         authority.memo_path,
         {"record": "terminal", "outcome": "failed", "code": code, "message": message},
+        run_files=authority.run_files,
     )
 
 
@@ -312,7 +321,7 @@ def _execute_effect(
     reader,
     provider_executor: ProviderExecutor | None,
 ) -> EvaluatedValue:
-    snapshot = read_memo(authority.memo_path, site_classes)
+    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
     if commit is None:
         _ensure_effect_can_start(snapshot, identity)
@@ -471,8 +480,10 @@ def _start_and_perform_effect(
         "result_path": result_path,
         "time": time.time(),
     }
+    _require_retained_root(run_files)
     attempt_files = allocate_attempt(run_files, authority.memo_path, started)
     try:
+        _require_retained_root(run_files)
         if node["class"] == "command":
             result, result_digest = _dispatch_command(
                 authority, node, resolved_request, attempt_files, workspace_files)
@@ -484,6 +495,7 @@ def _start_and_perform_effect(
                     workspace, authority.run_root / result_path))
             after_files = {}
         value = result.json_value()
+        _require_retained_root(run_files)
         append_record(
             authority.memo_path,
             {
@@ -500,6 +512,7 @@ def _start_and_perform_effect(
                 "effect_class": node["class"],
                 "time": time.time(),
             },
+            run_files=run_files,
         )
         return EvaluatedValue(
             result.value,
@@ -556,7 +569,7 @@ def _rehash_command_implementation(node, workspace, implementation_files):
 
 def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> None:
     try:
-        after = read_memo(authority.memo_path, site_classes)
+        after = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
         pending = after.pending_starts.get(identity)
         if pending is not None and pending.data["attempt"] == ordinal:
             failure = {
@@ -569,7 +582,7 @@ def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Non
             violations = getattr(exc, "violations", None)
             if violations is not None:
                 failure["violations"] = violations
-            append_record(authority.memo_path, failure)
+            append_record(authority.memo_path, failure, run_files=authority.run_files)
     except (MemoError, OSError, ValueError):
         pass
 

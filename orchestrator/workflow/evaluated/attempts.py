@@ -31,7 +31,7 @@ def allocate_attempt(
 ) -> WorkspaceFiles:
     """Synchronize ``started`` before creating and pinning its attempt directory."""
     attempt_dir = Path(started_record["result_path"]).parent
-    append_record(memo_path, started_record)
+    append_record(memo_path, started_record, run_files=run_files)
     try:
         return run_files.mkdir_exclusive(attempt_dir)
     except OSError as exc:
@@ -49,5 +49,6 @@ def allocate_attempt(
                 "code": code,
                 "exit_info": {"errno": exc.errno},
             },
+            run_files=run_files,
         )
         raise MemoError(code, str(exc)) from exc

@@ -15,7 +15,6 @@ from orchestrator.workflow_lisp import build as workflow_lisp_build
 from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp import syntax
-import orchestrator.workflow.evaluated.authority as evaluated_authority
 from orchestrator.workflow_lisp.closed.target import (
     entry_target_dsl_version,
     refuse_run_at_evaluated_execution_target,
@@ -154,7 +153,7 @@ def test_public_run_does_not_dispatch_when_authority_publication_fails(
         raise OSError("injected authority artifact publication failure")
 
     monkeypatch.setattr(
-        evaluated_authority, "durable_atomic_write", fail_authority_write
+        "orchestrator.workflow.workspace_files.shutil.copyfileobj", fail_authority_write
     )
 
     result = _public_run(files)

@@ -55,8 +55,8 @@ def _snapshot(built, authority):
 def _interrupt_after_commit(root, built, authority, monkeypatch, *, inputs=None):
     original = runtime.append_record
 
-    def stop(path, record):
-        entry = original(path, record)
+    def stop(path, record, **kwargs):
+        entry = original(path, record, **kwargs)
         if record["record"] == "committed":
             raise _Interrupted()
         return entry

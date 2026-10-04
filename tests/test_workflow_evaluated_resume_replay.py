@@ -166,8 +166,8 @@ def _create_failed_attempt_without_terminal(tmp_path: Path, monkeypatch):
     with _publish(tmp_path, program) as authority:
         real_append = runtime_module.append_record
 
-        def stop_after_failed(path, record):
-            entry = real_append(path, record)
+        def stop_after_failed(path, record, **kwargs):
+            entry = real_append(path, record, **kwargs)
             if record["record"] == "failed":
                 raise Interrupted()
             return entry

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator._common import io_atomic
+import orchestrator.workflow.workspace_files as workspace_files_module
 import orchestrator.workflow.evaluated.authority as authority_module
 from orchestrator.workflow.evaluated import interpreters as interpreter_module
 from orchestrator.workflow.evaluated.authority import (
@@ -428,7 +429,7 @@ def test_rehashed_incompatible_or_nonfinite_inputs_refuse_without_mutation(
 def test_each_authority_file_write_failure_prevents_memo_activity(
     tmp_path: Path, program, monkeypatch: pytest.MonkeyPatch, fail_at: int
 ) -> None:
-    original = io_atomic._write_all
+    original = workspace_files_module.shutil.copyfileobj
     calls = 0
 
     def fail_selected_write(*args, **kwargs):
@@ -438,7 +439,7 @@ def test_each_authority_file_write_failure_prevents_memo_activity(
             raise OSError("injected file-write failure")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(io_atomic, "_write_all", fail_selected_write)
+    monkeypatch.setattr(workspace_files_module.shutil, "copyfileobj", fail_selected_write)
     run_root = tmp_path / "runs" / f"write-{fail_at}"
 
     with pytest.raises(OSError, match="injected file-write failure"):

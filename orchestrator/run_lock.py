@@ -140,7 +140,7 @@ def _open_lock_fd(dir_fd: int) -> int:
 
 
 @contextmanager
-def run_writer_lock(run_root: Path) -> Iterator[None]:
+def run_writer_lock(run_root: Path) -> Iterator[int]:
     """Hold the non-blocking exclusive writer lock for one run root.
 
     The root is opened no-follow and run.lock is created beneath that
@@ -153,7 +153,7 @@ def run_writer_lock(run_root: Path) -> Iterator[None]:
         lock_fd = _open_lock_fd(dir_fd)
         try:
             with _held_lock(lock_fd, root):
-                yield
+                yield dir_fd
         finally:
             os.close(lock_fd)
     finally:

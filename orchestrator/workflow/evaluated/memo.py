@@ -16,6 +16,7 @@ from typing import Any, Iterator
 
 from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
 from orchestrator.workflow.evaluated.closure_evidence import validate_implementation_evidence
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 _RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal"}
 _CLASSES = {"command", "provider", "run_ref"}
@@ -384,7 +385,12 @@ def reduce_memo(raw: bytes, site_classes: Mapping[str, str]) -> MemoSnapshot:
     return _Reducer(site_classes).reduce(raw)
 
 
-def _read_bytes(path: Path) -> bytes:
+def _read_bytes(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
+    if run_files is not None:
+        try:
+            return run_files.read(path)
+        except OSError as exc:
+            raise _inconsistent(f"memo journal cannot be opened: {exc}") from exc
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(path, flags)
@@ -401,29 +407,29 @@ def _read_bytes(path: Path) -> bytes:
         os.close(fd)
 
 
-def read_memo(path: Path, site_classes: Mapping[str, str]) -> MemoSnapshot:
+def read_memo(path: Path, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None) -> MemoSnapshot:
     """Read a journal snapshot without locking, repairing, or reconciling it."""
-    return reduce_memo(_read_bytes(Path(path)), site_classes)
+    return reduce_memo(_read_bytes(Path(path), run_files), site_classes)
 
 
 @contextmanager
-def memo_writer_lock(run_root: Path) -> Iterator[None]:
+def memo_writer_lock(run_root: Path) -> Iterator[int]:
     """Hold the existing run writer lock, mapping contention to the memo code."""
     lock = run_writer_lock(Path(run_root))
     try:
-        lock.__enter__()
+        fd = lock.__enter__()
     except RunAlreadyActiveError as exc:
         raise MemoError("memo_busy", str(exc)) from exc
     try:
-        yield
+        yield fd
     finally:
         lock.__exit__(None, None, None)
 
 
-def _open_append(path: Path) -> int:
+def _open_append(path: Path, run_files: WorkspaceFiles | None = None) -> int:
     flags = os.O_RDWR | os.O_APPEND | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(path, flags)
+        fd = os.open(path, flags) if run_files is None else run_files.open_journal(path)
     except OSError as exc:
         raise _inconsistent(f"memo journal cannot be opened for append: {exc}") from exc
     if not stat.S_ISREG(os.fstat(fd).st_mode):
@@ -441,7 +447,7 @@ def _encode_record(record: Mapping[str, Any]) -> bytes:
         raise _inconsistent(f"record cannot be encoded as JSON: {exc}") from exc
 
 
-def append_record(path: Path, record: Mapping[str, Any]) -> JournalEntry:
+def append_record(path: Path, record: Mapping[str, Any], *, run_files: WorkspaceFiles | None = None) -> JournalEntry:
     """Append and synchronize one row; caller owns the lock and transition validity."""
     path = Path(path)
     encoded = _encode_record(record)
@@ -450,7 +456,7 @@ def append_record(path: Path, record: Mapping[str, Any]) -> JournalEntry:
         raise _inconsistent("record kind is missing or unknown")
     if kind in {"started", "committed"}:
         _implementation_files(record.get("implementation_files"))
-    fd = _open_append(path)
+    fd = _open_append(path, run_files)
     start = os.fstat(fd).st_size
     try:
         if start and os.pread(fd, 1, start - 1) != b"\n":
@@ -471,15 +477,15 @@ def append_record(path: Path, record: Mapping[str, Any]) -> JournalEntry:
     return JournalEntry(start, start + len(encoded), dict(record))
 
 
-def repair_torn_tail(path: Path, snapshot: MemoSnapshot) -> None:
+def repair_torn_tail(path: Path, snapshot: MemoSnapshot, *, run_files: WorkspaceFiles | None = None) -> None:
     """Discard only a previously read incomplete suffix; caller owns the lock and completed preflight."""
     if not snapshot.tail:
         return
     path = Path(path)
-    fd = _open_append(path)
+    fd = _open_append(path, run_files)
     try:
         size = os.fstat(fd).st_size
-        current = _read_bytes(path)
+        current = os.pread(fd, size, 0)
         if current != snapshot.raw or size != len(snapshot.raw):
             raise MemoError("memo_changed", "journal differs from the preflight snapshot")
         os.ftruncate(fd, snapshot.complete_bytes)
@@ -490,10 +496,10 @@ def repair_torn_tail(path: Path, snapshot: MemoSnapshot) -> None:
         os.close(fd)
 
 
-def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]) -> dict[str, Any]:
+def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:
     """Append one C8 range after validating its active commit suffix; caller owns the lock."""
     path = Path(path)
-    snapshot = read_memo(path, site_classes)
+    snapshot = read_memo(path, site_classes, run_files=run_files)
     chosen = snapshot.active_commits.get(identity)
     if chosen is None:
         raise MemoError("invalidate_not_committed", identity)
@@ -501,7 +507,7 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     if any(item.data["effect_class"] == "run_ref" for item in suffix):
         raise MemoError("invalidate_coordinator_committed", identity)
     if snapshot.tail:
-        repair_torn_tail(path, snapshot)
+        repair_torn_tail(path, snapshot, run_files=run_files)
     row = {"record": "invalidated", "from_commit": chosen.offset, "time": time.time()}
-    append_record(path, row)
+    append_record(path, row, run_files=run_files)
     return row

@@ -631,10 +631,6 @@ def run_workflow(
         if (
             selected_target is not None
             and target_dsl_uses_evaluated_execution(selected_target)
-            # ponytail: reserved prompt roots remain on their existing route
-            # until evaluated authority can publish through the retained dir fd.
-            and expected_run_identity is None
-            and reserved_run_fd is None
         ):
             from orchestrator.cli.commands.evaluated import run_evaluated_workflow
 
@@ -646,6 +642,8 @@ def run_workflow(
                     logical_workflow_path=logical_workflow_path,
                     run_id=run_id,
                     source_read_trace=source_read_trace,
+                    expected_run_identity=expected_run_identity,
+                    reserved_run_fd=reserved_run_fd,
                 )
             )
             return RunWorkflowResult(

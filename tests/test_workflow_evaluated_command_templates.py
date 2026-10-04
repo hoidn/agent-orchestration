@@ -447,9 +447,9 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
         real_append = runtime_module.append_record
         interrupted = False
 
-        def stop_after_first_commit(path, record):
+        def stop_after_first_commit(path, record, **kwargs):
             nonlocal interrupted
-            entry = real_append(path, record)
+            entry = real_append(path, record, **kwargs)
             if record.get("record") == "committed" and not interrupted:
                 interrupted = True
                 raise _InterruptedAfterCommit()

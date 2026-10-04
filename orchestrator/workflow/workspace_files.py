@@ -212,6 +212,23 @@ class WorkspaceFiles:
                         source.close()
                     raise
 
+    def open_journal(self, path: str | Path) -> int:
+        """Open an existing regular journal for append/read/repair under this root."""
+        parent_fd, leaf = self._parent(path, create=False)
+        descriptor = None
+        try:
+            flags = os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+            descriptor = os.open(leaf, flags, dir_fd=parent_fd)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError(errno.EINVAL, "journal is not a regular file")
+        except BaseException:
+            if descriptor is not None:
+                os.close(descriptor)
+            raise
+        finally:
+            os.close(parent_fd)
+        return descriptor
+
     def write_from_fileobj(
         self,
         path: str | Path,

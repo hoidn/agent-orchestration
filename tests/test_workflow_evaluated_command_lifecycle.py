@@ -270,8 +270,8 @@ def test_committed_command_replay_does_not_redispatch_or_revalidate_result_file(
     with publisher as authority:
         real_append = runtime_module.append_record
 
-        def interrupt_after_commit(path, record):
-            entry = real_append(path, record)
+        def interrupt_after_commit(path, record, **kwargs):
+            entry = real_append(path, record, **kwargs)
             if record.get("record") == "committed":
                 raise _InterruptedRun()
             return entry
