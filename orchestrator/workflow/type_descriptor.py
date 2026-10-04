@@ -877,9 +877,10 @@ def validate_transport_value(
     *,
     allow_nested_structures: bool = False,
     require_int64: bool = False,
+    redact_runtime_keys: bool = False,
     path_validator: Callable[[str, Mapping[str, Any]], Any] | None = None,
 ) -> Any:
-    """Validate and return one direct JSON value against its descriptor."""
+    """Validate a JSON value; optionally mask runtime keys in diagnostic paths."""
 
     try:
         validate_compiler_normalized_type_descriptor(descriptor)
@@ -900,6 +901,7 @@ def validate_transport_value(
         active_container_ids=set(),
         path_validator=path_validator,
         require_int64=require_int64,
+        redact_runtime_keys=redact_runtime_keys,
     )
     try:
         encoded = json.dumps(
@@ -966,6 +968,7 @@ def _validate_descriptor_value(
     active_container_ids: set[int],
     path_validator: Callable[[str, Mapping[str, Any]], Any] | None,
     require_int64: bool,
+    redact_runtime_keys: bool,
 ) -> Any:
     if depth > MAX_TRANSPORT_VALUE_DEPTH:
         raise _TransportValueError("transport value exceeds the maximum depth", value_path=value_path)
@@ -978,6 +981,7 @@ def _validate_descriptor_value(
             depth=depth,
             active_container_ids=active_container_ids,
             require_int64=require_int64,
+            redact_runtime_keys=redact_runtime_keys,
         )
     if kind == "enum":
         if type(value) is not str or value not in descriptor["allowed"]:
@@ -996,6 +1000,7 @@ def _validate_descriptor_value(
             active_container_ids=active_container_ids,
             path_validator=path_validator,
             require_int64=require_int64,
+            redact_runtime_keys=redact_runtime_keys,
         )
     if kind == "list":
         if type(value) is not list:
@@ -1013,6 +1018,7 @@ def _validate_descriptor_value(
                     active_container_ids=active_container_ids,
                     path_validator=path_validator,
                     require_int64=require_int64,
+                    redact_runtime_keys=redact_runtime_keys,
                 )
                 for index, item in enumerate(value)
             ],
@@ -1032,10 +1038,11 @@ def _validate_descriptor_value(
                     item,
                     descriptor["value"],
                     depth=depth + 1,
-                    value_path=f"{value_path}/{_escape_pointer_token(key)}",
+                    value_path=_runtime_key_path(value_path, key, redact_runtime_keys),
                     active_container_ids=active_container_ids,
                     path_validator=path_validator,
                     require_int64=require_int64,
+                    redact_runtime_keys=redact_runtime_keys,
                 )
                 for key, item in value.items()
             },
@@ -1061,6 +1068,7 @@ def _validate_descriptor_value(
                     active_container_ids=active_container_ids,
                     path_validator=path_validator,
                     require_int64=require_int64,
+                    redact_runtime_keys=redact_runtime_keys,
                 )
                 for field in descriptor["fields"]
             },
@@ -1094,6 +1102,7 @@ def _validate_descriptor_value(
                         active_container_ids=active_container_ids,
                         path_validator=path_validator,
                         require_int64=require_int64,
+                        redact_runtime_keys=redact_runtime_keys,
                     )
                     for field in variant["fields"]
                 },
@@ -1110,6 +1119,7 @@ def _validate_primitive_value(
     depth: int,
     active_container_ids: set[int],
     require_int64: bool,
+    redact_runtime_keys: bool,
 ) -> Any:
     if name == "Value":
         return _validate_json_value(
@@ -1118,6 +1128,7 @@ def _validate_primitive_value(
             value_path=value_path,
             active_container_ids=active_container_ids,
             require_int64=require_int64,
+            redact_runtime_keys=redact_runtime_keys,
         )
     if name == "String" or name not in {"Int", "Float", "Bool"}:
         if type(value) is not str:
@@ -1153,6 +1164,7 @@ def _validate_json_value(
     value_path: str,
     active_container_ids: set[int],
     require_int64: bool,
+    redact_runtime_keys: bool,
 ) -> Any:
     if depth > MAX_TRANSPORT_VALUE_DEPTH:
         raise _TransportValueError("transport value exceeds the maximum depth", value_path=value_path)
@@ -1178,6 +1190,7 @@ def _validate_json_value(
                     value_path=f"{value_path}/{index}",
                     active_container_ids=active_container_ids,
                     require_int64=require_int64,
+                    redact_runtime_keys=redact_runtime_keys,
                 )
                 for index, item in enumerate(value)
             ],
@@ -1194,9 +1207,10 @@ def _validate_json_value(
                 key: _validate_json_value(
                     item,
                     depth=depth + 1,
-                    value_path=f"{value_path}/{_escape_pointer_token(key)}",
+                    value_path=_runtime_key_path(value_path, key, redact_runtime_keys),
                     active_container_ids=active_container_ids,
                     require_int64=require_int64,
+                    redact_runtime_keys=redact_runtime_keys,
                 )
                 for key, item in value.items()
             },
@@ -1238,6 +1252,10 @@ def _validate_container(
 
 def _escape_pointer_token(value: str) -> str:
     return value.replace("~", "~0").replace("/", "~1")
+
+
+def _runtime_key_path(value_path: str, key: str, redact: bool) -> str:
+    return f"{value_path}/{'*' if redact else _escape_pointer_token(key)}"
 
 
 __all__ = [

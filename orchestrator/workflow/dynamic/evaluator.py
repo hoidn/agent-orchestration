@@ -1,4 +1,4 @@
-"""Iterative pure evaluator for the dynamic-core experiment."""
+"""Iterative pure evaluator for checked dynamic Workflow Lisp programs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from orchestrator.workflow.evaluated.values import EvaluatedValueError
+from orchestrator.workflow.evaluated.values import (
+    EvaluatedValueError,
+    _freeze,
+    _thaw,
+)
 from orchestrator.workflow.pure_expr import (
     PURE_EXPR_OPERATOR_CATALOG,
     PureExprEvaluationError,
@@ -15,13 +19,14 @@ from orchestrator.workflow.pure_expr import (
     evaluate_pure_operator,
 )
 from orchestrator.workflow.type_descriptor import validate_transport_value
-
-from .program import DYNAMIC_SCHEMA, EFFECT_SCHEMA, DynamicProgram, _pointer
+from orchestrator.workflow.workspace_files import WorkspaceFiles
+from orchestrator.workflow_lisp.dynamic.program import DynamicProgram, _pointer
 
 
 _BOOL = {"kind": "primitive", "name": "Bool"}
 _INT = {"kind": "primitive", "name": "Int"}
 _FLOAT = {"kind": "primitive", "name": "Float"}
+_STRING = {"kind": "primitive", "name": "String"}
 _Frame = tuple[str, str, str]
 _Activation = tuple[Any, _Frame] | None
 
@@ -40,24 +45,6 @@ class EvaluationResult:
 
     def json_value(self) -> Any:
         return _thaw(self.value)
-
-
-def _freeze(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
-    if type(value) in {list, tuple}:
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
-def _thaw(value: Any) -> Any:
-    if isinstance(value, _Closure):
-        raise TypeError("a closure is not ordinary JSON data")
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    if type(value) is tuple:
-        return [_thaw(item) for item in value]
-    return value
 
 
 def _kind(value: Any) -> str:
@@ -80,88 +67,6 @@ def _kind(value: Any) -> str:
     return "host value"
 
 
-def _formed_boundary_value(
-    value: Any,
-    pointer: str,
-    call_context: _Activation,
-    field_path: str = "$",
-) -> Any:
-    if value is None or type(value) in {bool, str}:
-        return value
-    if type(value) is int:
-        try:
-            return coerce_pure_value(value, _INT, context="boundary value")
-        except PureExprEvaluationError as exc:
-            raise EvaluatedValueError(
-                "dynamic_boundary_invalid",
-                "integer boundary value is outside the admitted range",
-                location=pointer,
-                metadata={"field_path": field_path, "call_context": _call_context_frames(call_context)},
-            ) from exc
-    if type(value) is float:
-        try:
-            return coerce_pure_value(value, _FLOAT, context="boundary value")
-        except PureExprEvaluationError as exc:
-            raise EvaluatedValueError(
-                "dynamic_boundary_invalid",
-                "Float boundary value is not finite",
-                location=pointer,
-                metadata={"field_path": field_path, "call_context": _call_context_frames(call_context)},
-            ) from exc
-    if type(value) is list:
-        return tuple(
-            _formed_boundary_value(
-                item,
-                _pointer(pointer, index),
-                call_context,
-                _pointer(field_path, index),
-            )
-            for index, item in enumerate(value)
-        )
-    if type(value) is dict:
-        return MappingProxyType({
-            key: _formed_boundary_value(
-                item,
-                _pointer(pointer, key),
-                call_context,
-                _pointer(field_path, key),
-            )
-            for key, item in value.items()
-        })
-    raise EvaluatedValueError(
-        "dynamic_boundary_invalid",
-        "boundary value must contain only ordinary JSON data",
-        location=pointer,
-        metadata={"field_path": field_path, "call_context": _call_context_frames(call_context)},
-    )
-
-
-def _boundary_value(
-    value: Any,
-    descriptor: Mapping[str, Any],
-    pointer: str,
-    call_context: _Activation,
-) -> Any:
-    try:
-        normalized = validate_transport_value(
-            value,
-            descriptor,
-            allow_nested_structures=True,
-        )
-    except (TypeError, ValueError, RecursionError) as exc:
-        message = str(exc)
-        raise EvaluatedValueError(
-            "dynamic_boundary_invalid",
-            "boundary value does not satisfy its declared schema",
-            location=pointer,
-            metadata={
-                "validator_error": message,
-                "call_context": _call_context_frames(call_context),
-            },
-        ) from exc
-    return _formed_boundary_value(normalized, pointer, call_context)
-
-
 def _call_context_frames(context: _Activation) -> tuple[_Frame, ...]:
     frames: list[_Frame] = []
     while context is not None:
@@ -170,11 +75,23 @@ def _call_context_frames(context: _Activation) -> tuple[_Frame, ...]:
     return tuple(reversed(frames))
 
 
-def _call_context_metadata(context: _Activation) -> dict[str, Any]:
-    return {"call_context": _call_context_frames(context)}
+def _call_stack(program: DynamicProgram, context: _Activation) -> tuple[Mapping[str, Any], ...]:
+    frames = []
+    for caller, pointer, callee in _call_context_frames(context):
+        frames.append(
+            {
+                "caller": caller,
+                "caller_module": program.definitions[caller]["owner"]["module"],
+                "callee": callee,
+                "callee_module": program.definitions[callee]["owner"]["module"],
+                "call_site": pointer,
+            }
+        )
+    return tuple(frames)
 
 
 def _error(
+    program: DynamicProgram,
     code: str,
     message: str,
     pointer: str,
@@ -182,12 +99,85 @@ def _error(
     steps: int,
     **metadata: Any,
 ) -> EvaluatedValueError:
-    return EvaluatedValueError(
-        code,
-        message,
-        location=pointer,
-        metadata={"steps": steps, **_call_context_metadata(context), **metadata},
+    details: dict[str, Any] = {
+        "steps": steps,
+        "artifact_pointer": pointer,
+        "call_context": _call_context_frames(context),
+        "call_stack": _call_stack(program, context),
+        **metadata,
+    }
+    source = program.source_map["entries"].get(pointer)
+    if source is not None:
+        details.update(
+            module=source["source"],
+            span=source["span"],
+            form_path=source["form_path"],
+        )
+    return EvaluatedValueError(code, message, location=pointer, metadata=details)
+
+
+def _workspace_path_validator(workspace_files: WorkspaceFiles | None):
+    if workspace_files is None:
+        def require_owner(_value: str, _descriptor: Mapping[str, Any]) -> str:
+            raise ValueError("path boundary requires the pinned workspace file owner")
+
+        return require_owner
+
+    from orchestrator.contracts.output_contract import _require_nested_transport_path
+
+    return lambda value, descriptor: _require_nested_transport_path(
+        value,
+        descriptor,
+        workspace_files.workspace,
+        workspace_files=workspace_files,
     )
+
+
+def _boundary_value(
+    program: DynamicProgram,
+    value: Any,
+    descriptor: Mapping[str, Any],
+    pointer: str,
+    context: _Activation,
+    steps: int,
+    workspace_files: WorkspaceFiles | None,
+) -> Any:
+    try:
+        normalized = validate_transport_value(
+            _thaw(value),
+            descriptor,
+            allow_nested_structures=True,
+            require_int64=True,
+            redact_runtime_keys=True,
+            path_validator=_workspace_path_validator(workspace_files),
+        )
+    except (TypeError, ValueError, RecursionError) as exc:
+        field_path = getattr(exc, "value_path", None)
+        details: dict[str, Any] = {"validator_error": str(exc)}
+        if field_path is not None:
+            details["field_path"] = field_path
+        raise _error(
+            program,
+            "dynamic_boundary_invalid",
+            "boundary value does not satisfy its declared schema",
+            pointer,
+            context,
+            steps,
+            **details,
+        ) from None
+    return _freeze(normalized)
+
+
+def _definition_pointer(code: str) -> str:
+    return _pointer("/definitions", code)
+
+
+def _parameter_pointer(code: str, index: int) -> str:
+    return _pointer(_pointer(_pointer(_pointer("/definitions", code), "boundary"), "params"), index)
+
+
+def _default_pointer(code: str, name: str) -> str:
+    return _pointer(_pointer(_pointer(_pointer("/definitions", code), "boundary"), "defaults"), name)
 
 
 def _pop_values(values: list[Any], count: int) -> list[Any]:
@@ -198,65 +188,106 @@ def _pop_values(values: list[Any], count: int) -> list[Any]:
     return result
 
 
+def _entry_environment(
+    program: DynamicProgram,
+    inputs: Mapping[str, Any],
+    workspace_files: WorkspaceFiles | None,
+) -> Mapping[str, Any]:
+    definition = program.definitions[program.entry]
+    boundary = definition["boundary"]
+    code_pointer = _definition_pointer(program.entry)
+    if not isinstance(inputs, Mapping):
+        raise _error(
+            program,
+            "dynamic_boundary_invalid",
+            "entry inputs must be an object",
+            code_pointer,
+            None,
+            0,
+        )
+    parameters = boundary["params"]
+    names = {row[0] for row in parameters}
+    try:
+        extra_count = len(set(inputs) - names)
+    except (TypeError, ValueError):
+        raise _error(
+            program,
+            "dynamic_boundary_invalid",
+            "entry inputs must use declared parameter names",
+            code_pointer,
+            None,
+            0,
+        ) from None
+    if extra_count:
+        raise _error(
+            program,
+            "dynamic_boundary_invalid",
+            "entry inputs contain undeclared parameters",
+            code_pointer,
+            None,
+            0,
+            extra_parameter_count=extra_count,
+        )
+
+    environment: dict[str, Any] = {}
+    for index, (name, schema_ref) in enumerate(parameters):
+        if name in inputs:
+            value = inputs[name]
+            pointer = _parameter_pointer(program.entry, index)
+        elif name in boundary["defaults"]:
+            value = boundary["defaults"][name]
+            pointer = _default_pointer(program.entry, name)
+        else:
+            raise _error(
+                program,
+                "dynamic_boundary_invalid",
+                "entry input is missing a required parameter",
+                _parameter_pointer(program.entry, index),
+                None,
+                0,
+                parameter=name,
+            )
+        environment[name] = _boundary_value(
+            program,
+            value,
+            program.schemas[schema_ref],
+            pointer,
+            None,
+            0,
+            workspace_files,
+        )
+    return MappingProxyType(environment)
+
+
 def evaluate(
     program: DynamicProgram,
     inputs: Mapping[str, Any],
     *,
-    leaf_bridge: Any = None,
-    read_only: bool = False,
+    workspace_files: WorkspaceFiles | None = None,
 ) -> EvaluationResult:
-    """Validate inputs, link trusted leaves, and evaluate one entry body."""
+    """Evaluate one checked entry using the caller's optional workspace owner."""
 
-    if type(read_only) is not bool:
-        raise TypeError("read_only must be Bool")
-    if program.schema in {EFFECT_SCHEMA, DYNAMIC_SCHEMA}:
-        if leaf_bridge is None and program.effects:
-            raise EvaluatedValueError(
-                "dynamic_effect_unlinked",
-                "declared leaf operations require a trusted leaf registry",
-                location="/effects",
-            )
-        if leaf_bridge is not None:
-            from .leaf_bridge import LeafBridge
+    if not isinstance(program, DynamicProgram):
+        raise TypeError("program must be a checked DynamicProgram")
+    if workspace_files is not None and not isinstance(workspace_files, WorkspaceFiles):
+        raise TypeError("workspace_files must be a WorkspaceFiles owner or None")
 
-            if not isinstance(leaf_bridge, LeafBridge):
-                raise EvaluatedValueError(
-                    "dynamic_effect_unlinked",
-                    "effect dispatch requires the trusted leaf bridge",
-                    location="/effects",
-                )
-            leaf_bridge.link(program.effects)
-    elif program.effects:
-        raise EvaluatedValueError(
-            "dynamic_effect_unlinked",
-            "pure artifacts cannot declare leaf operations",
-            location="/effects",
-        )
-
-    if not isinstance(inputs, Mapping):
-        raise EvaluatedValueError("dynamic_boundary_invalid", "entry inputs must be an object", location="/inputs")
-    expected_names = [name for name, _ in program.inputs]
-    if len(inputs) != len(expected_names) or any(name not in inputs for name in expected_names):
-        raise EvaluatedValueError("dynamic_boundary_invalid", "entry inputs do not match the declaration", location="/inputs")
-
-    environment: dict[str, Any] = {}
-    for index, (name, schema_name) in enumerate(program.inputs):
-        pointer = _pointer("/inputs", index)
-        environment[name] = _boundary_value(
-            inputs[name], program.schemas[schema_name], pointer, None
-        )
-
-    values: list[Any] = []
+    entry = program.definitions[program.entry]
+    boundary = entry["boundary"]
+    environment = _entry_environment(program, inputs, workspace_files)
+    result_pointer = _pointer(_pointer(_definition_pointer(program.entry), "boundary"), "result")
     tasks: list[tuple[Any, ...]] = [
+        ("boundary_return", boundary["result"], result_pointer, None),
         (
             "enter",
-            program.definitions[program.entry]["body"],
-            MappingProxyType(environment),
-            _pointer(_pointer("/definitions", program.entry), "body"),
+            entry["body"],
+            environment,
+            _pointer(_definition_pointer(program.entry), "body"),
             program.entry,
             None,
-        )
+        ),
     ]
+    values: list[Any] = []
     steps = 0
     call_trace: list[_Frame] = []
 
@@ -268,6 +299,7 @@ def evaluate(
             _, node, env, pointer, code, context = task
             if steps >= program.budget:
                 raise _error(
+                    program,
                     "dynamic_budget_exhausted",
                     "evaluation node budget exhausted",
                     pointer,
@@ -281,13 +313,27 @@ def evaluate(
                 if type(value) is int:
                     try:
                         value = coerce_pure_value(value, _INT, context="literal")
-                    except PureExprEvaluationError as exc:
-                        raise _error("dynamic_operand_type", "integer literal is outside the admitted range", pointer, context, steps) from exc
+                    except PureExprEvaluationError:
+                        raise _error(
+                            program,
+                            "dynamic_operand_type",
+                            "integer literal is outside the admitted range",
+                            pointer,
+                            context,
+                            steps,
+                        ) from None
                 elif type(value) is float:
                     try:
                         value = coerce_pure_value(value, _FLOAT, context="literal")
-                    except PureExprEvaluationError as exc:
-                        raise _error("dynamic_operand_type", "Float literal must be finite", pointer, context, steps) from exc
+                    except PureExprEvaluationError:
+                        raise _error(
+                            program,
+                            "dynamic_operand_type",
+                            "Float literal must be finite",
+                            pointer,
+                            context,
+                            steps,
+                        ) from None
                 values.append(value)
             elif kind == "name":
                 values.append(env[node["n"]])
@@ -329,23 +375,12 @@ def evaluate(
                 tasks.append(("op_done", node["name"], len(args), pointer, context))
                 for index in reversed(range(len(args))):
                     tasks.append(("enter", args[index], env, _pointer(_pointer(pointer, "args"), index), code, context))
-            elif kind == "effect":
-                if read_only:
-                    raise _error(
-                        "dynamic_effect_forbidden",
-                        "read-only evaluation cannot dispatch a leaf operation",
-                        pointer,
-                        context,
-                        steps,
-                        operation=node["name"],
-                    )
-                tasks.append(("effect_done", node["name"], pointer, context))
-                tasks.append(("enter", node["inputs"], env, _pointer(pointer, "inputs"), code, context))
             elif kind == "record-update":
                 tasks.append(("record_update_base_done", node, env, pointer, code, context))
                 tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
             elif kind == "fail":
                 raise _error(
+                    program,
                     "dynamic_explicit_failure",
                     "dynamic program failed explicitly",
                     pointer,
@@ -353,6 +388,8 @@ def evaluate(
                     steps,
                     reason=node["reason"],
                 )
+            else:
+                raise AssertionError(f"unadmitted dynamic node {kind!r}")
             continue
 
         if action == "let_next":
@@ -368,16 +405,14 @@ def evaluate(
 
         if action == "let_bind":
             _, node, index, env, binder, pointer, code, context = task
-            value = values.pop()
             updated = dict(env)
-            updated[binder] = value
+            updated[binder] = values.pop()
             tasks.append(("let_next", node, index + 1, MappingProxyType(updated), pointer, code, context))
             continue
 
         if action == "fn_done":
             _, target_code, count = task
-            captures = tuple(_pop_values(values, count))
-            values.append(_Closure(target_code, captures))
+            values.append(_Closure(target_code, tuple(_pop_values(values, count))))
             continue
 
         if action == "call_apply":
@@ -386,6 +421,7 @@ def evaluate(
             callee, args = evaluated[0], evaluated[1:]
             if not isinstance(callee, _Closure):
                 raise _error(
+                    program,
                     "dynamic_not_callable",
                     f"call target has value kind {_kind(callee)}",
                     pointer,
@@ -395,29 +431,76 @@ def evaluate(
                 )
             definition = program.definitions[callee.code]
             parameters = definition["params"]
-            if len(args) != len(parameters):
+            boundary = definition["boundary"]
+            defaults = {} if boundary is None else boundary["defaults"]
+            frame = (caller_code, pointer, callee.code)
+            activation = (context, frame)
+            missing_required = any(name not in defaults for name in parameters[len(args):])
+            if len(args) > len(parameters) or missing_required or (boundary is None and len(args) != len(parameters)):
                 raise _error(
+                    program,
                     "dynamic_call_arity",
                     "call argument count does not match the selected function",
                     pointer,
-                    context,
+                    activation,
                     steps,
                     expected_arity=len(parameters),
                     observed_arity=len(args),
                 )
-            frame = (caller_code, pointer, callee.code)
-            activation = (context, frame)
+
+            bound_args: list[Any] = []
+            if boundary is None:
+                bound_args.extend(args)
+            else:
+                for index, (name, schema_ref) in enumerate(boundary["params"]):
+                    if index < len(args):
+                        argument = args[index]
+                        parameter_location = _parameter_pointer(callee.code, index)
+                    else:
+                        argument = defaults[name]
+                        parameter_location = _default_pointer(callee.code, name)
+                    bound_args.append(
+                        _boundary_value(
+                            program,
+                            argument,
+                            program.schemas[schema_ref],
+                            parameter_location,
+                            activation,
+                            steps,
+                            workspace_files,
+                        )
+                    )
             call_trace.append(frame)
             bindings = dict(zip(definition["captures"], callee.captures))
-            bindings.update(zip(parameters, args))
-            tasks.append((
-                "enter",
-                definition["body"],
-                MappingProxyType(bindings),
-                _pointer(_pointer("/definitions", callee.code), "body"),
-                callee.code,
-                activation,
-            ))
+            bindings.update(zip(parameters, bound_args))
+            if boundary is not None:
+                result_pointer = _pointer(_pointer(_definition_pointer(callee.code), "boundary"), "result")
+                tasks.append(("boundary_return", boundary["result"], result_pointer, activation))
+            tasks.append(
+                (
+                    "enter",
+                    definition["body"],
+                    MappingProxyType(bindings),
+                    _pointer(_definition_pointer(callee.code), "body"),
+                    callee.code,
+                    activation,
+                )
+            )
+            continue
+
+        if action == "boundary_return":
+            _, schema_ref, pointer, context = task
+            values.append(
+                _boundary_value(
+                    program,
+                    values.pop(),
+                    program.schemas[schema_ref],
+                    pointer,
+                    context,
+                    steps,
+                    workspace_files,
+                )
+            )
             continue
 
         if action == "if_done":
@@ -425,6 +508,7 @@ def evaluate(
             condition = values.pop()
             if type(condition) is not bool:
                 raise _error(
+                    program,
                     "dynamic_condition_type",
                     f"condition must be Bool, observed {_kind(condition)}",
                     pointer,
@@ -438,8 +522,7 @@ def evaluate(
 
         if action == "record_done":
             _, fields, count = task
-            items = _pop_values(values, count)
-            values.append(MappingProxyType(dict(zip(fields, items))))
+            values.append(MappingProxyType(dict(zip(fields, _pop_values(values, count)))))
             continue
 
         if action == "field_done":
@@ -447,6 +530,7 @@ def evaluate(
             base = values.pop()
             if not isinstance(base, Mapping):
                 raise _error(
+                    program,
                     "dynamic_operand_type",
                     f"field access requires a record or map, observed {_kind(base)}",
                     pointer,
@@ -456,6 +540,7 @@ def evaluate(
                 )
             if field_name not in base:
                 raise _error(
+                    program,
                     "dynamic_field_missing",
                     "record or map does not contain the requested field",
                     pointer,
@@ -471,6 +556,7 @@ def evaluate(
             base = values.pop()
             if not isinstance(base, Mapping):
                 raise _error(
+                    program,
                     "dynamic_operand_type",
                     f"record update requires a record or map, observed {_kind(base)}",
                     pointer,
@@ -481,9 +567,10 @@ def evaluate(
             for index, (field_name, _replacement) in enumerate(node["fields"]):
                 if field_name not in base:
                     raise _error(
+                        program,
                         "dynamic_field_missing",
-                        "record update cannot add a field that is absent from its base",
-                        _pointer(_pointer(_pointer(pointer, "fields"), index), 0),
+                        "record update cannot add a field absent from its base",
+                        pointer,
                         context,
                         steps,
                         field=field_name,
@@ -491,21 +578,22 @@ def evaluate(
             fields = node["fields"]
             tasks.append(("record_update_done", base, tuple(row[0] for row in fields), len(fields)))
             for index in reversed(range(len(fields))):
-                tasks.append((
-                    "enter",
-                    fields[index][1],
-                    env,
-                    _pointer(_pointer(_pointer(pointer, "fields"), index), 1),
-                    code,
-                    context,
-                ))
+                tasks.append(
+                    (
+                        "enter",
+                        fields[index][1],
+                        env,
+                        _pointer(_pointer(_pointer(pointer, "fields"), index), 1),
+                        code,
+                        context,
+                    )
+                )
             continue
 
         if action == "record_update_done":
             _, base, fields, count = task
-            replacements = _pop_values(values, count)
             updated = dict(base)
-            updated.update(zip(fields, replacements))
+            updated.update(zip(fields, _pop_values(values, count)))
             values.append(MappingProxyType(updated))
             continue
 
@@ -519,6 +607,7 @@ def evaluate(
             base, index = _pop_values(values, 2)
             if type(base) is not tuple or type(index) is not int or index < 0 or index >= len(base):
                 raise _error(
+                    program,
                     "dynamic_index_invalid",
                     "index requires an in-range nonnegative Int and a list",
                     pointer,
@@ -536,6 +625,7 @@ def evaluate(
             spec = PURE_EXPR_OPERATOR_CATALOG[operator]
             if count < spec.min_arity or (spec.max_arity is not None and count > spec.max_arity):
                 raise _error(
+                    program,
                     "dynamic_operand_type",
                     f"primitive {operator!r} received the wrong number of operands",
                     pointer,
@@ -549,6 +639,7 @@ def evaluate(
                 base = args[0]
                 if type(base) is not tuple:
                     raise _error(
+                        program,
                         "dynamic_operand_type",
                         f"primitive {operator!r} requires a list operand",
                         pointer,
@@ -562,20 +653,22 @@ def evaluate(
                 else:
                     try:
                         values.append(coerce_pure_value(len(base), _INT, context="list length"))
-                    except PureExprEvaluationError as exc:
+                    except PureExprEvaluationError:
                         raise _error(
+                            program,
                             "dynamic_operand_type",
                             "list length is outside the admitted Int range",
                             pointer,
                             context,
                             steps,
                             operator=operator,
-                        ) from exc
+                        ) from None
                 continue
-            kinds = [_kind(arg) for arg in args]
-            descriptors = {"Bool": _BOOL, "Int": _INT, "Float": _FLOAT, "String": {"kind": "primitive", "name": "String"}}
+            descriptors = {"Bool": _BOOL, "Int": _INT, "Float": _FLOAT, "String": _STRING}
+            kinds = [_kind(value) for value in args]
             if any(kind not in descriptors for kind in kinds):
                 raise _error(
+                    program,
                     "dynamic_operand_type",
                     f"primitive {operator!r} requires scalar operands; observed {kinds}",
                     pointer,
@@ -587,11 +680,12 @@ def evaluate(
             try:
                 _, result = evaluate_pure_operator(
                     operator,
-                    [(descriptors[kind], arg) for kind, arg in zip(kinds, args)],
+                    [(descriptors[kind], value) for kind, value in zip(kinds, args)],
                 )
             except PureExprEvaluationError as exc:
                 code = "dynamic_operand_type" if exc.code == "pure_expr_operand_type_mismatch" else exc.code
                 raise _error(
+                    program,
                     code,
                     f"primitive {operator!r} refused operand kinds {kinds}",
                     pointer,
@@ -599,105 +693,15 @@ def evaluate(
                     steps,
                     operator=operator,
                     operand_kinds=kinds,
-                ) from exc
+                ) from None
             values.append(result)
-            continue
-
-        if action == "effect_done":
-            _, operation, pointer, context = task
-            try:
-                effect_inputs = _thaw(values.pop())
-            except (TypeError, RecursionError) as exc:
-                raise _error(
-                    "dynamic_boundary_invalid",
-                    "leaf inputs must be ordinary JSON data",
-                    pointer,
-                    context,
-                    steps,
-                    operation=operation,
-                ) from exc
-            try:
-                result = leaf_bridge.invoke(
-                    operation,
-                    effect_inputs,
-                    location=pointer,
-                    call_context=_call_context_frames(context),
-                )
-            except EvaluatedValueError as exc:
-                if exc.code == "dynamic_boundary_invalid":
-                    metadata = dict(exc.metadata)
-                    metadata.setdefault("operation", operation)
-                    metadata.setdefault("call_context", _call_context_frames(context))
-                    raise EvaluatedValueError(
-                        exc.code,
-                        str(exc),
-                        location=pointer,
-                        metadata=metadata,
-                    ) from exc
-                metadata = {
-                    "operation": operation,
-                    "call_context": _call_context_frames(context),
-                }
-                for key in ("leaf_run_id", "cause_code"):
-                    if key in exc.metadata:
-                        metadata[key] = exc.metadata[key]
-                raise EvaluatedValueError(
-                    "dynamic_effect_failed",
-                    "leaf operation failed",
-                    location=pointer,
-                    metadata=metadata,
-                ) from exc
-            except Exception as exc:
-                raise _error(
-                    "dynamic_effect_failed",
-                    "leaf operation failed",
-                    pointer,
-                    context,
-                    steps,
-                    operation=operation,
-                    cause_code=type(exc).__name__,
-                ) from exc
-            try:
-                formed = _formed_boundary_value(
-                    dict(result),
-                    pointer,
-                    context,
-                )
-            except EvaluatedValueError as exc:
-                raise EvaluatedValueError(
-                    "dynamic_effect_failed",
-                    "leaf operation returned an invalid dynamic value",
-                    location=pointer,
-                    metadata={
-                        "operation": operation,
-                        "call_context": _call_context_frames(context),
-                        "cause_code": exc.code,
-                    },
-                ) from exc
-            values.append(_freeze(formed))
             continue
 
         raise AssertionError(f"unknown evaluator continuation {action!r}")
 
     if len(values) != 1:
         raise AssertionError("dynamic evaluator value stack is unbalanced")
-    try:
-        ordinary = _thaw(values.pop())
-    except (TypeError, RecursionError) as exc:
-        raise EvaluatedValueError(
-            "dynamic_boundary_invalid",
-            "closures cannot cross a data boundary",
-            location=_pointer("/definitions", program.entry),
-            metadata={"field_path": "$", "call_context": (), "steps": steps},
-        ) from exc
-    result_pointer = "/result"
-    normalized = _boundary_value(
-        ordinary,
-        program.schemas[program.result],
-        result_pointer,
-        None,
-    )
-    return EvaluationResult(_freeze(normalized), steps, tuple(call_trace))
+    return EvaluationResult(values[0], steps, tuple(call_trace))
 
 
 __all__ = ["EvaluationResult", "evaluate"]

@@ -35,6 +35,22 @@ def test_nested_path_failure_preserves_leaf_and_original_violation(tmp_path):
     assert violation.context["value"] == "artifacts/work/missing.md"
 
 
+def test_transport_runtime_map_diagnostic_paths_remain_unredacted_by_default():
+    descriptor = {
+        "kind": "map",
+        "key": {"kind": "primitive", "name": "String"},
+        "value": {"kind": "primitive", "name": "Int"},
+    }
+    with pytest.raises(ValueError) as caught:
+        validate_transport_value(
+            {"SECRET_MAP_KEY/~": "invalid"},
+            descriptor,
+            allow_nested_structures=True,
+        )
+    assert caught.value.value_path == "$/SECRET_MAP_KEY~1~0"
+    assert str(caught.value) == "$/SECRET_MAP_KEY~1~0 is not an Int"
+
+
 def test_direct_transport_helper_keeps_shape_leaf_before_legacy_wrapper(tmp_path):
     from orchestrator.contracts.output_contract import _validate_direct_transport_value
 
