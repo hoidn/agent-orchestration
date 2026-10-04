@@ -190,6 +190,7 @@ def _watchdog(workspace: Path, *, target: Path, agent: _Provider):
     args.entry_workflow = ENTRY
     args.command_boundaries_file = f"{EXTERNS}.commands.json"
     with ExitStack() as stack:
+        stack.enter_context(patch.dict(os.environ, {"PYTHONPATH": str(REPO_ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}))
         stack.enter_context(chdir(workspace))
         stack.enter_context(patch.object(ProviderExecutor, "prepare_invocation", agent.prepare_invocation))
         stack.enter_context(patch.object(ProviderExecutor, "execute", agent.execute))

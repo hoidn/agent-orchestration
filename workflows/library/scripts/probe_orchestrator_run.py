@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+from orchestrator.workflow.evaluated.authority import PROFILE
+
 
 REPO_ROOT = Path.cwd()
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -91,6 +94,10 @@ def _running_steps(state: dict[str, Any]) -> list[str]:
 def _classify(state: dict[str, Any] | None, *, stale_seconds: int | None, max_stale_seconds: int) -> tuple[str, str]:
     if state is None:
         return "UNKNOWN", "INVESTIGATE"
+    if state.get("result_persistence_profile") == PROFILE:
+        return {"running": ("RUNNING_OK", "NONE"), "settling": ("RUNNING_OK", "NONE"),
+            "interrupted": ("CRASHED", "RESUME"), "completed": ("COMPLETED", "NONE"),
+            "failed": ("FAILED", "RESUME")}.get(state["status"], ("UNKNOWN", "INVESTIGATE"))
     status = str(state.get("status") or "unknown").strip().lower()
     failed = _failed_steps(state)
     if status in TERMINAL_OK:
@@ -136,7 +143,7 @@ def _write_runtime_bundle(
     _write_json(REPO_ROOT / bundle_rel, payload)
 
 
-def main() -> int:
+def _arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--target-workspace", required=True)
@@ -152,16 +159,27 @@ def main() -> int:
         raise SystemExit(f"Unsafe run id: {run_id}")
     if args.max_stale_minutes < 1:
         raise SystemExit("--max-stale-minutes must be positive")
+    return args, run_id
 
-    state_path = _target_run_root(args.target_workspace, run_id) / "state.json"
-    state: dict[str, Any] | None
-    state_load_error = ""
+
+def _read_target_state(run_root):
+    if has_evaluated_authority(run_root):
+        try:
+            return load_evaluated_view(run_root), ""
+        except (OSError, ValueError) as exc:
+            return None, f"{getattr(exc, 'code', 'memo_inconsistent')}: {exc}"
+    state_path = run_root / "state.json"
     try:
-        state = _load_json(state_path)
+        return _load_json(state_path), ""
     except FileNotFoundError:
-        state = None
-        state_load_error = f"Run state not found: {state_path}"
+        return None, f"Run state not found: {state_path}"
 
+
+def main() -> int:
+    args, run_id = _arguments()
+    run_root = _target_run_root(args.target_workspace, run_id)
+    state_path = run_root / "state.json"
+    state, state_load_error = _read_target_state(run_root)
     now = datetime.now(timezone.utc)
     updated_at = _parse_timestamp(state.get("updated_at")) if state is not None else None
     stale_seconds = int((now - updated_at).total_seconds()) if updated_at is not None else None
@@ -176,10 +194,7 @@ def main() -> int:
     evidence_path = evidence_root / f"{run_id}-evidence.json"
     output_rel = _safe_relpath(args.output, under="state")
     repair_result_target = _safe_relpath(args.repair_result_target_path, under="artifacts/work")
-    policy_path = ""
-    if args.policy_path:
-        policy_rel = _safe_relpath(args.policy_path)
-        policy_path = policy_rel.as_posix() if (REPO_ROOT / policy_rel).exists() else ""
+    policy_path = _policy_path(args.policy_path)
 
     evidence = {
         "schema": "orchestrator_run_watchdog_evidence/v1",
@@ -231,6 +246,13 @@ def main() -> int:
         semantic_output_rel=output_rel,
     )
     return 0
+
+
+def _policy_path(value):
+    if not value:
+        return ""
+    relative = _safe_relpath(value)
+    return relative.as_posix() if (REPO_ROOT / relative).exists() else ""
 
 
 if __name__ == "__main__":

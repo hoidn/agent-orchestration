@@ -50,6 +50,7 @@ def _run_probe(workspace: Path, run_id: str, *extra: str) -> dict:
             *extra,
         ],
         cwd=workspace,
+        env={**os.environ, "PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")},
         check=True,
         text=True,
         capture_output=True,
@@ -108,6 +109,7 @@ def _run_watchdog_script(
     runtime_bundle_path: str,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] = runtime_bundle_path
     return subprocess.run(
         [

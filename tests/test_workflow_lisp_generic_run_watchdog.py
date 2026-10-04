@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 from contextlib import ExitStack
@@ -332,6 +333,7 @@ def _execute_watchdog_runtime(
             raise _WatchdogProviderBoundaryInterruption
 
     with ExitStack() as stack:
+        stack.enter_context(patch.dict(os.environ, {"PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}))
         stack.enter_context(patch.object(ProviderExecutor, "prepare_invocation", _prepare))
         stack.enter_context(patch.object(ProviderExecutor, "execute", _execute))
         stack.enter_context(_publisher_command_instrumentation(capture))
