@@ -9,12 +9,19 @@
   inputs, and `run` publishes durable authority, terminal results and effect
   attempt evidence. Ordinary typed public resume and suffix invalidation are
   implemented for this subset.
-  Certified adapter documents use inline JSON. External command input-document
-  transport, path run-reference dispatch and full profile readers remain unfinished; this is not the complete Phase 3 release. Evidence:
+  Certified adapter documents use inline JSON; external command input documents
+  use attempt-owned `inputs.json` and a workspace-relative path token. Path
+  run-reference dispatch, derived report/dashboard views and monitor/probe/watchdog
+  readers are implemented. Full Phase 3 and actual-provider qualification remain
+  open; this is not the complete Phase 3 release. Evidence:
   [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
   [pure/command-run and dry-run tests](../../tests/test_workflow_evaluated_cli.py),
   [controlled local provider tests](../../tests/test_workflow_evaluated_providers.py),
   [public recovery smoke](../../tests/test_workflow_evaluated_invalidate_smoke.py),
+  [path-child integration](../../tests/e2e/test_e2e_workflow_evaluated_run_ref.py),
+  [public readers](../../tests/test_workflow_evaluated_readers.py),
+  [input-document contracts](../../tests/test_workflow_evaluated_input_document_contracts.py)
+  and [attempt transport](../../tests/test_workflow_evaluated_input_document_attempts.py),
   [target routing tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
   and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
   Phase-wide checks and the completed red-suite diagnosis are recorded in
@@ -24,7 +31,7 @@
   `experiments/evaluated_execution_spike/` remains separate runtime evidence.
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
-- **Created:** 2026-09-29. **Revised:** 2026-10-03, including current bounded
+- **Created:** 2026-09-29. **Revised:** 2026-10-04, including current bounded
   runtime availability and the Phase 3 input-document, profile, invalidation-entry, artifact-handoff, command
   transport and shared-union field-proof clarifications.
 - **Evidence:**
@@ -2664,8 +2671,11 @@ No reader may treat an older completed snapshot as the current terminal.
 | Report and dashboard cursor | Render effect order, current/next identity, errors, result and per-attempt previews directly from V1–V6; replace their step/frame walk for this profile. The current state-only renderer is not sufficient evidence |
 | Trial SDK | Outside the first release with trials. Its required unique completed `steps[*].trial` envelope must be supplied/tested when that class enters; generic effect rows do not serve it |
 
-These are Phase 3 reader changes with public integration prerequisites (§18),
-not an assertion that the current readers already understand the profile.
+The state, report/dashboard and monitor/probe/watchdog adapters are implemented
+under [Phase 3 Tasks 10–11](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-10-derived-profile-and-public-reportdashboard).
+Their public integration receipts preserve read-only snapshots, missing/stale
+views and current-attempt evidence. The Trial SDK remains excluded; phase-wide
+qualification still requires §18.
 
 The spike's view reproduced the present report's rows for a run killed
 during its second command, and said `interrupted` where the present report

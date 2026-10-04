@@ -35,7 +35,9 @@ Status: Normative master. This index defines scope, versioning, conformance, and
   - DSL v2.35 is the selected typed evaluated-execution target. Public closed-program
     compilation, validated dry-run, pure execution, command execution and portable
     composed-provider execution, ordinary typed resume and suffix invalidation are
-    integrated. Path run-reference dispatch and complete runtime readers remain pending; this is not a complete
+    integrated. Path run-reference dispatch and public report/dashboard/operations
+    readers are implemented; external command input documents are delivered.
+    Phase-wide and actual-provider qualification remain open; this is not a complete
     Phase 3 release. The bounded runtime evidence is
     [the public CLI suite](../tests/test_workflow_evaluated_cli.py) and
     [controlled provider suite](../tests/test_workflow_evaluated_providers.py), plus

@@ -25,7 +25,9 @@ program and bound inputs, then replays the active committed prefix before
 mutable continuation; suffix invalidation uses stored authority without reading
 current sources. These operations use `run.json`, `closed_program.json` and
 `memo.jsonl`, independently of a derived `state.json` view. Path run-reference
-dispatch and complete reader integration remain pending. The
+dispatch and derived report/dashboard/monitor/probe/watchdog readers are
+implemented. Readers reconstruct checked state in memory without writing or
+reconciling; phase-wide and actual-provider qualification remain open. The
 [evaluated execution contract](design/workflow_lisp_evaluated_execution.md)
 owns this separate route; the dynamic fresh-only candidate does not inherit its
 resume/invalidation behavior.

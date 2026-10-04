@@ -64,7 +64,9 @@ workspace as the working directory.
       recipe/input/program digests without creating it. Explicit mismatching
       resume selection refuses read-only with `resume_run_ref_root_changed`,
       malformed present roots are `memo_inconsistent`, and historical absent
-      fields are not backfilled; child dispatch/Task 9 completion remains pending.
+      fields are not backfilled. Path children dispatch through the evaluated
+      coordinator; its root and historical-header rules are owned by
+      [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
       The following provider/host-request policies describe the legacy profile.
     - If persisted authoritative state proves an exact interrupted in-flight
       ordinary, session, supervision, peer-group, phased, or adjudicated

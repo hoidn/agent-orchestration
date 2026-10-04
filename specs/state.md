@@ -13,16 +13,20 @@
     `memo.jsonl`, with the exact schema/profile defined in
     [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
     Ordinary resume and suffix invalidation route through that profile before
-    the legacy state loader. Derived `state.json` views and complete public
-    readers remain pending; they are not prerequisites for the implemented
-    authority-based resume/invalidation. This does not convert legacy runs or
+    the legacy state loader. Derived `state.json` views and public
+    report/dashboard/monitor/probe/watchdog readers reconstruct checked authority
+    in memory, including missing/stale views; they neither launch nor reconcile
+    effects or repair run files. The writer publishes the derived view after
+    synchronized records; the memo remains authority on publication failure.
+    This does not convert legacy runs or
     make the dynamic fresh-only candidate resumable.
     New evaluated headers persist a resolved canonical `run_ref_root` outside
     recipe/input/program digests, without creating that directory. Explicit
     mismatching resume selection refuses read-only with
     `resume_run_ref_root_changed`, malformed present roots are `memo_inconsistent`,
-    and historical absent fields are not backfilled; this does not implement
-    child dispatch or complete Task 9.
+    and historical absent fields are not backfilled. Path-child dispatch and
+    recovery use that retained root, with historical-root refusals defined by
+    the linked evaluated contract.
 
 - Legacy state file schema (authoritative record for schema 2.1)
   - `schema_version: "2.1"`

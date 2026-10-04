@@ -565,8 +565,8 @@ model accepted at gate G1 that addresses that cause. At target 2.35,
 `compile` builds a checked closed program; validated public dry-run and public
 pure, command and portable composed-provider run, ordinary resume and suffix
 invalidation are integrated. Use 2.35 only within that bounded runtime subset.
-Choose a target through 2.34 when path run-reference dispatch, excluded effects
-or legacy force restart are needed.
+Choose a target through 2.34 when excluded effects or legacy force restart are
+needed; path run-reference dispatch is implemented at 2.35.
 The [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
 and [public CLI tests](../tests/test_workflow_evaluated_cli.py) distinguish the
 bounded runtime from complete release qualification. The
@@ -619,8 +619,9 @@ without launching effects. Public pure, command and portable composed-provider
 run are implemented; the latter uses captured prompt/dependency bytes, typed
 result projection and required output-file checks. Public provider tests use
 controlled local transport, not paid or live-vendor qualification. Ordinary typed
-public resume and suffix invalidation are implemented. Path run-reference
-dispatch and complete runtime readers remain pending. Compilation is not evidence of
+public resume, suffix invalidation, path run-reference dispatch and derived
+report/dashboard/monitor/probe/watchdog readers are implemented. External command
+input documents are delivered. Phase-wide qualification remains pending. Compilation is not evidence of
 complete effectful runtime parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
 [public runtime tests](../tests/test_workflow_evaluated_cli.py),
 [provider runtime tests](../tests/test_workflow_evaluated_providers.py),
@@ -657,9 +658,14 @@ provider fixtures use `--provider-externs-file`, `--prompt-externs-file` and
 `--source-root` to locate their declarations. A supplied boundary must name its
 stable command and declare its implementation closure. Commands/providers write
 the structured result to `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`; stdout is attempt
-evidence, not a substitute result. Certified adapter `:inputs` currently use
-canonical inline JSON; the external-tool `:argv` plus `:inputs` path-token
-protocol and attempt-owned `inputs.json` remain Task 12 work.
+evidence, not a substitute result. Certified adapter `:inputs` use canonical
+inline JSON. External-tool `:argv` plus `:inputs ((field expression) ...)`
+writes a canonical `inputs.json` in the command attempt directory and appends
+one workspace-relative path token after authored argv. Omitting `:inputs`
+adds no file/token; `:inputs ()` sends `{}`. Recursive field contracts are
+checked before this command starts; committed reuse does not read or regenerate
+the old generated file. See [typed command input documents](design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)
+and the [public attempt tests](../tests/test_workflow_evaluated_input_document_attempts.py).
 
 Run the existing isolated public-entry self-checks from the repository root:
 
@@ -698,8 +704,11 @@ above obtains the identity from checked authority/memo and verifies this flow.
 
 The evaluated run authority is `closed_program.json`, `run.json` and
 `memo.jsonl` under the run root. The legacy `state.json` output recipe above does
-not apply to this profile; its derived views and complete reader integration
-remain pending.
+not apply to this profile. Its derived `state.json` is a cache; report, dashboard,
+monitor, probe and watchdog readers reconstruct checked state from authority when
+the view is absent/stale, without writing or launching effects. The
+[reader receipts](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-10-derived-profile-and-public-reportdashboard)
+own public-entry verification; complete Phase 3 qualification remains open.
 
 The two forms of the paired search controller meet rows 1 and 14. The form
 with a copy per branch,

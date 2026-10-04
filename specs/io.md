@@ -6,6 +6,18 @@
   - `asset_file` (v2.5): read literal contents from the authored workflow source tree; provider-only and mutually exclusive with `input_file`.
   - When using a provider, the composed prompt (after optional injection) is passed via argv `${PROMPT}` or piped to stdin per provider template.
 
+- Evaluated command input documents
+  - At target 2.35, external-tool `command-result` accepts `:argv` plus
+    `:inputs ((field expression) ...)`. Checked recursive field contracts are
+    validated before this command starts. The runtime exclusively publishes
+    canonical finite JSON in attempt-owned `inputs.json` and appends one
+    workspace-relative path token after authored argv. Omitting `:inputs` adds
+    no document/token; `:inputs ()` sends `{}`. The byte digest and ordered
+    checked contract, rather than the attempt path, determine input identity.
+    Committed reuse neither reads nor regenerates the old generated document.
+    Certified adapters retain signature-ordered inline JSON. The complete
+    contract is [evaluated execution §9.1.1](../docs/design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents).
+
 - Output handling
   - `output_file`: STDOUT is tee'd to this file and to the orchestrator capture pipeline.
   - Runtime result-file operations use a workspace directory descriptor pinned

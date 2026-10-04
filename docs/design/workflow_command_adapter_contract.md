@@ -134,9 +134,15 @@ Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closure
 Runtime evidence: `tests/test_workflow_evaluated_command_lifecycle.py`,
 `tests/test_workflow_evaluated_command_origin.py` and
 `tests/test_workflow_evaluated_cli.py`, `tests/test_workflow_evaluated_resume_retry.py`
-and `tests/test_workflow_evaluated_resume_replay_boundary.py`. The current certified input-document
-route passes canonical inline JSON; the external-tool `inputs.json` path-token
-protocol remains Phase 3 Task 12 work.
+and `tests/test_workflow_evaluated_resume_replay_boundary.py`. Certified input-document
+transport retains canonical inline JSON. External tools at 2.35 additionally
+support `:argv` plus `:inputs`, with attempt-owned `inputs.json` and one
+workspace-relative path token; recursive validation, absent/empty semantics
+and byte identity are owned by
+[evaluated execution §9.1.1](workflow_lisp_evaluated_execution.md#911-typed-command-input-documents).
+Transport evidence is in `tests/test_workflow_evaluated_input_document_contracts.py`
+and `tests/test_workflow_evaluated_input_document_attempts.py`; full Phase 3
+qualification remains open.
 
 ## Certified Command Adapter
 

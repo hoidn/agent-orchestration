@@ -1656,3 +1656,64 @@ supersede the earlier 878-case pre-correction run for this import and are not
 summed with overlapping native checks. No Task 9 completion, Task 12 delivery
 or new dynamic gate follows. Tasks 5–8 still await Task 12 and its integrated
 qualification; no shared document transport was independently reimplemented.
+
+### Shared Children/Readers/Input-Document Import
+
+Current synchronization, 2026-10-04: reviewed shared Phase 3 delivery through
+`a024397b` is merged onto dynamic head `bc171620`; its frozen merge tree is
+`e0ac189d`. This moving runtime import leaves the frozen typed comparator
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` and earlier experiment results unchanged.
+The shared merge plus native adapter is committed at `866dcd99`; the initial
+280-case receipt below remains separate from final combined qualification.
+
+The retained [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-9-run-reference-coordinator-and-evaluated-children)
+has reviewed completion receipts for Task 9 path children/coordinators, Task 10
+derived report/dashboard views and Task 11 monitor/probe/watchdog readers.
+Those receipts retain their qualified broad failures and controlled transport
+limits. Shared Task 12 deliveries `4bcf5424`, `5bdb2497` and `a024397b` add authored
+external `:argv` plus `:inputs`, checked recursive contracts and operand order,
+canonical document bytes, exclusive attempt-owned `inputs.json` publication and
+one workspace-relative path token. Absent versus empty documents and certified
+inline transport remain distinct. Committed reuse neither reads nor regenerates
+the old generated file. The actual split owners are
+[command grammar](../../tests/test_workflow_lisp_command_input_documents.py),
+[checked closed documents](../../tests/test_workflow_lisp_closed_input_documents.py),
+[runtime contracts](../../tests/test_workflow_evaluated_input_document_contracts.py)
+and [attempt transport](../../tests/test_workflow_evaluated_input_document_attempts.py).
+
+Independent Sol static review passed on frozen merge tree `e0ac189d`; fresh
+coordinator narrow verification passed **280 cases in 48.37s**. This qualifies the
+imported typed selection, not the dynamic document caller, complete Phase 3 or
+live providers. Upstream subsequently delivered public input-document/replay
+checks at `ebaf78ed` and its Task 12 closeout at `98b3f3d9`, integrated separately
+at `970ac933`. This test/document-only import leaves runtime code unchanged.
+Fresh collection found 29 cases; all 29 passed in 118.92s, exit 0, including
+public compile/run/replay. Exact commands and source hashes are in
+`/dev/shm/orc-dc3-20261004-import-task12-closeout/`. These additional checks are
+separate from the earlier campaign; full Phase 3 qualification remains open.
+
+The shared native document seam is qualified at `866dcd99`. Existing
+`inputs.py::_prepare_command_document_fields` accepts plain values/descriptors
+through the shared validators, `commands.py::_serialize_command_document`
+preserves canonical external versus signature-ordered certified bytes, and
+`commands.py::_command_document_argv` uses caller-owned attempt files for the
+external path token. Their typed wrappers retain the actual typed consumers;
+no typed node/value, fake memo or parallel performer is required for the native
+request. Independent Sol final conformity and quality review passed.
+
+Fresh root verification collected **2554 cases** and passed **2553 with one
+expected failure in 223.11s**, exit 0, using `pytest -q -n 16 --dist=worksteal` in
+tmux. All source hashes were unchanged and verified against current source.
+Exact selections, commands, before/after hashes and outputs are in
+`/dev/shm/orc-dc3-20261004-combined/{collect,affected}.{json,log}`. This affected
+campaign includes the real-dispatch native seam, retained typed document
+consumers, public recovery/child/reader checks and experimental controls; it is
+not full-repository or live-provider evidence. Its counts are not summed with
+the overlapping 280-case import receipt.
+
+**Readiness Task 4 PASS** releases the atomic Tasks 5–8 cutover. Task 5 is selected
+next, not implemented, followed by Task 9's readiness evidence. Task 8 still owns
+the actual dynamic caller, strict boundary inputs, imported asset ownership and
+publication. Public `3.0` remains unregistered, Q1–Q5 remain open and DC-P has not
+adopted the candidate; no maintained application migration or paid/live campaign
+is claimed.
