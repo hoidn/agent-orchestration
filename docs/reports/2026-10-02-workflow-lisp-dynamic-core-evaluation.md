@@ -631,8 +631,9 @@ DC-1a completion does not activate DC-2 or select adoption.
 
 ## 7. DC-1b / DC-1c Execution And Feasibility Review
 
-The [source frontend](../../experiments/dynamic_core_evaluation/source.py) uses
-existing reader/type owners, infers lexical captures and admits the same
+The historical source frontend, `experiments/dynamic_core_evaluation/source.py`
+at `53032343` (`git show 53032343:experiments/dynamic_core_evaluation/source.py`),
+uses existing reader/type owners, infers lexical captures and admits the same
 versioned artifact. The [runnable specimen and command](../../experiments/dynamic_core_evaluation/README.md)
 show ordinary source composition with a real provider followed by a command;
 this is an experimental driver, not public `orchestrator run` support.
@@ -1781,3 +1782,34 @@ The upstream check before this handoff still found `93a33ae2`, already imported.
 Task 6 source/build/CLI work is selected. Effect execution, fresh-run authority,
 replacement experiment consumers and Q1–Q5/DC-P remain pending; this admission
 gate creates no runnable public dynamic target or independently releasable cut.
+
+
+### Task 6A Source And Build Gate
+
+`7407e518` adds reviewed direct dynamic source lowering and closed builds on
+`feat/orc-dynamic-core-cutover`. Ordinary module imports, untyped helpers and
+inferred captures link through the existing module graph; selected old-target
+boundary declarations retain their owners. Declared workflow inputs/defaults and
+results remain schema boundaries. Persisted expression maps support source-free
+pure execution and diagnostics. Builds reuse existing requests, manifests and
+immutable source/configuration traces, with descriptor-rooted publication and
+read-back. The old experimental source compiler is removed inside the atomic cut.
+
+Independent conformity PASS preceded quality APPROVED after fixing Int64 argv
+literal admission and reserved workflow names. The affected run also caught a
+legacy artifact-byte regression from serializing an absent budget; the existing
+omit-if-absent metadata corrected it without changing the golden test. Final
+source collection passed **37 cases**; focused verification passed **217 cases**.
+Fresh coordinator collection/execution passed **876/876 cases in 39.86s**, exit 0,
+across 22 affected modules, including retained public CLI routes. All 535
+runtime/test hashes stayed unchanged. Exact selectors, commands, outputs and the
+12-file reviewed freeze are in `/dev/shm/orc-dc3-frontend-a-final/`; the initial
+compatibility failure is retained in `/dev/shm/orc-dc3-frontend-a-affected/`.
+Counts overlap and are not additive.
+
+The upstream check still found `93a33ae2`, already imported. Task 6B public
+compile/dry-run wiring is selected. Target `3.0` is recognized by the internal
+source/build route; public compile/run currently refuse before typed or legacy
+fallback. Fresh-run authority and direct effects remain Tasks 7–8, so this is
+not a public runnable candidate or full Q2/Q1–Q5 completion. The stable evaluation
+branch remains at `3a7f8efd`; DC-P and application migration remain unselected.
