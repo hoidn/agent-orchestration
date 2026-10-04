@@ -9,6 +9,24 @@ from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from .commands import run_workflow
 
 
+class _ExplicitStore(argparse._StoreAction):
+    def __call__(self, parser, namespace, values, option_string=None):
+        namespace._explicit_options = getattr(namespace, '_explicit_options', frozenset()) | {self.dest}
+        super().__call__(parser, namespace, values, option_string)
+
+
+class _ExplicitStoreTrue(argparse._StoreTrueAction):
+    def __call__(self, parser, namespace, values, option_string=None):
+        namespace._explicit_options = getattr(namespace, '_explicit_options', frozenset()) | {self.dest}
+        super().__call__(parser, namespace, values, option_string)
+
+
+class _ExplicitAppend(argparse._AppendAction):
+    def __call__(self, parser, namespace, values, option_string=None):
+        namespace._explicit_options = getattr(namespace, '_explicit_options', frozenset()) | {self.dest}
+        super().__call__(parser, namespace, values, option_string)
+
+
 def _add_frontend_flags(
     parser: argparse.ArgumentParser,
     *,
@@ -118,6 +136,11 @@ def create_parser() -> argparse.ArgumentParser:
         'run',
         help='Run a workflow',
     )
+    run_parser.register('action', 'store', _ExplicitStore)
+    run_parser.register('action', None, _ExplicitStore)
+    run_parser.register('action', 'store_true', _ExplicitStoreTrue)
+    run_parser.register('action', 'append', _ExplicitAppend)
+    run_parser.set_defaults(_explicit_options=frozenset())
     run_parser.add_argument(
         'workflow',
         type=str,

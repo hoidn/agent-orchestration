@@ -34,6 +34,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     render_diagnostic,
 )
 from orchestrator.workflow_lisp.wcc.route import lowering_route_for_schema
+from orchestrator.workflow_lisp.build_manifest_io import _resolve_request
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,20 @@ def _reject_machine_compile(
         build_rejected_compile_diagnostics_document(diagnostics)
     )
     return 2
+
+
+def _export_requests(args: Namespace) -> dict[str, list[str | None]]:
+    return {
+        artifact: list(getattr(args, option, None) or ())
+        for artifact, option in (
+            ("executable_ir", "emit_executable_ir"),
+            ("core_workflow_ast", "emit_core_ast"),
+            ("runtime_plan", "emit_runtime_plan"),
+            ("semantic_ir", "emit_semantic_ir"),
+            ("source_map", "emit_source_map"),
+            ("expanded_debug_yaml", "emit_debug_yaml"),
+        )
+    }
 
 
 def compile_workflow(args: Namespace) -> int:
@@ -69,23 +84,35 @@ def compile_workflow(args: Namespace) -> int:
         return 2
     source_read_trace = SourceReadTrace()
     try:
+        _resolve_request(FrontendBuildRequest(source_path=workflow_path, workspace_root=Path.cwd()))
         target_dsl_version = entry_target_dsl_version(
             workflow_path,
             source_read_trace=source_read_trace,
         )
-    except (LispFrontendCompileError, OSError, UnicodeError):
-        # Let the established compile path preserve malformed/missing-input
-        # validation order; only a successful target peek selects a route.
-        target_dsl_version = None
-        source_read_trace = None
+    except (LispFrontendCompileError, OSError, UnicodeError) as exc:
+        diagnostics = exc.diagnostics if isinstance(exc, LispFrontendCompileError) else (
+            _cli_request_diagnostic(code="workflow_lisp_cli_io_error", message=str(exc), path=workflow_path),
+        )
+        # Preserve export diagnostics without selecting a backend or creating
+        # export directories after an unreadable header.
+        try:
+            normalize_frontend_artifact_exports(
+                _export_requests(args), cwd=Path.cwd(), source_path=workflow_path,
+                create_parents=False,
+            )
+        except LispFrontendCompileError as export_error:
+            diagnostics = export_error.diagnostics
+        if machine_mode:
+            return _reject_machine_compile(diagnostics)
+        for diagnostic in diagnostics:
+            logger.error(render_diagnostic(diagnostic))
+        return 2
     closed_result: ClosedProgramBuildResult | None = None
     try:
         if target_dsl_version == "3.0":
-            raise LispFrontendCompileError((_cli_request_diagnostic(
-                code="dynamic_source_route_required",
-                message="target 3.0 requires the dynamic public route",
-                path=workflow_path,
-            ),))
+            from orchestrator.cli.commands.dynamic import compile_dynamic_workflow
+            return compile_dynamic_workflow(args, workflow_path=workflow_path,
+                                            workspace=Path.cwd(), source_read_trace=source_read_trace)
         request = FrontendBuildRequest(
             source_path=workflow_path,
             source_roots=tuple(Path(path) for path in (args.source_root or ())),
@@ -130,14 +157,7 @@ def compile_workflow(args: Namespace) -> int:
             exported_artifacts = {}
         else:
             export_requests = normalize_frontend_artifact_exports(
-                {
-                    "executable_ir": list(getattr(args, "emit_executable_ir", ()) or ()),
-                    "core_workflow_ast": list(getattr(args, "emit_core_ast", ()) or ()),
-                    "runtime_plan": list(getattr(args, "emit_runtime_plan", ()) or ()),
-                    "semantic_ir": list(getattr(args, "emit_semantic_ir", ()) or ()),
-                    "source_map": list(getattr(args, "emit_source_map", ()) or ()),
-                    "expanded_debug_yaml": list(getattr(args, "emit_debug_yaml", ()) or ()),
-                },
+                _export_requests(args),
                 cwd=Path.cwd(),
                 source_path=workflow_path,
             )

@@ -438,7 +438,7 @@ def test_real_broken_dry_run_and_lsp_share_request_and_diagnostic_identity(
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
     entry_path = workspace / "broken.orc"
-    entry_text = "(workflow-lisp\n"
+    entry_text = '(workflow-lisp (:language "0.1") (:target-dsl "2.14") (defmodule broken) (defrecord Broken (x Missing)))\n'
     entry_path.write_text(entry_text, encoding="utf-8")
     run_command = importlib.import_module("orchestrator.cli.commands.run")
     cli_main = importlib.import_module("orchestrator.cli.main")
@@ -507,10 +507,69 @@ def test_real_broken_dry_run_and_lsp_share_request_and_diagnostic_identity(
     assert cli_identities[0][1:6] == (
         "validation",
         "error",
-        "read",
-        "parse",
+        "typecheck",
+        "type",
         "frontend",
     )
+
+
+def test_malformed_source_early_run_refusal_and_lsp_share_diagnostic_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    entry_path = workspace / "broken.orc"
+    entry_text = "(workflow-lisp\n"
+    entry_path.write_text(entry_text, encoding="utf-8")
+    run_command = importlib.import_module("orchestrator.cli.commands.run")
+    cli_main = importlib.import_module("orchestrator.cli.main")
+    original_peek = run_command.entry_target_dsl_version
+    cli_errors: list[build.LispFrontendCompileError] = []
+
+    def observing_peek(path: Path, *, source_read_trace: object):
+        try:
+            return original_peek(path, source_read_trace=source_read_trace)
+        except build.LispFrontendCompileError as error:
+            cli_errors.append(error)
+            raise
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("malformed source reached a build or run allocation")
+
+    monkeypatch.setattr(run_command, "entry_target_dsl_version", observing_peek)
+    monkeypatch.setattr(run_command, "build_frontend_bundle", forbidden)
+    monkeypatch.setattr(run_command, "StateManager", forbidden)
+    monkeypatch.chdir(workspace)
+    cli_args = cli_main.create_parser().parse_args(("run", str(entry_path), "--dry-run", "--quiet"))
+    assert run_command.run_workflow(cli_args).exit_code == 2
+    assert len(cli_errors) == 1
+    assert not hasattr(cli_errors[0], "compile_request_capture")
+    lsp_errors: list[build.LispFrontendCompileError] = []
+    read_only_build = build.build_frontend_bundle_in_memory
+
+    def observing_lsp_build(request: build.FrontendBuildRequest, *, source_read_trace: object):
+        try:
+            return read_only_build(request, source_read_trace=source_read_trace)
+        except build.LispFrontendCompileError as error:
+            lsp_errors.append(error)
+            raise
+
+    driver = compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(root_uri=workspace.as_uri()),
+        build_in_memory=observing_lsp_build,
+    )
+    driver.apply_transition(lsp_state.open_entry(
+        driver.state, document_uri=entry_path.as_uri(), editor_text=entry_text,
+        disk_snapshot=compile_driver.probe_disk_source(entry_path),
+    ))
+    driver.drain()
+    assert len(lsp_errors) == 1
+    cli_identities = _diagnostic_identities(cli_errors[0].diagnostics)
+    assert cli_identities
+    assert cli_identities == _diagnostic_identities(lsp_errors[0].diagnostics)
+    assert cli_identities[0][1:6] == ("validation", "error", "read", "parse", "frontend")
+    assert not (workspace / ".orchestrate").exists()
 
 
 @pytest.fixture(scope="module")

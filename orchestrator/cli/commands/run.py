@@ -77,7 +77,7 @@ class RunWorkflowResult:
     exit_code: int
     run_id: str | None = None
     run_root: Path | None = None
-    workflow_outputs: Mapping[str, object] = field(default_factory=dict)
+    workflow_outputs: object = field(default_factory=dict)
     session_id: str | None = None
     session_status: str | None = None
     usage: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
@@ -581,12 +581,12 @@ def run_workflow(
     materialization, execution, and publication.
     """
     # Set up logging
-    log_level = getattr(logging, args.log_level.upper())
-    if args.debug:
+    log_level = getattr(logging, getattr(args, "log_level", "info").upper())
+    if getattr(args, "debug", False):
         log_level = logging.DEBUG
-    elif args.quiet:
+    elif getattr(args, "quiet", False):
         log_level = logging.ERROR
-    elif args.verbose:
+    elif getattr(args, "verbose", False):
         log_level = logging.DEBUG
 
     logging.basicConfig(
@@ -607,8 +607,7 @@ def run_workflow(
         if state_root_error is not None:
             logger.error(state_root_error)
             return _run_result(1)
-        state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
-        run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
+        state_dir_override = Path(args.state_dir).expanduser().resolve() if getattr(args, "state_dir", None) else None
 
         workflow_path = resolve_path_preserving_fd(args.workflow)
         if workflow_path.suffix.lower() != ".orc":
@@ -625,12 +624,18 @@ def run_workflow(
             selected_target = entry_target_dsl_version(
                 workflow_path, source_read_trace=source_read_trace
             )
-        except (LispFrontendCompileError, OSError, UnicodeError):
-            selected_target = None
-            source_read_trace = None
-        if selected_target == "3.0":
-            logger.error("[dynamic_source_route_required] target 3.0 requires the dynamic public route")
+        except LispFrontendCompileError as exc:
+            for diagnostic in exc.diagnostics:
+                logger.error(render_diagnostic(diagnostic))
             return _run_result(2)
+        except (OSError, UnicodeError) as exc:
+            logger.error("[workflow_lisp_cli_io_error] %s", exc)
+            return _run_result(2)
+        if selected_target == "3.0":
+            from orchestrator.cli.commands.dynamic import run_dynamic_workflow
+            return run_dynamic_workflow(args, workspace=workspace, workflow_path=workflow_path,
+                                        source_read_trace=source_read_trace)
+        run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
         if (
             selected_target is not None
             and target_dsl_uses_evaluated_execution(selected_target)

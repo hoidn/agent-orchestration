@@ -49,7 +49,7 @@ def _stub_workflow_run(
     from tests.workflow_fixture_loader import WorkflowLoader
 
     workflow = tmp_path / "workflow.orc"
-    workflow.write_text("(workflow-lisp)\n")
+    workflow.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.14") (defmodule test/main))\n')
     bundle = WorkflowLoader(tmp_path).load_mapping(
         {
             "version": "2.1",
@@ -188,7 +188,7 @@ def test_descriptor_workflow_persists_logical_resume_path(
 
 def test_run_parser_exposes_no_run_id_flag(tmp_path, monkeypatch):
     workflow = tmp_path / "workflow.orc"
-    workflow.write_text("(workflow-lisp)\n")
+    workflow.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.14") (defmodule test/main))\n')
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exc:
         main(["run", str(workflow), "--run-id", "x"])

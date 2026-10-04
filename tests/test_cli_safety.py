@@ -95,10 +95,10 @@ class TestCLISafety(TestCase):
         self.workspace = self.test_dir / 'workspace'
         self.workspace.mkdir()
 
-        # Fresh runs require an .orc path; run_workflow's frontend build is
-        # mocked in the tests below, so this placeholder is never compiled.
+        # Target selection reads a valid retained header before the mocked
+        # frontend build supplies the bundle tested below.
         self.workflow_file = self.workspace / 'workflow.orc'
-        self.workflow_file.write_text("(workflow-lisp)\n")
+        self.workflow_file.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.14") (defmodule test/main))\n')
 
         # Create processed directory
         self.processed_dir = self.workspace / 'processed'

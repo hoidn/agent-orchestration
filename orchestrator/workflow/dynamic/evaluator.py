@@ -259,6 +259,20 @@ def _entry_environment(
     return MappingProxyType(environment)
 
 
+def bind_inputs(
+    program: DynamicProgram,
+    inputs: Mapping[str, Any],
+    *,
+    workspace_files: WorkspaceFiles | None = None,
+) -> Mapping[str, Any]:
+    """Bind defaults and strictly validate entry inputs without evaluating code."""
+    if not isinstance(program, DynamicProgram):
+        raise TypeError("program must be a checked DynamicProgram")
+    if workspace_files is not None and not isinstance(workspace_files, WorkspaceFiles):
+        raise TypeError("workspace_files must be a WorkspaceFiles owner or None")
+    return _entry_environment(program, inputs, workspace_files)
+
+
 def evaluate(
     program: DynamicProgram,
     inputs: Mapping[str, Any],
@@ -274,7 +288,7 @@ def evaluate(
 
     entry = program.definitions[program.entry]
     boundary = entry["boundary"]
-    environment = _entry_environment(program, inputs, workspace_files)
+    environment = bind_inputs(program, inputs, workspace_files=workspace_files)
     result_pointer = _pointer(_pointer(_definition_pointer(program.entry), "boundary"), "result")
     tasks: list[tuple[Any, ...]] = [
         ("boundary_return", boundary["result"], result_pointer, None),

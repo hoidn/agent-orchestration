@@ -1356,11 +1356,13 @@ def normalize_frontend_artifact_exports(
     *,
     cwd: Path,
     source_path: Path,
+    create_parents: bool = True,
 ) -> dict[str, FrontendArtifactExportRequest]:
     """Resolve CLI emit flags into concrete export requests.
 
     Export paths are convenience destinations only and must stay outside build
     fingerprinting and manifest authority.
+    ``create_parents=False`` validates destinations without filesystem writes.
     """
 
     normalized: dict[str, FrontendArtifactExportRequest] = {}
@@ -1394,7 +1396,8 @@ def normalize_frontend_artifact_exports(
                     ),
                 )
             )
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        if create_parents:
+            destination.parent.mkdir(parents=True, exist_ok=True)
         normalized[artifact_name] = FrontendArtifactExportRequest(
             artifact_name=artifact_name,
             destination=destination,
