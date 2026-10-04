@@ -1725,6 +1725,29 @@ run/resume; compilation alone is not this evidence. Preserve R12 for authored
 argv substitutions in these sources rather than rewriting the fixture to
 hide a parity gap.
 
+Verified-drain has one accepted consumer-preservation exception: its shared
+canonical source at target 2.15 gains the Prepare-selected history input
+specified in [the drain design](verified_iteration_drain.md#accepted-extension-prepare-selected-history-input).
+The public evaluated fixture copies that same revised source, changing only
+the target to 2.35 and supplying the required manifests/closures. Both routes
+use the existing `LedgerPath` for the additional `PrepareResult.ledger_input_path`;
+Work and iteration-review read that captured input, while Record keeps
+appending to `ledger_path`. Retry of Work retains the history selected by
+Prepare; the target-design dependency remains fresh per attempt. This changes
+the shared source, two prompts, history freshness and artifact inventory in
+both routes. It adds no runtime history selection, new effect or fork.
+
+Preserve the original source/oracles and receipts as historical evidence;
+compare both routes over the revised common source rather than demanding
+unchanged historical prompts or a 19-file-only inventory. Continue→done must
+retain all 19 original files plus the two distinct history inputs, with exact
+path/byte/digest assertions, the existing roles/results/counts and no committed
+redispatch. The drain design owns publication, retention and the bounded
+Prepare-commit invalidation conditions. C6/C7, C8 and command-local C4 remain
+unchanged; legacy acquires no evaluated invalidation or completed-resume
+validation policy. Implementation and public preservation evidence remain
+obligations of Tasks 13D/14 in the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-13d-canonical-verified-drain-history-input).
+
 No generic `artifacts`/`publishes`/`consumes` metadata is added to the closed
 program or V9 by this clarification. Before migrating a consumer with a
 stronger named-publication, version/freshness or specialized effect contract,

@@ -12,6 +12,12 @@ The promoted authoring and launch surface is
 The historical YAML twin was retired after its Stage 6 Task 6 reference and
 supported-run deletion gates passed.
 
+The sections below describe the implemented baseline. The
+[accepted history-input extension](#accepted-extension-prepare-selected-history-input)
+changes the canonical consumer in both execution routes; its implementation
+and verification remain pending in Phase 3 Tasks 13D/14. Historical parity
+evidence above does not verify that extension.
+
 ## Problem
 
 The existing drain family keeps a second, typed copy of reality — run-state
@@ -147,7 +153,7 @@ route.
 
 - `(--drain-state-root, --artifact-work-root, --target-design-path,
   --check-commands-path, --iteration) -> work-order.json` (output_bundle:
-  `base_sha` string, `work_order_path` relpath).
+  `base_sha` string, `work_order_path` relpath, `ledger_path` relpath).
 - Behavior: records `git rev-parse HEAD` as the iteration base; creates the
   iteration dir, ledger file, and blocked-notes dir if absent; regenerates
   `work-order.json` naming every path the worker needs (target design,
@@ -244,3 +250,132 @@ route.
   if needed).
 - Automated rollback, revert, or any tree mutation by the harness.
 - Multi-worker parallelism.
+
+## Accepted Extension: Prepare-Selected History Input
+
+This target design preserves completed-resume without runtime versioning.
+The single canonical `drain.orc` remains at target 2.15; the public evaluated
+fixture copies its revised source and changes only the target to 2.35, with
+the required manifests/closures. There is no alternate drain, script or
+target-dependent behavior. This extension changes both routes' source,
+prompts, freshness and inventory; runs already started are not migrated or
+rewritten. Existing program/closure compatibility and resume refusals still
+apply to those runs.
+
+Prepare reads the current raw bytes of the cumulative `ledger.md` once per
+execution and publishes or reuses
+`<artifact_work_root>/ledger-inputs/<sha256-of-raw-bytes>.md` before returning
+a valid result. `PrepareResult` keeps its three existing fields and adds
+`ledger_input_path` as a fourth field of the existing `LedgerPath` type, with
+its existing root and `must_exist` constraint. The output bundle has exactly
+`base_sha`, `work_order_path`, `ledger_path` and `ledger_input_path`;
+`work-order.json` also names the new input and keeps `ledger_path` as the
+publication destination.
+
+| Surface | Writer | Reader | Contract |
+| --- | --- | --- | --- |
+| `ledger.md` | Prepare initializes; Record appends | Prepare, humans | Cumulative append-only advisory publication |
+| `ledger-inputs/<digest>.md` | Prepare only | Work, iteration-review | Complete captured context, never rewritten by the workflow |
+| `work-order.json` | Prepare | Work and existing iteration consumers | Names the selected input and separate publication path |
+
+Work and iteration-review pass `prepared.ledger_input_path` to their required
+prompt dependency and their prompts identify this selected history as
+read-only context. Record still receives `prepared.ledger_path`. Verify,
+Record and done-review retain their contracts; done-review gains no new C6
+dependency. Git and checks remain decision authority; neither history copy
+is another state machine or replay authority.
+
+The unit of capture is Prepare. Its stored committed result selects the
+history for that iteration; retry of Work does not recapture a later edit to
+the cumulative ledger. A later authorized Prepare captures current bytes.
+The target design remains a direct dependency fresh at each provider attempt.
+The cost is that external history edits during a prepared iteration do not
+refresh its retry context, and more files must be retained while their
+consumers may resume. Old copies and attempt evidence remain available;
+there is no new cleanup or retention service.
+
+C6 reads and hashes the actual input file; the digest in its filename does
+not authenticate it. External mutation before an evaluated consumer commits
+can be recaptured by that consumer under existing C6 rules, without
+authorizing the workflow to rewrite the copy. After a consumer commits,
+changed or missing input still refuses before new effects. C6/C7, C8 and
+command-local C4 do not change, and evaluated completed-resume checks are
+not added to legacy.
+
+### Publication Under Prepare
+
+Keep publication in the standalone Prepare script using stdlib
+`tempfile`/`os`/`hashlib`: create an exclusive private temporal in the same
+directory, write and close all bytes, publish with `os.link` without replacing
+the final name, then remove only the temporal owned by this attempt. Reuse an
+existing final only after reading it as a regular file without following a
+symlink and comparing identical bytes. No runtime import, package closure
+expansion or replacement fallback is selected. Unsupported hard links or
+other IO errors fail the command before a valid result/provider start.
+
+| Publication state | Required behavior |
+| --- | --- |
+| Final absent | Publish complete captured bytes before returning its path; no own temporal remains after normal success |
+| Final regular with equal bytes | Reuse without rewriting or truncating; other Prepare outputs retain their existing rules |
+| Final differs, is a symlink/wrong type, or cannot be read | Fail explicitly, leave final and prior evidence intact; no valid result or later provider |
+| Recoverable exception before publication | Final stays absent; remove only the own temporal when possible; retry publishes normally |
+| Abrupt interruption before publication | An incomplete temporal may remain, never a selected final; retry ignores it and does not adopt or clean another attempt's files |
+| Interruption after publication but before bundle/commit | Final stays complete; retry reuses it for equal captured bytes or publishes another name for new bytes, retaining the old copy |
+| Final appears between staging and publication | Exclusive link fails; apply equal-byte reuse or refusal without replacing the new destination |
+
+An interruption while regenerating work order/bundle follows existing
+uncommitted-command recovery; it cannot return a partial history as success.
+This guarantees complete publication without workflow replacement, not
+power-loss durability, a transaction over all Prepare outputs or isolation
+from concurrent external edits. Task 15 keeps its distinct recovery gates.
+Refusal/read-only snapshots include the whole tree, locks and temporals;
+the existing `omit_memo` exception remains limited to an authorized append.
+
+### Bounded Evaluated Recapture
+
+Recapturing history with existing C8 requires all of the following:
+
+1. This iteration's Prepare has an identifiable active commit, and Record
+   has not executed, including any append without a commit.
+2. No `pending_starts` or unsettled coordinator remains; the writer is
+   stopped and its normal lock acquired. Work may be unstarted or have a
+   durable `failed` closing its start. Absence of a commit alone is not enough.
+3. The prefix before Prepare retains valid inputs/authority, with no other
+   active divergence; the selected suffix has no committed coordinator.
+   Program, inputs, retry and C4 checks remain applicable.
+4. The operator chooses to rerun Prepare in full and its suffix, including
+   measuring git base and regenerating work order. This does not roll back
+   external or failed-worker changes or a Record publication.
+
+Use `orchestrator invalidate RUN_ID PREPARE_IDENTITY`, then
+`orchestrator resume RUN_ID`, with the exact canonical identity as one
+argument and the same `--state-dir` where applicable. `from_commit` anchors
+the Prepare offset and cancels the entire later active suffix. The new
+Prepare attempt selects current history; old files/evidence remain.
+Invalidating only Work leaves Prepare memoized. A Work without a commit
+refuses `invalidate_not_committed`; invalidation does not close an open
+start, fabricate a `failed` or edit the memo. Record already executed,
+divergent prefix, pending attempt or coordinator cases are outside this
+recapture recipe. Legacy keeps `invalidate_profile_unsupported`; only its
+normal flow or a new run can authorize another Prepare.
+
+### Preservation Evidence
+
+Verify both routes over the revised common source, keeping the original
+source, oracles and receipts as historical evidence. Keep exact four-field
+Prepare bundle and work-order path/dataflow checks, plus all previous command
+ordering/fields. The continue→done scenario retains roles, ledger iterations `[0,1]`, statuses
+`[ACCEPTED,DONE]`, all 19 former paths and exactly the two distinct history
+inputs whose names/digests/bytes follow the actual reads; an `issubset`
+inventory is insufficient. The retry DONE scenario retains three provider
+executions, worker ordinals `[1,2]`, fresh target-design bytes, prior snapshots,
+unchanged selected history and idempotent completed-resume artifacts/counts.
+
+Prove publication/retry states above, actual producer/read path-content
+evidence, external cumulative-ledger edits between Prepare and Work retry,
+changed/missing captured-input refusal and post-Prepare/pre-Work C8 recapture.
+Reject a noncommitted Work as an invalidation anchor; do not promise the
+recipe for excluded states. Legacy controls do not replace public evaluated
+compile/run/resume evidence. The [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-13d-canonical-verified-drain-history-input)
+owns the bounded implementation and verification; this design does not
+claim those checks have passed.
