@@ -1813,3 +1813,46 @@ source/build route; public compile/run currently refuse before typed or legacy
 fallback. Fresh-run authority and direct effects remain Tasks 7–8, so this is
 not a public runnable candidate or full Q2/Q1–Q5 completion. The stable evaluation
 branch remains at `3a7f8efd`; DC-P and application migration remain unselected.
+
+
+### Task 6B Public Compile And Dry-Run Gate
+
+`dbcda91d` adds exact target-3.0 public compile and nonexecuting dry-run on the
+isolated cutover branch. Compile publishes the checked dynamic artifact and
+supports machine diagnostics/source-map export. Dry-run uses the existing
+strict entry/default/path validator and command/provider binding checks without
+evaluating a body or allocating a run/attempt. Explicit CLI options are recorded
+separately from retained parser defaults; direct service options also refuse
+unsupported requests before publication. JSON input files retain their logical
+types, while CLI text overrides use declared schemas. The existing result
+carrier now preserves native scalars; actual dynamic terminal results await
+Task 7's fresh authority.
+
+Independent conformity PASS preceded quality APPROVED after closing the compile
+service's unsupported-option omission. The broad check initially found 23
+failures: 22 mocked-run cases supplied incomplete source headers, and one parity
+case observed a compiler call now preceded by source refusal. Exact baseline
+`100bf66f` passed all 85 cases in those three modules. The stub headers were made
+valid without changing behavior assertions. Full CLI/LSP failed-compilation
+capture and nonempty diagnostic parity remain tested using a valid header and a
+real semantic error; a separate early-read case proves normalized diagnostic
+parity and no backend/state/publication. `fe1a6bf8` records the independently
+reviewed design boundary; no configuration/import loading or fabricated capture
+was added to the early refusal.
+
+Final revision verification passed **151 cases in 5.18s**, with **101 collected**
+across the two added/extended diagnostic modules. Coordinator final collection
+and execution passed **724/724 cases in 30.46s**, exit 0, across 26 affected
+modules. All 540 runtime/test hashes remained unchanged. Exact commands,
+selectors, outputs and the ten-file reviewed freeze are in
+`/dev/shm/orc-dc3-frontend-b-final/`; initial failures and baseline controls are in
+`/dev/shm/orc-dc3-frontend-b-affected/` and
+`/dev/shm/orc-dc3-frontend-b-baseline/`. The disposable baseline worktree was
+removed after verification. Overlapping counts are not additive.
+
+The next upstream fetch still found reviewed `93a33ae2` and main `be327102`;
+there was no new shared delivery to import. Task 7 fresh authority and readers
+is selected. Public runs still refuse `dynamic_fresh_run_unsupported` before
+publication until that owner lands. Direct effects/replacement consumers remain
+Task 8 and full Q1–Q5/DC-P remain open. This branch qualification does not adopt
+the profile or migrate the maintained search consumer.
