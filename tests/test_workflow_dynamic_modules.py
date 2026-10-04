@@ -166,6 +166,16 @@ def _write_module(root: Path, name: str, body: str) -> Path:
     return path
 
 
+def test_retained_executable_frontend_refuses_dynamic_import_before_lowering(tmp_path, monkeypatch):
+    from tests.test_workflow_dynamic_source import write_source
+    entry = _write_module(tmp_path, "review/entry", "(import review/helper :only (helper)) (defworkflow main () -> Int 1)")
+    write_source(tmp_path, "review/helper", "(export helper) (define (helper x) x)", budget=None)
+    monkeypatch.setattr(compiler, "_compile_stage3_graph", lambda *args, **kwargs: pytest.fail("dynamic source entered typed elaboration"))
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compiler.compile_stage3_entrypoint(entry, source_roots=(tmp_path,))
+    assert caught.value.diagnostics[0].code == "dynamic_source_route_required"
+
+
 def test_selected_transitive_schema_closure_keeps_self_qualified_private_type(tmp_path: Path) -> None:
     entry = _write_module(tmp_path, "review/entry", "(import review/helper :as helper :only (Public))")
     _write_module(tmp_path, "review/helper", """

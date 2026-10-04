@@ -77,7 +77,7 @@ def test_evaluated_route_excludes_unknown_and_dynamic_targets() -> None:
     )
 
 
-@pytest.mark.parametrize("target", ["2.36", "3.0"])
+@pytest.mark.parametrize("target", ["2.36", "3.1"])
 def test_unknown_target_public_compile_and_run_refuse_before_creation(
     target: str,
     tmp_path: Path,

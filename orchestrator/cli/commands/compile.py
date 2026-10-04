@@ -80,6 +80,12 @@ def compile_workflow(args: Namespace) -> int:
         source_read_trace = None
     closed_result: ClosedProgramBuildResult | None = None
     try:
+        if target_dsl_version == "3.0":
+            raise LispFrontendCompileError((_cli_request_diagnostic(
+                code="dynamic_source_route_required",
+                message="target 3.0 requires the dynamic public route",
+                path=workflow_path,
+            ),))
         request = FrontendBuildRequest(
             source_path=workflow_path,
             source_roots=tuple(Path(path) for path in (args.source_root or ())),

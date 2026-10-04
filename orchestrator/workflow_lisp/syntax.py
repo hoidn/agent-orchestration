@@ -12,7 +12,7 @@ module feeds.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import math
 import sys
 
@@ -47,6 +47,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.33",
         "2.34",
         "2.35",
+        "3.0",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -596,6 +597,7 @@ class WorkflowLispSyntaxModule:
     forms: tuple[SyntaxNode, ...]
     span: SourceSpan
     module_path: str
+    budget: int | None = field(default=None, metadata={"json_omit_if_none": True})
 
     @property
     def module_name(self) -> str | None:
@@ -632,9 +634,15 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
     import_directives: list[ImportDirective] = []
     export_directive: ExportDirective | None = None
     seen_non_directive = False
+    budget = None
     for item in root.items[1:]:
         if isinstance(item, ListExpr) and item.items and isinstance(item.items[0], KeywordAtom):
             keyword = item.items[0]
+            if keyword.value == ":budget":
+                if budget is not None or len(item.items) != 2 or not isinstance(item.items[1], IntAtom) or item.items[1].value <= 0:
+                    _raise_error("budget must be one positive integer header", span=item.span, code="dynamic_budget_invalid")
+                budget = item.items[1].value
+                continue
             if keyword.value not in {":language", ":target-dsl"}:
                 _raise_error(f"unknown header keyword `{keyword.value}`", span=keyword.span)
             value = _parse_header_value(item)
@@ -703,6 +711,8 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
         _raise_error("missing required header `:language`", span=root.span)
     if ":target-dsl" not in header_values:
         _raise_error("missing required header `:target-dsl`", span=root.span)
+    if budget is not None and header_values[":target-dsl"] != "3.0":
+        _raise_error("budget requires dynamic target 3.0", span=root.span, code="dynamic_budget_invalid")
     if module_directive is None and (import_directives or export_directive is not None):
         _raise_error(
             "`import` and `export` require a preceding `defmodule` directive",
@@ -720,6 +730,7 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
         forms=tuple(forms),
         span=root.span,
         module_path=module_path,
+        budget=budget,
     )
 
 

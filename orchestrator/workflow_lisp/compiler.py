@@ -792,7 +792,7 @@ def _compile_stage1_graph(graph: LinkedModuleGraph) -> LinkedStage1CompileResult
     )
 
 
-def _select_stage1_source_declarations(graph: LinkedModuleGraph) -> LinkedModuleGraph:
+def _select_stage1_source_declarations(graph: LinkedModuleGraph, *, dynamic_compilation: bool = False) -> LinkedModuleGraph:
     """Filter source modules to selected type/prompt forms before Stage-1 passes."""
 
     allowed_kinds = frozenset({"type", "schema", "prompt"})
@@ -887,7 +887,7 @@ def _select_stage1_source_declarations(graph: LinkedModuleGraph) -> LinkedModule
 
     entry_source = graph.modules_by_name[graph.entry_module_name]
     for key in declarations:
-        if key[0] == graph.entry_module_name:
+        if key[0] == graph.entry_module_name or (dynamic_compilation and graph.modules_by_name[key[0]].syntax_module.target_dsl_version == "3.0"):
             add_selected(
                 key[0],
                 key[1],
@@ -897,7 +897,13 @@ def _select_stage1_source_declarations(graph: LinkedModuleGraph) -> LinkedModule
                 fallback_form_path=("workflow-lisp",),
             )
 
-    for directive in entry_source.syntax_module.imports:
+    declaration_import_sources = (
+        [source for source in graph.modules_by_name.values() if source.syntax_module.target_dsl_version == "3.0"]
+        if dynamic_compilation else [entry_source]
+    )
+    for importing_source, directive in (
+        (source, directive) for source in declaration_import_sources for directive in source.syntax_module.imports
+    ):
         source = graph.modules_by_name[directive.module_name]
         surface = graph.export_surfaces_by_name[directive.module_name]
         requested_names = directive.only or source.syntax_module.exports
@@ -922,15 +928,17 @@ def _select_stage1_source_declarations(graph: LinkedModuleGraph) -> LinkedModule
                         ),
                     )
                 )
+            if dynamic_compilation and source.syntax_module.target_dsl_version == "3.0" and binding.kind in {"function", "workflow"}:
+                continue
             add_selected(
                 directive.module_name,
                 member_name,
                 binding.kind,
-                (graph.entry_module_name,),
+                (importing_source.module_name,),
                 fallback_span=directive.span,
                 fallback_form_path=directive.form_path,
             )
-            required_imports.setdefault(graph.entry_module_name, {}).setdefault(
+            required_imports.setdefault(importing_source.module_name, {}).setdefault(
                 directive.module_name, set()
             ).add(member_name)
 
@@ -2121,6 +2129,14 @@ def _run_stage3_entrypoint_validation_pipeline(
         source_read_trace=source_read_trace,
         standalone_entry_namespace=standalone_entry_namespace,
     )
+    for source in graph.modules_by_name.values():
+        if source.syntax_module.target_dsl_version == "3.0":
+            raise LispFrontendCompileError((LispFrontendDiagnostic(
+                code="dynamic_source_route_required",
+                message="target 3.0 requires the dynamic source build route",
+                span=source.syntax_module.span,
+                form_path=("workflow-lisp",),
+            ),))
     if source_read_trace is not None:
         if _module_graph_read_attempt_id is None:
             raise RuntimeError("module-graph read attempt id is missing")

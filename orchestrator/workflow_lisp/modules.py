@@ -483,6 +483,12 @@ def derive_export_surface(
                 continue
             head = getattr(items[0], "resolved_name", None)
             name = getattr(items[1], "resolved_name", None)
+            if head == "define" and syntax_module.target_dsl_version == "3.0":
+                signature = getattr(items[1], "items", ())
+                if signature:
+                    name = getattr(signature[0], "resolved_name", None)
+                    if name is not None:
+                        local_form_names["defun"].add(name)
             if head == "defrecord" or head == "defenum" or head == "defunion" or head == "defpath":
                 if name is not None:
                     type_names.add(name)

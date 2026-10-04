@@ -628,6 +628,9 @@ def run_workflow(
         except (LispFrontendCompileError, OSError, UnicodeError):
             selected_target = None
             source_read_trace = None
+        if selected_target == "3.0":
+            logger.error("[dynamic_source_route_required] target 3.0 requires the dynamic public route")
+            return _run_result(2)
         if (
             selected_target is not None
             and target_dsl_uses_evaluated_execution(selected_target)
