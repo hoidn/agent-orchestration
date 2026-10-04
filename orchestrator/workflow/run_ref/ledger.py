@@ -13,6 +13,7 @@ import stat
 from typing import Any
 
 from orchestrator._common.io_atomic import durable_atomic_write
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from .contracts import canonical_json_bytes, canonical_sha256
 
@@ -539,39 +540,58 @@ def _decode_row(value: object, *, expected_sequence: int) -> RunRefAttemptRecord
     )
 
 
-def load_attempt_ledger(path: Path) -> RunRefAttemptLedger:
+def load_attempt_ledger(
+    path: Path, *, run_files: WorkspaceFiles | None = None,
+) -> RunRefAttemptLedger:
     """Load a complete canonical ledger; missing means no attempts yet."""
 
-    source = Path(path)
-    if not os.path.lexists(source):
-        return RunRefAttemptLedger(())
+    if run_files is not None:
+        try:
+            payload = run_files.read(path)
+        except FileNotFoundError:
+            return RunRefAttemptLedger(())
+        except (OSError, ValueError) as exc:
+            raise RunRefLedgerError("ledger cannot be read") from exc
+    else:
+        source = Path(path)
+        if not os.path.lexists(source):
+            return RunRefAttemptLedger(())
+        try:
+            identity = source.lstat()
+            payload = source.read_bytes()
+        except OSError as exc:
+            raise RunRefLedgerError("ledger cannot be read") from exc
+        if not stat.S_ISREG(identity.st_mode):
+            _fail("ledger must be a regular file")
+    return _parse_attempt_ledger(payload)
+
+
+def _parse_ledger_row(framed: bytes, *, sequence: int) -> RunRefAttemptRecord:
+    if not framed.endswith(b"\n") or framed == b"\n":
+        _fail("ledger contains a truncated or blank row")
+    line = framed[:-1]
     try:
-        identity = source.lstat()
-        payload = source.read_bytes()
-    except OSError as exc:
-        raise RunRefLedgerError("ledger cannot be read") from exc
-    if not stat.S_ISREG(identity.st_mode):
-        _fail("ledger must be a regular file")
+        value = json.loads(
+            line.decode("utf-8", errors="strict"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonfinite,
+        )
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise RunRefLedgerError("ledger row is not strict JSON") from exc
+    if canonical_json_bytes(value) != line:
+        _fail("ledger row is not canonical JSON")
+    return _decode_row(value, expected_sequence=sequence)
+
+
+def _parse_attempt_ledger(payload: bytes) -> RunRefAttemptLedger:
+    """Interpret the same strict ledger bytes regardless of physical access."""
     if not payload or not payload.endswith(b"\n"):
         _fail("ledger is empty or truncated")
 
     rows: list[RunRefAttemptRecord] = []
     previous_digest: str | None = None
     for sequence, framed in enumerate(payload.splitlines(keepends=True), start=1):
-        if not framed.endswith(b"\n") or framed == b"\n":
-            _fail("ledger contains a truncated or blank row")
-        line = framed[:-1]
-        try:
-            value = json.loads(
-                line.decode("utf-8", errors="strict"),
-                object_pairs_hook=_reject_duplicate_keys,
-                parse_constant=_reject_nonfinite,
-            )
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise RunRefLedgerError("ledger row is not strict JSON") from exc
-        if canonical_json_bytes(value) != line:
-            _fail("ledger row is not canonical JSON")
-        row = _decode_row(value, expected_sequence=sequence)
+        row = _parse_ledger_row(framed, sequence=sequence)
         if row.previous_row_digest != previous_digest:
             _fail("ledger hash chain is discontinuous")
         if rows and row.recorded_at < rows[-1].recorded_at:
@@ -707,12 +727,17 @@ def _persist_append(
     path: Path,
     ledger: RunRefAttemptLedger,
     row: RunRefAttemptRecord,
+    *,
+    run_files: WorkspaceFiles | None = None,
 ) -> None:
     payload = b"".join(
         canonical_json_bytes(existing.record) + b"\n"
         for existing in (*ledger.rows, row)
     )
-    durable_atomic_write(Path(path), payload)
+    if run_files is None:
+        durable_atomic_write(Path(path), payload)
+    else:
+        run_files.write_atomic(path, payload)
 
 
 def allocate_attempt(
@@ -721,6 +746,7 @@ def allocate_attempt(
     visit: RunRefVisitKey,
     bindings: RunRefAttemptBindings,
     recorded_at: str | None = None,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefAttemptRecord:
     """Allocate and durably persist the first fresh ordinal for one visit."""
 
@@ -728,7 +754,7 @@ def allocate_attempt(
         raise TypeError("visit must be RunRefVisitKey")
     if not isinstance(bindings, RunRefAttemptBindings):
         raise TypeError("bindings must be RunRefAttemptBindings")
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     matching = [row for row in ledger.rows if row.visit == visit]
     if matching and matching[-1].status != "discarded":
         _fail("an attempt is already active or committed for this visit")
@@ -752,7 +778,7 @@ def allocate_attempt(
         recorded_at=recorded_at or _utc_timestamp(),
         bindings=bindings,
     )
-    _persist_append(path, ledger, row)
+    _persist_append(path, ledger, row, run_files=run_files)
     return row
 
 
@@ -780,6 +806,7 @@ def advance_attempt(
     stage: str,
     binding_updates: Mapping[str, str],
     recorded_at: str | None = None,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefAttemptRecord:
     """Append the one exact next crash-boundary transition for an attempt."""
 
@@ -794,7 +821,7 @@ def advance_attempt(
     if set(binding_updates) != expected_updates:
         _fail("binding updates do not match the target stage")
 
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     previous = _latest_attempt(
         ledger,
         visit=visit,
@@ -818,7 +845,7 @@ def advance_attempt(
     )
     _validate_binding_transition(previous.bindings, row.bindings, stage)
     _validate_stage_bindings(row)
-    _persist_append(path, ledger, row)
+    _persist_append(path, ledger, row, run_files=run_files)
     return row
 
 
@@ -929,6 +956,7 @@ def validate_pending_parent_commit(
     attempt_ordinal: int,
     current_step_config_digest: str,
     settled_result: SettledRunRefResultBinding,
+    run_files: WorkspaceFiles | None = None,
 ) -> bool:
     """Validate one exact pending settlement without changing the ledger."""
 
@@ -943,7 +971,7 @@ def validate_pending_parent_commit(
     if settled_result.attempt_ordinal != attempt_ordinal:
         _fail("settled parent result disagrees with the expected attempt ordinal")
 
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     matching = [
         row
         for row in ledger.rows
@@ -961,7 +989,7 @@ def validate_pending_parent_commit(
         _fail("latest selected attempt row is not pending parent commit")
     if _exact_pending_row(ledger, settled_result) != pending[0]:
         _fail("settled parent result identifies a different pending row")
-    if load_attempt_ledger(path) != ledger:
+    if load_attempt_ledger(path, run_files=run_files) != ledger:
         _fail("ledger changed while pending parent commit was validated")
     return True
 
@@ -973,6 +1001,7 @@ def reconcile_pending_parent_commit(
     current_step_config_digest: str,
     validate_bound_authority: Callable[[RunRefAttemptRecord], None],
     recorded_at: str | None = None,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefAttemptRecord:
     """Append the missing commit only from exact settled parent authority."""
 
@@ -980,7 +1009,7 @@ def reconcile_pending_parent_commit(
         raise TypeError("settled_result must be SettledRunRefResultBinding")
     validator = _require_authority_validator(validate_bound_authority)
     _validate_current_config(settled_result, current_step_config_digest)
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     pending = _exact_pending_row(ledger, settled_result)
     committed = [
         row
@@ -1004,7 +1033,7 @@ def reconcile_pending_parent_commit(
     if latest != pending:
         _fail("pending row is no longer the attempt head")
     validator(pending)
-    if load_attempt_ledger(path) != ledger:
+    if load_attempt_ledger(path, run_files=run_files) != ledger:
         _fail("ledger changed while pending authority was validated")
     row = _build_row(
         sequence=len(ledger.rows) + 1,
@@ -1017,7 +1046,7 @@ def reconcile_pending_parent_commit(
         bindings=pending.bindings,
     )
     _validate_binding_transition(pending.bindings, row.bindings, "committed")
-    _persist_append(path, ledger, row)
+    _persist_append(path, ledger, row, run_files=run_files)
     return row
 
 
@@ -1027,6 +1056,7 @@ def select_committed_reuse(
     settled_result: SettledRunRefResultBinding,
     current_step_config_digest: str,
     validate_bound_authority: Callable[[RunRefAttemptRecord], None],
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefAttemptRecord:
     """Return one unique fully validated committed attempt for zero-launch reuse."""
 
@@ -1034,7 +1064,7 @@ def select_committed_reuse(
         raise TypeError("settled_result must be SettledRunRefResultBinding")
     validator = _require_authority_validator(validate_bound_authority)
     _validate_current_config(settled_result, current_step_config_digest)
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     pending = _exact_pending_row(ledger, settled_result)
     committed = [
         row
@@ -1052,7 +1082,7 @@ def select_committed_reuse(
     ):
         _fail("committed row is not adjacent to its exact pending row")
     validator(candidate)
-    if load_attempt_ledger(path) != ledger:
+    if load_attempt_ledger(path, run_files=run_files) != ledger:
         _fail("ledger changed while committed authority was validated")
     return candidate
 
@@ -1062,13 +1092,14 @@ def identify_incomplete_attempt(
     *,
     visit: RunRefVisitKey,
     current_step_config_digest: str,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefAttemptRecord | None:
     """Return the unique nonterminal ordinal that requires disposition."""
 
     if not isinstance(visit, RunRefVisitKey):
         raise TypeError("visit must be RunRefVisitKey")
     _sha256(current_step_config_digest, field="current_step_config_digest")
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     matching = [row for row in ledger.rows if row.visit == visit]
     if not matching:
         return None
@@ -1098,6 +1129,7 @@ def record_discarded_attempt(
     workspace_path: Path,
     disposition_digest: str,
     recorded_at: str | None = None,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefAttemptRecord:
     """Record disposition only after the exact bound workspace is absent."""
 
@@ -1106,7 +1138,7 @@ def record_discarded_attempt(
     _positive_integer(attempt_ordinal, field="attempt_ordinal")
     disposition = _sha256(disposition_digest, field="disposition_digest")
     workspace = _canonical_absolute_path(workspace_path, field="workspace_path")
-    ledger = load_attempt_ledger(path)
+    ledger = load_attempt_ledger(path, run_files=run_files)
     previous = _latest_attempt(
         ledger,
         visit=visit,
@@ -1132,9 +1164,9 @@ def record_discarded_attempt(
     _validate_discard_transition(previous, row)
     if os.path.lexists(workspace):
         _fail("discard workspace reappeared before disposition was recorded")
-    if load_attempt_ledger(path) != ledger:
+    if load_attempt_ledger(path, run_files=run_files) != ledger:
         _fail("ledger changed while discard absence was validated")
-    _persist_append(path, ledger, row)
+    _persist_append(path, ledger, row, run_files=run_files)
     return row
 
 

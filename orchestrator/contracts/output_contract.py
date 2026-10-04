@@ -1337,30 +1337,11 @@ def _parse_output_bundle_value(
             return None, violation
 
     if strict_transport_values or _descriptor_contains_direct_structure(spec):
-        from orchestrator.workflow.type_descriptor import (
-            transport_descriptor_for_schema,
-            validate_transport_value,
-        )
-
         try:
-            descriptor = transport_descriptor_for_schema(spec)
-            return (
-                validate_transport_value(
-                    raw_value,
-                    descriptor,
-                    allow_nested_structures=True,
-                    require_int64=strict_transport_values,
-                    path_validator=lambda value, path_descriptor: (
-                        _require_nested_transport_path(
-                            value,
-                            path_descriptor,
-                            workspace,
-                            workspace_files=workspace_files,
-                        )
-                    ),
-                ),
-                None,
-            )
+            return _validate_direct_transport_value(
+                raw_value, spec, workspace, workspace_files=workspace_files,
+                require_int64=strict_transport_values,
+            ), None
         except (RecursionError, TypeError, ValueError) as exc:
             return None, ContractViolation(
                 type="invalid_transportable_value",
@@ -1611,6 +1592,23 @@ def _float_not_finite(value: float, **context: str) -> ContractViolation:
     )
 
 
+def _validate_direct_transport_value(
+    raw_value, spec, workspace, *, workspace_files=None, require_int64=False,
+):
+    """Validate direct JSON before the legacy output-contract error wrapper."""
+    from orchestrator.workflow.type_descriptor import (
+        transport_descriptor_for_schema,
+        validate_transport_value,
+    )
+
+    descriptor = transport_descriptor_for_schema(spec)
+    return validate_transport_value(
+        raw_value, descriptor, allow_nested_structures=True, require_int64=require_int64,
+        path_validator=lambda value, path_descriptor: _require_nested_transport_path(
+            value, path_descriptor, workspace, workspace_files=workspace_files),
+    )
+
+
 def _require_nested_transport_path(
     value: str,
     descriptor: Mapping[str, Any],
@@ -1629,7 +1627,8 @@ def _require_nested_transport_path(
         workspace_files=workspace_files,
     )
     if violation is not None:
-        raise ValueError(f"{violation.type}: {violation.message}")
+        from orchestrator.workflow.type_descriptor import _TransportValueError
+        raise _TransportValueError(f"{violation.type}: {violation.message}", violation=violation)
     assert isinstance(parsed, str)
     return parsed
 

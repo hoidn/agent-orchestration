@@ -98,6 +98,20 @@ def _build_state(files: dict[str, Path], *, package_root: Path | None = None):
     return summary, ClosedProgram.from_artifact(artifact.read_text()), artifact.read_bytes()
 
 
+def test_public_compile_reads_back_imported_run_ref_in_serial_map(tmp_path):
+    from orchestrator.workflow.evaluated.machine import site_nodes
+    from tests.test_workflow_lisp_closed_run_ref_placement import _placement_source
+
+    files = _write_workspace(tmp_path)
+    source, _ = _placement_source(tmp_path, "map", "imported")
+    files.update(source=source, source_root=tmp_path)
+    summary, program, artifact = _build_state(files)
+    assert ClosedProgram.from_artifact(artifact.decode()).digest == program.digest
+    [(identity, node)] = site_nodes(program).items()
+    assert "[*]" in identity and node["class"] == "run_ref"
+    assert summary["program_digest"] == program.digest
+
+
 def _write_import_workspace(root: Path, producer_target: str) -> dict[str, Path]:
     files = _write_workspace(root)
     source = root / "src" / "consumer" / "entry.orc"

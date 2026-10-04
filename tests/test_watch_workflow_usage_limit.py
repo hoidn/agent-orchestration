@@ -2,9 +2,9 @@
 
 Contract: the script's usage text (RESUME_LOCK_WAIT_SECONDS) and specs/cli.md
 "Workspace execution ownership". The script runs for real against a private
-tmux server whose target pane shows a usage-limit message. `python -m
-orchestrator` in that pane is a stand-in package (the script prepends
-AGENT_ORCHESTRATION to PYTHONPATH) that logs each call and answers from a list
+tmux server whose target pane shows a usage-limit message. Readers import the
+real package through AGENT_ORCHESTRATION. A pane Python wrapper replaces only
+`orchestrator run/resume` actions with a stand-in that logs each call and answers from a list
 of outcomes: `refuse` and `guard` print the workspace lock's two refusals and exit 2, `fail`
 prints another error and exits 1, `run` keeps running as an admitted resume. `late` refuses
 after two and a half polls; `noisy` refuses and leaves a process that prints 400 lines after
@@ -18,6 +18,8 @@ import os
 import json
 import subprocess
 import time
+import sys
+import signal
 from pathlib import Path
 
 import pytest
@@ -93,20 +95,33 @@ def watcher(tmp_path: Path):
 
     def start(outcomes: str, **overrides: str) -> subprocess.Popen:
         (orchestrator / "outcomes").write_text(outcomes, encoding="utf-8")
+        wrapper = orchestrator.parent / "python"
+        wrapper.write_text(f'''#!{sys.executable}
+import os, sys
+if sys.argv[1:3] == ["-m", "orchestrator"] and sys.argv[3:4] in (["run"], ["resume"]):
+    os.execv(sys.executable, [sys.executable, {str(orchestrator / "__main__.py")!r}, *sys.argv[3:]])
+os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+''', encoding="utf-8")
+        wrapper.chmod(0o755)
+        overrides["AGENT_ORCHESTRATION"] = str(SCRIPT.parents[1])
         process = subprocess.Popen(
-            ["bash", str(SCRIPT)], env={**env, **overrides}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            ["bash", str(SCRIPT)], env={**env, **overrides}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
         started.append(process)
         return process
 
     start.calls = lambda: (orchestrator / "calls").read_text(encoding="utf-8").splitlines() if (orchestrator / "calls").exists() else []
     start.workspace = tmp_path / "workspace"
+    start.log = tmp_path / "watch.log"
+    start.tmux = tmux
+    start.capture = lambda: subprocess.check_output(["tmux", "capture-pane", "-p", "-t", "target:0.0"], env=env, text=True)
     # The pane shows these lines above every prompt, so they are there again after the script clears it.
     start.prompt = lambda *lines: tmux("send-keys", "-t", "target:0.0", "PS1='" + "\\n".join([*lines, "$ "]) + "'", "Enter")
     yield start
     for process in started:
         if process.poll() is None:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
         process.wait(timeout=10)
     subprocess.run(["tmux", "kill-server"], env=env, check=False, capture_output=True)
 

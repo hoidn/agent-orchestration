@@ -19,6 +19,7 @@ from orchestrator.workflow.judgment_views import project_judgment_views
 from orchestrator.workflow.prompt_context_report import (
     project_prompt_context_v2,
 )
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view, report_snapshot
 
 
 _STATE_ONLY_DEBUG_KIND_DISCRIMINATORS = frozenset(
@@ -66,7 +67,8 @@ def _state_only_step_kind(payload: Mapping[str, Any]) -> Any:
 def _latest_run_dir(runs_root: Path) -> Optional[Path]:
     if not runs_root.exists():
         return None
-    candidates = [p for p in runs_root.iterdir() if p.is_dir() and (p / "state.json").exists()]
+    candidates = [p for p in runs_root.iterdir() if p.is_dir() and
+                  (has_evaluated_authority(p) or (p / "state.json").exists())]
     if not candidates:
         return None
     return sorted(candidates, key=lambda p: p.name)[-1]
@@ -75,7 +77,7 @@ def _latest_run_dir(runs_root: Path) -> Optional[Path]:
 def _resolve_run_dir(run_id: Optional[str], runs_root: Path) -> Optional[Path]:
     if run_id:
         run_dir = runs_root / run_id
-        if (run_dir / "state.json").exists():
+        if has_evaluated_authority(run_dir) or (run_dir / "state.json").exists():
             return run_dir
         return None
     return _latest_run_dir(runs_root)
@@ -264,18 +266,60 @@ def report_workflow(
         print("Error: run not found", file=sys.stderr)
         return 1
 
+    if has_evaluated_authority(run_dir):
+        return _report_evaluated(run_dir, format, output)
+
+    snapshot = _legacy_report_snapshot(run_dir)
+    if snapshot is None:
+        return 1
+
+    if format == "json":
+        rendered = json.dumps(snapshot, indent=2) + "\n"
+    else:
+        rendered = render_status_markdown(snapshot)
+        report_warning = snapshot.get("run", {}).get("report_warning")
+        if isinstance(report_warning, str) and report_warning:
+            rendered = f"{rendered.rstrip()}\n\n> {report_warning}\n"
+
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered, end="")
+
+    return 0
+
+
+def _report_evaluated(run_dir: Path, format: str, output: Optional[str]) -> int:
+    try:
+        snapshot = report_snapshot(load_evaluated_view(run_dir), run_dir)
+    except (OSError, ValueError) as exc:
+        print(f"Error: memo_inconsistent: {exc}", file=sys.stderr)
+        return 1
+    rendered = json.dumps(snapshot, indent=2) + "\n" if format == "json" else render_status_markdown(snapshot)
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered, end="")
+    return 0
+
+
+def _legacy_report_snapshot(run_dir: Path) -> Optional[dict[str, Any]]:
     state_file = run_dir / "state.json"
     try:
         state = json.loads(state_file.read_text(encoding="utf-8"))
     except Exception as exc:
         print(f"Error: failed to load state: {exc}", file=sys.stderr)
-        return 1
+        return None
 
     try:
         snapshot = _state_only_snapshot(state, run_dir)
     except ValueError as exc:
         print(f"Error: failed to project persisted state: {exc}", file=sys.stderr)
-        return 1
+        return None
     run_snapshot = snapshot.get("run", {})
     original_status = state.get("status")
     derived_status = run_snapshot.get("status")
@@ -297,19 +341,4 @@ def report_workflow(
         state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
         run_snapshot["updated_at"] = state["updated_at"]
 
-    if format == "json":
-        rendered = json.dumps(snapshot, indent=2) + "\n"
-    else:
-        rendered = render_status_markdown(snapshot)
-        report_warning = snapshot.get("run", {}).get("report_warning")
-        if isinstance(report_warning, str) and report_warning:
-            rendered = f"{rendered.rstrip()}\n\n> {report_warning}\n"
-
-    if output:
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(rendered, encoding="utf-8")
-    else:
-        print(rendered, end="")
-
-    return 0
+    return snapshot

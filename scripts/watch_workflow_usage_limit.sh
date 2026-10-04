@@ -125,6 +125,7 @@ RESUME_LOCK_WAIT_SECONDS="${RESUME_LOCK_WAIT_SECONDS:-3600}"
 CONDA_SH="${CONDA_SH:-/home/ollie/miniconda3/etc/profile.d/conda.sh}"
 CONDA_ENV="${CONDA_ENV:-ptycho311}"
 AGENT_ORCHESTRATION="${AGENT_ORCHESTRATION:-/home/ollie/Documents/agent-orchestration}"
+export PYTHONPATH="${AGENT_ORCHESTRATION}:${PYTHONPATH:-}"
 PROVIDER_SHIM_PATH="${PROVIDER_SHIM_PATH:-/tmp/easyspin-claude-provider}"
 PROVIDER_SHIM="${PROVIDER_SHIM:-claude-opus-4-7}"
 IMPLEMENTATION_PROVIDER_SHIM="${IMPLEMENTATION_PROVIDER_SHIM:-claude-sonnet-4-6}"
@@ -174,33 +175,90 @@ clear_target_pane() {
   tmux clear-history -t "$TARGET" 2>/dev/null || true
 }
 
-recent_limit_log_hits() {
-  find "$RUN_ROOT" \
-    -type f \( -name '*.stderr' -o -name '*.stdout' -o -name '*.log' -o -name '*.txt' \) \
-    -mmin -10 -print0 2>/dev/null \
-    | xargs -0 -r rg -i "$LIMIT_PATTERN" 2>/dev/null || true
+is_evaluated_state() {
+  python -c 'import json,sys; from orchestrator.workflow.evaluated.authority import PROFILE; raise SystemExit(json.load(sys.stdin).get("result_persistence_profile") != PROFILE)' <<< "$1"
 }
 
-write_state_summary() {
-  python - "$RUN_ROOT/state.json" >> "$LOG" 2>&1 <<'PY'
+recent_limit_log_hits() {
+  local state
+  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 0
+  if ! is_evaluated_state "$state"; then
+    find "$RUN_ROOT" \
+      -type f \( -name '*.stderr' -o -name '*.stdout' -o -name '*.log' -o -name '*.txt' \) \
+      -mmin -10 -print0 2>/dev/null \
+      | xargs -0 -r rg -i "$LIMIT_PATTERN" 2>/dev/null || true
+    return 0
+  fi
+  python -c "$(cat <<'PY'
+import json, re, sys
+from pathlib import Path
+
+def selected_row(state):
+    current = state["current_step"]
+    identity = current["identity"] if current is not None else state["next_effect"]
+    if identity is None:
+        identity = next((key for key, row in reversed(state["steps"].items()) if row["status"] != "invalidated"), None)
+    return state["steps"].get(identity, {})
+
+def stream_hits(root, row, pattern):
+    paths = () if not row or row["status"] == "invalidated" else ("stdout.txt", "stderr.txt")
+    for name in paths:
+        try:
+            path = (root / Path(row["result_path"]).parent / name).resolve(strict=True)
+            path.relative_to(root)
+            if not path.is_file() or path.name.endswith("prompt.txt") or "provider_sessions" in path.parts:
+                continue
+            with path.open(encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    if pattern.search(line):
+                        print(line.rstrip())
+        except (OSError, ValueError):
+            continue
+
+state = json.load(sys.stdin)
+pattern = re.compile(sys.argv[2], re.I)
+row = selected_row(state)
+error = state["error"] or (None if row.get("status") == "invalidated" else row.get("error"))
+if error and pattern.search(json.dumps(error, ensure_ascii=False)):
+    print(json.dumps(error, ensure_ascii=False))
+stream_hits(Path(sys.argv[1]).resolve(), row, pattern)
+PY
+)" "$RUN_ROOT" "$LIMIT_PATTERN" <<< "$state"
+}
+
+read_run_state() {
+  python - "$1" "$WORKSPACE" <<'PY'
 import json
 import sys
 from pathlib import Path
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
 
-p = Path(sys.argv[1])
 try:
-    state = json.loads(p.read_text(encoding="utf-8"))
-    print(
-        "state",
-        state.get("status"),
-        "updated_at",
-        state.get("updated_at"),
-        "current_step",
-        state.get("current_step"),
-    )
-except Exception as exc:
-    print("state read failed", repr(exc))
+    root = Path(sys.argv[1]).resolve()
+    root.relative_to(Path(sys.argv[2]).resolve())
+    if has_evaluated_authority(root):
+        state = load_evaluated_view(root)
+    else:
+        try:
+            state = json.loads((root / "state.json").read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            print(f"legacy state read failed: {exc}", file=sys.stderr)
+            state = {}
+    print(json.dumps(state, ensure_ascii=False, allow_nan=False))
+except (OSError, ValueError) as exc:
+    raise SystemExit(f"state read failed {getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
 PY
+}
+
+write_state_summary() {
+  read_run_state "$RUN_ROOT" 2>> "$LOG" | python -c '
+import json, sys
+try:
+    state = json.load(sys.stdin)
+    print("state", state.get("status"), "updated_at", state.get("updated_at"), "current_step", state.get("current_step"))
+except ValueError:
+    pass
+' >> "$LOG" 2>&1
 }
 
 wait_for_target_shell() {
@@ -331,33 +389,20 @@ resume_command() {
 }
 
 refresh_run_metadata() {
-  local state_path="$RUN_ROOT/state.json"
-  if [[ ! -f "$state_path" ]]; then
+  local state
+  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 1
+  if is_evaluated_state "$state"; then
     return 1
   fi
-  WORKFLOW_FILE="$(
-    python - "$state_path" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-state = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print(state.get("workflow_file", ""))
-PY
-  )"
-  BOUND_INPUT_ARGS="$(
-    python - "$state_path" <<'PY'
-import json
-import shlex
-import sys
-from pathlib import Path
-
-state = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  WORKFLOW_FILE="$(python -c 'import json,sys; print(json.load(sys.stdin).get("workflow_file", ""))' <<< "$state")" || return 1
+  BOUND_INPUT_ARGS="$(python -c "$(cat <<'PY'
+import json, shlex, sys
+state = json.load(sys.stdin)
 for key, value in (state.get("bound_inputs") or {}).items():
     if isinstance(value, (str, int, float, bool)):
         print("--input " + shlex.quote(f"{key}={value}"))
 PY
-  )"
+)" <<< "$state")"
 }
 
 run_command() {
@@ -385,28 +430,46 @@ run_command() {
 
 refresh_run_id_from_latest_running() {
   local new_run_id
-  new_run_id="$(
-    python - "$WORKSPACE" "$WORKFLOW_FILE" <<'PY'
-import json
-import sys
+  new_run_id="$(python - "$WORKSPACE" "$WORKFLOW_FILE" <<'PY'
+import json, sys
+from datetime import datetime
 from pathlib import Path
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
 
-workspace = Path(sys.argv[1])
+workspace = Path(sys.argv[1]).resolve()
 workflow_file = sys.argv[2]
-candidates = []
-for state_path in (workspace / ".orchestrate" / "runs").glob("*/state.json"):
-    try:
+
+def candidate(path):
+    root = path.resolve(strict=True)
+    root.relative_to(workspace)
+    if has_evaluated_authority(root):
+        state = load_evaluated_view(root)
+        if state["status"] not in {"running", "settling"}:
+            return None
+        try:
+            rank = datetime.fromisoformat(state["started_at"]).timestamp()
+        except ValueError:
+            rank = 0
+    else:
+        state_path = root / "state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception:
-        continue
+        if state.get("status") != "running":
+            return None
+        rank = state_path.stat().st_mtime
     if workflow_file and state.get("workflow_file") != workflow_file:
+        return None
+    return rank, state.get("run_id"), path
+
+candidates = []
+for path in (workspace / ".orchestrate/runs").iterdir():
+    try:
+        item = candidate(path)
+    except (OSError, ValueError):
         continue
-    if state.get("status") != "running":
-        continue
-    candidates.append((state_path.stat().st_mtime, state.get("run_id"), state_path))
+    if item is not None:
+        candidates.append(item)
 if candidates:
-    candidates.sort()
-    print(candidates[-1][1])
+    print(max(candidates)[1])
 PY
   )"
   if [[ -n "$new_run_id" && "$new_run_id" != "$RUN_ID" ]]; then
@@ -417,100 +480,83 @@ PY
 }
 
 requeue_provider_limit_blocked_tranche() {
-  python - "$RUN_ROOT/state.json" "$WORKSPACE" "$RUN_ID" <<'PY'
-import json
-import re
-import sys
+  local state
+  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 1
+  if is_evaluated_state "$state"; then
+    return 1
+  fi
+  python -c "$(cat <<'PY'
+import json, re, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-state_path = Path(sys.argv[1])
-workspace = Path(sys.argv[2])
-run_id = sys.argv[3]
-if not state_path.is_file():
-    raise SystemExit(1)
+workspace = Path(sys.argv[1])
+run_id = sys.argv[2]
+state = json.load(sys.stdin)
 
-state = json.loads(state_path.read_text(encoding="utf-8"))
-if state.get("status") != "completed":
-    raise SystemExit(1)
-outputs = state.get("workflow_outputs") or {}
-if outputs.get("drain_status") != "BLOCKED":
-    raise SystemExit(1)
+def manifest_path(state):
+    outputs = state.get("workflow_outputs") or {}
+    if state.get("status") != "completed" or not isinstance(outputs, dict) or outputs.get("drain_status") != "BLOCKED":
+        raise SystemExit(1)
+    pattern = re.compile(r"usage limit|rate limit|hit your limit|you.?ve hit your limit|too many requests|"
+        r"insufficient[_ -]?quota|quota exceeded|credit balance|maximum.*usage|"
+        r"limit reached|try again later|429(?:[^0-9]|$)", re.I)
+    if not pattern.search(json.dumps(state, ensure_ascii=False)):
+        raise SystemExit(1)
+    bound_inputs = state.get("bound_inputs") or {}
+    relative = bound_inputs.get("tranche_manifest_target_path") or outputs.get("tranche_manifest_path")
+    if not isinstance(relative, str):
+        raise SystemExit(1)
+    path = (workspace / relative).resolve()
+    if not path.is_relative_to(workspace.resolve()) or not path.is_file():
+        raise SystemExit(1)
+    return path
 
-state_text = json.dumps(state, ensure_ascii=False)
-limit_pattern = re.compile(
-    r"usage limit|rate limit|hit your limit|you.?ve hit your limit|too many requests|"
-    r"insufficient[_ -]?quota|quota exceeded|credit balance|maximum.*usage|"
-    r"limit reached|try again later|429(?:[^0-9]|$)",
-    re.I,
-)
-if not limit_pattern.search(state_text):
-    raise SystemExit(1)
-
-bound_inputs = state.get("bound_inputs") or {}
-manifest_rel = bound_inputs.get("tranche_manifest_target_path") or outputs.get("tranche_manifest_path")
-if not isinstance(manifest_rel, str):
-    raise SystemExit(1)
-manifest_path = (workspace / manifest_rel).resolve()
-if not manifest_path.is_relative_to(workspace.resolve()) or not manifest_path.is_file():
-    raise SystemExit(1)
-
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-tranches = manifest.get("tranches")
-if not isinstance(tranches, list):
-    raise SystemExit(1)
-
-chosen = None
-for tranche in tranches:
-    if not isinstance(tranche, dict):
-        continue
-    if tranche.get("status") != "blocked":
-        continue
-    if tranche.get("last_item_outcome") != "SKIPPED_AFTER_IMPLEMENTATION":
-        continue
+def implementation_failed(tranche):
     execution_report = tranche.get("last_execution_report_path")
     summary = tranche.get("last_item_summary_path")
     execution_text = ""
     summary_payload = {}
     if isinstance(execution_report, str):
-        p = workspace / execution_report
-        if p.is_file():
-            execution_text = p.read_text(encoding="utf-8", errors="replace")
+        path = workspace / execution_report
+        if path.is_file():
+            execution_text = path.read_text(encoding="utf-8", errors="replace")
     if isinstance(summary, str):
-        p = workspace / summary
-        if p.is_file():
+        path = workspace / summary
+        if path.is_file():
             try:
-                summary_payload = json.loads(p.read_text(encoding="utf-8"))
+                summary_payload = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
                 summary_payload = {}
-    if "failed before producing a report" in execution_text.lower() or summary_payload.get("failed_phase") == "implementation":
-        chosen = tranche
-        break
+    return "failed before producing a report" in execution_text.lower() or summary_payload.get("failed_phase") == "implementation"
 
-if chosen is None:
+def blocked_tranche(tranches):
+    if not isinstance(tranches, list):
+        raise SystemExit(1)
+    for tranche in tranches:
+        if not isinstance(tranche, dict):
+            continue
+        if tranche.get("status") != "blocked" or tranche.get("last_item_outcome") != "SKIPPED_AFTER_IMPLEMENTATION":
+            continue
+        if implementation_failed(tranche):
+            return tranche
     raise SystemExit(1)
 
-previous = {
-    "status": chosen.get("status"),
-    "last_item_outcome": chosen.get("last_item_outcome"),
-    "last_execution_report_path": chosen.get("last_execution_report_path"),
-    "last_item_summary_path": chosen.get("last_item_summary_path"),
-}
+path = manifest_path(state)
+manifest = json.loads(path.read_text(encoding="utf-8"))
+chosen = blocked_tranche(manifest.get("tranches"))
+previous = {key: chosen.get(key) for key in ("status", "last_item_outcome", "last_execution_report_path", "last_item_summary_path")}
 chosen["status"] = "pending"
-chosen["provider_limit_recovery"] = {
-    "requeued_at": datetime.now(timezone.utc).isoformat(),
-    "source_run_id": run_id,
-    "previous": previous,
-    "reason": "provider_limit_during_implementation",
-}
+chosen["provider_limit_recovery"] = {"requeued_at": datetime.now(timezone.utc).isoformat(),
+    "source_run_id": run_id, "previous": previous, "reason": "provider_limit_during_implementation"}
 for key in ("last_item_outcome", "last_execution_report_path", "last_item_summary_path"):
     chosen.pop(key, None)
-
-tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+tmp = path.with_suffix(path.suffix + ".tmp")
 tmp.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-tmp.replace(manifest_path)
+tmp.replace(path)
 print(chosen.get("tranche_id", ""))
 PY
+)" "$WORKSPACE" "$RUN_ID" <<< "$state"
 }
 
 handle_completed_provider_limit_blocked_run() {
@@ -664,6 +710,14 @@ while true; do
     follow_orchestrator_command 0
   fi
   pane_out="$(capture_target)"
+  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")"
+  if [[ -z "$state" ]]; then
+    sleep "$POLL_SECONDS"
+    continue
+  fi
+  if is_evaluated_state "$state"; then
+    pane_out=""
+  fi
   log_hits="$(recent_limit_log_hits)"
   if handle_completed_provider_limit_blocked_run; then
     continue

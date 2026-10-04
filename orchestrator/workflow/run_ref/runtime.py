@@ -19,7 +19,9 @@ import time
 from typing import Any
 
 from orchestrator._common.io_atomic import durable_atomic_write
+from orchestrator.run_lock import run_root_matches_fd
 from orchestrator.workflow.executable_ir import RunRefStepConfig
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.references import (
     ReferenceResolutionError,
     ReferenceResolver,
@@ -63,6 +65,7 @@ from .ledger import (
     select_committed_reuse,
     settled_result_binding,
     settled_result_binding_from_record,
+    validate_pending_parent_commit,
 )
 from .source import (
     MaterializedSource,
@@ -471,6 +474,9 @@ class RunRefRuntimeRequest:
     run_ref_root: Path
     capsule_dir: Path | None = None
     parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None = None
+    run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
+    parent_identity: str | None = None
+    parent_attempt: int | None = None
 
     def __post_init__(self) -> None:
         paths = _validate_run_ref_runtime_request_authority(
@@ -488,6 +494,16 @@ class RunRefRuntimeRequest:
         object.__setattr__(self, "parent_run_root", paths.parent_run_root)
         object.__setattr__(self, "run_ref_root", paths.run_ref_root)
         object.__setattr__(self, "capsule_dir", paths.capsule_dir)
+        if self.run_files is not None:
+            if not isinstance(self.run_files, WorkspaceFiles):
+                raise TypeError("run_files must be WorkspaceFiles or None")
+            if self.run_files.workspace != paths.parent_run_root or not run_root_matches_fd(
+                paths.parent_run_root, self.run_files.root_fd,
+            ):
+                raise RunRefRuntimeError(
+                    "run_ref_ledger_invalid", "parent_run_files_authority_disagrees",
+                )
+        _request_parent_authority(self)
 
     @property
     def ledger_path(self) -> Path:
@@ -503,6 +519,7 @@ class RunRefChildLaunch:
     request_document: Mapping[str, Any]
     workspace: Path
     child_run_id: str
+    parent_root_fd: int | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -541,6 +558,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
         "runpy.run_module('orchestrator.workflow.run_ref.child',"
         "run_name='__main__')"
     )
+    private_args, descriptor_options = _child_descriptor_transport(launch)
     completed = subprocess.run(
         (
             sys.executable,
@@ -550,6 +568,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
             controller_root.as_posix(),
             selector,
             launch.request_path.as_posix(),
+            *private_args,
         ),
         cwd=launch.workspace,
         env=process_env,
@@ -557,6 +576,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         shell=False,
+        **descriptor_options,
     )
     return RunRefChildProcessResult(
         returncode=completed.returncode,
@@ -564,6 +584,51 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
         stderr=completed.stderr,
         duration_ms=(time.monotonic_ns() - started_ns) // 1_000_000,
     )
+
+
+def _child_descriptor_transport(launch: RunRefChildLaunch) -> tuple[tuple[str, ...], dict[str, Any]]:
+    from .launch_authority import PATH_REQUEST_V2
+
+    if launch.request_document.get("schema_version") == PATH_REQUEST_V2:
+        if launch.mode != "path" or type(launch.parent_root_fd) is not int or launch.parent_root_fd < 0:
+            raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid")
+        return ("--parent-root-fd", str(launch.parent_root_fd)), {"pass_fds": (launch.parent_root_fd,)}
+    if launch.parent_root_fd is not None:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid")
+    return (), {}
+
+
+def _request_parent_authority(request: RunRefRuntimeRequest) -> dict[str, Any] | None:
+    from .launch_authority import checked_parent_authority
+
+    if request.parent_identity is None and request.parent_attempt is None:
+        return None
+    if request.run_files is None or not isinstance(request.step_config.run_ref.program, PathProgram):
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid")
+    try:
+        return checked_parent_authority({"parent_authority": {
+            "run_root": request.parent_run_root.as_posix(),
+            "identity": request.parent_identity, "attempt": request.parent_attempt,
+        }})
+    except (TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid") from exc
+
+
+def _checked_launch_descriptor(request, document, materialized, acknowledgement):
+    from .launch_authority import validate_parent_launch
+
+    triple = _request_parent_authority(request)
+    if triple is None:
+        return None
+    try:
+        if document.get("parent_authority") != triple:
+            raise ValueError("checked caller and request disagree")
+        validate_parent_launch(document, parent_root_fd=request.run_files.root_fd,
+                               step_config=request.step_config, materialized_source=materialized,
+                               expected_row_digest=acknowledgement.authority_digest)
+    except (OSError, TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "parent_launch_authority_invalid") from exc
+    return request.run_files.root_fd
 
 
 def _default_discard_workspace(workspace: Path) -> None:
@@ -1501,9 +1566,9 @@ def _input_digest(
     )
 
 
-def _policy_digest(request: RunRefRuntimeRequest) -> str:
-    source = canonical_source_request(request.step_config.run_ref.source)
-    program = request.step_config.run_ref.program
+def _policy_digest(step_config: RunRefStepConfig) -> str:
+    source = canonical_source_request(step_config.run_ref.source)
+    program = step_config.run_ref.program
     return canonical_sha256(
         {
             "schema_version": "run_ref_runtime_policy.v1",
@@ -1608,7 +1673,7 @@ def _attempt_bindings(
         source_digest=canonical_sha256(canonical_source_request(static.source)),
         program_digest=canonical_sha256(program.record),
         input_digest=_input_digest(request, parent_values),
-        policy_digest=_policy_digest(request),
+        policy_digest=_policy_digest(request.step_config),
         step_config_digest=request.step_config.step_config_digest,
         capsule_or_compiler_digest=capsule_or_compiler_digest,
         child_run_id=_child_run_id(
@@ -1639,7 +1704,7 @@ def select_run_ref_lifecycle_allocation(
         field="effect_instance_root",
     )
     ledger_path = root / _ATTEMPT_LEDGER_FILENAME
-    ledger = load_attempt_ledger(ledger_path)
+    ledger = load_attempt_ledger(ledger_path, run_files=request.run_files)
     matching = [row for row in ledger.rows if row.visit == request.visit]
     ordinal = max((row.attempt_ordinal for row in matching), default=0) + 1
     parent_values = _resolved_parent_input_values(request)
@@ -1683,7 +1748,9 @@ def _validate_run_ref_lifecycle_attempt_authority(
         field="effect_instance_root",
     )
     try:
-        ledger = load_attempt_ledger(root / _ATTEMPT_LEDGER_FILENAME)
+        ledger = load_attempt_ledger(
+            root / _ATTEMPT_LEDGER_FILENAME, run_files=request.run_files,
+        )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     parent_values = _resolved_parent_input_values(request)
@@ -1775,6 +1842,7 @@ def _discard_incomplete_attempt(
         request.ledger_path,
         visit=request.visit,
         current_step_config_digest=request.step_config.step_config_digest,
+        run_files=request.run_files,
     )
     if incomplete is None:
         if request.parent_bundle_orphan_preimage is not None:
@@ -1841,6 +1909,7 @@ def _discard_incomplete_attempt(
         attempt_ordinal=incomplete.attempt_ordinal,
         workspace_path=workspace,
         disposition_digest=disposition,
+        run_files=request.run_files,
     )
     if (
         _read_canonical_document(
@@ -1959,8 +2028,11 @@ def _build_child_request(
         }
     from .child import materialized_source_record
 
+    parent_authority = _request_parent_authority(request)
     return "path", {
-        "schema_version": "run_ref_path_child_request.v1",
+        "schema_version": ("run_ref_path_child_request.v1" if parent_authority is None
+                           else "run_ref_path_child_request.v2"),
+        **({} if parent_authority is None else {"parent_authority": parent_authority}),
         "clone_root": materialized.workspace_path.as_posix(),
         "child_state_dir": child_state_dir.as_posix(),
         "child_run_id": child_run_id,
@@ -2077,16 +2149,7 @@ def _child_result_document(
                 "run_ref_child_result_invalid",
                 "child_result_shape_invalid",
             )
-        if (
-            result["schema_version"] != "run_ref_path_child_result.v1"
-            or result["step_config_digest"]
-            != request.step_config.step_config_digest
-            or not isinstance(result["path_compile"], Mapping)
-        ):
-            raise RunRefRuntimeError(
-                "run_ref_child_result_invalid",
-                "child_result_binding_invalid",
-            )
+        _validate_path_child_result_binding(request, launch, result)
     if (
         result.get("status") != "completed"
         or result.get("child_run_id") != launch.child_run_id
@@ -2100,6 +2163,67 @@ def _child_result_document(
     return result
 
 
+def _validate_path_child_result_binding(request, launch, result):
+    from .evaluated_child import RESULT_SCHEMA
+    from .launch_authority import PATH_REQUEST_V2
+
+    schema = result["schema_version"]
+    if (schema not in ("run_ref_path_child_result.v1", RESULT_SCHEMA)
+        or result["step_config_digest"] != request.step_config.step_config_digest
+        or not isinstance(result["path_compile"], Mapping)):
+        raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_binding_invalid")
+    if schema == RESULT_SCHEMA:
+        version, _keys = _durable_path_request_version(request, launch.request_document)
+        if version != PATH_REQUEST_V2 or launch.request_document.get("schema_version") != PATH_REQUEST_V2:
+            raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_binding_invalid")
+    else:
+        identity = result["path_compile"].get("program_identity", {})
+        if not isinstance(identity, Mapping) or identity.get("schema_version") == "run_ref_closed_program_identity.v1":
+            raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_binding_invalid")
+
+
+def _child_terminal_authority(request, *, child_request, child_result, workspace, child_run_id,
+                               repository_revision_digest, verified_git_tree):
+    from .evaluated_child import RESULT_SCHEMA, validate_evaluated_child_terminal
+
+    if child_result["schema_version"] != RESULT_SCHEMA:
+        _state, path, digest = _child_terminal_state(workspace=workspace, child_run_id=child_run_id,
+                                                    workflow_outputs=child_result["workflow_outputs"])
+        return None, path, digest
+    try:
+        return validate_evaluated_child_terminal(workspace=workspace, child_run_id=child_run_id,
+            child_request=child_request, child_result=child_result, step_config=request.step_config,
+            repository_revision_digest=repository_revision_digest, verified_git_tree=verified_git_tree)
+    except (OSError, UnicodeError, KeyError, TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_child_result_invalid", "evaluated_child_authority_invalid") from exc
+
+
+def _capture_legacy_child_state(workspace, child_run_id):
+    root = workspace / ".orchestrate" / "runs" / child_run_id
+    files = WorkspaceFiles(root)
+    try:
+        if not run_root_matches_fd(root, files.root_fd):
+            raise ValueError("legacy child root and descriptor disagree")
+        if any(files.exists(root / name) for name in ("run.json", "closed_program.json", "memo.jsonl")):
+            raise ValueError("legacy result cannot use evaluated child authority")
+        payload = files.read(root / "state.json")
+        if not run_root_matches_fd(root, files.root_fd):
+            raise ValueError("legacy child root changed during state capture")
+        return payload
+    except ValueError as exc:
+        raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_profile_invalid") from exc
+    finally:
+        files.close()
+
+
+def _child_result_value(child_result, value_descriptor, workspace, checked_closed_value):
+    from .evaluated_child import RESULT_SCHEMA
+
+    if child_result["schema_version"] == RESULT_SCHEMA:
+        return checked_closed_value
+    return extract_run_ref_value(child_result["workflow_outputs"], value_descriptor, workspace=workspace)
+
+
 def _child_terminal_state(
     *,
     workspace: Path,
@@ -2108,7 +2232,7 @@ def _child_terminal_state(
 ) -> tuple[dict[str, Any], Path, str]:
     path = workspace / ".orchestrate" / "runs" / child_run_id / "state.json"
     try:
-        payload = path.read_bytes()
+        payload = _capture_legacy_child_state(workspace, child_run_id)
     except OSError as exc:
         raise RunRefRuntimeError(
             "run_ref_child_result_invalid",
@@ -2262,6 +2386,7 @@ def acknowledge_persisted_run_ref_lifecycle_event(
     event: RunRefLifecycleEvent,
     *,
     expected_row_digest: str,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefLifecycleAcknowledgement:
     """Reload the exact durable ledger head before acknowledging one event."""
 
@@ -2273,7 +2398,7 @@ def acknowledge_persisted_run_ref_lifecycle_event(
         raise ValueError("expected durable row digest is invalid")
     ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
     try:
-        ledger = load_attempt_ledger(ledger_path)
+        ledger = load_attempt_ledger(ledger_path, run_files=run_files)
     except RunRefLedgerError as exc:
         raise ValueError("run-ref lifecycle authority is not durable") from exc
     if not ledger.rows:
@@ -2524,19 +2649,22 @@ def drive_run_ref_lifecycle(
         launch_digest = canonical_sha256(child_request)
         launch_updates = {"child_launch_digest": launch_digest}
         bindings = replace(bindings, **launch_updates)
-        emit(
+        launch_acknowledgement = emit(
             stage="launched",
             event_kind="progress",
             attempt_ordinal=ordinal,
             payload={"binding_updates": launch_updates},
         )
         effects.crash_hook("launch")
+        parent_root_fd = _checked_launch_descriptor(request, child_request, materialized,
+                                                    launch_acknowledgement)
         launch = RunRefChildLaunch(
             mode=mode,
             request_path=request_path,
             request_document=child_request,
             workspace=workspace,
             child_run_id=bindings.child_run_id,
+            parent_root_fd=parent_root_fd,
         )
         try:
             require_before_deadline()
@@ -2559,10 +2687,12 @@ def drive_run_ref_lifecycle(
             launch=launch,
             process=process,
         )
-        _, child_state_path, child_state_digest = _child_terminal_state(
+        checked_closed_value, child_state_path, child_state_digest = _child_terminal_authority(request,
+            child_request=child_request, child_result=child_result,
             workspace=workspace,
             child_run_id=bindings.child_run_id,
-            workflow_outputs=child_result["workflow_outputs"],
+            repository_revision_digest=materialized.repository_revision_id.digest,
+            verified_git_tree=bindings.verified_git_tree_id,
         )
         child_result_path = attempt_root / _CHILD_RESULT_FILENAME
         _write_canonical_document(child_result_path, child_result)
@@ -2583,11 +2713,7 @@ def drive_run_ref_lifecycle(
         value_descriptor = request.step_config.run_ref.result_descriptor[
             "envelope"
         ]["fields"][0]["type"]
-        value = extract_run_ref_value(
-            child_result["workflow_outputs"],
-            value_descriptor,
-            workspace=workspace,
-        )
+        value = _child_result_value(child_result, value_descriptor, workspace, checked_closed_value)
         declared_artifacts = declared_artifacts_from_value(value, value_descriptor)
         delta = build_workspace_delta(
             base=materialized.repository_revision_id,
@@ -2736,6 +2862,7 @@ def persist_run_ref_lifecycle_event(
                 ledger_path,
                 visit=request.visit,
                 bindings=bindings,
+                run_files=request.run_files,
             )
             if row.attempt_ordinal != event.attempt_ordinal:
                 raise RunRefLedgerError(
@@ -2748,12 +2875,14 @@ def persist_run_ref_lifecycle_event(
                 attempt_ordinal=event.attempt_ordinal,
                 stage=event.stage,
                 binding_updates=payload["binding_updates"],
+                run_files=request.run_files,
             )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     return acknowledge_persisted_run_ref_lifecycle_event(
         event,
         expected_row_digest=row.row_digest,
+        run_files=request.run_files,
     )
 
 
@@ -2799,6 +2928,31 @@ def _repository_revision(request: RunRefRuntimeRequest) -> RepositoryRevisionId:
     )
 
 
+def _validate_durable_child_inputs(request, inputs, workspace, *, checked_v2):
+    if checked_v2:
+        from .evaluated_child import _pure_input_value
+        try:
+            for item in request.step_config.run_ref.inputs:
+                _pure_input_value(inputs[item.name], item.type_descriptor)
+        except (TypeError, ValueError) as exc:
+            raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_inputs_invalid") from exc
+        return
+    canonical = {item.name: _coerce_transport_value(inputs[item.name], item.type_descriptor,
+        parent_workspace=workspace, child_workspace=workspace, input_name=item.name, copy_paths=False)
+        for item in request.step_config.run_ref.inputs}
+    if canonical != dict(inputs):
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_inputs_invalid")
+
+
+def _validate_durable_recorded_source(request, row, document):
+    from .evaluated_child import _validate_recorded_source
+
+    try:
+        _validate_recorded_source(document, _repository_revision(request).digest, row.bindings.verified_git_tree_id)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_binding_invalid") from exc
+
+
 def _validate_child_request_document(
     request: RunRefRuntimeRequest,
     *,
@@ -2840,18 +2994,19 @@ def _validate_child_request_document(
             )
         mode = "bundle"
     else:
+        version, parent_keys = _durable_path_request_version(request, document)
         expected_keys = common | {
             "materialized_source",
             "run_ref_static_config_base64",
             "expected_step_config_digest",
-        }
+        } | parent_keys
         expected_static = base64.b64encode(
             encode_run_ref_static_config(request.step_config.run_ref)
         ).decode("ascii")
         materialized_record = document.get("materialized_source")
         if (
             set(document) != expected_keys
-            or document.get("schema_version") != "run_ref_path_child_request.v1"
+            or document.get("schema_version") != version
             or document.get("test_control") is not None
             or document.get("run_ref_static_config_base64") != expected_static
             or document.get("expected_step_config_digest")
@@ -2882,22 +3037,25 @@ def _validate_child_request_document(
             "run_ref_evidence_invalid",
             "child_request_binding_invalid",
         )
-    canonical_inputs: dict[str, Any] = {}
-    for input_row in request.step_config.run_ref.inputs:
-        canonical_inputs[input_row.name] = _coerce_transport_value(
-            inputs[input_row.name],
-            input_row.type_descriptor,
-            parent_workspace=workspace,
-            child_workspace=workspace,
-            input_name=input_row.name,
-            copy_paths=False,
-        )
-    if canonical_inputs != dict(inputs):
-        raise RunRefRuntimeError(
-            "run_ref_evidence_invalid",
-            "child_request_inputs_invalid",
-        )
+    checked_v2 = document["schema_version"] == "run_ref_path_child_request.v2"
+    _validate_durable_child_inputs(request, inputs, workspace, checked_v2=checked_v2)
+    if checked_v2:
+        _validate_durable_recorded_source(request, row, document)
     return mode, dict(document)
+
+
+def _durable_path_request_version(request, document):
+    from .launch_authority import PATH_REQUEST_V2, checked_parent_authority
+
+    expected = _request_parent_authority(request)
+    if expected is None:
+        return "run_ref_path_child_request.v1", set()
+    try:
+        if checked_parent_authority(document) != expected:
+            raise ValueError("durable checked caller disagrees")
+    except (TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_binding_invalid") from exc
+    return PATH_REQUEST_V2, {"parent_authority"}
 
 
 def _validate_bound_authority(
@@ -3006,10 +3164,12 @@ def _validate_bound_authority(
             "run_ref_evidence_invalid",
             "result_payload_digest_invalid",
         )
-    _, child_state_path, child_state_digest = _child_terminal_state(
+    checked_closed_value, child_state_path, child_state_digest = _child_terminal_authority(request,
+        child_request=request_document, child_result=child_result,
         workspace=row.bindings.workspace_path,
         child_run_id=row.bindings.child_run_id,
-        workflow_outputs=child_result["workflow_outputs"],
+        repository_revision_digest=_repository_revision(request).digest,
+        verified_git_tree=row.bindings.verified_git_tree_id,
     )
     if child_state_digest != row.bindings.child_terminal_state_digest:
         raise RunRefRuntimeError(
@@ -3032,11 +3192,7 @@ def _validate_bound_authority(
     value_descriptor = request.step_config.run_ref.result_descriptor[
         "envelope"
     ]["fields"][0]["type"]
-    value = extract_run_ref_value(
-        child_result["workflow_outputs"],
-        value_descriptor,
-        workspace=row.bindings.workspace_path,
-    )
+    value = _child_result_value(child_result, value_descriptor, row.bindings.workspace_path, checked_closed_value)
     declared_artifacts = declared_artifacts_from_value(value, value_descriptor)
     delta_record = _read_canonical_document(delta_path, label="workspace_delta")
     if not isinstance(delta_record, Mapping):
@@ -3172,12 +3328,14 @@ def validate_completed_run_ref_authority(
                 settled_result=settled,
                 current_step_config_digest=request.step_config.step_config_digest,
                 validate_bound_authority=validate,
+                run_files=request.run_files,
             )
         committed = select_committed_reuse(
             request.ledger_path,
             settled_result=settled,
             current_step_config_digest=request.step_config.step_config_digest,
             validate_bound_authority=validate,
+            run_files=request.run_files,
         )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
@@ -3204,6 +3362,42 @@ def validate_completed_run_ref_authority(
         committed_row_digest=committed.row_digest,
         reused=True,
     )
+
+
+def validate_run_ref_memo_authority(request, *, settled_result, artifacts, allow_pending):
+    """Validate an exact memo proof readonly, including the memo-to-ledger gap."""
+    try:
+        settled = settled_result_binding_from_record(settled_result)
+        if settled.visit != request.visit:
+            raise RunRefLedgerError("settled parent result disagrees with the expected visit")
+        ledger = load_attempt_ledger(request.ledger_path, run_files=request.run_files)
+        committed = any(row.visit == settled.visit and row.attempt_ordinal == settled.attempt_ordinal
+            and row.stage == "committed" for row in ledger.rows)
+        if committed or not allow_pending:
+            result = validate_completed_run_ref_authority(request, settled_result=settled_result,
+                artifacts=artifacts, reconcile_pending=False)
+            return result.envelope, result.artifacts
+        return _validate_pending_memo_authority(request, settled, artifacts, ledger)
+    except RunRefLedgerError as exc:
+        raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
+    except RunRefDeltaError as exc:
+        raise RunRefRuntimeError("run_ref_delta_capture_failed", ",".join(exc.secondary_causes)) from exc
+
+
+def _validate_pending_memo_authority(request, settled, artifacts, ledger):
+    validate_pending_parent_commit(request.ledger_path, visit=request.visit,
+        attempt_ordinal=settled.attempt_ordinal,
+        current_step_config_digest=request.step_config.step_config_digest,
+        settled_result=settled, run_files=request.run_files)
+    pending = [row for row in ledger.rows if row.row_digest == settled.pending_row_digest]
+    if len(pending) != 1:
+        raise RunRefLedgerError("pending parent settlement is ambiguous")
+    envelope, rebuilt = _validate_bound_authority(request, pending[0])
+    if dict(artifacts) != rebuilt:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "persisted_artifacts_binding_invalid")
+    if load_attempt_ledger(request.ledger_path, run_files=request.run_files) != ledger:
+        raise RunRefLedgerError("ledger changed while pending memo authority was validated")
+    return envelope, rebuilt
 
 
 def recover_run_ref_settlement(
@@ -3240,12 +3434,14 @@ def recover_run_ref_settlement(
                 settled_result=settled,
                 current_step_config_digest=request.step_config.step_config_digest,
                 validate_bound_authority=validate,
+                run_files=request.run_files,
             )
         committed = select_committed_reuse(
             request.ledger_path,
             settled_result=settled,
             current_step_config_digest=request.step_config.step_config_digest,
             validate_bound_authority=validate,
+            run_files=request.run_files,
         )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
@@ -3301,7 +3497,7 @@ def finalize_run_ref_parent_commit(
             "persisted_parent_settlement_disagrees",
         )
     try:
-        ledger = load_attempt_ledger(request.ledger_path)
+        ledger = load_attempt_ledger(request.ledger_path, run_files=request.run_files)
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     pending = [
@@ -3329,6 +3525,7 @@ def finalize_run_ref_parent_commit(
         committed = reconcile_pending_parent_commit(
             request.ledger_path,
             settled_result=persisted,
+            run_files=request.run_files,
             current_step_config_digest=request.step_config.step_config_digest,
             validate_bound_authority=lambda row: _validate_bound_authority(
                 request,
@@ -3396,6 +3593,7 @@ __all__ = [
     "reuse_run_ref_settlement",
     "select_run_ref_lifecycle_allocation",
     "validate_completed_run_ref_authority",
+    "validate_run_ref_memo_authority",
     "validate_run_ref_lifecycle_attempt_authority",
     "validate_run_ref_lifecycle_allocation",
 ]

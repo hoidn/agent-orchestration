@@ -42,6 +42,7 @@ from .typecheck_context import (
     TypedExpr,
     _type_label,
     _type_refs_compatible,
+    effect_summary_requires_run_ref_placement_refusal,
     raise_error,
     raise_run_ref_placement_invalid,
 )
@@ -68,6 +69,55 @@ def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext
         )
         and effect_summary_is_procedure_edge_only(summary)
     )
+
+
+def _check_map_effect_body(expr, *, context):
+    from .expression_traversal import walk_expr
+    from .expressions import RunRefExpr, TrialExpr
+
+    direct_run_ref = next(
+        (
+            candidate
+            for candidate in walk_expr(expr.body_expr)
+            if isinstance(candidate, TrialExpr)
+            or (
+                isinstance(candidate, RunRefExpr)
+                and not context.compiler_session.closed_program
+            )
+        ),
+        None,
+    )
+    if direct_run_ref is not None:
+        raise_run_ref_placement_invalid(
+            direct_run_ref,
+            reason="is not permitted in a `list/map-effect` body",
+        )
+    allowed_body_types = (
+        ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr
+    )
+    if context.compiler_session.closed_program:
+        allowed_body_types += (RunRefExpr,)
+    if not isinstance(
+        expr.body_expr,
+        allowed_body_types,
+    ):
+        raise_error(
+            (
+                "`list/map-effect` body must be one provider, command, "
+                "workflow, or procedure call"
+            ),
+            code="list_map_effect_body_unsupported",
+            span=expr.body_expr.span,
+            form_path=expr.body_expr.form_path,
+            expansion_stack=expr.body_expr.expansion_stack,
+        )
+
+
+def _register_map_run_ref_types(type_env, *, context):
+    if context.compiler_session.closed_program:
+        from .typecheck_run_ref import register_all_known_run_ref_types
+
+        register_all_known_run_ref_types(type_env, session_state=context.session_state)
 
 
 def typecheck_structural_value_expr(
@@ -372,41 +422,7 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        from .expression_traversal import walk_expr
-        from .expressions import RunRefExpr, TrialExpr
-
-        direct_run_ref = next(
-            (
-                candidate
-                for candidate in walk_expr(expr.body_expr)
-                if isinstance(candidate, (RunRefExpr, TrialExpr))
-            ),
-            None,
-        )
-        if direct_run_ref is not None:
-            raise_run_ref_placement_invalid(
-                direct_run_ref,
-                reason="is not permitted in a `list/map-effect` body",
-            )
-        if not isinstance(
-            expr.body_expr,
-            (
-                ProviderResultExpr,
-                CommandResultExpr,
-                CallExpr,
-                ProcedureCallExpr,
-            ),
-        ):
-            raise_error(
-                (
-                    "`list/map-effect` body must be one provider, command, "
-                    "workflow, or procedure call"
-                ),
-                code="list_map_effect_body_unsupported",
-                span=expr.body_expr.span,
-                form_path=expr.body_expr.form_path,
-                expansion_stack=expr.body_expr.expansion_stack,
-            )
+        _check_map_effect_body(expr, context=context)
         body_env = {
             **value_env,
             expr.binder_name: typed_source.type_ref.item_type_ref,
@@ -424,7 +440,9 @@ def typecheck_structural_value_expr(
             value_env=body_env,
             binding_env=body_binding_env,
         )
-        if effect_summary_contains_runs_ref(typed_body.effect_summary):
+        if effect_summary_requires_run_ref_placement_refusal(
+            typed_body.effect_summary, context=context
+        ):
             raise_run_ref_placement_invalid(
                 typed_body.expr,
                 reason="is not permitted in a `list/map-effect` body",
@@ -693,12 +711,13 @@ def typecheck_structural_value_expr(
                 "provider",
                 "command",
                 "call",
-            ),
+            ) + (("run_ref",) if context.compiler_session.closed_program else ()),
             effect_cardinality_diagnostic_code=(
                 "list_map_effect_body_unsupported"
             ),
             operand_evaluation_order=(":max", ":state"),
         )
+        _register_map_run_ref_types(type_env, context=context)
         return recurse(synthetic_loop, expected_type=result_type)
     if isinstance(expr, PathJoinUnderExpr):
         try:

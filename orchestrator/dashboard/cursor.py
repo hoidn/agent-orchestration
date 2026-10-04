@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
+from orchestrator.workflow.evaluated.authority import PROFILE
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,8 @@ class ExecutionCursorProjector:
         self.max_depth = max_depth
 
     def project(self, state: Mapping[str, Any]) -> ExecutionCursor:
+        if state.get("result_persistence_profile") == PROFILE:
+            return self._project_evaluated(state)
         nodes: list[CursorNode] = []
         warnings: list[str] = []
         current_step = state.get("current_step")
@@ -63,6 +66,17 @@ class ExecutionCursorProjector:
 
         summary = " -> ".join(node.name for node in nodes if node.kind == "current_step")
         return ExecutionCursor(summary=summary, nodes=nodes, warnings=warnings)
+
+    def _project_evaluated(self, state):
+        current = state["current_step"]
+        identity = current["identity"] if current is not None else state["next_effect"]
+        if identity is None:
+            return ExecutionCursor(summary="")
+        row = state["steps"].get(identity, {})
+        node = CursorNode(kind="current_step" if current is not None else "next_effect",
+            name=identity, step_id=identity, status=row.get("status"),
+            details=dict(current) if current is not None else {"identity": identity})
+        return ExecutionCursor(summary=identity, nodes=[node])
 
     def _add_current_step(
         self,

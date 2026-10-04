@@ -34,11 +34,11 @@ EffectHandler = Callable[
 _LoopActivation = tuple[str, int]
 
 
-def site_classes(program: ClosedProgram) -> dict[str, str]:
-    """Map checked effect identities through each statically checked call frame."""
+def site_nodes(program: ClosedProgram) -> dict[str, Mapping[str, Any]]:
+    """Map checked effect nodes through their statically checked call frames."""
     tree = program.tree
     definitions = tree["definitions"]
-    classes: dict[str, str] = {}
+    sites: dict[str, Mapping[str, Any]] = {}
 
     def visit(body: Mapping[str, Any], activation: tuple[str, ...]) -> None:
         nodes = tuple(_ast_nodes(body))
@@ -47,8 +47,8 @@ def site_classes(program: ClosedProgram) -> dict[str, str]:
                 continue
             identity = " / ".join((*activation, *node["site"].split(" / ")))
             effect_class = node["class"]
-            previous = classes.setdefault(identity, effect_class)
-            if previous != effect_class:
+            previous = sites.setdefault(identity, node)
+            if previous["class"] != effect_class:
                 raise ValueError(f"checked effect identity has conflicting classes: {identity}")
 
         for node in nodes:
@@ -63,7 +63,12 @@ def site_classes(program: ClosedProgram) -> dict[str, str]:
 
     entry = tree["entry"]
     visit(tree["body"], (entry,))
-    return classes
+    return sites
+
+
+def site_classes(program: ClosedProgram) -> dict[str, str]:
+    """Project classes from the same checked effect identity traversal."""
+    return {identity: node["class"] for identity, node in site_nodes(program).items()}
 
 
 class _ControlTransfer(Exception):

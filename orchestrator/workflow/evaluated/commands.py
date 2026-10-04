@@ -58,20 +58,24 @@ class CommandTemplateError(ValueError):
         super().__init__(message)
 
 
-def _serialize_inline_command_document(fields: Sequence[tuple[str, Any]]) -> bytes:
+def _serialize_command_document(
+    fields: Sequence[tuple[str, Any]], *, sort_keys: bool = False
+) -> bytes:
     """Serialize ordered, already-validated command document fields."""
     payload = {field: value for field, value in fields}
     try:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=sort_keys,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise CommandTemplateError(f"checked command document is not finite JSON: {exc}", code="effect_input_invalid") from exc
 
 
-def inline_command_document(
-    node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
-) -> bytes | None:
-    if "document" not in node:
-        return None
+def command_document_operands(node, operands):
     slot_count = sum(
         part.get("kind") == "slot"
         for plan in node.get("argv_transport", ())
@@ -81,11 +85,19 @@ def inline_command_document(
     values = operands[len(node["argv"]) + slot_count:]
     if len(values) != len(node["document"]):
         raise CommandTemplateError("checked command document operands are incomplete", code="memo_inconsistent")
+    return values
+
+
+def inline_command_document(
+    node: Mapping[str, Any], operands: Sequence[EvaluatedValue]
+) -> bytes | None:
+    if "document" not in node:
+        return None
     fields = (
         (field, value.json_value())
-        for (field, _expression), value in zip(node["document"], values, strict=True)
+        for (field, _expression), value in zip(node["document"], command_document_operands(node, operands), strict=True)
     )
-    return _serialize_inline_command_document(tuple(fields))
+    return _serialize_command_document(tuple(fields))
 
 
 def render_command_argv(
@@ -325,6 +337,24 @@ def _require_native_result_contract(node: Mapping[str, Any]) -> None:
 
 def workspace_relative_path(workspace: Path, target: Path) -> str:
     return os.path.relpath(target, workspace).replace(os.sep, "/")
+
+
+def _command_document_argv(
+    argv: Sequence[str],
+    input_document: bytes | None,
+    *,
+    attempt_files: WorkspaceFiles,
+    workspace_files: WorkspaceFiles,
+) -> list[str]:
+    launch_argv = list(argv)
+    if input_document is not None:
+        launch_argv.append(
+            workspace_relative_path(
+                workspace_files.workspace,
+                attempt_files.workspace / "inputs.json",
+            )
+        )
+    return launch_argv
 
 
 def _validate_result_bytes(

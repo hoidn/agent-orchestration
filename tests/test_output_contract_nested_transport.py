@@ -18,6 +18,38 @@ from orchestrator.workflow.type_descriptor import (
 )
 
 
+def test_nested_path_failure_preserves_leaf_and_original_violation(tmp_path):
+    from orchestrator.contracts.output_contract import _require_nested_transport_path
+
+    report = {"kind": "path", "name": "Report", "under": "artifacts/work", "must_exist_target": True}
+    descriptor = {"kind": "list", "item": {"kind": "record", "name": "Trial", "fields": [
+        {"name": "report", "type": report}]}}
+    value = [{"report": "artifacts/work/missing.md"}]
+    with pytest.raises(ValueError) as caught:
+        validate_transport_value(value, descriptor, allow_nested_structures=True,
+            path_validator=lambda path, contract: _require_nested_transport_path(
+                path, contract, tmp_path, workspace_files=None))
+    assert getattr(caught.value, "value_path", None) == "$/0/report"
+    violation = getattr(caught.value, "violation", None)
+    assert violation.type == "missing_target"
+    assert violation.context["value"] == "artifacts/work/missing.md"
+
+
+def test_direct_transport_helper_keeps_shape_leaf_before_legacy_wrapper(tmp_path):
+    from orchestrator.contracts.output_contract import _validate_direct_transport_value
+
+    schema = {"type": "list", "items": _record_schema()}
+    with pytest.raises(ValueError) as caught:
+        _validate_direct_transport_value([{"label": "valid", "count": "wrong"}], schema, tmp_path)
+    assert caught.value.value_path == "$/0/count"
+    assert caught.value.violation is None
+    assert str(caught.value) == "$/0/count is not an Int"
+    with pytest.raises(OutputContractError) as legacy:
+        validate_contract_value([{"label": "valid", "count": "wrong"}], schema, tmp_path)
+    assert legacy.value.violations[0]["type"] == "invalid_transportable_value"
+    assert legacy.value.violations[0]["context"] == {"value_path": "", "error": "$/0/count is not an Int"}
+
+
 def _record_schema() -> dict[str, object]:
     return {
         "type": "record",

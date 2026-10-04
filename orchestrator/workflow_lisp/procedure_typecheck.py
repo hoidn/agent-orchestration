@@ -2000,18 +2000,27 @@ def _collect_proc_ref_use_spans(
         )
     return ()
 
+def _dataclass_semantic_identity(value):
+    from .expressions import CommandResultExpr
+
+    identity_fields = tuple(
+        item for item in fields(value)
+        if item.name not in {"span", "form_path", "expansion_stack"}
+        and not item.metadata.get("semantic_identity_omit")
+    )
+    if isinstance(value, CommandResultExpr):
+        identity_fields = tuple(
+            item for item in identity_fields
+            if not (item.name in {"inputs_present", "operand_order"} and not getattr(value, item.name))
+        )
+    return (f"{type(value).__name__}("
+            + ",".join(f"{item.name}={_semantic_identity(getattr(value, item.name))}" for item in identity_fields)
+            + ")")
+
+
 def _semantic_identity(value: object) -> str:
     if is_dataclass(value):
-        return (
-            f"{type(value).__name__}("
-            + ",".join(
-                f"{field.name}={_semantic_identity(getattr(value, field.name))}"
-                for field in fields(value)
-                if field.name not in {"span", "form_path", "expansion_stack"}
-                and not field.metadata.get("semantic_identity_omit")
-            )
-            + ")"
-        )
+        return _dataclass_semantic_identity(value)
     if isinstance(value, tuple):
         return "(" + ",".join(_semantic_identity(item) for item in value) + ")"
     if isinstance(value, list):

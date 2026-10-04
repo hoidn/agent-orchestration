@@ -172,6 +172,106 @@ def test_header_reader_accepts_all_historical_recipe_root_combinations(tmp_path)
             assert ("run_ref_root" in loaded) is has_root
 
 
+def _remove_recorded_root(authority):
+    header = json.loads(authority.header_path.read_text())
+    header.pop("run_ref_root")
+    authority.header_path.write_text(json.dumps(header))
+
+
+def _historical_empty_run(monkeypatch, parent, source, refs, *extra):
+    from tests.test_workflow_evaluated_run_ref import _authority
+    from tests.test_workflow_evaluated_run_ref_settlement import _service_run
+
+    with monkeypatch.context() as context:
+        context.setattr("orchestrator.cli.commands.evaluated.execute_pure_run", lambda *a, **kw: (1, None))
+        assert _service_run(context, parent, source, refs, *extra).exit_code == 1
+    authority, memo = _authority(parent)
+    assert not memo.entries
+    _remove_recorded_root(authority)
+    return authority
+
+
+def test_missing_root_at_first_reached_run_ref_is_readonly(tmp_path, monkeypatch):
+    from tests.test_workflow_evaluated_run_ref import _public_fixture
+    from tests.test_workflow_evaluated_resume import _resume_cli
+
+    parent, source, refs = _public_fixture(tmp_path)
+    authority = _historical_empty_run(monkeypatch, parent, source, refs)
+    before = _tree_bytes(parent)
+    resumed = _resume_cli(parent, authority.run_root.name)
+    assert resumed.returncode == 2, resumed.stderr
+    assert "resume_run_ref_root_missing" in resumed.stderr
+    assert _tree_bytes(parent) == before and not refs.exists()
+
+
+def _root_frontier_fixture(tmp_path, monkeypatch, kind, selected):
+    from tests.test_workflow_evaluated_run_ref import _public_fixture
+    from tests.test_workflow_evaluated_providers import _fixture
+
+    child = lambda call: f"(let* ((child {call})) child.value)"
+    if kind == "provider":
+        decision = '(provider-result providers.review :prompt prompts.base :inputs () :returns Result)'
+        body = lambda call: f'(let* ((decision {decision})) (if decision.ok {child(call)} false))'
+        definitions = '(defrecord Result (ok Bool))'
+    else:
+        decision = '(command-result choose :argv ("python" "choose.py") :returns Bool)'
+        body = (lambda call: f'(let* ((decision {decision})) {child(call)})') if kind == "command-sequential" else (
+            lambda call: f'(if {decision} {child(call)} false)')
+        definitions = ""
+    parent, source, refs = _public_fixture(tmp_path, body=body, definitions=definitions)
+    if kind == "provider":
+        _path, providers, prompts, _request = _fixture(parent)
+        monkeypatch.setenv("PATH", str(parent / "bin") + os.pathsep + os.environ["PATH"])
+        monkeypatch.setenv("PROVIDER_SHIM_RESULT", json.dumps({"ok": selected}))
+        extra = ("--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts))
+    else:
+        (parent / "choose.py").write_text('import os\nfrom pathlib import Path\n'
+            'Path("dispatches").open("a").write("choose\\n")\n'
+            f'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("{str(selected).lower()}")\n')
+        boundaries = parent / "commands.json"
+        boundaries.write_text(json.dumps({"choose": {"stable_command": ["python", "choose.py"], "closure": ["choose.py"]}}))
+        extra = ("--command-boundaries-file", str(boundaries))
+    return parent, source, refs, extra
+
+
+@pytest.mark.parametrize("kind", ["command-conditional", "command-sequential", "provider"])
+@pytest.mark.parametrize("selected", [True, False])
+def test_missing_root_after_new_effect_preserves_local_frontier(tmp_path, monkeypatch, kind, selected):
+    from tests.test_workflow_evaluated_run_ref import _authority
+    from tests.test_workflow_evaluated_resume import _resume_cli
+
+    parent, source, refs, extra = _root_frontier_fixture(tmp_path, monkeypatch, kind, selected)
+    authority = _historical_empty_run(monkeypatch, parent, source, refs, *extra)
+    reached = selected or kind == "command-sequential"
+    result = _resume_cli(parent, authority.run_root.name)
+    assert result.returncode == (1 if reached else 0), result.stderr
+    _, memo = _authority(parent)
+    assert len(memo.active_commits) == 1 and not memo.pending_starts
+    assert not refs.exists() and not (authority.run_root / "run-ref-attempts.jsonl").exists()
+    assert all(row.data.get("effect_class") != "run_ref" for row in memo.entries)
+    if reached:
+        assert "resume_run_ref_root_missing" in result.stderr
+        assert memo.terminal.data["outcome"] == "failed"
+    before = _tree_bytes(parent)
+    second = _resume_cli(parent, authority.run_root.name)
+    assert second.returncode == (2 if reached else 0), second.stderr
+    assert _tree_bytes(parent) == before
+
+
+def test_missing_root_at_committed_run_ref_precedes_reconcile(tmp_path, monkeypatch):
+    from tests.test_workflow_evaluated_run_ref import _public_fixture
+    from tests.test_workflow_evaluated_run_ref_settlement import _commit_gap
+    from tests.test_workflow_evaluated_resume import _resume_cli
+
+    parent, source, refs = _public_fixture(tmp_path)
+    authority, _memo = _commit_gap(monkeypatch, parent, source, refs)
+    _remove_recorded_root(authority)
+    before = _tree_bytes(parent), _tree_bytes(refs)
+    result = _resume_cli(parent, authority.run_root.name)
+    assert result.returncode == 2 and "resume_run_ref_root_missing" in result.stderr
+    assert (_tree_bytes(parent), _tree_bytes(refs)) == before
+
+
 def test_malformed_present_root_refuses_readonly_and_invalidation_without_path_io(
     tmp_path, monkeypatch, caplog
 ):

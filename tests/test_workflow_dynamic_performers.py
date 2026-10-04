@@ -559,7 +559,7 @@ def test_native_command_document_bytes_match_typed_field_order() -> None:
         ("execution_report", "artifacts/exécution.json"),
     )
 
-    native_bytes = commands._serialize_inline_command_document(ordered_pairs)
+    native_bytes = commands._serialize_command_document(ordered_pairs)
 
     assert native_bytes == (
         '{"review_report":"artifacts/review.json",'
@@ -588,8 +588,197 @@ def test_command_document_absence_count_and_json_errors_keep_typed_behavior() ->
 
     for invalid in (float("nan"), "lone-surrogate-\ud800"):
         with pytest.raises(commands.CommandTemplateError) as caught:
-            commands._serialize_inline_command_document((("field", invalid),))
+            commands._serialize_command_document((("field", invalid),))
         assert caught.value.code == "effect_input_invalid"
+
+
+def test_native_command_document_fields_keep_contract_order_and_canonical_bytes(
+    owners: _Owners,
+) -> None:
+    from types import MappingProxyType
+
+    from orchestrator.workflow.evaluated.inputs import (
+        _prepare_command_document_fields,
+        prepare_command_document,
+    )
+
+    absent = prepare_command_document(
+        {"argv": []},
+        (),
+        external=True,
+        workspace=owners.workspace_files.workspace,
+        workspace_files=owners.workspace_files,
+    )
+    empty = prepare_command_document(
+        {"argv": [], "document": []},
+        (),
+        external=True,
+        workspace=owners.workspace_files.workspace,
+        workspace_files=owners.workspace_files,
+    )
+    bool_descriptor = {"kind": "primitive", "name": "Bool"}
+    int_descriptor = {"kind": "primitive", "name": "Int"}
+    fields = (
+        ("z_flag", True, MappingProxyType(bool_descriptor)),
+        ("a_count", 3, int_descriptor),
+    )
+    external_bytes, contract = _prepare_command_document_fields(
+        fields,
+        external=True,
+        workspace=owners.workspace_files.workspace,
+        workspace_files=owners.workspace_files,
+    )
+    inline_bytes, _inline_contract = _prepare_command_document_fields(
+        fields,
+        external=False,
+        workspace=owners.workspace_files.workspace,
+        workspace_files=owners.workspace_files,
+    )
+
+    assert absent == (None, [])
+    assert empty == (b"{}", [])
+    assert external_bytes == b'{"a_count":3,"z_flag":true}'
+    assert inline_bytes == b'{"z_flag":true,"a_count":3}'
+    assert contract == [["z_flag", bool_descriptor], ["a_count", int_descriptor]]
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected_document", "expected_result"),
+    (
+        ("absent", None, "absent"),
+        ("empty", b"{}", "{}"),
+        (
+            "nonempty",
+            b'{"a_count":3,"z_flag":true}',
+            '{"a_count":3,"z_flag":true}',
+        ),
+    ),
+)
+def test_native_command_document_path_token_reaches_local_command_and_root_result(
+    tmp_path: Path,
+    owners: _Owners,
+    shape: str,
+    expected_document: bytes | None,
+    expected_result: str,
+) -> None:
+    import orchestrator.workflow.evaluated.commands as commands
+    from orchestrator.workflow.evaluated.inputs import (
+        _prepare_command_document_fields,
+        prepare_command_document,
+    )
+
+    bool_descriptor = {"kind": "primitive", "name": "Bool"}
+    int_descriptor = {"kind": "primitive", "name": "Int"}
+    if shape == "absent":
+        document, contract = prepare_command_document(
+            {"argv": []},
+            (),
+            external=True,
+            workspace=owners.workspace_files.workspace,
+            workspace_files=owners.workspace_files,
+        )
+    elif shape == "empty":
+        document, contract = prepare_command_document(
+            {"argv": [], "document": []},
+            (),
+            external=True,
+            workspace=owners.workspace_files.workspace,
+            workspace_files=owners.workspace_files,
+        )
+    else:
+        document, contract = _prepare_command_document_fields(
+            (
+                ("z_flag", True, bool_descriptor),
+                ("a_count", 3, int_descriptor),
+            ),
+            external=True,
+            workspace=owners.workspace_files.workspace,
+            workspace_files=owners.workspace_files,
+        )
+
+    script = _script(
+        owners,
+        '''
+        import json, os, sys
+        from pathlib import Path
+        result = (
+            Path(sys.argv[1]).read_bytes().decode("utf-8")
+            if len(sys.argv) > 1
+            else "absent"
+        )
+        Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(
+            json.dumps(result, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+        )
+        ''',
+    )
+    command_node = _native_node(
+        _checked_command(
+            owners.workspace_files.workspace,
+            return_type="String",
+            stable_command=("python", script.name),
+        ),
+        _whole_value_contract(tmp_path, "", "String"),
+    )
+    base_argv = [sys.executable, script.name]
+    launch_argv = commands._command_document_argv(
+        base_argv,
+        document,
+        attempt_files=owners.attempt_files,
+        workspace_files=owners.workspace_files,
+    )
+
+    assert document == expected_document
+    assert contract == (
+        [["z_flag", bool_descriptor], ["a_count", int_descriptor]]
+        if shape == "nonempty"
+        else []
+    )
+    if document is None:
+        assert launch_argv == base_argv
+    else:
+        assert launch_argv[-1] == commands.workspace_relative_path(
+            owners.workspace_files.workspace,
+            owners.attempt_files.workspace / "inputs.json",
+        )
+        assert "/" in launch_argv[-1]
+        assert "\\" not in launch_argv[-1]
+
+    result, digest = commands.perform_command(
+        command_node,
+        launch_argv,
+        attempt_files=owners.attempt_files,
+        workspace_files=owners.workspace_files,
+        input_document=document,
+        native_result=True,
+    )
+
+    expected_result_bytes = json.dumps(
+        expected_result, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    assert result == expected_result
+    assert digest == "sha256:" + hashlib.sha256(expected_result_bytes).hexdigest()
+
+
+def test_native_command_document_invalid_field_has_structured_error(
+    owners: _Owners,
+) -> None:
+    from orchestrator.workflow.evaluated.inputs import (
+        DocumentInputError,
+        _prepare_command_document_fields,
+    )
+
+    with pytest.raises(DocumentInputError) as caught:
+        _prepare_command_document_fields(
+            (("count", "3", {"kind": "primitive", "name": "Int"}),),
+            external=True,
+            workspace=owners.workspace_files.workspace,
+            workspace_files=owners.workspace_files,
+        )
+
+    assert caught.value.code == "effect_input_invalid"
+    assert caught.value.field == "count"
+    assert caught.value.value_path == "/count"
+    assert caught.value.violations[0]["field"] == "count"
 
 
 def test_native_command_document_bytes_reach_real_command_dispatch(
@@ -598,7 +787,7 @@ def test_native_command_document_bytes_reach_real_command_dispatch(
 ) -> None:
     import orchestrator.workflow.evaluated.commands as commands
 
-    document = commands._serialize_inline_command_document(
+    document = commands._serialize_command_document(
         (
             ("review_report", "artifacts/review.json"),
             ("execution_report", "artifacts/exécution.json"),

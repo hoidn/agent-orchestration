@@ -14,6 +14,7 @@ from .expression_traversal import (
     free_expr_names,
     iter_child_exprs,
     map_expr,
+    map_command_operands,
     walk_expr,
 )
 from .expressions import (
@@ -702,23 +703,9 @@ def _normalize_expr(
             ),
         )
     if isinstance(expr, CommandResultExpr):
-        return replace(
-            expr,
-            argv=tuple(
-                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
-                for arg in expr.argv
-            ),
-            adapter_inputs=tuple(
-                (
-                    field_name,
-                    _normalize_expr(
-                        value_expr,
-                        typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
-                    ),
-                )
-                for field_name, value_expr in expr.adapter_inputs
-            ),
-        )
+        return map_command_operands(expr, lambda section, slot, value: _normalize_expr(
+            value, typed_functions_by_name=typed_functions_by_name,
+            expand_admitted_containers=expand_admitted_containers))
     if isinstance(expr, ProviderResultExpr):
         normalized_prompt = (
             replace(

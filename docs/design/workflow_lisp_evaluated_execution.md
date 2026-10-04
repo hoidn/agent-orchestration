@@ -110,6 +110,33 @@ is a rule of this design.
 | Every form and every coordinator in the release has evidence through the public run and resume entries | K9, section 17 |
 | Behaviour that depends on a file's modification time is outside any promise that binds bytes | C5 |
 
+### 1.2 Ordinary path run-reference placement at 2.35
+
+The accepted placement clarification uses the existing
+`CompilerSession.closed_program`, selected by the entry target across its
+source graph. Path-mode run references participate directly or transitively
+through calls in ordinary effect-admitting control: bounded loop bodies,
+budgets and seeds, `match` subjects, and the one-effect body of serial
+`list/map-effect`. Preserve ordinary types, union/arm proofs, structural
+evaluation order, collection transportability and traversal bounds. A direct
+path run reference is also an admitted one-effect map body; the map source
+and body arguments remain pure. This does not select general or parallel map.
+
+`:on-exhausted` remains a pure projection at 2.35: retain both its specific
+run-ref/trial guard and its rejection of any nonempty effect summary. Other
+pure contexts, including source-module rules in older imported helpers,
+remain pure. Trials, bundle-mode references and effectful E1 children remain
+excluded. Older entries retain their existing placement and settlement;
+an older helper consumed by an evaluated entry gains this scoped placement
+permission without retargeting its other language rules (§13).
+
+**Implementation and public evidence are pending.** This accepted contract
+does not establish compilation or execution of these combinations. The
+[Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-9-run-reference-coordinator-and-evaluated-children)
+requires a separate frontend cut and the public repetition/recovery gates
+before Task 9 closes. No new flag, registry, effect system or identity rule
+is introduced; §6 and K7–K9 supply the existing protocol.
+
 ## 2. Problem
 
 At run time a value exists only as the output of a step. The decision brief
@@ -1741,6 +1768,29 @@ run/resume; compilation alone is not this evidence. Preserve R12 for authored
 argv substitutions in these sources rather than rewriting the fixture to
 hide a parity gap.
 
+Verified-drain has one accepted consumer-preservation exception: its shared
+canonical source at target 2.15 gains the Prepare-selected history input
+specified in [the drain design](verified_iteration_drain.md#accepted-extension-prepare-selected-history-input).
+The public evaluated fixture copies that same revised source, changing only
+the target to 2.35 and supplying the required manifests/closures. Both routes
+use the existing `LedgerPath` for the additional `PrepareResult.ledger_input_path`;
+Work and iteration-review read that captured input, while Record keeps
+appending to `ledger_path`. Retry of Work retains the history selected by
+Prepare; the target-design dependency remains fresh per attempt. This changes
+the shared source, two prompts, history freshness and artifact inventory in
+both routes. It adds no runtime history selection, new effect or fork.
+
+Preserve the original source/oracles and receipts as historical evidence;
+compare both routes over the revised common source rather than demanding
+unchanged historical prompts or a 19-file-only inventory. Continue→done must
+retain all 19 original files plus the two distinct history inputs, with exact
+path/byte/digest assertions, the existing roles/results/counts and no committed
+redispatch. The drain design owns publication, retention and the bounded
+Prepare-commit invalidation conditions. C6/C7, C8 and command-local C4 remain
+unchanged; legacy acquires no evaluated invalidation or completed-resume
+validation policy. Implementation and public preservation evidence remain
+obligations of Tasks 13D/14 in the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-13d-canonical-verified-drain-history-input).
+
 No generic `artifacts`/`publishes`/`consumes` metadata is added to the closed
 program or V9 by this clarification. Before migrating a consumer with a
 stronger named-publication, version/freshness or specialized effect contract,
@@ -2443,6 +2493,15 @@ run's state; the memo replaces that commit.
 | K7 | A run reference: its static configuration is built at build time, each input bound as the reference `inputs.<name>`; the name rule of the child's inputs is the reference rule, so no valid name is unsafe. The coordinator resolves the references against a parent state that holds only the resolved input values. The visit key is derived from the identity: parent run id the run root's name, execution frame `root`, no call frame, step id `root.<digest of the identity>`, visit count 1. The runtime's ledger, `run-ref-attempts.jsonl`, retains its wire contract; physical IO and child authority follow §9.3.1 |
 | K8 | A committed coordinator effect is never superseded in the first release: no new visit key or attempt for an identity that committed through a coordinator, and no rollback of the child's workspace delta (§3) |
 | K9 | Every coordinator in a release has evidence through the public run and resume entries: a compiled program killed from outside at each of its two gaps, resumed to the uninterrupted value, with no committed child started twice, and refused before any launch after a declared file changes |
+
+For §1.2's repeated placements, each iteration instantiates the complete
+activation identity (§6), hence a distinct K7 step id and visit with count 1,
+even for identical inputs/configuration. A request or proof bound to one
+activation cannot authorize another. A discarded attempt of the same visit
+is replaced at the previous attempt ordinal plus one; a new visit starts
+at ordinal 1. Each activation has its own child/workspace and memo
+commit/settlement. These are applications of the existing protocol, with
+public two-iteration execution, resume and both K4 gaps still required.
 
 #### 9.3.1 Path child admission, authority and return
 

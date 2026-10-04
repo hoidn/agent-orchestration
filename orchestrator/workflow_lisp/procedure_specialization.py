@@ -211,6 +211,7 @@ def _procedure_private_body_valid(
     *,
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
+    closed_program: bool = False,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     workflow_signatures_by_name: Mapping[str, Any] | None = None,
 ) -> bool:
@@ -223,6 +224,10 @@ def _procedure_private_body_valid(
     never change lowering mode (defproc lowering-mode contract,
     docs/design/workflow_lisp_frontend_specification.md).
     """
+
+    if closed_program and procedure.signature.requested_lowering_mode is ProcedureLoweringMode.PRIVATE_WORKFLOW:
+        # Closed calls return evaluated values; the flat output-export seam is unused.
+        return True
 
     from .lowering.values import (
         _procedure_signature_local_type_bindings,

@@ -242,6 +242,15 @@ effectful control composition inside the body are rejected with
 `list_map_effect_body_unsupported`; later widening requires a demonstrated
 consumer.
 
+The first-tranche rule above describes target 2.18 and its legacy route.
+The accepted target-2.35 evaluated placement contract additionally admits
+direct path-mode `run-ref` and an already-admitted call containing it in the
+one-effect body; see [evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235).
+The source and body arguments remain pure, with the existing collection,
+serial-order and bound rules. Its implementation and public execution/resume
+evidence remain pending under Phase 3 Tasks 9/13; this is no claim of current
+availability and does not widen the other first-tranche body restrictions.
+
 The call returns `R` directly and each successful result is appended once,
 in input order, to an eligible `List[R]`. `:max` must be a positive integer
 literal; malformed, zero, negative, or computed values fail with

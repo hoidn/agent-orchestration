@@ -67,6 +67,7 @@ def _invalidate_retained(run_root, identity, run_files):
         identity,
         site_classes(authority.program),
         run_files=run_files,
+        checked_authority=authority,
     )
 
 

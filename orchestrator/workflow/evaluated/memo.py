@@ -447,9 +447,24 @@ def _encode_record(record: Mapping[str, Any]) -> bytes:
         raise _inconsistent(f"record cannot be encoded as JSON: {exc}") from exc
 
 
-def append_record(path: Path, record: Mapping[str, Any], *, run_files: WorkspaceFiles | None = None) -> JournalEntry:
-    """Append and synchronize one row; caller owns the lock and transition validity."""
+def _checked_writer_context(path, run_files, authority):
+    from orchestrator.workflow.evaluated.authority import RunAuthority
+
+    if not isinstance(authority, RunAuthority) or run_files is None or authority.run_files is not run_files:
+        raise _inconsistent("publication requires checked authority and its retained file owner")
+    if path != authority.memo_path or run_files.workspace != authority.run_root:
+        raise _inconsistent("publication authority and journal root disagree")
+
+
+def append_record(path: Path, record: Mapping[str, Any], *, run_files: WorkspaceFiles | None = None,
+                  checked_authority=None) -> JournalEntry:
+    """Sync one row and publish its view when supplied the checked writer context.
+
+    All production callers carry this context; raw synthetic journal tests do not.
+    """
     path = Path(path)
+    if checked_authority is not None:
+        _checked_writer_context(path, run_files, checked_authority)
     encoded = _encode_record(record)
     kind = record.get("record")
     if not isinstance(kind, str) or kind not in _RECORDS:
@@ -474,7 +489,11 @@ def append_record(path: Path, record: Mapping[str, Any], *, run_files: Workspace
             raise MemoError("memo_sync_failed", str(exc)) from exc
     finally:
         os.close(fd)
-    return JournalEntry(start, start + len(encoded), dict(record))
+    entry = JournalEntry(start, start + len(encoded), dict(record))
+    if checked_authority is not None:
+        from orchestrator.workflow.evaluated.views import publish_evaluated_view
+        publish_evaluated_view(checked_authority, entry)
+    return entry
 
 
 def repair_torn_tail(path: Path, snapshot: MemoSnapshot, *, run_files: WorkspaceFiles | None = None) -> None:
@@ -496,7 +515,8 @@ def repair_torn_tail(path: Path, snapshot: MemoSnapshot, *, run_files: Workspace
         os.close(fd)
 
 
-def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:
+def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None,
+                      checked_authority=None) -> dict[str, Any]:
     """Append one C8 range after validating its active commit suffix; caller owns the lock."""
     path = Path(path)
     snapshot = read_memo(path, site_classes, run_files=run_files)
@@ -509,5 +529,5 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     if snapshot.tail:
         repair_torn_tail(path, snapshot, run_files=run_files)
     row = {"record": "invalidated", "from_commit": chosen.offset, "time": time.time()}
-    append_record(path, row, run_files=run_files)
+    append_record(path, row, run_files=run_files, checked_authority=checked_authority)
     return row

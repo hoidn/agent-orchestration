@@ -127,6 +127,7 @@ def _resolve_procedure_lowering(
     *,
     typed_workflows: tuple[TypedWorkflowDef, ...],
     workflow_path: Path,
+    closed_program: bool = False,
     type_env: FrontendTypeEnvironment,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> Mapping[str, TypedProcedureDef]:
@@ -169,6 +170,7 @@ def _resolve_procedure_lowering(
         )
         body_valid = _procedure_private_body_valid(
             procedure,
+            closed_program=closed_program,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,

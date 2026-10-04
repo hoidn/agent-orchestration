@@ -15,6 +15,7 @@ import pytest
 from tests.test_workflow_evaluated_providers import _fixture, _requests
 from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
 from tests.test_workflow_evaluated_providers import SOURCE
+from orchestrator.workflow.evaluated.views import load_evaluated_view
 
 
 def _public_env() -> dict[str, str]:
@@ -307,6 +308,13 @@ def _assert_pending_provider_c6_refusal(tmp_path, state):
     assert len(list(run_root.glob("effects/*/attempt-*"))) == 1
 
 
+def _assert_completed_retry_view(run_root, state_path):
+    published = json.loads(state_path.read_text(encoding="utf-8"))
+    assert published == load_evaluated_view(run_root)
+    assert published["status"] == "completed"
+    assert published["memo_offset"] == (run_root / "memo.jsonl").stat().st_size
+
+
 def _retry_changed_provider_c6(tmp_path, monkeypatch, state):
     run_root, memo, attempt_one, prompt, original_prompt, original_evidence, stale_view, _before = state
     prompt.unlink(missing_ok=True)
@@ -321,7 +329,7 @@ def _retry_changed_provider_c6(tmp_path, monkeypatch, state):
     assert [row["attempt"] for row in starts] == [1, 2]
     assert starts[0]["input_parts"] != starts[1]["input_parts"]
     assert {path.name: path.read_bytes() for path in attempt_one.iterdir()} == original_evidence
-    assert stale_view.read_text(encoding="utf-8") == '{"status":"failed"}'
+    _assert_completed_retry_view(run_root, stale_view)
 
 
 @pytest.mark.parametrize("c6_failure", ["missing", "unreadable"])

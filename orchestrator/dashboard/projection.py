@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -22,6 +23,7 @@ from orchestrator.dashboard.models import (
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
 from orchestrator.observability.report import build_status_snapshot, derive_status_projection
+from orchestrator.workflow.evaluated.authority import PROFILE
 
 
 class RunProjector:
@@ -32,6 +34,52 @@ class RunProjector:
         self.cursor_projector = ExecutionCursorProjector()
 
     def project_detail(self, run: RunRecord) -> DashboardRunDetail:
+        if run.state is not None and run.state.get("result_persistence_profile") == PROFILE:
+            return self._project_evaluated_detail(run)
+        return self._project_legacy_detail(run)
+
+    def _project_evaluated_detail(self, run: RunRecord) -> DashboardRunDetail:
+        state = dict(run.state)
+        resolver = FileReferenceResolver(run.workspace.root, run.run_root)
+        warnings = list(run.warnings)
+        steps = [self._evaluated_step(identity, payload, resolver, warnings) for identity, payload in state["steps"].items()]
+        cursor = self.cursor_projector.project(state)
+        row = DashboardIndexRow(
+            workspace_id=run.workspace.id, workspace_label=run.workspace.label,
+            workspace_root=run.workspace.root, run_dir_id=run.run_dir_id,
+            run_root=run.run_root, state_path=run.state_path, state_run_id=run.state_run_id,
+            workflow_file=state["workflow_file"], persisted_status=state["status"],
+            display_status=state["status"], started_at=state["started_at"],
+            updated_at=state["updated_at"], read_time=self.now.isoformat(),
+            cursor_summary=cursor.summary,
+            failure_summary=self._failure_summary(state, steps, None), warnings=warnings,
+        )
+        return DashboardRunDetail(row=row, steps=steps, cursor=cursor, bound_inputs=state["bound_inputs"],
+            workflow_outputs=state["workflow_outputs"], error=state["error"], state=state, warnings=warnings)
+
+    def _evaluated_step(self, identity, payload, resolver, warnings):
+        return DashboardStep(ref=identity, name=identity, step_id=identity,
+            kind=payload["effect_class"], status=payload["status"],
+            duration_ms=payload.get("duration_ms"), error=payload.get("error"),
+            file_refs=self._evaluated_file_refs(payload, resolver, warnings),
+            output_preview=json.dumps(payload["value"], ensure_ascii=False)[:200] if "value" in payload else "")
+
+    def _evaluated_file_refs(self, payload, resolver, warnings):
+        result = Path(payload["result_path"])
+        paths = {"result": result}
+        if payload["effect_class"] in {"command", "provider"}:
+            paths.update(stdout=result.parent / "stdout.txt", stderr=result.parent / "stderr.txt")
+        if payload["effect_class"] == "provider":
+            paths["prompt"] = result.parent / "prompt.txt"
+        references = {}
+        for name, path in paths.items():
+            try:
+                references[name] = resolver.run_ref(path, label=path.name)
+            except UnsafePathError as exc:
+                warnings.append(f"unsafe {name} file: {exc}")
+        return references
+
+    def _project_legacy_detail(self, run: RunRecord) -> DashboardRunDetail:
         read_time = self.now.isoformat()
         base_warnings = list(run.warnings)
         if run.state is None:

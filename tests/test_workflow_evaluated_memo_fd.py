@@ -208,7 +208,15 @@ def test_fd_journal_keeps_existing_failure_contracts(tmp_path, monkeypatch, faul
         owner.close()
 
 
-def test_effect_failure_and_failed_terminal_stay_on_borrowed_root(tmp_path, monkeypatch):
+def _assert_failed_publication_stops_without_terminal(snapshot, caplog):
+    assert [row.data["record"] for row in snapshot.entries] == ["started", "failed"]
+    assert snapshot.entries[1].data["attempt"] == 1
+    assert snapshot.terminal is None
+    assert "view_write_failed" in caplog.text
+    assert "reserved_run_root_changed" in caplog.text
+
+
+def test_failed_publication_stops_on_borrowed_root(tmp_path, monkeypatch, caplog):
     from tests.test_workflow_evaluated_command_lifecycle import _program, _publish, _script
     from orchestrator.workflow.evaluated import runtime
     from orchestrator.workflow.evaluated.machine import site_classes
@@ -234,9 +242,7 @@ def test_effect_failure_and_failed_terminal_stay_on_borrowed_root(tmp_path, monk
         monkeypatch.setattr(runtime, "perform_command", perform_then_swap)
         assert runtime.execute_pure_run(authority, {}, run_id=root.name, workspace=tmp_path) == (1, None)
         snapshot = read_memo(authority.memo_path, site_classes(checked), run_files=authority.run_files)
-        assert [row.data["record"] for row in snapshot.entries] == ["started", "failed", "terminal"]
-        assert snapshot.entries[1].data["attempt"] == 1
-        assert snapshot.terminal.data["outcome"] == "failed"
+        _assert_failed_publication_stops_without_terminal(snapshot, caplog)
         assert (root / "memo.jsonl").read_bytes() == b""
         assert sorted(path.name for path in root.iterdir()) == ["memo.jsonl"]
         assert os.fstat(fd).st_ino == original.stat().st_ino

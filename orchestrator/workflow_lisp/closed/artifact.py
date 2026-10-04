@@ -25,7 +25,8 @@ from ..build_manifest_io import (
     _resolve_request,
 )
 from .. import syntax
-from ..diagnostics import LispFrontendCompileError
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..effects import EffectSummary
 from ..build import _iter_compiled_import_entries
 from ..reader import SourceReadTrace
 from .target import entry_target_dsl_version
@@ -44,6 +45,8 @@ class ClosedProgramBuildResult:
     manifest_path: Path
     entry_workflow: str
     provider_io: ProviderIOContext
+    compile_diagnostics: tuple[LispFrontendDiagnostic, ...] | None
+    entry_effect_summary: EffectSummary
 
 
 def closed_build_key(
@@ -181,6 +184,8 @@ def _prepare_closed_program_bundle(
         manifest_path=manifest_path,
         entry_workflow=entry_workflow,
         provider_io=builder.provider_io.bind(read_back),
+        compile_diagnostics=typed.compile_diagnostics,
+        entry_effect_summary=typed.entry.effect_summary,
     )
 
 

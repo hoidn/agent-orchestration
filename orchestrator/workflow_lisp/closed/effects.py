@@ -135,6 +135,10 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
             perform,
         )
 
+    return _translate_command_result(builder, perform, d, env)
+
+
+def _translate_command_result(builder, perform, d, env):
     payload = perform.operation_payload
     if not isinstance(payload, Mapping):
         raise ValueError("command_result WCC payload is missing")
@@ -167,34 +171,11 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
     }
 
     if isinstance(binding, CertifiedAdapterBinding) and payload.get("adapter_name") is not None:
-        supplied = dict(payload.get("adapter_inputs", ()))
-        selected_rows = [row for row in binding.input_signature if row.name in supplied]
-        unknown = set(supplied) - {row.name for row in binding.input_signature}
-        if unknown:
-            raise ValueError(f"certified adapter inputs are undeclared: {sorted(unknown)!r}")
-        effect["argv"] = []
-        effect["document"] = [
-            [row.transport_key, builder.value(supplied[row.name], d, env)]
-            for row in selected_rows
-        ]
+        _set_certified_command_inputs(effect, binding, payload, builder, d, env)
     else:
-        tokens = tuple(binding.stable_command)
-        actual_tokens = tuple(
-            item.value
-            for item in perform.positional_args[: len(tokens)]
-            if hasattr(item, "value")
-        )
-        if len(actual_tokens) != len(tokens) or actual_tokens != tokens:
-            raise ValueError(f"command_result for {boundary!r} changed its stable command tokens")
-        effect["argv"] = [
-            builder.value(item, d, env) for item in perform.positional_args[len(tokens) :]
-        ]
+        _set_external_command_inputs(effect, binding, payload, perform, builder, d, env)
 
-    if "argv_transport" in payload:
-        effect["argv_transport"] = [
-            _command_transport_plan(plan, builder, d, env)
-            for plan in payload["argv_transport"]
-        ]
+    _set_command_transport(effect, payload, builder, d, env)
 
     provenance = builder.provenance(perform.metadata)
     if source_subjects:
@@ -203,6 +184,47 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
     effect.update(provenance)
     builder.retain_generated_result_contract(effect, perform, d)
     return effect
+
+
+def _set_command_transport(effect, payload, builder, d, env):
+    if "argv_transport" in payload:
+        effect["argv_transport"] = [
+            _command_transport_plan(plan, builder, d, env)
+            for plan in payload["argv_transport"]
+        ]
+
+
+def _set_certified_command_inputs(effect, binding, payload, builder, d, env):
+    supplied = dict(payload.get("adapter_inputs", ()))
+    selected_rows = [row for row in binding.input_signature if row.name in supplied]
+    unknown = set(supplied) - {row.name for row in binding.input_signature}
+    if unknown:
+        raise ValueError(f"certified adapter inputs are undeclared: {sorted(unknown)!r}")
+    effect["argv"] = []
+    effect["document"] = [
+        [row.transport_key, builder.value(supplied[row.name], d, env)]
+        for row in selected_rows
+    ]
+
+
+def _set_external_command_inputs(effect, binding, payload, perform, builder, d, env):
+    tokens = tuple(binding.stable_command)
+    actual_tokens = tuple(
+        item.value
+        for item in perform.positional_args[: len(tokens)]
+        if hasattr(item, "value")
+    )
+    if len(actual_tokens) != len(tokens) or actual_tokens != tokens:
+        raise ValueError(f"command_result for {effect['boundary']!r} changed its stable command tokens")
+    effect["argv"] = [
+        builder.value(item, d, env) for item in perform.positional_args[len(tokens) :]
+    ]
+
+    if payload.get("inputs_present", False):
+        effect["document"] = [
+            [name, builder.value(value, d, env)]
+            for name, value in payload.get("adapter_inputs", ())
+        ]
 
 
 def _command_transport_plan(plan, builder, d, env):

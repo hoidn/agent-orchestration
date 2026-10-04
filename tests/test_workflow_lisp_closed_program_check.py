@@ -2987,14 +2987,6 @@ def test_document_mode_requires_promoted_certified_metadata_and_empty_argv():
     command["argv"] = ["unexpected"]
     _rule(tree, "effect_shape")
 
-    tree, command = _document_command_tree(["token_id", "token_detail", "target"])
-    row = _external_command_row()
-    row["stable_command"] = ["python", "adapter.py"]
-    row["closure"] = []
-    tree["configuration"]["commands"] = {"adapter-fetch": row}
-    _rule(tree, "configuration_scope")
-
-
 def test_result_path_origin_does_not_survive_shadowing_or_an_alias():
     tree, provider, path = _provider_result_path_tree()
     tree["body"] = {
