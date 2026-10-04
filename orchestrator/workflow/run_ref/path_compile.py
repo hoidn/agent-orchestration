@@ -432,13 +432,22 @@ def _require_path_compiler_identity(step_config):
 
 def _path_compile_evidence(materialized_source, step_config, local_compiler_identity,
                            program_identity, signature, effect_facts, diagnostics):
+    return _recorded_path_compile_evidence(step_config, local_compiler_identity,
+        program_identity, signature, effect_facts, diagnostics,
+        repository_revision_digest=materialized_source.repository_revision_id.digest,
+        verified_git_tree=materialized_source.verified_git_tree.value)
+
+
+def _recorded_path_compile_evidence(step_config, local_compiler_identity,
+                                  program_identity, signature, effect_facts, diagnostics,
+                                  *, repository_revision_digest, verified_git_tree):
     program = step_config.run_ref.program
     input_facts = signature["inputs"]
     return_fact = signature["return"]
     evidence_components = {
         "schema_version": PATH_COMPILE_EVIDENCE_SCHEMA,
-        "repository_revision_digest": materialized_source.repository_revision_id.digest,
-        "verified_git_tree": materialized_source.verified_git_tree.value,
+        "repository_revision_digest": repository_revision_digest,
+        "verified_git_tree": verified_git_tree,
         "step_config_digest": step_config.step_config_digest,
         "compiler_runtime_identity_digest": local_compiler_identity,
         "program_identity_digest": program_identity["digest"],

@@ -16,7 +16,8 @@ from orchestrator.workflow_lisp.syntax import target_dsl_uses_evaluated_executio
 from .contracts import canonical_json_bytes, canonical_sha256
 from .path_compile import (
     _compile_refusal, _effect_summary_facts, _path_compile_evidence,
-    _refuse, _require_program_file, _signature_mismatch_causes, _validate_path_compile_authority,
+    _recorded_path_compile_evidence, _refuse, _require_program_file,
+    _signature_mismatch_causes, _validate_path_compile_authority,
 )
 
 
@@ -112,6 +113,14 @@ def _closed_identity(program, compiler_identity):
 
 
 def validate_closed_path_facts(facts, *, program, materialized_source, step_config):
+    """Project live preparation authority to the same recorded facts validator."""
+    return validate_recorded_closed_path_facts(facts, program=program, step_config=step_config,
+        repository_revision_digest=materialized_source.repository_revision_id.digest,
+        verified_git_tree=materialized_source.verified_git_tree.value)
+
+
+def validate_recorded_closed_path_facts(facts, *, program, step_config,
+                                        repository_revision_digest, verified_git_tree):
     """Validate exact v2 facts against checked artifact and recorded static authority."""
     from .child import _validate_compile_diagnostic_row
 
@@ -131,8 +140,8 @@ def validate_closed_path_facts(facts, *, program, materialized_source, step_conf
             raise ValueError("closed child effects are not empty")
         compiler = step_config.run_ref.compiler_runtime_identity_digest
         identity = _closed_identity(program, compiler)
-        evidence = _path_compile_evidence(materialized_source, step_config, compiler,
-                                          identity, signature, effects, diagnostics)
+        evidence = _recorded_path_compile_evidence(step_config, compiler, identity, signature, effects, diagnostics,
+            repository_revision_digest=repository_revision_digest, verified_git_tree=verified_git_tree)
         expected = {"diagnostics": diagnostics, "program_identity": identity, "signature": signature,
                     "effect_facts": effects, "evidence": evidence}
         if canonical_json_bytes(facts) != canonical_json_bytes(expected):

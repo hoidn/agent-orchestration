@@ -171,12 +171,22 @@ def _read_file(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
 
 
 def _read_header_json(path: Path, run_files: WorkspaceFiles | None = None) -> Any:
+    try:
+        payload = _read_file(path, run_files)
+    except FileNotFoundError:
+        raise
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise RunAuthorityError(f"invalid run header: {exc}") from exc
+    return _decode_header_json(payload)
+
+
+def _decode_header_json(payload: bytes) -> Any:
     def reject_constant(value: str) -> None:
         raise ValueError(f"non-finite JSON constant {value}")
 
     try:
         value = json.loads(
-            _read_file(path, run_files).decode("utf-8"),
+            payload.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=reject_constant,
         )
@@ -319,8 +329,18 @@ def _validate_header_metadata(run_root: Path, header: Mapping[str, Any]) -> None
 
 def _checked_authority(run_root: Path, header: dict[str, Any], run_files: WorkspaceFiles | None = None) -> RunAuthority:
     try:
+        payload = _read_file(run_root / PROGRAM_FILENAME, run_files)
+    except (OSError, UnicodeError, TypeError, ValueError) as exc:
+        if isinstance(exc, RunAuthorityError):
+            raise
+        raise RunAuthorityError(f"invalid evaluated authority: {exc}") from exc
+    return _checked_authority_bytes(run_root, header, payload, run_files)
+
+
+def _checked_authority_bytes(run_root, header, program_bytes, run_files=None):
+    try:
         program = ClosedProgram.from_artifact(
-            _read_file(run_root / PROGRAM_FILENAME, run_files).decode("utf-8")
+            program_bytes.decode("utf-8")
         )
         _validate_program_binding(program, header)
         if not _has_command_transport(program):
@@ -335,6 +355,17 @@ def _checked_authority(run_root: Path, header: dict[str, Any], run_files: Worksp
             raise
         raise RunAuthorityError(f"invalid evaluated authority: {exc}") from exc
     return RunAuthority(run_root, header, program, run_files)
+
+
+def load_run_authority_from_bytes(run_root: Path, *, header_bytes: bytes, program_bytes: bytes) -> RunAuthority:
+    """Check captured authority using the same validators as path/FD loaders."""
+    run_root = Path(run_root)
+    header = _validate_header_shape(_decode_header_json(header_bytes))
+    try:
+        _validate_header_metadata(run_root, header)
+    except (TypeError, ValueError) as exc:
+        raise RunAuthorityError(f"invalid evaluated run header: {exc}") from exc
+    return _checked_authority_bytes(run_root, header, program_bytes)
 
 
 def load_run_header(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:

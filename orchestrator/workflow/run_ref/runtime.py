@@ -2148,16 +2148,7 @@ def _child_result_document(
                 "run_ref_child_result_invalid",
                 "child_result_shape_invalid",
             )
-        if (
-            result["schema_version"] != "run_ref_path_child_result.v1"
-            or result["step_config_digest"]
-            != request.step_config.step_config_digest
-            or not isinstance(result["path_compile"], Mapping)
-        ):
-            raise RunRefRuntimeError(
-                "run_ref_child_result_invalid",
-                "child_result_binding_invalid",
-            )
+        _validate_path_child_result_binding(request, launch, result)
     if (
         result.get("status") != "completed"
         or result.get("child_run_id") != launch.child_run_id
@@ -2171,6 +2162,67 @@ def _child_result_document(
     return result
 
 
+def _validate_path_child_result_binding(request, launch, result):
+    from .evaluated_child import RESULT_SCHEMA
+    from .launch_authority import PATH_REQUEST_V2
+
+    schema = result["schema_version"]
+    if (schema not in ("run_ref_path_child_result.v1", RESULT_SCHEMA)
+        or result["step_config_digest"] != request.step_config.step_config_digest
+        or not isinstance(result["path_compile"], Mapping)):
+        raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_binding_invalid")
+    if schema == RESULT_SCHEMA:
+        version, _keys = _durable_path_request_version(request, launch.request_document)
+        if version != PATH_REQUEST_V2 or launch.request_document.get("schema_version") != PATH_REQUEST_V2:
+            raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_binding_invalid")
+    else:
+        identity = result["path_compile"].get("program_identity", {})
+        if not isinstance(identity, Mapping) or identity.get("schema_version") == "run_ref_closed_program_identity.v1":
+            raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_binding_invalid")
+
+
+def _child_terminal_authority(request, *, child_request, child_result, workspace, child_run_id,
+                               repository_revision_digest, verified_git_tree):
+    from .evaluated_child import RESULT_SCHEMA, validate_evaluated_child_terminal
+
+    if child_result["schema_version"] != RESULT_SCHEMA:
+        _state, path, digest = _child_terminal_state(workspace=workspace, child_run_id=child_run_id,
+                                                    workflow_outputs=child_result["workflow_outputs"])
+        return None, path, digest
+    try:
+        return validate_evaluated_child_terminal(workspace=workspace, child_run_id=child_run_id,
+            child_request=child_request, child_result=child_result, step_config=request.step_config,
+            repository_revision_digest=repository_revision_digest, verified_git_tree=verified_git_tree)
+    except (OSError, UnicodeError, KeyError, TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_child_result_invalid", "evaluated_child_authority_invalid") from exc
+
+
+def _capture_legacy_child_state(workspace, child_run_id):
+    root = workspace / ".orchestrate" / "runs" / child_run_id
+    files = WorkspaceFiles(root)
+    try:
+        if not run_root_matches_fd(root, files.root_fd):
+            raise ValueError("legacy child root and descriptor disagree")
+        if any(files.exists(root / name) for name in ("run.json", "closed_program.json", "memo.jsonl")):
+            raise ValueError("legacy result cannot use evaluated child authority")
+        payload = files.read(root / "state.json")
+        if not run_root_matches_fd(root, files.root_fd):
+            raise ValueError("legacy child root changed during state capture")
+        return payload
+    except ValueError as exc:
+        raise RunRefRuntimeError("run_ref_child_result_invalid", "child_result_profile_invalid") from exc
+    finally:
+        files.close()
+
+
+def _child_result_value(child_result, value_descriptor, workspace, checked_closed_value):
+    from .evaluated_child import RESULT_SCHEMA
+
+    if child_result["schema_version"] == RESULT_SCHEMA:
+        return checked_closed_value
+    return extract_run_ref_value(child_result["workflow_outputs"], value_descriptor, workspace=workspace)
+
+
 def _child_terminal_state(
     *,
     workspace: Path,
@@ -2179,7 +2231,7 @@ def _child_terminal_state(
 ) -> tuple[dict[str, Any], Path, str]:
     path = workspace / ".orchestrate" / "runs" / child_run_id / "state.json"
     try:
-        payload = path.read_bytes()
+        payload = _capture_legacy_child_state(workspace, child_run_id)
     except OSError as exc:
         raise RunRefRuntimeError(
             "run_ref_child_result_invalid",
@@ -2634,10 +2686,12 @@ def drive_run_ref_lifecycle(
             launch=launch,
             process=process,
         )
-        _, child_state_path, child_state_digest = _child_terminal_state(
+        checked_closed_value, child_state_path, child_state_digest = _child_terminal_authority(request,
+            child_request=child_request, child_result=child_result,
             workspace=workspace,
             child_run_id=bindings.child_run_id,
-            workflow_outputs=child_result["workflow_outputs"],
+            repository_revision_digest=materialized.repository_revision_id.digest,
+            verified_git_tree=bindings.verified_git_tree_id,
         )
         child_result_path = attempt_root / _CHILD_RESULT_FILENAME
         _write_canonical_document(child_result_path, child_result)
@@ -2658,11 +2712,7 @@ def drive_run_ref_lifecycle(
         value_descriptor = request.step_config.run_ref.result_descriptor[
             "envelope"
         ]["fields"][0]["type"]
-        value = extract_run_ref_value(
-            child_result["workflow_outputs"],
-            value_descriptor,
-            workspace=workspace,
-        )
+        value = _child_result_value(child_result, value_descriptor, workspace, checked_closed_value)
         declared_artifacts = declared_artifacts_from_value(value, value_descriptor)
         delta = build_workspace_delta(
             base=materialized.repository_revision_id,
@@ -2877,6 +2927,31 @@ def _repository_revision(request: RunRefRuntimeRequest) -> RepositoryRevisionId:
     )
 
 
+def _validate_durable_child_inputs(request, inputs, workspace, *, checked_v2):
+    if checked_v2:
+        from .evaluated_child import _pure_input_value
+        try:
+            for item in request.step_config.run_ref.inputs:
+                _pure_input_value(inputs[item.name], item.type_descriptor)
+        except (TypeError, ValueError) as exc:
+            raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_inputs_invalid") from exc
+        return
+    canonical = {item.name: _coerce_transport_value(inputs[item.name], item.type_descriptor,
+        parent_workspace=workspace, child_workspace=workspace, input_name=item.name, copy_paths=False)
+        for item in request.step_config.run_ref.inputs}
+    if canonical != dict(inputs):
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_inputs_invalid")
+
+
+def _validate_durable_recorded_source(request, row, document):
+    from .evaluated_child import _validate_recorded_source
+
+    try:
+        _validate_recorded_source(document, _repository_revision(request).digest, row.bindings.verified_git_tree_id)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "child_request_binding_invalid") from exc
+
+
 def _validate_child_request_document(
     request: RunRefRuntimeRequest,
     *,
@@ -2961,21 +3036,10 @@ def _validate_child_request_document(
             "run_ref_evidence_invalid",
             "child_request_binding_invalid",
         )
-    canonical_inputs: dict[str, Any] = {}
-    for input_row in request.step_config.run_ref.inputs:
-        canonical_inputs[input_row.name] = _coerce_transport_value(
-            inputs[input_row.name],
-            input_row.type_descriptor,
-            parent_workspace=workspace,
-            child_workspace=workspace,
-            input_name=input_row.name,
-            copy_paths=False,
-        )
-    if canonical_inputs != dict(inputs):
-        raise RunRefRuntimeError(
-            "run_ref_evidence_invalid",
-            "child_request_inputs_invalid",
-        )
+    checked_v2 = document["schema_version"] == "run_ref_path_child_request.v2"
+    _validate_durable_child_inputs(request, inputs, workspace, checked_v2=checked_v2)
+    if checked_v2:
+        _validate_durable_recorded_source(request, row, document)
     return mode, dict(document)
 
 
@@ -3099,10 +3163,12 @@ def _validate_bound_authority(
             "run_ref_evidence_invalid",
             "result_payload_digest_invalid",
         )
-    _, child_state_path, child_state_digest = _child_terminal_state(
+    checked_closed_value, child_state_path, child_state_digest = _child_terminal_authority(request,
+        child_request=request_document, child_result=child_result,
         workspace=row.bindings.workspace_path,
         child_run_id=row.bindings.child_run_id,
-        workflow_outputs=child_result["workflow_outputs"],
+        repository_revision_digest=_repository_revision(request).digest,
+        verified_git_tree=row.bindings.verified_git_tree_id,
     )
     if child_state_digest != row.bindings.child_terminal_state_digest:
         raise RunRefRuntimeError(
@@ -3125,11 +3191,7 @@ def _validate_bound_authority(
     value_descriptor = request.step_config.run_ref.result_descriptor[
         "envelope"
     ]["fields"][0]["type"]
-    value = extract_run_ref_value(
-        child_result["workflow_outputs"],
-        value_descriptor,
-        workspace=row.bindings.workspace_path,
-    )
+    value = _child_result_value(child_result, value_descriptor, row.bindings.workspace_path, checked_closed_value)
     declared_artifacts = declared_artifacts_from_value(value, value_descriptor)
     delta_record = _read_canonical_document(delta_path, label="workspace_delta")
     if not isinstance(delta_record, Mapping):
