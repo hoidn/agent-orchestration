@@ -164,7 +164,12 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
             raise _ResumeRefusal("evaluated_execution_unavailable", "force restart is unavailable for evaluated execution")
         if run_ref_root is not None:
             from orchestrator.cli.run_ref_root import resolve_run_ref_root
-            resolve_run_ref_root(run_ref_root)
+            selected_root = resolve_run_ref_root(run_ref_root).as_posix()
+            if selected_root != header.get("run_ref_root", selected_root):
+                raise _ResumeRefusal(
+                    "resume_run_ref_root_changed",
+                    "explicit run-reference root differs from the run header",
+                )
         recipe = header["resume_request"]
         request = _resume_build_request(header, workspace, run_files)
         fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
@@ -237,6 +242,7 @@ def run_evaluated_workflow(
                 workflow_checksum="sha256:" + hashlib.sha256(source_bytes).hexdigest(),
                 bound_inputs=bound_inputs,
                 resume_request=resume_request,
+                run_ref_root=getattr(args, "run_ref_root", None),
                 run_files=run_files,
             ) as authority:
                 exit_code, value = execute_pure_run(

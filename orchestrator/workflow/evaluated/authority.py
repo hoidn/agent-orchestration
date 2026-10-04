@@ -91,6 +91,15 @@ def _validate_locator(value: object) -> None:
         raise RunAuthorityError("process descriptor paths are not durable locators")
 
 
+def _validate_run_ref_root(value: object) -> None:
+    if not isinstance(value, str) or not PurePosixPath(value).is_absolute():
+        raise RunAuthorityError("run-reference root is not an absolute locator")
+    _validate_locator(value)
+    path = PurePosixPath(value)
+    if ".." in path.parts or value == "/dev/fd" or value.startswith("/dev/fd/"):
+        raise RunAuthorityError("run-reference root is not a durable canonical path")
+
+
 def _validate_json_value(value: Any) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -193,7 +202,10 @@ def _validate_header_shape(value: object) -> dict[str, Any]:
         raise RunAuthorityError(
             "run header contains a non-finite or non-JSON value"
         ) from exc
-    if not isinstance(value, dict) or set(value) not in (_HEADER_FIELDS, _HEADER_FIELDS | {"resume_request"}):
+    if not isinstance(value, dict):
+        raise RunAuthorityError("run header has missing or unknown fields")
+    fields = set(value)
+    if not _HEADER_FIELDS <= fields or fields - (_HEADER_FIELDS | {"resume_request", "run_ref_root"}):
         raise RunAuthorityError("run header has missing or unknown fields")
     if value.get("schema_version") != SCHEMA_VERSION:
         raise RunAuthorityError("unsupported evaluated run schema")
@@ -202,6 +214,8 @@ def _validate_header_shape(value: object) -> dict[str, Any]:
     if "resume_request" in value:
         validate_resume_request(value["resume_request"])
         _validate_locator(value["workflow_file"])
+    if "run_ref_root" in value:
+        _validate_run_ref_root(value["run_ref_root"])
     return value
 
 
@@ -383,6 +397,7 @@ def _header(
     bound_inputs: Mapping[str, Any],
     interpreters: Mapping[str, Mapping[str, str]],
     resume_request: Mapping[str, Any],
+    run_ref_root: str,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -397,6 +412,7 @@ def _header(
         "representation": REPRESENTATION,
         "interpreters": dict(interpreters),
         "resume_request": dict(resume_request),
+        "run_ref_root": run_ref_root,
     }
 
 
@@ -410,9 +426,14 @@ def publish_run_authority(
     workflow_checksum: str,
     bound_inputs: Mapping[str, Any],
     resume_request: Mapping[str, Any],
+    run_ref_root: str | None = None,
     run_files: WorkspaceFiles | None = None,
 ) -> Iterator[RunAuthority]:
     """Publish the checked program, header and empty memo under the run lock."""
+    from orchestrator.cli.run_ref_root import resolve_run_ref_root
+
+    effective_run_ref_root = resolve_run_ref_root(run_ref_root).as_posix()
+    _validate_run_ref_root(effective_run_ref_root)
     validate_resume_request(resume_request)
     _validate_locator(workflow_file)
     run_root = Path(run_root)
@@ -437,6 +458,7 @@ def publish_run_authority(
             bound_inputs=bound_inputs,
             interpreters=interpreters,
             resume_request=resume_request,
+            run_ref_root=effective_run_ref_root,
         )
         _require_retained_root(physical)
         physical.write_atomic(HEADER_FILENAME, canonical_json_bytes(header))
