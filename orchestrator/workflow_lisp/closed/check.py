@@ -39,6 +39,7 @@ from orchestrator.workflow.type_descriptor import (
     compiled_boundary_rows,
     command_boundary_row,
     normalize_boundary_contract_definition,
+    is_transportable_type_descriptor,
     transport_schema_for_descriptor,
     validate_compiler_normalized_type_descriptor,
 )
@@ -591,10 +592,10 @@ class _Checker:
             return [row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else []
         return []
 
-    def _check_document_argv(self, node):
+    def _check_document_argv(self, node, owner):
         if node.get("class") == "command" and "document" in node:
-            if not isinstance(node.get("argv"), list) or node["argv"]:
-                self.fail("effect_shape", "document invocation must carry an empty argv array", node)
+            scope = self._scope_for(self.definitions[owner]) if owner in self.definitions else self.root_configuration
+            self._check_command_operand_argv(node, scope)
 
     def _scan_identity_edges(self) -> None:
         """Enumerate declared AST edges, excluding payloads and literal data."""
@@ -608,7 +609,7 @@ class _Checker:
         self.call_edges[entry] = []
 
         def scan_effect(node: Mapping[str, Any], owner: str) -> None:
-            self._check_document_argv(node)
+            self._check_document_argv(node, owner)
             for child in self._effect_children(node):
                 scan_value(child, owner)
 
@@ -878,42 +879,7 @@ class _Checker:
                 if effect_class == "run_ref":
                     continue
                 if effect_class == "command":
-                    boundary = node.get("boundary")
-                    row = scope["commands"].get(boundary) if isinstance(scope["commands"], Mapping) else None
-                    if not isinstance(row, Mapping):
-                        self.fail("configuration_scope", f"command boundary {boundary!r} is missing from {owner!r} configuration", node)
-                    if not isinstance(row.get("kind"), str) or row["kind"] not in {"external_tool", "certified_adapter"}:
-                        self.fail("configuration_scope", "command effect selects an invalid binding kind", node)
-                    stable = row.get("stable_command")
-                    if not isinstance(stable, list) or not stable or any(not isinstance(token, str) or not token for token in stable):
-                        self.fail("configuration_scope", "command configuration omits its canonical stable tokens", node)
-                    if not self._same(node.get("command"), stable):
-                        self.fail("configuration_scope", "command stable tokens differ from its configuration binding", node)
-                    configured_closure = row.get("closure")
-                    if not isinstance(configured_closure, list):
-                        self.fail("configuration_scope", "command configuration omits its normalized closure", node)
-                    if not self._same(node.get("closure"), configured_closure):
-                        self.fail("configuration_scope", "command closure differs from its configuration binding", node)
-                    must_not_repeat = row["must_not_repeat"]
-                    if must_not_repeat and node.get("repeat") != "never":
-                        self.fail("configuration_scope", "command repeat rule differs from its configuration binding", node)
-                    if not must_not_repeat and node.get("repeat") != "rerun":
-                        self.fail("configuration_scope", "command repeat rule differs from its configuration binding", node)
-                    if "document" in node:
-                        if row["kind"] != "certified_adapter":
-                            self.fail("configuration_scope", "document invocation requires a certified adapter binding", node)
-                        promoted = row["declared_promoted_fields"]
-                        supports_promoted = (
-                            _PROMOTED_METADATA_FIELDS.issubset(promoted)
-                            and bool(row["behavior_class"])
-                            and bool(row["input_signature"])
-                            and bool(row["owner_module"])
-                            and row["invocation_protocol"] == "json_object_positional_arg"
-                        )
-                        if not supports_promoted:
-                            self.fail("configuration_scope", "certified binding does not declare promoted document metadata", node)
-                        if not self._document_keys_match_signature(row["input_signature"], node["document"]):
-                            self.fail("configuration_scope", "command document keys differ from the selected signature rows", node)
+                    self._check_command_configuration(node, scope, owner)
                     continue
                 if effect_class == "provider":
                     providers = scope["providers"]
@@ -2016,6 +1982,55 @@ class _Checker:
                 or promoted != sorted(set(promoted))
             ):
                 self.fail("configuration_scope", "certified command promoted fields are not canonical")
+
+    def _check_command_configuration(self, node, scope, owner):
+        boundary = node.get("boundary")
+        row = scope["commands"].get(boundary) if isinstance(scope["commands"], Mapping) else None
+        if not isinstance(row, Mapping):
+            self.fail("configuration_scope", f"command boundary {boundary!r} is missing from {owner!r} configuration", node)
+        if not isinstance(row.get("kind"), str) or row["kind"] not in {"external_tool", "certified_adapter"}:
+            self.fail("configuration_scope", "command effect selects an invalid binding kind", node)
+        stable = self._command_configuration_stable_tokens(row, node)
+        self._check_command_configuration_identity(node, row, stable)
+        if "document" in node:
+            if row["kind"] == "certified_adapter":
+                self._check_certified_document_configuration(node, row)
+            else:
+                self._check_external_document_keys(node)
+
+    def _command_configuration_stable_tokens(self, row, node):
+        stable = row.get("stable_command")
+        if not isinstance(stable, list) or not stable or any(not isinstance(token, str) or not token for token in stable):
+            self.fail("configuration_scope", "command configuration omits its canonical stable tokens", node)
+        return stable
+
+    def _check_command_configuration_identity(self, node, row, stable):
+        if not self._same(node.get("command"), stable):
+            self.fail("configuration_scope", "command stable tokens differ from its configuration binding", node)
+        configured_closure = row.get("closure")
+        if not isinstance(configured_closure, list):
+            self.fail("configuration_scope", "command configuration omits its normalized closure", node)
+        if not self._same(node.get("closure"), configured_closure):
+            self.fail("configuration_scope", "command closure differs from its configuration binding", node)
+        expected_repeat = "never" if row["must_not_repeat"] else "rerun"
+        if node.get("repeat") != expected_repeat:
+            self.fail("configuration_scope", "command repeat rule differs from its configuration binding", node)
+
+    def _check_certified_document_configuration(self, node, row):
+        if node["argv"]:
+            self.fail("effect_shape", "certified document invocation must carry an empty argv array", node)
+        promoted = row["declared_promoted_fields"]
+        supports_promoted = (
+            _PROMOTED_METADATA_FIELDS.issubset(promoted)
+            and bool(row["behavior_class"])
+            and bool(row["input_signature"])
+            and bool(row["owner_module"])
+            and row["invocation_protocol"] == "json_object_positional_arg"
+        )
+        if not supports_promoted:
+            self.fail("configuration_scope", "certified binding does not declare promoted document metadata", node)
+        if not self._document_keys_match_signature(row["input_signature"], node["document"]):
+            self.fail("configuration_scope", "command document keys differ from the selected signature rows", node)
 
     def _document_keys_match_signature(self, signature: list[Any], document: list[Any]) -> bool:
         """Check the ordered projection of selected signature names, preserving duplicate rows."""
@@ -4233,6 +4248,77 @@ class _Checker:
         actual = self._value(part["value"], env, allow_effect=False, **value_context)
         self._require_type(actual, {"kind": "primitive", "name": "Int"}, "command_index", node)
 
+    def _check_command_effect_shape(self, node):
+        if set(node) - {"k", "class", "result", "repeat", "site", "@", "boundary", "command", "closure", "contract", "argv", "document", "argv_transport"}:
+            self.fail("effect_shape", "command effect has class-inappropriate fields", node)
+        if not {"boundary", "command", "closure", "contract", "repeat"}.issubset(node):
+            self.fail("effect_shape", "command effect is missing a required field", node)
+        if not isinstance(node.get("repeat"), str) or node["repeat"] not in {"rerun", "never"}:
+            self.fail("effect_repeat", "command repeat must be rerun or never", node)
+        if not isinstance(node.get("command"), list) or not node["command"] or any(not isinstance(token, str) or not token for token in node["command"]):
+            self.fail("effect_shape", "command stable tokens must be a nonempty string array", node)
+
+    def _check_command_closure(self, node):
+        closure = node.get("closure")
+        if not isinstance(closure, list):
+            self.fail("command_closure", "command closure must be a canonical array", node)
+        canonical_closure = [self._checked_command_closure_row(row, node) for row in closure]
+        if canonical_closure != sorted(set(canonical_closure)):
+            self.fail("command_closure", "command closure rows must be unique and canonically ordered", node)
+
+    def _checked_command_closure_row(self, row, node):
+        if not isinstance(row, Mapping) or set(row) != {"base", "path"}:
+            self.fail("command_closure", "command closure row must contain base and path", node)
+        if not isinstance(row["base"], str) or row["base"] not in {"workspace", "absolute", "package:orchestrator"} or not isinstance(row["path"], str) or not row["path"] or "\x00" in row["path"]:
+            self.fail("command_closure", "command closure row has an invalid base or path", node)
+        return self._canonical(row)
+
+    def _check_command_contract(self, node):
+        if not isinstance(node.get("boundary"), str) or not node["boundary"]:
+            self.fail("effect_shape", "command boundary must be a nonempty string", node)
+        if not isinstance(node.get("contract"), Mapping) or set(node["contract"]) != {"kind", "payload"} or not isinstance(node["contract"]["kind"], str) or not isinstance(node["contract"]["payload"], Mapping):
+            self.fail("effect_contract", "command output contract is malformed", node)
+        self._check_effect_result_contract(node)
+
+    def _check_command_effect_node(self, node, env, **value_context):
+        self._check_command_effect_shape(node)
+        self._check_command_closure(node)
+        self._check_command_contract(node)
+        self._check_command_operand_argv(node, value_context["scope"])
+        for value in node["argv"]:
+            self._value(value, env, allow_effect=False, **value_context)
+        if "document" in node:
+            self._check_command_document_values(node, env, **value_context)
+        if "argv_transport" in node:
+            self._check_command_transport(node, env, **value_context)
+
+    def _check_command_operand_argv(self, node, scope):
+        if not isinstance(node.get("argv"), list):
+            self.fail("effect_shape", "command invocation requires an argv array", node)
+        boundary = node.get("boundary")
+        row = scope["commands"].get(boundary, {}) if isinstance(boundary, str) else {}
+        if "document" in node and row.get("kind") == "certified_adapter" and node["argv"]:
+            self.fail("effect_shape", "certified document invocation must carry an empty argv array", node)
+
+    def _check_command_document_values(self, node, env, **value_context):
+        rows = node["document"]
+        if not isinstance(rows, list):
+            self.fail("effect_shape", "command document must be an array", node)
+        for row in rows:
+            if not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], str):
+                self.fail("effect_shape", "command document row is malformed", node)
+            actual = self._value(row[1], env, allow_effect=False, **value_context)
+            if not is_transportable_type_descriptor(actual, allow_nested_structures=True):
+                self.fail("type_mismatch", "command document value is not transportable", node)
+
+    def _check_external_document_keys(self, node):
+        names = set()
+        for row in node["document"]:
+            name = row[0]
+            if not name or name in names:
+                self.fail("effect_shape", "external command document keys must be nonempty and unique", node)
+            names.add(name)
+
     def _check_effect_node(
         self,
         node: Mapping[str, Any],
@@ -4247,49 +4333,9 @@ class _Checker:
     ) -> None:
         effect_class = node.get("class")
         if effect_class == "command":
-            if set(node) - {"k", "class", "result", "repeat", "site", "@", "boundary", "command", "closure", "contract", "argv", "document", "argv_transport"}:
-                self.fail("effect_shape", "command effect has class-inappropriate fields", node)
-            if not {"boundary", "command", "closure", "contract", "repeat"}.issubset(node):
-                self.fail("effect_shape", "command effect is missing a required field", node)
-            if not isinstance(node.get("repeat"), str) or node["repeat"] not in {"rerun", "never"}:
-                self.fail("effect_repeat", "command repeat must be rerun or never", node)
-            if not isinstance(node.get("command"), list) or not node["command"] or any(not isinstance(token, str) or not token for token in node["command"]):
-                self.fail("effect_shape", "command stable tokens must be a nonempty string array", node)
-            closure = node.get("closure")
-            if not isinstance(closure, list):
-                self.fail("command_closure", "command closure must be a canonical array", node)
-            canonical_closure: list[str] = []
-            for row in closure:
-                if not isinstance(row, Mapping) or set(row) != {"base", "path"}:
-                    self.fail("command_closure", "command closure row must contain base and path", node)
-                if not isinstance(row["base"], str) or row["base"] not in {"workspace", "absolute", "package:orchestrator"} or not isinstance(row["path"], str) or not row["path"] or "\x00" in row["path"]:
-                    self.fail("command_closure", "command closure row has an invalid base or path", node)
-                canonical_closure.append(self._canonical(row))
-            if canonical_closure != sorted(set(canonical_closure)):
-                self.fail("command_closure", "command closure rows must be unique and canonically ordered", node)
-            if not isinstance(node.get("boundary"), str) or not node["boundary"]:
-                self.fail("effect_shape", "command boundary must be a nonempty string", node)
-            if not isinstance(node.get("contract"), Mapping) or set(node["contract"]) != {"kind", "payload"} or not isinstance(node["contract"]["kind"], str) or not isinstance(node["contract"]["payload"], Mapping):
-                self.fail("effect_contract", "command output contract is malformed", node)
-            self._check_effect_result_contract(node)
-            if "document" in node:
-                self._check_document_argv(node)
-                rows = node["document"]
-                if not isinstance(rows, list):
-                    self.fail("effect_shape", "command document must be an array", node)
-                for row in rows:
-                    if not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], str):
-                        self.fail("effect_shape", "command document row is malformed", node)
-                    self._value(row[1], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
-            elif isinstance(node.get("argv"), list):
-                for value in node["argv"]:
-                    self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
-            else:
-                self.fail("effect_shape", "raw command invocation requires argv and cannot carry document", node)
-            if "argv_transport" in node:
-                self._check_command_transport(node, env, owner=owner, loops=loops,
-                    scope=scope, provider_origins=provider_origins,
-                    command_roots=command_roots, command_index=command_index)
+            self._check_command_effect_node(node, env, owner=owner, loops=loops,
+                scope=scope, provider_origins=provider_origins,
+                command_roots=command_roots, command_index=command_index)
             return
         if effect_class == "provider":
             if set(node) - {"k", "class", "result", "repeat", "site", "@", "provider", "prompt", "inputs", "dependencies", "policy", "contract"}:

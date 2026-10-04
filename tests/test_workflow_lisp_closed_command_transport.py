@@ -195,7 +195,7 @@ def test_input_union_slot_keeps_whole_root_without_universal_field(tmp_path):
     assert closed.tree["command_params"] == [["choice", 0]]
 
 
-def test_command_relations_visit_argv_then_slots_then_document_even_before_shape_rejection(tmp_path):
+def test_command_relations_visit_argv_then_slots_then_external_document(tmp_path):
     from copy import deepcopy
     from orchestrator.workflow_lisp.closed.check import _Checker
     from orchestrator.workflow_lisp.closed.sites import _effect_value_children
@@ -204,8 +204,8 @@ def test_command_relations_visit_argv_then_slots_then_document_even_before_shape
     closed = build_closed_program(program)
     command = deepcopy(_commands(closed.tree)[0])
     slot = command["argv_transport"][0]["parts"][0]["value"]
-    # Combined documents and argv are deliberately malformed. Traversals still
-    # inspect every value edge in the specified order before shape validation.
+    # External documents share the ordered value walk with argv and slots.
+    # The traversal exposes every lane independently of its binding kind.
     document = deepcopy(command["argv"][0])
     command["document"] = [["value", document]]
     expected = [*command["argv"], slot, document]
