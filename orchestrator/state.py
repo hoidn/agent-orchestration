@@ -29,6 +29,7 @@ from ._common.safe_tree import hash_regular_file
 
 
 StateStatus = Literal["running", "suspended", "completed", "failed"]
+EvaluatedStateStatus = Literal["running", "settling", "interrupted", "completed", "failed"]
 StepStatus = Literal["pending", "running", "completed", "failed", "skipped"]
 
 
@@ -94,18 +95,20 @@ class RunState:
     workflow_checksum: str
     started_at: str
     updated_at: str
-    status: StateStatus
+    status: StateStatus | EvaluatedStateStatus
     result_persistence_profile: Optional[str] = None
     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
     run_ref_root: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     bound_inputs: Dict[str, Any] = field(default_factory=dict)
-    workflow_outputs: Dict[str, Any] = field(default_factory=dict)
+    workflow_outputs: Any = field(default_factory=dict)
     finalization: Dict[str, Any] = field(default_factory=dict)
     error: Optional[Dict[str, Any]] = None
     observability: Optional[Dict[str, Any]] = None
     runtime_observability: Optional[Dict[str, Any]] = None
     current_step: Optional[Dict[str, Any]] = None
+    memo_offset: Optional[int] = None
+    next_effect: Optional[str] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
     repeat_until: Dict[str, Any] = field(default_factory=dict)
@@ -123,12 +126,28 @@ class RunState:
     def __post_init__(self) -> None:
         if self.result_persistence_profile is None:
             return
+        from .workflow.evaluated.authority import PROFILE, SCHEMA_VERSION
+        if self.result_persistence_profile == PROFILE:
+            if self.schema_version != SCHEMA_VERSION:
+                raise ValueError("evaluated state schema is unsupported")
+            if self.status not in {"running", "settling", "interrupted", "completed", "failed"}:
+                raise ValueError("evaluated state status is unsupported")
+            if type(self.memo_offset) is not int or self.memo_offset < 0:
+                raise ValueError("evaluated memo offset is invalid")
+            return
         from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
 
         if self.result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
             raise ValueError("result persistence profile is unsupported")
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the selected persistence profile."""
+        from .workflow.evaluated.authority import PROFILE
+        if self.result_persistence_profile == PROFILE:
+            return self._evaluated_dict()
+        return self._legacy_dict()
+
+    def _legacy_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization."""
         result: Dict[str, Any] = {
             "schema_version": self.schema_version,
@@ -199,8 +218,26 @@ class RunState:
 
         return result
 
+    def _evaluated_dict(self) -> Dict[str, Any]:
+        result = {key: getattr(self, key) for key in (
+            "schema_version", "result_persistence_profile", "run_id", "workflow_file",
+            "workflow_checksum", "started_at", "updated_at", "status", "bound_inputs",
+            "workflow_outputs", "error", "current_step", "next_effect", "memo_offset",
+        )}
+        result["steps"] = {name: value.to_dict() if isinstance(value, StepResult) else value
+                           for name, value in self.steps.items()}
+        return result
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RunState":
+        """Load the selected profile before legacy schema and status handling."""
+        from .workflow.evaluated.authority import PROFILE
+        if data.get("result_persistence_profile") == PROFILE:
+            return cls._from_evaluated_dict(data)
+        return cls._from_legacy_dict(data)
+
+    @classmethod
+    def _from_legacy_dict(cls, data: Dict[str, Any]) -> "RunState":
         """Create RunState from dict."""
         result_persistence_profile = data.get("result_persistence_profile")
         if "result_persistence_profile" in data:
@@ -286,6 +323,18 @@ class RunState:
             resume_diagnostics=deepcopy(resume_diagnostics),
             human_input=deepcopy(human_input),
         )
+
+    @classmethod
+    def _from_evaluated_dict(cls, data: Dict[str, Any]) -> "RunState":
+        required = {key: data[key] for key in (
+            "schema_version", "result_persistence_profile", "run_id", "workflow_file",
+            "workflow_checksum", "started_at", "updated_at", "status", "memo_offset",
+        )}
+        optional = {key: data.get(key) for key in (
+            "workflow_outputs", "error", "current_step", "next_effect",
+        )}
+        return cls(**required, **optional, bound_inputs=data.get("bound_inputs", {}),
+                   steps=data.get("steps", {}))
 
 
 def _apply_result_with_dataflow(
@@ -518,7 +567,12 @@ class StateManager:
 
     def _read_state_from_disk(self) -> RunState:
         """Read and validate state without changing the manager's current object."""
-
+        from .workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+        from .workflow.workspace_files import WorkspaceFiles
+        if has_evaluated_authority(self.io_run_root):
+            run_files = (WorkspaceFiles(self.run_root, root_fd=self._run_root_fd)
+                         if self._run_root_fd is not None else None)
+            return RunState.from_dict(load_evaluated_view(self.run_root, run_files=run_files))
         with open(self.state_file, "r", encoding="utf-8") as state_stream:
             payload = json.load(state_stream)
         if not isinstance(payload, dict):
@@ -747,13 +801,10 @@ class StateManager:
             json.JSONDecodeError: If state file is corrupted
         """
         with self._lock:
-            if not self.state_file.exists():
+            from .workflow.evaluated.views import has_evaluated_authority
+            if not has_evaluated_authority(self.io_run_root) and not self.state_file.exists():
                 raise FileNotFoundError(f"State file not found: {self.state_file}")
-
-            with open(self.state_file, 'r') as f:
-                data = json.load(f)
-
-            self.state = RunState.from_dict(data)
+            self.state = self._read_state_from_disk()
             return self.state
 
     def _write_state(self, *, run_root_fd: int | None = None):

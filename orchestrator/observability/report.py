@@ -644,6 +644,37 @@ def _append_trial_observability_markdown(
 
 
 def render_status_markdown(snapshot: Dict[str, Any]) -> str:
+    """Render the selected persistence profile without invented audit data."""
+    from orchestrator.workflow.evaluated.authority import PROFILE
+    if snapshot.get("run", {}).get("result_persistence_profile") == PROFILE:
+        return _render_evaluated_status_markdown(snapshot)
+    return _render_legacy_status_markdown(snapshot)
+
+
+def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
+    run = snapshot["run"]
+    lines = ["# Workflow Status", "", "## Run", _render_kv_lines(
+        (key, run.get(key)) for key in ("run_id", "status", "workflow_file", "started_at",
+                                       "updated_at", "memo_offset", "current_step", "next_effect")), ""]
+    if run.get("bound_inputs"):
+        lines.extend(["## Inputs", _render_kv_lines(sorted(run["bound_inputs"].items())), ""])
+    if run["status"] == "completed":
+        lines.extend(["## Outputs", "```json", json.dumps(run["workflow_outputs"], indent=2), "```", ""])
+    if run.get("error"):
+        lines.extend(["## Run Error", _render_kv_lines(run["error"].items()), ""])
+    lines.extend(["## Progress", _render_kv_lines(snapshot["progress"].items()), "", "## Steps"])
+    for step in snapshot["steps"]:
+        lines.extend([f"### {step['name']} ({step['status']})", _render_kv_lines(
+            (key, step.get(key)) for key in ("kind", "attempt", "result_path", "started_at", "completed_at"))])
+        if "value" in step:
+            lines.extend(["```json", json.dumps(step["value"], indent=2), "```"])
+        if step.get("error"):
+            lines.append(_render_kv_lines(step["error"].items()))
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _render_legacy_status_markdown(snapshot: Dict[str, Any]) -> str:
     """Render snapshot to a human-readable markdown report."""
     run = snapshot.get("run", {})
     progress = snapshot.get("progress", {})

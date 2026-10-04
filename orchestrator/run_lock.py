@@ -7,12 +7,44 @@ import errno
 import fcntl
 import os
 from pathlib import Path
+import stat
 import time
 from typing import Iterator
 
 from orchestrator.providers.omp_launch_fs import LaunchFsError, open_dir_no_follow
 
 _LOCK_OPEN_FLAGS = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
+
+
+def run_writer_active(run_root: Path, *, root_fd: int | None = None) -> bool:
+    """Probe the existing lock without creating files or closing borrowed FDs."""
+    descriptor = _open_root_no_follow(run_root) if root_fd is None else root_fd
+    try:
+        return _writer_active_at(descriptor)
+    finally:
+        if root_fd is None:
+            os.close(descriptor)
+
+
+def _writer_active_at(root_fd: int) -> bool:
+    try:
+        lock_fd = os.open("run.lock", os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+                          dir_fd=root_fd)
+    except FileNotFoundError:
+        return False
+    try:
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise OSError("run lock is not a regular file")
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                raise
+            return True
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(lock_fd)
 
 
 class RunAlreadyActiveError(RuntimeError):
