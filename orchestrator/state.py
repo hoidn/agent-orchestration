@@ -28,6 +28,96 @@ from ._common.io_atomic import (
 from ._common.safe_tree import hash_regular_file
 
 
+def select_run_profile(run_root: Path, *, run_files=None) -> str:
+    """Select stored authority read-only, before any writer or legacy projection.
+
+    Typed state is a derived cache; its absence/corruption does not override its
+    immutable header. Dynamic state is authoritative and must always validate.
+    """
+    from .contracts.output_contract import strict_json_loads
+    from .workflow.workspace_files import WorkspaceFiles
+    from .workflow.dynamic.state import DynamicStateError, PROFILE as DYNAMIC_PROFILE, load_dynamic_run
+    from .workflow.evaluated.authority import PROFILE as EVALUATED_PROFILE, RunAuthorityError
+    from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+
+    files = run_files
+    own = files is None
+    legacy_header = False
+    try:
+        if files is None:
+            files = WorkspaceFiles(run_root)
+        has_header = files.exists('run.json')
+        dynamic_artifact = False
+        if files.exists('closed_program.json'):
+            try:
+                artifact = strict_json_loads(files.read('closed_program.json'))
+            except (ValueError, UnicodeError):
+                artifact = None  # Typed artifact admission and diagnostics stay with its owner.
+            if isinstance(artifact, dict):
+                artifact_schema = artifact.get('schema')
+                dynamic_artifact = (isinstance(artifact_schema, str) and
+                                    artifact_schema.startswith('workflow-lisp/dynamic-program/'))
+        if has_header:
+            header = strict_json_loads(files.read('run.json'))
+            if not isinstance(header, dict):
+                raise DynamicStateError('run authority header is not an object')
+            pair = (header.get('schema_version'), header.get('result_persistence_profile'))
+            if pair == ('3.1', DYNAMIC_PROFILE):
+                load_dynamic_run(run_root, run_files=files)
+                return 'dynamic'
+            if dynamic_artifact:
+                raise DynamicStateError('mixed header profile and dynamic program artifact')
+            if pair == ('3.0', EVALUATED_PROFILE):
+                if files.exists('state.json'):
+                    try:
+                        state = strict_json_loads(files.read('state.json'))
+                    except (ValueError, UnicodeError):
+                        state = None  # Retained typed cache may be rebuilt by its owner.
+                    if isinstance(state, dict) and (state.get('schema_version') == '3.1' or
+                                                    state.get('result_persistence_profile') == DYNAMIC_PROFILE):
+                        raise DynamicStateError('mixed typed header and dynamic state')
+                return 'evaluated'
+            if pair[0] == '2.1' and pair[1] in (None, DERIVED_PURE_REPLAY_PROFILE):
+                profile = 'legacy'
+                legacy_header = True
+            else:
+                error = DynamicStateError if pair[0] == '3.1' or pair[1] == DYNAMIC_PROFILE else RunAuthorityError
+                raise error('unknown or mixed run authority profile/schema')
+        else:
+            if dynamic_artifact:
+                raise DynamicStateError('dynamic run authority header is missing')
+            if files.exists('closed_program.json') or files.exists('memo.jsonl'):
+                raise RunAuthorityError('run authority header is missing')
+            profile = 'legacy'
+        if files.exists('state.json'):
+            try:
+                state = strict_json_loads(files.read('state.json'))
+            except (ValueError, UnicodeError):
+                if not has_header:
+                    return 'legacy'  # State-only legacy repair remains the legacy loader's decision.
+                raise
+            if not isinstance(state, dict):
+                if not has_header:
+                    return 'legacy'
+                raise DynamicStateError('state is not an object')
+            state_profile = state.get('result_persistence_profile')
+            schema = state.get('schema_version')
+            if state_profile == DYNAMIC_PROFILE or schema == '3.1':
+                raise DynamicStateError('missing or mixed dynamic run authority')
+            if not (legacy_header and schema == '3.0' and state_profile == EVALUATED_PROFILE):
+                if schema == '3.0' or state_profile == EVALUATED_PROFILE:
+                    raise RunAuthorityError('missing or mixed run authority profile')
+                if has_header and state_profile not in (None, DERIVED_PURE_REPLAY_PROFILE):
+                    raise RunAuthorityError('mixed run authority profile')
+        return profile
+    except (OSError, ValueError, TypeError) as exc:
+        if isinstance(exc, (DynamicStateError, RunAuthorityError)):
+            raise
+        raise DynamicStateError(f'invalid run authority selection: {exc}') from exc
+    finally:
+        if own and files is not None:
+            files.close()
+
 StateStatus = Literal["running", "suspended", "completed", "failed"]
 EvaluatedStateStatus = Literal["running", "settling", "interrupted", "completed", "failed"]
 StepStatus = Literal["pending", "running", "completed", "failed", "skipped"]
@@ -571,6 +661,9 @@ class StateManager:
         from .workflow.workspace_files import WorkspaceFiles
         run_files = (WorkspaceFiles(self.run_root, root_fd=self._run_root_fd)
                      if self._run_root_fd is not None else None)
+        if select_run_profile(self.run_root, run_files=run_files) == 'dynamic':
+            from .workflow.dynamic.state import DynamicStateError
+            raise DynamicStateError('dynamic state cannot be projected into RunState')
         if has_evaluated_authority(self.io_run_root, run_files=run_files):
             return RunState.from_dict(load_evaluated_view(self.run_root, run_files=run_files))
         with open(self.state_file, "r", encoding="utf-8") as state_stream:

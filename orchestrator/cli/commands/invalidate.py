@@ -41,6 +41,10 @@ def invalidate_run(run_id: str, identity: str, state_dir: str | None = None) -> 
     if not run_root.exists():
         raise MemoError("memo_inconsistent", f"run directory not found: {run_root}")
 
+    from orchestrator.state import select_run_profile
+    if select_run_profile(run_root) == 'dynamic':
+        raise MemoError('dynamic_invalidation_unsupported', 'dynamic fresh runs cannot be invalidated. Start a fresh run; this may repeat earlier work and consume additional budget.')
+
     with memo_writer_lock(run_root) as fd:
         run_files = WorkspaceFiles(run_root, root_fd=fd)
         try:

@@ -632,6 +632,13 @@ def run_workflow(
             logger.error("[workflow_lisp_cli_io_error] %s", exc)
             return _run_result(2)
         if selected_target == "3.0":
+            if any(value is not None for value in (
+                run_id, expected_run_identity, reserved_run_fd, logical_workflow_path,
+                no_tools_conf_root, no_tools_conf_identity, no_tools_conf_manifest_sha256,
+                profile_conf_fd,
+            )):
+                logger.error("[dynamic_option_unsupported] target 3.0 does not accept retained child runtime arguments")
+                return _run_result(2)
             from orchestrator.cli.commands.dynamic import run_dynamic_workflow
             return run_dynamic_workflow(args, workspace=workspace, workflow_path=workflow_path,
                                         source_read_trace=source_read_trace)

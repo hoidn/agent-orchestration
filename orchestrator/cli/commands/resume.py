@@ -773,6 +773,15 @@ def resume_workflow(
         return 1
 
     try:
+        from orchestrator.state import select_run_profile
+        if select_run_profile(run_root) == 'dynamic':
+            logger.error('[dynamic_resume_unsupported] dynamic fresh runs cannot be resumed or restarted in place. Start a fresh run; this may repeat earlier work and consume additional budget.')
+            return 2
+    except (OSError, ValueError, TypeError) as exc:
+        logger.error('[%s] %s', getattr(exc, 'code', 'dynamic_state_invalid'), exc)
+        return 2
+
+    try:
         with ExitStack() as writer_locks:
             import uuid
             restart_run_id = uuid.uuid4().hex if force_restart else None

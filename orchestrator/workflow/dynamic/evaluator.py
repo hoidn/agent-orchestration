@@ -392,6 +392,15 @@ def evaluate(
             elif kind == "record-update":
                 tasks.append(("record_update_base_done", node, env, pointer, code, context))
                 tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
+            elif kind == "perform":
+                raise _error(
+                    program,
+                    "dynamic_effect_unsupported",
+                    "direct dynamic effect execution is not available",
+                    pointer,
+                    context,
+                    steps,
+                )
             elif kind == "fail":
                 raise _error(
                     program,

@@ -139,11 +139,51 @@ def test_dryrun_checks_unreachable_malformed_body(tmp_path, monkeypatch):
     assert not (tmp_path / '.orchestrate').exists()
 
 
-def test_fresh_run_explicitly_pending_task7_without_publication(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize('body,options,value', [
+    ('(defworkflow main ((n Int :default 0)) -> Int n)', [], 0),
+    ('(defworkflow main ((flag Bool :default false)) -> Bool flag)', [], False),
+    ('(defworkflow main ((value Value)) -> Value value)', ['--input', 'value=null'], None),
+])
+def test_real_fresh_run_native_results(tmp_path, monkeypatch, body, options, value):
+    from orchestrator.workflow.dynamic.state import load_dynamic_view
+    path = source(tmp_path, body)
+    monkeypatch.chdir(tmp_path)
+    forbid_retained(monkeypatch)
+    if value is None:
+        document = tmp_path / 'inputs.json'
+        document.write_text('{"value":null}')
+        options = ['--input-file', str(document)]
+    result = run_workflow(args(path, *options))
+    assert result.exit_code == 0
+    assert result.workflow_outputs is value
+    assert result.run_id and result.run_root
+    path.unlink()
+    view = load_dynamic_view(result.run_root)
+    assert view['status'] == 'completed' and view['workflow_outputs'] is value
+    assert not (result.run_root / 'memo.jsonl').exists()
+
+
+def test_pure_failure_persists_strict_error_and_steps(tmp_path, monkeypatch):
+    from orchestrator.workflow.dynamic.state import load_dynamic_view
+    path = source(tmp_path, '(defworkflow main () -> Int (+ true 1))')
+    monkeypatch.chdir(tmp_path)
+    result = run_workflow(args(path))
+    assert result.exit_code == 1 and result.run_root is not None
+    path.unlink()
+    view = load_dynamic_view(result.run_root)
+    assert view['status'] == 'failed' and view['workflow_outputs'] is None
+    assert view['steps_used'] > 0
+    assert view['error']['code'] == 'dynamic_operand_type'
+    assert view['error']['location'] in json.loads((result.run_root / 'closed_program.json').read_text())['source_map']['entries']
+
+
+@pytest.mark.parametrize('kwargs', [{'run_id': 'reserved'}, {'logical_workflow_path': Path('logical.orc')},
+    {'reserved_run_fd': 0}, {'expected_run_identity': (1, 2)}, {'profile_conf_fd': 0},
+    {'no_tools_conf_root': 'x'}, {'no_tools_conf_identity': (1, 2)}, {'no_tools_conf_manifest_sha256': 'x'}])
+def test_dynamic_child_runtime_arguments_refuse_without_writes(tmp_path, monkeypatch, kwargs):
     path = source(tmp_path)
     monkeypatch.chdir(tmp_path)
-    assert run_workflow(args(path)).exit_code == 2
-    assert 'dynamic_fresh_run_unsupported' in caplog.text
+    assert run_workflow(args(path), **kwargs).exit_code == 2
     assert not (tmp_path / '.orchestrate').exists()
 
 
@@ -344,3 +384,104 @@ def test_compile_service_unsupported_attributes_refuse_before_publication(tmp_pa
     assert 'dynamic_option_unsupported' in caplog.text
     assert not (tmp_path / '.orchestrate').exists()
     assert not destination.parent.exists()
+
+
+def test_actual_public_subprocess_fresh_run(tmp_path):
+    path = source(tmp_path, '(defworkflow main () -> Int 0)')
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]), PYTHONDONTWRITEBYTECODE='1')
+    completed = subprocess.run([sys.executable, '-m', 'orchestrator', 'run', str(path)], cwd=tmp_path,
+                               env=env, capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    roots = list((tmp_path / '.orchestrate/runs').iterdir())
+    assert len(roots) == 1
+    state = json.loads((roots[0] / 'state.json').read_text())
+    assert state['status'] == 'completed' and state['workflow_outputs'] == 0
+
+
+def test_runtime_uses_captured_source_after_preflight_deletion(tmp_path, monkeypatch):
+    from orchestrator.cli.commands import dynamic
+    from orchestrator.workflow.dynamic.state import load_dynamic_view
+    path = source(tmp_path, '(defworkflow main ((n Int :default 0)) -> Int n)')
+    original = path.read_bytes()
+    prepare = dynamic.prepare_dynamic_run
+    def delete_after_preflight(*a, **kw):
+        built, inputs = prepare(*a, **kw)
+        path.unlink()
+        return built, inputs
+    monkeypatch.setattr(dynamic, 'prepare_dynamic_run', delete_after_preflight)
+    monkeypatch.chdir(tmp_path)
+    result = run_workflow(args(path))
+    assert result.exit_code == 0 and result.workflow_outputs == 0
+    assert load_dynamic_view(result.run_root)['status'] == 'completed'
+    import hashlib
+    assert json.loads((result.run_root / 'run.json').read_text())['workflow_checksum'] == 'sha256:' + hashlib.sha256(original).hexdigest()
+
+
+@pytest.mark.parametrize('phase', ['initial', 'terminal'])
+def test_runtime_publication_failure_stops_and_never_reexecutes(tmp_path, monkeypatch, phase):
+    from orchestrator.workflow.dynamic import runtime
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+    path = source(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    evaluate = runtime.evaluate
+    executions = []
+    def observed(*a, **kw):
+        executions.append(1)
+        return evaluate(*a, **kw)
+    monkeypatch.setattr(runtime, 'evaluate', observed)
+    write = WorkspaceFiles.write_atomic
+    def fail(self, path, content, **kw):
+        state = json.loads(content) if str(path) == 'state.json' else None
+        if state and ((phase == 'initial' and state['status'] == 'running') or
+                      (phase == 'terminal' and state['status'] == 'completed')):
+            raise OSError('injected atomic state failure')
+        return write(self, path, content, **kw)
+    monkeypatch.setattr(WorkspaceFiles, 'write_atomic', fail)
+    result = run_workflow(args(path))
+    assert result.exit_code == 1
+    assert len(executions) == (0 if phase == 'initial' else 1)
+    assert not (result.run_root / 'memo.jsonl').exists()
+    if phase == 'initial': assert not (result.run_root / 'state.json').exists()
+    else: assert json.loads((result.run_root / 'state.json').read_text())['status'] == 'running'
+
+
+def test_run_id_collision_is_not_adopted(tmp_path, monkeypatch):
+    from orchestrator.state import StateManager
+    path = source(tmp_path)
+    root = tmp_path / '.orchestrate/runs/collision'
+    root.mkdir(parents=True)
+    (root / 'existing').write_text('preserved')
+    monkeypatch.setattr(StateManager, 'new_run_id', lambda: 'collision')
+    monkeypatch.chdir(tmp_path)
+    result = run_workflow(args(path))
+    assert result.exit_code == 1
+    assert list(root.iterdir()) == [root / 'existing']
+    assert (root / 'existing').read_text() == 'preserved'
+
+
+def test_explicit_local_entry_with_imported_helper_keeps_source_pin(tmp_path, monkeypatch):
+    from tests.test_workflow_dynamic_source import write_source
+    from orchestrator.workflow.dynamic.state import load_dynamic_view
+    write_source(tmp_path, 'demo/lib', '(export helper) (defworkflow helper () -> Int 0)', budget=None)
+    path = write_source(tmp_path, 'demo/main', '(import demo/lib :only (helper)) (export main) (defworkflow main () -> Int (helper))')
+    monkeypatch.chdir(tmp_path)
+    result = run_workflow(args(path, '--entry-workflow', 'main'))
+    assert result.exit_code == 0 and result.workflow_outputs == 0
+    for authored in tmp_path.rglob('*.orc'): authored.unlink()
+    assert load_dynamic_view(result.run_root)['status'] == 'completed'
+
+
+def test_effect_reach_refuses_with_authoritative_failure_until_task8(tmp_path, monkeypatch):
+    from orchestrator.workflow.dynamic.state import load_dynamic_view
+    monkeypatch.setattr(subprocess, 'Popen', lambda *a, **kw: pytest.fail('unsupported effect launched a process'))
+    path = source(tmp_path, '(defworkflow main () -> Int (command-result tool :argv ("python") :returns Int))')
+    manifest = tmp_path / 'commands.json'
+    manifest.write_text('{"tool":{"kind":"external_tool","stable_command":["python"],"closure":[]}}')
+    monkeypatch.chdir(tmp_path)
+    result = run_workflow(args(path, '--command-boundaries-file', str(manifest)))
+    assert result.exit_code == 1 and result.run_root is not None
+    view = load_dynamic_view(result.run_root)
+    assert view['status'] == 'failed'
+    assert view['error']['code'] == 'dynamic_effect_unsupported'
+    assert view['effects'] == []
+    assert not (result.run_root / 'effects').exists()
