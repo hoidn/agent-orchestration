@@ -19,7 +19,9 @@ import time
 from typing import Any
 
 from orchestrator._common.io_atomic import durable_atomic_write
+from orchestrator.run_lock import run_root_matches_fd
 from orchestrator.workflow.executable_ir import RunRefStepConfig
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.references import (
     ReferenceResolutionError,
     ReferenceResolver,
@@ -471,6 +473,7 @@ class RunRefRuntimeRequest:
     run_ref_root: Path
     capsule_dir: Path | None = None
     parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None = None
+    run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         paths = _validate_run_ref_runtime_request_authority(
@@ -488,6 +491,15 @@ class RunRefRuntimeRequest:
         object.__setattr__(self, "parent_run_root", paths.parent_run_root)
         object.__setattr__(self, "run_ref_root", paths.run_ref_root)
         object.__setattr__(self, "capsule_dir", paths.capsule_dir)
+        if self.run_files is not None:
+            if not isinstance(self.run_files, WorkspaceFiles):
+                raise TypeError("run_files must be WorkspaceFiles or None")
+            if self.run_files.workspace != paths.parent_run_root or not run_root_matches_fd(
+                paths.parent_run_root, self.run_files.root_fd,
+            ):
+                raise RunRefRuntimeError(
+                    "run_ref_ledger_invalid", "parent_run_files_authority_disagrees",
+                )
 
     @property
     def ledger_path(self) -> Path:
@@ -1639,7 +1651,7 @@ def select_run_ref_lifecycle_allocation(
         field="effect_instance_root",
     )
     ledger_path = root / _ATTEMPT_LEDGER_FILENAME
-    ledger = load_attempt_ledger(ledger_path)
+    ledger = load_attempt_ledger(ledger_path, run_files=request.run_files)
     matching = [row for row in ledger.rows if row.visit == request.visit]
     ordinal = max((row.attempt_ordinal for row in matching), default=0) + 1
     parent_values = _resolved_parent_input_values(request)
@@ -1683,7 +1695,9 @@ def _validate_run_ref_lifecycle_attempt_authority(
         field="effect_instance_root",
     )
     try:
-        ledger = load_attempt_ledger(root / _ATTEMPT_LEDGER_FILENAME)
+        ledger = load_attempt_ledger(
+            root / _ATTEMPT_LEDGER_FILENAME, run_files=request.run_files,
+        )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     parent_values = _resolved_parent_input_values(request)
@@ -1775,6 +1789,7 @@ def _discard_incomplete_attempt(
         request.ledger_path,
         visit=request.visit,
         current_step_config_digest=request.step_config.step_config_digest,
+        run_files=request.run_files,
     )
     if incomplete is None:
         if request.parent_bundle_orphan_preimage is not None:
@@ -1841,6 +1856,7 @@ def _discard_incomplete_attempt(
         attempt_ordinal=incomplete.attempt_ordinal,
         workspace_path=workspace,
         disposition_digest=disposition,
+        run_files=request.run_files,
     )
     if (
         _read_canonical_document(
@@ -2262,6 +2278,7 @@ def acknowledge_persisted_run_ref_lifecycle_event(
     event: RunRefLifecycleEvent,
     *,
     expected_row_digest: str,
+    run_files: WorkspaceFiles | None = None,
 ) -> RunRefLifecycleAcknowledgement:
     """Reload the exact durable ledger head before acknowledging one event."""
 
@@ -2273,7 +2290,7 @@ def acknowledge_persisted_run_ref_lifecycle_event(
         raise ValueError("expected durable row digest is invalid")
     ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
     try:
-        ledger = load_attempt_ledger(ledger_path)
+        ledger = load_attempt_ledger(ledger_path, run_files=run_files)
     except RunRefLedgerError as exc:
         raise ValueError("run-ref lifecycle authority is not durable") from exc
     if not ledger.rows:
@@ -2736,6 +2753,7 @@ def persist_run_ref_lifecycle_event(
                 ledger_path,
                 visit=request.visit,
                 bindings=bindings,
+                run_files=request.run_files,
             )
             if row.attempt_ordinal != event.attempt_ordinal:
                 raise RunRefLedgerError(
@@ -2748,12 +2766,14 @@ def persist_run_ref_lifecycle_event(
                 attempt_ordinal=event.attempt_ordinal,
                 stage=event.stage,
                 binding_updates=payload["binding_updates"],
+                run_files=request.run_files,
             )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     return acknowledge_persisted_run_ref_lifecycle_event(
         event,
         expected_row_digest=row.row_digest,
+        run_files=request.run_files,
     )
 
 
@@ -3172,12 +3192,14 @@ def validate_completed_run_ref_authority(
                 settled_result=settled,
                 current_step_config_digest=request.step_config.step_config_digest,
                 validate_bound_authority=validate,
+                run_files=request.run_files,
             )
         committed = select_committed_reuse(
             request.ledger_path,
             settled_result=settled,
             current_step_config_digest=request.step_config.step_config_digest,
             validate_bound_authority=validate,
+            run_files=request.run_files,
         )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
@@ -3240,12 +3262,14 @@ def recover_run_ref_settlement(
                 settled_result=settled,
                 current_step_config_digest=request.step_config.step_config_digest,
                 validate_bound_authority=validate,
+                run_files=request.run_files,
             )
         committed = select_committed_reuse(
             request.ledger_path,
             settled_result=settled,
             current_step_config_digest=request.step_config.step_config_digest,
             validate_bound_authority=validate,
+            run_files=request.run_files,
         )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
@@ -3301,7 +3325,7 @@ def finalize_run_ref_parent_commit(
             "persisted_parent_settlement_disagrees",
         )
     try:
-        ledger = load_attempt_ledger(request.ledger_path)
+        ledger = load_attempt_ledger(request.ledger_path, run_files=request.run_files)
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     pending = [
@@ -3329,6 +3353,7 @@ def finalize_run_ref_parent_commit(
         committed = reconcile_pending_parent_commit(
             request.ledger_path,
             settled_result=persisted,
+            run_files=request.run_files,
             current_step_config_digest=request.step_config.step_config_digest,
             validate_bound_authority=lambda row: _validate_bound_authority(
                 request,
