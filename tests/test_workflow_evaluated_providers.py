@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
@@ -92,6 +93,48 @@ def _requests(root):
     return [json.loads(row) for row in path.read_text().splitlines()] if path.exists() else []
 
 
+def _orchestrate_snapshot(root):
+    from tests.test_workflow_evaluated_resume import _snapshot
+
+    return _snapshot(root / ".orchestrate")
+
+
+def _cache_snapshot(root):
+    return {name: value for name, value in _orchestrate_snapshot(root).items() if name.startswith("build/")}
+
+
+def _spy_provider_prepare(monkeypatch):
+    calls = []
+    prepare = ProviderExecutor.prepare_invocation
+
+    def spy(executor, *args, **kwargs):
+        calls.append((args, kwargs))
+        return prepare(executor, *args, **kwargs)
+
+    monkeypatch.setattr(ProviderExecutor, "prepare_invocation", spy)
+    return calls
+
+
+def _assert_cli_resumes_unchanged(root, run_id, snapshot, request_bytes, count=1):
+    from tests.test_workflow_evaluated_resume import _resume_cli
+
+    for _ in range(count):
+        result = _resume_cli(root, run_id)
+        assert result.returncode == 0, result.stderr
+        assert _orchestrate_snapshot(root) == snapshot
+        assert (root / "requests.jsonl").read_bytes() == request_bytes
+
+
+def _assert_cli_resume_refusal(root, run_id, snapshot, request_bytes, *, code, diagnostic):
+    from tests.test_workflow_evaluated_resume import _resume_cli
+
+    result = _resume_cli(root, run_id)
+    assert result.returncode == code, result.stderr
+    assert diagnostic in result.stderr
+    assert _orchestrate_snapshot(root) == snapshot
+    assert (root / "requests.jsonl").read_bytes() == request_bytes
+
+
 def _public_snapshot(root, fixture):
     (run_root,) = (root / ".orchestrate" / "runs").iterdir()
     program = build_closed_program_bundle(fixture[3]).program
@@ -130,6 +173,28 @@ def test_public_provider_dispatches_once_and_commits_its_typed_result(tmp_path):
     assert started["implementation_files"] == commit["implementation_files"] == {}
     _assert_public_request_contract(tmp_path, run_root, commit, request)
     _assert_attempt_evidence(run_root, commit, request)
+
+
+def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tmp_path, monkeypatch):
+    fixture = _fixture(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    result = _cli(tmp_path, fixture)
+    assert result.returncode == 0, result.stderr
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    authority = load_run_authority(run_root)
+    (commit,) = read_memo(authority.memo_path, site_classes(authority.program)).active_commits.values()
+    (request,) = _requests(tmp_path)
+    _assert_public_request_contract(tmp_path, run_root, commit.data, request)
+    _assert_attempt_evidence(run_root, commit.data, request)
+    from orchestrator.cli.commands.resume import resume_workflow
+
+    monkeypatch.chdir(tmp_path)
+    before = _orchestrate_snapshot(tmp_path)
+    requests_before = (tmp_path / "requests.jsonl").read_bytes()
+    prepare_calls = _spy_provider_prepare(monkeypatch)
+    assert resume_workflow(run_root.name) == 0
+    assert prepare_calls == []
+    _assert_cli_resumes_unchanged(tmp_path, run_root.name, before, requests_before)
 
 
 def _assert_failed_attempt(run_root, snapshot, mode):
@@ -271,6 +336,19 @@ def _assert_prompt_path_parity(node, current, previous):
     return flat_block, current_block
 
 
+def _assert_retry_request_parity(program, current, previous):
+    assert current["argv"] == previous["argv"]
+    assert set(current["env"]) == set(previous["env"])
+    output_path = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+    assert {key: value for key, value in current["env"].items() if key != output_path} == {
+        key: value for key, value in previous["env"].items() if key != output_path}
+    (node,) = [row for row in program.tree["body"].values()
+        if isinstance(row, dict) and row.get("class") == "provider"]
+    _assert_prompt_path_parity(node,
+        {"env": current["env"], "prompt_content": current["prompt"]},
+        {"env": previous["env"], "prompt_content": previous["prompt"]})
+
+
 def _assert_invocation_parity(current, previous, flat_block, current_block):
     for field in fields(current):
         current_value, previous_value = getattr(current, field.name), getattr(previous, field.name)
@@ -329,8 +407,9 @@ def test_public_nested_provider_smoke_keeps_source_kind_and_document_evidence(tm
     requests = _requests(tmp_path)
     assert "nested-model" in requests[0]["argv"] and "model_reasoning_effort=low" in requests[0]["argv"]
     (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
-    program = build_closed_program_bundle(fixture[3]).program
-    commits = list(read_memo(run_root / "memo.jsonl", site_classes(program)).active_commits.values())
+    authority = load_run_authority(run_root)
+    program = authority.program
+    commits = list(read_memo(authority.memo_path, site_classes(program)).active_commits.values())
     assert commits[0].data["input_parts"]["source:asset_file:prompt.md"] == "sha256:" + hashlib.sha256(b"ASSET SOURCE\n").hexdigest()
     assert commits[1].data["input_parts"]["source:input_file:prompt.md"] == "sha256:" + hashlib.sha256(b"WORKSPACE SOURCE\n").hexdigest()
     assert commits[-1].data["input_parts"]["dependency:artifacts/note.md"] == "sha256:" + hashlib.sha256(b"DOCUMENT BYTES\n").hexdigest()
@@ -338,6 +417,9 @@ def test_public_nested_provider_smoke_keeps_source_kind_and_document_evidence(tm
     _assert_public_nested_labels(program, requests[0], commits[0].data)
     for request, commit in zip(requests, commits, strict=True):
         assert request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == "sha256:" + hashlib.sha256(commit.data["identity"].encode()).hexdigest()
+    before = _orchestrate_snapshot(tmp_path)
+    requests_before = (tmp_path / "requests.jsonl").read_bytes()
+    _assert_cli_resumes_unchanged(tmp_path, run_root.name, before, requests_before, count=2)
 
 
 def _assert_public_nested_labels(program, request, commit):

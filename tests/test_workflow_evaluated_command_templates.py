@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_workflow_evaluated_cli import _run_cli
+from tests.test_workflow_evaluated_command_template_scopes import _assert_two_public_resumes
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.authority import publish_run_authority
 from orchestrator.workflow.evaluated.memo import read_memo
@@ -83,6 +84,7 @@ def test_public_templates_keep_legacy_literals_and_runtime_strings_as_data(tmp_p
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "argv.jsonl").read_bytes() == b'["True", "True", "true", "7", "${inputs.n}"]\n'
+    _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 SURFACE_232_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.32")
@@ -113,6 +115,8 @@ def test_public_target_232_surface_composition_retarget_keeps_exact_legacy_argv(
     _write_probe(workspace, return_kind="record")
     (workspace / "choose.py").write_text(
         'import json, os\nfrom pathlib import Path\n'
+        'with Path("choose-dispatches.jsonl").open("a", encoding="utf-8") as marker:\n'
+        '    marker.write("dispatch\\n")\n'
         'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"variant": "A"}), encoding="utf-8")\n',
         encoding="utf-8",
     )
@@ -126,6 +130,10 @@ def test_public_target_232_surface_composition_retarget_keeps_exact_legacy_argv(
 
     assert result.returncode == 0, result.stderr
     assert (workspace / "argv.jsonl").read_bytes() == b'["PROCEDURE", "WORKFLOW"]\n'
+    assert (workspace / "choose-dispatches.jsonl").read_bytes() == b"dispatch\n"
+    _assert_two_public_resumes(
+        workspace, workspace / "argv.jsonl", workspace / "choose-dispatches.jsonl"
+    )
 
 
 WCC_234_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
@@ -156,6 +164,8 @@ def test_public_default_wcc_guarded_composition_uses_selected_arm(tmp_path: Path
     _write_probe(workspace, return_kind="record")
     (workspace / "choose.py").write_text(
         'import json, os\nfrom pathlib import Path\n'
+        'with Path("choose-dispatches.jsonl").open("a", encoding="utf-8") as marker:\n'
+        '    marker.write("dispatch\\n")\n'
         'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"variant": "A"}), encoding="utf-8")\n',
         encoding="utf-8",
     )
@@ -168,6 +178,10 @@ def test_public_default_wcc_guarded_composition_uses_selected_arm(tmp_path: Path
 
     assert result.returncode == 0, result.stderr
     assert (workspace / "argv.jsonl").read_bytes() == b'["PROCEDURE", "WORKFLOW"]\n'
+    assert (workspace / "choose-dispatches.jsonl").read_bytes() == b"dispatch\n"
+    _assert_two_public_resumes(
+        workspace, workspace / "argv.jsonl", workspace / "choose-dispatches.jsonl"
+    )
 
 
 @pytest.mark.parametrize(
@@ -206,6 +220,7 @@ def test_union_slot_selects_active_field_before_suffix_or_dispatch(
         assert [row["record"] for row in records] == ["terminal"]
     else:
         assert (tmp_path / "argv.jsonl").read_bytes() == expected_argv
+        _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
 def test_public_command_uses_explicit_workspace_when_state_dir_is_external(tmp_path: Path) -> None:
@@ -234,6 +249,30 @@ def test_public_command_uses_explicit_workspace_when_state_dir_is_external(tmp_p
     snapshot = read_memo(run_root / "memo.jsonl", command_site_classes(authority.program))
     assert snapshot.terminal is not None
     assert snapshot.terminal.data["value"] == 0
+    _assert_two_public_resumes(
+        tmp_path, tmp_path / "argv.jsonl", state_dir=state_dir
+    )
+
+
+def _assert_certified_package_result(run_root: Path) -> None:
+    authority = load_run_authority(run_root)
+    snapshot = read_memo(run_root / "memo.jsonl", command_site_classes(authority.program))
+    commit = next(entry.data for entry in snapshot.entries if entry.data["record"] == "committed")
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.data["value"] == {
+        "schema_version": "ReviewFindings.v1",
+        "items_path": "artifacts/work/findings.json",
+    }
+    assert commit["input_parts"]["argv"] == canonical_sha256([
+        "python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+        "artifacts/work/carrier.json",
+    ])
+    assert commit["input_digest"] == canonical_sha256(commit["input_parts"])
+    package_rows = [
+        (json.loads(key), row)
+        for key, row in commit["implementation_files"].items()
+    ]
+    assert any(key[0] == "package:orchestrator" and key[1] == "." for key, _row in package_rows)
 
 
 def test_public_certified_adapter_uses_package_closure_without_bytecode_cache(tmp_path: Path) -> None:
@@ -270,24 +309,8 @@ def test_public_certified_adapter_uses_package_closure_without_bytecode_cache(tm
     assert result.returncode == 0, result.stderr
     assert sorted(path.name for path in adapter_caches.glob("validate_review_findings_v1*.pyc")) == before_cache
     (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
-    authority = load_run_authority(run_root)
-    snapshot = read_memo(run_root / "memo.jsonl", command_site_classes(authority.program))
-    commit = next(entry.data for entry in snapshot.entries if entry.data["record"] == "committed")
-    assert snapshot.terminal is not None
-    assert snapshot.terminal.data["value"] == {
-        "schema_version": "ReviewFindings.v1",
-        "items_path": "artifacts/work/findings.json",
-    }
-    assert commit["input_parts"]["argv"] == canonical_sha256([
-        "python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-        "artifacts/work/carrier.json",
-    ])
-    assert commit["input_digest"] == canonical_sha256(commit["input_parts"])
-    package_rows = [
-        (json.loads(key), row)
-        for key, row in commit["implementation_files"].items()
-    ]
-    assert any(key[0] == "package:orchestrator" and key[1] == "." for key, _row in package_rows)
+    _assert_certified_package_result(run_root)
+    _assert_two_public_resumes(tmp_path)
 
 
 def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp_path: Path) -> None:
@@ -318,6 +341,8 @@ def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp
         "import json, os, sys\nfrom pathlib import Path\n"
         'document = sys.argv[-1].encode("utf-8")\n'
         'Path("adapter-document.bin").write_bytes(document)\n'
+        'with Path("adapter-dispatches.jsonl").open("a", encoding="utf-8") as marker:\n'
+        '    marker.write("dispatch\\n")\n'
         'Path("artifacts/work/summary.json").write_text("{}", encoding="utf-8")\n'
         'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('
         'json.dumps({"report": "artifacts/work/summary.json"}), encoding="utf-8")\n',
@@ -336,6 +361,7 @@ def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp
         '"review_report":"artifacts/work/review.json"}'
     ).encode("utf-8")
     assert (tmp_path / "adapter-document.bin").read_bytes() == expected_document
+    assert (tmp_path / "adapter-dispatches.jsonl").read_bytes() == b"dispatch\n"
     (run_root,) = (tmp_path / ".orchestrate/runs").iterdir()
     authority = load_run_authority(run_root)
     snapshot = read_memo(run_root / "memo.jsonl", command_site_classes(authority.program))
@@ -346,6 +372,9 @@ def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp
     ])
     assert commit["input_digest"] == canonical_sha256(commit["input_parts"])
     assert snapshot.terminal is not None and snapshot.terminal.data["outcome"] == "completed"
+    _assert_two_public_resumes(
+        tmp_path, tmp_path / "adapter-dispatches.jsonl", tmp_path / "adapter-document.bin"
+    )
 
 
 class _InterruptedAfterCommit(BaseException):

@@ -541,6 +541,14 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override maximum tmux pane tail chars passed to live note provider'
     )
 
+    invalidate_parser = subparsers.add_parser(
+        'invalidate',
+        help='Invalidate an evaluated effect commit and its active suffix',
+    )
+    invalidate_parser.add_argument('run_id', type=str, help='Run ID to invalidate')
+    invalidate_parser.add_argument('identity', type=str, help='Full canonical evaluated effect identity')
+    invalidate_parser.add_argument('--state-dir', type=str, help='Override default state directory')
+
     input_parser = subparsers.add_parser(
         'input',
         help='Query or settle a pending human-input request',
@@ -734,6 +742,13 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'resume':
         from orchestrator.cli.commands import resume_workflow
         return resume_workflow(**vars(parsed_args))
+    elif parsed_args.command == 'invalidate':
+        from orchestrator.cli.commands.invalidate import invalidate_command
+        return invalidate_command(
+            parsed_args.run_id,
+            parsed_args.identity,
+            state_dir=parsed_args.state_dir,
+        )
     elif parsed_args.command == 'input':
         from orchestrator.cli.commands import human_input_command
         return human_input_command(parsed_args)

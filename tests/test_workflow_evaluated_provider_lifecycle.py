@@ -13,12 +13,15 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated import runtime
 from orchestrator.workflow.evaluated import attempts
-from orchestrator.workflow.evaluated.authority import publish_run_authority
+from orchestrator.workflow.evaluated.authority import load_run_authority, publish_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
-from tests.test_workflow_evaluated_providers import SOURCE, _fixture, _requests
+from tests.test_workflow_evaluated_providers import (
+    SOURCE, _assert_cli_resume_refusal, _assert_retry_request_parity, _cache_snapshot,
+    _cli, _fixture, _orchestrate_snapshot, _requests, _spy_provider_prepare,
+)
 
 
 class _Interrupted(BaseException):
@@ -201,6 +204,80 @@ def test_failed_provider_retry_keeps_earlier_attempt_streams(tmp_path, monkeypat
         assert len(list(authority.run_root.glob("effects/*/attempt-*"))) == 2
 
 
+def test_public_failed_provider_retry_uses_next_attempt_and_preserves_evidence(tmp_path, monkeypatch):
+    state = _capture_public_failed_provider(tmp_path)
+    from tests.test_workflow_evaluated_resume import _resume_cli
+
+    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PROVIDER_SHIM_MODE", "success")
+    monkeypatch.setenv("PROVIDER_SHIM_RESULT", '{"ok":true,"extra":7}')
+    resumed = _resume_cli(tmp_path, state["run_root"].name)
+    assert resumed.returncode == 0, resumed.stderr
+    after = read_memo(state["authority"].memo_path, site_classes(state["authority"].program))
+    _assert_failed_retry_requests(tmp_path, state, after)
+    _assert_failed_retry_journal(state, after)
+    _assert_failed_retry_preservation(tmp_path, state)
+
+
+def _capture_public_failed_provider(root):
+    fixture = _fixture(root)
+    failed = _cli(root, fixture, mode="nonzero")
+    assert failed.returncode == 1, failed.stderr
+    assert len(_requests(root)) == 1
+    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
+    authority = load_run_authority(run_root)
+    before = read_memo(authority.memo_path, site_classes(authority.program))
+    started, failure, terminal = [entry.data for entry in before.entries]
+    assert [started["record"], failure["record"], terminal["record"]] == ["started", "failed", "terminal"]
+    assert terminal["outcome"] == "failed"
+    attempt_one = run_root / Path(started["result_path"]).parent
+    return {
+        "run_root": run_root, "authority": authority,
+        "attempt_one": attempt_one,
+        "old_evidence": {path.name: path.read_bytes() for path in attempt_one.iterdir()},
+        "header": (run_root / "run.json").read_bytes(),
+        "artifact": (run_root / "closed_program.json").read_bytes(),
+        "cache": _cache_snapshot(root),
+        "requests": (root / "requests.jsonl").read_bytes(),
+    }
+
+
+def _assert_failed_retry_requests(root, state, after):
+    request_bytes = (root / "requests.jsonl").read_bytes()
+    assert request_bytes.startswith(state["requests"])
+    requests = _requests(root)
+    assert len(requests) == 2
+    _assert_retry_request_parity(state["authority"].program, requests[1], requests[0])
+
+
+def _assert_failed_retry_journal(state, after):
+    starts = [entry.data for entry in after.entries if entry.data["record"] == "started"]
+    assert [row["attempt"] for row in starts] == [1, 2]
+    assert _parts_except_prompt(starts[0]["input_parts"]) == _parts_except_prompt(starts[1]["input_parts"])
+    for start in starts:
+        _assert_attempt_prompt_part(state["run_root"], start)
+    assert after.terminal.data["outcome"] == "completed"
+
+
+def _parts_except_prompt(parts):
+    return {key: value for key, value in parts.items() if key != "prompt"}
+
+
+def _assert_attempt_prompt_part(run_root, start):
+    attempt = run_root / Path(start["result_path"]).parent
+    prompt_digest = "sha256:" + sha256((attempt / "prompt.txt").read_bytes()).hexdigest()
+    assert start["input_parts"]["prompt"] == prompt_digest
+
+
+def _assert_failed_retry_preservation(root, state):
+    run_root = state["run_root"]
+    attempt_one = state["attempt_one"]
+    assert {path.name: path.read_bytes() for path in attempt_one.iterdir()} == state["old_evidence"]
+    assert (run_root / "run.json").read_bytes() == state["header"]
+    assert (run_root / "closed_program.json").read_bytes() == state["artifact"]
+    assert _cache_snapshot(root) == state["cache"]
+
+
 @pytest.mark.parametrize("input_uses_model", [False, True])
 def test_provider_c9_includes_dynamic_policy_without_input_masking(tmp_path, monkeypatch, input_uses_model):
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
@@ -221,8 +298,6 @@ def test_provider_c9_includes_dynamic_policy_without_input_masking(tmp_path, mon
 
 
 def _raw_c6_fixture(root, source_case):
-    from orchestrator.deps.content_snapshot import MAX_INJECTION_BYTES
-
     source, inputs = SOURCE, {"message": "typed input"}
     target = root / "prompt.md"
     if source_case == "dependency-tail":
@@ -231,25 +306,37 @@ def _raw_c6_fixture(root, source_case):
         source = source.replace(':inputs (message)', ':inputs (message) :prompt-dependencies (:required (note))')
         (root / "artifacts").mkdir()
         target = root / "artifacts" / "note.md"
-        target.write_bytes(b"A" * (MAX_INJECTION_BYTES + 128) + b"X")
         inputs["note"] = "artifacts/note.md"
     kind = "input_file" if source_case == "absent-empty" else "asset_file"
     return source, inputs, target, kind
+
+
+def _write_raw_c6_variant(target, source_case, *, changed):
+    if source_case == "normalized":
+        target.write_bytes(b"SAME TEXT\n" if changed else b"SAME TEXT\r\n")
+    elif source_case == "absent-empty":
+        if changed:
+            target.write_bytes(b"")
+        else:
+            target.unlink(missing_ok=True)
+    else:
+        from orchestrator.deps.content_snapshot import MAX_INJECTION_BYTES
+
+        content = b"A" * (MAX_INJECTION_BYTES + 128) + b"X"
+        if changed:
+            content = target.read_bytes()[:-1] + b"Y"
+        target.write_bytes(content)
 
 
 @pytest.mark.parametrize("source_case", ["normalized", "absent-empty", "dependency-tail"])
 def test_provider_raw_c6_changes_diverge_even_when_rendered_prompt_is_identical(tmp_path, monkeypatch, source_case):
     source, inputs, target, kind = _raw_c6_fixture(tmp_path, source_case)
     with _run(tmp_path, monkeypatch, source, prompt_kind=kind, inputs=inputs) as (built, authority):
-        if source_case == "normalized":
-            target.write_bytes(b"SAME TEXT\r\n")
-        elif source_case == "absent-empty":
-            target.unlink()
+        _write_raw_c6_variant(target, source_case, changed=False)
         _interrupt_after_commit(tmp_path, built, authority, monkeypatch, inputs=inputs)
         (commit,) = _snapshot(built, authority).active_commits.values()
         before = authority.memo_path.read_bytes()
-        replacement = {"normalized": b"SAME TEXT\n", "absent-empty": b""}.get(source_case)
-        target.write_bytes(target.read_bytes()[:-1] + b"Y" if source_case == "dependency-tail" else replacement)
+        _write_raw_c6_variant(target, source_case, changed=True)
         captured = []
         real_reuse = runtime._reuse_effect_commit
 
@@ -263,6 +350,77 @@ def test_provider_raw_c6_changes_diverge_even_when_rendered_prompt_is_identical(
         assert captured[0] != commit.data["input_parts"]
         assert authority.memo_path.read_bytes() == before
         assert len(_requests(tmp_path)) == 1
+
+
+@pytest.mark.parametrize("source_case", ["normalized", "absent-empty", "dependency-tail"])
+def test_public_provider_raw_c6_changes_refuse_readonly_with_causal_parts(
+    tmp_path, monkeypatch, caplog, source_case,
+):
+    source, inputs, target, kind = _raw_c6_fixture(tmp_path, source_case)
+    fixture = _fixture(tmp_path, source, prompt_kind=kind)
+    _write_raw_c6_variant(target, source_case, changed=False)
+    extra = ("--input", "note=artifacts/note.md") if source_case == "dependency-tail" else ()
+    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    result = _cli(tmp_path, fixture, extra=extra)
+    assert result.returncode == 0, result.stderr
+
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    authority = load_run_authority(run_root)
+    before_memo = read_memo(authority.memo_path, site_classes(authority.program))
+    (commit,) = before_memo.active_commits.values()
+    old_parts = commit.data["input_parts"]
+    attempt = run_root / Path(commit.data["result_path"]).parent
+    prompt_bytes = (attempt / "prompt.txt").read_bytes()
+    raw_part = {
+        "normalized": "source:asset_file:prompt.md",
+        "absent-empty": "source:input_file:prompt.md",
+        "dependency-tail": "dependency:artifacts/note.md",
+    }[source_case]
+    _write_raw_c6_variant(target, source_case, changed=True)
+    before = _orchestrate_snapshot(tmp_path)
+    memo_before = authority.memo_path.read_bytes()
+    cache_before = _cache_snapshot(tmp_path)
+    requests_before = (tmp_path / "requests.jsonl").read_bytes()
+    _assert_cli_resume_refusal(
+        tmp_path, run_root.name, before, requests_before, code=2,
+        diagnostic="effect_input_diverged",
+    )
+    _assert_public_raw_c6_service_refusal(
+        tmp_path, run_root.name, authority, before, memo_before, cache_before,
+        requests_before, old_parts, raw_part, prompt_bytes, caplog, monkeypatch,
+    )
+
+
+def _assert_public_raw_c6_service_refusal(
+    root, run_id, authority, before, memo_before, cache_before, requests_before,
+    old_parts, raw_part, prompt_bytes, caplog, monkeypatch,
+):
+    from orchestrator.cli.commands.resume import resume_workflow
+
+    captured = []
+    real_reuse = runtime._reuse_effect_commit
+
+    def capture_reuse(commit, node, identity, parts, input_digest, dependencies):
+        captured.append(dict(parts))
+        return real_reuse(commit, node, identity, parts, input_digest, dependencies)
+
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(runtime, "_reuse_effect_commit", capture_reuse)
+    prepare_calls = _spy_provider_prepare(monkeypatch)
+    assert resume_workflow(run_id) == 2
+    assert "effect_input_diverged" in caplog.text
+    assert prepare_calls == []
+    assert len(captured) == 1
+    _assert_raw_c6_parts(captured[0], old_parts, raw_part, prompt_bytes)
+    assert authority.memo_path.read_bytes() == memo_before
+    assert _orchestrate_snapshot(root) == before
+    assert _cache_snapshot(root) == cache_before
+    assert (root / "requests.jsonl").read_bytes() == requests_before
+
+
+def _assert_raw_c6_parts(current, old, raw_part, prompt_bytes):
+    assert current["prompt"] == old["prompt"] == "sha256:" + sha256(prompt_bytes).hexdigest()
+    assert current[raw_part] != old[raw_part]
 
 
 def test_supplied_staged_provider_selection_reaches_real_performer(tmp_path, monkeypatch):
