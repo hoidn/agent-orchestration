@@ -7,9 +7,12 @@ Contract: docs/design/verified_iteration_drain.md (Component Contracts).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path.cwd()
@@ -20,6 +23,35 @@ def _git_head() -> str:
     if result.returncode != 0:
         raise SystemExit(f"Workspace is not a git repository with commits: {result.stderr.strip()}")
     return result.stdout.strip()
+
+
+def _require_equal_regular_file(path: Path, raw: bytes) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise SystemExit(f"Refusing unreadable or unsafe ledger input {path}: {exc}") from exc
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise SystemExit(f"Refusing non-regular ledger input {path}")
+    with os.fdopen(fd, "rb") as handle:
+        if handle.read() != raw:
+            raise SystemExit(f"Refusing ledger input {path}: existing bytes differ")
+
+
+def _publish_ledger_input(raw: bytes, inputs_dir: Path) -> Path:
+    final = inputs_dir / f"{hashlib.sha256(raw).hexdigest()}.md"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=inputs_dir, prefix=".ledger-input-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+        try:
+            os.link(temporary, final)
+        except FileExistsError:
+            _require_equal_regular_file(final, raw)
+    finally:
+        os.unlink(temporary)
+    return final
 
 
 def main() -> int:
@@ -46,6 +78,7 @@ def main() -> int:
     ledger_path = work_root / "ledger.md"
     if not ledger_path.exists():
         ledger_path.write_text("# Verified-iteration drain ledger\n\n", encoding="utf-8")
+    ledger_input_path = _publish_ledger_input(ledger_path.read_bytes(), work_root / "ledger-inputs")
 
     def _rel(path: Path) -> str:
         return path.relative_to(REPO_ROOT).as_posix()
@@ -60,6 +93,7 @@ def main() -> int:
         "target_design_path": args.target_design_path,
         "check_commands_path": args.check_commands_path,
         "ledger_path": _rel(ledger_path),
+        "ledger_input_path": _rel(ledger_input_path),
         "blocked_notes_dir": _rel(blocked_dir),
         "worker_verdict_path": _rel(iteration_dir / "worker-verdict.txt"),
         "worker_note_path": _rel(iteration_dir / "worker-note.txt"),
@@ -82,6 +116,7 @@ def main() -> int:
                 {
                     "base_sha": order["base_sha"],
                     "ledger_path": order["ledger_path"],
+                    "ledger_input_path": order["ledger_input_path"],
                     "work_order_path": order["work_order_path"],
                 },
                 indent=2,
