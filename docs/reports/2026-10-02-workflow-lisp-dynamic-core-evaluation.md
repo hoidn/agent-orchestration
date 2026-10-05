@@ -637,7 +637,7 @@ uses existing reader/type owners, infers lexical captures and admits the same
 versioned artifact. The [runnable specimen and command](../../experiments/dynamic_core_evaluation/README.md)
 show ordinary source composition with a real provider followed by a command;
 this is an experimental driver, not public `orchestrator run` support.
-The [leaf bridge](../../experiments/dynamic_core_evaluation/leaf_bridge.py) uses
+The [leaf bridge](https://github.com/hoidn/agent-orchestration/blob/3a7f8efd464d69f9c652cb9fea8b350c1248edc6/experiments/dynamic_core_evaluation/leaf_bridge.py) uses
 fresh compiled workflows through the existing full executor. The only shared
 production edit is four added lines accepting/forwarding `document_bytes` in
 `WorkflowExecutor._apply_expected_outputs_contract`, so strict raw validation
@@ -2181,3 +2181,46 @@ Fresh fetch retains origin/main `be327102` and shared `4acd38ec`. C2 remains
 reviewed; C3 coverage/reconciliation is in progress, with actual retirement
 conditional on named replacement PASS. Task 9, full Q1–Q5 and DC-P remain
 pending; stable evaluation stays at `3a7f8efd`. No adoption or migration follows.
+
+
+### Atomic Tasks 5–8 Cutover And Historical Retirement
+
+Coverage `bd0e696c`, selected upstream import `8c9fd794` and retirement
+`9ac91e70` complete the reviewed code cutover. Independent conformity PASS
+preceded quality APPROVED; [durable review excerpts](2026-10-04-dynamic-core-cutover-review.md)
+preserve the final atomic and separate coverage reviews and exact receipt hashes.
+The [individual replacement map](2026-10-02-dynamic-core-replacement-map.json)
+disposes all **194 originals**: C1/C2's 98 plus C3's 96, including every US01
+suffix. C3 adds 60 cases; its final capture-through-ordinary-apply correction
+passed targeted author/reviewer checks. The earlier **759 PASS** aggregate is
+pre-correction evidence, not a broad run of those final corrections.
+
+Retirement removes exactly 14 obsolete bridge/fixture/test-driver paths, with
+zero active runtime/test callers or forwarding shims; post-removal collection
+recorded **1701 cases in 4.77s**, exit 0. Retained typed improve, evaluated-spike
+and maintained MLEvolve controls remain. Exact paths and original hashes are
+in `/dev/shm/c3v/retirement-receipt.json`. [Historical reproduction](../../experiments/dynamic_core_evaluation/README.md)
+uses immutable `3a7f8efd464d69f9c652cb9fea8b350c1248edc6`, containing all four
+spike owners, seven original modules and six fixtures with matching retired
+bytes. The typed comparator `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` and
+original-test-byte pin `26bc796fba0b493d3f94ce7f935a9796030758d4` have distinct
+roles; neither is the runnable frozen spike checkout.
+
+The 16-file `4acd38ec`→`104bf2bc` scope adds typed immutable result-root/context
+publication and source-free replay, preserving local strict/document seams.
+Local code review and separate bounded Astra design review passed; external
+upstream review receipts remain unavailable. Narrow checks passed **12 in
+21.05s**; collection recorded **690 in 4.46s**; the 22-module affected gate
+passed **690 in 175.29s** (175.499s harness), exit 0. All **599** before/after
+hashes are stable and match the reviewed committed bytes. Raw receipts:
+`/dev/shm/orc-dc3-upstream-104bf2bc/` and
+`/dev/shm/orc-dc3-upstream-result-root-design-review.md`.
+This suite excludes the inherited frozen WCC identity case: it does not resolve
+or relabel the earlier **679 PASS / 1 inherited FAIL** gate, nor complete Phase 3.
+Counts overlap and are not additive.
+
+Task 9 is now in progress; its external-kill/readiness evidence, full Q1–Q5,
+durable contract updates and DC-P remain open. Stable evaluation advancement
+belongs to coordinator integration of the reviewed atomic unit; immutable
+historical/comparator pins do not move. No adoption, migration, default target
+change or live/paid qualification follows from this cutover.

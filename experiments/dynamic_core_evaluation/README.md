@@ -1,21 +1,41 @@
-# Dynamic-core evaluation
+# Dynamic-core evaluation — historical DC-2 spike
 
-This remains an isolated experiment, not a public `.orc` target or a production
-adoption. The current evidence executes complete improve and compact-search
-consumers through admitted dynamic artifacts and the existing compiled leaf
-runtime. The driver writes each artifact to disk, reads it back, checks its
-digest, then calls real deterministic local command leaves through
-`LeafBridge` and `WorkflowExecutor`.
+This README preserves the earlier source-assembly/compiled-leaf experiment.
+Its active bridge, fixtures and test drivers have been retired from the
+candidate; the excerpts and commands below apply only to the frozen historical
+checkout, not the current native runtime.
 
-The full improve consumer assembles the ordinary [`improve` definition
-fragment](fixtures/improve.orc) with caller-owned hooks and keeps the compiled
-result contract `Improvement[Draft Feedback Blocker]`. The compact search
-consumer uses [`search.orc`](fixtures/search.orc), declares `SearchResult`, and
-reuses the existing compact controller command adapters. The smaller
-[`composition.orc`](fixtures/composition.orc) remains a `Value`-result example
-for single-pass closure composition; it is not the result schema used by those
-full-consumer checks. Shared definitions have to be assembled into caller
-source because this bounded reader has no ORC import support.
+Current authoring starts with the [drafting guide](../../docs/lisp_workflow_drafting_guide.md).
+The isolated target-3.0 candidate uses the real
+[std/dynamic/improve library](../../orchestrator/workflow_lisp/stdlib_modules/std/dynamic/improve.orc),
+[complete improve consumer](../../tests/fixtures/workflow_lisp/dynamic/improve.orc)
+and [complete search consumer](../../tests/fixtures/workflow_lisp/dynamic/search.orc).
+Their [public CLI smoke](../../tests/test_workflow_dynamic_improve.py) and
+[local search checks](../../tests/test_workflow_dynamic_search.py) stage the
+required module layout, probes and command manifests. A fixture path alone is
+not a standalone launch. The [readiness plan](../../docs/plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+owns branch qualification; no adopted/default target, application migration,
+resume or live-provider qualification follows from these examples.
+
+Historical reproduction is pinned to immutable commit
+`3a7f8efd464d69f9c652cb9fea8b350c1248edc6`, which contains all four experiment
+owners, six fixtures and seven original test modules. It happens to equal the
+stable evaluation branch's pre-cutover value; reproduce the commit, not a
+moving branch. The retained typed comparator is separately pinned to
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8`; that revision does not contain this
+spike. The individual replacement map pins original test bytes at
+`26bc796fba0b493d3f94ce7f935a9796030758d4`, a partially cut-over tree, not the
+runnable historical checkout.
+
+In the frozen spike, the complete improve consumer assembles an ordinary
+[improve fragment](https://github.com/hoidn/agent-orchestration/blob/3a7f8efd464d69f9c652cb9fea8b350c1248edc6/experiments/dynamic_core_evaluation/fixtures/improve.orc)
+with caller-owned hooks and retains the compiled Improvement contract.
+[Search](https://github.com/hoidn/agent-orchestration/blob/3a7f8efd464d69f9c652cb9fea8b350c1248edc6/experiments/dynamic_core_evaluation/fixtures/search.orc)
+retains SearchResult; [composition](https://github.com/hoidn/agent-orchestration/blob/3a7f8efd464d69f9c652cb9fea8b350c1248edc6/experiments/dynamic_core_evaluation/fixtures/composition.orc)
+is the smaller Value-result example. The driver writes and reads admitted
+artifacts, checks their digest, and executes real local leaves through
+LeafBridge and WorkflowExecutor. Its missing import support requires assembly;
+these costs and wire normalizers are historical, not current authoring patterns.
 
 ## Context passed to hooks
 
@@ -28,7 +48,7 @@ context record:
 (revise state.current inputs r.feedback)
 ```
 
-The dynamic excerpt is UE03 in the [paired source-edit cases](../../tests/experiments/test_dynamic_core_utility_edits.py).
+The dynamic excerpt is UE03 in the [paired source-edit cases](https://github.com/hoidn/agent-orchestration/blob/3a7f8efd464d69f9c652cb9fea8b350c1248edc6/tests/experiments/test_dynamic_core_utility_edits.py).
 It gives review only the candidate; an ordinary closure captures the
 independent goal and rubric, while the revise closure captures the goal it
 uses:
@@ -65,7 +85,7 @@ workflow accepts only `Draft` and `goal`, so this edited leaf contract is a
 prerequisite for the independent rubric input.
 
 Both dynamic effects still pass through the declared compiled leaf input contracts.
-The current evidence credits the typed single-`String` context. Proposed W3
+The frozen evidence credits the typed single-`String` context. Proposed W3
 could also remove explicit capture forwarding from the typed helper; it is not
 implemented, so closure capture is not counted as a unique gain here.
 
@@ -96,9 +116,18 @@ list length and updates to existing record keys. These checks keep collections
 as ordinary lists and records rather than inventing a homogeneous internal
 schema.
 
-## Run the full improve consumer
+## Reproduce the frozen full improve consumer
 
-From the repository or worktree root, run this test-owned driver. It assembles
+Use a separate checkout at the immutable historical revision, with the Python
+3.11+ development environment from that revision's README:
+
+```bash
+historical_parent="$(mktemp -d)"
+git worktree add --detach "$historical_parent/checkout" 3a7f8efd464d69f9c652cb9fea8b350c1248edc6
+cd "$historical_parent/checkout"
+```
+
+From that checkout root, run this historical test-owned driver. It assembles
 the shared definition fragment with a real caller, compiles the existing local
 review/revise workflows, writes and reads the admitted artifact, and executes
 both effects. It makes no paid model calls and adds no runtime framework.
@@ -129,7 +158,7 @@ including their order. `wrapped=True` exercises the captured review/revise
 callbacks. The helper verifies that the deserialized artifact has the same
 digest before passing it to the evaluator.
 
-## Limits
+## Historical limits
 
 Every effect still launches a fresh compiled legacy leaf with its existing
 state, contract validation and startup cost. Caller-authored normalizers map
@@ -142,7 +171,7 @@ This evidence does not claim net deletion, lower total complexity or
 production readiness; those remain separate decisions in the
 [evaluation plan](../../docs/plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md).
 
-Run the focused checks from the repository root in a tmux session, as required
+Run the focused checks from the frozen checkout root in a tmux session, as required
 by `AGENTS.md` for this slow pytest group:
 
 ```bash
