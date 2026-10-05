@@ -85,6 +85,43 @@ def failure(action, expected):
     return caught.value
 
 
+def test_UC03_append_refuses_nonlists_and_wrong_arity():
+    for operands in ((lit(1), lit(2)), (record(x=lit(1)), lit(2))):
+        error = failure(lambda: run(op("list/append", *operands)), "dynamic_operand_type")
+        assert error.metadata["steps"] > 0
+    for operands in (({"k": "list", "items": []},),
+                     ({"k": "list", "items": []}, lit(1), lit(2))):
+        failure(lambda: program(op("list/append", *operands)), "dynamic_program_invalid")
+
+
+def test_UC04_length_returns_checked_int_and_refuses_nonlists_and_wrong_arity():
+    for items in ([], [lit(1), lit("two"), lit(True)]):
+        value = run(op("list/length", {"k": "list", "items": items})).value
+        assert type(value) is int and value == len(items)
+    for operands in ((lit(1),), (record(x=lit(1)),)):
+        assert failure(lambda: run(op("list/length", *operands)), "dynamic_operand_type").metadata["steps"] > 0
+    for operands in ((), ({"k": "list", "items": []}, {"k": "list", "items": []})):
+        failure(lambda: program(op("list/length", *operands)), "dynamic_program_invalid")
+
+
+def test_UC06_all_update_keys_are_checked_before_any_replacement_runs():
+    update = {"k": "record-update", "base": record(x=lit(1)), "fields": [
+        ["x", {"k": "fail", "reason": "replacement_ran"}], ["missing", lit(2)]]}
+    error = failure(lambda: run(call(fn("demo::update")),
+        definitions={"demo::update": definition(update)}), "dynamic_field_missing")
+    assert error.metadata["steps"] > 0 and error.metadata["call_stack"]
+    assert "replacement_ran" not in str(error)
+    failure(lambda: run({"k": "record-update", "base": lit(7), "fields": [
+        ["x", {"k": "fail", "reason": "replacement_ran"}]]}), "dynamic_operand_type")
+
+
+def test_original_pure_behavior_case_B02_required_bool_boundary():
+    assert run(name("flag"), {"flag": True}, params=(("flag", "Bool"),), result="Bool").value is True
+    for values in ({}, {"flag": "true"}, {"flag": True, "extra": 1}):
+        failure(lambda: run(name("flag"), values, params=(("flag", "Bool"),), result="Bool"),
+            "dynamic_boundary_invalid")
+
+
 def test_closures_can_be_created_captured_passed_stored_and_selected():
     maker = definition(fn("demo::reader", name("saved")), params=("saved",))
     reader = definition(name("saved"), captures=("saved",))
@@ -357,6 +394,19 @@ def test_boundary_errors_keep_safe_validator_path_without_rejected_values():
     assert error.metadata["validator_error"].startswith("$/rows/0/review notes")
     assert error.metadata["field_path"] == "$/rows/0/review notes"
     assert "secret" not in str(error) + error.metadata["validator_error"]
+    nested = {"kind": "record", "name": "Review", "fields": [{"name": "x", "type": INT}]}
+    choice = {"kind": "union", "name": "Choice", "variants": [
+        {"name": "one", "fields": [{"name": "x", "type": INT}]}]}
+    for field_name, field_type, bad_value in (
+        ("review has notes", nested, {}), ("review union", nested, {}),
+        ("review", choice, {"variant": "one"}),
+    ):
+        row = {"kind": "record", "name": "Row", "fields": [{"name": field_name, "type": field_type}]}
+        error = failure(lambda: run(name("n"), {"n": {field_name: bad_value}},
+            params=(("n", "Row"),), defaults={}, result="Row",
+            schemas={**SCHEMAS, "Review": nested, "Choice": choice, "Row": row}), "dynamic_boundary_invalid")
+        assert error.metadata["field_path"].startswith("$/" + field_name)
+        assert "secret" not in str(error) + error.metadata["validator_error"]
 
 
 def test_nested_map_boundary_redacts_runtime_keys_and_values():

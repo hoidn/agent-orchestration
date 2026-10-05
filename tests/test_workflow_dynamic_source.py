@@ -20,6 +20,180 @@ def compile_source(path, root, **kwargs):
     return compile_source(path, source_roots=(root,), **kwargs).program
 
 
+def _run_source_case(tmp_path, body, *, helpers="", inputs="", values=None,
+                     result="Value", budget=1000, declarations=""):
+    from orchestrator.workflow.dynamic.evaluator import evaluate
+    from orchestrator.workflow_lisp.dynamic.program import DynamicProgram
+
+    path = write_source(tmp_path, "source/case", f"""(export run)
+      {declarations} {helpers}
+      (defworkflow run ({inputs}) -> {result} {body})""", budget=budget)
+    program = compile_source(path, tmp_path)
+    return evaluate(DynamicProgram.from_artifact(program.artifact()), values or {}), program
+
+
+def test_S02_one_helper_accepts_integer_and_record(tmp_path):
+    result, program = _run_source_case(tmp_path,
+        '(list (identity 7) (identity (record (title "draft"))))',
+        helpers='(define (identity x) x)')
+    assert result.json_value() == [7, {"title": "draft"}]
+    assert set(program.definitions) == {"source/case::run", "source/case::identity"}
+    assert program.definitions["source/case::identity"]["boundary"] is None
+
+
+def test_S03_transitive_capture_and_shadowing(tmp_path):
+    assert _run_source_case(tmp_path, '''(let* ((x 7) (maker (fn () (fn () x))))
+      (let* ((x 90) (f (maker))) (f)))''')[0].json_value() == 7
+    assert _run_source_case(tmp_path, '''(let* ((x 7) (f (fn (x) (fn () x))))
+      ((f 9)))''')[0].json_value() == 9
+
+
+def test_S04_return_store_pass_and_select_callable(tmp_path):
+    for choose, expected in ((True, 42), (False, 1)):
+        result, _ = _run_source_case(tmp_path, '''(let* ((f (make 40))
+          (chosen (if choose f (fn (x) (- x 1))))
+          (box (record (callbacks (list chosen)))))
+          (apply-one (at (field box "callbacks") 0) 2))''',
+          helpers='(define (make x) (fn (y) (+ x y))) (define (apply-one f x) (f x))',
+          inputs='(choose Bool)', values={"choose": choose})
+        assert result.json_value() == expected
+
+
+def test_S05_sequential_bindings_lazy_strict_conditions(tmp_path):
+    assert _run_source_case(tmp_path, '(let* ((x 1) (y (+ x 2))) (if true y (1)))')[0].json_value() == 3
+    with pytest.raises(ValueError) as caught:
+        _run_source_case(tmp_path, '(if 1 true false)')
+    assert caught.value.code == "dynamic_condition_type"
+
+
+def test_S06_zero_argument_and_collection_forms(tmp_path):
+    assert _run_source_case(tmp_path, '''(list ((fn () 7)) (record) (list)
+      (field (record (x 1) ("spaced key" 2)) "spaced key") (at (list 3 4) 1))''')[0].json_value() == [7, {}, [], 2, 4]
+
+
+def test_S07_forward_helpers_recursion_and_lexical_scope(tmp_path):
+    helpers = '(define (first x) (second x)) (define (second x) x)'
+    for body, expected in (
+        ('(first 8)', 8),
+        ('(let* ((first (fn (x) (+ x 1)))) (first 8))', 9),
+        ('(let* ((first (fn (x) (+ x 1))) (f (fn (x) (first x)))) (f 8))', 9),
+    ):
+        assert _run_source_case(tmp_path, body, helpers=helpers)[0].json_value() == expected
+    with pytest.raises(ValueError) as caught:
+        _run_source_case(tmp_path, '(again)', helpers='(define (again) (again))', budget=20)
+    assert caught.value.code == "dynamic_budget_exhausted" and caught.value.metadata["steps"] == 20
+    with pytest.raises(LispFrontendCompileError):
+        _run_source_case(tmp_path, '(hidden)', helpers='(define (hidden) goal)', inputs='(goal String)')
+
+
+def test_S08_source_errors_and_dynamic_call_arity(tmp_path):
+    for body, result in (
+        ('(list ' * 2000 + '0' + ')' * 2000, 'Value'),
+        ('1', 'List[' * 2000 + 'Int' + ']' * 2000),
+        ('(if true 1)', 'Value'), ('(lambda (x) x)', 'Value'),
+        ('(field (record) x)', 'Value'),
+    ):
+        with pytest.raises(LispFrontendCompileError) as caught:
+            _run_source_case(tmp_path, body, result=result)
+        assert caught.value.diagnostics[0].span.start.path.endswith('source/case.orc')
+    with pytest.raises(LispFrontendCompileError):
+        _run_source_case(tmp_path, '1', helpers='(define (unreachable) unknown)')
+    with pytest.raises(ValueError) as caught:
+        _run_source_case(tmp_path, '((fn (x) x))')
+    assert caught.value.code == "dynamic_call_arity"
+    assert _run_source_case(tmp_path, '(if true 1 ((fn (x) x)))')[0].json_value() == 1
+
+
+def test_S09_headers_binders_and_duplicate_fields(tmp_path):
+    for body in (
+        '(define (f x x) x) (defworkflow run () -> Int 1)',
+        '(defworkflow run () -> Value (fn (if) if))',
+        '(defworkflow run () -> Int (let* ((x 1) (x 2)) x))',
+        '(defworkflow run () -> Value (record (x 1) ("x" 2)))',
+        '(define (f) 1) (define (f) 2) (defworkflow run () -> Int 1)',
+        '(defworkflow run ((x Int) (x Int)) -> Int 1)',
+        '(defworkflow run () -> Int 1) (defworkflow run () -> Int 2)',
+    ):
+        path = write_source(tmp_path, 'source/invalid', body)
+        with pytest.raises(LispFrontendCompileError):
+            compile_source(path, tmp_path)
+    for budget in (None, True):
+        path = write_source(tmp_path, 'source/invalid', '(defworkflow run () -> Int 1)', budget=budget)
+        with pytest.raises(LispFrontendCompileError):
+            compile_source(path, tmp_path)
+
+
+def test_S10_existing_schemas_guard_public_boundaries(tmp_path):
+    declaration = '(defrecord Answer (accepted Bool))'
+    for answer, valid in (({"accepted": True}, True), ({"accepted": "true"}, False)):
+        if valid:
+            result, _ = _run_source_case(tmp_path, 'answer', inputs='(answer Answer)',
+                result='Answer', values={'answer': answer}, declarations=declaration)
+            assert result.json_value() == answer
+        else:
+            with pytest.raises(ValueError) as caught:
+                _run_source_case(tmp_path, 'answer', inputs='(answer Answer)',
+                    result='Answer', values={'answer': answer}, declarations=declaration)
+            assert caught.value.code == 'dynamic_boundary_invalid'
+    with pytest.raises(ValueError) as caught:
+        _run_source_case(tmp_path, '(fn () 1)')
+    assert caught.value.code == 'dynamic_boundary_invalid'
+    with pytest.raises(LispFrontendCompileError):
+        _run_source_case(tmp_path, '1', result='Unknown')
+
+
+def test_UC01_production_vocabulary_round_trip_rejects_spike_envelopes(tmp_path):
+    import json
+    from orchestrator.workflow_lisp.dynamic.program import DynamicProgram
+
+    result, program = _run_source_case(tmp_path, '''(let* ((items (list/append (list 1) 2))
+      (updated (record-update (record (count 0)) (count (list/length items)))))
+      (if true (field updated "count") (fail "unused")))''')
+    assert result.json_value() == 2
+    restored = DynamicProgram.from_artifact(program.artifact())
+    assert restored.semantic_digest == program.semantic_digest
+    for profile in ('workflow-lisp/dynamic-spike/1', 'workflow-lisp/dynamic-spike/2', 'workflow-lisp/dynamic-spike/3'):
+        tree = json.loads(program.artifact())
+        tree['schema'] = profile
+        with pytest.raises(ValueError) as caught:
+            DynamicProgram.from_artifact(json.dumps(tree))
+        assert caught.value.code == 'dynamic_program_invalid'
+
+
+def test_UC02_append_preserves_order_copies_the_list_and_allows_mixed_closures(tmp_path):
+    for body, expected in (
+        ('(let* ((items (list 1 "two")) (grown (list/append items true))) (list (at grown 0) (at grown 1) (at grown 2) (list/length items)))', [1, 'two', True, 2]),
+        ('((at (list/append (list (fn (n) (+ n 1))) (fn (n) (+ n 2))) 1) 40)', 42),
+        ('(list/append (list) 1)', [1]),
+        ('(list/append (list 1 2) 3)', [1, 2, 3]),
+    ):
+        assert _run_source_case(tmp_path, body)[0].json_value() == expected
+
+
+def test_UC05_record_update_retains_fields_and_can_replace_with_a_closure(tmp_path):
+    assert _run_source_case(tmp_path, '''(let* ((base (record (count 1) (keep "yes")))
+      (updated (record-update base (count (fn (n) (+ n 1))))))
+      (list ((field updated "count") 4) (field updated "keep") (field base "count")))''')[0].json_value() == [5, 'yes', 1]
+
+
+def test_UC07_empty_duplicate_and_nonliteral_updates_fail_admission(tmp_path):
+    for body in (
+        '(record-update (record (x 1)))',
+        '(record-update (record (x 1)) (x 2) ("x" 3))',
+        '(record-update (record (x 1)) ((field (record) "x") 2))',
+    ):
+        with pytest.raises(LispFrontendCompileError):
+            _run_source_case(tmp_path, body)
+
+
+def test_UC10_fail_requires_an_admitted_literal_reason(tmp_path):
+    for body in ('(fail "")', '(fail 3)', '(let* ((reason "x")) (fail reason))', '(fail)', '(fail "x" 1)'):
+        with pytest.raises(LispFrontendCompileError):
+            _run_source_case(tmp_path, body)
+    with pytest.raises(LispFrontendCompileError):
+        _run_source_case(tmp_path, '1', helpers='(define (hidden) (fail false))')
+
+
 def test_public_workflow_and_ordinary_captures_evaluate_after_source_deletion(tmp_path):
     from orchestrator.workflow.dynamic.evaluator import evaluate as evaluate_dynamic_program
     path = write_source(tmp_path, "demo/main", """

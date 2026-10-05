@@ -1,0 +1,2671 @@
+{
+  "purpose": "Individual behavioral replacement evidence for the original Task8 corpus; not a routing/status authority. No deletion authorized by this file.",
+  "original_case_count": 194,
+  "groups": {
+    "utility": 110,
+    "effects": 24,
+    "source": 12,
+    "pure_boundary_admission_budget": 48
+  },
+  "source_truth": "Pinned originals govern; US06 authored bound is 1.",
+  "task9_external_kills": "Pending separate Task9 process-kill verification.",
+  "cases": [
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-0]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-0]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-0]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-1]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-1]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-1]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-2]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-2]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-2]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-3]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-3]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-3]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-5]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-5]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-5]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-6]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-6]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-6]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-9]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-9]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-9]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_a/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed a/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seed_b/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seed b/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_seeds_both/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid seeds both/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_below_best/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate below best/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/valid_tie_best/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/valid tie best/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/every_candidate_invalid/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/every candidate invalid/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/repair_fails_then_succeeds/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/repair fails then succeeds/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/only_a_improves/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/only a improves/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US01_dynamic_search_matches_each_scripted_reference_pair[US01/invalid_candidate_solved_score/budget-12]"
+      ],
+      "covered_behavior": "US01 dynamic search matches each scripted reference pair[US01/invalid candidate solved score/budget-12]",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US03_invalid_budget_dispatches_nothing_and_non_int_inputs_stay_strict",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US03_invalid_budget_dispatches_nothing_and_non_int_inputs_stay_strict"
+      ],
+      "covered_behavior": "US03 invalid budget dispatches nothing and non int inputs stay strict",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US04_invalid_candidate_bundle_fails_before_evaluation_and_keeps_prefix",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US04_invalid_candidate_bundle_fails_before_evaluation_and_keeps_prefix"
+      ],
+      "covered_behavior": "US04 invalid candidate bundle fails before evaluation and keeps prefix",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US05_invalid_evaluation_schema_fails_and_typed_invalid_result_repairs",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US05_invalid_evaluation_schema_fails_and_typed_invalid_result_repairs"
+      ],
+      "covered_behavior": "US05 invalid evaluation schema fails and typed invalid result repairs",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US02_real_local_leaves_reproduce_the_ten_evaluation_trace",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US02_real_local_leaves_reproduce_the_ten_evaluation_trace"
+      ],
+      "covered_behavior": "US02 real local leaves reproduce the ten evaluation trace",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_search.py::test_US06_reduced_authored_bound_matches_the_compact_control",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_search.py::test_US06_reduced_authored_bound_matches_the_compact_control"
+      ],
+      "covered_behavior": "Original source controller bound 1, retained compact comparator, complete native SearchResult/history/status and exact operations; the preliminary handoff bound2 wording is superseded by the pinned original source.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_search.py",
+        "sha256": "28289e994da6b6502930d499a358e0e76dc4e5b8a1c50bce8c73063caccf8c34"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UE01_origin_boundary_and_internal_state_edits_are_counted_separately",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UE01_origin_boundary_and_internal_state_edits_are_counted_separately"
+      ],
+      "covered_behavior": "UE01 origin boundary and internal state edits are counted separately",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UE02_feedback_and_evidence_field_rename_updates_both_consumers",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UE02_feedback_and_evidence_field_rename_updates_both_consumers"
+      ],
+      "covered_behavior": "UE02 feedback and evidence field rename updates both consumers",
+      "historical_only_details": [
+        "Dynamic wire-normalization edit sites retire because native declared Feedback/Decision values have no from-wire conversion; producer schema and both ordinary consumers still change together."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UE03_review_captures_rubric_independently_and_revision_uses_goal",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UE03_review_captures_rubric_independently_and_revision_uses_goal"
+      ],
+      "covered_behavior": "UE03 review captures rubric independently and revision uses goal",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UE04_pure_feedback_helper_preserves_payload_and_effect_order",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UE04_pure_feedback_helper_preserves_payload_and_effect_order"
+      ],
+      "covered_behavior": "UE04 pure feedback helper preserves payload and effect order",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UD01_unbound_lexical_name_fails_at_compile_before_any_dispatch",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UD01_unbound_lexical_name_fails_at_compile_before_any_dispatch"
+      ],
+      "covered_behavior": "UD01 unbound lexical name fails at compile before any dispatch",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UD02_wrong_call_arity_costs_zero_or_one_completed_review_and_one_site_repair",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UD02_wrong_call_arity_costs_zero_or_one_completed_review_and_one_site_repair"
+      ],
+      "covered_behavior": "UD02 wrong call arity costs zero or one completed review and one site repair",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UD03_missing_internal_field_fails_after_review_then_one_site_repair",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UD03_missing_internal_field_fails_after_review_then_one_site_repair"
+      ],
+      "covered_behavior": "UD03 missing internal field fails after review then one site repair",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UD04_budget_failure_after_completed_effect_is_repaired_by_a_fresh_run",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UD04_budget_failure_after_completed_effect_is_repaired_by_a_fresh_run"
+      ],
+      "covered_behavior": "UD04 budget failure after completed effect is repaired by a fresh run",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UD05_dynamic_restart_repeats_effect_pair_while_typed_resume_does_not",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UD05_dynamic_restart_repeats_effect_pair_while_typed_resume_does_not"
+      ],
+      "covered_behavior": "UD05 dynamic restart repeats effect pair while typed resume does not",
+      "historical_only_details": [],
+      "task8_boundary": "real terminal failure and corrected fresh native run; retained typed resume comparator",
+      "task9_external_kill": "PENDING: actual external process kill after a settled revision; Task8 terminal failure/fresh-run/typed-resume comparison does not qualify it.",
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_edits.py::test_UD06_captured_goal_restart_repeats_while_typed_string_input_resume_preserves_goal",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_edits.py::test_UD06_captured_goal_restart_repeats_while_typed_string_input_resume_preserves_goal"
+      ],
+      "covered_behavior": "UD06 captured goal restart repeats while typed string input resume preserves goal",
+      "historical_only_details": [],
+      "task8_boundary": "real terminal failure and corrected fresh native run; retained typed resume comparator",
+      "task9_external_kill": "PENDING: actual external process kill after a settled revision; Task8 terminal failure/fresh-run/typed-resume comparison does not qualify it.",
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_edits.py",
+        "sha256": "79fdc2b83ee095b70f869d908ad3944f65fd666ab216b3d739c0410155527958"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI01_initial_approval_keeps_the_initial_draft_and_evidence",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI01_initial_approval_keeps_the_initial_draft_and_evidence"
+      ],
+      "covered_behavior": "UI01 initial approval keeps the initial draft and evidence",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI02_blocked_review_keeps_the_revised_draft_and_reason",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI02_blocked_review_keeps_the_revised_draft_and_reason"
+      ],
+      "covered_behavior": "UI02 blocked review keeps the revised draft and reason",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI03_limit_exhaustion_keeps_the_last_revision_without_an_extra_review",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI03_limit_exhaustion_keeps_the_last_revision_without_an_extra_review"
+      ],
+      "covered_behavior": "UI03 limit exhaustion keeps the last revision without an extra review",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI04_malformed_review_fails_its_typed_boundary_before_revision",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI04_malformed_review_fails_its_typed_boundary_before_revision"
+      ],
+      "covered_behavior": "UI04 malformed review fails its typed boundary before revision",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI05_failure_in_the_final_permitted_revision_is_not_exhaustion",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI05_failure_in_the_final_permitted_revision_is_not_exhaustion"
+      ],
+      "covered_behavior": "UI05 failure in the final permitted revision is not exhaustion",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI06_dynamic_review_wrapper_matches_the_typed_imported_wrapper",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI06_dynamic_review_wrapper_matches_the_typed_imported_wrapper"
+      ],
+      "covered_behavior": "UI06 dynamic review wrapper matches the typed imported wrapper",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI07_assembled_and_inline_approval_agree_with_typed_imported_and_inline_controls",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI07_imported_and_inline_approval_agree_with_typed_imported_and_inline_controls"
+      ],
+      "covered_behavior": "UI07 assembled and inline approval agree with typed imported and inline controls",
+      "historical_only_details": [
+        "Python-assembled spike helper fragments are replaced by directly authored complete modules and normal source imports; imported/inline behavioral comparisons remain."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI08_assembled_and_inline_blocked_outcomes_agree_with_typed_controls",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI08_imported_and_inline_blocked_outcomes_agree_with_typed_controls"
+      ],
+      "covered_behavior": "UI08 assembled and inline blocked outcomes agree with typed controls",
+      "historical_only_details": [
+        "Python-assembled spike helper fragments are replaced by directly authored complete modules and normal source imports; imported/inline behavioral comparisons remain."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI09_assembled_and_inline_exhaustion_agree_with_typed_controls",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI09_imported_and_inline_exhaustion_agree_with_typed_controls"
+      ],
+      "covered_behavior": "UI09 assembled and inline exhaustion agree with typed controls",
+      "historical_only_details": [
+        "Python-assembled spike helper fragments are replaced by directly authored complete modules and normal source imports; imported/inline behavioral comparisons remain."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI10_zero_limit_fails_before_either_hook_and_typed_control_refuses_at_compile_time",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI10_zero_limit_fails_before_either_hook_and_typed_control_refuses_at_compile_time"
+      ],
+      "covered_behavior": "UI10 zero limit fails before either hook and typed control refuses at compile time",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_improve.py::test_UI11_blocked_domain_result_matches_the_public_typed_wire_output",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_improve.py::test_UI11_blocked_domain_result_matches_the_public_typed_wire_output"
+      ],
+      "covered_behavior": "UI11 blocked domain result matches the public typed wire output",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_improve.py",
+        "sha256": "054a8f3f457ad68055b25a8b0f4d6e8cd532394610c59ca7ee9c14f6483b2d8c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC01_v3_roundtrip_keeps_the_new_vocabulary_out_of_v1_and_v2",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_UC01_production_vocabulary_round_trip_rejects_spike_envelopes",
+        "tests/test_workflow_dynamic_program.py::test_production_program_round_trips_with_separate_semantic_and_provenance_pins"
+      ],
+      "covered_behavior": "UC01 v3 roundtrip keeps the new vocabulary out of v1 and v2",
+      "historical_only_details": [
+        "Acceptance of workflow-lisp/dynamic-spike/1-/2-/3 envelopes is retired; the production envelope and refusal of old profiles are tested."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC02_append_preserves_order_copies_the_list_and_allows_mixed_closures",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_UC02_append_preserves_order_copies_the_list_and_allows_mixed_closures"
+      ],
+      "covered_behavior": "UC02 append preserves order copies the list and allows mixed closures",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC03_append_refuses_nonlists_and_wrong_arity",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_UC03_append_refuses_nonlists_and_wrong_arity"
+      ],
+      "covered_behavior": "UC03 append refuses nonlists and wrong arity",
+      "historical_only_details": [
+        "Malformed primitive arity is refused during production admission with dynamic_program_invalid; the spike deferred it to evaluation. Admitted non-list operands still fail dynamically with positive entered steps."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC04_length_returns_checked_int_and_refuses_nonlists_and_wrong_arity",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_UC04_length_returns_checked_int_and_refuses_nonlists_and_wrong_arity"
+      ],
+      "covered_behavior": "UC04 length returns checked int and refuses nonlists and wrong arity",
+      "historical_only_details": [
+        "Malformed primitive arity is refused during production admission with dynamic_program_invalid; the spike deferred it to evaluation. Admitted non-list operands still fail dynamically with positive entered steps."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC05_record_update_retains_fields_and_can_replace_with_a_closure",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_UC05_record_update_retains_fields_and_can_replace_with_a_closure"
+      ],
+      "covered_behavior": "UC05 record update retains fields and can replace with a closure",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC06_all_update_keys_are_checked_before_any_replacement_runs",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_UC06_all_update_keys_are_checked_before_any_replacement_runs"
+      ],
+      "covered_behavior": "UC06 all update keys are checked before any replacement runs",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC07_empty_duplicate_and_nonliteral_updates_fail_admission",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_UC07_empty_duplicate_and_nonliteral_updates_fail_admission",
+        "tests/test_workflow_dynamic_program.py::test_record_update_and_fail_exact_shapes_refuse_even_when_unreachable"
+      ],
+      "covered_behavior": "UC07 empty duplicate and nonliteral updates fail admission",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC08_effect_operands_run_once_in_order_and_share_one_budget",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_UC08_effect_operands_run_once_in_order_and_share_one_budget"
+      ],
+      "covered_behavior": "UC08 effect operands run once in order and share one budget",
+      "historical_only_details": [
+        "The old raw artifact exact node count is not retained: admitted source inserts adapter operand bindings. Exact new shared-budget exhaustion is tested after one completed effect at budget12."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC09_fail_keeps_reason_context_and_skips_unselected_work",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_UC09_fail_keeps_reason_context_and_skips_unselected_work",
+        "tests/test_workflow_dynamic_source.py::test_UC01_production_vocabulary_round_trip_rejects_spike_envelopes"
+      ],
+      "covered_behavior": "UC09 fail keeps reason context and skips unselected work",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC10_fail_requires_an_admitted_literal_reason",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_UC10_fail_requires_an_admitted_literal_reason",
+        "tests/test_workflow_dynamic_program.py::test_record_update_and_fail_exact_shapes_refuse_even_when_unreachable"
+      ],
+      "covered_behavior": "UC10 fail requires an admitted literal reason",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC11_direct_certified_adapter_runs_through_the_compiler_and_executor",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_public_certified_adapter_keeps_signature_order_and_inline_document"
+      ],
+      "covered_behavior": "UC11 direct certified adapter runs through the compiler and executor",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_utility_core.py::test_UC12_adapter_refusals_happen_before_dispatch_and_bad_raw_results_stay_hidden",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_certified_binding_absence_mismatch_and_runtime_inputs_refuse_before_dispatch",
+        "tests/test_workflow_dynamic_commands.py::test_public_command_rejects_raw_wrong_root_without_disclosing_value",
+        "tests/test_workflow_dynamic_search.py::test_US04_invalid_candidate_bundle_fails_before_evaluation_and_keeps_prefix"
+      ],
+      "covered_behavior": "UC12 adapter refusals happen before dispatch and bad raw results stay hidden",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_utility_core.py",
+        "sha256": "88f0283ed1ceb3c723908dc9fa4d55056b04773901cc5b8a77fddb040dc18374"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E01a_provider_leaf_can_select_and_invoke_an_ordinary_closure",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_selects_closure_and_runs_later_command",
+        "tests/test_workflow_dynamic_providers.py::test_provider_decision_selects_lazy_pure_or_command_callable"
+      ],
+      "covered_behavior": "E01a provider leaf can select and invoke an ordinary closure",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E09a_leaf_input_contracts_refuse_bad_values_before_launch",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_E09a_leaf_input_contracts_refuse_bad_values_before_launch",
+        "tests/test_workflow_dynamic_providers.py::test_provider_required_record_input_refuses_bool_int_missing_and_extra_before_allocation",
+        "tests/test_workflow_dynamic_providers.py::test_provider_fill_policy_and_path_refusals_precede_dispatch"
+      ],
+      "covered_behavior": "E09a leaf input contracts refuse bad values before launch",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E01b_command_result_uses_the_same_closure_boundary",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_E01b_command_result_uses_the_same_closure_boundary",
+        "tests/test_workflow_dynamic_evaluation.py::test_closures_cannot_cross_the_entry_data_boundary"
+      ],
+      "covered_behavior": "E01b command result uses the same closure boundary",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E02a_validated_record_is_captured_stored_passed_and_used_by_second_leaf",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_snapshot_can_be_stored_captured_and_shadowed_before_command"
+      ],
+      "covered_behavior": "E02a validated record is captured stored passed and used by second leaf",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E02b_tagged_result_snapshot_survives_shadowing_and_later_leaf_write",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_snapshot_can_be_stored_captured_and_shadowed_before_command"
+      ],
+      "covered_behavior": "E02b tagged result snapshot survives shadowing and later leaf write",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E03a_pre_action_failure_dispatches_nothing_then_fresh_entry_runs",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_predispatch_refusal_then_fresh_corrected_entry_dispatches"
+      ],
+      "covered_behavior": "E03a pre action failure dispatches nothing then fresh entry runs",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E03b_failure_after_first_action_keeps_effect_and_fresh_run_repeats_it",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_prefix_repeats_after_later_command_failure_without_overwriting_old_run"
+      ],
+      "covered_behavior": "E03b failure after first action keeps effect and fresh run repeats it",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E04a_unknown_and_unlinked_leaf_references_fail_before_dispatch",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_missing_provider_binding_is_refused_even_in_an_unselected_body",
+        "tests/test_workflow_dynamic_program.py::test_command_static_tampering_is_rejected_in_unreachable_bodies",
+        "tests/test_workflow_dynamic_commands.py::test_certified_binding_absence_mismatch_and_runtime_inputs_refuse_before_dispatch"
+      ],
+      "covered_behavior": "E04a unknown and unlinked leaf references fail before dispatch",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E04b_failed_leaf_has_call_context_without_boundary_values",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_E04b_failed_provider_in_helper_keeps_safe_caller_context",
+        "tests/test_workflow_dynamic_commands.py::test_public_command_failure_keeps_call_context_without_argument_values"
+      ],
+      "covered_behavior": "E04b failed leaf has call context without boundary values",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E05a_budget_exhaustion_during_effect_arguments_prevents_launch",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_and_later_command_share_budget_with_fresh_prefix_repetition[1-0]",
+        "tests/test_workflow_dynamic_commands.py::test_public_command_operand_budget_exhaustion_prevents_dispatch"
+      ],
+      "covered_behavior": "E05a budget exhaustion during effect arguments prevents launch",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E05b_effect_does_not_reset_budget_and_fresh_call_gets_new_budget",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_and_later_command_share_budget_with_fresh_prefix_repetition[30-1]",
+        "tests/test_workflow_dynamic_commands.py::test_UC08_effect_operands_run_once_in_order_and_share_one_budget"
+      ],
+      "covered_behavior": "E05b effect does not reset budget and fresh call gets new budget",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E06a_stale_runtime_bundle_is_cleared_before_missing_result_call",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_missing_result_on_fresh_run_never_adopts_prior_native_success",
+        "tests/test_workflow_dynamic_state.py::test_effect_order_exclusive_allocation_and_failure_before_terminal"
+      ],
+      "covered_behavior": "E06a stale runtime bundle is cleared before missing result call",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract.",
+        "The old executor clear-stale-and-reuse hook is retired; exclusive fresh allocation refuses collision and fresh missing output never adopts prior result bytes."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E06b_successful_calls_get_distinct_runs_and_result_locations",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_resnapshots_imported_document_on_fresh_run"
+      ],
+      "covered_behavior": "E06b successful calls get distinct runs and result locations",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E07a_changed_ordinary_input_is_bound_on_next_invocation",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_input_and_document_are_fresh_while_attempt_keeps_captured_document"
+      ],
+      "covered_behavior": "E07a changed ordinary input is bound on next invocation",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E07b_changed_document_is_resnapshotted_on_next_invocation",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_resnapshots_imported_document_on_fresh_run",
+        "tests/test_workflow_dynamic_providers.py::test_provider_input_and_document_are_fresh_while_attempt_keeps_captured_document"
+      ],
+      "covered_behavior": "E07b changed document is resnapshotted on next invocation",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E08a_successful_prefix_repeats_after_later_leaf_failure_exactly",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_prefix_repeats_after_later_command_failure_without_overwriting_old_run",
+        "tests/test_workflow_dynamic_commands.py::test_public_command_failure_keeps_completed_prefix_and_stops_later_dispatch"
+      ],
+      "covered_behavior": "E08a successful prefix repeats after later leaf failure exactly",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E08b_failed_leaf_keeps_its_output_without_rollback_or_no_repeat_claim",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_E08b_failed_leaf_keeps_its_output_without_rollback_or_no_repeat_claim"
+      ],
+      "covered_behavior": "E08b failed leaf keeps its output without rollback or no repeat claim",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E09b_raw_results_fail_strictly_and_shared_validation_uses_one_snapshot",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_E09b_shared_provider_validation_consumes_one_captured_result",
+        "tests/test_workflow_dynamic_providers.py::test_E09b_public_provider_rejects_missing_extra_integer_and_nested_fields",
+        "tests/test_workflow_dynamic_providers.py::test_provider_failure_never_publishes_success_or_runs_next_command",
+        "tests/test_workflow_dynamic_providers.py::test_E12b_malformed_duplicate_and_nonfinite_json_never_publish"
+      ],
+      "covered_behavior": "E09b raw results fail strictly and shared validation uses one snapshot",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E10a_registry_is_closed_and_read_only_closure_cannot_dispatch",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_dryrun_never_launches_or_allocates",
+        "tests/test_workflow_dynamic_cli.py::test_command_preflight_observes_closure_but_never_dispatches",
+        "tests/test_workflow_dynamic_program.py::test_pure_admission_fails_closed_on_effects_and_unadmitted_bindings",
+        "tests/test_workflow_dynamic_evaluation.py::test_closures_cannot_cross_the_entry_data_boundary"
+      ],
+      "covered_behavior": "E10a registry is closed and read only closure cannot dispatch",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract.",
+        "The leaf_bridge read_only evaluator flag/host registry mutation API is retired; public dry-run performs preflight without body dispatch or run allocation, and host/closure inputs refuse at the data boundary."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E10b_workspace_paths_refuse_escape_and_symlink_before_launch",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_commands.py::test_public_document_path_failure_settles_no_effect_and_never_dispatches",
+        "tests/test_workflow_dynamic_providers.py::test_provider_document_symlink_refuses_before_launch",
+        "tests/test_workflow_dynamic_providers.py::test_provider_fill_policy_and_path_refusals_precede_dispatch[document-path]"
+      ],
+      "covered_behavior": "E10b workspace paths refuse escape and symlink before launch",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E11a_real_prompt_and_document_inputs_reach_provider_from_snapshot",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_input_and_document_are_fresh_while_attempt_keeps_captured_document"
+      ],
+      "covered_behavior": "E11a real prompt and document inputs reach provider from snapshot",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E11b_required_output_and_valid_handoff_follow_compiled_return_shape",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_selects_closure_and_runs_later_command",
+        "tests/test_workflow_dynamic_providers.py::test_provider_failure_never_publishes_success_or_runs_next_command[missing-report-provider_result_invalid]",
+        "tests/test_workflow_dynamic_providers.py::test_provider_wrong_result_channel_and_required_report_kind_never_publish[report-directory]"
+      ],
+      "covered_behavior": "E11b required output and valid handoff follow compiled return shape",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E12a_missing_wrong_path_and_stdout_are_not_result_channels",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_provider_failure_never_publishes_success_or_runs_next_command[missing-bundle-provider_result_missing]",
+        "tests/test_workflow_dynamic_providers.py::test_provider_failure_never_publishes_success_or_runs_next_command[stdout-bundle-provider_result_missing]",
+        "tests/test_workflow_dynamic_providers.py::test_provider_wrong_result_channel_and_required_report_kind_never_publish[result-path]"
+      ],
+      "covered_behavior": "E12a missing wrong path and stdout are not result channels",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_boundaries.py::test_E12b_malformed_duplicate_and_nonfinite_json_never_publish",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_E12b_malformed_duplicate_and_nonfinite_json_never_publish"
+      ],
+      "covered_behavior": "E12b malformed duplicate and nonfinite json never publish",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_boundaries.py",
+        "sha256": "b1902463dfc4426b24f74f6d40fd09c3c06040a1d4fc1ce3ccc36d56e147ae36"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S02_one_helper_accepts_integer_and_record",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S02_one_helper_accepts_integer_and_record"
+      ],
+      "covered_behavior": "S02 one helper accepts integer and record",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S03_transitive_capture_and_shadowing",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S03_transitive_capture_and_shadowing"
+      ],
+      "covered_behavior": "S03 transitive capture and shadowing",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S04_return_store_pass_and_select_callable",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S04_return_store_pass_and_select_callable"
+      ],
+      "covered_behavior": "S04 return store pass and select callable",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S05_sequential_bindings_lazy_strict_conditions",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S05_sequential_bindings_lazy_strict_conditions"
+      ],
+      "covered_behavior": "S05 sequential bindings lazy strict conditions",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S06_zero_argument_and_collection_forms",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S06_zero_argument_and_collection_forms"
+      ],
+      "covered_behavior": "S06 zero argument and collection forms",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S07_forward_helpers_recursion_and_lexical_scope",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S07_forward_helpers_recursion_and_lexical_scope"
+      ],
+      "covered_behavior": "S07 forward helpers recursion and lexical scope",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S08_source_errors_and_dynamic_call_arity",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S08_source_errors_and_dynamic_call_arity"
+      ],
+      "covered_behavior": "S08 source errors and dynamic call arity",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S09_headers_binders_and_duplicate_fields",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S09_headers_binders_and_duplicate_fields"
+      ],
+      "covered_behavior": "S09 headers binders and duplicate fields",
+      "historical_only_details": [
+        "Authored spike :effects registry syntax is retired; closed bindings are checked independently of reachability."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S10_existing_schemas_guard_public_boundaries",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S10_existing_schemas_guard_public_boundaries"
+      ],
+      "covered_behavior": "S10 existing schemas guard public boundaries",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S11_artifact_identity_ignores_source_layout",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_lexical_code_ids_and_semantics_are_independent_of_whitespace",
+        "tests/test_workflow_dynamic_program.py::test_semantic_identity_ignores_source_locations_but_provenance_identity_does_not"
+      ],
+      "covered_behavior": "S11 artifact identity ignores source layout",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S01_authored_specimen_runs_real_provider_then_command",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_selects_closure_and_runs_later_command",
+        "tests/test_workflow_dynamic_providers.py::test_provider_decision_selects_lazy_pure_or_command_callable"
+      ],
+      "covered_behavior": "S01 authored specimen runs real provider then command",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_source.py::test_S12_authored_closure_cannot_dispatch_in_read_only_mode",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_providers.py::test_public_provider_dryrun_never_launches_or_allocates"
+      ],
+      "covered_behavior": "S12 authored closure cannot dispatch in read only mode",
+      "historical_only_details": [
+        "LeafBridge leaf:: registry and return__ wire rows/child-run IDs are retired. Direct native command/provider values and ordinal attempt paths are the production contract.",
+        "The leaf_bridge read_only evaluator flag/host registry mutation API is retired; public dry-run performs preflight without body dispatch or run allocation, and host/closure inputs refuse at the data boundary."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_source.py",
+        "sha256": "6d044e926e2c7a46069eab7577b27c60eeac45a8567e3961e2022ca1151b527c"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P01]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_source.py::test_S02_one_helper_accepts_integer_and_record"
+      ],
+      "covered_behavior": "One untyped identity helper accepts Int and record with no per-boundary specialization.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P02]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_closures_can_be_created_captured_passed_stored_and_selected"
+      ],
+      "covered_behavior": "An ordinary closure is returned and invoked.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P03]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_closures_can_be_created_captured_passed_stored_and_selected"
+      ],
+      "covered_behavior": "An ordinary closure is stored, passed, selected and invoked.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P04]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_untyped_helper_calls_remain_untyped_and_runtime_arity_is_checked"
+      ],
+      "covered_behavior": "An ordinary helper successfully receives and invokes another ordinary closure.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P05]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_input_and_captured_records_are_frozen_from_caller_aliases"
+      ],
+      "covered_behavior": "Captured and input records freeze caller aliases.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P06]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_condition_is_strict_bool_and_only_selected_arm_runs"
+      ],
+      "covered_behavior": "Only the selected conditional arm runs.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P07]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_call_evaluates_all_arguments_left_to_right_before_callable_check"
+      ],
+      "covered_behavior": "Calling a noncallable value refuses at runtime.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P08]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_untyped_helper_calls_remain_untyped_and_runtime_arity_is_checked"
+      ],
+      "covered_behavior": "An ordinary closure called with the wrong arity refuses at runtime.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P09]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_condition_is_strict_bool_and_only_selected_arm_runs"
+      ],
+      "covered_behavior": "Conditions require strict Bool.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P10]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_record_list_access_and_functional_update_preserve_values"
+      ],
+      "covered_behavior": "Record field access preserves values and rejects missing fields.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P11]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_record_list_access_and_functional_update_preserve_values"
+      ],
+      "covered_behavior": "Out-of-range list indexing refuses at runtime.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[P12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_primitive_operands_keep_strict_numeric_kinds"
+      ],
+      "covered_behavior": "Primitive operands preserve strict numeric kinds.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B01]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_nested_record_union_boundary_reuses_shared_strict_validator"
+      ],
+      "covered_behavior": "Existing nested record/union schemas guard entry data.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B02]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_original_pure_behavior_case_B02_required_bool_boundary"
+      ],
+      "covered_behavior": "Required Bool inputs refuse missing, extra and string values.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B03]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_record_boundary_rejects_missing_extra_and_inactive_fields"
+      ],
+      "covered_behavior": "Record boundary refuses missing fields.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B04]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_record_boundary_rejects_missing_extra_and_inactive_fields"
+      ],
+      "covered_behavior": "Record boundary refuses extra fields.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B05]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_record_boundary_rejects_missing_extra_and_inactive_fields"
+      ],
+      "covered_behavior": "Union boundary refuses inactive-variant fields.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B06]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_boundary_errors_keep_safe_validator_path_without_rejected_values"
+      ],
+      "covered_behavior": "Nested declared spaced field names and missing active union payload retain safe diagnostic paths.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B07]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_boundary_rejects_host_cycles_nonfinite_and_normalizes_float_inputs"
+      ],
+      "covered_behavior": "Data boundaries refuse nonfinite host values.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B08]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_closures_cannot_cross_the_entry_data_boundary"
+      ],
+      "covered_behavior": "Closures cannot cross entry input/output data boundaries.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B09]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_boundary_rejects_host_cycles_nonfinite_and_normalizes_float_inputs"
+      ],
+      "covered_behavior": "Data boundaries refuse host cycles.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B10]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_boundary_rejects_host_cycles_nonfinite_and_normalizes_float_inputs"
+      ],
+      "covered_behavior": "A host object() value cannot cross the entry data boundary.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B11]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_boundary_rejects_host_cycles_nonfinite_and_normalizes_float_inputs",
+        "tests/test_workflow_dynamic_boundaries.py::test_optional_int_root_preserves_null_and_applies_signed64_bounds"
+      ],
+      "covered_behavior": "Signed64 bounds are enforced without exposing rejected values or runtime map keys.",
+      "historical_only_details": [
+        "Arbitrary runtime key strings in validator paths are deliberately redacted; declared field names and safe list indices remain diagnostic."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[B12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_optional_boundary_preserves_none_and_bool_does_not_coerce"
+      ],
+      "covered_behavior": "Optional null survives while Bool is not coerced.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A01]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A01]"
+      ],
+      "covered_behavior": "Canonical JSON ordering preserves semantic/provenance pins and deeply frozen bodies.",
+      "historical_only_details": [
+        "The spike single digest is replaced by separately tested production semantic and provenance digests."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A02]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_read_back_rejects_unknown_or_incomplete_production_envelopes"
+      ],
+      "covered_behavior": "Unknown or historical profile envelopes refuse.",
+      "historical_only_details": [
+        "Acceptance of workflow-lisp/dynamic-spike/1-/2-/3 envelopes is retired; the production envelope and refusal of old profiles are tested."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A03]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_read_back_rejects_unknown_or_incomplete_production_envelopes"
+      ],
+      "covered_behavior": "Unknown extra top-level artifact members refuse during admission.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A04]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_read_back_checks_every_body_and_resolves_lexical_code_and_capture_references"
+      ],
+      "covered_behavior": "All bodies are checked even when unreachable.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A05]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A05]"
+      ],
+      "covered_behavior": "Forged lexical code references and malformed unused targets refuse.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A06]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_read_back_checks_every_body_and_resolves_lexical_code_and_capture_references"
+      ],
+      "covered_behavior": "Lexical capture references must resolve.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A07]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_read_back_rejects_forged_schema_owner_and_definition_references"
+      ],
+      "covered_behavior": "Schema declaration owners and definition references must resolve.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A08]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A08]"
+      ],
+      "covered_behavior": "Malformed nested descriptor kinds in unused catalog rows refuse.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A09]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A09]"
+      ],
+      "covered_behavior": "Unsafe path under-root descriptors refuse.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A10]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_pure_admission_fails_closed_on_effects_and_unadmitted_bindings",
+        "tests/test_workflow_dynamic_program.py::test_command_static_tampering_is_rejected_in_unreachable_bodies"
+      ],
+      "covered_behavior": "Pure admission refuses undeclared effects; unreachable effects require exact binding and contract shapes.",
+      "historical_only_details": [
+        "The underspecified spike perform object is retired; exact closed production bindings/contracts are mandatory even in unreachable bodies."
+      ],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A11]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A11]"
+      ],
+      "covered_behavior": "Host-call nodes refuse in complete artifacts.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A12]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A12]"
+      ],
+      "covered_behavior": "Runtime import nodes refuse in complete artifacts.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A13]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A13]"
+      ],
+      "covered_behavior": "Unknown operators refuse in reached and unused bodies.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A14]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A14]"
+      ],
+      "covered_behavior": "Definition parameters cannot duplicate.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A15]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A15]",
+        "tests/test_workflow_dynamic_program.py::test_strict_json_rejects_duplicate_keys_and_non_finite_values"
+      ],
+      "covered_behavior": "Malformed JSON, duplicate keys, nonfinite numbers and lone surrogates refuse.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A16]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A16]"
+      ],
+      "covered_behavior": "Literal nodes refuse extra members.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A17]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A17]"
+      ],
+      "covered_behavior": "Entry parameters must match the declared boundary.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[A18]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_program.py::test_original_admission_case[A18]"
+      ],
+      "covered_behavior": "Record-field pairs cannot duplicate, including unused bodies.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[D01]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_budget_counts_each_entered_node_once_and_refuses_the_next_entry"
+      ],
+      "covered_behavior": "Each entered node consumes exactly one shared-budget step.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[D02]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_budget_counts_each_entered_node_once_and_refuses_the_next_entry"
+      ],
+      "covered_behavior": "The next node refuses after exact budget exhaustion.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[D03]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_self_application_uses_iterative_machine_and_one_budget"
+      ],
+      "covered_behavior": "Recursive self-application uses the iterative machine and one finite budget.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[D04]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_call_trace_and_node_budget_are_deterministic_across_independent_runs"
+      ],
+      "covered_behavior": "Call trace and entered-step count are deterministic across independent runs.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[D05]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_capture_creation_and_return_each_consume_the_shared_budget"
+      ],
+      "covered_behavior": "Closure capture creation and return consume the same budget.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    },
+    {
+      "original_selector": "tests/experiments/test_dynamic_core_evaluation.py::test_dynamic_core_contract[D06]",
+      "production_selectors": [
+        "tests/test_workflow_dynamic_evaluation.py::test_call_evaluates_all_arguments_left_to_right_before_callable_check"
+      ],
+      "covered_behavior": "Argument evaluation consumes budget before callee validation.",
+      "historical_only_details": [],
+      "source_pin": {
+        "revision": "26bc796fba0b493d3f94ce7f935a9796030758d4",
+        "path": "tests/experiments/test_dynamic_core_evaluation.py",
+        "sha256": "098cb66f3ff7fc5c0fe515baa22d36629685031e89fbb4acdb54826221fa27e9"
+      }
+    }
+  ],
+  "verification": {
+    "coverage_stage": "Named replacement behavior passes in the implementation checks; independent review and final affected integration remain pending. No experiment deletion is authorized by this evidence file.",
+    "original_cases": 194,
+    "new_C3_cases": 60,
+    "changed_modules_collected": 247,
+    "changed_module_run": "247 PASS; final certified-adapter helper extension separately1 PASS; final captured provider error-context extension separately1 PASS; unaffected mapped controls separately3 PASS.",
+    "consumer_controls": "C1 19 PASS and C2 combined106 PASS previously independently reviewed and committed; retained unchanged.",
+    "reviewed_prior_consumers": {
+      "C1": "ba181ff8",
+      "C2": "b916c92e"
+    },
+    "reader_depth_repair": "1a7b346e",
+    "ephemeral_evidence_root": "/dev/shm/c3v",
+    "task9_external_kill_status": "Pending; UD05/UD06 prove Task8 terminal failure/fresh-run repeat cost only."
+  }
+}

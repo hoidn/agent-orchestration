@@ -16,6 +16,72 @@ BOOL = {"kind": "primitive", "name": "Bool"}
 from tests.workflow_dynamic_helpers import _artifact, _invalid, _pointer, _read, _span, _text
 
 
+@pytest.mark.parametrize('case_id', ('A01', 'A05', 'A08', 'A09', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18'))
+def test_original_admission_case(case_id):
+    from tests.workflow_dynamic_helpers import _definition
+
+    tree = _artifact({"k": "lit", "v": 1})
+    if case_id == 'A01':
+        program = _read(tree)
+        reordered = _read(json.dumps(tree, indent=2, sort_keys=True))
+        assert program.semantic_digest == reordered.semantic_digest
+        assert program.provenance_digest == reordered.provenance_digest
+        with pytest.raises(TypeError):
+            program.definitions[program.entry]['body']['v'] = 2
+        return
+    if case_id == 'A05':
+        _invalid(lambda: _read(_artifact({'k': 'fn', 'code': 'demo::forged', 'captures': []})))
+        tree = _artifact(definitions={'demo::bad': _definition({'k': 'lit', 'v': 0})})
+        tree['definitions']['demo::bad'] = {}
+    elif case_id == 'A08':
+        tree['schemas']['unused'] = {'kind': 'list', 'item': {'kind': 'what'}}
+    elif case_id == 'A09':
+        tree['schemas']['unused'] = {'kind': 'path', 'name': 'Path', 'under': 'root', 'must_exist_target': False}
+    elif case_id == 'A11':
+        tree = _artifact({'k': 'host_call', 'name': 'x'})
+    elif case_id == 'A12':
+        tree = _artifact({'k': 'import', 'path': 'x'})
+    elif case_id == 'A13':
+        for unused in (False, True):
+            node = {'k': 'op', 'name': 'unknown', 'args': [{'k': 'lit', 'v': 1}]}
+            _invalid(lambda: _read(_artifact(definitions={'demo::unused': _definition(node)}) if unused else _artifact(node)))
+        return
+    elif case_id == 'A14':
+        tree = _artifact(definitions={'demo::duplicate': _definition({'k': 'lit', 'v': 0}, params=('x', 'x'))})
+    elif case_id == 'A15':
+        _invalid(lambda: _read('{'))
+        tree = _artifact({'k': 'lit', 'v': '\ud800'})
+        _invalid(lambda: _read(json.dumps(tree, ensure_ascii=True)))
+        return
+    elif case_id == 'A16':
+        tree['definitions'][tree['entry']]['body']['extra'] = True
+    elif case_id == 'A17':
+        tree['definitions'][tree['entry']]['params'] = []
+    elif case_id == 'A18':
+        node = {'k': 'record', 'fields': [['x', {'k': 'lit', 'v': 1}], ['x', {'k': 'lit', 'v': 2}]]}
+        for unused in (False, True):
+            _invalid(lambda: _read(_artifact(definitions={'demo::unused': _definition(node)}) if unused else _artifact(node)))
+        return
+    _invalid(lambda: _read(tree))
+
+
+def test_record_update_and_fail_exact_shapes_refuse_even_when_unreachable():
+    from tests.workflow_dynamic_helpers import _definition
+
+    base = {'k': 'record', 'fields': [['x', {'k': 'lit', 'v': 1}]]}
+    nodes = [
+        {'k': 'record-update', 'base': base, 'fields': []},
+        {'k': 'record-update', 'base': base, 'fields': [['x', {'k': 'lit', 'v': 2}], ['x', {'k': 'lit', 'v': 3}]]},
+        {'k': 'record-update', 'base': base, 'fields': [[1, {'k': 'lit', 'v': 2}]]},
+        {'k': 'record-update', 'base': base, 'fields': [['x', {'k': 'lit', 'v': 2}]], 'extra': 1},
+        {'k': 'fail', 'reason': ''}, {'k': 'fail', 'reason': 4},
+        {'k': 'fail'}, {'k': 'fail', 'reason': 'x', 'payload': {'k': 'lit', 'v': 1}},
+    ]
+    for node in nodes:
+        for unused in (False, True):
+            _invalid(lambda: _read(_artifact(definitions={'demo::unused': _definition(node)}) if unused else _artifact(node)))
+
+
 def test_production_program_round_trips_with_separate_semantic_and_provenance_pins():
     program = _read(_artifact())
     assert program.schema == "workflow-lisp/dynamic-program/1"

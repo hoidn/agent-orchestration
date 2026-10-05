@@ -191,14 +191,21 @@ def test_public_certified_adapter_keeps_signature_order_and_inline_document(tmp_
     path = write_source(tmp_path, "demo/main", f'''
       (export main)
       (defrecord Echo (text String) (count Int))
+      (define (consume answer) (record (text (field answer "text")) (count (field answer "count"))))
       (defworkflow main ((text String) (count Int)) -> Echo
-        (command-result adapter :adapter adapter
-          :inputs ((count count) (text text)) :returns Echo))
+        (consume (command-result adapter :adapter adapter
+          :inputs ((count count) (text text)) :returns Echo)))
     ''')
     manifest = _certified_manifest(tmp_path / "commands.json")
     _stage_probe(tmp_path)
     monkeypatch.chdir(tmp_path)
     _forbid_workflow_executor(monkeypatch)
+
+    dry = _args(path, manifest, "--input", "text=é", "--input", "count=4")
+    dry.dry_run = True
+    assert run_workflow(dry).exit_code == 0
+    assert not (tmp_path / "command_events.jsonl").exists()
+    assert not (tmp_path / ".orchestrate/runs").exists()
 
     result = run_workflow(_args(path, manifest, "--input", "text=é", "--input", "count=4"))
 
@@ -210,6 +217,166 @@ def test_public_certified_adapter_keeps_signature_order_and_inline_document(tmp_
     assert calls[0]["args"] == ['{"text":"é","count":4}']
     assert calls[0]["document"] == {"text": "é", "count": 4}
     assert Path(calls[0]["executable"]).resolve() == Path(json.loads((result.run_root / "run.json").read_text())["interpreters"]["python"]["path"]).resolve()
+
+
+def test_UC08_effect_operands_run_once_in_order_and_share_one_budget(tmp_path, monkeypatch):
+    prefix = '''(export main) (defrecord Echo (text String) (count Int))
+      (define (emit text count) (command-result adapter :adapter adapter
+        :inputs ((count count) (text text)) :returns Echo))'''
+    append = '(list/append (list (emit "first" 1)) (emit "second" 2))'
+    update = '''(let* ((base (record (first 0) (second 0) (keep "same")))
+      (updated (record-update base (first (field (emit "third" 10) "count"))
+        (second (field (emit "fourth" 20) "count")))))
+      (list (field updated "first") (field updated "second") (field updated "keep")
+        (field base "first") (field base "second")))'''
+    manifest = _certified_manifest(tmp_path / 'commands.json')
+    _stage_probe(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+    for body, expected in ((append, [{'text': 'first', 'count': 1}, {'text': 'second', 'count': 2}]),
+                           (update, [10, 20, 'same', 0, 0])):
+        path = write_source(tmp_path, 'demo/main', prefix + f'(defworkflow main () -> Value {body})')
+        result = run_workflow(_args(path, manifest))
+        assert result.exit_code == 0
+        view = load_dynamic_view(result.run_root)
+        assert view['workflow_outputs'] == expected
+        assert [(row['ordinal'], row['status']) for row in view['effects']] == [(1, 'completed'), (2, 'completed')]
+    calls = [json.loads(line) for line in (tmp_path / 'command_events.jsonl').read_text().splitlines()]
+    assert [row['document']['count'] for row in calls] == [1, 2, 10, 20]
+    assert [row['args'] for row in calls] == [[f'{{"text":"{text}","count":{count}}}'] for text, count in (
+        ('first', 1), ('second', 2), ('third', 10), ('fourth', 20))]
+    (tmp_path / 'command_events.jsonl').unlink()
+    path = write_source(tmp_path, 'demo/main', prefix + f'(defworkflow main () -> Value {append})', budget=12)
+    result = run_workflow(_args(path, manifest))
+    view = load_dynamic_view(result.run_root)
+    assert result.exit_code == 1 and view['error']['code'] == 'dynamic_budget_exhausted'
+    assert view['steps_used'] == 12 and len(view['effects']) == 1
+    assert view['effects'][0]['status'] == 'completed'
+    assert len((tmp_path / 'command_events.jsonl').read_text().splitlines()) == 1
+
+
+def test_UC09_fail_keeps_reason_context_and_skips_unselected_work(tmp_path, monkeypatch):
+    path = write_source(tmp_path, 'demo/main', f'''(export main)
+      (define (chosen) (fail "chosen_reason"))
+      (defworkflow main () -> Int (if true (chosen)
+        (command-result probe :argv ("python" "{PROBE}" "first") :returns Int)))''')
+    manifest = _external_manifest(tmp_path / 'commands.json', 'probe')
+    _stage_probe(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+    result = run_workflow(_args(path, manifest))
+    view = load_dynamic_view(result.run_root)
+    assert result.exit_code == 1 and view['effects'] == []
+    assert view['error']['code'] == 'dynamic_explicit_failure'
+    assert view['error']['metadata']['reason'] == 'chosen_reason'
+    assert view['error']['metadata']['call_context'] and view['steps_used'] > 0
+    assert not (tmp_path / 'command_events.jsonl').exists()
+
+
+def test_certified_binding_absence_mismatch_and_runtime_inputs_refuse_before_dispatch(tmp_path, monkeypatch):
+    path = write_source(tmp_path, 'demo/main', '''(export main)
+      (defrecord Echo (text String) (count Int))
+      (defworkflow main ((raw Value)) -> Echo (command-result adapter :adapter adapter
+        :inputs ((text "native") (count raw)) :returns Echo))''')
+    manifest = _certified_manifest(tmp_path / 'commands.json')
+    valid = manifest.read_text()
+    _stage_probe(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+    for contents in ('{}', valid.replace('"output_type_name": "Echo"', '"output_type_name": "String"')):
+        manifest.write_text(contents)
+        result = run_workflow(_args(path, manifest, '--input', 'raw=1'))
+        assert result.exit_code == 2 and result.run_root is None
+        assert not (tmp_path / '.orchestrate/runs').exists()
+    manifest.write_text(valid)
+    result = run_workflow(_args(path, manifest, '--input-file', _write_input(tmp_path, {'raw': 'SECRET'})))
+    view = load_dynamic_view(result.run_root)
+    assert result.exit_code == 1 and view['effects'] == []
+    assert 'SECRET' not in json.dumps(view['error'])
+    assert not (tmp_path / 'command_events.jsonl').exists()
+
+
+def test_E01b_command_result_uses_the_same_closure_boundary(tmp_path, monkeypatch):
+    path = write_source(tmp_path, 'demo/main', f'''(export main)
+      (define (more) (command-result probe :argv ("python" "{PROBE}" "second") :returns Int))
+      (defworkflow main () -> Int (let* ((value (command-result probe
+        :argv ("python" "{PROBE}" "first") :returns Int))
+        (selected (if (= value 11) more (fn () (fail "wrong_branch"))))) (selected)))''')
+    manifest = _external_manifest(tmp_path / 'commands.json', 'probe')
+    _stage_probe(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+    result = run_workflow(_args(path, manifest))
+    assert result.exit_code == 0 and result.workflow_outputs == 12
+    assert [json.loads(line)['action'] for line in (tmp_path / 'command_events.jsonl').read_text().splitlines()] == ['first', 'second']
+
+
+def test_E08b_failed_leaf_keeps_its_output_without_rollback_or_no_repeat_claim(tmp_path, monkeypatch):
+    path = write_source(tmp_path, 'demo/main', f'''(export main) (defworkflow main () -> Int
+      (command-result probe :argv ("python" "{PROBE}" "leak") :returns Int))''')
+    manifest = _external_manifest(tmp_path / 'commands.json', 'probe')
+    _stage_probe(tmp_path)
+    probe = tmp_path / PROBE
+    probe.write_text(probe.read_text().replace('raise SystemExit(7)',
+        'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("11")\n    raise SystemExit(7)'))
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+    results = [run_workflow(_args(path, manifest)) for _ in range(2)]
+    assert results[0].run_root != results[1].run_root
+    for result in results:
+        view = load_dynamic_view(result.run_root)
+        assert result.exit_code == 1 and view['workflow_outputs'] is None
+        assert [row['status'] for row in view['effects']] == ['failed']
+        assert (result.run_root / view['effects'][0]['result_path']).read_text() == '11'
+    assert len((tmp_path / 'command_events.jsonl').read_text().splitlines()) == 2
+
+
+def test_E09a_leaf_input_contracts_refuse_bad_values_before_launch(tmp_path, monkeypatch):
+    from copy import deepcopy
+
+    path = write_source(tmp_path, 'demo/main', f'''(export main)
+      (defrecord Item (count Int))
+      (defunion Decision (ACCEPTED (confidence Int)) (REJECTED (reason String)))
+      (defrecord Input (flag Bool) (number Int) (ratio Float)
+        (items List[Item]) (decisions List[Decision]))
+      (defrecord Envelope (payload Input))
+      (defworkflow main ((raw Value)) -> Float (command-result probe
+        :argv ("python" "{PROBE}" "document")
+        :inputs ((payload raw)) :input-type Envelope :returns Float))''')
+    manifest = _external_manifest(tmp_path / 'commands.json', 'probe')
+    _stage_probe(tmp_path)
+    probe = tmp_path / PROBE
+    probe.write_text(probe.read_text().replace('row["document"].get("count", 0)', 'row["document"]["payload"]["ratio"]'))
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+    valid = {'flag': True, 'number': 3, 'ratio': 3, 'items': [{'count': 7}],
+             'decisions': [{'variant': 'ACCEPTED', 'confidence': 2}]}
+    cases = []
+    missing = deepcopy(valid)
+    missing.pop('number')
+    cases.extend((missing, {**valid, 'extra': 'unexpected'}, {**valid, 'number': True},
+                  {**valid, 'number': '3'}, {**valid, 'ratio': '3.0'},
+                  {**valid, 'items': [{'count': '7'}]},
+                  {**valid, 'decisions': [{'variant': 'ACCEPTED', 'confidence': 2, 'reason': 'inactive'}]}))
+    for value in cases:
+        result = run_workflow(_args(path, manifest, '--input-file', _write_input(tmp_path, {'raw': value})))
+        view = load_dynamic_view(result.run_root)
+        assert result.exit_code == 1 and view['effects'] == []
+        assert view['error']['code'] == 'effect_input_invalid'
+        assert 'unexpected' not in json.dumps(view['error'])
+    source = path.read_text()
+    path.write_text(source.replace(':inputs ((payload raw))',
+        ':inputs ((payload (record-update raw ("ratio" (fn () 3.0)))))'))
+    refused = run_workflow(_args(path, manifest, '--input-file', _write_input(tmp_path, {'raw': valid})))
+    assert refused.exit_code == 1
+    assert load_dynamic_view(refused.run_root)['effects'] == []
+    assert load_dynamic_view(refused.run_root)['error']['code'] == 'effect_input_invalid'
+    path.write_text(source)
+    assert not (tmp_path / 'command_events.jsonl').exists()
+    result = run_workflow(_args(path, manifest, '--input-file', _write_input(tmp_path, {'raw': valid})))
+    assert result.exit_code == 0 and result.workflow_outputs == 3.0
+    event, = [json.loads(line) for line in (tmp_path / 'command_events.jsonl').read_text().splitlines()]
+    assert event['document']['payload']['ratio'] == 3.0
 
 
 def test_public_document_schema_failure_settles_no_effect_and_hides_values(tmp_path, monkeypatch):
