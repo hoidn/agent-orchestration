@@ -16,7 +16,7 @@ The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#d
 
 This plan registers target `3.0` on the development branch only when its checked route can be exercised. Its program schema is `workflow-lisp/dynamic-program/1`; its state pair is `3.1` / `dynamic_execution.v1`. No default target changes, release claim, maintained application migration, paid provider work, child runs, parallel effects, resume, invalidation or effect-tracking implementation is selected. Resume/invalidation **refusal** is required. After DC-P only, the proposed single application destination is `experiments/mlevolve_pair/search_compact.orc`, entry `run-search`; its maintained file and command manifest remain unchanged during this plan. Qualification uses a fixture with the same complete policy. `std/dynamic/improve` is the required library integration, not a second application migration.
 
-Design and plan reviews passed; **Tasks 1–4 are complete**; reviewed typed command/provider/document delivery and the plain native shared seam are qualified at `866dcd99`. Independent Sol conformity/quality review passed and combined verification recorded 2554 collected, 2553 passed and one expected failure in 223.11s with unchanged source hashes. Atomic Tasks 5–8 code conformity PASS and subsequent quality APPROVED are recorded in the [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement); Tasks 5–8 are complete and Task 9 is in progress. Q2 now includes reviewed source-free linking and public compile/dry-run; direct provider publication and imported prompt assets/documents are now reviewed; complete improve/search/edit consumers and restart-cost comparisons are reviewed; all 194 originals are reconciled and obsolete experiment callers retired; external-kill qualification remains Task 9. Q1 has strict native-root command/provider publication evidence; integrated Q1–Q5 qualification remains Task 9. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. At that import, its native strict dynamic seam was not yet qualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
+Design and plan reviews passed; **Tasks 1–4 are complete**; reviewed typed command/provider/document delivery and the plain native shared seam are qualified at `866dcd99`. Independent Sol conformity/quality review passed and combined verification recorded 2554 collected, 2553 passed and one expected failure in 223.11s with unchanged source hashes. Atomic Tasks 5–8 code conformity PASS and subsequent quality APPROVED are recorded in the [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement); Tasks 5–8 are complete; Task 9's public, interruption and retained-control proofs are recorded in the [Q1–Q5 packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-9-q1q5-evidence-packet). Q2 now includes reviewed source-free linking and public compile/dry-run; direct provider publication and imported prompt assets/documents are now reviewed; complete improve/search/edit consumers and restart-cost comparisons are reviewed; all 194 originals are reconciled and obsolete experiment callers retired; Task 9 supplies real external-kill qualification. Q1 has strict native-root command/provider publication evidence; integrated Q1–Q5 code proof is recorded in Task 9. Existing DC-2's 110 utility cases, reviewed `4728b14e` candidate and frozen `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` comparison remain historical evidence; they do not pass Q1–Q5. Runtime import `163f286d` integrated at `cc896d41` supplies interpreter pins. Later reviewed command performer `d6d9469c`/receipt `fc9c57d3` integrated at `ddec5698`: 27 new and 157 affected cases passed. At that import, its native strict dynamic seam was not yet qualified; see the [shared import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-command-performer-import) for the inherited empty-record limitation and exact evidence. Coordinator evidence at that integration: 9 narrow tests passed, 38 affected tests passed, 38 collected; logs are in `/tmp/orc-dc3-integration-z6_e0z2j`. Link durable receipts through the existing evaluation report before temporary logs disappear. Earlier `0f1bbc46` is represented by equivalent patch `a780639c`, not literal ancestry. Keep moving runtime pins separate from frozen comparison inputs.
 
 Earlier synchronization, 2026-10-03: reviewed `b5b07ceb` integrated at `a672985d`; provider handoff `7e2282a4` / receipt `21b78d16` integrated at `103dc8cd`. Command and portable provider public runs, pure prompt assembly and captured C6 reads are available. The [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-commandprovider-runtime-import) records APIs, verification and the remaining Task 4 gaps. Public-resume/full typed release acceptance remains separate; DC-P and Q1–Q5 are unchanged.
 
@@ -24,24 +24,25 @@ Earlier synchronization, 2026-10-04: reviewed Task 8 and retained-descriptor wri
 
 The earlier shared cutoff `4ca7a0fb` is integrated at `eb9c9e30`, including the reviewed durable-locator alias correction; the [native/shared receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records 878 affected checks and the Task 12 dependency at that cutoff. That import did not complete Phase 3 Task 9 or advance dynamic gates.
 
-Current synchronization: `8c9fd794` integrates the selected 16-file `4acd38ec`→`104bf2bc` typed result-root/context scope after local qualification. The [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement) records ordered code review, bounded design review, 690 affected passes and retirement. External upstream review receipts remain missing; this does not complete Phase 3 or resolve the earlier inherited WCC identity-fixture failure.
+Earlier synchronization: `8c9fd794` integrates the selected 16-file `4acd38ec`→`104bf2bc` typed result-root/context scope after local qualification. The [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement) records ordered code review, bounded design review, 690 affected passes and retirement. External upstream review receipts remain missing; this does not complete Phase 3 or resolve the earlier inherited WCC identity-fixture failure.
 
 ### Sequencing And Unavailable Owners
 
-Latest checked import: `8c9fd794`; the [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement)
-owns its local qualification, reviewed 194-case reconciliation and exact retirement
-at `9ac91e70`. Atomic Tasks 5–8 code conformity PASS and subsequent quality
-APPROVED release Task 9, now in progress; full Q1–Q5 and DC-P remain open.
-Stable evaluation advances only through coordinator integration of the reviewed
-atomic unit. Immutable historical reproduction and typed comparator pins remain
-separate and unchanged.
+Latest checked import: `a3b74df6` includes the selected typed consumer/plan
+scope through `f5f72509`; the [current evidence packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#selected-upstream-consumer-import)
+records its local 93-case qualification separately from imported campaign totals.
+The [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement)
+preserves reviewed 194-case reconciliation and exact retirement at `9ac91e70`.
+Q1–Q5 proofs and integrated code review pass at `0bdb7460`; DC-P remains an
+owner decision. Stable evaluation advances only through coordinator integration.
+Immutable historical reproduction and typed comparator pins remain unchanged.
 
 | Work | Dependency and permitted progress |
 | --- | --- |
 | Tasks 1–3: exact routing, Q1 root-contract preparation, selective source linking | Independent of missing shared performers. Do not call these a runnable dynamic public target. Task 3 proves selection before executable elaboration, not complete Q2 source-free execution. |
 | Task 4: shared import/seam qualification | Import reviewed Phase 3 Tasks 6–7/12; inspect actual APIs and their state dependencies. Typed delivery and native document preparation/attempt-path sharing passed combined qualification at `866dcd99`; the cutover is released. |
 | Tasks 5–8: production cutover, in bounded reviewed sub-batches | Task 4 has passed; Atomic Tasks 5–8 code conformity PASS and subsequent quality APPROVED are recorded in the [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement). Prepare in an isolated integration checkout and land the core move, frontend, state, direct path, stdlib and replacement active tests together. No intermediate release, copied core or production spike decoder. |
-| Task 9: retained controls, interruption/readers and readiness closeout | In progress after reviewed atomic code cutover; Complete Q1–Q5 and document remaining live-provider allocation gaps; DC-P disposition remains an owner decision. |
+| Task 9: retained controls, interruption/readers and readiness closeout | Q1–Q5 code proof complete at `0bdb7460`; final documentation/handoff tracked below. Live-provider gaps recorded; DC-P disposition remains an owner decision. |
 
 At every task/sub-batch boundary, the coordinator follows the evaluation plan's [upstream synchronization procedure](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#upstream-phase-3-synchronization): inspect committed shared heads and receipts, import applicable reviewed changes, resolve owner overlap, run affected checks and record source/integration hashes. Do not cherry-pick another worker's uncommitted state. If a required shared API is still memo-coupled, return that extraction to its owner or obtain an explicit ownership transfer; do not create a parallel performer, fabricate a memo, or wrap `WorkflowExecutor` to avoid the dependency.
 
@@ -222,28 +223,33 @@ Execute source/module/build work as sub-batch A, review it, then wire public com
 
 ## Task 9: Q1–Q5 Evidence, Compatibility And DC-P Handoff
 
-The reviewed Tasks1–8 unit is integrated. Durable contracts are in
+The [Q1–Q5 evidence packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-9-q1q5-evidence-packet)
+records reviewed A/B/C process-kill/fault/readers and full improve fresh-vs-resume
+proof, the final 672-case gate, retained controls and integrated code approval
+at `0bdb7460`. The 16-file durable contract revision `6862cbed` is independently
+approved. **Final independent readiness and plan reviews passed; Task 9 and
+DC-3 qualification are complete. The DC-P packet is handed off; its subsequent
+owner disposition remains unselected.** The [durable review record](../reports/2026-10-04-dynamic-core-cutover-review.md#task-9-final-readiness-and-plan-reviews) preserves the approvals.
+
+Durable contracts are in
 [Versioning](../../specs/versioning.md#branch-qualified-target-30),
 [CLI](../../specs/cli.md#dynamic-execution), [State](../../specs/state.md#dynamic-fresh-run-authority),
 [IO](../../specs/io.md#dynamic-boundary-io) and
-[Providers](../../specs/providers.md#dynamic-composed-provider-boundary);
-[actual authoring examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
-include complete source and staging prerequisites. This documentation revision
-does not check off independent readiness/doc review or full Q1–Q5. Remaining
-process-kill, faults/races, retained-profile evidence and DC-P handoff belong
-to the unchecked items below.
+[Providers](../../specs/providers.md#dynamic-composed-provider-boundary).
+[Actual authoring examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+include complete source, verified CLI commands and real fixture staging prerequisites.
 
 **Role/artifact:** Coordinator / final integration; Revision / documentation and reports; independent Review / readiness. **Dependency:** integrated Tasks 1–8. No paid calls or application migration are part of this task.
 
 **Files:** Existing evaluation report and its plan; Phase 3 [evidence matrix](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#evidence-coverage-matrix). Update `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md`, parent evaluated-execution plan, repetition plan and follow-on roadmap together. On behavior landing, amend applicable `specs/{versioning,cli,state,io,providers}.md`, `docs/design/workflow_lisp_frontend_specification.md`, `docs/lisp_workflow_drafting_guide.md`, and the experiment README to distinguish branch-qualified profile from adopted/default availability. Do not globally rewrite typed contracts.
 
-- [ ] Create the Q1–Q5 receipt rows below in the existing evidence matrix/report, with source/runtime hashes, exact selectors, expected versus observed behavior, counts, review hashes and missing evidence. No duplicate release checklist with competing status.
-- [ ] External-kill Q4 checks use real subprocesses at pre-dispatch, in-flight and output-before-publication barriers. Repeated fresh run consumes additional calls/budget; old run files remain unchanged, orphan results are not adopted, resume/invalidation refuse. Also inject failed state writes/allocation and reader races. Exercise source-free errors and wrong-profile routes with no writes/launches.
-- [ ] Run retained target/artifact/run/resume selectors and actual old profile roots. Preserve original runtime/environment pins; source recompile is not old-run conversion. Compare old artifact/request observations on identical identity inputs; record legitimate package-pin changes instead of normalizing them away.
-- [ ] Run final collection and the affected broad suite below in tmux. Reuse valid prior full results unless code changes or unresolved failures justify a rerun. Diagnose baseline failures against pinned source; never weaken assertions or mark unavailable live-provider tests passed.
-- [ ] Inspect removal/compatibility ledger against actual files/callers. Publish removed versus retained owners and new authority cost, not just LOC. Do not claim whole typed compiler retirement.
-- [ ] Verify Markdown links/anchors, source examples with the actual parser/compiler, stale status routes and `git diff --check`. Independent code review and independent readiness/document review must both pass on the integrated candidate.
-- [ ] Present DC-P with Q evidence and explicit paid/live qualification gaps. Only an explicit owner continue authorizing adoption/migration activates Phase 6b for the one named destination. Phase 7 retirement remains separate. Stop retains typed fallback; unfinished shared work is reported as unfinished readiness, not a completed candidate.
+- [x] Create the Q1–Q5 receipt rows below in the existing evidence matrix/report, with source/runtime hashes, exact selectors, expected versus observed behavior, counts, review hashes and missing evidence. No duplicate release checklist with competing status.
+- [x] External-kill Q4 checks use real subprocesses at pre-dispatch, in-flight and output-before-publication barriers. Repeated fresh run consumes additional calls/budget; old run files remain unchanged, orphan results are not adopted, resume/invalidation refuse. Also inject failed state writes/allocation and reader races. Exercise source-free errors and wrong-profile routes with no writes/launches.
+- [x] Run retained target/artifact/run/resume selectors and actual old profile roots. Preserve original runtime/environment pins; source recompile is not old-run conversion. Compare old artifact/request observations on identical identity inputs; record legitimate package-pin changes instead of normalizing them away.
+- [x] Run final collection and the affected broad suite below in tmux. Reuse valid prior full results unless code changes or unresolved failures justify a rerun. Diagnose baseline failures against pinned source; never weaken assertions or mark unavailable live-provider tests passed.
+- [x] Inspect removal/compatibility ledger against actual files/callers. Publish removed versus retained owners and new authority cost, not just LOC. Do not claim whole typed compiler retirement.
+- [x] Verify Markdown links/anchors, source examples with the actual parser/compiler, stale status routes and `git diff --check`; integrated code review passed. Final independent documentation/readiness review is tracked in the completion record.
+- [x] Present DC-P with Q evidence and explicit paid/live qualification gaps. Only an explicit owner continue authorizing adoption/migration activates Phase 6b for the one named destination. Phase 7 retirement remains separate. Stop retains typed fallback; unfinished shared work is reported as unfinished readiness, not a completed candidate.
 
 ### Proof Ownership
 
@@ -307,7 +313,7 @@ Planning or a successful independent prerequisite does not complete readiness. C
 - [x] Tasks 1–3 passed and exact limited proof scope recorded.
 - [x] Task 4 imported real shared delivery and qualified its memo-free seam.
 - [x] Tasks 5–8 code cutover atomically replaced the experiment route with active behavioral tests; final independent code reviews passed.
-- [ ] Q1–Q5 passed with public integration, retained-profile and kill evidence.
-- [ ] Source/spec/routing docs match delivered availability; independent reviews passed.
-- [ ] Paid/live evidence needs are explicitly recorded as satisfied by authorized work or missing; deterministic stand-ins are not claimed as live-provider qualification.
-- [ ] DC-P evidence packet handed off with adoption, migration and retirement still unselected. The subsequent owner disposition is external to this readiness plan and is recorded separately; it is not required to finish DC-3 qualification.
+- [x] Q1–Q5 passed with public integration, retained-profile and kill evidence; final code approval at `0bdb7460`.
+- [x] Source/spec/routing docs match delivered availability; independent reviews passed.
+- [x] Paid/live evidence needs are explicitly recorded as satisfied by authorized work or missing; deterministic stand-ins are not claimed as live-provider qualification.
+- [x] DC-P evidence packet handed off with adoption, migration and retirement still unselected. The subsequent owner disposition is external to this readiness plan and is recorded separately; it is not required to finish DC-3 qualification.

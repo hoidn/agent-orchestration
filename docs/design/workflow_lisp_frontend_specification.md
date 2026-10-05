@@ -73,7 +73,9 @@ command/portable composed-provider calls use shared performers and native root
 results. Schema-3.1 fresh state is authoritative; no memo/reuse/resume is added.
 Unsupported effects and compiled imports refuse, including unreachable forms.
 This is branch qualification, not a default/adoption or migration decision;
-full readiness remains open. [Proposal §9](workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate)
+bounded qualification and its evidence are owned by the
+[readiness plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md).
+[Proposal §9](workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate)
 records architecture; [Versioning](../../specs/versioning.md#branch-qualified-target-30),
 [CLI](../../specs/cli.md#dynamic-execution),
 [State](../../specs/state.md#dynamic-fresh-run-authority),

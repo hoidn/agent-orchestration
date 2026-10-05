@@ -406,7 +406,9 @@ The reviewed Tasks 1–8 cutover replaces that maintained experiment with the
 branch-qualified target-3.0 profile: ordinary functions/imports, strict shared
 boundaries and fresh native execution. [Actual examples and prerequisites](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
 show the delivered consumer route; the [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
-owns remaining Task 9/Q1–Q5 evidence. DC-P remains open; no adoption, migration,
+owns Task 9's evidence and final handoff; the
+[Q1–Q5 packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-9-q1q5-evidence-packet)
+records completed public/kill/retained-control code proof. DC-P remains open; no adoption, migration,
 default target, paid calls, parallel or child-run expansion is selected.
 Each gate needs evidence and an explicit owner continue/revise/
 stop disposition. Continue activates only its named successor; revise names one

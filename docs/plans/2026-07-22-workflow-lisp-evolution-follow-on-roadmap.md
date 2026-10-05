@@ -692,7 +692,9 @@ state and complete improve/search consumers are available for branch
 qualification. [Actual examples and setup](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
 are distinct from the [frozen compiled-leaf specimen](../../experiments/dynamic_core_evaluation/README.md).
 The [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
-owns remaining Task 9/Q1–Q5 evidence; the
+owns Task 9's evidence and final handoff; the
+[Q1–Q5 packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-9-q1q5-evidence-packet)
+records completed public/kill/retained-control code proof. The
 [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns DC-P and the typed fallback. No default/adoption, maintained application
 migration, paid calls, parallel or child-run expansion is selected. This remains

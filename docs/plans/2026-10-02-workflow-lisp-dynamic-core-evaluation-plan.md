@@ -138,7 +138,7 @@ is qualified at `ee4ae46b`; the
 
 The earlier shared cutoff `4ca7a0fb` is integrated at `eb9c9e30`, including the reviewed durable-locator alias correction; the [native/shared receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records 878 affected checks and the Task 12 dependency at that cutoff. That import did not complete Phase 3 Task 9 or advance dynamic gates.
 
-Earlier shared import, 2026-10-04: Tasks 9–11 have reviewed completion receipts for path children/coordinators, derived report/dashboard views and monitor/probe/watchdog readers. Task 12 typed external documents through `4bcf5424`, `5bdb2497` and `a024397b`, plus the native document seam, are integrated at `866dcd99`; the [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-childrenreadersinput-document-import) preserves the initial review/280 typed checks and records final Sol conformity/quality PASS plus 2553 passed/one expected failure across 2554 collected cases with unchanged source hashes. Readiness Task 4 PASS released the subsequent reviewed Tasks 5–8 cutover. Upstream Task 12 public replay delivery `ebaf78ed` and closeout `98b3f3d9` are integrated at `970ac933`, with 29 new cases collected and passed in 118.92s. Full Phase 3/live-provider qualification remains open. At that earlier cutoff public 3.0 remained unregistered; current branch availability is owned by the readiness plan. Q1–Q5 and DC-P remain open.
+Earlier shared import, 2026-10-04: Tasks 9–11 have reviewed completion receipts for path children/coordinators, derived report/dashboard views and monitor/probe/watchdog readers. Task 12 typed external documents through `4bcf5424`, `5bdb2497` and `a024397b`, plus the native document seam, are integrated at `866dcd99`; the [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-childrenreadersinput-document-import) preserves the initial review/280 typed checks and records final Sol conformity/quality PASS plus 2553 passed/one expected failure across 2554 collected cases with unchanged source hashes. Readiness Task 4 PASS released the subsequent reviewed Tasks 5–8 cutover. Upstream Task 12 public replay delivery `ebaf78ed` and closeout `98b3f3d9` are integrated at `970ac933`, with 29 new cases collected and passed in 118.92s. Full Phase 3/live-provider qualification remains open. At that earlier cutoff public 3.0 remained unregistered; current branch availability is owned by the readiness plan. Q1–Q5 and DC-P remained open at that cutoff.
 
 Earlier runtime import, 2026-10-03: reviewed `b5b07ceb` integrated at
 `a672985d`; provider runtime `7e2282a4` and receipt `21b78d16` integrated at
@@ -198,7 +198,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
-| DC-3 — production readiness | Reviewed Tasks 1–8 atomic cutover; branch-qualified target 3.0 / schema 3.1 public route, shared boundaries and complete consumers; Task 9 in progress | Remaining external-kill/fault/reader/control evidence and durable-doc review; Q1–Q5/DC-P open, no adoption/default/migration |
+| DC-3 — production readiness | Reviewed Tasks 1–8 atomic cutover; branch-qualified target 3.0 / schema 3.1 public route, shared boundaries and complete consumers; Q1–Q5 code proof complete at `0bdb7460` | [Final documentation/handoff record](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md#completion-record); DC-P open, no adoption/default/migration |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
@@ -223,9 +223,9 @@ does not block the qualification/spike/evidence needed to reach that gate.
 No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
-units remain unchanged, and no active run is mutated. The human next task is the remaining Task 9 qualification in the
-[reviewed readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md),
-after reviewed integration of Tasks 1–8. DC-F continue was also selected on that date. Existing
+units remain unchanged, and no active run is mutated. The [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md#completion-record)
+records Task 9's final handoff; the next owner decision is DC-P's explicit
+continue/revise/stop disposition. DC-F continue was also selected on that date. Existing
 executable selectors have no new item to consume.
 
 ## DC-0: Qualify Scope And Controls
@@ -554,6 +554,12 @@ remain available under the existing finite gate policy.
 
 ## DC-3: Production Readiness And Gate DC-P
 
+The [Q1–Q5 evidence packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-9-q1q5-evidence-packet)
+records A/B/C interruption/fault/readers and full improve fresh-vs-resume proof,
+retained controls, the final 672-case gate and independent integrated code
+approval at `0bdb7460`. The [readiness completion record](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md#completion-record)
+owns final documentation review/handoff. DC-P remains an explicit owner choice.
+
 **Selected qualification, 2026-10-02:** DC-U continue authorizes the concrete
 design, removal/compatibility inventory, one consumer destination and the needed
 shared-runtime/public-route qualification. It does not accept production
@@ -566,8 +572,8 @@ describe the branch-qualified implementation. Tasks 1–8 are independently
 reviewed and atomically integrated; the [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement)
 preserves shared-delivery, complete-consumer and exact-retirement evidence.
 The [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
-owns remaining Task 9 external-kill/fault/readers/retained-control proof and
-independent documentation/readiness review. Q1–Q5 and DC-P remain open.
+owns Task 9's final documentation/readiness handoff. Q1–Q5 code proof passed;
+DC-P remains open.
 Branch registration does not select a default or application migration. Reuse
 Phase 3's evidence matrix rather than adding another readiness authority.
 
@@ -575,7 +581,7 @@ Phase 3's evidence matrix rather than adding another readiness authority.
   stdlib API and existing checkpoint/run dispositions with owners. Define only
   the state the candidate actually retains; no resumable state profile is required.
   Preserve old run pins; never reinterpret typed checkpoints as dynamic captures.
-- [ ] Import upstream delivery of the named production slice: shared
+- [x] Import upstream delivery of the named production slice: shared
   requests/performers and document transport from Tasks 6–7/12; child
   runs/coordinators in Task 9 only when admitted; public views, report,
   dashboard/monitor/watchdog in Tasks 10–11 for the selected release. Implement
@@ -583,20 +589,20 @@ Phase 3's evidence matrix rather than adding another readiness authority.
   behavior; route missing shared work to its upstream owner. Resume/invalidation
   and dynamic memo/authority integration are optional later capabilities, not
   release requirements for the explicitly non-resuming profile.
-- [ ] Close relevant Tasks 13–15 full fixture/live-provider/artifact/kill/durable
-  publication evidence for the admitted release, beyond earlier focused spike
-  checks. Mark unavailable credentials or unimplemented classes as missing,
-  never satisfied by stand-ins. Test interruption/restart consequences honestly;
-  do not require replay/durable-continuation guarantees the selected profile
-  omits. Obtain separate allocation for paid/live work.
-- [ ] Apply Tasks 16–17 to truthful selected-profile docs and independent closeout;
-  retain the original typed checklist as history/fallback. Give each production
-  obligation its exact evidence owner; candidate success never checks off a
-  typed-only task whose specified implementation was not delivered.
+- [x] Qualify the admitted dynamic profile's complete fixtures, artifact/publication
+  and real process-kill obligations through Q1–Q5, beyond focused spike checks.
+  Paid/live credentials and excluded runtime classes are explicitly unavailable,
+  not satisfied by stand-ins; any paid/live qualification needs separate allocation.
+  This bounded proof does not close typed Tasks 13–15 or promise dynamic replay/
+  durable continuation.
+- [x] Apply Tasks 16–17's obligations to truthful selected-profile contracts and
+  final code proof, with final documentation/handoff owned by the readiness
+  completion record. Retain the typed checklist as history/fallback; candidate
+  success never closes an undelivered typed-only task.
 - [x] Select one maintained-consumer migration destination and list removable
   candidate/old-target machinery, with an explicit existing-run disposition and
   later Phase 7 retirement decision. Do not finance two full migrations.
-- [ ] Record independent readiness review and DC-P's explicit owner disposition.
+- [ ] Record DC-P's explicit owner disposition after the reviewed readiness handoff.
 
 **DC-P:** only a continue disposition explicitly authorizing adoption/migration
 activates Phase 6b for the selected target and consumers. Phase 4a/4b capabilities

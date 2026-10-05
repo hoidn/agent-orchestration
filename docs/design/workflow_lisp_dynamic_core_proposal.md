@@ -1,6 +1,6 @@
 # Workflow Lisp: Dynamic Core With Explicit Boundary Contracts
 
-- **Status:** accepted bounded branch-qualified target-3.0 architecture in §9; broader proposal/historical spike sections remain contextual. Full readiness and adoption are open; evidence and decisions belong to the linked plan/report.
+- **Status:** accepted bounded branch-qualified target-3.0 architecture in §9; broader proposal/historical spike sections remain contextual. Bounded qualification evidence belongs to the linked plan/report; DC-P adoption remains unselected.
 - **Kind:** architecture companion and decision record. Normative delivered profile contracts live in specs; this is not a release/adoption or implementation-status authority.
 - **Scope:** ordinary computation, callable values, boundary schemas, and the execution contracts those changes would require.
 - **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.
@@ -888,9 +888,9 @@ normative behavior is incorporated in [Versioning](../../specs/versioning.md#bra
 [CLI](../../specs/cli.md#dynamic-execution), [State](../../specs/state.md#dynamic-fresh-run-authority),
 [IO](../../specs/io.md#dynamic-boundary-io) and
 [Providers](../../specs/providers.md#dynamic-composed-provider-boundary).
-Full readiness remains open; the [readiness plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+The [readiness plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
 and [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-3-production-readiness-and-gate-dc-p)
-own evidence and decisions. Branch qualification does not select a default,
+own bounded qualification evidence and decisions. Branch qualification does not select a default,
 release/adoption or consumer migration; DC-P remains separate.
 
 ### 9.1 Scope And Choice Of Destination
@@ -916,7 +916,7 @@ unimplemented declaration forms. Do not remove their existing typed support.
 | --- | --- | --- |
 | Retain typed evaluated execution; qualify W3 separately | Existing domain contracts, early checks and recovery; W3 can reduce context forwarding without dynamic values. | Typed specialization/proofs and pending shared runtime delivery; the dynamic evaluation can remain historical evidence. |
 | Promote the experimental leaf bridge | Already executes both policies with fresh local effects; lowest immediate integration work. | Two frontends, source assembly, per-effect legacy workflows/state, caller wire reconstruction and all old compiler machinery. It preserves DC-2's adverse edit costs and removes no production owner. Reject as the final topology. |
-| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Qualified branch destination; full readiness/adoption remain open. |
+| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Qualified branch destination; DC-P adoption/migration remain unselected. |
 
 Name **`experiments/mlevolve_pair/search_compact.orc`, entry `run-search`**, as
 the single maintained application migration destination after DC-P. Preserve

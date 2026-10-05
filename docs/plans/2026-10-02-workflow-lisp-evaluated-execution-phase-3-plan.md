@@ -713,6 +713,7 @@ Every row requires fresh public execution/resume unless explicitly a compile/rea
 | Ordinary run-ref placement and repeated identity | 9 frontend/9F/9G, 13A: loop body/head, match subject and serial-map direct/transitive admission, pure/excluded controls, real two-iteration K7 and state forwarding, readonly resumes, second-iteration K4 gaps with first commit retained; 16: target-scoped DSL/versioning/list-doc reconciliation |
 | Derived views/readers | 10–11: actual report/dashboard/monitor/probe/watcher entries, missing/stale view and concurrent tail |
 | Public compile/dry-run/run/resume | 5, 8–9, 12–15, 17: successful and refusing inputs/source/profile paths, consumer nominees |
+| Dynamic DC-3 Q1–Q5 (separate profile qualification) | [Qualified candidate evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-9-q1q5-evidence-packet): reviewed direct shared boundaries/imports/full policies, real A/B kills/faults/readers, C full improve fresh-vs-typed-resume, final 672-case gate and integrated code approval at `0bdb7460`; final documentation/handoff is tracked in the readiness plan. This does not close typed Tasks 14/15/17, full Phase 3 or live-provider requirements. |
 | State specification matches code | 16–17: key-for-key real header/journal/view comparison and routed docs |
 | Compact search and growth | 13: all 72 reference pairs; doubled fields and branches |
 | Identity/sites/provenance | 2–3, 13: call/loop frames, escaped labels, aggregate/control traversal; formatting/source/package move; independent memo-to-site check |

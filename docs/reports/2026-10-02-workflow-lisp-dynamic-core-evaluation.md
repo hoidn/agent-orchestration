@@ -2224,3 +2224,198 @@ durable contract updates and DC-P remain open. Stable evaluation advancement
 belongs to coordinator integration of the reviewed atomic unit; immutable
 historical/comparator pins do not move. No adoption, migration, default target
 change or live/paid qualification follows from this cutover.
+
+
+### Task 9 Q1–Q5 Evidence Packet
+
+Code candidate `0bdb7460abe78a7ee357befaeb5a4618c8ada855` includes reviewed
+Tasks 1–8, durable contracts `6862cbed`, interruptions `9b46e45e`, faults/readers
+`cf1b8a5b`, full-consumer interruption comparison C and the locally qualified
+upstream import below. Q1–Q5's bounded public/retained-profile proofs and final
+code review passed. Earlier Tasks 1–8 integration advanced stable evaluation to
+`63819bd68a388700ab3dfcfc74f5b453b4deebef`; final coordinator integration advances
+it to a descendant of the code candidate that records this reviewed packet.
+Immutable comparison/reproduction pins do not move. **Final independent
+readiness and plan reviews passed; the DC-P packet is handed off with its owner
+disposition unselected.** This is qualification
+of the isolated fresh-only sequential profile, not production release, full
+Phase 3, paid/live qualification or a DC-P decision.
+
+Exact selector legends: C = [command tests](../../tests/test_workflow_dynamic_commands.py),
+P = [provider tests](../../tests/test_workflow_dynamic_providers.py),
+S = [source tests](../../tests/test_workflow_dynamic_source.py),
+A = [interruptions](../../tests/test_workflow_dynamic_interruptions.py),
+B = [publication faults](../../tests/test_workflow_dynamic_publication_faults.py),
+R = [readers](../../tests/test_workflow_dynamic_readers.py),
+I = [full improve interruption comparison](../../tests/test_workflow_dynamic_improve_interruptions.py).
+A selector below means the linked module path followed by `::` and the stated
+function; selecting a parameterized function includes its concrete cases.
+
+| Proof | Expected versus observed; exact supporting selectors | Integrated proof and limits |
+| --- | --- | --- |
+| Q1: one strict native result pipeline | C::`test_public_command_rejects_raw_wrong_root_without_disclosing_value`; P::`test_E09b_shared_provider_validation_consumes_one_captured_result`; P::`test_E12b_malformed_duplicate_and_nonfinite_json_never_publish`; P::`test_provider_wrong_result_channel_and_required_report_kind_never_publish`. One captured bundle supports strict root/field/JSON/required-report validation; failed contracts expose no successful native result. No caller normalizer or stdout substitution. | PASS: reviewed Tasks 5–8 at `9ac91e70`, final 672-case gate and integrated code review at `0bdb7460`. |
+| Q2: checked source-free linking and owned imports | S::`test_public_workflow_and_ordinary_captures_evaluate_after_source_deletion`; S::`test_imported_dynamic_workflow_and_declaration_only_old_source`; S::`test_build_publishes_checked_artifact_and_refuses_compiled_imports`; P::`test_sourcefree_imported_provider_asset_uses_library_owner`. Real imports preserve canonical schemas, captures, maps and declaring-module assets; old executable bodies and supplied compiled bundles do not become dynamic bodies. Source-free readers use persisted authority; a new invocation still requires source/configuration. | PASS: reviewed source/build/consumer gates and final 672-case integrated gate; no new source-free launch guarantee. |
+| Q3: actual direct shared effects | P::`test_public_provider_selects_closure_and_runs_later_command`; P::`test_provider_snapshot_can_be_stored_captured_and_shadowed_before_command`; C::`test_public_external_document_uses_declared_record_and_native_output`; C::`test_public_certified_adapter_keeps_signature_order_and_inline_document`. Actual local provider request/native union selects captured ordinary code and a later command; external document and certified inline transports retain their real owners. One root/budget, no dynamic WorkflowExecutor. | PASS: reviewed direct command/provider and C3 correction receipts plus final integrated gate. Deterministic local transport only; no live/paid or direct dynamic OMP end-to-end acceptance. |
+| Q4: truthful fresh authority after interruption/faults | A::`test_public_effect_kill_leaves_source_free_interrupted_authority`; A::`test_killed_two_effect_prefix_repeats_on_a_fresh_public_run`; B::`test_real_dispatch_stops_at_failed_atomic_state_publication`; B::`test_real_dispatch_stops_at_exclusive_attempt_allocation_failure`; B::`test_actual_shared_result_is_not_adopted_after_retained_owner_replacement`; R::`test_public_readers_inspect_actual_killed_source_free_root_without_actions`; R::`test_monitor_reads_real_atomic_terminal_publication_as_one_valid_snapshot`; R::`test_profile_race_refuses_mixed_authority_without_stale_completed_output`. Real command/provider SIGKILL barriers, state/allocation/collision faults and actual public readers preserve old evidence, refuse orphan success and stop later dispatch. Valid invocation errors can settle failed authority; faults do not universally mean interruption. | PASS: A `9b46e45e`, B `cf1b8a5b`, C `0bdb7460` and integrated code review; I::`test_dynamic_public_improve_kill_restarts_pair_with_fresh_run_and_budget` observes actual full-consumer SIGKILL, fresh repetition and typed public resume. |
+| Q5: complete policies, authoring costs and retained owners | [Complete improve tests](../../tests/test_workflow_dynamic_improve.py)::`test_public_compile_run_and_source_free_consumer_report`; [search tests](../../tests/test_workflow_dynamic_search.py)::`test_US02_real_local_leaves_reproduce_the_ten_evaluation_trace`; [paired edits](../../tests/test_workflow_dynamic_edits.py), plus the [194 individual replacements](2026-10-02-dynamic-core-replacement-map.json). Existing full native result/request comparisons and four edits retain approval/block/exhaustion/search/repair/stall/fusion/history behavior and terminal-failure/fresh repetition versus typed resume. The owner ledger below records real retirement and new authority cost. | PASS: C1 `ba181ff8`, C2 `b916c92e`, C3 `bd0e696c`, retirement `9ac91e70`, C and final gate at `0bdb7460`; fresh full improve uses eight external calls versus typed resume's six. No total repository LOC or paid-model benefit claim. |
+
+#### Reviewed A/B/C And Retained-Control Receipts
+
+A collected and passed **12 in 18.39s**: four real SIGKILL barriers per actual
+command/provider CLI (pre-dispatch, in-flight, captured output before row
+publication, settled rows before terminal publication), two fresh-prefix
+comparisons and two cleanup-failure witnesses. Known descendants are dead/reaped;
+killed return codes, new IDs/budgets/calls and unchanged old-root bytes are
+explicit. Unsupported resume/invalidate remain read-only. File
+`tests/test_workflow_dynamic_interruptions.py` SHA256
+`c72c85588d587ce9ce0c2790a32bc46f91545f3099eeb1a244866de55b558e7e`;
+ordered conformity PASS then quality APPROVED receipt
+`/dev/shm/orc-dc3-task9a-review.md`, SHA256
+`b070a3d7baf8e2ed01013aec5b3c2df9b7ff144203b544920e91131b8a3e66f9`.
+
+B adds **32 cases** (22 faults/10 readers) beside 29 retained reader cases:
+**61 collected / 61 PASS in 34.21s**, stable 60-source footprint. It exercises
+actual atomic replace/allocation/owner substitution and report/dashboard/monitor
+(dry-run)/probe/controlled watcher on killed roots without sources, target writes,
+redispatch or auto-restart. Actual legacy 2.1, evaluated 3.0 and dynamic 3.1 roots
+keep separate pins/representations. Freeze `/dev/shm/c9bv/frozen-hashes.json`:
+publication-fault module SHA256
+`721f72e5989303a28894dd6bd2d32137c5d44a8a47aec937485276df343f6c23`,
+reader module `c99b088ee274c89a3ae42fa92f1995595b5bb46aec87cffd5fc1f51d17049008`.
+Ordered conformity PASS then quality APPROVED receipt
+`/dev/shm/orc-dc3-task9b-review.md`, SHA256
+`51d7c105e672e811fd766e341ce631cfe035eedd017eef2943fc60b40e056fa6`.
+
+C collected **2 in 2.99s** and passed **2 in 12.32s**, committed as
+`0bdb7460`; module SHA256
+`946ed87b2d98390ec61914332597234606e4c001ce20d8d38e7b6dfa4e6062c0`.
+The same dynamic source imports `std/dynamic/improve` and captures the original
+String goal in ordinary review/revise closures; it is compared with **two typed
+input contexts, record and String**, not two different dynamic sources. Real
+public subprocesses are SIGKILLed after the original dynamic settlement of
+ordinal 2 and the original typed committed-pair checkpoint. Requests, original
+goal and complete EXHAUSTED results are checked. Fresh dynamic execution uses a
+new ID and budget 1000, repeats the first pair and completes six calls:
+**2 + 6 = 8** external calls. The abandoned dynamic root's entire tree is
+unchanged. Actual typed public resume keeps its ID and first pair's bundle
+paths/bytes while advancing state/checkpoint: **six** total calls, without
+repeating the pair. Known groups are cleaned throughout launcher lifetime;
+independent inspection found no live registered fixture PID. This command-only
+comparison neither qualifies provider descendant-group behavior nor claims
+source-free new execution. Ordered conformity PASS then quality APPROVED:
+`/dev/shm/orc-dc3-task9c-review.md`, SHA256
+`7e82f99c9da11b2ee844ac9c45a51105a7b1392671cb418369908ae021e13595`.
+
+Retained compatibility recorded **5 narrow PASS in 2.26s**, **683 collected in
+9.53s**, **682 PASS / 1 strict XFAIL in 89.26s**, 23 modules, stable 600 hashes
+(`/dev/shm/orc-dc3-task9-compatibility/`); matching core-authority evidence reuses
+the earlier 690 gate. That gate had 599 stable before/after hashes; **598 of 599**
+match the final candidate. Only the dynamic reader module changed through B,
+then its complete module was requalified by the 61-case and final 672-case gates.
+The retained compatibility gate's 600 before/after/current hashes still match. The existing F50 selector
+`tests/test_watch_workflow_usage_limit.py::test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id`
+remains strict XFAIL, not fixed or reclassified. The earlier inherited frozen
+WCC identity failure and byte-identical clean-control observation proof remain
+as recorded above; no expectation or pin normalization makes them green.
+Counts overlap and are never summed into a whole-repository total.
+
+Durable contracts `6862cbed` passed independent Astra conformity then quality
+review (`/dev/shm/orc-dc3-task9-durable-docs-review.md`, SHA256
+`0c7d0da67ab9cdf1727907d3b83ed118c3a6b72b26a45f3a02666d41eff235a0`):
+1026 local links, exact state fields 14/11/12 and unchanged typed guarantees.
+The actual guide shell smoke passed in **6.11s**, result 5/schema 3.1, 12 steps
+within budget 100, zero effects and resumable:false
+(`/dev/shm/orc-dc3-final-guide/receipt.json`). This bounded contract approval does
+not replace independent review of the final integrated evidence packet.
+
+#### Final Dynamic Gate And Integrated Review
+
+The actual tmux command selected all 17 existing dynamic modules (the glob
+below), with `PYTHONDONTWRITEBYTECODE=1`, `PYTHONPATH=$PWD` and the repository
+root as cwd:
+
+```bash
+/home/ollie/miniconda3/bin/python -m pytest -q -p no:cacheprovider \
+  --basetemp /dev/shm/c9f --collect-only tests/test_workflow_dynamic_*.py
+/home/ollie/miniconda3/bin/python -m pytest -q -p no:cacheprovider \
+  --basetemp /dev/shm/c9f -n 16 --dist=worksteal tests/test_workflow_dynamic_*.py
+```
+
+Raw `/dev/shm/orc-dc3-final-dynamic/{collect,affected}.{log,json}` records
+**672 collected in 4.52s / 672 PASS in 62.49s**, harness 62.852735s, exit 0.
+The gate ran at `a3b74df6` plus then-untracked frozen C, not at a commit that
+already existed: `0bdb7460` subsequently committed those exact tested C bytes.
+All **1850** before/after/current/committed hashes match; no production bytes
+changed. Runtime SHA256
+`30e43808ee8aa26e081126a7ee5dd04179091addac249dffc7f161422cd2daf6`;
+state SHA256
+`938e6c42b9abdc249de5e0c3e54537103bbbbab2a8d2d2fb1ffd6535cae3ab71`.
+
+Independent integrated Sol conformity PASS then quality APPROVED, **CODE
+readiness PASS**, no findings: `/dev/shm/orc-dc3-task9-integrated-code-review.md`,
+SHA256 `4c7bbb7a220139f4a82288e07e57a6a9b9c6f6896abc1753d2390513976bb44f`.
+[Durable verbatim verdicts](2026-10-04-dynamic-core-cutover-review.md#task-9-integrated-code-review)
+preserve the exact scope and limits. The earlier evidence draft received Astra
+conformity PASS then quality APPROVED, no findings, at
+`/dev/shm/orc-dc3-task9-readiness-review.md`, SHA256
+`2735037c842d1fbfc4685e6540e6979b244d58fd2df87bf3ba61ececd4c4f627`;
+that receipt explicitly approves the draft, not this final fill.
+
+#### Selected Upstream Consumer Import
+
+`a3b74df6` imports the three-file `62155586`→`f5f72509` scope: two maintained
+typed-consumer test/helper files and the upstream Task 13/13D plan closure, with
+two locally reviewed stale-plan corrections. Runtime is unchanged. Narrow
+**1 PASS in 16.92s**, collection **93 in 5.82s**, and the four-module gate
+**93 PASS in 73.21s** (73.502s harness), exit 0, use **582** stable source hashes
+(`/dev/shm/orc-dc3-upstream-f5f/`). Independent local Sol conformity PASS then
+quality APPROVED: `/dev/shm/orc-dc3-upstream-f5f-review.md`, SHA256
+`3d346e990d5523153dd8f64308e0f7266d5ad6bc6fbd90620779ce81395bf2d1`.
+This local gate does not recertify imported large-campaign totals or complete
+Phase 3 Tasks 14/15/17/live-provider requirements. Earlier C9 wording at `3658a4cd`
+retains actual per-value consumption dependencies and declared file/document
+reads for C6 digests; it changes no dynamic runtime semantics.
+
+#### Removed, Retained And New Responsibilities
+
+| Actual disposition | Owners and cost |
+| --- | --- |
+| Retired historical dynamic implementation/callers | Four spike owners program/source/evaluator/leaf_bridge plus six fragments/probes and seven original test modules: **17 paths** since immutable spike `3a7f8efd`; three moved owners preceded the exact 14-file retirement at `9ac91e70`. No active experimental caller, decoder, hand-linked bridge or forwarding stub remains. The [194-case map](2026-10-02-dynamic-core-replacement-map.json) preserves individual dispositions; the [historical README](../../experiments/dynamic_core_evaluation/README.md) preserves reproduction. |
+| Retained typed/frozen controls | Typed compiler/WCC specialization, ProcRefs/proofs, legacy lowering, evaluated memo/resume/readers, evaluated spike and typed std/improve remain. The maintained search_compact.orc/commands_compact.json application is unchanged. Typed comparator `4b69ee00` differs from runnable spike `3a7f8efd`; `26bc796f` pins original test bytes, not a runnable old checkout. Phase 7 retirement remains separate. |
+| Current dynamic production owners | CLI dynamic owner, workflow/dynamic __init__/evaluator/runtime/state, workflow_lisp/dynamic __init__/build/program/source and real std/dynamic/improve: **10 files / 3371 lines**, including moved/revised core, versus four historical production owners / 1730 lines. This scoped census excludes shared router/performer/type edits, tests and docs; it establishes new authority/compatibility responsibility, not net repository deletion. Exact paths/hashes: `/dev/shm/orc-dc3-final-owner-inventory.json`. |
+| Shared and library obligations | Shared strict contract/prompt/document/command/provider/filesystem owners serve both profiles. Canonical Decision/Improvement declarations and typed five-argument API remain; dynamic improve has four ordinary arguments. New dynamic authority/admission/diagnostics/readers coexist with retained typed recovery. |
+
+#### Final Independent Readiness And Plan Reviews
+
+Astra final conformity PASS then quality APPROVED qualifies the bounded DC-3
+handoff: `/dev/shm/orc-dc3-task9-final-readiness-review.md`, SHA256
+`bf47d8901cb11617fa1a90e002f2648ee639652c0b945312782ff20a2c84500c`.
+Sol independently passed plan conformity then quality:
+`/dev/shm/orc-dc3-task9-final-plan-review.md`, SHA256
+`7372714023df474903f7b4791f7377dd659f8d3f9db004c6748c383743761c54`.
+Both reviewed the 14-document freeze and explicitly permitted mechanical
+recording of their approvals and the documentation/handoff checkboxes. These
+final bookkeeping edits change no tested code or accepted semantics. Final
+coordinator verification checked 975 local links with zero errors, a clean
+diff check, the unchanged historical prefix and all 1850 tested source hashes. The
+[durable review record](2026-10-04-dynamic-core-cutover-review.md#task-9-final-readiness-and-plan-reviews)
+preserves the readiness verdict and scope. Task 9/DC-3 qualification is complete;
+DC-P's owner choice below remains unselected.
+
+#### Qualification Limits And Owner Decision
+
+Public source/CLI, deterministic command/provider performers, real process kills,
+faults/readers, retained typed controls and complete consumer policies provide
+bounded DC-3 proof. Paid/live provider validation is unavailable and unallocated;
+controlled local shims are explicitly not live qualification. Excluded runtime
+classes retain the profile's stated refusals. Full typed Phase 3 qualification
+and its live/handoff/power-loss campaigns remain owned by their existing plan.
+
+Accepted candidate losses remain visible: no static effect tracking, resume or
+cross-run reuse; late errors may follow expensive effects; fresh execution
+repeats calls, budget and external writes. The owner-facing DC-P choice is: **continue explicitly authorizing
+one bounded Phase 6b migration of experiments/mlevolve_pair/search_compact.orc,
+entry run-search, preserving commands_compact.json, complete policy and strict
+SearchResult contract; one bounded revise with named reevaluation; or stop and
+retain the typed fallback**. No choice is made by this packet. A generic continue
+or test count does not select adoption, a default target or Phase 7 retirement.
