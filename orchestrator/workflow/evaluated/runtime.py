@@ -43,7 +43,7 @@ from .run_ref import (
     settle_evaluated_run_ref, validate_evaluated_run_ref, reconcile_evaluated_run_ref,
     validate_evaluated_run_ref_start,
 )
-from .authority import RunAuthority, _require_retained_root
+from .authority import RunAuthority, _require_retained_root, workspace_result_locator
 from .machine import evaluate_closed_program, site_classes
 from .views import ViewPublicationError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
@@ -250,7 +250,7 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     )
     dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
     result = _reuse_effect_commit(
-        commit, node, identity, parts, canonical_sha256(parts), dependencies
+        authority, commit, node, identity, parts, canonical_sha256(parts), dependencies
     )
     if node["class"] == "run_ref":
         validate_evaluated_run_ref(authority, resolved, identity, workspace, commit,
@@ -373,7 +373,7 @@ def _execute_effect(
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
     resolved, workspace, commit, snapshot, site_classes):
-    result = _reuse_effect_commit(commit, node, identity, parts, input_digest, dependencies)
+    result = _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies)
     if node["class"] == "run_ref":
         settled = (identity, commit.data["attempt"]) in snapshot.settlements
         validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
@@ -485,7 +485,7 @@ def _check_retry_implementation(identity, baseline, implementation_files) -> Non
     raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}")
 
 
-def _reuse_effect_commit(commit, node, identity, parts, input_digest, dependencies):
+def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies):
     row = commit.data
     changed_parts = sorted(
         name for name in set(parts) | set(row["input_parts"])
@@ -501,7 +501,7 @@ def _reuse_effect_commit(commit, node, identity, parts, input_digest, dependenci
         row["value"],
         node["result"],
         dependencies=(*dependencies, identity),
-        committed_result_path=row["result_path"],
+        committed_result_path=workspace_result_locator(authority.header, row["result_path"]),
         context=f"committed {node['class']} result",
     )
 
@@ -580,7 +580,7 @@ def _start_and_perform_effect(
             result.value,
             result.descriptor,
             dependencies=(*dependencies, identity),
-            committed_result_path=result_path,
+            committed_result_path=workspace_result_locator(authority.header, result_path),
         )
     except ViewPublicationError:
         raise

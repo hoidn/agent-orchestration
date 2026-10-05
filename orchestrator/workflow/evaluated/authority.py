@@ -100,6 +100,22 @@ def _validate_run_ref_root(value: object) -> None:
         raise RunAuthorityError("run-reference root is not a durable canonical path")
 
 
+def _validate_result_root(value: object, run_id: object) -> None:
+    """Check the workspace-relative run root by spelling only; no path IO."""
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise RunAuthorityError("result root is empty or invalid")
+    if PurePosixPath(value).is_absolute() or os.path.normpath(value) != value:
+        raise RunAuthorityError("result root is not a canonical relative path")
+    if PurePosixPath(value).name != run_id:
+        raise RunAuthorityError("result root does not end with the run id")
+
+
+def workspace_result_locator(header: Mapping[str, Any], result_path: str) -> str | None:
+    """Join the immutable result root with a memo result path; None when the header predates it."""
+    root = header.get("result_root")
+    return None if root is None else f"{root}/{result_path}"
+
+
 def _validate_json_value(value: Any) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -215,7 +231,7 @@ def _validate_header_shape(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RunAuthorityError("run header has missing or unknown fields")
     fields = set(value)
-    if not _HEADER_FIELDS <= fields or fields - (_HEADER_FIELDS | {"resume_request", "run_ref_root"}):
+    if not _HEADER_FIELDS <= fields or fields - (_HEADER_FIELDS | {"resume_request", "run_ref_root", "result_root"}):
         raise RunAuthorityError("run header has missing or unknown fields")
     if value.get("schema_version") != SCHEMA_VERSION:
         raise RunAuthorityError("unsupported evaluated run schema")
@@ -226,6 +242,8 @@ def _validate_header_shape(value: object) -> dict[str, Any]:
         _validate_locator(value["workflow_file"])
     if "run_ref_root" in value:
         _validate_run_ref_root(value["run_ref_root"])
+    if "result_root" in value:
+        _validate_result_root(value["result_root"], value.get("run_id"))
     return value
 
 
@@ -429,6 +447,7 @@ def _header(
     interpreters: Mapping[str, Mapping[str, str]],
     resume_request: Mapping[str, Any],
     run_ref_root: str,
+    result_root: str | None,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -444,6 +463,7 @@ def _header(
         "interpreters": dict(interpreters),
         "resume_request": dict(resume_request),
         "run_ref_root": run_ref_root,
+        **({"result_root": result_root} if result_root is not None else {}),
     }
 
 
@@ -459,6 +479,7 @@ def publish_run_authority(
     resume_request: Mapping[str, Any],
     run_ref_root: str | None = None,
     run_files: WorkspaceFiles | None = None,
+    result_root: str | None = None,
 ) -> Iterator[RunAuthority]:
     """Publish the checked program, header and empty memo under the run lock."""
     from orchestrator.cli.run_ref_root import resolve_run_ref_root
@@ -466,6 +487,8 @@ def publish_run_authority(
     effective_run_ref_root = resolve_run_ref_root(run_ref_root).as_posix()
     _validate_run_ref_root(effective_run_ref_root)
     validate_resume_request(resume_request)
+    if result_root is not None:
+        _validate_result_root(result_root, run_id)
     _validate_locator(workflow_file)
     run_root = Path(run_root)
     if ClosedProgram.from_artifact(program.artifact()).digest != program.digest:
@@ -490,6 +513,7 @@ def publish_run_authority(
             interpreters=interpreters,
             resume_request=resume_request,
             run_ref_root=effective_run_ref_root,
+            result_root=result_root,
         )
         _require_retained_root(physical)
         physical.write_atomic(HEADER_FILENAME, canonical_json_bytes(header))

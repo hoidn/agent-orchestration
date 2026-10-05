@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from pathlib import Path
 
@@ -471,10 +472,10 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
     dispatches_before = prior.raw
     real_reuse = runtime_module._reuse_effect_commit
 
-    def remove_artifact_before_path_reuse(commit, node, *args):
-        if node["boundary"] == "produce":
+    def remove_artifact_before_path_reuse(*args, **kwargs):
+        if inspect.signature(real_reuse).bind(*args, **kwargs).arguments["node"]["boundary"] == "produce":
             artifact.unlink()
-        return real_reuse(commit, node, *args)
+        return real_reuse(*args, **kwargs)
 
     with monkeypatch.context() as patched:
         patched.setattr(runtime_module, "_reuse_effect_commit", remove_artifact_before_path_reuse)
