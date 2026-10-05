@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Mapping
 
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view
 
 from .models import MonitorConfig, MonitorRun, MonitorWorkspace
 from .process import read_process_metadata
@@ -55,7 +57,15 @@ def _read_run(workspace: MonitorWorkspace, run_root: Path, state_path: Path) -> 
     except (OSError, ValueError, RuntimeError) as exc:
         return MonitorRun(workspace, run_root.name, run_root, state_path,
                           read_error=f"run root is unsafe or escapes workspace: {exc}")
-    if has_evaluated_authority(resolved):
+    try:
+        profile = select_run_profile(resolved)
+        if profile == "dynamic":
+            state = load_dynamic_view(resolved)
+            return MonitorRun(workspace, run_root.name, resolved, state_path, state=state)
+    except (OSError, ValueError) as exc:
+        return MonitorRun(workspace, run_root.name, resolved, state_path,
+            read_error=f"{getattr(exc, 'code', 'run_authority_invalid')}: {exc}")
+    if profile == "evaluated":
         return _read_evaluated_run(workspace, run_root.name, resolved, state_path)
     if not state_path.exists() and not state_path.is_symlink():
         return None

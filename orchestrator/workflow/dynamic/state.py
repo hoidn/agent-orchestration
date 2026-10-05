@@ -350,7 +350,8 @@ def load_dynamic_view(run_root, *, run_files=None):
         view = _thaw(state)
         if view['status'] == 'running' and not run_writer_active(Path(run_root), root_fd=files.root_fd):
             view['status'] = 'interrupted'
-        view.update(resumable=False, workflow_file=header['workflow_file'], workspace=header['workspace'],
+        view.update(resumable=False, bound_inputs=_thaw(header['bound_inputs']),
+                    workflow_file=header['workflow_file'], workspace=header['workspace'],
                     started_at=header['started_at'], budget=program.budget)
         return view
     except (OSError, ValueError, TypeError) as exc:

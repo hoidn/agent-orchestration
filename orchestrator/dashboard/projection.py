@@ -24,6 +24,7 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
 from orchestrator.observability.report import build_status_snapshot, derive_status_projection
 from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.workflow.dynamic.state import PROFILE as DYNAMIC_PROFILE
 
 
 class RunProjector:
@@ -34,15 +35,17 @@ class RunProjector:
         self.cursor_projector = ExecutionCursorProjector()
 
     def project_detail(self, run: RunRecord) -> DashboardRunDetail:
-        if run.state is not None and run.state.get("result_persistence_profile") == PROFILE:
-            return self._project_evaluated_detail(run)
+        if run.state is not None and run.state.get("result_persistence_profile") in {PROFILE, DYNAMIC_PROFILE}:
+            return self._project_execution_detail(run)
         return self._project_legacy_detail(run)
 
-    def _project_evaluated_detail(self, run: RunRecord) -> DashboardRunDetail:
+    def _project_execution_detail(self, run: RunRecord) -> DashboardRunDetail:
         state = dict(run.state)
         resolver = FileReferenceResolver(run.workspace.root, run.run_root)
         warnings = list(run.warnings)
-        steps = [self._evaluated_step(identity, payload, resolver, warnings) for identity, payload in state["steps"].items()]
+        dynamic = state["result_persistence_profile"] == DYNAMIC_PROFILE
+        steps = ([self._dynamic_step(payload, resolver, warnings) for payload in state["effects"]] if dynamic else
+                 [self._evaluated_step(identity, payload, resolver, warnings) for identity, payload in state["steps"].items()])
         cursor = self.cursor_projector.project(state)
         row = DashboardIndexRow(
             workspace_id=run.workspace.id, workspace_label=run.workspace.label,
@@ -56,6 +59,22 @@ class RunProjector:
         )
         return DashboardRunDetail(row=row, steps=steps, cursor=cursor, bound_inputs=state["bound_inputs"],
             workflow_outputs=state["workflow_outputs"], error=state["error"], state=state, warnings=warnings)
+
+    def _dynamic_step(self, payload, resolver, warnings):
+        refs = {}
+        for name in ("result", "stdout", "stderr", "prompt"):
+            path = payload[f"{name}_path"]
+            if path is None:
+                continue
+            try:
+                refs[name] = resolver.run_ref(Path(path), label=Path(path).name)
+            except UnsafePathError as exc:
+                warnings.append(f"unsafe {name} file: {exc}")
+        identity = str(payload["ordinal"])
+        return DashboardStep(ref=identity, step_id=identity,
+            name=f"{identity}: {payload['definition']} {payload['location']}",
+            kind=payload["effect_class"], status=payload["status"], error=payload["error"],
+            debug=dict(payload), file_refs=refs)
 
     def _evaluated_step(self, identity, payload, resolver, warnings):
         return DashboardStep(ref=identity, name=identity, step_id=identity,

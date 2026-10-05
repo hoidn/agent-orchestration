@@ -11,6 +11,8 @@ from orchestrator._common.status import is_run_terminal
 from orchestrator.dashboard.cursor import ExecutionCursorProjector
 from orchestrator.workflow.evaluated.authority import PROFILE
 from orchestrator.workflow.evaluated.views import load_evaluated_view
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view, PROFILE as DYNAMIC_PROFILE
 
 from .models import MonitorEvent, MonitorEventKind, MonitorRun
 from .process import process_identity_matches
@@ -18,6 +20,18 @@ from .process import process_identity_matches
 
 def classify_run(run: MonitorRun, *, now: datetime | None = None,
                  stale_after_seconds: int) -> MonitorEvent | None:
+    if run.state is not None and run.state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        try:
+            if select_run_profile(run.run_root) != "dynamic":
+                return None
+            state = load_dynamic_view(run.run_root)
+        except (OSError, ValueError):
+            return None
+        run = replace(run, state=state, process=None, read_error=None)
+        event = {"completed": (MonitorEventKind.COMPLETED, "state_completed"),
+                 "failed": (MonitorEventKind.FAILED, "state_failed"),
+                 "interrupted": (MonitorEventKind.CRASHED, "dynamic_writer_lock_released_interrupted")}.get(state["status"])
+        return None if event is None else MonitorEvent(event[0], run, event[1], _normalize_now(now).isoformat())
     if run.state is not None and run.state.get("result_persistence_profile") == PROFILE:
         return _classify_evaluated_run(run, now=now)
     return _classify_legacy_run(run, now=now, stale_after_seconds=stale_after_seconds)

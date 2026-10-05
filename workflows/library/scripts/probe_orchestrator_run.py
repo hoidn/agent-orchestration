@@ -18,6 +18,8 @@ from typing import Any
 
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
 from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view, PROFILE as DYNAMIC_PROFILE
 
 
 REPO_ROOT = Path.cwd()
@@ -63,6 +65,10 @@ def _parse_timestamp(value: object) -> datetime | None:
 
 
 def _failed_steps(state: dict[str, Any]) -> list[dict[str, Any]]:
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        return [dict(row, name=str(row["ordinal"]), step_id=str(row["ordinal"]),
+                     error_type=row["error"]["code"], error_message=row["error"]["message"], outcome_class=None)
+                for row in state["effects"] if row["status"] == "failed"]
     failed: list[dict[str, Any]] = []
     steps = state.get("steps") or {}
     if not isinstance(steps, dict):
@@ -85,6 +91,8 @@ def _failed_steps(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _running_steps(state: dict[str, Any]) -> list[str]:
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        return [str(row["ordinal"]) for row in state["effects"] if row["status"] == "running"]
     steps = state.get("steps") or {}
     if not isinstance(steps, dict):
         return []
@@ -94,6 +102,9 @@ def _running_steps(state: dict[str, Any]) -> list[str]:
 def _classify(state: dict[str, Any] | None, *, stale_seconds: int | None, max_stale_seconds: int) -> tuple[str, str]:
     if state is None:
         return "UNKNOWN", "INVESTIGATE"
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        return {"running": ("RUNNING_OK", "NONE"), "completed": ("COMPLETED", "NONE"),
+                "failed": ("FAILED", "INVESTIGATE"), "interrupted": ("CRASHED", "INVESTIGATE")}[state["status"]]
     if state.get("result_persistence_profile") == PROFILE:
         return {"running": ("RUNNING_OK", "NONE"), "settling": ("RUNNING_OK", "NONE"),
             "interrupted": ("CRASHED", "RESUME"), "completed": ("COMPLETED", "NONE"),
@@ -163,7 +174,13 @@ def _arguments():
 
 
 def _read_target_state(run_root):
-    if has_evaluated_authority(run_root):
+    try:
+        profile = select_run_profile(run_root)
+        if profile == "dynamic":
+            return load_dynamic_view(run_root), ""
+    except (OSError, ValueError) as exc:
+        return None, f"{getattr(exc, 'code', 'run_authority_invalid')}: {exc}"
+    if profile == "evaluated":
         try:
             return load_evaluated_view(run_root), ""
         except (OSError, ValueError) as exc:
@@ -202,6 +219,9 @@ def main() -> int:
         "target_workspace": args.target_workspace,
         "state_path": state_path.as_posix(),
         "state_load_error": state_load_error,
+        "resumable": state.get("resumable", True) if state is not None else False,
+        **({"effects": state["effects"], "current_effect": state["current_effect"], "error": state["error"]}
+           if state is not None and state.get("result_persistence_profile") == DYNAMIC_PROFILE else {}),
         "workflow_file": state.get("workflow_file") if state else "",
         "run_status": state.get("status") if state else "missing",
         "watch_status": watch_status,
@@ -225,6 +245,7 @@ def main() -> int:
         "state_path": state_path.as_posix(),
         "workflow_file": evidence["workflow_file"],
         "run_status": evidence["run_status"],
+        "resumable": evidence["resumable"],
         "last_updated_at": evidence["last_updated_at"],
         "stale_seconds": stale_seconds if stale_seconds is not None else -1,
         "failed_step_count": len(evidence["failed_steps"]),

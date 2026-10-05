@@ -8,6 +8,8 @@ from typing import Iterable
 
 from orchestrator.dashboard.models import RunRecord, ScanResult, WorkspaceRecord
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view
 
 
 class RunScanner:
@@ -69,7 +71,25 @@ class RunScanner:
                              read_error=f"run root escapes workspace: {run_root}")
         except (OSError, RuntimeError) as exc:
             return RunRecord(workspace, run_root.name, run_root, state_path, read_error=str(exc))
-        if has_evaluated_authority(resolved_root):
+        try:
+            profile = select_run_profile(resolved_root)
+            if profile == "dynamic":
+                state = load_dynamic_view(resolved_root)
+                return RunRecord(workspace, run_root.name, resolved_root, state_path, state=state, state_run_id=state["run_id"])
+        except OSError as exc:
+            message = str(exc)
+            if state_path.is_symlink():
+                try:
+                    state_path.resolve(strict=True).relative_to(workspace.root)
+                except ValueError:
+                    message = f"state.json resolves outside workspace: {state_path}"
+                except OSError as state_error:
+                    message = str(state_error)
+            return RunRecord(workspace, run_root.name, resolved_root, state_path, read_error=message)
+        except ValueError as exc:
+            return RunRecord(workspace, run_root.name, resolved_root, state_path,
+                parse_error=f"{getattr(exc, 'code', 'run_authority_invalid')}: {exc}")
+        if profile == "evaluated":
             return self._read_evaluated_run(workspace, run_root.name, resolved_root, state_path)
         if not state_path.exists() and not state_path.is_symlink():
             return None

@@ -35,7 +35,7 @@ class CommandBuilder:
 
     def build(self, run: RunRecord) -> CommandSet:
         warnings = list(run.warnings)
-        if run.read_error is not None:
+        if run.read_error is not None or run.parse_error is not None:
             warnings.append("commands unavailable because state could not be read safely")
             return CommandSet(report=None, resume=None, tmux=[], warnings=warnings)
 
@@ -56,7 +56,7 @@ class CommandBuilder:
             resume_argv.extend(["--state-dir", runs_root_arg])
 
         report = self._command(run.workspace.root, report_argv, warnings=[])
-        resume = None if mismatch else self._command(run.workspace.root, resume_argv, warnings=[])
+        resume = None if mismatch or (run.state is not None and run.state.get("resumable") is False) else self._command(run.workspace.root, resume_argv, warnings=[])
         return CommandSet(report=report, resume=resume, tmux=[], warnings=warnings)
 
     def _runs_root_arg(

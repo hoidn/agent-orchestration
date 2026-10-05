@@ -39,15 +39,26 @@ def select_run_profile(run_root: Path, *, run_files=None) -> str:
     from .workflow.dynamic.state import DynamicStateError, PROFILE as DYNAMIC_PROFILE, load_dynamic_run
     from .workflow.evaluated.authority import PROFILE as EVALUATED_PROFILE, RunAuthorityError
     from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+    from .workflow.evaluated.views import _authority_sibling_present
 
     files = run_files
     own = files is None
     legacy_header = False
+    dynamic_artifact = False
+    dynamic_header = False
+    has_header = False
+    header_error = None
     try:
         if files is None:
             files = WorkspaceFiles(run_root)
-        has_header = files.exists('run.json')
-        dynamic_artifact = False
+        has_header = _authority_sibling_present(files, 'run.json')
+        if has_header:
+            try:
+                header = strict_json_loads(files.read('run.json'))
+                if isinstance(header, dict):
+                    dynamic_header = header.get('schema_version') == '3.1' or header.get('result_persistence_profile') == DYNAMIC_PROFILE
+            except (OSError, ValueError, UnicodeError) as exc:
+                header_error = exc
         if files.exists('closed_program.json'):
             try:
                 artifact = strict_json_loads(files.read('closed_program.json'))
@@ -57,10 +68,12 @@ def select_run_profile(run_root: Path, *, run_files=None) -> str:
                 artifact_schema = artifact.get('schema')
                 dynamic_artifact = (isinstance(artifact_schema, str) and
                                     artifact_schema.startswith('workflow-lisp/dynamic-program/'))
+        if header_error is not None:
+            error = DynamicStateError if dynamic_artifact else RunAuthorityError
+            raise error(f'invalid run authority header: {header_error}') from header_error
         if has_header:
-            header = strict_json_loads(files.read('run.json'))
             if not isinstance(header, dict):
-                raise DynamicStateError('run authority header is not an object')
+                raise RunAuthorityError('run authority header is not an object')
             pair = (header.get('schema_version'), header.get('result_persistence_profile'))
             if pair == ('3.1', DYNAMIC_PROFILE):
                 load_dynamic_run(run_root, run_files=files)
@@ -111,9 +124,22 @@ def select_run_profile(run_root: Path, *, run_files=None) -> str:
                     raise RunAuthorityError('mixed run authority profile')
         return profile
     except (OSError, ValueError, TypeError) as exc:
-        if isinstance(exc, (DynamicStateError, RunAuthorityError)):
+        if isinstance(exc, DynamicStateError):
             raise
-        raise DynamicStateError(f'invalid run authority selection: {exc}') from exc
+        if not (dynamic_header or dynamic_artifact) and files is not None:
+            try:
+                state = strict_json_loads(files.read('state.json'))
+            except (OSError, ValueError, TypeError, UnicodeError):
+                state = None
+            if isinstance(state, dict):
+                dynamic_header = state.get('schema_version') == '3.1' or state.get('result_persistence_profile') == DYNAMIC_PROFILE
+        if dynamic_header or dynamic_artifact:
+            raise DynamicStateError(f'invalid run authority selection: {exc}') from exc
+        if isinstance(exc, RunAuthorityError):
+            raise
+        if files is not None and (has_header or _authority_sibling_present(files, 'closed_program.json') or _authority_sibling_present(files, 'memo.jsonl')):
+            raise RunAuthorityError(f'invalid run authority selection: {exc}') from exc
+        raise
     finally:
         if own and files is not None:
             files.close()
@@ -661,7 +687,13 @@ class StateManager:
         from .workflow.workspace_files import WorkspaceFiles
         run_files = (WorkspaceFiles(self.run_root, root_fd=self._run_root_fd)
                      if self._run_root_fd is not None else None)
-        if select_run_profile(self.run_root, run_files=run_files) == 'dynamic':
+        from .workflow.evaluated.authority import RunAuthorityError
+        from .workflow.evaluated.memo import MemoError
+        try:
+            profile = select_run_profile(self.run_root, run_files=run_files)
+        except RunAuthorityError as exc:
+            raise MemoError('memo_inconsistent', str(exc)) from exc
+        if profile == 'dynamic':
             from .workflow.dynamic.state import DynamicStateError
             raise DynamicStateError('dynamic state cannot be projected into RunState')
         if has_evaluated_authority(self.io_run_root, run_files=run_files):

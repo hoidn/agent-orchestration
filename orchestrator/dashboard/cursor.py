@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.workflow.dynamic.state import PROFILE as DYNAMIC_PROFILE
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,14 @@ class ExecutionCursorProjector:
         self.max_depth = max_depth
 
     def project(self, state: Mapping[str, Any]) -> ExecutionCursor:
+        if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+            ordinal = state["current_effect"]
+            if ordinal is None:
+                return ExecutionCursor(summary="")
+            row = state["effects"][ordinal - 1]
+            name = f"{ordinal}: {row['definition']} {row['location']}"
+            return ExecutionCursor(summary=name, nodes=[CursorNode(kind="current_step", name=name,
+                step_id=str(ordinal), status=row["status"], details=dict(row))])
         if state.get("result_persistence_profile") == PROFILE:
             return self._project_evaluated(state)
         nodes: list[CursorNode] = []

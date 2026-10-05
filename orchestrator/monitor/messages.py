@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.workflow.dynamic.state import PROFILE as DYNAMIC_PROFILE
 
 from .models import MonitorConfig, MonitorEvent
 
@@ -43,7 +44,7 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
         f"Persisted status: {state.get('status', '')}",
         f"Started at: {state.get('started_at', '')}",
         f"Updated at: {state.get('updated_at', '')}",
-        *([] if state.get("result_persistence_profile") == PROFILE else [f"Heartbeat at: {_heartbeat_at(state) or ''}"]),
+        *([] if state.get("result_persistence_profile") in {PROFILE, DYNAMIC_PROFILE} else [f"Heartbeat at: {_heartbeat_at(state) or ''}"]),
         f"Observed at: {event.observed_at}",
         f"Current/failed step: {step_name or ''}",
     ]
@@ -58,7 +59,8 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
             "Suggested commands:",
             f"- cd {event.run.workspace.path}",
             f"- python -m orchestrator report --run-id {event.run.run_dir_id}",
-            f"- python -m orchestrator resume {event.run.run_dir_id}",
+            *(["Resumable: false; inspect the run before deciding on a new invocation."] if state.get("resumable") is False else
+              [f"- python -m orchestrator resume {event.run.run_dir_id}"]),
         ]
     )
     previews = _safe_log_previews(event.run.run_root, step_name, _secret_values(config), state)
@@ -71,7 +73,7 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
 
 def _workflow_output_lines(state):
     outputs = state.get("workflow_outputs")
-    if state.get("result_persistence_profile") == PROFILE:
+    if state.get("result_persistence_profile") in {PROFILE, DYNAMIC_PROFILE}:
         if state["status"] != "completed":
             return []
         return ["", "Workflow outputs:", json.dumps(outputs, ensure_ascii=False, allow_nan=False)]
@@ -88,13 +90,23 @@ def _evaluated_step_identity(state):
         if row["status"] != "invalidated"), None)
 
 
+def _dynamic_row(state, step_name):
+    return next((row for row in state["effects"] if str(row["ordinal"]) == step_name), {})
+
+
 def _attempt_lines(state, step_name):
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        row = _dynamic_row(state, step_name)
+        return [] if not row else [f"Invocation: {row['ordinal']}", f"Definition: {row['definition']}", f"Location: {row['location']}"]
     if state.get("result_persistence_profile") == PROFILE and step_name in state["steps"] and state["steps"][step_name]["status"] != "invalidated":
         return [f"Attempt: {state['steps'][step_name]['attempt']}"]
     return []
 
 
 def _stream_paths(run_root, step_name, state):
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        row = _dynamic_row(state, step_name)
+        return tuple(run_root / row[key] for key in ("stdout_path", "stderr_path") if row.get(key) is not None)
     if state.get("result_persistence_profile") == PROFILE:
         row = state["steps"].get(step_name)
         if row is None or row["status"] == "invalidated":
@@ -106,6 +118,9 @@ def _stream_paths(run_root, step_name, state):
 
 
 def _current_or_failed_step(state: Mapping[str, Any]) -> str | None:
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        return str(state["current_effect"]) if state["current_effect"] is not None else (
+            str(state["effects"][-1]["ordinal"]) if state["effects"] else None)
     if state.get("result_persistence_profile") == PROFILE:
         return _evaluated_step_identity(state)
     current_step = state.get("current_step")
@@ -122,6 +137,9 @@ def _current_or_failed_step(state: Mapping[str, Any]) -> str | None:
 
 
 def _error_summary(state: Mapping[str, Any], step_name: str | None) -> str:
+    if state.get("result_persistence_profile") == DYNAMIC_PROFILE:
+        error = state["error"] or _dynamic_row(state, step_name).get("error")
+        return f"{error['code']}: {error['message']}" if isinstance(error, Mapping) else ""
     if state.get("result_persistence_profile") == PROFILE:
         return _evaluated_error_summary(state, step_name)
     error = state.get("error")

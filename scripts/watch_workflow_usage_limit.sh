@@ -176,12 +176,30 @@ clear_target_pane() {
 }
 
 is_evaluated_state() {
-  python -c 'import json,sys; from orchestrator.workflow.evaluated.authority import PROFILE; raise SystemExit(json.load(sys.stdin).get("result_persistence_profile") != PROFILE)' <<< "$1"
+  python -c 'import json,sys; raise SystemExit(json.load(sys.stdin).get("result_persistence_profile") != "evaluated_execution.v1")' <<< "$1"
+}
+
+is_nonresumable_state() {
+  python -c 'import json,sys; raise SystemExit(json.load(sys.stdin).get("resumable") is not False)' <<< "$1"
+}
+
+# Revalidate immediately before any recovery action, including pending retries.
+recovery_allowed() {
+  local state
+  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 1
+  if is_nonresumable_state "$state"; then
+    log "resumable=false; automatic recovery refused for run_id=$RUN_ID"
+    return 1
+  fi
 }
 
 recent_limit_log_hits() {
   local state
   state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 0
+  # Dynamic runs are observed without provider recovery or recursive log scans.
+  if is_nonresumable_state "$state"; then
+    return 0
+  fi
   if ! is_evaluated_state "$state"; then
     find "$RUN_ROOT" \
       -type f \( -name '*.stderr' -o -name '*.stdout' -o -name '*.log' -o -name '*.txt' \) \
@@ -232,11 +250,16 @@ import json
 import sys
 from pathlib import Path
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view, DynamicStateError
 
 try:
     root = Path(sys.argv[1]).resolve()
     root.relative_to(Path(sys.argv[2]).resolve())
-    if has_evaluated_authority(root):
+    profile = select_run_profile(root) if root.is_dir() else "legacy"
+    if profile == "dynamic":
+        state = load_dynamic_view(root)
+    elif profile == "evaluated":
         state = load_evaluated_view(root)
     else:
         try:
@@ -245,6 +268,9 @@ try:
             print(f"legacy state read failed: {exc}", file=sys.stderr)
             state = {}
     print(json.dumps(state, ensure_ascii=False, allow_nan=False))
+except DynamicStateError as exc:
+    print(f"state read failed {exc.code}: {exc}", file=sys.stderr)
+    raise SystemExit(3)
 except (OSError, ValueError) as exc:
     raise SystemExit(f"state read failed {getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
 PY
@@ -311,6 +337,7 @@ sleep_with_target_checks() {
 # Type PENDING_CMD into the target pane as a new attempt. The attempt prints a start line
 # and an exit line that carry a token unique to it.
 start_attempt() {
+  recovery_allowed || return 1
   PENDING_TOKEN="$(date +%s%N)"
   clear_target_pane
   log "relaunching workflow: $PENDING_CMD"
@@ -391,7 +418,7 @@ resume_command() {
 refresh_run_metadata() {
   local state
   state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 1
-  if is_evaluated_state "$state"; then
+  if is_nonresumable_state "$state" || is_evaluated_state "$state"; then
     return 1
   fi
   WORKFLOW_FILE="$(python -c 'import json,sys; print(json.load(sys.stdin).get("workflow_file", ""))' <<< "$state")" || return 1
@@ -430,11 +457,13 @@ run_command() {
 
 refresh_run_id_from_latest_running() {
   local new_run_id
-  new_run_id="$(python - "$WORKSPACE" "$WORKFLOW_FILE" <<'PY'
+  new_run_id="$(python - "$WORKSPACE" "$WORKFLOW_FILE" "$RUN_ID" <<'PY'
 import json, sys
 from datetime import datetime
 from pathlib import Path
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view, DynamicStateError
 
 workspace = Path(sys.argv[1]).resolve()
 workflow_file = sys.argv[2]
@@ -442,8 +471,9 @@ workflow_file = sys.argv[2]
 def candidate(path):
     root = path.resolve(strict=True)
     root.relative_to(workspace)
-    if has_evaluated_authority(root):
-        state = load_evaluated_view(root)
+    profile = select_run_profile(root)
+    if profile in {"dynamic", "evaluated"}:
+        state = load_dynamic_view(root) if profile == "dynamic" else load_evaluated_view(root)
         if state["status"] not in {"running", "settling"}:
             return None
         try:
@@ -464,14 +494,18 @@ candidates = []
 for path in (workspace / ".orchestrate/runs").iterdir():
     try:
         item = candidate(path)
-    except (OSError, ValueError):
+    except DynamicStateError as exc:
+        raise SystemExit(f"state read failed {exc.code}: {exc}")
+    except (OSError, ValueError) as exc:
+        if path.name == sys.argv[3]:
+            raise SystemExit(f"state read failed {getattr(exc, 'code', 'run_authority_invalid')}: {exc}")
         continue
     if item is not None:
         candidates.append(item)
 if candidates:
     print(max(candidates)[1])
 PY
-  )"
+  )" || return 1
   if [[ -n "$new_run_id" && "$new_run_id" != "$RUN_ID" ]]; then
     log "watchdog switching from completed run_id=$RUN_ID to new running run_id=$new_run_id"
     RUN_ID="$new_run_id"
@@ -482,7 +516,7 @@ PY
 requeue_provider_limit_blocked_tranche() {
   local state
   state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 1
-  if is_evaluated_state "$state"; then
+  if is_nonresumable_state "$state" || is_evaluated_state "$state"; then
     return 1
   fi
   python -c "$(cat <<'PY'
@@ -588,6 +622,7 @@ handle_completed_provider_limit_blocked_run() {
 }
 
 run_claude_probe_once() {
+  recovery_allowed || return 2
   PROBE_OUTPUT=""
   PROBE_EXIT_CODE=0
   PROBE_RESET_EPOCH=""
@@ -625,7 +660,7 @@ run_claude_probe_once() {
 }
 
 wait_until_claude_ready() {
-  local now sleep_for
+  local now sleep_for probe_status
   while true; do
     if ! target_exists; then
       log "target pane missing before Claude probe; watchdog exiting"
@@ -637,6 +672,11 @@ wait_until_claude_ready() {
     fi
     if run_claude_probe_once; then
       return 0
+    else
+      probe_status=$?
+    fi
+    if (( probe_status == 2 )); then
+      return 2
     fi
 
     now="$(date +%s)"
@@ -656,6 +696,7 @@ wait_until_claude_ready() {
 }
 
 interrupt_wait_and_resume() {
+  recovery_allowed || return 1
   local pane_out="$1"
   local log_hits="$2"
 
@@ -673,6 +714,7 @@ interrupt_wait_and_resume() {
   sleep 4
   if ! wait_for_target_shell; then
     log "target did not return to a shell after first interrupt; sending one more Ctrl-C"
+    recovery_allowed || return 1
     tmux send-keys -t "$TARGET" C-c
     sleep 4
     wait_for_target_shell || log "target still not at a recognized shell; provider-limit recovery will skip relaunch if it remains active"
@@ -706,15 +748,31 @@ while true; do
     exit 0
   fi
 
-  if [[ -n "$PENDING_TOKEN" ]]; then
-    follow_orchestrator_command 0
-  fi
-  pane_out="$(capture_target)"
+  # Select authority before pending follow-up, pane limits, probes or Ctrl-C.
   state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")"
+  read_status=$?
+  if (( read_status == 3 )); then
+    log "invalid dynamic authority; watchdog stopping without recovery"
+    exit 1
+  fi
   if [[ -z "$state" ]]; then
     sleep "$POLL_SECONDS"
     continue
   fi
+  if is_nonresumable_state "$state"; then
+    write_state_summary
+    status="$(python -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<< "$state")"
+    if [[ "$status" != "running" ]]; then
+      log "resumable=false; state=$status; watchdog stopping for operator investigation"
+      exit 0
+    fi
+    sleep "$POLL_SECONDS"
+    continue
+  fi
+  if [[ -n "$PENDING_TOKEN" ]]; then
+    follow_orchestrator_command 0
+  fi
+  pane_out="$(capture_target)"
   if is_evaluated_state "$state"; then
     pane_out=""
   fi

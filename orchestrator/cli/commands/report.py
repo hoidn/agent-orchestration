@@ -20,6 +20,8 @@ from orchestrator.workflow.prompt_context_report import (
     project_prompt_context_v2,
 )
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view, report_snapshot
+from orchestrator.state import select_run_profile
+from orchestrator.workflow.dynamic.state import load_dynamic_view
 
 
 _STATE_ONLY_DEBUG_KIND_DISCRIMINATORS = frozenset(
@@ -266,7 +268,14 @@ def report_workflow(
         print("Error: run not found", file=sys.stderr)
         return 1
 
-    if has_evaluated_authority(run_dir):
+    try:
+        profile = select_run_profile(run_dir)
+    except (OSError, ValueError) as exc:
+        print(f"Error: {getattr(exc, 'code', 'run_authority_invalid')}: {exc}", file=sys.stderr)
+        return 1
+    if profile == "dynamic":
+        return _report_dynamic(run_dir, format, output)
+    if profile == "evaluated":
         return _report_evaluated(run_dir, format, output)
 
     snapshot = _legacy_report_snapshot(run_dir)
@@ -291,12 +300,31 @@ def report_workflow(
     return 0
 
 
+def _report_dynamic(run_dir: Path, format: str, output: Optional[str]) -> int:
+    try:
+        view = load_dynamic_view(run_dir)
+    except (OSError, ValueError) as exc:
+        print(f"Error: {getattr(exc, 'code', 'dynamic_state_invalid')}: {exc}", file=sys.stderr)
+        return 1
+    run = {key: value for key, value in view.items() if key != "effects"}
+    run["run_root"] = str(run_dir)
+    steps = [dict(row, name=str(row["ordinal"]), step_id=str(row["ordinal"]),
+                  kind=row["effect_class"]) for row in view["effects"]]
+    progress = {"total": len(steps), **{status: sum(row["status"] == status for row in steps)
+                for status in ("completed", "running", "failed")}}
+    return _write_execution_report({"run": run, "progress": progress, "steps": steps}, format, output)
+
+
 def _report_evaluated(run_dir: Path, format: str, output: Optional[str]) -> int:
     try:
         snapshot = report_snapshot(load_evaluated_view(run_dir), run_dir)
     except (OSError, ValueError) as exc:
         print(f"Error: memo_inconsistent: {exc}", file=sys.stderr)
         return 1
+    return _write_execution_report(snapshot, format, output)
+
+
+def _write_execution_report(snapshot, format, output):
     rendered = json.dumps(snapshot, indent=2) + "\n" if format == "json" else render_status_markdown(snapshot)
     if output:
         output_path = Path(output)
