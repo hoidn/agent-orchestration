@@ -342,6 +342,34 @@ def test_malformed_candidate_headers_never_fall_through(tmp_path, monkeypatch, d
     assert not (tmp_path / '.orchestrate').exists()
 
 
+@pytest.mark.parametrize('command', ['compile', 'run'])
+def test_public_deep_source_refuses_before_dynamic_build_or_run(
+    tmp_path, monkeypatch, caplog, capsys, command
+):
+    nested = '(list ' * 2000 + '0' + ')' * 2000
+    path = source(tmp_path, f'(defworkflow main () -> Int {nested})')
+    monkeypatch.chdir(tmp_path)
+
+    from orchestrator.cli.commands import dynamic
+    from orchestrator.workflow.dynamic import runtime
+    def forbidden(*args, **kwargs):
+        pytest.fail('excessively nested source reached dynamic publication or execution')
+    monkeypatch.setattr(dynamic, 'build_dynamic_program_bundle', forbidden)
+    monkeypatch.setattr(dynamic, 'prepare_dynamic_program_bundle', forbidden)
+    monkeypatch.setattr(runtime, 'execute_dynamic_run', forbidden)
+
+    if command == 'compile':
+        result = compile_workflow(args(path, '--diagnostics-json', command='compile'))
+        document = json.loads(capsys.readouterr().out)
+        assert document['diagnostics'][0]['code'] == 'frontend_parse_error'
+    else:
+        result = run_workflow(args(path)).exit_code
+        assert 'frontend_parse_error' in caplog.text
+
+    assert result == 2
+    assert not (tmp_path / '.orchestrate').exists()
+
+
 def test_readonly_export_normalization_and_retained_default_publication(tmp_path):
     from orchestrator.workflow_lisp.build import normalize_frontend_artifact_exports
     destination = tmp_path / 'exports/map.json'

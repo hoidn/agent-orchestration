@@ -433,7 +433,16 @@ class _Reader:
 def read_sexpr_text(source: str, *, source_path: str) -> ListExpr:
     """Read source text into a source-spanned top-level S-expression list."""
 
-    return _Reader(source, source_path).read()
+    reader = _Reader(source, source_path)
+    try:
+        return reader.read()
+    except RecursionError:
+        position = reader._position()
+        reader._raise_error(
+            "source nesting exceeds the bounded frontend",
+            start=position,
+            end=position,
+        )
 
 
 def _read_source_file_views(

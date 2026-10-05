@@ -115,6 +115,18 @@ def test_reader_reports_unclosed_list_with_frontend_parse_error() -> None:
     assert "unclosed" in diagnostic.message
 
 
+def test_reader_reports_excessive_list_nesting_as_frontend_parse_error() -> None:
+    source = "(list " * 2000 + "0" + ")" * 2000
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        read_sexpr_text(source, source_path="deep.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "frontend_parse_error"
+    assert diagnostic.span.start.path == "deep.orc"
+    assert "source nesting exceeds the bounded frontend" in diagnostic.message
+
+
 def test_reader_reports_unterminated_string_with_frontend_parse_error() -> None:
     path = FIXTURES / "invalid" / "unterminated_string.orc"
 
