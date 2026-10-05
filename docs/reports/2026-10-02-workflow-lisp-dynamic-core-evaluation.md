@@ -2116,3 +2116,34 @@ Task 8, atomic Tasks 5–8, full Q1–Q5 and DC-P remain incomplete. Latest upst
 heads remain main `be327102` / Phase 3 `93a33ae2`; stable evaluation `3a7f8efd`
 and frozen DC-2 `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` are unchanged.
 No adoption, migration or live/paid qualification follows.
+
+
+### Task 8C2 Search, Edits And Restart-Cost Evidence
+
+`b916c92e` qualifies the complete [native search consumer](../../tests/fixtures/workflow_lisp/dynamic/search.orc),
+[search tests](../../tests/test_workflow_dynamic_search.py) and
+[paired edits/cost tests](../../tests/test_workflow_dynamic_edits.py), with a real
+[imported feedback helper](../../tests/fixtures/workflow_lisp/dynamic/feedback.orc).
+Full native results and exact requests preserve ranking, strict improvement,
+repair, stalls/fusion/history and budget/score/loop stops. Four source edits
+retain boundary contracts; failures retain completed prefixes and safe errors.
+The maintained search application remains unchanged.
+
+`/dev/shm/c2v/case-map.json` maps **87 originals = US77 + UE4 + UD6** to 87
+production cases, including all 72 US01 suffixes. With C1, the combined corpus
+is **106 PASS in 21.28s**; coordinator verification collected **425 in 3.10s**
+and passed **425 in 42.37s**, 12 modules, exit 0. All **586** before/after
+hashes match committed `b916c92e`. Counts overlap and are not additive.
+Ordered independent conformity and subsequent quality reviews passed; fresh
+review selected **2 PASS / 87 collected**. Exact freeze/map/receipts:
+`/dev/shm/c2v/`, `/dev/shm/orc-dc3-consumers-affected/` and
+`/dev/shm/orc-dc3-task8c2-review.md`.
+
+UD05/UD06 use a failed native terminal after two completed effects, then a
+corrected fresh run that repeats them; typed resume reuses its prefix. External
+kill proof remains Task 9. C3 reconciliation/retirement is next, pending;
+Task 8, atomic cutover, full Q1–Q5 and DC-P remain incomplete. Stable evaluation
+`3a7f8efd` and frozen DC-2 `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` stay
+unchanged. Upstream `cee2aba1` / `4acd38ec` scopes await separate qualification;
+this receipt supplies no import PASS. No adoption, migration or live/paid calls
+follow.
