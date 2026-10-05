@@ -1961,3 +1961,53 @@ campaign and full Q1–Q5/DC-P handoff remain Task 9. The stable evaluation bran
 stays at `3a7f8efd` until the complete Tasks 5–8 unit passes, and frozen DC-2
 `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` remains unchanged. No adoption,
 migration or live/paid calls are authorized by this receipt.
+
+
+### Task 8A Direct Command Gate
+
+`2153279e` qualifies real direct command effects through the public service/CLI
+on the isolated target-3.0 candidate branch. Dynamic evaluation calls the shared
+native strict performer for external argv, certified inline and external input
+documents, preserving captured bytes and absent-versus-empty document behavior.
+Pinned interpreter and closure evidence are checked before and after execution;
+operands run once in written order under one invocation budget. No leaf workflow
+or `WorkflowExecutor` is constructed. Attempt file descriptors remain owned
+through publication and close on `BaseException`.
+
+The strict `Int64` check is opt-in and preserves retained typed defaults. Runtime
+keys/raw values are redacted from diagnostic output, while source, call, ordinal,
+steps, safe violation kind and static expected input/output contracts remain
+inspectable. Task 8A's **17 command and 26 performer cases** cover the actual
+command path; they do not qualify dynamic providers or imported consumer assets.
+
+The first two public command checks were RED specifically because effects were
+unsupported. The first command revision passed **14 cases in 3.25s**; related
+checks passed **200 in 10.08s**. The initial coordinator aggregate passed **630
+cases in 36.58s**. Independent review then found three P2 issues: map input-key
+disclosure, attempt descriptors left open until traceback garbage collection,
+and missing structured input/output error metadata. Narrow RED checks led to
+corrections: **132 passed in 8.22s**, with **43 command/performer cases collected**;
+the final input diagnostic correction passed **43 in 4.19s** after its RED check.
+The final reviewer passed **4 targeted cases in 1.53s** and separately exercised
+an invalid certified input: expected `Int`, a safe diagnostic path and no child
+execution. Conformity PASS preceded quality APPROVED on all nine matching file
+hashes.
+
+Canonical coordinator final collection/execution covered 20 modules: **634
+collected in 3.81s; 634 passed in 36.97s**, exit 0, using
+`-q -n 16 --dist=worksteal` in tmux. All 546 source/test/script hashes stayed
+unchanged before/after and at `2153279e`; the coordinator inspected all nine
+diffs. Exact commands, modules, logs and receipts are in
+`/dev/shm/orc-dc3-commands-final2/`, with the nine-file author freeze in
+`/dev/shm/orc-dc3-task8a-final-freeze.json`. The earlier 634-case run in 37.37s
+preceded the last patch; final2 is canonical. Broad runs passed, so no failure
+baseline worktree was needed. Overlapping counts are not additive.
+
+The next fetch still found Phase 3 `93a33ae2` and main `be327102`, with no new
+shared import. Task 8B provider/direct imported-asset integration is selected and
+in progress; Task 8C owns stdlib/full improve/search/edit port and historical
+experiment retirement. Task 8 and the atomic Tasks 5–8 cutover remain incomplete.
+External kills and full Q1–Q5/DC-P handoff remain Task 9; live/paid provider
+qualification is absent. Stable evaluation stays at `3a7f8efd`, frozen DC-2
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` is unchanged, and adoption/migration
+remain unselected.
