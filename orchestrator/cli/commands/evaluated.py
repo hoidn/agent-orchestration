@@ -17,6 +17,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.evaluated.authority import (
     publish_run_authority, load_run_authority, load_run_header,
 )
+from orchestrator.workflow.evaluated.commands import workspace_relative_path
 from orchestrator.workflow.evaluated.interpreters import check_command_interpreter
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
@@ -151,6 +152,17 @@ class _ResumeRefusal(ValueError):
         super().__init__(message)
 
 
+def _require_matching_result_root(header: Mapping[str, Any], run_root: Path, workspace: Path) -> None:
+    if "result_root" not in header:
+        return
+    current = workspace_relative_path(Path(workspace).resolve(), Path(run_root))
+    if current != header["result_root"]:
+        raise _ResumeRefusal(
+            "resume_result_root_changed",
+            f"run root {current!r} differs from the run header result_root {header['result_root']!r}",
+        )
+
+
 def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None) -> int:
     """Rebuild and compare before loading the stored program, pins or memo."""
     try:
@@ -170,6 +182,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
                     "resume_run_ref_root_changed",
                     "explicit run-reference root differs from the run header",
                 )
+        _require_matching_result_root(header, run_root, workspace)
         recipe = header["resume_request"]
         request = _resume_build_request(header, workspace, run_files)
         fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
@@ -244,6 +257,7 @@ def run_evaluated_workflow(
                 resume_request=resume_request,
                 run_ref_root=getattr(args, "run_ref_root", None),
                 run_files=run_files,
+                result_root=workspace_relative_path(state_manager.workspace, state_manager.run_root),
             ) as authority:
                 exit_code, value = execute_pure_run(
                     authority,

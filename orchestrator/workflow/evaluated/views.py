@@ -12,7 +12,7 @@ from orchestrator._common.safe_tree import SafeTreeRejectionError
 from orchestrator.run_lock import ReservedRunRootError, run_writer_active
 from orchestrator.workflow.evaluated.authority import (
     HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, PROFILE, SCHEMA_VERSION, RunAuthorityError,
-    load_run_authority_from_bytes, _require_retained_root,
+    load_run_authority_from_bytes, _require_retained_root, workspace_result_locator,
 )
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program, site_classes
 from orchestrator.workflow.evaluated.memo import MemoError, _DYNAMIC_INDEX, reduce_memo
@@ -75,7 +75,7 @@ def _replay(authority, snapshot):
         if consumed >= len(commits) or commits[consumed].offset != commit.offset:
             raise MemoError("memo_inconsistent", "active commits are not reachable in journal order")
         consumed += 1
-        return _committed_value(node, commit, identity)
+        return _committed_value(authority, node, commit, identity)
 
     try:
         value = evaluate_closed_program(
@@ -93,12 +93,12 @@ def _replay(authority, snapshot):
     return value, None, True
 
 
-def _committed_value(node, commit, identity):
+def _committed_value(authority, node, commit, identity):
     try:
         return coerce_evaluated_value(
             commit.data["value"], node["result"],
             dependencies=(*commit.data["depends_on"], identity),
-            committed_result_path=commit.data["result_path"],
+            committed_result_path=workspace_result_locator(authority.header, commit.data["result_path"]),
             context=f"committed {node['class']} result",
         )
     except PureExprEvaluationError as exc:

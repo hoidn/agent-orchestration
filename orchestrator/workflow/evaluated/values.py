@@ -158,14 +158,19 @@ def _evaluate_result_path(
         ) from exc
     if producer.committed_result_path is None:
         raise _value_error(
-            "provider_result_path_missing", "committed provider result path is unavailable", node
+            "result_root_missing",
+            "committed provider result path is unavailable: the run header records no result_root",
+            node,
         )
-    return coerce_evaluated_value(
-        producer.committed_result_path,
-        node["type"],
-        dependencies=producer.dependencies,
-        context="committed result path",
-    )
+    try:
+        return coerce_evaluated_value(
+            producer.committed_result_path,
+            node["type"],
+            dependencies=producer.dependencies,
+            context="committed result path",
+        )
+    except PureExprEvaluationError as exc:
+        raise _value_error(exc.code, f"{exc}: {producer.committed_result_path!r}", node) from exc
 
 
 def _evaluate_field(

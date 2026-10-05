@@ -1311,6 +1311,7 @@ def _validate_closed_admission(request, admitted):
 def _execute_closed_path(request, admitted):
     from orchestrator.cli.commands.evaluated import bind_program_inputs
     from orchestrator.workflow.evaluated.authority import publish_run_authority
+    from orchestrator.workflow.evaluated.commands import workspace_relative_path
     from orchestrator.workflow.evaluated.runtime import execute_pure_run
 
     program = admitted.build_result.program
@@ -1325,7 +1326,8 @@ def _execute_closed_path(request, admitted):
         raise _ChildCommandError("run_ref_child_launch_failed", "input_binding_rejected") from exc
     with publish_run_authority(request.child_state_dir / request.child_run_id, program,
         run_id=request.child_run_id, workflow_file=path_program.path,
-        workflow_checksum=admitted.workflow_checksum, bound_inputs=bound, resume_request=recipe) as authority:
+        workflow_checksum=admitted.workflow_checksum, bound_inputs=bound, resume_request=recipe,
+        result_root=workspace_relative_path(request.clone_root, request.child_state_dir / request.child_run_id)) as authority:
         status, value = execute_pure_run(authority, bound, run_id=request.child_run_id,
                                         workspace=request.clone_root)
     if status != 0:

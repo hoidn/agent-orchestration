@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from dataclasses import replace
 from hashlib import sha256
+import inspect
 from pathlib import Path
 import json
 import os
@@ -340,9 +341,9 @@ def test_provider_raw_c6_changes_diverge_even_when_rendered_prompt_is_identical(
         captured = []
         real_reuse = runtime._reuse_effect_commit
 
-        def reuse(commit, node, identity, parts, *rest):
-            captured.append(parts)
-            return real_reuse(commit, node, identity, parts, *rest)
+        def reuse(*args, **kwargs):
+            captured.append(inspect.signature(real_reuse).bind(*args, **kwargs).arguments["parts"])
+            return real_reuse(*args, **kwargs)
 
         monkeypatch.setattr(runtime, "_reuse_effect_commit", reuse)
         assert _execute(tmp_path, built, authority, inputs=inputs) == (1, None)
@@ -400,9 +401,9 @@ def _assert_public_raw_c6_service_refusal(
     captured = []
     real_reuse = runtime._reuse_effect_commit
 
-    def capture_reuse(commit, node, identity, parts, input_digest, dependencies):
-        captured.append(dict(parts))
-        return real_reuse(commit, node, identity, parts, input_digest, dependencies)
+    def capture_reuse(*args, **kwargs):
+        captured.append(dict(inspect.signature(real_reuse).bind(*args, **kwargs).arguments["parts"]))
+        return real_reuse(*args, **kwargs)
 
     monkeypatch.chdir(root)
     monkeypatch.setattr(runtime, "_reuse_effect_commit", capture_reuse)
