@@ -2083,3 +2083,36 @@ and full Q1–Q5 evidence remain pending. Task 8 and the atomic Tasks 5–8 cuto
 are incomplete. Stable evaluation stays at `3a7f8efd`; frozen DC-2
 `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` is unchanged. No adoption, default
 target change, migration or DC-P disposition follows from this bounded gate.
+
+
+### Task 8C1 Imported Improve Gate
+
+`ba181ff8` qualifies the real [std/dynamic/improve library](../../orchestrator/workflow_lisp/stdlib_modules/std/dynamic/improve.orc)
+and [complete native consumer](../../tests/fixtures/workflow_lisp/dynamic/improve.orc),
+with real imports, canonical `std/improve` domain schemas, separate goal/rubric
+captures and no authored wire reconstruction. The typed five-argument helper
+remains unchanged. [Production improve tests](../../tests/test_workflow_dynamic_improve.py)
+preserve UI01–UI11 plus eight additional cases: **19 PASS**. They cover complete
+approval/blocked/exhaustion results and requests, final-revision failure,
+invalid/unreached hooks, nonpositive limits, imported/inline parity and actual
+subprocess compile/dry-run/run/source-free report.
+
+Ordered independent conformity and quality reviews passed; fresh review selected
+**6 PASS / 19 collected**. The eight-module gate collected **256 in 2.38s** and
+passed **256 in 24.93s** (25.19s wrapper), exit 0; **551** before/after hashes
+match committed `ba181ff8`. New cases and eight retained typed checks overlap
+this aggregate. Exact six-file freeze, review and selector/smoke receipts:
+`/dev/shm/orc-dc3-task8c1-freeze.json`, `/dev/shm/orc-dc3-task8c1-review.md`,
+`/dev/shm/c1v/receipt.md` and `/dev/shm/orc-dc3-improve-affected/`.
+
+Prerequisite `802a6087` fixed three-variant canonical-JSON key ordering in the
+shared schema owner, without a consumer workaround: **969 PASS in 49.04s**,
+34 modules. Its stable 578-file worktree footprint included paused untracked C1;
+it does not describe the shared fix commit. Review/evidence:
+`/dev/shm/orc-dc3-union-order-review.md` and `/dev/shm/orc-dc3-union-order-affected/`.
+
+C2 search/edits/cost is in progress; C3 retirement and Task 9 remain pending.
+Task 8, atomic Tasks 5–8, full Q1–Q5 and DC-P remain incomplete. Latest upstream
+heads remain main `be327102` / Phase 3 `93a33ae2`; stable evaluation `3a7f8efd`
+and frozen DC-2 `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` are unchanged.
+No adoption, migration or live/paid qualification follows.
