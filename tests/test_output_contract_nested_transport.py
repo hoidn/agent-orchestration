@@ -77,6 +77,49 @@ def _union_schema() -> dict[str, object]:
     }
 
 
+def _descending_union_schema():
+    return {"type": "union", "union_name": "Nested", "discriminant": {
+        "name": "variant", "type": "enum", "allowed": ["ON", "OFF"]},
+        "variants": {"ON": {"fields": [{"name": "status", "type": "string"}]},
+                     "OFF": {"fields": [{"name": "status", "type": "string"}]}}}
+
+
+@pytest.mark.parametrize("variant", ("ON", "OFF"))
+def test_nested_union_schema_survives_canonical_json_key_order(tmp_path, variant):
+    from orchestrator.workflow.type_descriptor import transport_descriptor_for_schema
+
+    schema = {"type": "list", "items": {"type": "map", "keys": {"type": "string"},
+              "values": _descending_union_schema()}}
+    restored = json.loads(json.dumps(schema, sort_keys=True))
+    assert restored["items"]["values"]["discriminant"]["allowed"] == ["ON", "OFF"]
+    assert list(restored["items"]["values"]["variants"]) == ["OFF", "ON"]
+    descriptor = transport_descriptor_for_schema(restored)
+    assert [row["name"] for row in descriptor["item"]["value"]["variants"]] == ["ON", "OFF"]
+    value = [{"selected": {"variant": variant, "status": "valid"}}]
+    assert validate_contract_value(value, restored, tmp_path) == value
+
+
+@pytest.mark.parametrize("allowed", (["ON"], ["ON", "OFF", "EXTRA"], ["ON", "OFF", "ON"],
+    ["ON", 2], ["ON", ["OFF"]]))
+def test_nested_union_schema_rejects_malformed_allowed_tags(allowed):
+    from orchestrator.workflow.type_descriptor import transport_descriptor_for_schema
+
+    schema = _descending_union_schema()
+    schema["discriminant"]["allowed"] = allowed
+    with pytest.raises(ValueError):
+        transport_descriptor_for_schema(schema)
+
+
+@pytest.mark.parametrize("extra", (2, ("OFF",)))
+def test_nested_union_schema_rejects_nonstring_mapping_tags(extra):
+    from orchestrator.workflow.type_descriptor import transport_descriptor_for_schema
+
+    schema = _descending_union_schema()
+    schema["variants"][extra] = {"fields": []}
+    with pytest.raises(ValueError):
+        transport_descriptor_for_schema(schema)
+
+
 @pytest.mark.parametrize(
     ("schema", "value"),
     (

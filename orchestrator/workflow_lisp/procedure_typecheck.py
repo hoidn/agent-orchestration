@@ -759,6 +759,7 @@ def _typecheck_parametric_procedure_call(
             call_span=expr.span,
             call_form_path=expr.form_path,
             call_expansion_stack=expr.expansion_stack,
+            owner_type_refs=dict(signature.constraint_type_refs),
         )
         if signature.where_clauses
         else None

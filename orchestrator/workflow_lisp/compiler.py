@@ -4475,6 +4475,19 @@ def _imported_procedure_signatures(
                     enum_owner_facts=enum_owner_facts,
                     cloned_enum_origins=cloned_enum_origins,
                 ),
+                constraint_type_refs=tuple(
+                    (
+                        type_name,
+                        _canonicalize_imported_type_ref(
+                            type_ref,
+                            module_name=binding.module_name,
+                            exported_type_refs_by_module=exported_type_refs_by_module,
+                            enum_owner_facts=enum_owner_facts,
+                            cloned_enum_origins=cloned_enum_origins,
+                        ),
+                    )
+                    for type_name, type_ref in signature.constraint_type_refs
+                ),
             )
     return imported
 
@@ -4517,6 +4530,19 @@ def _canonicalize_exported_typed_procedure(
                 exported_type_refs_by_module=exported_type_refs_by_module,
                 enum_owner_facts=enum_owner_facts,
                 cloned_enum_origins=cloned_enum_origins,
+            ),
+            constraint_type_refs=tuple(
+                (
+                    type_name,
+                    _canonicalize_imported_type_ref(
+                        type_ref,
+                        module_name=module_name,
+                        exported_type_refs_by_module=exported_type_refs_by_module,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
+                    ),
+                )
+                for type_name, type_ref in procedure.signature.constraint_type_refs
             ),
         ),
     )

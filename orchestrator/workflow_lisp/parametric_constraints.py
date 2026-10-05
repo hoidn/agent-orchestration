@@ -115,18 +115,28 @@ def evaluate_parametric_constraints(
     procedure_name: str,
     where_clauses: tuple[ProcedureConstraintSyntax, ...],
     type_bindings: Mapping[str, TypeRef],
+    owner_type_refs: Mapping[str, TypeRef],
     type_env: FrontendTypeEnvironment,
     call_span: SourceSpan,
     call_form_path: tuple[str, ...],
     call_expansion_stack: tuple[object, ...] = (),
 ) -> ConstraintEvaluationResult:
-    """Validate first-tranche structural constraints for one generic call."""
+    """Validate first-tranche structural constraints for one generic call.
+
+    `owner_type_refs` holds the constraint target names already resolved in the
+    procedure's defining module; `type_env` only resolves names the owner could not.
+    """
 
     capabilities: list[SharedUnionFieldCapability] = []
     collected: list[LispFrontendDiagnostic] = []
     for clause in where_clauses:
         try:
-            normalized = _normalize_constraint(clause, type_env=type_env, type_bindings=type_bindings)
+            normalized = _normalize_constraint(
+                clause,
+                type_env=type_env,
+                type_bindings=type_bindings,
+                owner_type_refs=owner_type_refs,
+            )
             concrete_type = type_bindings.get(normalized.subject_name)
             if concrete_type is None:
                 _raise_constraint_error(
@@ -161,17 +171,22 @@ def _resolve_field_type_ref(
     field_type_name: str,
     *,
     type_bindings: Mapping[str, TypeRef],
+    owner_type_refs: Mapping[str, TypeRef],
     type_env: FrontendTypeEnvironment,
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...],
 ) -> TypeRef:
     """Resolve a constraint field-type name, deferring to the call site's
-    bound type parameters (rule 3) before falling back to the type
+    bound type parameters (rule 3), then to the TypeRef resolved in the
+    procedure's defining module, before falling back to the type
     environment. Contract: docs/design/workflow_lisp_parametric_type_system.md,
     Constraint Vocabulary rule 3."""
     if field_type_name in type_bindings:
         return type_bindings[field_type_name]
+    owner_type_ref = owner_type_refs.get(field_type_name)
+    if owner_type_ref is not None:
+        return owner_type_ref
     return type_env.resolve_type(
         field_type_name,
         span=span,
@@ -185,6 +200,7 @@ def _normalize_constraint(
     *,
     type_env: FrontendTypeEnvironment,
     type_bindings: Mapping[str, TypeRef],
+    owner_type_refs: Mapping[str, TypeRef],
 ) -> _NormalizedConstraint:
     if clause.constraint_name == "is-record":
         return _KindConstraint(
@@ -217,6 +233,7 @@ def _normalize_constraint(
             field_type_ref=_resolve_field_type_ref(
                 clause.field_type_name,
                 type_bindings=type_bindings,
+                owner_type_refs=owner_type_refs,
                 type_env=type_env,
                 span=clause.span,
                 form_path=clause.form_path,
@@ -243,6 +260,7 @@ def _normalize_constraint(
                     requirement,
                     type_env=type_env,
                     type_bindings=type_bindings,
+                    owner_type_refs=owner_type_refs,
                     form_path=clause.form_path,
                 )
                 for requirement in clause.field_requirements
@@ -262,6 +280,7 @@ def _normalize_field_requirement(
     *,
     type_env: FrontendTypeEnvironment,
     type_bindings: Mapping[str, TypeRef],
+    owner_type_refs: Mapping[str, TypeRef],
     form_path: tuple[str, ...],
 ) -> _NormalizedFieldRequirement:
     return _NormalizedFieldRequirement(
@@ -269,6 +288,7 @@ def _normalize_field_requirement(
         field_type_ref=_resolve_field_type_ref(
             requirement.field_type_name,
             type_bindings=type_bindings,
+            owner_type_refs=owner_type_refs,
             type_env=type_env,
             span=requirement.span,
             form_path=form_path,

@@ -793,53 +793,65 @@ def _transport_descriptor_from_schema(
             ),
         }
     if value_type == "union":
-        union_name = _require_descriptor_name(
-            schema.get("union_name"),
-            context=f"{context}.union_name",
-        )
-        discriminant = schema.get("discriminant")
-        variants = schema.get("variants")
-        if not isinstance(discriminant, Mapping) or not isinstance(
-            variants,
-            Mapping,
-        ):
-            raise ValueError(f"{context} union schema is malformed")
-        allowed = list(
-            _descriptor_sequence(
-                discriminant.get("allowed"),
-                context=f"{context}.discriminant.allowed",
-            )
-        )
-        if (
-            discriminant.get("name") != "variant"
-            or discriminant.get("type") != "enum"
-            or allowed != list(variants)
-        ):
-            raise ValueError(f"{context} union discriminant is malformed")
-        descriptor_variants: list[dict[str, Any]] = []
-        for variant_name in allowed:
-            variant = variants.get(variant_name)
-            if not isinstance(variant_name, str) or not isinstance(
-                variant,
-                Mapping,
-            ):
-                raise ValueError(f"{context} union variant is malformed")
-            descriptor_variants.append(
-                {
-                    "name": variant_name,
-                    "fields": _transport_descriptor_fields_from_schema(
-                        variant.get("fields"),
-                        context=f"{context}.variants[{variant_name!r}].fields",
-                        depth=depth,
-                    ),
-                }
-            )
-        return {
-            "kind": "union",
-            "name": union_name,
-            "variants": descriptor_variants,
-        }
+        return _transport_union_descriptor_from_schema(schema, context=context, depth=depth)
     raise ValueError(f"{context} uses an unsupported transport schema type")
+
+
+def _transport_union_descriptor_from_schema(
+    schema: Mapping[str, Any], *, context: str, depth: int,
+) -> dict[str, Any]:
+    union_name = _require_descriptor_name(
+        schema.get("union_name"),
+        context=f"{context}.union_name",
+    )
+    discriminant = schema.get("discriminant")
+    variants = schema.get("variants")
+    if not isinstance(discriminant, Mapping) or not isinstance(
+        variants,
+        Mapping,
+    ):
+        raise ValueError(f"{context} union schema is malformed")
+    allowed = list(
+        _descriptor_sequence(
+            discriminant.get("allowed"),
+            context=f"{context}.discriminant.allowed",
+        )
+    )
+    if (
+        discriminant.get("name") != "variant"
+        or discriminant.get("type") != "enum"
+    ):
+        raise ValueError(f"{context} union discriminant is malformed")
+    _validate_transport_union_tags(allowed, variants, context=context)
+    descriptor_variants: list[dict[str, Any]] = []
+    for variant_name in allowed:
+        variant = variants.get(variant_name)
+        if not isinstance(variant, Mapping):
+            raise ValueError(f"{context} union variant is malformed")
+        descriptor_variants.append(
+            {
+                "name": variant_name,
+                "fields": _transport_descriptor_fields_from_schema(
+                    variant.get("fields"),
+                    context=f"{context}.variants[{variant_name!r}].fields",
+                    depth=depth,
+                ),
+            }
+        )
+    return {
+        "kind": "union",
+        "name": union_name,
+        "variants": descriptor_variants,
+    }
+
+
+def _validate_transport_union_tags(allowed: list[Any], variants: Mapping[Any, Any], *, context: str) -> None:
+    if any(not isinstance(name, str) for name in allowed) or any(
+        not isinstance(name, str) for name in variants
+    ):
+        raise ValueError(f"{context} union discriminant is malformed")
+    if len(set(allowed)) != len(allowed) or set(allowed) != set(variants):
+        raise ValueError(f"{context} union discriminant is malformed")
 
 
 def _transport_descriptor_fields_from_schema(

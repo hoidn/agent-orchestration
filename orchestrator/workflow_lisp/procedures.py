@@ -178,6 +178,10 @@ class ProcedureSignature:
     form_path: tuple[str, ...]
     type_params: tuple[ProcedureTypeParam, ...] = ()
     where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
+    constraint_type_refs: tuple[tuple[str, TypeRef], ...] = field(
+        default=(),
+        metadata={"json_omit_always": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -476,6 +480,11 @@ def build_procedure_catalog(
             form_path=procedure_def.form_path,
             type_params=procedure_def.type_params,
             where_clauses=procedure_def.where_clauses,
+            constraint_type_refs=_owner_constraint_type_refs(
+                procedure_def,
+                type_env=type_env,
+                local_type_params=local_type_params,
+            ),
         )
         definitions_by_name[procedure_def.name] = procedure_def
     for alias_name, canonical_name in (lookup_aliases or {}).items():
@@ -489,6 +498,45 @@ def build_procedure_catalog(
         definitions_by_name=definitions_by_name,
         call_graph={},
     )
+
+
+def _owner_constraint_type_refs(
+    procedure_def: ProcedureDef,
+    *,
+    type_env: FrontendTypeEnvironment,
+    local_type_params: frozenset[str],
+) -> tuple[tuple[str, TypeRef], ...]:
+    """Resolve concrete `:where` target names in the defining module's environment.
+
+    Call sites check constraints against these TypeRefs instead of resolving the
+    same spelling in the caller's scope. Type-parameter names keep their call-site
+    binding. A name the owner cannot resolve is left out; the owner's definition
+    pass reports it at the clause span.
+    """
+
+    names = {
+        clause.field_type_name
+        for clause in procedure_def.where_clauses
+        if clause.field_type_name is not None
+    }
+    names.update(
+        requirement.field_type_name
+        for clause in procedure_def.where_clauses
+        for requirement in clause.field_requirements
+    )
+    resolved: list[tuple[str, TypeRef]] = []
+    for name in sorted(names - local_type_params):
+        try:
+            type_ref = type_env.resolve_type(
+                name,
+                span=procedure_def.span,
+                form_path=procedure_def.form_path,
+                expansion_stack=procedure_def.expansion_stack,
+            )
+        except LispFrontendCompileError:
+            continue
+        resolved.append((name, type_ref))
+    return tuple(resolved)
 
 
 def with_call_graph(catalog: ProcedureCatalog, call_graph: Mapping[str, frozenset[str]]) -> ProcedureCatalog:
