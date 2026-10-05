@@ -50,7 +50,10 @@ def prepare_command_document(node, operands, *, external, workspace, workspace_f
     )
 
 
-def _prepare_command_document_fields(fields, *, external, workspace, workspace_files):
+def _prepare_command_document_fields(
+    fields, *, external, workspace, workspace_files,
+    require_int64=False, redact_runtime_keys=False,
+):
     """Validate normalized native fields and serialize the ordered document."""
     payload = []
     contract = []
@@ -58,7 +61,9 @@ def _prepare_command_document_fields(fields, *, external, workspace, workspace_f
         try:
             schema = transport_schema_for_descriptor(descriptor, allow_nested_structures=True)
             validated_value = _validate_direct_transport_value(
-                value, schema, workspace, workspace_files=workspace_files
+                value, schema, workspace, workspace_files=workspace_files,
+                require_int64=require_int64,
+                redact_runtime_keys=redact_runtime_keys,
             )
         except (RecursionError, TypeError, ValueError) as exc:
             raise DocumentInputError(field, exc) from exc

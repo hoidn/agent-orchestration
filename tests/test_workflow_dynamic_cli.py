@@ -469,19 +469,3 @@ def test_explicit_local_entry_with_imported_helper_keeps_source_pin(tmp_path, mo
     assert result.exit_code == 0 and result.workflow_outputs == 0
     for authored in tmp_path.rglob('*.orc'): authored.unlink()
     assert load_dynamic_view(result.run_root)['status'] == 'completed'
-
-
-def test_effect_reach_refuses_with_authoritative_failure_until_task8(tmp_path, monkeypatch):
-    from orchestrator.workflow.dynamic.state import load_dynamic_view
-    monkeypatch.setattr(subprocess, 'Popen', lambda *a, **kw: pytest.fail('unsupported effect launched a process'))
-    path = source(tmp_path, '(defworkflow main () -> Int (command-result tool :argv ("python") :returns Int))')
-    manifest = tmp_path / 'commands.json'
-    manifest.write_text('{"tool":{"kind":"external_tool","stable_command":["python"],"closure":[]}}')
-    monkeypatch.chdir(tmp_path)
-    result = run_workflow(args(path, '--command-boundaries-file', str(manifest)))
-    assert result.exit_code == 1 and result.run_root is not None
-    view = load_dynamic_view(result.run_root)
-    assert view['status'] == 'failed'
-    assert view['error']['code'] == 'dynamic_effect_unsupported'
-    assert view['effects'] == []
-    assert not (result.run_root / 'effects').exists()

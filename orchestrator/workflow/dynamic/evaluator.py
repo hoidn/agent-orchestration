@@ -20,13 +20,14 @@ from orchestrator.workflow.pure_expr import (
 )
 from orchestrator.workflow.type_descriptor import validate_transport_value
 from orchestrator.workflow.workspace_files import WorkspaceFiles
-from orchestrator.workflow_lisp.dynamic.program import DynamicProgram, _pointer
+from orchestrator.workflow_lisp.dynamic.program import DynamicProgram, _node_children, _pointer
 
 
 _BOOL = {"kind": "primitive", "name": "Bool"}
 _INT = {"kind": "primitive", "name": "Int"}
 _FLOAT = {"kind": "primitive", "name": "Float"}
 _STRING = {"kind": "primitive", "name": "String"}
+_VALUE = {"kind": "primitive", "name": "Value"}
 _Frame = tuple[str, str, str]
 _Activation = tuple[Any, _Frame] | None
 
@@ -278,6 +279,7 @@ def evaluate(
     inputs: Mapping[str, Any],
     *,
     workspace_files: WorkspaceFiles | None = None,
+    command_effect=None,
 ) -> EvaluationResult:
     """Evaluate one checked entry using the caller's optional workspace owner."""
 
@@ -393,14 +395,20 @@ def evaluate(
                 tasks.append(("record_update_base_done", node, env, pointer, code, context))
                 tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
             elif kind == "perform":
-                raise _error(
-                    program,
-                    "dynamic_effect_unsupported",
-                    "direct dynamic effect execution is not available",
-                    pointer,
-                    context,
-                    steps,
-                )
+                if node["class"] != "command" or command_effect is None:
+                    raise _error(
+                        program,
+                        "dynamic_effect_unsupported",
+                        "direct dynamic effect execution is not available",
+                        pointer,
+                        context,
+                        steps,
+                    )
+                children = _node_children(node, pointer)
+                tasks.append(("perform_done", node, tuple(child_pointer for child_pointer, _ in children),
+                              code, pointer, context))
+                for child_pointer, child in reversed(children):
+                    tasks.append(("enter", child, env, child_pointer, code, context))
             elif kind == "fail":
                 raise _error(
                     program,
@@ -524,6 +532,23 @@ def evaluate(
                     workspace_files,
                 )
             )
+            continue
+
+        if action == "perform_done":
+            _, node, child_pointers, code, pointer, context = task
+            operands = _pop_values(values, len(child_pointers))
+            # External argv is an untyped value lane. Check it as ordinary JSON
+            # before handing it to the shared renderer; closures never cross it.
+            for index in range(len(node["argv"])):
+                operands[index] = _boundary_value(
+                    program, operands[index], _VALUE, child_pointers[index],
+                    context, steps, workspace_files,
+                )
+            value = command_effect(
+                program, node, operands, pointer=pointer, code=code,
+                context=context, steps=steps, workspace_files=workspace_files,
+            )
+            values.append(_freeze(value))
             continue
 
         if action == "if_done":

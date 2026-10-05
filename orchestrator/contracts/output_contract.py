@@ -1594,6 +1594,7 @@ def _float_not_finite(value: float, **context: str) -> ContractViolation:
 
 def _validate_direct_transport_value(
     raw_value, spec, workspace, *, workspace_files=None, require_int64=False,
+    redact_runtime_keys=False,
 ):
     """Validate direct JSON before the legacy output-contract error wrapper."""
     from orchestrator.workflow.type_descriptor import (
@@ -1604,6 +1605,7 @@ def _validate_direct_transport_value(
     descriptor = transport_descriptor_for_schema(spec)
     return validate_transport_value(
         raw_value, descriptor, allow_nested_structures=True, require_int64=require_int64,
+        redact_runtime_keys=redact_runtime_keys,
         path_validator=lambda value, path_descriptor: _require_nested_transport_path(
             value, path_descriptor, workspace, workspace_files=workspace_files),
     )

@@ -781,6 +781,52 @@ def test_native_command_document_invalid_field_has_structured_error(
     assert caught.value.violations[0]["field"] == "count"
 
 
+def test_native_command_document_validation_policy_keeps_shared_defaults(
+    owners: _Owners,
+) -> None:
+    from orchestrator.workflow.evaluated.inputs import (
+        DocumentInputError,
+        _prepare_command_document_fields,
+    )
+
+    descriptor = {
+        "kind": "map",
+        "key": {"kind": "primitive", "name": "String"},
+        "value": {
+            "kind": "list",
+            "item": {"kind": "primitive", "name": "Int"},
+        },
+    }
+    fields = (("payload", {"TOPSECRET-RUNTIME-KEY": ["wrong"]}, descriptor),)
+    with pytest.raises(DocumentInputError) as legacy:
+        _prepare_command_document_fields(
+            fields,
+            external=True,
+            workspace=owners.workspace_files.workspace,
+            workspace_files=owners.workspace_files,
+        )
+    assert legacy.value.value_path == "/payload/TOPSECRET-RUNTIME-KEY/0"
+
+    with pytest.raises(DocumentInputError) as dynamic:
+        _prepare_command_document_fields(
+            fields,
+            external=True,
+            workspace=owners.workspace_files.workspace,
+            workspace_files=owners.workspace_files,
+            require_int64=True,
+            redact_runtime_keys=True,
+        )
+    assert dynamic.value.value_path == "/payload/*/0"
+
+    document, _contract = _prepare_command_document_fields(
+        (("payload", {"key": [2**63]}, descriptor),),
+        external=True,
+        workspace=owners.workspace_files.workspace,
+        workspace_files=owners.workspace_files,
+    )
+    assert document == b'{"payload":{"key":[9223372036854775808]}}'
+
+
 def test_native_command_document_bytes_reach_real_command_dispatch(
     tmp_path: Path,
     owners: _Owners,

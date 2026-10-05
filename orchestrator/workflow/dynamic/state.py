@@ -225,6 +225,19 @@ class DynamicRun:
         self.header = _freeze(header)
         self.state = _freeze(state)
         self._stopped = False
+        self._active_attempt_files = None
+
+    @property
+    def active_attempt_files(self):
+        if self._active_attempt_files is None or self._active_attempt_files.closed:
+            raise DynamicStateError('there is no open effect attempt')
+        return self._active_attempt_files
+
+    def close(self):
+        attempt = self._active_attempt_files
+        self._active_attempt_files = None
+        if attempt is not None:
+            attempt.close()
 
     def _write(self, candidate):
         if self._stopped or self.state['status'] != 'running':
@@ -245,6 +258,8 @@ class DynamicRun:
     def start_effect(self, definition, location, effect_class, *, steps):
         if self.state['current_effect'] is not None or any(row['status'] == 'failed' for row in self.state['effects']):
             raise DynamicStateError('cannot start another effect before settlement')
+        if self._active_attempt_files is not None:
+            raise DynamicStateError('previous effect attempt is still open')
         ordinal = len(self.state['effects']) + 1
         row = {'ordinal': ordinal, 'definition': definition, 'location': location,
                'effect_class': effect_class, 'status': 'running', **effect_paths(ordinal, effect_class),
@@ -257,12 +272,12 @@ class DynamicRun:
             directory = self.files.mkdir_exclusive(f'effects/{ordinal}')
             try:
                 attempt = directory.mkdir_exclusive('attempt-1')
-                attempt.close()
             finally:
                 directory.close()
         except BaseException:
             self._stopped = True
             raise
+        self._active_attempt_files = attempt
         return self.state['effects'][-1]
 
     def finish_effect(self, *, steps, error=None):
@@ -272,7 +287,13 @@ class DynamicRun:
         candidate['effects'][-1].update(status='failed' if error is not None else 'completed',
                                       finished_at=_now(), error=error)
         candidate.update(current_effect=None, steps_used=steps)
-        self._write(candidate)
+        attempt = self._active_attempt_files
+        self._active_attempt_files = None
+        try:
+            self._write(candidate)
+        finally:
+            if attempt is not None:
+                attempt.close()
 
     def complete(self, value, *, steps):
         candidate = _thaw(self.state)
