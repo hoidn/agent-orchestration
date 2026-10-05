@@ -2011,3 +2011,75 @@ External kills and full Q1–Q5/DC-P handoff remain Task 9; live/paid provider
 qualification is absent. Stable evaluation stays at `3a7f8efd`, frozen DC-2
 `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` is unchanged, and adoption/migration
 remain unselected.
+
+
+### Task 8B Direct Provider Gate
+
+`a8f8132a` qualifies the direct provider caller on the isolated target-3.0
+candidate. A registered local executable `codex` stand-in captures the real
+request/options and returns a declared native union; its result selects an
+ordinary closure that runs an actual command, under one 37-node invocation
+budget. Imported prompt `:doc` inputs and required reports use shared snapshot,
+path and publication owners. No per-effect leaf workflow, memo or
+`WorkflowExecutor` is constructed. Strict failures preserve attempt evidence,
+publish no successful result and prevent the following command. Ordinary stdout
+is not a result bundle.
+
+The provider module's **18 collected/passing cases** cover native union
+publication, fresh document snapshots, declared fill/policy/path refusals,
+wrong Bool/inactive union fields/Int64 overflow, missing bundles and required
+reports, and safe diagnostics. Independent review found one P2 binding bug:
+an admitted extern alias was looked up only by provider ID. The correction
+uses the definition owner's exact configuration key first, with provider-ID
+fallback. Durable regressions additionally cover admitted null policy,
+source-free imported library assets over a caller decoy, public dry-run with
+no allocation/dispatch, and nonexecutable-provider refusal in run and dry-run.
+
+The exact production selectors are in
+`tests/test_workflow_dynamic_providers.py`:
+`test_public_provider_selects_closure_and_runs_later_command`,
+`test_public_provider_resnapshots_imported_document_on_fresh_run`,
+`test_admitted_provider_extern_alias_uses_definition_owner_binding`,
+`test_admitted_provider_without_policy_uses_shared_empty_policy`,
+`test_sourcefree_imported_provider_asset_uses_library_owner`,
+`test_public_provider_dryrun_never_launches_or_allocates`,
+`test_provider_without_execute_permission_refuses_before_dispatch`,
+`test_provider_fill_policy_and_path_refusals_precede_dispatch`, and
+`test_provider_failure_never_publishes_success_or_runs_next_command`.
+
+Independent revised verification passed **6 selected cases in 1.87s** and
+collected **18**; conformity PASS preceded a separate subsequent quality PASS.
+The coordinator's final 29-module gate collected **817 in 4.61s** and passed
+**817 in 50.96s**, exit 0 (`51.19s` wrapper wall time), using
+`-q -n 16 --dist=worksteal` in tmux. All **556** source/test/script hashes were
+unchanged before/after and at the committed revision. The 18 provider cases,
+three targeted regressions and independent selection overlap the aggregate;
+counts are not additive. Exact modules/commands and raw evidence are in
+`/dev/shm/orc-dc3-providers-final/{collect,affected}.{json,log}`; ordered review
+is in `/dev/shm/orc-dc3-task8b-review.md`.
+
+The earlier long-basetemp aggregate collected 811 and recorded 762 passed,
+48 failed and one error from AF_UNIX/tmux socket path length. A representative
+short-root retry passed, followed by the whole revised short-root gate above.
+This was an evidence-environment issue, not a code baseline failure.
+
+The reviewed four-file freeze, unchanged at `a8f8132a`, is
+`/dev/shm/orc-dc3-task8b-revised-freeze.json`:
+
+| File | SHA256 |
+| --- | --- |
+| `orchestrator/workflow/dynamic/evaluator.py` | `d38f901f4a805f3cdacef97f77d97044ff33f440b06ffe52307f5289df429b96` |
+| `orchestrator/workflow/dynamic/runtime.py` | `30e43808ee8aa26e081126a7ee5dd04179091addac249dffc7f161422cd2daf6` |
+| `tests/test_workflow_dynamic_providers.py` | `f6e8fe72d028486f2e34637b84e25fa9b9d6fd237b86ec1c52e9d5703d9d10b8` |
+| `tests/fixtures/workflow_lisp/dynamic/provider_probe.py` | `b09fd77bdca34e84d91ea057e235397059177e7d8b133ed5a882870302460464` |
+
+Registered `omp_json_stdout` remains owned by the unchanged shared materializer;
+the affected provider-materialization selectors qualify that compatibility.
+This receipt claims no direct dynamic OMP end-to-end test or live/paid provider
+qualification. The latest fetch still found main `be327102` and Phase 3
+`93a33ae2`, with no new shared import. Task 8C1 stdlib/imported improve is in
+progress; 8C2 search/edits, 8C3 experiment retirement and Task 9's external-kill
+and full Q1–Q5 evidence remain pending. Task 8 and the atomic Tasks 5–8 cutover
+are incomplete. Stable evaluation stays at `3a7f8efd`; frozen DC-2
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` is unchanged. No adoption, default
+target change, migration or DC-P disposition follows from this bounded gate.
