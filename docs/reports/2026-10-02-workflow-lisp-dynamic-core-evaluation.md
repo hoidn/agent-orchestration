@@ -1904,3 +1904,60 @@ publish a failed terminal; actual command/provider dispatch remains Task 8.
 Task 9 owns the external-kill campaign, full Q1–Q5 and DC-P handoff. The stable
 evaluation branch remains at `3a7f8efd` until the atomic cutover is qualified;
 this receipt does not authorize adoption or application migration.
+
+
+### Task 7B Public Readers Gate
+
+`2b080244` qualifies profile-aware public report/dashboard/monitor/probe/watcher
+readers on the isolated cutover branch. The strict profile owner validates
+program/header/state pins before projection; missing, corrupt or mixed dynamic
+authority fails closed. Report JSON/Markdown, dashboard responses,
+`monitor --once --dry-run` and a probe subprocess inspect real pure public runs
+after source/input deletion, preserving native `0`, `false`, `null` and bound
+inputs. A source-free pure failure is also observed. Reached effect rows preserve
+ordinal, definition/location, error, explicit result and stdout/stderr paths;
+these rows are local state-owner fixtures, not actual effect dispatch.
+
+Writer-lock liveness distinguishes active and interrupted runs without a
+heartbeat or invented future graph. Dashboard exposes `resumable: false`; actual
+action boundaries and a controlled isolated watcher refuse dynamic recovery.
+Terminal/interrupted/corrupt roots trigger no automatic resume/restart, and an
+active writer is observed without action. Recursive directory/file snapshots,
+including symlink identity, establish read-only behavior around public readers
+and refusals. Watcher transport/provider tools are controlled local fixtures;
+no notification or live provider is sent.
+
+The initial 20-module aggregate collected 438 cases and recorded **12 failed,
+425 passed, one expected failure in 144.15s**. Exact baseline `478a2f1d` collected
+416 cases across 19 modules and recorded **3 failed, 412 passed, one expected
+failure in 97.62s**: the three retained `StateManager` authority errors were
+pre-existing and are corrected here too. The other initial failures were two
+legacy scanner symlink diagnostics and seven retained watcher deadline
+regressions. Revisions corrected all without editing retained tests or their
+deadlines. Independent conformity review also closed non-object typed-header
+ownership and preserved `DynamicStateError` for actual dynamic markers. The
+final header check recorded **1 failed, 1 passed in 5.69s**, then **2 passed in
+5.67s**; the new reader module collected **29 cases**.
+
+Independent Sol conformity PASS preceded separate quality APPROVED on all 14
+matching author hashes; the narrow review passed **4 cases in 12.76s**. The
+canonical coordinator final collection/execution covered 25 modules: **719
+collected, 718 passed, one expected failure in 134.33s**, exit 0, using
+`-q -n 16 --dist=worksteal` in tmux. All 543 source/test/script hashes stayed
+unchanged; the coordinator inspected all 14 diffs and verified those hashes at
+`2b080244`. Exact selectors, commands, outputs and reviewed-file evidence are in
+`/dev/shm/orc-dc3-readers-final2/`; the author freeze is
+`/dev/shm/orc-dc3-task7b-revision-freeze.json`. Initial and baseline packets are
+`/dev/shm/orc-dc3-readers-affected/` and `/dev/shm/orc-dc3-readers-baseline/`. The
+clean baseline worktree was removed. The earlier 717-case final run preceded the
+last patch; the final2 packet above is canonical. Overlapping counts are not
+additive.
+
+The post-commit fetch still found Phase 3 `93a33ae2` and main `be327102`, with no
+new shared delivery; only shared Task 13A is imported and full Phase 3 remains
+unfinished. Task 7 is complete; Task 8A direct command integration is selected
+and in progress. Actual command/provider effects remain Task 8; the external-kill
+campaign and full Q1–Q5/DC-P handoff remain Task 9. The stable evaluation branch
+stays at `3a7f8efd` until the complete Tasks 5–8 unit passes, and frozen DC-2
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` remains unchanged. No adoption,
+migration or live/paid calls are authorized by this receipt.
