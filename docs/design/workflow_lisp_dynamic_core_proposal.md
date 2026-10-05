@@ -1,7 +1,7 @@
 # Workflow Lisp: Dynamic Core With Explicit Boundary Contracts
 
-- **Status:** experimental architecture proposal; no accepted public dynamic target or adoption. Execution evidence and owner dispositions belong to the linked plan/report.
-- **Kind:** architecture proposal, not an accepted language specification or implementation plan.
+- **Status:** accepted bounded branch-qualified target-3.0 architecture in §9; broader proposal/historical spike sections remain contextual. Full readiness and adoption are open; evidence and decisions belong to the linked plan/report.
+- **Kind:** architecture companion and decision record. Normative delivered profile contracts live in specs; this is not a release/adoption or implementation-status authority.
 - **Scope:** ordinary computation, callable values, boundary schemas, and the execution contracts those changes would require.
 - **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.
 - **Plan:** the [dynamic-core evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) owns qualification, bounded experiments, decision gates and changes to prospective delivery. Selection for evaluation is not production adoption.
@@ -78,7 +78,10 @@ interpreter qualifies only if its restricted embedding is demonstrably smaller.
 
 ## 3. Candidate Language And Boundary Model
 
-All syntax below is illustrative and unavailable in current `.orc` targets.
+The conceptual syntax below is illustrative, not a complete runnable consumer.
+Section 9 owns the accepted branch-qualified profile; use the
+[actual guide examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+for implemented source forms, bindings and reproduction.
 Keep the existing module/import and effect vocabulary where they fit; do not add
 a second public launch API or hide a new evaluator inside old typed lowering.
 
@@ -878,13 +881,17 @@ incumbent when the measured tradeoffs exceed the gain over W1/W3.
 
 ## 9. Complete-Consumer Production Candidate
 
-This section specifies the proposed destination of the bounded DC-3 readiness
-work. It does not make target 3.0 available or authorize adoption. The
-[evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-3-production-readiness-and-gate-dc-p)
-owns selection, sequencing and receipts. A reviewed implementation handoff may
-register the candidate on its development branch to qualify the actual public
-CLI; DC-P separately selects release/adoption and consumer migration. That
-distinction avoids requiring production adoption before public-route evidence.
+This section records the accepted bounded DC-3 candidate contract. Target 3.0
+is registered and its source/public route, shared boundaries, fresh authority
+and full native consumers are qualified on the development branch. Durable
+normative behavior is incorporated in [Versioning](../../specs/versioning.md#branch-qualified-target-30),
+[CLI](../../specs/cli.md#dynamic-execution), [State](../../specs/state.md#dynamic-fresh-run-authority),
+[IO](../../specs/io.md#dynamic-boundary-io) and
+[Providers](../../specs/providers.md#dynamic-composed-provider-boundary).
+Full readiness remains open; the [readiness plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+and [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-3-production-readiness-and-gate-dc-p)
+own evidence and decisions. Branch qualification does not select a default,
+release/adoption or consumer migration; DC-P remains separate.
 
 ### 9.1 Scope And Choice Of Destination
 
@@ -909,7 +916,7 @@ unimplemented declaration forms. Do not remove their existing typed support.
 | --- | --- | --- |
 | Retain typed evaluated execution; qualify W3 separately | Existing domain contracts, early checks and recovery; W3 can reduce context forwarding without dynamic values. | Typed specialization/proofs and pending shared runtime delivery; the dynamic evaluation can remain historical evidence. |
 | Promote the experimental leaf bridge | Already executes both policies with fresh local effects; lowest immediate integration work. | Two frontends, source assembly, per-effect legacy workflows/state, caller wire reconstruction and all old compiler machinery. It preserves DC-2's adverse edit costs and removes no production owner. Reject as the final topology. |
-| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Proposed destination; executable integration remains required. |
+| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Qualified branch destination; full readiness/adoption remain open. |
 
 Name **`experiments/mlevolve_pair/search_compact.orc`, entry `run-search`**, as
 the single maintained application migration destination after DC-P. Preserve
@@ -923,11 +930,12 @@ Do not also migrate the typed destination or the broader workflow estate.
 ### 9.2 Proposed Source And Public Use
 
 Use the existing `workflow-lisp` wrapper, language header, `defmodule`, `import`,
-`export`, boundary declarations, `defprompt` and `defworkflow`. Proposed target
+`export`, boundary declarations, `defprompt` and `defworkflow`. Branch-qualified target
 **`"3.0"`** selects dynamic composition; do not add a profile flag to each
 command or a second `dynamic run` entry. Its major target distinguishes the
-incompatible internal-call, validation and recovery contracts. All examples in
-this section are proposed source, unavailable until their qualification lands.
+incompatible internal-call, validation and recovery contracts. Examples in this
+design explain the contract; use the [complete tested guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+for actual source, bindings and workspace prerequisites.
 
 The entry module supplies one positive integer `(:budget N)`; libraries omit it.
 The selected entry's budget covers its entire invocation, including imported
@@ -1046,10 +1054,11 @@ auxiliary summary providers under this qualification scope.
 
 ### 9.3 Source Owners And Target Call Graph
 
-The following distinguishes inspected source seams from proposed changes.
+The following records the source ownership and accepted candidate limits.
 Referenced shared work is owned by
 [Phase 3 Tasks 6–7/12](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#source-map-and-ownership);
-its implementation must be imported and qualified, not recreated on this branch.
+its reviewed shared implementations are consumed and locally qualified, not
+recreated on this branch. Full upstream phase qualification remains separate.
 
 ```text
 existing compile/run CLI + FrontendBuildRequest
@@ -1067,21 +1076,18 @@ existing compile/run CLI + FrontendBuildRequest
 | `reader.py`, `syntax.py`, `modules.py`, `FrontendBuildRequest` and manifest/configuration loaders | Reuse reading, spans, root resolution, imports/exports and trusted bindings. Add target-selected `define`/budget handling and declaration-only import admission. Their current typed elaboration is not the dynamic frontend. |
 | `type_env.py`, `normalized_type_descriptor.py`, `contracts.py`, `typed_prompt_inputs.py` | Retain schema type applications, refinements, guidance, fill roles and contract compilation. Internal helper calls bypass type unification/specialization; boundary types do not. |
 | `closed/effects.py`, `closed/check.py` and shared request builders | Extract only reusable declaration/contract checks needed by both representations. Existing checked typed effects and P5 stay unchanged; a dynamic artifact is never passed off as a typed `ClosedProgram`. |
-| Proposed `workflow_lisp/dynamic/` source/admission owner and `workflow/dynamic/` evaluator/run owner | Move and revise the qualified experimental core, replacing its source wrapper, hand-linked effects and artifact versions. No second maintained copy under `experiments/`; no new general backend/plugin interface. |
-| Delivered `evaluated/commands.py`, `prompts.py`, `providers.py`, `inputs.py` | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Their native whole-root strict result mode, plain validated-value provider preparation and certified inline serialization are qualified. Task 8 supplies the dynamic caller, strict input checks and publication. Reviewed Task 12 now delivers `inputs.py` and the typed external document path-token protocol. Task 4 now qualifies shared plain document preparation, serialization and attempt-path transport at `866dcd99`; `_prepare_command_document_fields`, `_serialize_command_document` and `_command_document_argv` retain their typed consumers. |
+| `workflow_lisp/dynamic/` source/admission owner and `workflow/dynamic/` evaluator/run owner | Own the moved/revised core, replacing the historical source wrapper, hand-linked effects and artifact versions. No second maintained copy under `experiments/`; no new general backend/plugin interface. |
+| Delivered `evaluated/commands.py`, `prompts.py`, `providers.py`, `inputs.py` | Consume resolved values and declaration-owned request data without reading a typed memo or dynamic state. Their native whole-root strict result mode, plain validated-value provider preparation and certified inline serialization are qualified. The dynamic caller supplies strict input checks and publication. Shared `inputs.py` owns external document path-token transport and plain document preparation/serialization; `_prepare_command_document_fields`, `_serialize_command_document` and `_command_document_argv` retain their typed consumers. |
 | `StepExecutor`, `ProviderExecutor`, `WorkspaceFiles`, content-snapshot/output-contract owners | Keep dispatch, process controls, sandbox/permissions, pinned reads/writes and result validation. The candidate does not call a stateful `WorkflowExecutor` for each effect. |
 | `evaluated/attempts.py`, `authority.py`, `runtime.py` | Preserve typed memo/authority. `allocate_attempt` appends memo records and `attempt_paths` consumes `MemoSnapshot`; neither is a memo-free allocator. Reuse lower filesystem/lock helpers, or one owner-approved shared extraction with both real callers; do not synthesize a memo. |
 | CLI/state/report/dashboard/monitor readers | Route by exact profile before typed/legacy checks. Share data presentation and log-path handling; the fresh profile supplies its own truthful state interpretation, not typed pure replay. |
 
-Readiness Task 1 replaced the former numeric `>= 2.35` comparison in
-`target_dsl_uses_evaluated_execution` with exact typed target `2.35` selection;
-unknown targets and unregistered `3.0` refuse before execution or creation.
-That routing prerequisite is implemented and does not make the dynamic public
-route available. The proposed dynamic registration still must select its own
-loader/profile; known typed targets retain their route and unknown targets
-refuse. Apply the same principle to stored-profile selection before
-`StateManager` or typed authority loading, without a second independent target
-flag. See the [Task 1 receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#task-1--exact-typed-routing).
+Target dispatch selects typed `2.35` and dynamic `3.0` exactly, with independent
+loaders/representations; known older targets retain their owners and unknown
+targets refuse before execution or creation. Persisted profile selection precedes
+`StateManager` or typed authority loading; no secondary target flag, fallback or
+conversion is introduced. [Versioning](../../specs/versioning.md#branch-qualified-target-30)
+owns the durable profile routing.
 
 A public CLI source read/header failure before target selection refuses without invoking
 any backend or allocating state. Preserve the reader/header diagnostic and
@@ -1303,7 +1309,7 @@ their identities. No forwarding alias or mandatory later rename is needed.
 
 ### 9.7 Fresh Run Authority And Read-Only Inspection
 
-Propose exact state routing pair `schema_version: "3.1"` with
+The branch-qualified profile uses exact state routing pair `schema_version: "3.1"` with
 `result_persistence_profile: "dynamic_execution.v1"`. The immutable `run.json`
 pins the checked `closed_program.json`, target/entry, semantic and provenance
 digests, bound inputs, budget, workspace/configuration and runtime/interpreter
@@ -1387,13 +1393,13 @@ Retain the shared validator's field-path diagnostic without parsing its prose.
 | --- | --- |
 | Existing source/compiled artifact at targets through 2.34 | Original admission, bytes for identical identity inputs, workflow runtime and resume remain. Real package-pin changes remain visible. |
 | Typed target 2.35 and `evaluated_execution.v1` runs | Original typed program, memo and readers/recovery contract; no dynamic semantics or schema-strengthening applied retroactively. |
-| Proposed target 3.0 / dynamic program major 1 | Only the classes and source forms in this profile; strict independent read-back and fresh-run public state. Unsupported forms fail before external work. |
+| Branch-qualified target 3.0 / dynamic program major 1 | Only the classes and source forms in this profile; strict independent read-back and fresh-run public state. Unsupported forms fail before external work. |
 | Supplied compiled import of any profile; incompatible source import; unknown target/profile/schema; mixed header/program; forged provenance | Refuse explicitly without fallback, conversion, new run creation or dispatch. |
 | Existing interrupted or completed typed run | Keep its original environment/runtime pins and route it to its retained owner; never convert checkpoints to captures or restart it under the dynamic profile. |
 | Historical dynamic-spike artifact/leaf run | Preserve evidence under its experimental/legacy owner; not a migratable production dynamic run. |
 
 The compatibility cost lasts until an explicit Phase 7 run-retirement decision.
-No proposed branch registration deletes old code or promises that old runs can
+Branch registration does not delete retained typed code or promise that old runs can
 be resumed by a future binary after their original runtime is retired.
 
 ### 9.9 Removal Ledger And Executable Qualification

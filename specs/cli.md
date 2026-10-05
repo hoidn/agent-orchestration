@@ -47,10 +47,50 @@ A run that supervises another run therefore uses its own workspace: it reads
 the other run's workspace by path and starts `resume` or `run` for it with that
 workspace as the working directory.
 
+## Dynamic execution
+
+On the qualified branch, an explicit `(:target-dsl "3.0")` selects the
+[dynamic profile](versioning.md#branch-qualified-target-30) through the existing
+compile/run entry points and source/entry/binding flags; there is no profile
+flag or separate dynamic launcher. Full readiness and adoption remain separate.
+
+Compile admits the complete source/import graph and every body, writes an
+independently checked dynamic program/source map, and validates read-back.
+Diagnostics JSON and source-map exports are available; flat Core/executable IR,
+runtime-plan, semantic-IR and debug-YAML exports refuse for this representation.
+Dry-run prepares source, bindings, permissions, public inputs/defaults and
+initial path refinements without evaluating a body, dispatching or allocating
+run/effect attempts. A real run allocates a fresh root after preparation.
+
+Run accepts source-root/entry, provider/prompt/command configuration,
+`--input`/`--input-file`, `--state-dir`, dry-run and logging/streaming options.
+Text `--input` parsing is schema-directed, followed by strict validation; JSON
+strings do not coerce to Bool. Missing/extra/invalid inputs and defaults refuse
+before root creation. Compiled import bundles remain unsupported even though
+the shared parser exposes that option. Retries are fixed at zero, including
+when the legacy default would be nonzero; only `--on-error stop` is admitted.
+Explicit legacy context, run-ref roots, clean/archive, backup, summary/agent-note
+and retry-delay options refuse before run creation with
+`dynamic_option_unsupported`.
+
+Report/dashboard and operational readers select the exact persisted profile,
+validate immutable pins and authoritative state, and expose native terminal
+values plus `resumable: false`. They do not reconstruct missing state, execute,
+repair or write. A running record without its writer is interrupted;
+watchdogs stop/escalate rather than automatically restarting it. Resume refuses
+with `dynamic_resume_unsupported` and invalidation with
+`dynamic_invalidation_unsupported`, before source compilation, writes or
+performer dispatch. A fresh run can repeat earlier calls, budget and external
+writes; it does not adopt orphan outputs. Typed and legacy recovery contracts
+below remain scoped to their retained profiles. See
+[State](state.md#dynamic-fresh-run-authority).
+## Command reference
+
 - Commands
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory warnings that do not change the exit code. A pure-result replay-index failure is an error only when the compiled structure guarantees that the call is reached; failures along a path under a branch, match arm, or loop body are warnings. Conditions are not evaluated, and a real run is refused if it reaches the call.
   - `orchestrate resume <run_id>`
+    - Dynamic schema-3.1 runs refuse with `dynamic_resume_unsupported`; see [dynamic execution](#dynamic-execution).
     - Target-2.35 evaluated runs select their persisted authority profile before
       legacy state loading. Resume rebuilds the saved request in memory, compares
       the semantic program then bound inputs, and checks the active committed
@@ -83,6 +123,7 @@ workspace as the working directory.
       consumed reply uses the existing completed-effect recovery policy or
       fails closed. Resume never creates a replacement question automatically.
   - `orchestrate invalidate <run_id> <identity> [--state-dir <runs-root>]`
+    - Dynamic schema-3.1 runs refuse with `dynamic_invalidation_unsupported` without mutation; see [dynamic execution](#dynamic-execution).
     - Target-2.35 evaluated authority supports one append-only invalidation range
       from the full active committed identity through the active suffix. It uses
       checked stored authority and the run writer lock, without reading current

@@ -48,14 +48,13 @@ delivery, not a separately scheduled feature. The
 [parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 owns scheduling. The branch's
 [dynamic evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-now includes experimental source functions/closures and real compiled leaves
-after completed DC-0/DC-1/DC-2, with owner DC-F/DC-U continue on 2026-10-02
-selecting bounded DC-3 readiness qualification; DC-P remains pending.
-Effect tracking/resumability may be traded for composition gains;
-their preservation is not a candidate prerequisite. The reviewed DC-U packet
-used the implemented typed baseline and labeled W1/W3 proposals as comparators;
-it does not complete Task 4 or the typed Phase 6a work. DC-3 now qualifies the design/plan, removal
-inventory, one consumer destination and needed shared-runtime/public route;
+records the completed historical DC-0/DC-1/DC-2 comparison and the reviewed
+branch-qualified target-3.0 cutover. [Actual examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+use ordinary functions/imports with strict shared boundaries and fresh native
+state. [Readiness](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) owns
+remaining Task 9/Q1–Q5 evidence; DC-P remains open. Dynamic qualification does not
+complete W3 Task 4 or typed Phase 6a, restore static tracking, or select typed hook
+inference. The frozen DC-U comparison remains labeled historical.
 W3 delivery remains fallback, not selected by this qualification. If the typed
 route is retained, Phase 3
 provides its runtime and Phase 4c delivers Tasks 11–14 after the open decisions

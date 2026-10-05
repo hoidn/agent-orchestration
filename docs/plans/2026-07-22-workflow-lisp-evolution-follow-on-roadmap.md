@@ -685,25 +685,19 @@ CF-1c hold and research allocations remain intact.
 
 ## Dynamic-Core Evaluation
 
-**Status:** DC-0/DC-1/DC-2 are complete and independently reviewed on
-`design/orc-dynamic-core-evaluation`. Experimental complete-consumer composition
-and compiled leaves are available in the
-[runnable specimen](../../experiments/dynamic_core_evaluation/README.md). Owner
-DC-F/DC-U continue on 2026-10-02 selects bounded DC-3 readiness qualification:
-concrete design/plan, removal inventory, one consumer destination and needed
-shared-runtime/public-route qualification. Design and the
-[readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed
-independent review; Tasks 1–3 qualify exact routing, strict boundary preparation
-and selective source declarations. Reviewed typed command/provider performers
-are imported; Task 4 still needs the native strict result seam and external
-Task 12 input-document transport. The public dynamic candidate and DC-P remain
-pending. No adoption, migration,
-paid calls, parallel or child-run expansion is authorized by this selection.
-The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-owns finite tasks and gate evidence; the
-[proposal](../design/workflow_lisp_dynamic_core_proposal.md) owns candidate
-semantics. This is an owner-directed implementation evaluation, not a sixth
-research unit, live-study budget or selected production architecture.
+**Status:** Historical DC-0/DC-1/DC-2 comparisons are complete; the reviewed
+Tasks 1–8 cutover provides the isolated branch-qualified target-3.0 profile.
+Real source imports, strict shared command/provider boundaries, fresh native
+state and complete improve/search consumers are available for branch
+qualification. [Actual examples and setup](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+are distinct from the [frozen compiled-leaf specimen](../../experiments/dynamic_core_evaluation/README.md).
+The [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+owns remaining Task 9/Q1–Q5 evidence; the
+[evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+owns DC-P and the typed fallback. No default/adoption, maintained application
+migration, paid calls, parallel or child-run expansion is selected. This remains
+bounded owner-directed qualification, not a research-unit allocation or selected
+production architecture.
 
 Keep completed typed Phase 2 and integrated Phase 3 Tasks 1–5 as the baseline
 and reusable substrate. Adapt values/evaluation/calls; reuse contract generation,

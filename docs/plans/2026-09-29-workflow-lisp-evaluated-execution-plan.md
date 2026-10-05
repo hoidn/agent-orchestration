@@ -398,29 +398,23 @@ Tasks 1–5, then follow the
 (including early Phase 6a evidence) → DC-U → DC-3 production readiness → DC-P
 → one selected Phase 6b migration → Phase 7 retirement.**
 
-DC-0 and the pure mechanism are complete; experimental source composition now
-uses ordinary functions with inferred captures and real compiled leaves. DC-F
-passed by owner decision. All 110 DC-2 utility cases executed, including complete
-improve/search parity and the paired edits/diagnostics; code review passed at
-`4728b14e`; independent document/utility review passed. DC-U owner continue on
-2026-10-02 selects bounded DC-3 readiness qualification.
-The [runnable full-consumer specimen](../../experiments/dynamic_core_evaluation/README.md)
-uses existing compiled boundary/execution owners with candidate resume omitted.
-The [DC-U packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-u-evidence-packet)
-records useful ordinary composition alongside mixed edit costs, late errors,
-restart replay and zero production owners removed. The selected successor is
-only bounded DC-3 qualification: concrete design/plan, removal inventory, one
-consumer destination and needed shared-runtime/public-route qualification.
-Qualify its design before writing the bounded implementation plan. DC-P remains
-pending; no adoption, migration, paid calls, parallel or child-run expansion is
-selected.
+DC-0/DC-1/DC-2 and their 110 utility cases are historical evidence; the
+[DC-U packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-u-evidence-packet)
+and [frozen specimen](../../experiments/dynamic_core_evaluation/README.md)
+preserve compiled-leaf composition, mixed edit costs and restart replay.
+The reviewed Tasks 1–8 cutover replaces that maintained experiment with the
+branch-qualified target-3.0 profile: ordinary functions/imports, strict shared
+boundaries and fresh native execution. [Actual examples and prerequisites](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+show the delivered consumer route; the [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+owns remaining Task 9/Q1–Q5 evidence. DC-P remains open; no adoption, migration,
+default target, paid calls, parallel or child-run expansion is selected.
 Each gate needs evidence and an explicit owner continue/revise/
 stop disposition. Continue activates only its named successor; revise names one
 bounded correction and one reevaluation, then stop or fresh owner allocation;
 stop returns to the typed route below. Pending gates block successors, not the
 qualification or spike needed to reach them. Full typed Phase 3 completion is
-not a prerequisite for the bounded candidate. No live-study budget, target or
-production adoption is selected by this amendment.
+not a prerequisite for the bounded candidate. No live-study budget or production adoption is selected by this amendment;
+branch target registration qualifies the candidate only.
 
 The 2026-10-01 **typed fallback** remains: Phase 2 → remaining Phase 3 →
 Phase 6a pilot → consumer-selected Phase 4 (including W3) and independent

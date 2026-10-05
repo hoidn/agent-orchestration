@@ -1,8 +1,8 @@
 # Workflow Lisp Frontend Specification and Design
 
 Status: accepted baseline / umbrella frontend contract
-Target substrate: Workflow Core Calculus (WCC) schema 2 lowering into the
-v2.14+ core workflow AST and semantic IR
+Target substrates: typed WCC/schema-2 lowering through target 2.34; typed
+closed execution at 2.35; independent branch-qualified dynamic execution at 3.0
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -56,10 +56,31 @@ library module (§87.1).
 
 Target 2.34 adds the implemented [numeric surface](workflow_lisp_numeric_surface.md).
 The pipeline described here remains the runnable route through 2.34.
-Target 2.35 selects [evaluated execution](workflow_lisp_evaluated_execution.md):
-its internal compiler is partially integrated, but public CLI compilation
-and execution remain unavailable. Follow the [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
-for compiler delivery and the parent plan for later runtime delivery.
+Target 2.35 selects [typed evaluated execution](workflow_lisp_evaluated_execution.md):
+public closed-program compile/dry-run, bounded pure/command/portable-provider
+execution, memo-based resume/suffix invalidation, path children and checked
+readers are implemented. Its admitted effects and remaining phase-wide/live
+qualification are owned by [Versioning](../../specs/versioning.md) and the
+[Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
+
+### Branch-qualified dynamic companion route
+
+Explicit target 3.0 selects an independent checked dynamic representation,
+ordinary functions/immutable captures and real source imports. Internal helpers
+have no type annotations; workflow inputs/defaults/results, prompt fills/results
+and command boundaries retain strict declaration-owned schemas. Sequential
+command/portable composed-provider calls use shared performers and native root
+results. Schema-3.1 fresh state is authoritative; no memo/reuse/resume is added.
+Unsupported effects and compiled imports refuse, including unreachable forms.
+This is branch qualification, not a default/adoption or migration decision;
+full readiness remains open. [Proposal §9](workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate)
+records architecture; [Versioning](../../specs/versioning.md#branch-qualified-target-30),
+[CLI](../../specs/cli.md#dynamic-execution),
+[State](../../specs/state.md#dynamic-fresh-run-authority),
+[IO](../../specs/io.md#dynamic-boundary-io) and
+[Providers](../../specs/providers.md#dynamic-composed-provider-boundary) own
+normative behavior. The [drafting guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+provides reproducible examples. The typed rules below keep their original scope.
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -81,9 +102,9 @@ The compact operating rule is:
 - legacy parsing and pointer conventions are quarantined;
 - every generated semantic node is source-mapped.
 
-This document assumes the Lisp frontend is not a YAML generator and not merely
-a macro veneer. It is a typed procedural authoring language that lowers through
-the accepted WCC middle-end into the existing validated workflow pipeline:
+For typed targets through 2.34, the frontend is not a YAML generator or merely
+a macro veneer. Typed procedural source lowers through the accepted WCC
+middle-end into the existing validated workflow pipeline:
 
 ```text
 Lisp source
@@ -105,7 +126,7 @@ subset. The legacy schema 1 route and direct per-form lowerers are retained
 only for compatibility, characterization, and resume of historical runs where
 explicitly marked.
 
-The same pipeline, with the authority boundary made explicit:
+The same typed-through-2.34 pipeline, with its authority boundary explicit:
 
 ```mermaid
 flowchart LR
@@ -651,7 +672,7 @@ The frontend does not provide:
 - arbitrary Lisp evaluation
 - runtime code loading
 - general-purpose scripting
-- untyped dynamic dispatch
+- untyped dynamic dispatch in the retained typed profiles
 - semantic parsing of markdown reports
 - hidden filesystem effects
 - hidden provider calls
@@ -1267,7 +1288,7 @@ operands remain inside those operands. Final strict checking also covers
 uncalled functions and generic bases.
 
 The shared pure-expression schema 3 represents ordered lexical `let` bindings;
-there is no runtime procedure interpreter. Call/definition/specialization
+this typed pure-call rule adds no runtime procedure interpreter. Call/definition/specialization
 provenance and deterministic compilation are retained. Effectful calls, private
 execution frames, unresolved runtime-selected callables, and bodies outside the
 supported pure-expression representation are not admitted by this rule. Existing

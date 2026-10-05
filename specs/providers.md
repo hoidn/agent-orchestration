@@ -4,6 +4,33 @@ Fresh authored workflows reach this contract through compiled `.orc` source
 only. The mapping snippets below describe the validated Core/executable provider
 shape; YAML-fenced snippets are schema notation, not accepted workflow files.
 
+## Dynamic composed-provider boundary
+
+The branch-qualified target-3.0 profile dispatches one ordinary composed
+`ProviderExecutor` request per invocation through existing registry, permissions,
+prompt/materialization, dependency snapshot and output owners. It uses the
+shared native whole-root result path, not a per-effect workflow, child state or
+`WorkflowExecutor`. It provides zero runtime retries, recovery or completed-result
+reuse; fresh execution can repeat a successful provider call.
+
+`defprompt` fills validate their declarations before rendering: `:text` is
+String; an unrefined `:value` is Value; `:doc`/`:path` require explicit `defpath`
+refinements. Relative assets and documents belong to the declaring module.
+Extern-backed results require explicit `:returns`; nonempty extern `:inputs`
+refuse at admission because those bindings supply no input schemas. Native
+result publication requires strict captured-bundle/root validation and every
+required output/report check. Ordinary stdout does not substitute for
+`result.json`; registered `omp_json_stdout` remains handled by its shared
+materialization owner.
+
+Sessions, provider context/capture, phased/live/supervision/peer surfaces are
+not admitted by this dynamic profile; retained typed support is unchanged.
+Deterministic local transport qualification does not establish live-provider
+acceptance. [IO](io.md#dynamic-boundary-io) and
+[State](state.md#dynamic-fresh-run-authority) own transport and fresh authority.
+
+## Retained-profile provider lifecycle
+
 - Provider attempt lifecycle
   - At-least-once recovery applies to a validated interrupted in-flight
     ordinary, session, supervision, peer-group, or phased provider visit.

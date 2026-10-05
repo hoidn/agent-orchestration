@@ -18,6 +18,37 @@
     Certified adapters retain signature-ordered inline JSON. The complete
     contract is [evaluated execution §9.1.1](../docs/design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents).
 
+## Dynamic boundary IO
+
+The branch-qualified target-3.0 profile uses the existing shared input/output
+owners with strict declared boundaries. For external `command-result`, supplying
+`:inputs` requires a declared record `:input-type`, including `:inputs ()`;
+`:input-type` without inputs or on a certified adapter refuses. Exact fields
+validate before dispatch. External inputs publish finite canonical JSON in an
+exclusive attempt-owned `inputs.json` and append its workspace-relative path
+as one token after authored argv. Absent inputs and an empty record remain
+distinct. Certified adapters use their signature-owned contracts and ordered
+inline JSON through the existing adapter protocol.
+
+Native command/provider returns use the existing `__result__` whole-value
+contract. One captured bundle byte snapshot feeds strict duplicate/nonfinite
+JSON parsing, recursive descriptor/root validation and required-output/path
+checks before success becomes visible. Scalars, records and applied unions
+return directly; no authored `return__` wire reconstruction is needed. Ordinary
+stdout is observation, never a replacement result bundle. All existing path,
+permission, publication and snapshot owners remain authoritative.
+
+Literal argv Bool values retain `True`/`False`; computed Bool uses `true`/`false`.
+Aggregates use finite JSON; runtime Strings are opaque tokens, not reparsed
+references or templates. Prompt `:doc`/`:path` fills require explicit `defpath`
+refinements. Relative prompt assets/documents resolve from their declaring
+module; data/output paths resolve in the execution workspace. Checked paths do
+not establish versioned artifact lineage or cross-run freshness. Dynamic runs
+have no replay/reuse guarantee; see [State](state.md#dynamic-fresh-run-authority)
+and [Providers](providers.md#dynamic-composed-provider-boundary).
+
+## Shared output handling
+
 - Output handling
   - `output_file`: STDOUT is tee'd to this file and to the orchestrator capture pipeline.
   - Runtime result-file operations use a workspace directory descriptor pinned
@@ -41,7 +72,7 @@
       the credential-minimized projection; OMP journals remain separate
       observations as defined in `state.md`.
   - Deterministic artifact contracts:
-    - Target 2.35 command boundary manifests accept `closure`, an array of
+    - Target 2.35 and branch-qualified 3.0 command boundary manifests accept `closure`, an array of
       literal file or directory paths for both `external_tool` and
       `certified_adapter`. C1 requires it on every supplied declaration
       (including unused rows) and every used compiler-injected binding;
@@ -56,7 +87,7 @@
       symlinks or hash closure file bytes. Command runtime content hashes,
       command-local output disjointness,
       post-dispatch read-only checks and pinned interpreter launch are implemented.
-      Ordinary public resume enforces committed-prefix and pending-retry checks;
+      Typed target-2.35 public resume enforces committed-prefix and pending-retry checks;
       complete Phase 3 qualification remains open. See
       [command closure declaration](../docs/design/workflow_command_adapter_contract.md#command-closure-declaration),
       `closed/effects.py::require_command_closures`,

@@ -41,7 +41,10 @@ Read [docs/index](../index.md), the [capability matrix](../capability_status_mat
 [accepted evaluated design §13](../design/workflow_lisp_evaluated_execution.md#13-targets-and-compatibility),
 the [parent plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md), and
 [Phase 3 plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
-The proposal owns candidate semantics; existing specs own shipped behavior.
+The proposal records accepted candidate architecture; specs own durable runtime
+contracts, including the [branch-qualified profile](../../specs/versioning.md#branch-qualified-target-30).
+The [guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+provides complete examples; full readiness/adoption remain separate.
 
 Initial owner amendment, 2026-10-02: select DC-0 qualification followed by a
 bounded feasibility spike. The initial integration/planning turn implemented no
@@ -135,7 +138,7 @@ is qualified at `ee4ae46b`; the
 
 The earlier shared cutoff `4ca7a0fb` is integrated at `eb9c9e30`, including the reviewed durable-locator alias correction; the [native/shared receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-native-performer-sub-slice) records 878 affected checks and the Task 12 dependency at that cutoff. That import did not complete Phase 3 Task 9 or advance dynamic gates.
 
-Latest shared import, 2026-10-04: Tasks 9–11 have reviewed completion receipts for path children/coordinators, derived report/dashboard views and monitor/probe/watchdog readers. Task 12 typed external documents through `4bcf5424`, `5bdb2497` and `a024397b`, plus the native document seam, are integrated at `866dcd99`; the [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-childrenreadersinput-document-import) preserves the initial review/280 typed checks and records final Sol conformity/quality PASS plus 2553 passed/one expected failure across 2554 collected cases with unchanged source hashes. Readiness **Task 4 PASS** releases the Tasks 5–8 cutover; Task 5 is selected next, not implemented, and Task 8 owns the actual dynamic caller/publication. Upstream Task 12 public replay delivery `ebaf78ed` and closeout `98b3f3d9` are integrated at `970ac933`, with 29 new cases collected and passed in 118.92s. Full Phase 3/live-provider qualification remains open. Public `3.0` remains unregistered, Q1–Q5 remain open and DC-P has not adopted the candidate.
+Earlier shared import, 2026-10-04: Tasks 9–11 have reviewed completion receipts for path children/coordinators, derived report/dashboard views and monitor/probe/watchdog readers. Task 12 typed external documents through `4bcf5424`, `5bdb2497` and `a024397b`, plus the native document seam, are integrated at `866dcd99`; the [current import receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#shared-childrenreadersinput-document-import) preserves the initial review/280 typed checks and records final Sol conformity/quality PASS plus 2553 passed/one expected failure across 2554 collected cases with unchanged source hashes. Readiness Task 4 PASS released the subsequent reviewed Tasks 5–8 cutover. Upstream Task 12 public replay delivery `ebaf78ed` and closeout `98b3f3d9` are integrated at `970ac933`, with 29 new cases collected and passed in 118.92s. Full Phase 3/live-provider qualification remains open. At that earlier cutoff public 3.0 remained unregistered; current branch availability is owned by the readiness plan. Q1–Q5 and DC-P remain open.
 
 Earlier runtime import, 2026-10-03: reviewed `b5b07ceb` integrated at
 `a672985d`; provider runtime `7e2282a4` and receipt `21b78d16` integrated at
@@ -183,7 +186,8 @@ preserves the existing public wrappers; 17 narrow and 127 integrated cases
 passed, including real public helper run/resume. Earlier `9bb4b207` at
 `d4dc1ea7` retains producer lowering schema in typed snapshots (12 affected
 cases passed); R12-A `0d7e4bc6` at `18a442da` passed 55 command-template/control
-cases and three public/helper checks. Task 6 overall remains open. Exact source pins, commands,
+cases and three public/helper checks. At that import, shared Task 6 overall
+remained open. Exact source pins, commands,
 metadata and evidence limits are in the single report's synchronization section;
 these results do not pass a dynamic gate or advance frozen comparison controls.
 
@@ -194,7 +198,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
-| DC-3 — production readiness | Design and bounded plan independently reviewed; Tasks 1–4 complete; typed children/readers/external documents and native shared seam qualified at `866dcd99`; Task 5 selected next, not implemented; no dynamic public target or production acceptance | Concrete design/plan, removal inventory, one consumer destination and needed shared-runtime/public-route qualification; stop at DC-P |
+| DC-3 — production readiness | Reviewed Tasks 1–8 atomic cutover; branch-qualified target 3.0 / schema 3.1 public route, shared boundaries and complete consumers; Task 9 in progress | Remaining external-kill/fault/reader/control evidence and durable-doc review; Q1–Q5/DC-P open, no adoption/default/migration |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
@@ -219,9 +223,9 @@ does not block the qualification/spike/evidence needed to reach that gate.
 No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
-units remain unchanged, and no active run is mutated. The human next task is
-Task 4 (qualify reviewed shared delivery) of the [reviewed DC-3 readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) after the owner's explicit
-DC-U continue on 2026-10-02. DC-F continue was also selected on that date. Existing
+units remain unchanged, and no active run is mutated. The human next task is the remaining Task 9 qualification in the
+[reviewed readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md),
+after reviewed integration of Tasks 1–8. DC-F continue was also selected on that date. Existing
 executable selectors have no new item to consume.
 
 ## DC-0: Qualify Scope And Controls
@@ -555,9 +559,17 @@ design, removal/compatibility inventory, one consumer destination and the needed
 shared-runtime/public-route qualification. It does not accept production
 semantics or mark any readiness checklist item complete.
 
-**Artifacts:** [proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate) and the [bounded readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md) passed independent review. Tasks 1–4 are complete; typed command/provider/document delivery and the native shared seam passed combined qualification at `866dcd99`. Task 5 is selected next, not implemented; Task 8 still owns the actual dynamic caller/publication. Q1 has a qualified strict kernel and Q2 has selective source declarations; integrated Q1–Q5 remain open. Exact files and independent verification
-belong to that plan; this task does not preallocate a language target or mutate
-normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
+**Artifacts:** [Proposal §9](../design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate)
+records the accepted architecture; [normative profile](../../specs/versioning.md#branch-qualified-target-30)
+and [actual guide examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+describe the branch-qualified implementation. Tasks 1–8 are independently
+reviewed and atomically integrated; the [cutover receipt](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#atomic-tasks-58-cutover-and-historical-retirement)
+preserves shared-delivery, complete-consumer and exact-retirement evidence.
+The [readiness plan](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+owns remaining Task 9 external-kill/fault/readers/retained-control proof and
+independent documentation/readiness review. Q1–Q5 and DC-P remain open.
+Branch registration does not select a default or application migration. Reuse
+Phase 3's evidence matrix rather than adding another readiness authority.
 
 - [x] Settle target/IR versions, schema strictness, mixed-version imports,
   stdlib API and existing checkpoint/run dispositions with owners. Define only

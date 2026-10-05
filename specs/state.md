@@ -8,7 +8,7 @@
     [CLI](cli.md), "Workspace execution ownership"). They are not run state and
     are never removed.
 
-- Evaluated-profile routing
+- Execution-profile routing
   - Target 2.35 uses checked `run.json` / `closed_program.json` authority and
     `memo.jsonl`, with the exact schema/profile defined in
     [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
@@ -27,6 +27,60 @@
     and historical absent fields are not backfilled. Path-child dispatch and
     recovery use that retained root, with historical-root refusals defined by
     the linked evaluated contract.
+
+## Dynamic fresh-run authority
+
+The branch-qualified target-3.0 profile routes exactly by
+`schema_version: "3.1"` and `result_persistence_profile: "dynamic_execution.v1"`
+before typed memo or legacy loading. Its immutable `run.json` pins the checked
+`closed_program.json`; mutable `state.json` is fresh progress/terminal authority,
+not a memo-derived view. Unknown or mixed profiles refuse without fallback.
+There is no memo, captured-environment checkpoint, replay or resume plan.
+
+| Record | Exact field set |
+| --- | --- |
+| `run.json` | `schema_version`, `result_persistence_profile`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `program_digest`, `input_digest`, `bound_inputs`, `representation`, `interpreters`, `workspace`, `runtime_pin`, `provenance_digest` |
+| `state.json` | `schema_version`, `result_persistence_profile`, `run_id`, `program_digest`, `updated_at`, `status`, `steps_used`, `current_effect`, `effects`, `workflow_outputs`, `error` |
+| Each `effects` row | `ordinal`, `definition`, `location`, `effect_class`, `status`, `result_path`, `stdout_path`, `stderr_path`, `prompt_path`, `started_at`, `finished_at`, `error` |
+
+Header representation is `dynamic/1`; target, entry, budget and binding
+configuration are pinned in the program, not duplicated in the header.
+Workspace is canonical; runtime/interpreter identities retain their existing
+owners. State status is running/completed/failed; interruption is a read-time
+liveness projection. Result/error/current fields are always present and null
+when absent. A successful native terminal result may be scalar or null.
+
+Rows have contiguous positive invocation ordinals, checked definition/expression
+locations and command/provider classes. Their running/completed/failed status,
+timestamps and paths must agree: command prompt paths and absent errors or
+unfinished timestamps are null. Paths are run-relative under the prescribed
+`effects/<ordinal>/attempt-1` directory. `current_effect` is the final running
+row's ordinal or null; multiple/nonfinal running rows refuse. Steps lie in
+`0..budget`. Unknown keys, inconsistent identity/digests/source references and
+invalid paths refuse. Completed state has only completed rows, a schema-valid
+result and no error. Failed state has an error and no result; an effect failure
+settles its row first, while pure failure may follow completed rows.
+
+Public inputs bind before run allocation. Under workspace/writer locks, the
+writer durably publishes program/header and initial state before evaluation.
+For an invocation it checks inputs/evidence, atomically records the running
+row, exclusively allocates its attempt directory, dispatches once, validates
+one captured result snapshot and required files, then atomically settles the
+row and terminal state when appropriate. State-write/allocation failure stops
+later dispatch; collisions and orphan bundles are never adopted. Earlier
+completed rows/files and possible partial external outputs remain evidence.
+Fresh invocation means a new run ID and budget and may repeat all that work.
+
+Readers validate immutable pins and an atomic state snapshot without source
+recompilation or writes. Running plus absent writer projects interrupted;
+valid completed/failed records remain terminal. Missing/corrupt state is
+`dynamic_state_invalid` and is not rebuilt from logs, bundles or evaluation.
+Reports show ordered reached invocations and `resumable: false`; no future
+execution graph or legacy heartbeat is fabricated. Resume/invalidation refuse
+read-only. This authority does not change typed memo/recovery or legacy schema
+2.1. Architecture and diagnostics are in [proposal §9.7–9.8](../docs/design/workflow_lisp_dynamic_core_proposal.md#97-fresh-run-authority-and-read-only-inspection).
+
+## Legacy authority
 
 - Legacy state file schema (authoritative record for schema 2.1)
   - `schema_version: "2.1"`

@@ -222,6 +222,17 @@ Execute source/module/build work as sub-batch A, review it, then wire public com
 
 ## Task 9: Q1–Q5 Evidence, Compatibility And DC-P Handoff
 
+The reviewed Tasks1–8 unit is integrated. Durable contracts are in
+[Versioning](../../specs/versioning.md#branch-qualified-target-30),
+[CLI](../../specs/cli.md#dynamic-execution), [State](../../specs/state.md#dynamic-fresh-run-authority),
+[IO](../../specs/io.md#dynamic-boundary-io) and
+[Providers](../../specs/providers.md#dynamic-composed-provider-boundary);
+[actual authoring examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+include complete source and staging prerequisites. This documentation revision
+does not check off independent readiness/doc review or full Q1–Q5. Remaining
+process-kill, faults/races, retained-profile evidence and DC-P handoff belong
+to the unchecked items below.
+
 **Role/artifact:** Coordinator / final integration; Revision / documentation and reports; independent Review / readiness. **Dependency:** integrated Tasks 1–8. No paid calls or application migration are part of this task.
 
 **Files:** Existing evaluation report and its plan; Phase 3 [evidence matrix](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#evidence-coverage-matrix). Update `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md`, parent evaluated-execution plan, repetition plan and follow-on roadmap together. On behavior landing, amend applicable `specs/{versioning,cli,state,io,providers}.md`, `docs/design/workflow_lisp_frontend_specification.md`, `docs/lisp_workflow_drafting_guide.md`, and the experiment README to distinguish branch-qualified profile from adopted/default availability. Do not globally rewrite typed contracts.

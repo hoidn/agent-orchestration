@@ -84,6 +84,9 @@ parity merely because an `.orc` version compiles.
 
 ## Editor Diagnostics And Navigation
 
+The editor contract below is qualified for the retained typed frontend; the
+dynamic CLI examples do not establish language-server support.
+
 The optional Workflow Lisp language server v1 is implemented for practical
 `.orc` authoring feedback. Install the `[lsp]` extra, launch
 `python -m orchestrator.lsp`, and configure exactly one canonical workspace
@@ -128,7 +131,7 @@ Unsaved-buffer analysis, multi-diagnostic recovery, hover, broader
 incrementality, type-directed completion, and the other P1–P5 prerequisites
 remain deferred rather than approximated.
 
-Before copying a checked-in `.orc` example or fixture, check
+For retained typed compiler-route examples and fixtures, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide
 the copy-safety and route/readiness classification: `wcc_default` is current
 WCC/schema-2 evidence, `legacy_schema1_compat` is compatibility evidence,
@@ -173,7 +176,7 @@ Migration promotion checklist:
 
 The manifest-driven parity generator is retired. Preserved per-target JSON and
 Markdown reports remain immutable historical evidence, not current route
-authority. For current claims, validate
+authority. For retained typed compiler-route claims, validate
 `docs/workflow_lisp_route_readiness_registry.json` and run the direct owner
 compile/runtime/resume tests cited by the selected registry entry.
 
@@ -213,9 +216,11 @@ movement, recovery, and evidence required of a production backlog drain.
 
 ## Core Rule
 
-Author narrow public workflow boundaries over typed procedures and structured
-results. Workflows own public run/resume/invocation/publication identity;
-procedures are the normal internal reuse unit.
+Author narrow public workflow boundaries over structured results. Typed
+composition uses typed procedures for internal reuse; the branch-qualified
+dynamic profile uses ordinary helpers/captures. Workflows own each profile's
+public invocation/publication identity; recovery exists only where that profile
+admits it.
 
 Do not author brittle gates, pointer plumbing, report parsers, candidate-path
 selectors, or manual state-file choreography.
@@ -390,7 +395,8 @@ Use these labels in docs and examples when needed:
 | Future | Intended direction, not yet available |
 | Legacy | Compatibility-only; avoid in new workflows |
 
-The currently implemented authoring surface includes:
+The implemented typed authoring surface (targets through 2.35, within each
+target's admitted effect subset) includes:
 
 - `defenum`
 - `defpath`
@@ -476,7 +482,7 @@ Current component-contract boundaries:
 - Core statement-family identity comes from the current shared Core AST
   taxonomy, not from ad hoc frontend-only statement names.
 
-Designed or future, but not current authoring:
+Designed or future for the retained typed profiles:
 
 - runtime first-class procedures or closures
 - provider-selected or command-produced procedure values
@@ -488,10 +494,12 @@ Designed or future, but not current authoring:
   runtime-native transition contract
 - generic `defworkflow` headers or type-parameterized workflow entrypoints
 
-Runtime closures remain future runtime-owned callable values. Current work only
-proves disabled-profile rejection and source-map diagnostics. Do not author
-runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
-state.
+Choose the execution profile explicitly. Typed targets retain compile-time
+ProcRef composition. The [branch-qualified dynamic route](#2b-dynamic-composition-on-the-qualified-branch)
+admits ordinary internal functions/captures, while recursively refusing function
+values at public data/result boundaries. Provider/command-produced executable
+capabilities and serialized callable outputs remain unsupported in every route;
+dynamic progress state does not checkpoint closures.
 
 Native returns and typed guidance are landed: a `.orc` source declaring
 `(:target-dsl "2.15")` may
@@ -571,7 +579,9 @@ The [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-pl
 and [public CLI tests](../tests/test_workflow_evaluated_cli.py) distinguish the
 bounded runtime from complete release qualification. The
 [dynamic-core evaluation](plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-is a separate prospective route; its examples are not current syntax.
+has a separate branch-qualified target-3.0 route, described in
+[dynamic composition](#2b-dynamic-composition-on-the-qualified-branch). Its fresh-run
+contract and readiness limits differ from typed execution.
 
 The following shape table and `guide_shapes` walkthrough apply to targets
 **2.33 and 2.34**. Run the program from the repository root; on that legacy route
@@ -1114,6 +1124,159 @@ the call; rename the later binding:
 
 It returns 7.
 
+## 2B. Dynamic Composition On The Qualified Branch
+
+Explicit target 3.0 is available on the qualified development branch. It
+composes ordinary functions and immutable captures inside one sequential fresh
+run, while retaining strict declared external boundaries. It is not the default
+or an adoption/migration decision. [Versioning](../specs/versioning.md#branch-qualified-target-30)
+owns the bounded profile; the [readiness plan](plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
+owns remaining qualification.
+
+### Direct closure example
+
+Use Python 3.11+, the editable development installation in [README](../README.md#install),
+and its activated environment. Start this complete sequence at the repository
+root; python on PATH must be that environment's interpreter. It creates a
+separate temporary workspace and needs no command manifest, probes or provider
+credentials. The ordinary helper captures offset 2; the strict Int entry returns
+5 for input 3. Compile and dry-run do not execute its body; run allocates a fresh
+root; report exposes the native result and resumable:false.
+
+```sh
+set -eu
+guide_repo="$PWD"
+guide_workspace="$(mktemp -d)"
+export PYTHONPATH="$guide_repo${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+cd "$guide_workspace"
+mkdir -p demo
+cat > demo/main.orc <<'ORC'
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "3.0")
+  (:budget 100)
+  (defmodule demo/main)
+  (export main)
+  (define (add-offset offset)
+    (fn (value) (+ value offset)))
+  (defworkflow main ((n Int :default 3)) -> Int
+    (let* ((add (add-offset 2)))
+      (add n))))
+ORC
+python -B -m orchestrator compile demo/main.orc --diagnostics-json > compile.json
+python -B -m orchestrator run demo/main.orc --dry-run > dry-run.txt
+test ! -d .orchestrate/runs
+python -B -m orchestrator run demo/main.orc --input n=3 > run.txt
+for guide_run_root in .orchestrate/runs/*; do
+  python -B -m orchestrator report --run-id "${guide_run_root##*/}" --format json > report.json
+done
+python -c 'import json; from pathlib import Path; report=json.loads(Path("report.json").read_text()); assert report["run"]["workflow_outputs"] == 5; assert report["run"]["resumable"] is False; assert report["steps"] == []'
+printf 'Workspace: %s\n' "$guide_workspace"
+cat report.json
+```
+
+### Complete imported improvement consumer
+
+This is the complete [maintained consumer](../tests/fixtures/workflow_lisp/dynamic/improve.orc),
+using the actual [std/dynamic/improve library](../orchestrator/workflow_lisp/stdlib_modules/std/dynamic/improve.orc).
+It is a boundary-contract example; its checked-in path alone is not a standalone
+launch.
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "3.0")
+  (:budget 1000)
+  (defmodule dynamic_consumer/improve)
+  (import std/improve :only (Decision Improvement))
+  (import std/dynamic/improve :as dynamic :only (improve))
+  (import dynamic_consumer/types :only (Draft Feedback Blocker))
+  (export run)
+
+  (define (review-for goal rubric)
+    (fn (current)
+      (command-result probe_review
+        :argv ("python" "probe_review.py" (field current "title") goal rubric)
+        :returns Decision[Feedback Blocker])))
+
+  (define (revise-for goal)
+    (fn (current feedback)
+      (command-result probe_revise
+        :argv ("python" "probe_revise.py" (field current "title") goal (field feedback "note"))
+        :returns Draft)))
+
+  (defworkflow run
+    ((seed String :default "draft") (goal String :default "tidy")
+     (rubric String :default "clear") (limit Int :default 3))
+    -> Improvement[Draft Feedback Blocker]
+    (let* ((initial (record (title seed) (score 0))))
+      (improve initial (review-for goal rubric) (revise-for goal) limit))))
+```
+
+The dynamic helper takes four ordinary arguments: initial, review, revise and
+limit. Review captures goal/rubric separately; revision captures only goal.
+Local records/helpers are internal untyped values. Workflow inputs/defaults and
+Improvement results, plus command Decision/Draft results, retain canonical
+strict schemas. Useful old-target declarations import without linking their
+typed executable bodies. The typed [std/improve API](#137-improve) still takes
+five arguments, including separate inputs; its early checks/recovery remain.
+
+Nonpositive limits fail before hooks. APPROVE/BLOCKED return the current draft;
+REVISE calls revision; reaching the limit returns EXHAUSTED without another
+review. Reached arity/field/operation or malformed-boundary failures can occur
+after successful effects. There is one entry budget across imported bodies,
+strict Bool conditions, zero retries and stop-on-error. A corrected fresh run
+can repeat all prior calls and external writes. Resume/invalidation refuse;
+no checkpoint or orphan result is adopted. Parallel/child/trial/resource/view/
+host-input effects, sessions/context/phased/live providers and versioned
+consumes/publishes are outside this profile.
+
+### Reproduce the complete local consumers
+
+These existing qualification selectors stage every prerequisite and exercise
+real public owners; no test-internal setup import or new launcher is needed:
+
+```sh
+pytest -q \
+  tests/test_workflow_dynamic_improve.py::test_public_compile_run_and_source_free_consumer_report \
+  tests/test_workflow_dynamic_search.py::test_US02_real_local_leaves_reproduce_the_ten_evaluation_trace
+```
+
+Improvement stages dynamic_consumer/improve.orc and types.orc (the latter copied
+from consumer_types.orc), plus local probe_review.py/probe_revise.py from
+[the maintained probes](../tests/workflow_lisp_improve_stdlib_sources.py).
+Its commands.json declares external-tool stable commands [python, probe_review.py]
+and [python, probe_revise.py] with explicit empty closures. The smoke sets
+DYNAMIC_IMPROVE_EVENT_LOG to workspace hook-events.jsonl, PYTHONPATH to the
+repository and PYTHONDONTWRITEBYTECODE to 1; its subprocess CLI uses the current
+interpreter with -B. Probes write the runtime-bound output bundle; stdout is
+observation. The smoke verifies compile, no-dispatch dry-run, BLOCKED after
+review/revise/review, then source-free read-only report with unchanged run bytes.
+Source-free reporting does not mean recompiling removed source.
+
+The complete [native search source](../tests/fixtures/workflow_lisp/dynamic/search.orc)
+uses the same staged type module, the maintained
+[local leaves](../experiments/mlevolve_pair/leaves.py) with request logging and
+[compact manifest](../experiments/mlevolve_pair/commands_compact.json) with
+signature-owned certified inputs and explicit staged leaves.py closures.
+It writes inputs.json (max_evaluations 12, target_score 0.0), logs requests to
+calls.jsonl beside the leaves and compares full native SearchResult plus ordered
+requests with the retained Python reference: ten evaluations. It needs no
+improvement event-log environment variable or scripted answers. The maintained
+typed search_compact.orc application is unchanged.
+
+Source-root/module layout and provider/prompt/command bindings remain explicit.
+External command documents require record :input-type whenever :inputs is
+supplied, including empty inputs; certified adapters derive their schemas from
+signatures. Prompt doc/path fills require defpath refinements and retain their
+module owner. Shared permission/path/snapshot/root-output checks precede result
+publication. Inspect closed_program.json, immutable run.json and authoritative
+state.json under the new run root; no memo exists. See
+[CLI](../specs/cli.md#dynamic-execution), [IO](../specs/io.md#dynamic-boundary-io),
+[Providers](../specs/providers.md#dynamic-composed-provider-boundary) and
+[State](../specs/state.md#dynamic-fresh-run-authority) for exact contracts.
+
 ## 3. Semantic Authority Rules
 
 These rules apply across `.orc`, generated Core AST, the JSON-rendered
@@ -1299,6 +1462,10 @@ Use the smallest unit that represents the behavior truthfully.
 | Select/run/gap/repeat | `backlog-drain` | Hand-authored drain loop |
 
 ## 5. Types First
+
+This section describes typed composition and declared boundary schemas. The
+[dynamic profile](#2b-dynamic-composition-on-the-qualified-branch) keeps those
+boundaries strict while leaving ordinary helper values untyped.
 
 Start every workflow family by defining the values it moves across boundaries.
 
@@ -3105,6 +3272,10 @@ backlog-drain authoring.
 
 ### 13.7 `improve`
 
+This is the retained typed five-argument API. For target 3.0, use the distinct
+four-argument std/dynamic/improve [consumer and setup](#complete-imported-improvement-consumer);
+it reuses the domain declarations without substituting this typed helper body.
+
 At target 2.33, `improve` from `std/improve` runs a bounded review/revise loop
 and returns `Improvement[S F B]`. `S` is the type of the candidate being
 revised, a record. `F` is the review's feedback type, and `B` is its blocker
@@ -3314,6 +3485,10 @@ visible:
 
 ## 16. Reuse And Modularity
 
+ProcRef rules below apply to typed composition. Ordinary runtime functions are
+internal values only in the [dynamic profile](#2b-dynamic-composition-on-the-qualified-branch),
+with strict public data boundaries and no serialized closures.
+
 Prefer narrow public workflows over reusable procedures and pure helpers rather
 than one-off monoliths.
 
@@ -3454,6 +3629,11 @@ a list only when its element type is recursively renderer-admitted. Traversal
 itself does not grant prompt visibility.
 
 ## 18. Effects
+
+The effect declarations/inference below describe typed targets. The bounded
+[dynamic profile](#2b-dynamic-composition-on-the-qualified-branch) uses shared
+performers and strict schemas without static effect proofs, and refuses its
+excluded effect forms even in unreachable bodies.
 
 Procedural abstraction must not hide effects.
 
