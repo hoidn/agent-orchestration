@@ -1,12 +1,13 @@
 """Public dynamic readers preserve authoritative native results without writes.
 
-Effect fixtures use the local state owner only; real dispatch belongs to Task 8.
+Local state fixtures cover shapes; Task9 extensions inspect real killed public processes.
 """
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import signal
 import time
 
 import pytest
@@ -27,6 +28,10 @@ from tests.test_workflow_evaluated_watchdog_watcher import _start
 from tests.test_watch_workflow_usage_limit import watcher
 from tests.test_monitor_cli import _write_config
 from tests.test_run_lock import _subprocess_writer
+from tests.test_workflow_dynamic_interruptions import (
+    _events, _kill_known_processes, _live_cli, _run_root, _state,
+    _tree_snapshot, _wait_file, _write_case,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -346,3 +351,198 @@ def test_watcher_discovery_refuses_named_target_error_before_unrelated_legacy_ro
     assert result.stdout.strip() == '1|target'
     assert 'memo_inconsistent' in result.stderr
     assert tree(T) == before
+
+
+def _killed_public_root(target, kind, barrier):
+    case = _write_case(target, kind, two_effects=True)
+    control = target / '.reader-kill-control'
+    with _live_cli(case, control, barrier=barrier) as process:
+        _wait_file(process, control / 'gate.json')
+        root = _run_root(case)
+        _kill_known_processes(process, control)
+        assert process.returncode == -signal.SIGKILL
+    case['source'].unlink()
+    return root, control
+
+
+@pytest.mark.parametrize('kind', ['command', 'provider'])
+@pytest.mark.parametrize('barrier', ['before_row', 'before_terminal'])
+def test_public_readers_inspect_actual_killed_source_free_root_without_actions(tmp_path, kind, barrier):
+    target, workspace = tmp_path / 'T', tmp_path / 'W'
+    root, control = _killed_public_root(target, kind, barrier)
+    workspace.mkdir()
+    before, calls = _tree_snapshot(root), _events(control)
+    target_before = tree(target)
+    stored = _state(root)
+    assert stored['status'] == 'running'
+    expected_statuses = ['running'] if barrier == 'before_row' else ['completed', 'completed']
+    assert [row['status'] for row in stored['effects']] == expected_statuses
+    report = cli(target, 'report', '--run-id', root.name, '--format', 'json')
+    assert report.returncode == 0, report.stderr
+    payload = json.loads(report.stdout)
+    assert payload['run']['status'] == 'interrupted'
+    assert payload['run']['workflow_outputs'] is None and payload['run']['resumable'] is False
+    assert [row['status'] for row in payload['steps']] == expected_statuses
+    assert [row['ordinal'] for row in payload['steps']] == list(range(1, len(expected_statuses) + 1))
+    assert all(row['location'] and row['result_path'] for row in payload['steps'])
+    scanned = record(target)
+    detail = RunProjector().project_detail(scanned)
+    assert detail.row.display_status == 'interrupted' and detail.workflow_outputs is None
+    assert detail.workflow_structure is None and detail.bound_inputs == payload['run']['bound_inputs']
+    assert len(detail.steps) == len(stored['effects'])
+    commands = CommandBuilder().build(scanned)
+    assert commands.report is not None and commands.resume is None
+    app = DashboardApp(RunScanner([target]))
+    assert root.name in app.handle('GET', '/runs').body.decode()
+    response = app.handle('GET', f'/runs/w0/{root.name}')
+    assert response.status == 200
+    for step in detail.steps:
+        for reference in step.file_refs.values():
+            response = app.handle('GET', f'/runs/w0/{root.name}/files/run/{reference.route_path}')
+            assert response.status == 200
+    event = classify_run(_scan(target), stale_after_seconds=0)
+    assert event.kind is MonitorEventKind.CRASHED
+    assert event.run.state['workflow_outputs'] is None and event.run.state['resumable'] is False
+    config = _write_config(workspace, target)
+    ledger = workspace / 'notifications.json'
+    monitor = cli(target, 'monitor', '--config', config, '--once', '--dry-run', '--ledger', ledger)
+    assert monitor.returncode == 0, monitor.stderr
+    assert not ledger.exists() and 'orchestrator resume' not in monitor.stdout
+    watch, evidence = _probe(workspace, root)
+    assert watch['watch_status'] == 'CRASHED' and watch['recommended_recovery'] == 'INVESTIGATE'
+    assert watch['resumable'] is evidence['resumable'] is False
+    assert _tree_snapshot(root) == before and tree(target) == target_before
+    assert _events(control) == calls
+
+
+@pytest.mark.parametrize('kind', ['command', 'provider'])
+def test_controlled_watcher_refuses_recovery_of_actual_killed_prefix(watcher, kind):
+    root, control = _killed_public_root(watcher.workspace, kind, 'second_dispatch')
+    assert [row['status'] for row in _state(root)['effects']] == ['completed', 'running']
+    counter = watcher.log.parent / 'probe-calls'
+    probe = watcher.log.parent / 'stand-ins/claude'
+    probe.write_text(f'#!/bin/sh\necho probe >> {counter}\necho OK\n')
+    before, calls = _tree_snapshot(root), _events(control)
+    target_before, pane = tree(watcher.workspace), watcher.capture()
+    process = _start(watcher, RUN_ID=root.name)
+    process.wait(timeout=15)
+    text = watcher.log.read_text()
+    assert 'resumable=false' in text
+    assert watcher.calls() == [] and not counter.exists()
+    assert 'interrupting' not in text and 'requeued' not in text and 'relaunching' not in text
+    assert watcher.capture() == pane and tree(watcher.workspace) == target_before
+    assert _guard_loaded(process.reader_guard, '-')
+    assert _tree_snapshot(root) == before and _events(control) == calls
+
+
+@pytest.mark.parametrize('snapshot', ['old', 'new'])
+def test_monitor_reads_real_atomic_terminal_publication_as_one_valid_snapshot(tmp_path, monkeypatch, snapshot):
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    case = _write_case(tmp_path, 'command', two_effects=True)
+    control = tmp_path / '.reader-publication-control'
+    with _live_cli(case, control, barrier='before_terminal') as process:
+        _wait_file(process, control / 'gate.json')
+        root = _run_root(case)
+        stale = _scan(tmp_path)
+        assert stale.state['status'] == 'running'
+        case['source'].unlink()
+        calls = _events(control)
+        read = WorkspaceFiles.read
+        snapshots = []
+        state_reads = []
+
+        def read_during_publication(files, path, **kwargs):
+            if str(path) != 'state.json' or files.workspace != root or snapshots:
+                return read(files, path, **kwargs)
+            state_reads.append(1)
+            if len(state_reads) == 1:
+                # Profile selection validates first; race the monitor snapshot itself.
+                return read(files, path, **kwargs)
+            old = read(files, path, **kwargs) if snapshot == 'old' else None
+            (control / 'release').touch()
+            stdout, stderr = process.communicate(timeout=15)
+            assert process.returncode == 0, (stdout, stderr)
+            snapshots.append(_tree_snapshot(root))
+            return old if snapshot == 'old' else read(files, path, **kwargs)
+
+        monkeypatch.setattr(WorkspaceFiles, 'read', read_during_publication)
+        event = classify_run(stale, stale_after_seconds=0)
+        assert event is not None
+        assert event.kind is (MonitorEventKind.CRASHED if snapshot == 'old' else MonitorEventKind.COMPLETED)
+        assert event.run.state['workflow_outputs'] == (None if snapshot == 'old' else [11, 22])
+        assert _state(root)['status'] == 'completed'
+        assert _tree_snapshot(root) == snapshots[0] and _events(control) == calls
+
+
+def test_profile_race_refuses_mixed_authority_without_stale_completed_output(tmp_path, monkeypatch):
+    from orchestrator.state import StateManager
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+    from orchestrator.workflow.dynamic.state import DynamicStateError
+
+    root = pure_run(tmp_path)
+    stale = _scan(tmp_path)
+    assert stale.state['status'] == 'completed' and stale.state['workflow_outputs'] == 0
+    read = WorkspaceFiles.read
+    changes = []
+
+    def change_after_route_read(files, path, **kwargs):
+        value = read(files, path, **kwargs)
+        if str(path) == 'run.json' and files.workspace == root and not changes:
+            header = json.loads(value)
+            original_pin = header['runtime_pin']
+            header.update(schema_version='3.0', result_persistence_profile='evaluated_execution.v1')
+            files.write_atomic('run.json', json.dumps(header).encode())
+            assert header['runtime_pin'] == original_pin
+            changes.append(_tree_snapshot(root))
+        return value
+
+    monkeypatch.setattr(WorkspaceFiles, 'read', change_after_route_read)
+    assert classify_run(stale, stale_after_seconds=0) is None
+    assert changes and _tree_snapshot(root) == changes[0]
+    with pytest.raises(DynamicStateError):
+        StateManager(tmp_path, root.name).load()
+    scanned = record(tmp_path)
+    assert scanned.state is None and CommandBuilder().build(scanned).resume is None
+    assert _tree_snapshot(root) == changes[0]
+
+
+def test_actual_legacy_evaluated_and_dynamic_roots_keep_distinct_profile_pins(tmp_path):
+    from orchestrator.state import StateManager, select_run_profile
+    from orchestrator.workflow.dynamic.state import DynamicStateError, load_dynamic_view
+    from tests.test_workflow_dynamic_source import write_source
+
+    for target, profile, schema in (('2.34', 'legacy', '2.1'),
+                                    ('2.35', 'evaluated', '3.0'),
+                                    ('3.0', 'dynamic', '3.1')):
+        workspace = tmp_path / target
+        workspace.mkdir()
+        body = '(record (value 17))' if profile == 'dynamic' else '(record Out :value 17)'
+        source = write_source(workspace, 'demo/main',
+            f'(export main) (defrecord Out (value Int)) (defworkflow main () -> Out {body})',
+            target=target, budget=100 if profile == 'dynamic' else None)
+        result = cli(workspace, 'run', source)
+        assert result.returncode == 0, result.stderr
+        root, = (workspace / '.orchestrate/runs').iterdir()
+        authority = root / ('state.json' if profile == 'legacy' else 'run.json')
+        assert json.loads(authority.read_text())['schema_version'] == schema
+        if profile == 'legacy':
+            assert not (root / 'run.json').exists()
+        before = _tree_snapshot(root)
+        assert select_run_profile(root) == profile
+        manager = StateManager(workspace, root.name)
+        try:
+            if profile == 'dynamic':
+                with pytest.raises(DynamicStateError):
+                    manager.load()
+                assert load_dynamic_view(root)['status'] == 'completed'
+            else:
+                state = manager.load()
+                assert state.status == 'completed'
+        finally:
+            manager.close()
+        report = cli(workspace, 'report', '--run-id', root.name, '--format', 'json')
+        assert report.returncode == 0, report.stderr
+        expected = {'return__value': 17} if profile == 'legacy' else {'value': 17}
+        assert json.loads(report.stdout)['run']['workflow_outputs'] == expected
+        assert _tree_snapshot(root) == before
