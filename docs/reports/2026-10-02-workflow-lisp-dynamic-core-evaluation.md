@@ -2147,3 +2147,37 @@ Task 8, atomic cutover, full Q1–Q5 and DC-P remain incomplete. Stable evaluati
 unchanged. Upstream `cee2aba1` / `4acd38ec` scopes await separate qualification;
 this receipt supplies no import PASS. No adoption, migration or live/paid calls
 follow.
+
+
+### Shared Constraint And Drain History Import
+
+`9356c9ab` integrates eight selected files from `cee2aba1` for definition-owned
+constraint references and shared-union tests, plus all nine `4acd38ec`
+[drain/history files](../design/verified_iteration_drain.md). The redundant
+upstream union decoder was excluded; candidate strict Int64/redaction options
+and declaration-selection additions remain. Prepare publishes captured ledger
+bytes without replacing existing history; Work/Review consume that selection,
+with public retry/invalidation evidence.
+
+Ordered local code conformity and quality reviews passed; separate Astra
+design review passed. External upstream receipts remain missing: these local
+reviews qualify selected bytes only, not full Phase 3 tasks or release.
+The aggregate collected **680 in 4.29s**; narrow checks passed **17 in 4.41s**;
+the affected run recorded **679 PASS / 1 inherited FAIL in 125.52s**, exit 1.
+All **595** before/after hashes match committed `9356c9ab`. This is not a
+fully passing suite; overlapping counts are not additive.
+
+`tests/test_workflow_lisp_procedures.py::test_procedure_identity_modes_match_frozen_wcc_m4_observables`
+also fails unchanged on clean `b916c92e`. Identical absolute fixture/workspace
+inputs produce byte-identical complete baseline/candidate observations; only
+three frozen-reference `policy_digest` values differ. Expectations were not
+edited. Proof and exact review/freeze/commands:
+`/dev/shm/orc-dc3-upstream-identity-comparison.json`,
+`/dev/shm/orc-dc3-upstream-4acd38ec-review.md`,
+`/dev/shm/orc-dc3-upstream-drain-design-review.md` and
+`/dev/shm/orc-dc3-upstream-13bd/`.
+
+Fresh fetch retains origin/main `be327102` and shared `4acd38ec`. C2 remains
+reviewed; C3 coverage/reconciliation is in progress, with actual retirement
+conditional on named replacement PASS. Task 9, full Q1–Q5 and DC-P remain
+pending; stable evaluation stays at `3a7f8efd`. No adoption or migration follows.
