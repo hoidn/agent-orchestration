@@ -815,9 +815,27 @@ def _transport_descriptor_from_schema(
         if (
             discriminant.get("name") != "variant"
             or discriminant.get("type") != "enum"
-            or allowed != list(variants)
         ):
             raise ValueError(f"{context} union discriminant is malformed")
+        variant_names = list(variants)
+        if (
+            any(not isinstance(name, str) or not name for name in allowed)
+            or any(not isinstance(name, str) or not name for name in variant_names)
+        ):
+            raise ValueError(f"{context} union variants do not match its discriminant")
+        try:
+            allowed_names = set(allowed)
+            schema_variant_names = set(variant_names)
+        except TypeError as exc:
+            raise ValueError(
+                f"{context} union variants do not match its discriminant"
+            ) from exc
+        if (
+            len(allowed_names) != len(allowed)
+            or len(schema_variant_names) != len(variant_names)
+            or allowed_names != schema_variant_names
+        ):
+            raise ValueError(f"{context} union variants do not match its discriminant")
         descriptor_variants: list[dict[str, Any]] = []
         for variant_name in allowed:
             variant = variants.get(variant_name)

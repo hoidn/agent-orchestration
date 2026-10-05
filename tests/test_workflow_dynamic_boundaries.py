@@ -14,6 +14,7 @@ from orchestrator.contracts.output_contract import (
 )
 from orchestrator.workflow.type_descriptor import (
     transport_descriptor_for_schema,
+    transport_schema_for_descriptor,
     validate_transport_value,
 )
 from orchestrator.workflow_lisp.compiler import (
@@ -234,6 +235,56 @@ def test_applied_union_accepts_only_active_variant_shape(
     ):
         with pytest.raises(OutputContractError):
             _bundle_value(contract, invalid, tmp_path)
+
+
+def test_union_schema_canonical_json_roundtrip_preserves_declared_variant_order():
+    descriptor = _nonalphabetical_union_descriptor()
+
+    schema = transport_schema_for_descriptor(
+        descriptor,
+        allow_nested_structures=True,
+    )
+    canonical_schema = json.loads(json.dumps(schema, sort_keys=True))
+
+    assert canonical_schema["discriminant"]["allowed"] == [
+        "REVISE", "APPROVE", "BLOCKED",
+    ]
+    assert list(canonical_schema["variants"]) == ["APPROVE", "BLOCKED", "REVISE"]
+    assert transport_descriptor_for_schema(canonical_schema) == descriptor
+
+
+def _nonalphabetical_union_descriptor():
+    string = {"kind": "primitive", "name": "String"}
+    return {
+        "kind": "union",
+        "name": "WorkflowDecision",
+        "variants": [
+            {"name": "REVISE", "fields": [{"name": "draft", "type": string}]},
+            {"name": "APPROVE", "fields": [{"name": "feedback", "type": string}]},
+            {"name": "BLOCKED", "fields": [{"name": "reason", "type": string}]},
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "allowed",
+    [
+        pytest.param(["REVISE", "REVISE", "BLOCKED"], id="duplicate"),
+        pytest.param(["REVISE", "APPROVE"], id="missing"),
+        pytest.param(["REVISE", "APPROVE", "BLOCKED", "OTHER"], id="extra"),
+        pytest.param(["REVISE", 7, "BLOCKED"], id="non-string"),
+        pytest.param(["REVISE", ["APPROVE"], "BLOCKED"], id="unhashable"),
+    ],
+)
+def test_union_schema_rejects_malformed_discriminant_variants(allowed):
+    schema = transport_schema_for_descriptor(
+        _nonalphabetical_union_descriptor(),
+        allow_nested_structures=True,
+    )
+    schema["discriminant"]["allowed"] = allowed
+
+    with pytest.raises(ValueError):
+        transport_descriptor_for_schema(schema)
 
 
 @pytest.mark.parametrize(
