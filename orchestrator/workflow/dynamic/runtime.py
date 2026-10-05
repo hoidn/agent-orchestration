@@ -9,6 +9,8 @@ from pathlib import Path
 
 from orchestrator.contracts.output_contract import OutputContractError
 from orchestrator.prompt_scaffold_fs import open_root_creating
+from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.run_lock import reserved_run_writer_lock, run_root_matches_fd, workspace_run_lock
 from orchestrator.state import StateManager
 from orchestrator.variables.substitution import render_variable_value
@@ -18,13 +20,20 @@ from orchestrator.workflow.evaluated.commands import (
     CommandTemplateError,
     _command_document_argv,
     perform_command,
+    workspace_relative_path,
 )
 from orchestrator.workflow.evaluated.inputs import DocumentInputError, _prepare_command_document_fields
 from orchestrator.workflow.evaluated.interpreters import InterpreterError, check_command_interpreter
+from orchestrator.workflow.evaluated.providers import (
+    ProviderPerformerError,
+    _resolve_provider_input_values,
+    perform_provider,
+)
 from orchestrator.workflow.evaluated.values import _thaw
 from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow_lisp.dynamic.program import _pointer
+from orchestrator.workflow_lisp.closed.frontend import WorkflowIOReader
 from .evaluator import _error, evaluate
 from .state import effect_paths, error_payload, publish_dynamic_run
 
@@ -61,6 +70,31 @@ def _safe_command_error(
         program,
         error_code,
         'dynamic command invocation failed',
+        pointer,
+        context,
+        steps,
+        **details,
+    )
+
+
+def _safe_provider_error(
+    program, exc, *, pointer, code, context, steps, ordinal=None, node=None,
+):
+    error_code = getattr(exc, 'code', None)
+    if type(error_code) is not str or not error_code:
+        error_code = 'dynamic_provider_result_invalid' if isinstance(exc, OutputContractError) else 'dynamic_provider_failed'
+    details = {}
+    violations = getattr(exc, 'violations', None)
+    if isinstance(violations, list):
+        details['violation_kinds'] = _violation_kinds(violations)
+    if error_code in {'provider_result_invalid', 'provider_result_contract', 'dynamic_provider_result_invalid'} and node is not None:
+        details['expected_contract'] = _thaw(node['result'])
+    if ordinal is not None:
+        details['effect_ordinal'] = ordinal
+    return _error(
+        program,
+        error_code,
+        'dynamic provider invocation failed',
         pointer,
         context,
         steps,
@@ -199,6 +233,82 @@ def _perform_dynamic_command(run, program, node, operands, *, pointer, code, con
     return value
 
 
+def _perform_dynamic_provider(
+    run, built, program, node, operands, *, pointer, code, context, steps,
+    workspace_files, executor,
+):
+    owner = program.definitions[code]['owner']['module']
+    try:
+        provider_bindings = program.bindings[owner]['configuration']['providers']
+        provider_binding = provider_bindings.get(node['provider'])
+        if provider_binding is None:
+            provider_binding = next(
+                (
+                    row for row in provider_bindings.values()
+                    if row['provider_id'] == node['provider']
+                ),
+                None,
+            )
+        if provider_binding is None:
+            raise ValueError('checked dynamic provider binding is unavailable')
+        native_node = _thaw(node)
+        native_node['provider'] = provider_binding['provider_id']
+        # Null is admitted by the dynamic artifact reader; the shared typed
+        # helper's historical contract uses an empty policy mapping.
+        native_node['policy'] = native_node['policy'] or {}
+        prompt_module = native_node['prompt_owner']['module']
+        reader_path = built.source_paths[prompt_module]
+        reader = WorkflowIOReader(Path(reader_path), source_paths=built.source_paths)
+        ordinal = len(run.state['effects']) + 1
+        result_path = workspace_relative_path(
+            workspace_files.workspace,
+            run.files.workspace / effect_paths(ordinal, 'provider')['result_path'],
+        )
+        resolved = _resolve_provider_input_values(
+            native_node,
+            operands,
+            workspace=workspace_files.workspace,
+            reader=reader,
+            result_path=result_path,
+        )
+    except Exception as exc:
+        raise _safe_provider_error(
+            program, exc, pointer=pointer, code=code, context=context, steps=steps,
+            node=node,
+        ) from None
+
+    row = run.start_effect(code, pointer, 'provider', steps=steps)
+    attempt_files = run.active_attempt_files
+    try:
+        if not run_root_matches_fd(run.files.workspace, run.files.root_fd):
+            raise ProviderPerformerError('dynamic_state_invalid', 'dynamic run root changed')
+        if not run_root_matches_fd(attempt_files.workspace, attempt_files.root_fd):
+            raise ProviderPerformerError('dynamic_state_invalid', 'dynamic effect attempt changed')
+        value, _digest = perform_provider(
+            native_node,
+            resolved,
+            f"{run.header['run_id']}:{code}:{pointer}:{row['ordinal']}",
+            executor=executor,
+            attempt_files=attempt_files,
+            workspace_files=workspace_files,
+            result_path=result_path,
+            native_result=True,
+        )
+        if not run_root_matches_fd(run.files.workspace, run.files.root_fd):
+            raise ProviderPerformerError('dynamic_state_invalid', 'dynamic run root changed')
+        if not run_root_matches_fd(attempt_files.workspace, attempt_files.root_fd):
+            raise ProviderPerformerError('dynamic_state_invalid', 'dynamic effect attempt changed')
+    except Exception as exc:
+        error = _safe_provider_error(
+            program, exc, pointer=pointer, code=code, context=context,
+            steps=steps, ordinal=row['ordinal'], node=node,
+        )
+        run.finish_effect(steps=steps, error=error_payload(error))
+        raise error from None
+    run.finish_effect(steps=steps)
+    return value
+
+
 def execute_dynamic_run(built, inputs, *, workspace, workflow_path, state_dir=None):
     """Publish captured checked authority before source-free pure evaluation."""
     run_id = StateManager.new_run_id()
@@ -220,6 +330,29 @@ def execute_dynamic_run(built, inputs, *, workspace, workflow_path, state_dir=No
             owners.callback(run.close)
             workspace_files = WorkspaceFiles(workspace)
             owners.callback(workspace_files.close)
+            provider_executor = None
+
+            def provider_effect(program, node, operands, **details):
+                nonlocal provider_executor
+                if provider_executor is None:
+                    try:
+                        provider_executor = ProviderExecutor(
+                            workspace,
+                            ProviderRegistry(),
+                            provider_observation_enabled=False,
+                        )
+                    except Exception as exc:
+                        raise _safe_provider_error(
+                            program, exc, pointer=details['pointer'],
+                            code=details['code'], context=details['context'],
+                            steps=details['steps'], node=node,
+                        ) from None
+                return _perform_dynamic_provider(
+                    run, built, program, node, operands,
+                    executor=provider_executor,
+                    **details,
+                )
+
             try:
                 result = evaluate(
                     run.program,
@@ -228,6 +361,7 @@ def execute_dynamic_run(built, inputs, *, workspace, workflow_path, state_dir=No
                     command_effect=lambda program, node, operands, **details: _perform_dynamic_command(
                         run, program, node, operands, **details,
                     ),
+                    provider_effect=provider_effect,
                 )
             except ValueError as exc:
                 steps = getattr(exc, 'metadata', {}).get('steps', run.state['steps_used'])

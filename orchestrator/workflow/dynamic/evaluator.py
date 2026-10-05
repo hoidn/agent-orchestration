@@ -169,6 +169,49 @@ def _boundary_value(
     return _freeze(normalized)
 
 
+def _provider_operand_values(
+    program: DynamicProgram,
+    node: Mapping[str, Any],
+    operands: list[Any],
+    child_pointers: tuple[str, ...],
+    *,
+    pointer: str,
+    context: _Activation,
+    steps: int,
+    workspace_files: WorkspaceFiles | None,
+) -> list[Any]:
+    """Check provider fills and policy values using only their declarations."""
+    descriptors = [_VALUE] * len(node["inputs"])
+    descriptors.extend(fill["type"] for fill in node["prompt"].get("fills", ()))
+    dependencies = node.get("dependencies") or {}
+    descriptors.extend(
+        _VALUE for role in ("required", "optional")
+        for _ in dependencies.get(role, ())
+    )
+    policy = node.get("policy") or {}
+    descriptors.extend(
+        _STRING if name in {"model", "effort", "delivery"} else _INT
+        for name in sorted(policy)
+    )
+    if len(descriptors) != len(operands) or len(child_pointers) != len(operands):
+        raise _error(
+            program,
+            "dynamic_effect_input_invalid",
+            "provider operands do not match the checked effect",
+            pointer,
+            context,
+            steps,
+        )
+    return [
+        _boundary_value(
+            program, value, descriptor, child_pointer, context, steps, workspace_files,
+        )
+        for value, descriptor, child_pointer in zip(
+            operands, descriptors, child_pointers, strict=True,
+        )
+    ]
+
+
 def _definition_pointer(code: str) -> str:
     return _pointer("/definitions", code)
 
@@ -280,6 +323,7 @@ def evaluate(
     *,
     workspace_files: WorkspaceFiles | None = None,
     command_effect=None,
+    provider_effect=None,
 ) -> EvaluationResult:
     """Evaluate one checked entry using the caller's optional workspace owner."""
 
@@ -395,7 +439,8 @@ def evaluate(
                 tasks.append(("record_update_base_done", node, env, pointer, code, context))
                 tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
             elif kind == "perform":
-                if node["class"] != "command" or command_effect is None:
+                effect_callback = command_effect if node["class"] == "command" else provider_effect
+                if effect_callback is None:
                     raise _error(
                         program,
                         "dynamic_effect_unsupported",
@@ -537,17 +582,29 @@ def evaluate(
         if action == "perform_done":
             _, node, child_pointers, code, pointer, context = task
             operands = _pop_values(values, len(child_pointers))
-            # External argv is an untyped value lane. Check it as ordinary JSON
-            # before handing it to the shared renderer; closures never cross it.
-            for index in range(len(node["argv"])):
-                operands[index] = _boundary_value(
-                    program, operands[index], _VALUE, child_pointers[index],
-                    context, steps, workspace_files,
+            if node["class"] == "command":
+                # External argv is an untyped value lane. Check it as ordinary
+                # JSON before handing it to the shared renderer.
+                for index in range(len(node["argv"])):
+                    operands[index] = _boundary_value(
+                        program, operands[index], _VALUE, child_pointers[index],
+                        context, steps, workspace_files,
+                    )
+                value = command_effect(
+                    program, node, operands, pointer=pointer, code=code,
+                    context=context, steps=steps, workspace_files=workspace_files,
                 )
-            value = command_effect(
-                program, node, operands, pointer=pointer, code=code,
-                context=context, steps=steps, workspace_files=workspace_files,
-            )
+            else:
+                checked = _provider_operand_values(
+                    program, node, operands, child_pointers,
+                    pointer=pointer, context=context, steps=steps,
+                    workspace_files=workspace_files,
+                )
+                value = provider_effect(
+                    program, node, [_thaw(item) for item in checked],
+                    pointer=pointer, code=code, context=context, steps=steps,
+                    workspace_files=workspace_files,
+                )
             values.append(_freeze(value))
             continue
 
