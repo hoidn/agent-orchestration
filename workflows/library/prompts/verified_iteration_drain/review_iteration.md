@@ -1,7 +1,8 @@
 Review one iteration of work toward the consumed target design.
 
 Read the consumed review package (commit list and diff), the target design,
-and the ledger.
+and the ledger history selected for this iteration (the read-only copy named by
+`ledger_input_path` in the consumed work order).
 
 Approve only if the diff is correct, conforms to the target design, and does
 not weaken verification: deleted or loosened checks and tests require

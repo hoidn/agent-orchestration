@@ -23,7 +23,8 @@
   (defrecord PrepareResult
     (base_sha String)
     (work_order_path ProducedStatePath)
-    (ledger_path LedgerPath))
+    (ledger_path LedgerPath)
+    (ledger_input_path LedgerPath))
   (defrecord ChecksResult
     (verify_status VerifyStatus)
     (commits_landed Bool)
@@ -274,7 +275,7 @@
                             :effort worker_effort
                             :work_order_path prepared.work_order_path
                             :target_design_path target_design_path
-                            :ledger_path prepared.ledger_path))
+                            :ledger_path prepared.ledger_input_path))
                         (checks
                           (command-result run_verified_iteration_checks
                             :argv ("python"
@@ -294,7 +295,7 @@
                             :work_order_path prepared.work_order_path
                             :review_package_path checks.review_package_path
                             :target_design_path target_design_path
-                            :ledger_path prepared.ledger_path))
+                            :ledger_path prepared.ledger_input_path))
                         (done-review-decision
                           (call invoke-done-review
                             :provider_choice reviewer_provider

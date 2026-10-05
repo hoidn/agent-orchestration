@@ -1,9 +1,10 @@
 You are executing one iteration of an autonomous drain toward the consumed
 target design.
 
-Read the consumed work order, the target design, the ledger, any notes in the
-blocked-notes directory, and the previous review findings or failing check
-log when the work order names them.
+Read the consumed work order, the target design, the ledger history selected
+for this iteration (the read-only copy named by `ledger_input_path`), any notes
+in the blocked-notes directory, and the previous review findings or failing
+check log when the work order names them.
 
 Pick the most valuable piece of unfinished work toward the target design —
 including undoing or replacing an earlier approach when the ledger shows it

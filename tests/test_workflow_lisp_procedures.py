@@ -1442,6 +1442,180 @@ def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: 
     assert specialized.signature.return_type_ref.name == "WorkflowOutput"
 
 
+def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
+    source_root = tmp_path / "constraint_owner"
+    _write_module(
+        source_root / "helper.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule helper)",
+            "  (export Inner Choice Output project check read pick)",
+            "  (defrecord Inner",
+            "    (marker String))",
+            "  (defrecord P",
+            "    (marker String))",
+            "  (defunion Choice",
+            "    (SELECTED (selection Inner))",
+            "    (OTHER (selection Inner)))",
+            "  (defrecord Output",
+            "    (status String))",
+            "  (defproc project",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-shared-union-field selection Inner))",
+            "    -> Output",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" value.selection.marker)',
+            "      :returns Output))",
+            "  (defproc check",
+            "    :forall (T)",
+            "    ((value T) (label String))",
+            "    :where ((T has-union-variant SELECTED (selection Inner)))",
+            "    -> Output",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" label)',
+            "      :returns Output))",
+            "  (defproc read",
+            "    :forall (T)",
+            "    ((value T) (label String))",
+            "    :where ((T has-field selection Inner))",
+            "    -> Output",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" label)',
+            "      :returns Output))",
+            "  (defproc pick",
+            "    :forall (T P)",
+            "    ((value T) (fallback P) (label String))",
+            "    :where ((T has-shared-union-field selection P))",
+            "    -> Output",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" label)',
+            "      :returns Output)))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import helper :as h)",
+            "  (export orchestrate)",
+            "  (defrecord Inner",
+            "    (other String))",
+            "  (defunion Local",
+            "    (SELECTED (selection Inner))",
+            "    (OTHER (selection Inner)))",
+            "  (defrecord Holder",
+            "    (selection Inner))",
+            "  (defproc local-project",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-shared-union-field selection Inner))",
+            "    -> h.Output",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" value.selection.other)',
+            "      :returns h.Output))",
+            "  (defworkflow orchestrate",
+            "    ((input String))",
+            "    -> h.Output",
+            f"    {call}))",
+        ],
+    )
+    return workflow_lisp_compiler.compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        lowering_route="legacy",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+
+_OWNER_CHOICE = "(variant h.Choice SELECTED :selection (record h.Inner :marker input))"
+_CALLER_LOCAL = "(variant Local SELECTED :selection (record Inner :other input))"
+
+
+def _specialized_capability_target(result, base_name: str):
+    (capability,) = next(
+        procedure.specialization.shared_union_field_capabilities
+        for procedure in result.entry_result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == base_name
+    )
+    return capability.field_type_ref
+
+
+def _declaring_file(type_ref) -> str:
+    return Path(type_ref.definition.span.start.path).name
+
+
+def test_imported_shared_union_field_constraint_grants_owner_target(tmp_path: Path) -> None:
+    result = _compile_constraint_owner_homonym(tmp_path, call=f"(h.project {_OWNER_CHOICE})")
+    target = _specialized_capability_target(result, "helper::project")
+
+    assert _declaring_file(target) == "helper.orc"
+    assert target.name == "helper::Inner"
+
+
+def test_imported_union_variant_constraint_accepts_owner_field_type(tmp_path: Path) -> None:
+    result = _compile_constraint_owner_homonym(tmp_path, call=f"(h.check {_OWNER_CHOICE} input)")
+
+    assert any(
+        getattr(procedure.specialization, "base_name", "") == "helper::check"
+        for procedure in result.entry_result.typed_procedures
+    )
+
+
+@pytest.mark.parametrize(
+    "call",
+    (
+        f"(h.project {_CALLER_LOCAL})",
+        f"(h.check {_CALLER_LOCAL} input)",
+        "(h.read (record Holder :selection (record Inner :other input)) input)",
+    ),
+    ids=("has-shared-union-field", "has-union-variant", "has-field"),
+)
+def test_imported_constraint_target_refuses_caller_homonym(tmp_path: Path, call: str) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_constraint_owner_homonym(tmp_path, call=call)
+
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert Path(excinfo.value.diagnostics[0].span.start.path).name == "entry.orc"
+
+
+def test_imported_type_param_constraint_target_resolves_to_call_binding(tmp_path: Path) -> None:
+    result = _compile_constraint_owner_homonym(
+        tmp_path,
+        call=f"(h.pick {_CALLER_LOCAL} (record Inner :other input) input)",
+    )
+
+    assert _declaring_file(_specialized_capability_target(result, "helper::pick")) == "entry.orc"
+
+
+def test_local_constraint_target_resolves_in_defining_module(tmp_path: Path) -> None:
+    result = _compile_constraint_owner_homonym(tmp_path, call=f"(local-project {_CALLER_LOCAL})")
+
+    assert _declaring_file(_specialized_capability_target(result, "entry::local-project")) == "entry.orc"
+
+
 def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "generic_proc_validated_bundle.orc",

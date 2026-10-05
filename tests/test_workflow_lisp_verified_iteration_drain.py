@@ -29,6 +29,31 @@ ROOT = Path(__file__).resolve().parents[1]
 ORC_WORKFLOW = ROOT / "workflows/library/verified_iteration_drain/drain.orc"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 ENTRY_WORKFLOW = "verified_iteration_drain/drain::drain"
+PREPARE_SCRIPT = "workflows/library/scripts/prepare_verified_iteration.py"
+RECORD_SCRIPT = "workflows/library/scripts/record_verified_iteration.py"
+HISTORY_ROOT = "artifacts/work/verified/ledger-inputs"
+EXTERNAL_LEDGER_EDIT = b"EXTERNAL_LEDGER_EDIT\n"
+FORMER_LINEAGE_PATHS = (
+    "state/verified/iterations/0/work-order.json",
+    "state/verified/iterations/0/checks-result.json",
+    "state/verified/iterations/0/checks-log.txt",
+    "state/verified/iterations/0/review-package.md",
+    "state/verified/iterations/0/worker-verdict.txt",
+    "state/verified/iterations/0/worker-note.txt",
+    "state/verified/iterations/0/review-decision.txt",
+    "state/verified/iterations/0/drain-status.txt",
+    "state/verified/iterations/1/work-order.json",
+    "state/verified/iterations/1/checks-result.json",
+    "state/verified/iterations/1/checks-log.txt",
+    "state/verified/iterations/1/review-package.md",
+    "state/verified/iterations/1/worker-verdict.txt",
+    "state/verified/iterations/1/worker-note.txt",
+    "state/verified/iterations/1/done-review-decision.txt",
+    "state/verified/iterations/1/drain-status.txt",
+    "state/verified/statuses.txt",
+    "artifacts/work/verified/ledger.md",
+    "artifacts/work/verified/drain-summary.json",
+)
 
 
 def _compile_verified_orc():
@@ -189,6 +214,17 @@ def _prompt_work_order(prompt: str) -> dict[str, str]:
     return json.loads(match.group(0))
 
 
+def _prompt_history(prompt: str) -> tuple[str, bytes] | None:
+    raw = prompt.encode("utf-8")
+    path = _prompt_work_order(prompt)["ledger_input_path"]
+    header = re.search(rb"=== File: " + re.escape(path.encode()) + rb" \((\d+)/\d+ bytes\) ===\n", raw)
+    return None if header is None else (path, raw[header.end():header.end() + int(header.group(1))])
+
+
+def _history_files(workspace: Path) -> dict[str, bytes]:
+    return {path.name: path.read_bytes() for path in (workspace / HISTORY_ROOT).iterdir()}
+
+
 def _captured_prompt_sha256s(prompts: list[str]) -> list[str]:
     return sorted(
         "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
@@ -259,6 +295,8 @@ def _execute_verified_runtime(
             (workspace / "docs/design/verified-target.md").write_text(
                 "DEPENDENCY_AFTER_INTERRUPTION\n", encoding="utf-8"
             )
+            with (workspace / "artifacts/work/verified/ledger.md").open("ab") as ledger:
+                ledger.write(EXTERNAL_LEDGER_EDIT)
             return _provider_retryable_failure()
         prompt = str(invocation.prompt)
         work_order = _prompt_work_order(prompt)
@@ -377,6 +415,7 @@ def _run_verified_runtime_scenario(
         "ledger_iterations": [int(line.split()[1]) for line in ledger_lines],
         "provider_roles": capture["provider_roles"],
         "prompt_iterations": [int(_prompt_work_order(prompt)["iteration"]) for prompt in capture["prompts"]],
+        "history_reads": [_prompt_history(prompt) for prompt in capture["prompts"]],
         "captured_prompt_sha256s": _captured_prompt_sha256s(capture["prompts"]),
         "evidence_prompt_sha256s": _evidence_prompt_sha256s(manager),
         "lineage_paths": sorted(
@@ -413,6 +452,7 @@ def _run_verified_retry_resume_scenario(workspace: Path) -> dict[str, object]:
     summary_path = workspace / "artifacts/work/verified/drain-summary.json"
     ledger_before = ledger_path.read_bytes()
     summary_before = summary_path.read_bytes()
+    history_before = _history_files(workspace)
     completed_resume = StateManager(workspace, run_id=manager.run_id)
     completed_resume.load()
     executions_before = int(capture["executions"])
@@ -447,6 +487,10 @@ def _run_verified_retry_resume_scenario(workspace: Path) -> dict[str, object]:
         ),
         "first_snapshot": first_snapshot,
         "resumed_snapshot": resumed_snapshot,
+        "first_history": _prompt_history(first_snapshot),
+        "resumed_history": _prompt_history(resumed_snapshot),
+        "history_files_before_completed_resume": history_before,
+        "history_files_after_completed_resume": _history_files(workspace),
         "captured_prompt_sha256s": _captured_prompt_sha256s(capture["prompts"]),
         "evidence_prompt_sha256s": _evidence_prompt_sha256s(completed_resume),
         "provider_executions_after_resume": executions_before,
@@ -613,7 +657,7 @@ def test_verified_orc_lowers_prepare_check_record_and_direct_summary_return() ->
         "workflows/library/scripts/record_verified_iteration.py",
     ]
     assert [sorted(field["name"] for field in step["output_bundle"]["fields"]) for step in commands] == [
-        ["base_sha", "ledger_path", "work_order_path"],
+        ["base_sha", "ledger_input_path", "ledger_path", "work_order_path"],
         ["checks_log_path", "commits_landed", "review_package_path", "verify_status"],
         ["drain_status", "drain_summary_path"],
     ]
@@ -679,6 +723,36 @@ def test_verified_orc_lowers_prepare_check_record_and_direct_summary_return() ->
     assert not any(
         "write_lisp_frontend_relpath_value.py" in step.get("command", []) for step in commands
     )
+
+
+def test_verified_orc_prepare_history_field_reuses_the_ledger_path_type() -> None:
+    (prepare,) = [
+        step for step in _walk_steps(_verified_mapping()["steps"]) if PREPARE_SCRIPT in step.get("command", ())
+    ]
+    fields = {field["name"]: field for field in prepare["output_bundle"]["fields"]}
+    assert _without_name(fields["ledger_input_path"]) == _without_name(fields["ledger_path"])
+    assert [fields["ledger_path"][key] for key in ("type", "under", "must_exist_target")] == [
+        "relpath",
+        "artifacts/work",
+        True,
+    ]
+
+
+def test_verified_orc_work_and_review_read_history_while_record_appends_to_ledger() -> None:
+    steps = list(_walk_steps(_verified_mapping()["steps"]))
+    (record,) = [step for step in steps if RECORD_SCRIPT in step.get("command", ())]
+    calls = {step["call"].rsplit("::", 1)[-1]: step for step in steps if "call" in step}
+    assert [
+        calls[name]["with"]["ledger_path"]["ref"].rsplit("__", 1)[-1]
+        for name in ("invoke-worker", "invoke-iteration-review")
+    ] == ["prepare_verified_iteration.artifacts.ledger_input_path"] * 2
+    assert record["command"][record["command"].index("--ledger-path") + 1].rsplit("__", 1)[-1] == (
+        "prepare_verified_iteration.artifacts.ledger_path}"
+    )
+
+
+def _without_name(field: dict) -> dict:
+    return {key: value for key, value in field.items() if key not in {"name", "json_pointer"}}
 
 
 def test_verified_orc_projects_terminal_and_exhaustion_states() -> None:
@@ -797,27 +871,19 @@ def test_verified_orc_one_continue_then_done_preserves_artifact_lineage(
     assert result["prompt_iterations"] == [0, 0, 1, 1]
     assert result["captured_prompt_sha256s"] == result["evidence_prompt_sha256s"]
     assert len(result["evidence_prompt_sha256s"]) == 4
-    assert set(result["lineage_paths"]) == {
-        "state/verified/iterations/0/work-order.json",
-        "state/verified/iterations/0/checks-result.json",
-        "state/verified/iterations/0/checks-log.txt",
-        "state/verified/iterations/0/review-package.md",
-        "state/verified/iterations/0/worker-verdict.txt",
-        "state/verified/iterations/0/worker-note.txt",
-        "state/verified/iterations/0/review-decision.txt",
-        "state/verified/iterations/0/drain-status.txt",
-        "state/verified/iterations/1/work-order.json",
-        "state/verified/iterations/1/checks-result.json",
-        "state/verified/iterations/1/checks-log.txt",
-        "state/verified/iterations/1/review-package.md",
-        "state/verified/iterations/1/worker-verdict.txt",
-        "state/verified/iterations/1/worker-note.txt",
-        "state/verified/iterations/1/done-review-decision.txt",
-        "state/verified/iterations/1/drain-status.txt",
-        "state/verified/statuses.txt",
-        "artifacts/work/verified/ledger.md",
-        "artifacts/work/verified/drain-summary.json",
-    }
+    histories = _assert_two_captured_histories(tmp_path, result["history_reads"])
+    assert result["lineage_paths"] == sorted({*FORMER_LINEAGE_PATHS, *histories})
+    assert len(result["lineage_paths"]) == 21
+
+
+def _assert_two_captured_histories(workspace: Path, reads: list) -> list[str]:
+    first, reviewed, second, done = reads
+    assert (reviewed, done) == (first, None) and first != second and second[1].startswith(first[1])
+    ledger = (workspace / "artifacts/work/verified/ledger.md").read_bytes()
+    for path, raw in (first, second):
+        assert path == f"{HISTORY_ROOT}/{hashlib.sha256(raw).hexdigest()}.md"
+        assert (workspace / path).read_bytes() == raw and ledger.startswith(raw)
+    return [first[0], second[0]]
 
 
 def test_verified_orc_blocked_stalled_and_exhausted_paths(tmp_path: Path) -> None:
@@ -860,8 +926,20 @@ def test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent(
     assert len(result["evidence_prompt_sha256s"]) == 3
     assert result["provider_executions_after_resume"] == 3
     assert result["provider_executions_after_completed_resume"] == 3
+    _assert_retry_keeps_selected_history_and_resume_is_idempotent(tmp_path, result)
+
+
+def _assert_retry_keeps_selected_history_and_resume_is_idempotent(workspace: Path, result: dict) -> None:
     assert result["ledger_before_completed_resume"] == result["ledger_after_completed_resume"]
     assert result["summary_before_completed_resume"] == result["summary_after_completed_resume"]
+    path, history = result["first_history"]
+    assert result["resumed_history"] == (path, history)
+    assert path == f"{HISTORY_ROOT}/{hashlib.sha256(history).hexdigest()}.md"
+    assert EXTERNAL_LEDGER_EDIT not in history and (workspace / path).read_bytes() == history
+    assert result["ledger_after_completed_resume"].startswith(history + EXTERNAL_LEDGER_EDIT)
+    assert result["history_files_before_completed_resume"] == result["history_files_after_completed_resume"] == {
+        path.rsplit("/", 1)[-1]: history
+    }
 
 
 def test_verified_post_promotion_orc_smoke_is_fresh(tmp_path: Path) -> None:

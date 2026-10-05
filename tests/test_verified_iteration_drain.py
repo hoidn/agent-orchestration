@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -11,6 +12,7 @@ RECORD = "workflows/library/scripts/record_verified_iteration.py"
 
 STATE_ROOT = "state/VERIFIED-ITERATION-DRAIN"
 WORK_ROOT = "artifacts/work/VERIFIED-ITERATION-DRAIN"
+INPUTS = f"{WORK_ROOT}/ledger-inputs"
 
 
 def _run_script(
@@ -55,18 +57,19 @@ def _init_workspace(tmp_path: Path) -> Path:
     return workspace
 
 
-def _prepare(workspace: Path, iteration: int = 0, *, env: dict[str, str] | None = None) -> dict:
-    _run_script(
-        workspace,
-        str(ROOT / PREPARE),
+def _prepare_args(iteration: int = 0) -> list[str]:
+    return [
         "--drain-state-root", STATE_ROOT,
         "--artifact-work-root", WORK_ROOT,
         "--target-design-path", "docs/design/pilot_target.md",
         "--check-commands-path", "workflows/examples/inputs/pilot_checks.json",
         "--iteration", str(iteration),
         "--output", f"{STATE_ROOT}/iterations/{iteration}/work-order.json",
-        env=env,
-    )
+    ]
+
+
+def _prepare(workspace: Path, iteration: int = 0, *, env: dict[str, str] | None = None) -> dict:
+    _run_script(workspace, str(ROOT / PREPARE), *_prepare_args(iteration), env=env)
     return json.loads((workspace / STATE_ROOT / "iterations" / str(iteration) / "work-order.json").read_text(encoding="utf-8"))
 
 
@@ -75,6 +78,9 @@ def test_prepare_writes_work_order_and_scaffolding(tmp_path):
     order = _prepare(workspace)
     assert order["base_sha"] == _git(workspace, "rev-parse", "HEAD")
     assert (workspace / order["ledger_path"]).is_file()
+    ledger = (workspace / order["ledger_path"]).read_bytes()
+    assert order["ledger_input_path"] == f"{INPUTS}/{hashlib.sha256(ledger).hexdigest()}.md"
+    assert (workspace / order["ledger_input_path"]).read_bytes() == ledger
     assert (workspace / order["blocked_notes_dir"]).is_dir()
     assert order["previous_review_findings_path"] == ""
     assert order["worker_verdict_path"] == f"{STATE_ROOT}/iterations/0/worker-verdict.txt"
@@ -377,6 +383,7 @@ def test_verified_command_adapters_write_runtime_and_compatibility_outputs(tmp_p
     assert json.loads((workspace / prepare_bundle).read_text(encoding="utf-8")) == {
         "base_sha": order["base_sha"],
         "ledger_path": order["ledger_path"],
+        "ledger_input_path": order["ledger_input_path"],
         "work_order_path": order["work_order_path"],
     }
     assert json.loads((workspace / checks_bundle).read_text(encoding="utf-8")) == {

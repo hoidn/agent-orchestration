@@ -61,7 +61,8 @@ copy, not of provider judgment. This design deletes the second copy.
 One `repeat_until` step, five inner steps, no sub-workflow calls:
 
 ```
-Prepare   (command)  base = git rev-parse HEAD; regenerate work-order.json
+Prepare   (command)  base = git rev-parse HEAD; capture the cumulative ledger
+                     as ledger-inputs/<sha256>.md; regenerate work-order.json
 Work      (provider) one agentic session; commits verified work by explicit
                      path; writes verdict CONTINUE | DONE | BLOCKED_ON_USER
                      and a one-line note; may write BLOCKED-<topic>.md notes
@@ -117,7 +118,8 @@ rule bounds how long a red tree can persist.
 |---|---|---|---|---|
 | git history | repo | worker (explicit-path commits) | everyone | authority |
 | check results | recomputed | Verify step | Record, worker | measurement, regenerated |
-| `ledger.md` | `artifacts/work/<root>/ledger.md` | Record only | worker, reviewer, humans | append-only prose; advisory, never machine-routed |
+| `ledger.md` | `artifacts/work/<root>/ledger.md` | Prepare initializes; Record appends | Prepare, Record (idempotency), humans | append-only prose; advisory, never machine-routed |
+| `ledger-inputs/<sha256>.md` | `artifacts/work/<root>/ledger-inputs/` | Prepare only | worker, iteration reviewer | complete history captured by Prepare; never rewritten by the workflow |
 | `statuses.txt` | `state/<root>/statuses.txt` | Record only | Record (stall window) | append-only enum tokens; the only machine-consumed memory |
 | `BLOCKED-*.md` | `artifacts/work/<root>/blocked/` | worker | humans (via summary) | prose escalation notes |
 | `drain-summary.json` | `artifacts/work/<root>/drain-summary.json` | Record | user, downstream | regenerated whole each iteration (P2) |
@@ -153,14 +155,26 @@ route.
 
 - `(--drain-state-root, --artifact-work-root, --target-design-path,
   --check-commands-path, --iteration) -> work-order.json` (output_bundle:
-  `base_sha` string, `work_order_path` relpath, `ledger_path` relpath).
+  exactly `base_sha` string, `work_order_path` relpath, `ledger_path` relpath
+  and `ledger_input_path` relpath; both ledger fields are `LedgerPath`, under
+  `artifacts/work`, must exist).
 - Behavior: records `git rev-parse HEAD` as the iteration base; creates the
-  iteration dir, ledger file, and blocked-notes dir if absent; regenerates
-  `work-order.json` naming every path the worker needs (target design,
-  ledger, blocked dir, check commands, verdict/note target paths, previous
-  iteration's findings and check log when present). Fail-fast (nonzero) if
-  the workspace is not a git repository or required inputs are missing.
-- Consumed by: Work (injected as content), Verify/Record (base_sha).
+  iteration dir, ledger file, and blocked-notes dir if absent; reads the raw
+  bytes of `ledger.md` once and publishes or reuses
+  `<artifact_work_root>/ledger-inputs/<sha256-of-raw-bytes>.md` before writing
+  any result, as specified in
+  [Publication Under Prepare](#publication-under-prepare); regenerates
+  `work-order.json` naming every path the worker needs (target design, the
+  selected history `ledger_input_path`, the cumulative `ledger_path`, blocked
+  dir, check commands, verdict/note target paths, previous iteration's
+  findings and check log when present). The published copy keeps the 0600
+  mode of its private staging file by decision: its readers run as the same
+  user and git records only the executable bit. Fail-fast (nonzero) if the
+  workspace is not a git repository, required inputs are missing, or an
+  existing history copy differs, is not a regular file or cannot be read.
+- Consumed by: Work (work order and `ledger_input_path` injected as content),
+  iteration-review (`ledger_input_path`), Verify/Record (base_sha), Record
+  (`ledger_path` as its append target).
 
 ### `workflows/library/scripts/run_verified_iteration_checks.py`
 
@@ -195,10 +209,12 @@ route.
 - `work.md` — the worker owns selection, planning, implementation, and
   self-verification for one iteration; checks green before new work is
   accepted; explicit-path staging only; BLOCKED notes for genuine user
-  decisions; verdict + note contract. Task-local; no loop mechanics.
+  decisions; verdict + note contract; reads the Prepare-selected history
+  (`ledger_input_path`) as read-only context. Task-local; no loop mechanics.
 - `review_iteration.md` — reviewer judges the packaged diff against the
-  target design (correctness, design conformance, weakened-verification);
-  APPROVE or FINDINGS with a findings file.
+  target design (correctness, design conformance, weakened-verification),
+  with the same selected history as read-only context; APPROVE or FINDINGS
+  with a findings file.
 - `review_done.md` — reviewer judges whether the target design's acceptance
   criteria hold in the current checkout; APPROVE or REJECT with reasons.
 
