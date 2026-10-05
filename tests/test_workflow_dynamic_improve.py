@@ -131,11 +131,16 @@ def _expected_events(seed: str, limit: int = 3) -> list[dict[str, object]]:
 
 
 def _stage_dynamic(root, *, source_text=None, inline=False, wrapped=False,
-                   review_script=REVIEW_PROBE, revise_script=REVISE_PROBE):
+                   review_script=REVIEW_PROBE, revise_script=REVISE_PROBE,
+                   types_text=None, extra_sources=None):
     probes = _write_probes(root, review_script=review_script, revise_script=revise_script)
     directory = root / "dynamic_consumer"
     directory.mkdir(exist_ok=True)
     shutil.copyfile(FIXTURES / "consumer_types.orc", directory / "types.orc")
+    if types_text is not None:
+        (directory / "types.orc").write_text(types_text)
+    if extra_sources:
+        _write_sources(root, extra_sources)
     source = source_text or (FIXTURES / ("improve_inline.orc" if inline else "improve.orc")).read_text()
     if wrapped:
         shutil.copyfile(FIXTURES / "review.orc", directory / "review.orc")
@@ -159,9 +164,14 @@ def _stage_dynamic(root, *, source_text=None, inline=False, wrapped=False,
 
 def _dynamic_run(root, *, seed, limit, goal="tidy", rubric="clear", inline=False,
                  wrapped=False, source_text=None, review_script=REVIEW_PROBE,
-                 revise_script=REVISE_PROBE):
+                 revise_script=REVISE_PROBE, types_text=None, extra_sources=None,
+                 budget=None):
+    if budget is not None:
+        source_text = (source_text or (FIXTURES / "improve.orc").read_text()).replace(
+            "(:budget 1000)", f"(:budget {budget})", 1)
     path, manifest = _stage_dynamic(root, source_text=source_text, inline=inline, wrapped=wrapped,
-        review_script=review_script, revise_script=revise_script)
+        review_script=review_script, revise_script=revise_script,
+        types_text=types_text, extra_sources=extra_sources)
     args = create_parser().parse_args([
         "run", str(path), "--command-boundaries-file", str(manifest),
         "--input", f"seed={seed}", "--input", f"limit={limit}",
