@@ -14,9 +14,15 @@ supported-run deletion gates passed.
 
 The sections below describe the implemented baseline. The
 [accepted history-input extension](#accepted-extension-prepare-selected-history-input)
-changes the canonical consumer in both execution routes; its implementation
-and verification remain pending in Phase 3 Tasks 13D/14. Historical parity
-evidence above does not verify that extension.
+changes the canonical consumer in both execution routes and is implemented on
+both: Phase 3 Task 13D (`4acd38ec`) revised the shared source, its two
+prompts and the Prepare script, extended the legacy-route tests and added the
+public target-2.35 copy with its fixture
+(`tests/test_workflow_evaluated_verified_drain.py`); the maintained consumer
+programs followed at 2.35 (`ad6498d9`), and Task 14 proved the drain's argv
+parity beside the watchdog handoff (`f8f2d150`). The owners are named in
+[evaluated execution §9.1.2](workflow_lisp_evaluated_execution.md#912-artifact-handoff-within-the-admitted-release).
+Historical parity evidence above does not verify that extension.
 
 ## Problem
 

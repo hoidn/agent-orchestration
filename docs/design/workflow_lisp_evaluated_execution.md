@@ -3,24 +3,51 @@
 ## Metadata
 
 - **Status:** accepted for the first release at gate G1 on 2026-09-29;
-  Phase 2 closed-program compilation is implemented at target 2.35.
-  `orchestrator compile` writes the checked artifact; `run` and `resume`
-  refuse with `evaluated_execution_unavailable` until the open Phase 3
-  evaluator is implemented. Evidence:
+  Phase 2 closed-program compilation is implemented at target 2.35 and the
+  Phase 3 runtime of this design is integrated for the admitted first-release
+  classes (Phase 3 plan Tasks 1–14, integration head `dc4a4e3a`): public
+  `compile`, `--dry-run`, `run`, `resume`, `invalidate` and the readers
+  (`report`, dashboard, monitor, watchdog probe/watcher) execute and project
+  evaluated runs of commands, portable composed providers, calls/captures and
+  path-mode run references. `evaluated_execution_unavailable` remains the
+  refusal of `resume --force-restart` on an evaluated run and of resuming a
+  schema-2.1 run whose source now targets 2.35
+  ([`specs/cli.md`](../../specs/cli.md#diagnostics)); it no longer refuses
+  `run` or `resume` of a 2.35 entry. Of Task 15 of the
+  [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md),
+  15C (durable publication fault model, invalidation windows; `dab04431`) and
+  15D (view failure, later divergence before reconcile/tail repair, completed
+  resume twice; `a84f2769`) and 15A/15B (external kills at every window of
+  the three real programs, must-not-repeat, closure mutation then kill;
+  `2604e887`) are integrated, so Task 15 is complete; Task 17 (full suite,
+  old-target byte audit, whole-phase review, merge) is pending. This metadata
+  records the integrated capability and its proved scope, not Phase 3
+  completion or a release. The normative owners are
+  `specs/state.md` (profile, header, journal, view), `specs/io.md` (command
+  closure and typed inputs), `specs/cli.md` (entries, exits, locks) and
+  `specs/versioning.md` (admission at 2.35); this design links to them and
+  does not restate them. Evidence: the public fixture owners named in §17
+  and §18 (`tests/test_workflow_evaluated_*.py`), the
   [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
-  [target refusal tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
-  and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
-  Phase-wide checks and the completed red-suite diagnosis are recorded in
-  the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
+  the [target tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
+  and the [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
+  Phase-wide Phase 2 checks and the completed red-suite diagnosis are recorded
+  in the [Phase 2 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
   Phase 2 compiler closeout is complete: code/verification PASS `17049e79`,
-  documentation PASS `a6efc7e7` and integration `a7b157d8`. The spike under
-  `experiments/evaluated_execution_spike/` remains separate runtime evidence.
+  documentation PASS `a6efc7e7` and integration `a7b157d8`. The Phase 3
+  closeout report (Task 16D) is still to be written and publishes the receipts behind the Phase 3 claims and the Task 16A wire
+  inventory (28 public cases, 46 run roots), which are not in the repository
+  yet. The spike under `experiments/evaluated_execution_spike/` remains
+  separate historical runtime evidence (§18).
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
   input-document, profile, invalidation-entry, artifact-handoff, command
-  transport and shared-union field-proof clarifications; 2026-10-06, the
-  provider clause of R2 (§9.4, §20).
+  transport and shared-union field-proof clarifications; 2026-10-04, the
+  immutable result root (§8.4) and the per-value `depends_on` clarification
+  (C9); 2026-10-06, the provider clause of R2 (§9.4, §20), `__pycache__`
+  outside closure evidence (C5, §7.3) and the availability metadata above
+  (Task 16).
 - **Evidence:**
   [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
   below as "gate report";
@@ -124,12 +151,18 @@ excluded. Older entries retain their existing placement and settlement;
 an older helper consumed by an evaluated entry gains this scoped placement
 permission without retargeting its other language rules (§13).
 
-**Implementation and public evidence are pending.** This accepted contract
-does not establish compilation or execution of these combinations. The
-[Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-9-run-reference-coordinator-and-evaluated-children)
-requires a separate frontend cut and the public repetition/recovery gates
-before Task 9 closes. No new flag, registry, effect system or identity rule
-is introduced; §6 and K7–K9 supply the existing protocol.
+This placement is implemented and exercised through the public entries:
+the parent/child admission matrix with a 2.24 and a 2.35 child, real
+two-iteration K7 repetition with state forwarding, read-only resumes and
+settlement/reconcile after an interrupted finalize are owned by
+[`tests/test_workflow_evaluated_run_ref.py`](../../tests/test_workflow_evaluated_run_ref.py)
+and [`tests/test_workflow_evaluated_run_ref_settlement.py`](../../tests/test_workflow_evaluated_run_ref_settlement.py)
+under [Phase 3 plan Task 9](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-9-run-reference-coordinator-and-evaluated-children)
+and the Task 13A totality matrix. External-kill coverage of both coordinator
+gaps is owned by Task 15A/15B,
+[`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py)
+(`2604e887`). No new flag, registry, effect system
+or identity rule is introduced; §6 and K7–K9 supply the existing protocol.
 
 ## 2. Problem
 
@@ -505,12 +538,15 @@ Reuse the existing boundary projections and neutral transport descriptors;
 no general cast or global relaxation of nominal compatibility is added.
 A malformed relation fails checked read-back with `call_boundary`.
 
-Phase 3 evaluates each argument once, applies the checked projection/direct
-relation to cached values, evaluates the native body, and projects its result
-back to the caller view. Dynamic paths retain their string value and checked
-constraints. This is an in-memory call, not another effect, site or journal
-entry. Phase 2 persists and checks the relation; it does not implement its
-evaluator. Union activity, legacy structural paths and inactive-path relaxation
+The evaluator evaluates each argument once, applies the checked
+projection/direct relation to cached values, evaluates the native body, and
+projects its result back to the caller view. Dynamic paths retain their string
+value and checked constraints. This is an in-memory call, not another effect,
+site or journal entry. Phase 2 persists and checks the relation; the Phase 3
+runtime evaluates it (public owners:
+[`tests/test_workflow_evaluated_calls.py`](../../tests/test_workflow_evaluated_calls.py),
+[`tests/test_workflow_evaluated_call_captures.py`](../../tests/test_workflow_evaluated_call_captures.py),
+[`tests/test_workflow_evaluated_shared_union.py`](../../tests/test_workflow_evaluated_shared_union.py)). Union activity, legacy structural paths and inactive-path relaxation
 require independent artifact read-back proof, not only compiler generation.
 
 ### 4.2.3 Shared-union field projection
@@ -1005,12 +1041,26 @@ files that differ.
 
 At build, the implemented C1 checks explicit declarations and the C2 projection
 records canonical logical paths in configuration/program identity. It does
-not read closure bytes. C2 content hashes, C3 interpreter pinning, C4
-read-only/retry enforcement and filesystem evidence remain open runtime work.
-Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closures`,
+not read closure bytes. Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closures`,
 `closed/program.py::_canonical_closure` and `closed/artifact.py` (same directory),
 [closure tests](../../tests/test_workflow_lisp_command_boundary_closure.py)
 and [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py).
+At run time the integrated runtime enforces C2–C4: C2 content
+evidence is hashed when a command's attempt starts and rehashed before its
+commit (`orchestrator/workflow/evaluated/closure.py`, `closure_evidence.py`,
+`runtime.py`); C3 pins bare interpreters in `run.json` once per run
+(`interpreters.py`, `authority.py`); C4 runs as one local check immediately
+before each reached command that needs a new attempt, not as a startup scan of
+every effect or a global promise. C5 is the author's declaration of what the
+promise covers, not a sandbox, a filesystem capture, universal determinism or
+rollback. The normative statement of the resolved input, the evidence rows and
+the attempt files is [`specs/io.md`](../../specs/io.md#evaluated-command-and-provider-io-target-235);
+public owners are
+[`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py),
+[`tests/test_workflow_evaluated_closure_evidence.py`](../../tests/test_workflow_evaluated_closure_evidence.py),
+[`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py),
+[`tests/test_workflow_evaluated_interpreters.py`](../../tests/test_workflow_evaluated_interpreters.py)
+and [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py).
 
 Automatic C2 selection examines stable-command tokens spelled relative to the
 workspace, or absolute tokens whose lexical components have the workspace
@@ -1230,13 +1280,14 @@ is covered even though it has no file row. Do not infer this coverage from an
 opaque digest, persist a target list or discover it with a second resolver.
 The caller computes the next ordinal and paths in memory after the memo's
 reuse/divergence/retry decisions. Pass the current command, its closure and
-explicit destinations to the filesystem helper: directories to create,
-`inputs.json` when applicable, `result.json`, stdout/stderr, known runtime
-caches and bookkeeping paths to modify during the attempt (`memo.jsonl`,
-`state.json`). Check before `started`, mkdir or constructing `StepExecutor`,
-whose constructor prepares capture. A replacement temporary whose name is
-only determined later is checked before creation through the same safe file
-mechanism; its parent is not reserved as a whole tree. A nonconflicting leaf
+the attempt's explicit destinations to the filesystem helper, exactly the
+implemented list that [`specs/io.md`](../../specs/io.md#evaluated-command-and-provider-io-target-235)
+states: the attempt directory, `result.json`, `stdout.txt`, `stderr.txt`,
+`inputs.json` when applicable, and `memo.jsonl`. `state.json`, its
+replacement temporary and run caches are not checked; `state.json` needs no
+separate check because any closure that covers it covers `memo.jsonl` beside
+it, which is checked. Check before `started`, mkdir or constructing
+`StepExecutor`, whose constructor prepares capture. A nonconflicting leaf
 inside the run root is not rejected merely for belonging to that namespace.
 A memo hit creates no attempt and needs no preventive destination check.
 
@@ -1499,9 +1550,12 @@ validate the header/profile/version/run identity and the shapes of any present
 recipe/run-reference root/result root, without loading the stored artifact or
 any memo record. Malformed
 stored authority retains `memo_inconsistent`. A valid header without a recipe
-refuses `resume_request_missing`. With a valid recipe, check any explicit
-run-reference root-option mismatch, then the result-root relationship
-(*Immutable result root*), before continuing to the fresh build.
+refuses `resume_request_missing`. With a valid recipe, `--force-restart` is
+refused next (`evaluated_execution_unavailable`: this profile has no
+force-restart), then check any explicit run-reference root-option mismatch,
+then the result-root relationship (*Immutable result root*), before continuing
+to the fresh build. The complete order and the exit status of each refusal
+are normative in [`specs/cli.md`](../../specs/cli.md#resume-preflight-precedence).
 Resolve the recipe's source, ordered roots and manifests under the effective
 workspace and freshly build the authored entry in memory with their current
 configuration, without publishing or recovering build caches. Compare the
@@ -1793,7 +1847,10 @@ Work and iteration-review read that captured input, while Record keeps
 appending to `ledger_path`. Retry of Work retains the history selected by
 Prepare; the target-design dependency remains fresh per attempt. This changes
 the shared source, two prompts, history freshness and artifact inventory in
-both routes. It adds no runtime history selection, new effect or fork.
+both routes. It adds no runtime history selection, new effect or fork. The
+original source is not preserved literally: the canonical adaptation (D14-1)
+changed the shared drain, its two prompts and their owner tests on both routes,
+and the historical receipts of the unchanged source remain history.
 
 Preserve the original source/oracles and receipts as historical evidence;
 compare both routes over the revised common source rather than demanding
@@ -1803,8 +1860,18 @@ path/byte/digest assertions, the existing roles/results/counts and no committed
 redispatch. The drain design owns publication, retention and the bounded
 Prepare-commit invalidation conditions. C6/C7, C8 and command-local C4 remain
 unchanged; legacy acquires no evaluated invalidation or completed-resume
-validation policy. Implementation and public preservation evidence remain
-obligations of Tasks 13D/14 in the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-13d-canonical-verified-drain-history-input).
+validation policy. Both routes are implemented and exercised: the legacy
+route by [`tests/test_workflow_lisp_verified_iteration_drain.py`](../../tests/test_workflow_lisp_verified_iteration_drain.py)
+and [`tests/test_verified_iteration_history_publication.py`](../../tests/test_verified_iteration_history_publication.py),
+the public 2.35 copy (same source, target line rewritten, manifests/closures
+supplied) by [`tests/test_workflow_evaluated_verified_drain.py`](../../tests/test_workflow_evaluated_verified_drain.py)
+(continue→done with the two captured histories, Work retry keeping the
+Prepare-selected history, changed/missing captured history refused on
+completed resume, Prepare-boundary resume with and without Prepare
+invalidation); the watchdog handoff and drain argv parity by
+[`tests/test_workflow_evaluated_artifacts.py`](../../tests/test_workflow_evaluated_artifacts.py)
+and [`tests/test_workflow_evaluated_artifact_freshness.py`](../../tests/test_workflow_evaluated_artifact_freshness.py)
+under [Phase 3 plan Tasks 13D and 14](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#task-13d-canonical-verified-drain-history-input).
 
 No generic `artifacts`/`publishes`/`consumes` metadata is added to the closed
 program or V9 by this clarification. Before migrating a consumer with a
@@ -2619,7 +2686,7 @@ value, given by a rule. A field not listed here is equal on both routes.
 | R2 | `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, in the environment of a provider and of a command | The attempt's own result file (§8.2), in one of two spellings by effect class. **Provider clause:** the absolute, lexically normalized path of the pinned attempt directory's `result.json`, the directory the runtime created exclusively and reads by descriptor, so the value names that file whatever working directory the provider is in when it writes. It is derived from the logical run root, never from a process-descriptor alias; the runtime records it nowhere, and only the provider's own streams can mention it, which enter no identity. **Command clause:** the same file relative to the workspace, as the present route gives its path; the certified adapters and library scripts a command runs accept only that spelling, and they do not change directory |
 | R3 | The prompt's `- path:` line, in the output contract block | The attempt's result file relative to the workspace: the command clause of R2. For a provider, R2 is the workspace's absolute path joined with this line; the prompt tells the provider to write only to R2 when it is set. Nothing else in the prompt differs from the present route's assembly |
 | R4 | `provider.prompt_content` | Assembled through the existing composition pipeline ([Providers](../../specs/providers.md)): form the tagged prompt extern source or rendered `defprompt` base; apply prompt dependencies to that base at their declared position (`doc` fills use fixed `prepend`); append the separate typed prompt-input block for extern-backed calls; append the output contract through the runtime's existing renderer. `defprompt` text/value/path fills are already rendered in its base and do not add a second typed-input block. Prompt bytes differ only as R3 specifies |
-| R5 | `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY`, in the provider's environment overlay | `sha256:` and the digest of the identity's canonical text. The same across attempts and resumes, present inside call frames as well; the present route sends none inside a call frame |
+| R5 | `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY`, in the provider's environment overlay | `sha256:` and the digest of the identity's canonical text. The same across attempts and resumes, present inside call frames as well. The flat route sends its own site key inside most call frames too (observed on the watchdog's `invoke-repair` frame by the Task 13D consumers conformity review over `tests/test_workflow_evaluated_consumers.py`), with a value that differs from the evaluated digest by rule; the field is therefore excluded from request parity, and the evaluated rule stands |
 | R6 | `provider.cwd` | The workspace, named. The present route inherits the orchestrator's working directory |
 | R7 | `provider_call_policy` and `timeout_sec` | The effect node's policy: `model`, `effort`, `timeout_sec` |
 | R8 | `params`, `session_request`, `provider_session_dir`, `provider_session_identity`, `secrets` | The parameters the effect node declares; none of the others in the first release (§1.1) |
@@ -2705,8 +2772,28 @@ No reader may treat an older completed snapshot as the current terminal.
 | Report and dashboard cursor | Render effect order, current/next identity, errors, result and per-attempt previews directly from V1–V6; replace their step/frame walk for this profile. The current state-only renderer is not sufficient evidence |
 | Trial SDK | Outside the first release with trials. Its required unique completed `steps[*].trial` envelope must be supplied/tested when that class enters; generic effect rows do not serve it |
 
-These are Phase 3 reader changes with public integration prerequisites (§18),
-not an assertion that the current readers already understand the profile.
+These adapters are implemented over one shared read-only projection,
+`orchestrator/workflow/evaluated/views.py::load_evaluated_view`, consumed by
+`orchestrator/state.py` (`RunState` loading), `orchestrator/cli/commands/report.py`,
+`orchestrator/dashboard/scanner.py`, `orchestrator/monitor/classifier.py` and
+`orchestrator/monitor/scanner.py`; the watchdog probe and usage-limit watcher
+read the same view through the copied probes. A reader never repairs,
+rebuilds or launches; a missing, unparseable or stale `state.json` is
+reconstructed in memory from header, program and memo. The stored view is
+written by the writer with the lock held, so a stored `status` is never
+`interrupted`; `interrupted` appears only in a reader's reconstruction when
+no writer holds the lock. The key set of the derived view and of each row is
+normative in [`specs/state.md`](../../specs/state.md#evaluated-execution-persistence-profile-target-235).
+Public owners: [`tests/test_workflow_evaluated_readers.py`](../../tests/test_workflow_evaluated_readers.py),
+[`tests/test_workflow_evaluated_views.py`](../../tests/test_workflow_evaluated_views.py),
+[`tests/test_workflow_evaluated_view_publication.py`](../../tests/test_workflow_evaluated_view_publication.py),
+[`tests/test_workflow_evaluated_view_publication_faults.py`](../../tests/test_workflow_evaluated_view_publication_faults.py),
+[`tests/test_workflow_evaluated_dashboard.py`](../../tests/test_workflow_evaluated_dashboard.py),
+[`tests/test_workflow_evaluated_monitor.py`](../../tests/test_workflow_evaluated_monitor.py),
+[`tests/test_workflow_evaluated_watchdog_probe.py`](../../tests/test_workflow_evaluated_watchdog_probe.py)
+and [`tests/test_workflow_evaluated_watchdog_watcher.py`](../../tests/test_workflow_evaluated_watchdog_watcher.py).
+The trial SDK row stays outside the first release. The legacy heartbeat
+sentence of V4 describes the flat route only.
 
 The spike's view reproduced the present report's rows for a run killed
 during its second command, and said `interrupted` where the present report
@@ -2769,7 +2856,14 @@ Limits, stated so that the form is not taken for more than it is:
 - `effect_input_diverged` prints which parts of the resolved input differ
   and which declared files, not only that something does.
 
-Codes this design introduces or keeps, and where each is raised:
+Codes this design introduces or keeps, and where each is raised. The
+normative table, with the origin of each code, its exit status and its effect
+on run evidence, including the attempt-outcome codes (`command_exit_nonzero`,
+`provider_exit_nonzero`, `provider_timeout`, `provider_result_invalid`,
+`evaluated_execution_failed`) and the lock refusals
+(`workspace_run_already_active`, `run_already_active`, `memo_busy`), is owned
+by [`specs/cli.md`](../../specs/cli.md#diagnostics); this list routes each
+code to its rule here.
 
 | Code | Raised |
 | --- | --- |
@@ -2784,7 +2878,7 @@ Codes this design introduces or keeps, and where each is raised:
 | `command_transport_required` | Before new run authority: a valid compile-only Phase 2 command lacks `argv_transport`; rebuild explicitly (§9.1.3) |
 | `undefined_variables` | At reached command input resolution: a missing template binding/dictionary key, `None` or invalid filter; no start/dispatch (§9.1.3) |
 | `effect_input_invalid` | Before reserving a command attempt: a typed input value violates its checked contract, with field/value path and the existing violation code (§9.1.1) |
-| `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5) |
+| `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5). The code does not emit these names: `run` (and `--dry-run`) reports an input binding failure as `Validation error: Workflow input binding failed` (exit 2) and `resume` as `[resume_preflight_failed] …` (exit 2), per [`specs/cli.md`](../../specs/cli.md#diagnostics); named binding codes are a recorded follow-up |
 | `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3) |
 | `resume_request_missing` | At resume before any memo record or evidence mutation: a previously published evaluated header lacks its durable rebuild recipe (§8.4); read-only projection and invalidation remain permitted |
 | `resume_run_ref_root_changed` | Header/option preflight (exit 2): an explicit resume root differs from the immutable evaluated header root (§8.4); no evidence mutation |
@@ -2800,13 +2894,18 @@ Codes this design introduces or keeps, and where each is raised:
 | `effect_attempt_path_exists` | Exclusive allocation collides after the ordinal's synchronized `started`; append `failed`, preserve the directory, launch nothing (§8.2) |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | The explicit continuation (C8) |
 | `invalidate_profile_unsupported` | Public invalidation selects a legacy profile; no write occurs (§8.5) |
+| `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run (§8.4; the profile has no force-restart), and `resume` of a schema-2.1 run whose source now targets 2.35; not raised by `run` or ordinary `resume` of a 2.35 entry ([`specs/cli.md`](../../specs/cli.md#diagnostics)) |
 | `parallel_workspace_shared` | A later release (§11) |
 
 ## 13. Targets And Compatibility
 
 - Evaluated execution applies from target 2.35 (plan decision 6, selected
-  by the owner on 2026-09-30). A program at that target runs on the evaluator
-  only once the evaluator is delivered; Phase 2 provides compilation only.
+  by the owner on 2026-09-30). A program at that target compiles to the
+  closed program and runs on the evaluator through the public entries, for
+  the admitted classes of §1.1; forms outside the release remain
+  `closed_program_gap` at build (not a defect of an admitted form). The
+  version gate is normative in
+  [`specs/versioning.md`](../../specs/versioning.md#version-gating-summary).
 - Until explicitly retired under plan decision 8, programs at older targets
   compile and run as they do. Require raw byte-identical artifacts for
   identical identity inputs. The existing compiler/runtime identity hashes
@@ -2854,9 +2953,14 @@ Codes this design introduces or keeps, and where each is raised:
   retain their source meanings, absent-field serialization and request bytes.
   The additive closed `document` use does not change the schema/representation
   for existing checked artifacts; the earlier Phase 2 reader refuses the new
-  external-document combination. It never executed target-2.35 runs. Once
-  runtime runs exist, §8.4's profile/representation pin applies without
-  conversion.
+  external-document combination and never executed target-2.35 runs. Runs
+  published by the integrated runtime carry `schema_version "3.0"`,
+  `result_persistence_profile "evaluated_execution.v1"` and representation
+  `table/1`; §8.4's profile/representation pin applies to them without
+  conversion. An older-target entry still takes its build/lowering route,
+  profile (`2.1`, with or without `derived_pure_replay.v1`) and
+  representation; nothing converts a flat run to the evaluated profile or
+  the reverse.
 
 ## 14. What Is Preserved
 
@@ -2909,76 +3013,85 @@ apart from R1 to R12.
 
 Each requirement holds for the first release through the public run and
 resume entries. Where the spike met it, the reference is the measure to
-repeat.
+repeat. The third column records the historical spike evidence and the
+public owner that repeats it in the integrated runtime. Task 15 is integrated
+(15C `dab04431`, 15D `a84f2769`, 15A/15B `2604e887`); rows naming Task 17
+(pending) are not yet met. Receipts
+(commands, exits, hashes) are published by the Phase 3 closeout report
+(Task 16D).
 
-| Requirement | Measure | Spike |
+| Requirement | Measure | Spike and public evidence |
 | --- | --- | --- |
-| Totality | Every cell admitted at this target runs; refusals name only the release exclusions. No known defect remains among admitted forms. The matrix covers each form directly, through a same-module helper and through an imported helper | Met on 100 typechecking cells of 120, the 32 the present route fails among them (gate report, §2, criterion 1) |
-| Real programs | The `std/improve` example and the two workflows of the single-call comparison run to their expected result, unchanged in source apart from the target | Met with stand-in providers (gate report, §2, criterion 1) |
-| The search controller | The MLEvolve-inspired controller makes the decisions of its Python reference, in the same order, with the same budget spent, and returns the same result. Its form is the compact one, with one helper for both branches | Met on 72 pairs of leaf scenario and budget (gate report, §2, criterion 2) |
-| Growth | Doubling the fields of the controller's state and the number of its branches leaves it running. No limit depends on the size of an expression | Open |
-| Structured inputs | Public compile/run/resume of external `:inputs`: a candidate record and list of records of unions round-trip; wrong shape, non-finite and invalid nested path values fail before dispatch; source operand effects run once in order; empty versus absent documents, read-back tampering, stable digests across attempts and unchanged legacy/certified argv are checked | Open: Phase 3, exact contract in §9.1.1 |
-| Artifact handoff | A real file-producing command returns a typed path, a provider reads its declared document dependency, and the final publisher writes its declared file; assert path/producer/consumer evidence, required-file validation, fresh dependency bytes on retry, changed-byte refusal and no repeated committed provider/publisher on resume | Open: repeat the watchdog/verified-drain owner behavior through public evaluated entries (§9.1.2); neither a path string nor C9 alone is file-read evidence |
-| Nesting | A loop in a branch, a loop in a loop, and a branch in a hook run | Met (gate report, §3) |
-| Resume | For each real program, killing the process from outside in each window of each effect and resuming gives the final value of the uninterrupted run, with no committed effect run twice | Met: 96 kills (gate report, §2, criterion 3) |
-| Identity | Adding blank lines, and moving the program and the package, change no identity | Met (gate report, §2, criterion 5) |
-| Sites | Independent `perform`-node/site-table bijection and one frame per effectful call; fixtures cover `select` prefixes, nested `block`, `join` body/continuation, exhaustion and control in aggregate/terminal positions. Every memo identity instantiates one site and its frames | Existing corpus instances met (gate report, §2, criterion 6); total traversal beyond that corpus remains a prerequisite |
-| Parity | On programs both routes accept, the effect traces are equal and the requests are equal apart from R1 to R12 | Met on 68 matrix cells, the shipped examples and a reduced decisive program (gate report, §2, criterion 7) |
-| Older targets | Byte-identical build artifacts | Open: held by construction in the spike, no byte comparison run |
-| A dependence through a file | Command A writes a path that command B reads by a fixed name, with no value between them. After A's input changes and `invalidate A`, the resume gives the value of a fresh run, and B ran again | Failed on the value-only rule; iteration 4 reproduced and corrected it with suffix invalidation. Public-entry evidence remains required |
-| A read-only closure with external caches | A Python package command resumes with cache files absent from the closure (disabled or outside it); assert that placement. A changed authored script refuses resume, and a command modifying its closure fails before commit | Iteration 4 measured both cache placement and write detection; repeat through public entries |
-| The interpreter fixed for the run | Changing `PATH` alone launches the recorded executable with no change diagnostic. Changing bytes at that path emits `interpreter_changed` and continues on it; a missing/unlaunchable recorded path refuses. No interpreter digest enters effect-input identity | Iteration 4 demonstrated PATH pinning but retained digest-based refusal; the accepted C3 changed-bytes policy remains to prove |
-| An undeclared closure | A boundary without a `closure` field is refused at build, and a wrapper whose second script changed is never reused | Met for the refusal under `strict` (spike iteration 3, B); C1 makes it the only rule |
-| A terminal record without its settlements | A memo with a terminal record and a coordinator commit lacking `settled` is reported `memo_inconsistent`, with no outputs | Failed on the spike (gate report, §6); V3 is the rule to test |
+| Totality | Every cell admitted at this target runs; refusals name only the release exclusions. No known defect remains among admitted forms. The matrix covers each form directly, through a same-module helper and through an imported helper | Spike: met on 100 typechecking cells of 120, the 32 the present route fails among them (gate report, §2, criterion 1). Public: the target-2.35 matrix of Task 13A, direct, same-module and imported helper, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py); refusals name only release exclusions |
+| Real programs | The `std/improve` example and the two workflows of the single-call comparison run to their expected result, unchanged in source apart from the target | Spike: met with stand-in providers (gate report, §2, criterion 1). Public: stand-ins in [`tests/test_workflow_evaluated_consumers.py`](../../tests/test_workflow_evaluated_consumers.py) and [`tests/test_workflow_evaluated_programs.py`](../../tests/test_workflow_evaluated_programs.py); the configured live providers (Task 14D, rounds 1–2): each of `std/improve`, `reviewed_change` and `best_of_n` has a live public run, a committed-boundary CLI resume without redispatch and a completed resume, with the two defects round 1 found repaired before round 2 |
+| The search controller | The MLEvolve-inspired controller makes the decisions of its Python reference, in the same order, with the same budget spent, and returns the same result. Its form is the compact one, with one helper for both branches | Spike: met on 72 pairs of leaf scenario and budget (gate report, §2, criterion 2). Public: the same 72 pairs at 2.35 in [`tests/test_workflow_evaluated_programs.py`](../../tests/test_workflow_evaluated_programs.py) (Task 13C) |
+| Growth | Doubling the fields of the controller's state and the number of its branches leaves it running. No limit depends on the size of an expression | Public: met at 2.35, state fields 14→28 and source `if`s 27→54 with every arm witnessed, [`tests/test_workflow_evaluated_programs.py`](../../tests/test_workflow_evaluated_programs.py) (Task 13C) |
+| Structured inputs | Public compile/run/resume of external `:inputs`: a candidate record and list of records of unions round-trip; wrong shape, non-finite and invalid nested path values fail before dispatch; source operand effects run once in order; empty versus absent documents, read-back tampering, stable digests across attempts and unchanged legacy/certified argv are checked | Public: met through compile/run/resume, [`tests/test_workflow_evaluated_input_documents.py`](../../tests/test_workflow_evaluated_input_documents.py), [`tests/test_workflow_evaluated_input_document_attempts.py`](../../tests/test_workflow_evaluated_input_document_attempts.py), [`tests/test_workflow_evaluated_input_document_contracts.py`](../../tests/test_workflow_evaluated_input_document_contracts.py) and [`tests/test_workflow_evaluated_input_document_replay.py`](../../tests/test_workflow_evaluated_input_document_replay.py) (Task 12); exact contract in §9.1.1 |
+| Artifact handoff | A real file-producing command returns a typed path, a provider reads its declared document dependency, and the final publisher writes its declared file; assert path/producer/consumer evidence, required-file validation, fresh dependency bytes on retry, changed-byte refusal and no repeated committed provider/publisher on resume | Public: met through evaluated run/resume for the watchdog handoff and the canonical verified drain, [`tests/test_workflow_evaluated_artifacts.py`](../../tests/test_workflow_evaluated_artifacts.py), [`tests/test_workflow_evaluated_artifact_freshness.py`](../../tests/test_workflow_evaluated_artifact_freshness.py) and [`tests/test_workflow_evaluated_verified_drain.py`](../../tests/test_workflow_evaluated_verified_drain.py) (Tasks 13D/14, §9.1.2); neither a path string nor C9 alone is file-read evidence |
+| Nesting | A loop in a branch, a loop in a loop, and a branch in a hook run | Spike: met (gate report, §3). Public: the 2.35 matrix, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), [`tests/test_workflow_evaluated_loops.py`](../../tests/test_workflow_evaluated_loops.py) and [`tests/test_workflow_evaluated_control.py`](../../tests/test_workflow_evaluated_control.py) |
+| Resume | For each real program, killing the process from outside in each window of each effect and resuming gives the final value of the uninterrupted run, with no committed effect run twice | Spike: 96 kills (gate report, §2, criterion 3). Public: bounded kill cases in [`tests/test_workflow_evaluated_resume_kills.py`](../../tests/test_workflow_evaluated_resume_kills.py), [`tests/test_workflow_evaluated_run_ref_kills.py`](../../tests/test_workflow_evaluated_run_ref_kills.py) and [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py); external kills at every §8.3 window of each real program (`std/improve`, `reviewed_change`, serial `best_of_n`), with the final value of the uninterrupted run and no committed effect run twice, are met by Task 15A/15B, [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py) and [`tests/test_workflow_evaluated_recovery_branches.py`](../../tests/test_workflow_evaluated_recovery_branches.py) (`2604e887`) |
+| Identity | Adding blank lines, and moving the program and the package, change no identity | Spike: met (gate report, §2, criterion 5). Public: [`tests/test_workflow_evaluated_public_identity.py`](../../tests/test_workflow_evaluated_public_identity.py) (Task 13B) |
+| Sites | Independent `perform`-node/site-table bijection and one frame per effectful call; fixtures cover `select` prefixes, nested `block`, `join` body/continuation, exhaustion and control in aggregate/terminal positions. Every memo identity instantiates one site and its frames | Spike: existing corpus instances met (gate report, §2, criterion 6). Public: the 2.35 totality matrix of Task 13A, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), on top of the Phase 2 site owners |
+| Parity | On programs both routes accept, the effect traces are equal and the requests are equal apart from R1 to R12 | Spike: met on 68 matrix cells, the shipped examples and a reduced decisive program (gate report, §2, criterion 7). Public: request fields on public runs in [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py), [`tests/test_workflow_evaluated_prompts.py`](../../tests/test_workflow_evaluated_prompts.py) and [`tests/test_workflow_evaluated_command_templates.py`](../../tests/test_workflow_evaluated_command_templates.py) |
+| Older targets | Byte-identical build artifacts | Per-cut comparisons recorded in the Phase 3 plan's task evidence (unchanged old-target artifacts after each product cut); the phase-wide raw old-target audit at fixed paths with `PYTHONHASHSEED=0` is Task 17, pending |
+| A dependence through a file | Command A writes a path that command B reads by a fixed name, with no value between them. After A's input changes and `invalidate A`, the resume gives the value of a fresh run, and B ran again | Spike: failed on the value-only rule; iteration 4 reproduced and corrected it with suffix invalidation. Public: met, A writes `handoff.txt` and B reads it by name; after `invalidate` of the writer the resume gives the fresh run's value and B ran again, [`tests/test_workflow_evaluated_invalidate.py`](../../tests/test_workflow_evaluated_invalidate.py) |
+| A read-only closure with external caches | A Python package command resumes with cache files absent from the closure (disabled or outside it); assert that placement. A changed authored script refuses resume, and a command modifying its closure fails before commit | Spike: iteration 4 measured both cache placement and write detection. Public: [`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py), [`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py) (`__pycache__` outside the evidence, C5) and [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py) (changed authored script and changed package helper refuse) |
+| The interpreter fixed for the run | Changing `PATH` alone launches the recorded executable with no change diagnostic. Changing bytes at that path emits `interpreter_changed` and continues on it; a missing/unlaunchable recorded path refuses. No interpreter digest enters effect-input identity | Spike: iteration 4 demonstrated PATH pinning but retained digest-based refusal. Public: the accepted C3 policy is met, PATH redirected and bytes changed after a kill, resume logs `interpreter_changed` and launches the pinned path, [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py) and [`tests/test_workflow_evaluated_interpreters.py`](../../tests/test_workflow_evaluated_interpreters.py); `resume_interpreter_missing` is owned there and not observed in a retained public file |
+| An undeclared closure | A boundary without a `closure` field is refused at build, and a wrapper whose second script changed is never reused | Spike: met for the refusal under `strict` (iteration 3, B); C1 makes it the only rule. Public: build refusal in [`tests/test_workflow_lisp_command_boundary_closure.py`](../../tests/test_workflow_lisp_command_boundary_closure.py); a changed wrapper script is never reused, [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py) |
+| A terminal record without its settlements | A memo with a terminal record and a coordinator commit lacking `settled` is reported `memo_inconsistent`, with no outputs | Spike: failed (gate report, §6). Public: V3 is implemented in the reducer and the view, [`tests/test_workflow_evaluated_memo.py`](../../tests/test_workflow_evaluated_memo.py), [`tests/test_workflow_evaluated_views.py`](../../tests/test_workflow_evaluated_views.py); an unsettled committed coordinator reads `settling` while the writer lives and `interrupted` afterwards, never completed outputs, [`tests/test_workflow_evaluated_run_ref_settlement.py`](../../tests/test_workflow_evaluated_run_ref_settlement.py) |
 | A coordinator other than a run reference (later admission) | One shipped workflow through both routes, killed at both gaps, plus its internal interruption semantics and proof authority | Iteration 4's trial specimen, with production recovery coverage after the Phase 0 correction; changed-decision/settlement/capsule limits in §9.3 remain prerequisites |
-| The request contract | Every field of every request compared without normalising; a field not in R1 to R12 is equal | Met (spike iteration 3, F) |
-| Attempt allocation | External kills before/after the synchronized `started`, after exclusive directory creation and before dispatch; next ordinal on resume, old evidence unchanged, no dispatch on collision, and conservative refusal for `must_not_repeat` | Open; the spike did not implement the design's original pre-`started` allocation order |
-| Durable run authority | Fault injection before/after each program/header write, file sync, rename and directory sync, including run-root creation and empty-journal sync. Model unsynchronized writes disappearing: either valid authority survives for every durable record, or no effect was dispatched. Missing authority with a nonempty journal refuses without reconstruction | Open; this is a crash/power-loss contract, not a demonstrated production failure |
-| Retry after a closure change | A command modifies its declared script and exits: C4 fails it; resume with unchanged `.orc` source launches nothing until original implementation evidence is restored. Repeat with a kill after modification but before `failed`, with a changed package helper, and with `must_not_repeat` | Open; the missing guard was a contract counterexample, not a demonstrated production failure |
-| Atomic suffix invalidation | Kill before append, within a torn range line, after a complete write/before sync, after sync and before acknowledgment. Each recovered memo cancels none or the entire selected suffix; no later commit is stranded, future retry commits survive, and a coordinator anywhere in the suffix refuses before append | Open; one range record replaces the per-effect invalidation writes |
-| Clean terminal resume | Resume a completed effectful run and a pure-only run twice: identical memo bytes and results; failed-attempt resume appends `started` before a later terminal; repeated preflight/pure failure adds no duplicate terminal | Open; iteration 3 appended adjacent completed terminals |
-| Dispatch accounting | Command/provider executor configured to retry receives a retryable failure: one external dispatch, one `started`, one directory, then `failed`; explicit resume reserves the next attempt or refuses `must_not_repeat` | Open |
-| Early divergence | Change a declared file bound by a later committed effect whose inputs depend on earlier results; refuse before launch, reconciliation, tail repair or view replacement, with the first divergent commit in journal order | Open; the spike's on-encounter check alone is insufficient |
-| Provider destination | A provider at the new target that changes its working directory before writing to R2 commits through the public entry, with no file outside its attempt directory; its R2 value is absolute and its relative spelling against the workspace equals R3, the memo-derived X4 and the command spelling; command environments stay workspace-relative; input parts and memo rows carry no absolute spelling, and `input_parts["prompt"]` is the digest of a prompt whose path line is R3; a provider dispatched after a whole-workspace move receives the absolute value under the moved root, and a committed provider resumes without divergence after that move; old-route provider and command environments are unchanged | Open: Phase 3, exact contract in §9.4 R2 |
-| Workspace-relative result path | Public paused and uninterrupted X4 runs return exactly the committed attempt's workspace-relative result path (R3, the command clause of R2); a nested `--state-dir .orchestrate/runs/custom` run returns its actual path, not the default spelling; completed and committed-boundary resumes redispatch nothing; source-free view load opens no recipe or result file; whole-workspace relocation keeps the value and resumes; a run root not under `<workspace>/.orchestrate/runs` fails at the reached form with a failed terminal that read-only loaders report and invalidation can reopen; malformed and absent headers take their §8.4 dispositions; both production publishers (the public entry under a nested `--state-dir`, the path-mode child) publish the fact; old-route and refinement controls are unchanged | Open: Phase 3, exact contract in §8.4, *Immutable result root* |
+| The request contract | Every field of every request compared without normalising; a field not in R1 to R12 is equal | Spike: met (iteration 3, F). Public: exact argv, model, effort, cwd, R2 destination and site key on public runs, [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py), [`tests/test_workflow_evaluated_provider_io.py`](../../tests/test_workflow_evaluated_provider_io.py) and [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) |
+| Attempt allocation | External kills before/after the synchronized `started`, after exclusive directory creation and before dispatch; next ordinal on resume, old evidence unchanged, no dispatch on collision, and conservative refusal for `must_not_repeat` | Public: the synchronized `started` before exclusive allocation and the next ordinal on resume are met, [`tests/test_workflow_evaluated_attempts.py`](../../tests/test_workflow_evaluated_attempts.py), [`tests/test_workflow_evaluated_command_lifecycle.py`](../../tests/test_workflow_evaluated_command_lifecycle.py) and [`tests/test_workflow_evaluated_provider_lifecycle.py`](../../tests/test_workflow_evaluated_provider_lifecycle.py); external kills before/after `started` and around allocation and dispatch are met by Task 15A/15B, [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py) (`2604e887`); no retained public file of the Task 16A inventory shows an allocation-collision `failed` row |
+| Durable run authority | Fault injection before/after each program/header write, file sync, rename and directory sync, including run-root creation and empty-journal sync. Model unsynchronized writes disappearing: either valid authority survives for every durable record, or no effect was dispatched. Missing authority with a nonempty journal refuses without reconstruction | Public: the publication order and the missing-authority refusal are met, [`tests/test_workflow_evaluated_authority.py`](../../tests/test_workflow_evaluated_authority.py) and [`tests/test_workflow_evaluated_memo_writes.py`](../../tests/test_workflow_evaluated_memo_writes.py); the fault model (crash points at each write, file `fsync`, directory `fsync` and visible rename, with unsynchronized writes disappearing: either valid authority survives every durable record or nothing was dispatched) is met by Task 15C, [`tests/test_workflow_evaluated_durability_model.py`](../../tests/test_workflow_evaluated_durability_model.py), integrated `dab04431`. This is a crash/power-loss contract, not a demonstrated production failure |
+| Retry after a closure change | A command modifies its declared script and exits: C4 fails it; resume with unchanged `.orc` source launches nothing until original implementation evidence is restored. Repeat with a kill after modification but before `failed`, with a changed package helper, and with `must_not_repeat` | Public: met for the failed command, the changed package helper and `must_not_repeat`, [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py); the kill after modification and before `failed` is met by Task 15A/15B (closure-mutation-then-kill cells and must-not-repeat controls, [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py), `2604e887`) |
+| Atomic suffix invalidation | Kill before append, within a torn range line, after a complete write/before sync, after sync and before acknowledgment. Each recovered memo cancels none or the entire selected suffix; no later commit is stranded, future retry commits survive, and a coordinator anywhere in the suffix refuses before append | Public: the single range record, whole-suffix cancellation, coordinator refusal and `--state-dir` entry are met, [`tests/test_workflow_evaluated_invalidate.py`](../../tests/test_workflow_evaluated_invalidate.py), [`tests/test_workflow_evaluated_invalidate_smoke.py`](../../tests/test_workflow_evaluated_invalidate_smoke.py) and [`tests/test_workflow_evaluated_invalidate_durability.py`](../../tests/test_workflow_evaluated_invalidate_durability.py); the kill windows (torn range line, before/after sync, lost acknowledgment) are met by Task 15C, [`tests/test_workflow_evaluated_invalidate_windows.py`](../../tests/test_workflow_evaluated_invalidate_windows.py), integrated `dab04431` |
+| Clean terminal resume | Resume a completed effectful run and a pure-only run twice: identical memo bytes and results; failed-attempt resume appends `started` before a later terminal; repeated preflight/pure failure adds no duplicate terminal | Spike: iteration 3 appended adjacent completed terminals. Public: met, a completed effectful and a pure-only run resumed twice with identical memo bytes and no redispatch, [`tests/test_workflow_evaluated_resume.py`](../../tests/test_workflow_evaluated_resume.py) and [`tests/test_workflow_evaluated_invalidate_smoke.py`](../../tests/test_workflow_evaluated_invalidate_smoke.py); a repeated failed resume adds no duplicate terminal, [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py); the same under a failed view replacement is met by Task 15D, [`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py), integrated `a84f2769` |
+| Dispatch accounting | Command/provider executor configured to retry receives a retryable failure: one external dispatch, one `started`, one directory, then `failed`; explicit resume reserves the next attempt or refuses `must_not_repeat` | Public: the provider half is met by [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py) (`test_public_provider_failure_keeps_one_attempt_and_complete_streams`: `--max-retries 4 --retry-delay 0` supplied and not read by the route, one request, one `started`, one directory, `failed`); the next-ordinal rule by [`tests/test_workflow_evaluated_command_lifecycle.py`](../../tests/test_workflow_evaluated_command_lifecycle.py) and [`tests/test_workflow_evaluated_provider_lifecycle.py`](../../tests/test_workflow_evaluated_provider_lifecycle.py). The command half rests on `specs/io.md` (internal executor retries are bypassed); no public fixture configures a retrying executor for a command |
+| Early divergence | Change a declared file bound by a later committed effect whose inputs depend on earlier results; refuse before launch, reconciliation, tail repair or view replacement, with the first divergent commit in journal order | Public: met for the committed prefix in journal order before any launch, [`tests/test_workflow_evaluated_resume_replay.py`](../../tests/test_workflow_evaluated_resume_replay.py) and [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py); divergence detected before reconcile or tail repair is met by Task 15D, [`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py), integrated `a84f2769` |
+| Provider destination | A provider at the new target that changes its working directory before writing to R2 commits through the public entry, with no file outside its attempt directory; its R2 value is absolute and its relative spelling against the workspace equals R3, the memo-derived X4 and the command spelling; command environments stay workspace-relative; input parts and memo rows carry no absolute spelling, and `input_parts["prompt"]` is the digest of a prompt whose path line is R3; a provider dispatched after a whole-workspace move receives the absolute value under the moved root, and a committed provider resumes without divergence after that move; old-route provider and command environments are unchanged | Public: met, a stand-in that changes directory commits through the absolute R2 with no stray file and the old route stays relative, [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py) (design `344a6fd3`, product `fd885caa`); the live `best_of_n` of Task 14D round 2 confirmed it with the configured provider. Exact contract in §9.4 R2 |
+| Workspace-relative result path | Public paused and uninterrupted X4 runs return exactly the committed attempt's workspace-relative result path (R3, the command clause of R2); a nested `--state-dir .orchestrate/runs/custom` run returns its actual path, not the default spelling; completed and committed-boundary resumes redispatch nothing; source-free view load opens no recipe or result file; whole-workspace relocation keeps the value and resumes; a run root not under `<workspace>/.orchestrate/runs` fails at the reached form with a failed terminal that read-only loaders report and invalidation can reopen; malformed and absent headers take their §8.4 dispositions; both production publishers (the public entry under a nested `--state-dir`, the path-mode child) publish the fact; old-route and refinement controls are unchanged | Public: met, the §8.4 dispositions (paused and uninterrupted X4, nested `--state-dir`, relocation, historical absence, both publishers) are owned by [`tests/test_workflow_evaluated_result_root.py`](../../tests/test_workflow_evaluated_result_root.py) and [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (Task 13B-I, X4). Exact contract in §8.4, *Immutable result root* |
 
 ## 18. Feasibility Obligations
 
-These rows distinguish historical spike evidence from implemented Phase 2
-compiler evidence. Public runtime/recovery fixtures remain open; the [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
-owns task completion.
+These rows distinguish historical spike evidence, implemented Phase 2
+compiler evidence and the public runtime evidence of the integrated Phase 3
+cuts. The [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
+owns compiler task completion; the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+owns runtime task completion: Task 15 is integrated (15C `dab04431`, 15D
+`a84f2769`, 15A/15B `2604e887`) and Task 17 is pending.
 
 | Claim | Fixture | Evidence and remaining work |
 | --- | --- | --- |
-| The closed program can be built for the corpus | P1 to P7 hold for every workflow whose forms/classes are admitted; inventory every refusal against §1.1, including stdlib command closures. Never seed an unknown implementation closure as empty merely to pass | Historical spike: 38 of 52 built in iteration 3, 39 in iteration 4; phased calls were treated as ordinary calls. Implemented Phase 2 corpus: 37 Built, 10 Gap, 4 Refused, 1 NotSynthesizable, owned by `tests/test_workflow_lisp_closed_program_corpus.py`; every Built artifact is validated/read back and its perform/site bijection checked. Neither count establishes runtime parity |
+| The closed program can be built for the corpus | P1 to P7 hold for every workflow whose forms/classes are admitted; inventory every refusal against §1.1, including stdlib command closures. Never seed an unknown implementation closure as empty merely to pass | Historical spike: 38 of 52 built in iteration 3, 39 in iteration 4; phased calls were treated as ordinary calls. Implemented Phase 2 corpus: 37 Built, 10 Gap, 4 Refused, 1 NotSynthesizable, owned by `tests/test_workflow_lisp_closed_program_corpus.py`; every Built artifact is validated/read back and its perform/site bijection checked. Neither count establishes runtime parity; runtime totality at 2.35 is the first row of §17 |
 | A lexical path distinguishes every effect site, across inlined copies | A procedure with one effect, called from three arms of one `match`, in a loop | Met (gate report, §2, criterion 6) |
-| Prompt assembly can run outside the executor | Public compile/run fixtures distinguish `asset_file` and `input_file` using different texts at their lookup locations; a document-slot `defprompt` and dependency snapshots assemble the same prompt as the flat route, apart from R3 | Asset/template/typed-input/contract-block specimens met; source-kind distinction, document slots and dependency snapshots remain prerequisites |
-| Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Met (spike iteration 1, commit `92d47fe0`). Open: path existence checks, variant selection by workspace digest and secrets are each an effect or part of a resolved input; secrets are not designed |
-| The views satisfy their readers | Every V9 adapter reads the evaluated profile through its public entry, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit | Only report-shaped in-memory rows/status shown in iteration 2; durable publication, status adapters and public-reader integration remain prerequisites |
-| A run-reference adapter can reuse its runtime and ledger | A compiled path-mode run reference, killed at both gaps, with the changed caller adapter | Met in the spike (iteration 3, E); public evaluator integration remains required |
-| The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Met for X1 and X4; X2 and X3 open |
+| Prompt assembly can run outside the executor | Public compile/run fixtures distinguish `asset_file` and `input_file` using different texts at their lookup locations; a document-slot `defprompt` and dependency snapshots assemble the same prompt as the flat route, apart from R3 | Spike: asset/template/typed-input/contract-block specimens met. Public: the source-kind distinction (`asset_file` versus `input_file` at their lookup locations), document slots and dependency snapshots through public compile/run, [`tests/test_workflow_evaluated_prompts.py`](../../tests/test_workflow_evaluated_prompts.py), [`tests/test_workflow_evaluated_prompt_files.py`](../../tests/test_workflow_evaluated_prompt_files.py) and [`tests/test_workflow_evaluated_provider_reads.py`](../../tests/test_workflow_evaluated_provider_reads.py) (Task 7) |
+| Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Spike: met (iteration 1, commit `92d47fe0`). Public: a second evaluation over one memo launches nothing and reads no committed result's file again, [`tests/test_workflow_evaluated_resume_replay.py`](../../tests/test_workflow_evaluated_resume_replay.py) and [`tests/test_workflow_evaluated_input_document_replay.py`](../../tests/test_workflow_evaluated_input_document_replay.py); a path's existence is observed only as a C6 document read or a `must_exist` check at the producing boundary. Secrets are not designed |
+| The views satisfy their readers | Every V9 adapter reads the evaluated profile through its public entry, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit | Spike: only report-shaped in-memory rows/status shown in iteration 2. Public: durable publication, the status adapters and every reader of §10 read the profile through their public entries, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit, [`tests/test_workflow_evaluated_view_publication_faults.py`](../../tests/test_workflow_evaluated_view_publication_faults.py) (Tasks 10–11); view failure with later divergence before reconcile/tail repair and completed resume twice by Task 15D, [`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py), integrated `a84f2769` |
+| A run-reference adapter can reuse its runtime and ledger | A compiled path-mode run reference, killed at both gaps, with the changed caller adapter | Spike: met (iteration 3, E). Public: the evaluated adapter with its ledger through the public entries, [`tests/test_workflow_evaluated_run_ref.py`](../../tests/test_workflow_evaluated_run_ref.py), [`tests/test_workflow_evaluated_run_ref_settlement.py`](../../tests/test_workflow_evaluated_run_ref_settlement.py), [`tests/test_workflow_evaluated_run_ref_root.py`](../../tests/test_workflow_evaluated_run_ref_root.py) and [`tests/test_workflow_evaluated_run_ref_kills.py`](../../tests/test_workflow_evaluated_run_ref_kills.py) (Task 9); both-gap kills on the real programs by Task 15A/15B, [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py) (`2604e887`) |
+| The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Spike: met for X1 and X4. Public: met on both routes. X2 (`PhaseCtx`) and X3 (`phase-target`, including named targets with a real legacy provider) are compared against the flat route's values by [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (`test_public_run_and_phase_context_match_existing_route`, `test_public_named_phase_targets_match_real_legacy_provider`) and [`tests/test_workflow_evaluated_phase_context.py`](../../tests/test_workflow_evaluated_phase_context.py) (`test_fixed_phase_target_values_match_legacy_after_readback`); X1 through the evaluated entries in [`tests/test_workflow_evaluated_call_context.py`](../../tests/test_workflow_evaluated_call_context.py); X4 is the `<result_root>/<result_path>` join of §8.4 (Task 13B-I) |
 | Non-finite numbers cannot reach an input digest | The numeric surface's boundary rule, implemented at target 2.34 | Owned by the [numeric surface](workflow_lisp_numeric_surface.md) |
-| A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Open: Phase 3 of the plan |
+| A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Public: met, [`tests/test_workflow_evaluated_input_documents.py`](../../tests/test_workflow_evaluated_input_documents.py) (Task 12) |
 | The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Implemented: checker/artifact read-back reject those tamperings, including public CLI artifacts; `tests/test_workflow_lisp_closed_program_artifact.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
-| Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Implemented compiler evidence: canonical keys distinguish selected targets/bindings and retain lexical creation bindings. Public formatting/relocation builds preserve keys/digests in `tests/test_workflow_lisp_closed_program_compile_cli.py`; runtime once-only evaluation remains open |
+| Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Implemented compiler evidence: canonical keys distinguish selected targets/bindings and retain lexical creation bindings. Public formatting/relocation builds preserve keys/digests in `tests/test_workflow_lisp_closed_program_compile_cli.py`; runtime once-only evaluation through public run/resume in [`tests/test_workflow_evaluated_call_captures.py`](../../tests/test_workflow_evaluated_call_captures.py) and [`tests/test_workflow_evaluated_calls.py`](../../tests/test_workflow_evaluated_calls.py) (Task 13B) |
 | Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical at identical identity inputs (§13); an old entry calling a new-target module is refused | Implemented public compile: the evaluated entry skips flat lowering across selected imported typed bodies; old entries retain their route and refuse evaluated dependencies. `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_target_evaluated_execution.py` |
 | Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Implemented: local callable identities, private nominal descriptors and finalized run-reference signatures omit paths/positions while preserving owners; public relocation/read-back coverage is in `tests/test_workflow_lisp_closed_program_effects.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
-| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Implemented declaration/build checks for both kinds, unused configuration identity, and public CLI carriage; `tests/test_workflow_lisp_command_boundary_closure.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py`. Compile reads no closure bytes. Filesystem/content-hash/recovery checks remain open in Phase 3 |
-| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Implemented public compile: used injected declarations retain trusted package origin and explicit closure through construction/read-back; `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_closed_program_build.py`. Runtime launch-origin, changed-byte, retry and cache-placement checks remain open |
+| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Implemented declaration/build checks for both kinds, unused configuration identity, and public CLI carriage; `tests/test_workflow_lisp_command_boundary_closure.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py`. Compile reads no closure bytes. Filesystem/content-hash/recovery checks through public entries in [`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py), [`tests/test_workflow_evaluated_closure_evidence.py`](../../tests/test_workflow_evaluated_closure_evidence.py) and [`tests/test_workflow_evaluated_command_origin.py`](../../tests/test_workflow_evaluated_command_origin.py) |
+| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Implemented public compile: used injected declarations retain trusted package origin and explicit closure through construction/read-back; `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_closed_program_build.py`. Runtime launch-origin, changed-byte, retry and cache-placement checks in [`tests/test_workflow_evaluated_command_origin.py`](../../tests/test_workflow_evaluated_command_origin.py), [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py) (certified package helper retried from its copy) and [`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py) |
 
 ## 19. Decisions Still Open
 
 The first three iterations' 38 decisions are rules above. Later-admission
 questions from iteration 4 and remaining feasibility evidence do not change
 the first-release architecture. Target-number question 1 was resolved by
-the owner on 2026-09-30; the remaining questions below stay open.
+the owner on 2026-09-30 and question 4 by public evidence; the remaining
+questions below stay open.
 
 | # | Question | Answered by |
 | --- | --- | --- |
 | 1 | The number of the new target — resolved | 2.35, owner decision of 2026-09-30 (plan, decision 6) |
 | 2 | When older targets are retired | The owner: plan, decision 8. After the maintained workflows run at the new target |
 | 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters |
-| 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's | One program per context form, run on both routes, with the equality asserted on the values (§18) |
+| 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's — resolved | Public runs on both routes with the values asserted equal: `tests/test_workflow_evaluated_public_context.py::test_public_run_and_phase_context_match_existing_route` and `::test_public_named_phase_targets_match_real_legacy_provider`, and `tests/test_workflow_evaluated_phase_context.py::test_fixed_phase_target_values_match_legacy_after_readback` (§18, Task 13B-I) |
 | 5 | Whether prompt dependency snapshots render as the present route renders them | The two routes' prompts compared on a workflow with prompt dependencies (§18) |
 | 6 | When invalidation may narrow to dependents through values and declared files (C9) | A later release, when command boundaries declare the files they read and write, tested by the file-dependence fixture of §17 |
 | 7 | How sessions, observation files and secrets are named and resumed | Not designed. Each enters with the class that needs it, with its own evidence (§1.1) |
@@ -2988,4 +3101,7 @@ the owner on 2026-09-30; the remaining questions below stay open.
 
 | Date | Decision | Reason |
 | --- | --- | --- |
+| 2026-10-04 | `result_root` is a third optional header fact (§8.4, *Immutable result root*), written by both production publishers, compared on resume (`resume_result_root_changed`) and lazy on historical absence (`result_root_missing` only at a reached X4) | The run root's position under the workspace is recoverable from no other stored fact, and the memo stores run-relative result paths on purpose. The alternative, a workspace input to every reader, was rejected by the owner |
+| 2026-10-04 | `depends_on` is computed per value and documented as a superset (C9); narrowing it to the parts actually read is an entry condition of the release that scopes invalidation by C9 | No value, path, reuse decision or invalidation uses `depends_on` in this release; only lineage evidence is wider than real, and C6 read digests carry consumption evidence |
+| 2026-10-06 | `__pycache__` directories and their bytecode are outside closure evidence (C5, §7.3) | A process writing a `.pyc` between commit and resume made resume refuse a whole-package closure with `effect_input_diverged`; bytecode is not the bytes of a declared file |
 | 2026-10-06 | R2 splits by effect class: a provider receives the absolute path of its attempt's result file; a command and the prompt's path line keep the workspace-relative spelling, and every stored or digested fact keeps its existing relative spelling. Older targets are unchanged | An agent's working directory is not the workspace. A provider may change directory while it works, and a relative destination then names a file the runtime never reads; the attempt ends without a result although the provider wrote one. The prompt and the digests keep the relative spelling so that prompt parity (R4) and whole-workspace relocation (§8.4) hold; commands keep it because the certified adapters and library scripts they run accept only workspace-relative destinations, and they do not change directory |

@@ -118,17 +118,57 @@ base: `workspace` for relative supplied paths, `absolute` for absolute paths,
 or `package:orchestrator` for trusted relative injected bindings. A manifest
 override remains workspace-based. These declarations enter configuration and
 program identity; compilation reads no closure file bytes and performs no
-traversal or symlink resolution. Runtime file hashes, read-only enforcement,
-output disjointness and interpreter pinning remain open in Phase 3, as owned
-by [evaluated execution §7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares).
-Targets through 2.34 accept valid declarations and ignore them in legacy
-binding identity/artifacts.
+traversal or symlink resolution. Targets through 2.34 accept valid
+declarations and ignore them in legacy binding identity/artifacts.
+
+At run time the evaluated runtime enforces the declaration as
+[evaluated execution §7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares)
+states it, with [`specs/io.md`](../../specs/io.md#evaluated-command-and-provider-io-target-235)
+as the normative owner of the resolved input and its evidence rows:
+
+- the declared files and the workspace paths among the stable-command tokens
+  are hashed when the command's attempt starts (`implementation_files` in the
+  `started` row) and rehashed before its commit; a change during the attempt
+  fails it with `command_closure_written`, and a changed file before a retry or
+  at resume refuses with `effect_input_diverged`;
+- the bare interpreter token is resolved on `PATH` once per run and pinned in
+  `run.json` with its path and digest; later attempts launch the pinned path,
+  changed bytes are reported as `interpreter_changed` and continue, a missing
+  path refuses `resume_interpreter_missing`;
+- C4 is one local check immediately before each reached command that needs a
+  new attempt (destinations disjoint from that command's closure, then the
+  rehash before commit). It is not a startup scan of every effect, a route
+  scan or a global promise; a reused commit and the `started` baseline keep
+  their own checks;
+- C5 bounds the promise to the bytes of declared files. The declaration is the
+  author's statement of what the command reads, not a sandbox, a filesystem
+  capture, universal determinism or rollback; modification times, the
+  environment, undeclared files, the network, the clock and the provider
+  behind an id are outside it. `__pycache__` directories and bytecode are
+  outside closure evidence by rule
+  ([§7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares));
+  commands run with `PYTHONDONTWRITEBYTECODE=1`.
+
+A typed external-tool input document (`:argv` with `:inputs`, 2.35 only) is
+written as `inputs.json` in the attempt directory and appended to argv as the
+last, workspace-relative token; a certified adapter keeps its inline JSON
+document in signature order. The document's digest and contract do not depend
+on the attempt path ([§9.1.1](workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)).
 
 Evidence: `orchestrator/workflow_lisp/closed/effects.py::require_command_closures`,
 `closed/program.py::_canonical_closure`, `closed/artifact.py` (same directory),
 [closure tests](../../tests/test_workflow_lisp_command_boundary_closure.py),
 [build tests](../../tests/test_workflow_lisp_closed_program_build.py) and
-[public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py).
+[public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py)
+for the declaration; `orchestrator/workflow/evaluated/closure.py`,
+`closure_evidence.py`, `interpreters.py` and `runtime.py` with
+[`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py),
+[`tests/test_workflow_evaluated_closure_evidence.py`](../../tests/test_workflow_evaluated_closure_evidence.py),
+[`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py),
+[`tests/test_workflow_evaluated_interpreters.py`](../../tests/test_workflow_evaluated_interpreters.py),
+[`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py)
+and [`tests/test_workflow_evaluated_input_documents.py`](../../tests/test_workflow_evaluated_input_documents.py)
+for the runtime.
 
 ## Certified Command Adapter
 

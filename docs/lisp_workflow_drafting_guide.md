@@ -560,12 +560,24 @@ compiled and a step failed at run time.
 Most defects below share one cause: at run time a value exists only as the
 output of a step
 ([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
-[Evaluated execution](design/workflow_lisp_evaluated_execution.md) is a
-model accepted at gate G1 that addresses that cause. At target 2.35,
-`compile` now builds a checked closed program; `run` and `resume` refuse
-with `evaluated_execution_unavailable` until Phase 3. Use targets through
-2.34 for runnable workflows. The [Phase 2 status](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
-separates implemented compilation from open runtime verification.
+[Evaluated execution](design/workflow_lisp_evaluated_execution.md) is the
+accepted model that removes that cause: at target 2.35 a program is compiled
+to a checked closed program and evaluated, so a value is never a step's
+output. The rows below are the measured behaviour at 2.33 and 2.34 and stay
+valid for those targets; they are not retargeted. At 2.35 the same shapes are
+owned by the Task 13A totality matrix
+([`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py)),
+where the admitted cells have no known defect, and the compact search
+controller that row 14 refuses runs at 2.35 in
+[`tests/test_workflow_evaluated_programs.py`](../tests/test_workflow_evaluated_programs.py).
+The public 2.35 entries (`compile`, `--dry-run`, `run`, `resume`, `invalidate`
+and the readers) are integrated for the admitted classes; the
+[complete recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate)
+at the end of this section shows them on one public fixture. Task 15 of the
+[Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+(external kills at every window, the durable fault model, invalidation
+windows, view-failure recovery) is integrated; Task 17 (phase closeout) is
+pending.
 
 Run a program from the repository root. The value is in
 `.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
@@ -607,10 +619,21 @@ At target **2.35**, public `compile` builds `closed_program.json` and
 canonical configuration and the perform-site table. Commands, portable
 composed providers (extern `asset_file`/`input_file` and admitted `defprompt`
 slots, without context capture), calls/captures/bounded local procedures and
-path-mode run references are admitted. `run` and `resume` refuse with
-`evaluated_execution_unavailable`; the compiler does not establish runtime
-parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py)
-and [target refusal tests](../tests/test_workflow_lisp_target_evaluated_execution.py).
+path-mode run references are admitted. `run` evaluates the closed program
+and records each effect once in `memo.jsonl`; `resume` rebuilds the program
+from the header's recipe, compares it, and continues from the memo without
+running a committed effect again; `invalidate RUN_ID IDENTITY` cancels one
+commit and every later one so that the next resume runs them again; `report`,
+the dashboard and the monitor read a view derived from the memo. The exact
+header, journal, view and exit contracts are normative in
+[State](../specs/state.md#evaluated-execution-persistence-profile-target-235),
+[Step IO](../specs/io.md#evaluated-command-and-provider-io-target-235),
+[CLI](../specs/cli.md#evaluated-execution-target-235)
+and [Versioning](../specs/versioning.md#version-gating-summary); the runtime lifecycle page gives the
+[evaluated sequence](runtime_execution_lifecycle.md#evaluated-profile-target-235).
+Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
+[target tests](../tests/test_workflow_lisp_target_evaluated_execution.py) and
+the public runtime owners `tests/test_workflow_evaluated_*.py`.
 
 Selected `request-input`, `trial`, phased provider delivery,
 `run-provider-phase`, `produce-one-of`, `resume-or-start`,
@@ -630,9 +653,14 @@ Every supplied command manifest row, even unused, and every used injected
 binding needs `"closure": ["tool.py", "lib/"]` or an explicit `"closure": []`.
 Omission refuses with `command_boundary_closure_missing`; malformed values
 refuse with `command_boundary_manifest_invalid`. Build records canonical
-logical paths without reading closure contents; runtime hashes/enforcement
-remain open. See [command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration)
-and [closure tests](../tests/test_workflow_lisp_command_boundary_closure.py).
+logical paths without reading closure contents; at run time the declared
+files are hashed when the command starts and before it commits, a changed
+file fails the attempt or refuses the resume, and the interpreter is pinned
+for the run. The declaration binds the bytes of the declared files and
+nothing else: it is not a sandbox. See
+[command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration),
+[closure tests](../tests/test_workflow_lisp_command_boundary_closure.py)
+and [runtime closure tests](../tests/test_workflow_evaluated_closure.py).
 
 The two forms of the paired search controller meet rows 1 and 14. The form
 with a copy per branch,
@@ -1037,6 +1065,162 @@ the call; rename the later binding:
 ```
 
 It returns 7.
+
+### A complete 2.35 recipe: compile, run, resume, report, invalidate
+
+Everything below is the public fixture of
+[`tests/test_workflow_evaluated_invalidate_smoke.py`](../tests/test_workflow_evaluated_invalidate_smoke.py)
+(`test_public_compile_run_resume_invalidate_resume_keeps_provider_command_evidence`),
+as it ran under the Task 16A inventory: the files it writes, the commands it
+issues and what it asserts. `$T` is the workspace, the current directory of
+every command. Run the test to reproduce it; nothing here is invented.
+
+**Source** (`$T/main.orc`, entry `main::run`): one command whose result feeds
+one provider, with a typed `String` input.
+
+```lisp
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule main) (export run)
+  (defrecord Result (ok Bool))
+  (defworkflow run ((message String)) -> Result
+    (let* ((built (command-result build :argv ("python" "command.py" message) :returns String))
+           (review (provider-result providers.review :prompt prompts.base
+             :inputs (message built) :model "chosen-model" :effort "low" :returns Result)))
+      review)))
+```
+
+**Command** (`$T/command.py`): appends its argv to `command-requests.jsonl`
+and writes its result, a JSON string, to the file named by
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` (workspace-relative for a command).
+
+```python
+import json
+import os
+import sys
+from pathlib import Path
+
+with Path("command-requests.jsonl").open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps({"argv": sys.argv[1:]}, ensure_ascii=False) + "\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(
+    json.dumps("command artifact ñ", ensure_ascii=False), encoding="utf-8"
+)
+```
+
+**Manifests**: the command boundary with its closure, the provider extern
+and the prompt extern.
+
+```json
+// $T/commands.json
+{"build": {"stable_command": ["python", "command.py"], "closure": ["command.py"]}}
+// $T/providers.json
+{"providers.review": "codex"}
+// $T/prompts.json
+{"prompts.base": {"asset_file": "prompt.md"}}
+```
+
+`$T/prompt.md` holds `ASSET SOURCE`. The provider is a stand-in: `_fixture()`
+in [`tests/test_workflow_evaluated_providers.py`](../tests/test_workflow_evaluated_providers.py)
+writes `$T/bin/codex` (its `SHIM` text behind a `#!<python>` line, mode
+0700). It reads the prompt on stdin, appends the request to `requests.jsonl`
+and writes `{"ok":true,"extra":7}` to the absolute
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` a 2.35 provider receives. The runtime
+validates that file against `Result` and commits `{"ok": true}`; `extra` is
+not part of the contract. `:model "chosen-model"` is the fixture's
+placeholder; a real provider needs a real model alias, and Task 14D ran the
+three maintained programs live with their own manifests, not with this one.
+The environment of every command below is the fixture's: `PATH=$T/bin:$PATH`,
+`PYTHONPATH=<repository root>` (this checkout's `orchestrator` must be the
+one `python -m orchestrator` imports; another installed checkout refuses
+target 2.35), `PYTHONDONTWRITEBYTECODE=1`, `PROVIDER_SHIM_MODE=success`,
+`PROVIDER_SHIM_RESULT='{"ok":true,"extra":7}'`; `$T` is the current directory.
+
+**1. Compile.** Writes `$T/.orchestrate/build/<key>/closed_program.json` and
+`manifest.json`; stdout is JSON whose `artifact_paths.closed_program` names
+the artifact. Exit 0.
+
+```bash
+python -B -m orchestrator compile $T/main.orc --entry-workflow main::run \
+  --source-root $T --provider-externs-file $T/providers.json \
+  --prompt-externs-file $T/prompts.json --command-boundaries-file $T/commands.json
+```
+
+**2. Run**, with the typed input. Exit 0. The run root
+`$T/.orchestrate/runs/<run_id>/` holds `run.json` (header with the rebuild
+recipe), `closed_program.json`, `memo.jsonl`, `state.json` (derived view),
+`run.lock` and `effects/<sha256 of the identity>/attempt-1/` for each effect
+(`result.json`, `stdout.txt`, `stderr.txt`; `prompt.txt` for the provider).
+The last memo record is
+`{"outcome":"completed","record":"terminal","value":{"ok":true}}` (keys
+sorted, compact); `state.json` has that value under `workflow_outputs`. `command-requests.jsonl`
+has one line, `{"argv": ["typed input"]}`; `requests.jsonl` has one provider
+request whose argv names `chosen-model` and `model_reasoning_effort=low`. The
+build directory is unchanged by the run.
+
+```bash
+python -B -m orchestrator run $T/main.orc --entry-workflow main::run \
+  --source-root $T --provider-externs-file $T/providers.json \
+  --prompt-externs-file $T/prompts.json --command-boundaries-file $T/commands.json \
+  --input 'message=typed input'
+```
+
+`--dry-run` on the same arguments builds and binds the inputs, exits 0 and
+creates no run root; an invalid input exits 2 the same way
+([`tests/test_workflow_evaluated_cli.py`](../tests/test_workflow_evaluated_cli.py),
+`python -m orchestrator run $T/evaluated/inputs.orc --dry-run --input score=0.75`
+on its pure fixture).
+
+**3. Resume a completed run.** Exit 0, and nothing under `.orchestrate`
+changes: no new request, no new attempt, same `memo.jsonl` bytes.
+
+```bash
+python -B -m orchestrator resume <run_id>
+```
+
+**Stop and resume.** A run killed inside its command attempt resumes from
+the memo: the interrupted effect gets `attempt-2`, and the pinned interpreter
+is launched even after `PATH` changed (its changed bytes are logged as
+`interpreter_changed`). The fixture is
+[`tests/test_workflow_evaluated_resume_replay_boundary.py`](../tests/test_workflow_evaluated_resume_replay_boundary.py)
+(`test_public_pending_retry_uses_pinned_path_after_path_and_bytes_change`):
+`run $T/pinned.orc --command-boundaries-file $T/commands.json`, killed by the
+test, then `resume <run_id>`, exit 0.
+
+**4. Report.** Reads header, program and memo and reconstructs the view in
+memory when `state.json` is missing, stale or unparseable; it writes nothing.
+Exit 0 ([`tests/test_workflow_evaluated_readers.py`](../tests/test_workflow_evaluated_readers.py)).
+
+```bash
+python -m orchestrator report --run-id <run_id> --runs-root $T/.orchestrate/runs --format json
+```
+
+**5. Invalidate the command**, by its canonical identity, one shell argument.
+Exit 0; stdout is the appended row,
+`{"from_commit": <byte offset of the command's commit>, "record": "invalidated", "time": ...}`
+(the memo stores it compact, keys sorted). The memo grows by that one row; `attempt-1` files, `run.json`,
+`closed_program.json` and the build directory are unchanged. Repeating the
+same command exits 2 with `invalidate_not_committed` and changes nothing.
+
+```bash
+python -B -m orchestrator invalidate <run_id> "workflow:main::run / built"
+```
+
+**6. Resume after invalidation.** Exit 0. The command and the provider run
+once more, as `attempt-2` of the same identities (`command-requests.jsonl` and
+`requests.jsonl` each gain one line); the terminal is `completed` with
+`{"ok": true}` again; `attempt-1` evidence and the program digest are
+unchanged.
+
+```bash
+python -B -m orchestrator resume <run_id>
+```
+
+What the recipe does not show: context capture, trials, phased providers,
+parallel map and the other classes of
+[§1.1](design/workflow_lisp_evaluated_execution.md#11-the-first-release)
+refuse at build with `closed_program_gap`; external kills at every window of
+every effect of the three maintained programs are owned by
+[`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
+(Phase 3 Task 15, integrated).
 
 ## 3. Semantic Authority Rules
 

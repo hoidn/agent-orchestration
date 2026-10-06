@@ -45,9 +45,15 @@ records compilation/compatibility checks and the completed red-suite result;
 Phase 2 compiler closeout is complete: code/verification review passed at
 `17049e79`, documentation review passed at `a6efc7e7`, and both were integrated
 at `a7b157d8`.
-The owner's 2026-10-01 amendment sets the downstream order below. Phases 3
-to 7 remain pending; this amendment records neither implementation nor
-completion of those phases.
+The owner's 2026-10-01 amendment sets the downstream order below. Phase 3
+runtime Tasks 1–14 of the [Phase 3 plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+are integrated (head `dc4a4e3a`, 2026-10-06), as is Task 15: 15C
+(`dab04431`), 15D (`a84f2769`) and 15A/15B (external kills at every window;
+`2604e887`), recorded complete at `500767d0`. Task 17 (full suite,
+old-target byte audit, whole-phase review, merge) is pending, so Phase 3 is
+not complete. Phases 4 to 7 remain
+pending; the amendment records neither implementation nor completion of
+those phases.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
@@ -463,6 +469,50 @@ design specifies, not compositional semantics within that admission.
 | The views | `orchestrator report`, the dashboard cursor, the monitor classifier and the watchdog probe read a state derived from a memo |
 | `run`, `resume`, `--dry-run` | Public compile, dry-run, run and resume of first-release fixtures, including consumers nominated for Phase 6a; the authoring pilot follows Phase 3, not a prerequisite for it |
 | The state profile in `specs/state.md` | The specification and the code agree on every key of the view |
+
+Status, 2026-10-06 (Task 16, partial closeout): Tasks 1–14 of the Phase 3
+plan are implemented, reviewed and integrated at head `dc4a4e3a`. Per
+milestone, the public owners are: values and the single pure catalog,
+`tests/test_workflow_evaluated_values.py`; every admitted construct with
+nesting, the target-2.35 totality matrix of Task 13A
+(`tests/test_workflow_evaluated_totality.py`, no admitted known defect) and the
+compact search with its growth variant (Task 13C,
+`tests/test_workflow_evaluated_programs.py`, all 72 reference pairs); the memo
+and the resume table, `tests/test_workflow_evaluated_memo.py`,
+`tests/test_workflow_evaluated_resume*.py`,
+`tests/test_workflow_evaluated_invalidate*.py`; typed input documents,
+`tests/test_workflow_evaluated_input_document*.py` (Task 12); performers for
+commands and composed providers, `tests/test_workflow_evaluated_commands.py`,
+`tests/test_workflow_evaluated_providers.py`, the stand-in consumers in
+`tests/test_workflow_evaluated_consumers.py` and the live runs of
+`std/improve`, `reviewed_change` and `best_of_n` with the configured providers
+(Task 14D, rounds 1–2: public run, committed-boundary resume without
+redispatch, completed resume); calls and path-mode run references,
+`tests/test_workflow_evaluated_calls.py`, `tests/test_workflow_evaluated_run_ref*.py`
+(Task 9, 13B); the views and readers, `tests/test_workflow_evaluated_views.py`,
+`tests/test_workflow_evaluated_readers.py`, `..._dashboard.py`, `..._monitor.py`,
+`..._watchdog_probe.py`, `..._watchdog_watcher.py` (Tasks 10–11); public
+compile/dry-run/run/resume, `tests/test_workflow_evaluated_cli.py` and the
+[drafting guide recipe](../lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate);
+the state profile, the Task 16 key-for-key inventory of 28 public cases and
+46 run roots, published by the Task 16D closeout) against `specs/state.md`.
+Task 15C (durable publication fault model, invalidation kill windows;
+[`tests/test_workflow_evaluated_durability_model.py`](../../tests/test_workflow_evaluated_durability_model.py),
+[`tests/test_workflow_evaluated_invalidate_windows.py`](../../tests/test_workflow_evaluated_invalidate_windows.py)) is integrated at
+`dab04431` and 15D (view failure after commit, later divergence before
+reconcile/tail repair, completed resume twice;
+[`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py)) at `a84f2769`;
+15A/15B (external kills at every window of the three programs and of the
+consumer harness's branch scenarios, must-not-repeat launcher controls,
+closure mutation then kill;
+[`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py),
+[`tests/test_workflow_evaluated_recovery_branches.py`](../../tests/test_workflow_evaluated_recovery_branches.py))
+at `2604e887`, with Task 15 recorded complete at `500767d0`. Pending: Task 17
+(full suite alone, old-target raw byte audit, independent whole-phase review,
+fast-forward merge and push). The Phase 3 closeout report (Task 16D) is still
+to be written; this status is not Phase 3 completion, a full-suite result or a
+release. The delivery order above is unchanged: Phase 3 → early Phase 6a
+pilot → Phase 4 additions and independent Phase 5 → Phase 6b → Phase 7.
 
 ### Phase 4: Consumer Capabilities And Authoring
 

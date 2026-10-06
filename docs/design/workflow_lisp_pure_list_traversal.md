@@ -247,9 +247,15 @@ The accepted target-2.35 evaluated placement contract additionally admits
 direct path-mode `run-ref` and an already-admitted call containing it in the
 one-effect body; see [evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235).
 The source and body arguments remain pure, with the existing collection,
-serial-order and bound rules. Its implementation and public execution/resume
-evidence remain pending under Phase 3 Tasks 9/13; this is no claim of current
-availability and does not widen the other first-tranche body restrictions.
+serial-order and bound rules. That placement is implemented for target-2.35
+entries: the Task 9 frontend cut with its public 9F/9G gates
+(`tests/test_workflow_evaluated_run_ref.py`, two-iteration K7 repetition with
+state forwarding and read-only resumes; `tests/test_workflow_evaluated_run_ref_kills.py`)
+and the Task 13A totality cells for the serial-map body
+(`tests/test_workflow_evaluated_totality.py`); Phase 3 Task 15 (external
+kills) is integrated and Task 17 (phase closeout) pending. It does not widen
+the other first-tranche body restrictions, selects no general or parallel
+map, and target-2.18 and 2.24 entries keep the rejection above.
 
 The call returns `R` directly and each successful result is appended once,
 in input order, to an eligible `List[R]`. `:max` must be a positive integer

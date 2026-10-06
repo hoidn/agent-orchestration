@@ -1,9 +1,11 @@
 # Workflow Lisp Core Calculus And Compiler Middle-End
 
 Status: accepted architecture / implemented for the M0-M5 migrated route subset
+through target 2.34; at target 2.35 WCC feeds the closed program that the
+integrated evaluated runtime executes (§§10.1, 11.4, 13.5, 15)
 Kind: architecture decision / compiler architecture
 Created: 2026-06-09
-Updated: 2026-06-10
+Updated: 2026-10-06 (target-2.35 evaluated route; Phase 3 Task 16)
 Scope: re-founding Workflow Lisp lowering on a minimal workflow core calculus
 with a real compiler middle-end — ANF normalization, second-class join-point
 control, scope/effect/proof analysis, and defunctionalization into the
@@ -371,7 +373,12 @@ The exact variants and typed fields are owned by the
 [Phase 2 schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#the-closed-programs-form).
 Evidence: `orchestrator/workflow_lisp/closed/build.py`, `closed/values.py`,
 `closed/check.py` and `tests/test_workflow_lisp_closed_program_corpus.py`.
-Compilation does not implement the Phase 3 evaluator.
+The integrated Phase 3 runtime (`orchestrator/workflow/evaluated/`) evaluates
+that closed program through the public entries, as owned by
+[evaluated execution §8](workflow_lisp_evaluated_execution.md#8-evaluation-and-resume);
+a 2.35 entry never enters the flat lowering below. Evidence:
+`tests/test_workflow_evaluated_totality.py` and
+`tests/test_workflow_evaluated_cli.py`.
 
 WCC is deliberately small. Target construct count is ten; additions require
 amending this document.
@@ -529,12 +536,16 @@ Join points are second-class, so defunctionalization is total and simple:
 ### 11.4 Identity and resume
 
 At target 2.35 the compiler assigns local perform sites separately from
-call frames; source spans remain provenance. Effect identity for the open
-Phase 3 runtime is `(site, activation path)`, as owned by
+call frames; source spans remain provenance. Effect identity in the evaluated
+runtime is `(site, activation path)`, as owned by
 [evaluated execution §6](workflow_lisp_evaluated_execution.md#6-effect-identity).
 The closed artifact uses its own checked schema; no flat lowering schema
-identifies its effects. Evidence: `orchestrator/workflow_lisp/closed/sites.py`
-and `tests/test_workflow_lisp_closed_program_sites.py`.
+identifies its effects. A 2.35 run carries no `lowering_schema_version`: its
+header selects the evaluated profile (`specs/state.md`), and resume evaluates
+the program again from its entry against the memo instead of restoring a
+position in the scopes below. Evidence: `orchestrator/workflow_lisp/closed/sites.py`,
+`tests/test_workflow_lisp_closed_program_sites.py` and, for the runtime,
+`tests/test_workflow_evaluated_public_identity.py`.
 
 On the flat route through target 2.34, step and binding identity is semantic:
 
@@ -748,12 +759,22 @@ the same on inspection" is prohibited evidence.
 
 ### 13.5 What the runtime sees
 
-Nothing new. The runtime executes the same validated flat model: steps,
-routes, contracts, loop budgets, structured-output bindings, StateLayout-
-allocated paths. The middle-end is invisible at execution time except through
-provenance projections. This is the central property that keeps the overhaul
-incremental: all risk is concentrated at compile time, where dual-compile
-oracles can catch it.
+Through target 2.34, nothing new. The runtime executes the same validated
+flat model: steps, routes, contracts, loop budgets, structured-output
+bindings, StateLayout-allocated paths. The middle-end is invisible at
+execution time except through provenance projections. This is the central
+property that keeps the overhaul incremental: all risk is concentrated at
+compile time, where dual-compile oracles can catch it.
+
+At target 2.35 the runtime sees the closed program itself. It evaluates values
+in an environment, performs each effect by identity against the memo and
+derives every view from the memo and the program
+([evaluated execution §§8, 10](workflow_lisp_evaluated_execution.md#8-evaluation-and-resume)).
+There are no steps, routes, call frames or StateLayout-allocated paths for
+that program and no flat run state; the artifact's checked form (P5) and the
+memo reducer carry the risk that dual-compile oracles carry on the flat route.
+Older targets keep the flat model above; nothing converts a run between the
+two profiles.
 
 ## 14. Contracts And Interfaces
 
@@ -804,12 +825,18 @@ oracles can catch it.
 - Nesting-preserving executable IR with runtime execution (authority
   inversion): selected at gate G1 on 2026-09-29 in
   [evaluated execution](workflow_lisp_evaluated_execution.md). Phase 2's
-  target-2.35 compiler is implemented; runtime evaluation/resume remain open
-  in Phase 3. WCC feeds the closed program, retaining callee bodies and sites
-  instead of flattening them. The [delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
+  target-2.35 compiler and the Phase 3 evaluator, memo, resume, invalidation
+  and derived views are implemented and integrated for the admitted
+  first-release classes; of the
+  [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md),
+  Task 15 (external kills and durable recovery) is integrated and Task 17
+  (phase closeout) is pending. WCC feeds the
+  closed program, retaining callee bodies and sites instead of flattening
+  them. The [delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
   owns later delivery; targets through 2.34 retain the flat route. Evidence:
-  `tests/test_workflow_lisp_closed_program_compile_cli.py` and
-  `tests/test_workflow_lisp_target_evaluated_execution.py`.
+  `tests/test_workflow_lisp_closed_program_compile_cli.py`,
+  `tests/test_workflow_lisp_target_evaluated_execution.py` and the public
+  runtime owners `tests/test_workflow_evaluated_*.py`.
 - Durable execution / journal replay (Temporal-style): rejected for this
   system. It trades away static effect visibility, validation-before-commit,
   and machine-diffable parity evidence — the repo's core authority
@@ -827,6 +854,10 @@ oracles can catch it.
 - A formal (mechanized) semantics for WCC: valuable, not gating.
 - Surface-language conveniences enabled by the calculus (early return,
   guard-style matching): macro-layer work after M5, not middle-end work.
+- Retiring the flat lowering for older targets, and the disposition of
+  existing flat runs, belong to the delivery plan's decision 8 (Phase 7),
+  after the maintained workflows run at 2.35. The 2.35 route does not imply
+  them, and the defunctionalizer stays for targets through 2.34.
 
 ## 17. Work Blocked And Not Blocked
 
@@ -880,6 +911,12 @@ Explicitly not blocked by this document:
 - Existing YAML workflows are untouched; YAML does not pass through the
   middle-end.
 - In-flight and historical runs resume under their recorded lowering schema.
+- A target-2.35 entry does not take the flat lowering: it compiles to the
+  closed program and runs under the evaluated profile, and an older-target
+  entry cannot call a 2.35 module
+  ([evaluated execution §13](workflow_lisp_evaluated_execution.md#13-targets-and-compatibility)).
+  A run keeps the profile it started under; nothing converts between the
+  flat and evaluated profiles.
 - The post-foundation target's tranches, fixtures, and parity policy apply
   unchanged; this document only fixes how Tranche 1's substrate is built.
 - If this document is rejected or stalls after M2, the system is left
