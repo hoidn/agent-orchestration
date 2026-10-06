@@ -19,7 +19,8 @@
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
   input-document, profile, invalidation-entry, artifact-handoff, command
-  transport and shared-union field-proof clarifications.
+  transport and shared-union field-proof clarifications; 2026-10-06, the
+  provider clause of R2 (§9.4, §20).
 - **Evidence:**
   [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
   below as "gate report";
@@ -849,7 +850,7 @@ the closed program, supplied by the evaluator, the same on every resume.
 | X1 | A call that leaves out a compiler-supplied `RunCtx` parameter | The record `{run-id, state-root: "state/run", artifact-root: "artifacts/run"}`, the present route's constants. `run-id` is the run's id, which is the run root's name (`specs/state.md`: `RUN_ROOT` is `.orchestrate/runs/<run_id>`). It is a `context` value; the run's identity reaches a program only this way (R1) |
 | X2 | A call that leaves out a compiler-supplied `PhaseCtx` parameter | The record `{run: <the caller's RunCtx>, phase-name, state-root: state/<phase>, artifact-root: artifacts/<phase>}`, built at the call site from the caller's context value and the phase name, with the phase-scoped roots the [state layout](workflow_lisp_state_layout.md) derives. The closed program holds it as an ordinary record; no hidden parameter exists at run time. For admitted derived-child omissions, retain the existing `carried_input_sources` relation, including `ItemCtx.run`, and the child phase constants; an explicit context wins and a carried run is never replaced by a fresh X1 value. Its equality with the present route's value is an open evidence item (§19) |
 | X3 | `phase-target` | The named target's field of the phase context in scope, or the path join `<artifact-root>/<phase>/<target>.md` for a generic `PhaseCtx`, elaborated at the `with-phase` site (§4.3) |
-| X4 | `provider-bundle-path` | The committed attempt's result file, relative to the workspace (§8.2): the header's immutable `result_root` joined with the committed record's run-relative `result_path` (§8.4, *Immutable result root*), so it is the same on every resume and equals the destination the performer received (R2). At the new target the form is typed as a path under `.orchestrate/runs` and meets that root whenever the run root lies under `<workspace>/.orchestrate/runs`; both legacy routes type it under `state` and refuse their own value (`outside_under_root`) |
+| X4 | `provider-bundle-path` | The committed attempt's result file, relative to the workspace (§8.2): the header's immutable `result_root` joined with the committed record's run-relative `result_path` (§8.4, *Immutable result root*), so it is the same on every resume and names the destination the performer received (R2): a command's R2 value is this string, and a provider's R2 value is the workspace's absolute path joined with it. At the new target the form is typed as a path under `.orchestrate/runs` and meets that root whenever the run root lies under `<workspace>/.orchestrate/runs`; both legacy routes type it under `state` and refuse their own value (`outside_under_root`) |
 
 ## 5. Values
 
@@ -1452,7 +1453,7 @@ Who writes it, and from which facts:
 - The path-mode child (`_execute_closed_path`): the request's `clone_root` and `child_state_dir / child_run_id`, which the request decoders already fix to `.orchestrate/runs/<child_run_id>`.
 - The publication API takes the value explicitly and validates it before the run root is created or the program published, beside the recipe and locator checks. A direct caller that names no workspace may omit it; the header then lacks the field and the run behaves as a historical run below. Neither production publisher omits it.
 
-Both publishers and resume derive the relationship with the lexical relative-path function R2 already uses for the performer destination; no filesystem access, no current-directory guess.
+Both publishers and resume derive the relationship with the lexical relative-path function that R3 and the command clause of R2 already use for the workspace-relative result path; no filesystem access, no current-directory guess.
 
 One lexical derivation supplies X4: `<result_root>/<result_path>`, the string join of the validated header fact and the committed record's run-relative `result_path`. Fresh execution, both reuse paths (prefix replay and a reached commit) and view replay, whether synchronized publication or source-free load, use that join and nothing else: no filesystem IO, no current directory, no source recipe, no provider output document. Memo rows, effect identity, input and result digests, the physical destination handed to the performer and the typed root the checker requires (`.orchestrate/runs`) do not change; `state.json` does not duplicate the field. A run whose root is not under `<workspace>/.orchestrate/runs`, whether inside the workspace elsewhere (`--state-dir state` gives `state/<run_id>`) or outside it with leading parent components, refuses at the reached form with the existing path refinement `pure_expr_operand_type_mismatch`, never a plausible default path. X4's refinement failure is an evaluated value error located at the form, like a pure operator's refinement failure: view replay stops there as at any pure failure before its terminal, the runtime appends the ordinary failed terminal, and read-only loaders then report a failed run rather than inconsistent authority. Programs that reach no X4 run under any state directory.
 
@@ -1723,7 +1724,8 @@ otherwise a retry would change its own input identity. After exclusive
 attempt allocation, publish `inputs.json` through the pinned run-root file
 owner, rejecting an existing file, unsafe path or closure overlap before
 launch. Pass its workspace-relative POSIX path, using the same external
-run-root handling as R2. A publication failure fails the reserved attempt.
+run-root handling as R3 and the command clause of R2. A publication failure
+fails the reserved attempt.
 Memo hits neither read nor regenerate that file: values and byte digests are
 recomputed in memory. Editing an old generated document cannot change the
 workflow or authorize reuse. User path values remain paths; this protocol
@@ -2607,17 +2609,42 @@ value, given by a rule. A field not listed here is equal on both routes.
 | Rule | Field | Value |
 | --- | --- | --- |
 | R1 | `provider.context` | Empty. A request carries no run state: no run id, no timestamp, no run root, no inputs, no steps. A provider template that names a run variable fails the attempt as a missing placeholder does today. The run's identity reaches a program only as the `RunCtx` value (X1) |
-| R2 | `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, in the environment of a provider and of a command | The attempt's own result path (§8.2), relative to the workspace, as the present route gives its path |
-| R3 | The prompt's `- path:` line, in the output contract block | The same path as R2. Nothing else in the prompt differs from the present route's assembly |
+| R2 | `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, in the environment of a provider and of a command | The attempt's own result file (§8.2), in one of two spellings by effect class. **Provider clause:** the absolute, lexically normalized path of the pinned attempt directory's `result.json`, the directory the runtime created exclusively and reads by descriptor, so the value names that file whatever working directory the provider is in when it writes. It is derived from the logical run root, never from a process-descriptor alias; the runtime records it nowhere, and only the provider's own streams can mention it, which enter no identity. **Command clause:** the same file relative to the workspace, as the present route gives its path; the certified adapters and library scripts a command runs accept only that spelling, and they do not change directory |
+| R3 | The prompt's `- path:` line, in the output contract block | The attempt's result file relative to the workspace: the command clause of R2. For a provider, R2 is the workspace's absolute path joined with this line; the prompt tells the provider to write only to R2 when it is set. Nothing else in the prompt differs from the present route's assembly |
 | R4 | `provider.prompt_content` | Assembled through the existing composition pipeline ([Providers](../../specs/providers.md)): form the tagged prompt extern source or rendered `defprompt` base; apply prompt dependencies to that base at their declared position (`doc` fills use fixed `prepend`); append the separate typed prompt-input block for extern-backed calls; append the output contract through the runtime's existing renderer. `defprompt` text/value/path fills are already rendered in its base and do not add a second typed-input block. Prompt bytes differ only as R3 specifies |
 | R5 | `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY`, in the provider's environment overlay | `sha256:` and the digest of the identity's canonical text. The same across attempts and resumes, present inside call frames as well; the present route sends none inside a call frame |
 | R6 | `provider.cwd` | The workspace, named. The present route inherits the orchestrator's working directory |
 | R7 | `provider_call_policy` and `timeout_sec` | The effect node's policy: `model`, `effort`, `timeout_sec` |
 | R8 | `params`, `session_request`, `provider_session_dir`, `provider_session_identity`, `secrets` | The parameters the effect node declares; none of the others in the first release (§1.1) |
 | R9 | `command.command` | The stable command tokens, the interpreter replaced by its resolved path (C3), then the rendered argv (§9.1); append a certified adapter's inline input document, or an external tool's generated input-document path when `:inputs` is present (§9.1.1) |
-| R10 | `command.env` | R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
+| R10 | `command.env` | The command clause of R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
 | R11 | Generated helper commands | None. The present route runs inline Python steps that write managed write roots under `.orchestrate/workflow_lisp/`; the model has no write roots and no call frames, so nothing writes them |
 | R12 | A value in a command argument | Rendered by §§9.1/9.1.3 with checked static-template/value classification and explicit scope captures; preserve successful legacy bytes, including literal `True`/`False` versus substituted `true`/`false`, single-pass runtime strings and selected native/private scope resets |
+
+R2's two spellings name one file, and the provider's spelling is the only
+request field whose form depends on the effect class. That spelling enters
+no identity: a provider's input parts are its declaration, values, policy,
+params, prompt, dependency rows and source/dependency digests; a command's
+are its argv, contract, closure, implementation files, document and input
+contract; none reads the environment. The site key, the attempt directory
+and X4 derive from the identity and the header; memo rows keep the
+run-relative `result_path`; the runtime persists `prompt.txt`, `stdout.txt`,
+`stderr.txt` and the result in the attempt directory and records the
+environment nowhere. Prompt bytes therefore carry the relative spelling and
+are equal to the present route's apart from R3 (R4), and relocating the
+whole workspace with its run root inside it recomputes equal prompts and
+parts on resume (§8.4, *Immutable result root*), while the provider's R2
+value, derived anew from the current run root at each dispatch, follows the
+relocation. Under a reserved root the attempt directory's absolute spelling
+is the logical run root the caller supplied joined with the attempt's
+relative directory; the retained descriptor remains the only authority for
+creating that directory and reading its result, so a write that lands
+anywhere else leaves the attempt without a result and it fails as §8.2
+specifies. A run root spelled through a process-descriptor alias cannot
+reach dispatch: the retained-root check reopens the run root component by
+component without following links and compares it with the retained
+descriptor before an attempt is allocated (§8.4). The path-mode child
+behaves the same with `clone_root` as its workspace.
 
 P3 preserves a prompt extern as `source_kind` (`asset_file` or `input_file`)
 and its exact path with the present source's lookup semantics. An input file
@@ -2634,7 +2661,8 @@ rules; source-map subjects belong to provenance, not semantic equality.
 Evidence: the two routes' requests were compared field by field without
 normalising, on the `std/improve` example, the two single-call workflows and
 the decisive program; every difference is one of R1, R2, R3, R5, R6 and R11,
-with the value its rule gives (spike iteration 3, F).
+with the value its rule then gave (spike iteration 3, F). The spike observed
+R2 as then specified, which is now its command clause.
 
 ## 10. Views
 
@@ -2804,6 +2832,11 @@ Codes this design introduces or keeps, and where each is raised:
   the build key includes producer source/configuration contributions.
 - A module at an older target may not call a module at the new target. The
   two run on different runtimes.
+- The provider clause of R2 belongs to the evaluated route. Ordinary
+  provider and command steps at older targets keep the workspace-relative
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` that `specs/io.md` and
+  `specs/providers.md` give them; their request bytes, prompts and compiled
+  artifacts do not change.
 - The command boundary manifest gains the field `closure` (C1). At older
   targets through 2.34 the field is accepted and ignored by binding
   serialization and effect identity, including when explicitly supplied;
@@ -2899,7 +2932,8 @@ repeat.
 | Clean terminal resume | Resume a completed effectful run and a pure-only run twice: identical memo bytes and results; failed-attempt resume appends `started` before a later terminal; repeated preflight/pure failure adds no duplicate terminal | Open; iteration 3 appended adjacent completed terminals |
 | Dispatch accounting | Command/provider executor configured to retry receives a retryable failure: one external dispatch, one `started`, one directory, then `failed`; explicit resume reserves the next attempt or refuses `must_not_repeat` | Open |
 | Early divergence | Change a declared file bound by a later committed effect whose inputs depend on earlier results; refuse before launch, reconciliation, tail repair or view replacement, with the first divergent commit in journal order | Open; the spike's on-encounter check alone is insufficient |
-| Workspace-relative result path | Public paused and uninterrupted X4 runs return exactly the R2 destination; a nested `--state-dir .orchestrate/runs/custom` run returns its actual path, not the default spelling; completed and committed-boundary resumes redispatch nothing; source-free view load opens no recipe or result file; whole-workspace relocation keeps the value and resumes; a run root not under `<workspace>/.orchestrate/runs` fails at the reached form with a failed terminal that read-only loaders report and invalidation can reopen; malformed and absent headers take their §8.4 dispositions; both production publishers (the public entry under a nested `--state-dir`, the path-mode child) publish the fact; old-route and refinement controls are unchanged | Open: Phase 3, exact contract in §8.4, *Immutable result root* |
+| Provider destination | A provider at the new target that changes its working directory before writing to R2 commits through the public entry, with no file outside its attempt directory; its R2 value is absolute and its relative spelling against the workspace equals R3, the memo-derived X4 and the command spelling; command environments stay workspace-relative; input parts and memo rows carry no absolute spelling, and `input_parts["prompt"]` is the digest of a prompt whose path line is R3; a provider dispatched after a whole-workspace move receives the absolute value under the moved root, and a committed provider resumes without divergence after that move; old-route provider and command environments are unchanged | Open: Phase 3, exact contract in §9.4 R2 |
+| Workspace-relative result path | Public paused and uninterrupted X4 runs return exactly the committed attempt's workspace-relative result path (R3, the command clause of R2); a nested `--state-dir .orchestrate/runs/custom` run returns its actual path, not the default spelling; completed and committed-boundary resumes redispatch nothing; source-free view load opens no recipe or result file; whole-workspace relocation keeps the value and resumes; a run root not under `<workspace>/.orchestrate/runs` fails at the reached form with a failed terminal that read-only loaders report and invalidation can reopen; malformed and absent headers take their §8.4 dispositions; both production publishers (the public entry under a nested `--state-dir`, the path-mode child) publish the fact; old-route and refinement controls are unchanged | Open: Phase 3, exact contract in §8.4, *Immutable result root* |
 
 ## 18. Feasibility Obligations
 
@@ -2942,3 +2976,9 @@ the owner on 2026-09-30; the remaining questions below stay open.
 | 6 | When invalidation may narrow to dependents through values and declared files (C9) | A later release, when command boundaries declare the files they read and write, tested by the file-dependence fixture of §17 |
 | 7 | How sessions, observation files and secrets are named and resumed | Not designed. Each enters with the class that needs it, with its own evidence (§1.1) |
 | 8 | Whether an interrupted, unsettled judge attempt spends a trial's budget | Owner decision before trial admission: preserve the current charged-at-allocation policy (a crash may change the decision), or change charging/retry semantics with explicit evidence. This design selects neither; trials remain later |
+
+## 20. Decision Log
+
+| Date | Decision | Reason |
+| --- | --- | --- |
+| 2026-10-06 | R2 splits by effect class: a provider receives the absolute path of its attempt's result file; a command and the prompt's path line keep the workspace-relative spelling, and every stored or digested fact keeps its existing relative spelling. Older targets are unchanged | An agent's working directory is not the workspace. A provider may change directory while it works, and a relative destination then names a file the runtime never reads; the attempt ends without a result although the provider wrote one. The prompt and the digests keep the relative spelling so that prompt parity (R4) and whole-workspace relocation (§8.4) hold; commands keep it because the certified adapters and library scripts they run accept only workspace-relative destinations, and they do not change directory |
