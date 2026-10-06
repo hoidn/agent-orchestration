@@ -94,9 +94,9 @@ def _evaluated_execution_unavailable_diagnostic_at_span(
     return LispFrontendDiagnostic(
         code="evaluated_execution_unavailable",
         message=(
-            f"target DSL {target_dsl_version} requires evaluated execution "
-            f"from DSL {syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}; "
-            "execution is unavailable until Phase 3"
+            f"target DSL {target_dsl_version} runs only on the evaluated route "
+            f"(from DSL {syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}); "
+            "the flat route cannot execute it"
         ),
         span=target_span,
         phase="lowering",

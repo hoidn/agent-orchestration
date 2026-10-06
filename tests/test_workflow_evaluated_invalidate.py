@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from orchestrator.workflow.evaluated.authority import load_run_authority
+from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.evaluated.views import load_evaluated_view
@@ -376,6 +376,77 @@ def test_public_invalidate_refuses_bad_profile_authority_or_journal_without_writ
     assert diagnostic in result.stderr
     assert "Traceback" not in result.stderr
     assert _tree_bytes(tmp_path / ".orchestrate") == before
+
+
+LEGACY_PROGRAM = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+  (defmodule invalidate_legacy) (export run)
+  (defworkflow run () -> Int
+    (command-result prefix :argv ("python" "prefix.py") :returns Int)))
+'''
+
+
+def _assert_refused_without_writes(root: Path, run_id: str, code: str, *watched: Path) -> None:
+    trees = [root / ".orchestrate", *watched]
+    before = [_tree_bytes(tree) for tree in trees]
+    result = _cli(root, "invalidate", run_id, "workflow:invalidate_public::run / prefix")
+    assert result.returncode == 2
+    assert f"[{code}]" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert [_tree_bytes(tree) for tree in trees] == before
+
+
+def test_public_invalidate_refuses_a_flat_route_legacy_run_without_writes(tmp_path: Path) -> None:
+    _source, boundaries = _fixture(tmp_path, 20)
+    source = tmp_path / "invalidate_legacy.orc"
+    source.write_text(LEGACY_PROGRAM, encoding="utf-8")
+    run = _cli(tmp_path, "run", str(source), "--command-boundaries-file", str(boundaries))
+    assert run.returncode == 0, run.stderr
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    assert json.loads((run_root / "state.json").read_text(encoding="utf-8"))["schema_version"] == "2.1"
+    _assert_refused_without_writes(tmp_path, run_root.name, "invalidate_profile_unsupported")
+
+
+FLAT_STATE = json.dumps({"schema_version": "2.1"})
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {},
+        {"state.json": json.dumps({"schema_version": SCHEMA_VERSION})},
+        {"state.json": json.dumps({"result_persistence_profile": PROFILE})},
+        {"state.json": json.dumps({"schema_version": SCHEMA_VERSION, "result_persistence_profile": PROFILE})},
+        {"state.json": FLAT_STATE, "memo.jsonl": ""},
+        {"state.json": FLAT_STATE, "closed_program.json": "{}"},
+    ],
+    ids=["empty", "schema-hint", "profile-hint", "both-hints", "journal-only", "program-only"],
+)
+def test_public_invalidate_reports_memo_inconsistent_for_a_run_without_header(
+    tmp_path: Path, files: dict[str, str]
+) -> None:
+    run_root = tmp_path / ".orchestrate" / "runs" / "headerless-run"
+    run_root.mkdir(parents=True)
+    for name, text in files.items():
+        (run_root / name).write_text(text, encoding="utf-8")
+    _assert_refused_without_writes(tmp_path, run_root.name, "memo_inconsistent")
+
+
+def test_public_invalidate_refuses_a_symlinked_run_root_as_inconsistent(tmp_path: Path) -> None:
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (target / "state.json").write_text(json.dumps({"schema_version": SCHEMA_VERSION}), encoding="utf-8")
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    runs_root.mkdir(parents=True)
+    (runs_root / "linked-run").symlink_to(target, target_is_directory=True)
+    _assert_refused_without_writes(tmp_path, "linked-run", "memo_inconsistent", target)
+
+
+def test_public_invalidate_refuses_a_deeply_nested_state_without_a_traceback(tmp_path: Path) -> None:
+    run_root = tmp_path / ".orchestrate" / "runs" / "nested-run"
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    _assert_refused_without_writes(tmp_path, run_root.name, "invalidate_profile_unsupported")
 
 
 def test_invalidate_default_root_refuses_a_state_root_symlink(
