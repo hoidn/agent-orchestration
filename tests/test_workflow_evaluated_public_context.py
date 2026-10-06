@@ -8,7 +8,7 @@ import pytest
 
 from tests.test_workflow_evaluated_providers import (
     _assert_attempt_evidence, _assert_cli_resumes_unchanged,
-    _assert_public_request_contract, _fixture, _orchestrate_snapshot, _requests,
+    _assert_public_request_contract, _fixture, _orchestrate_snapshot, _requests, workspace_relative,
 )
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.workflow_evaluated_totality_helpers import (
@@ -81,7 +81,8 @@ def test_public_provider_bundle_path_matches_committed_workspace_path(tmp_path, 
     assert resumed.returncode == 0, resumed.stderr
     _, completed = checked_run(tmp_path)
     assert completed.terminal.data["value"] == {"bundle": expected_path}
-    assert completed.terminal.data["value"]["bundle"] == _requests(tmp_path)[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    env = _requests(tmp_path)[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    assert os.path.isabs(env) and completed.terminal.data["value"]["bundle"] == workspace_relative(env, tmp_path)
     assert authority.memo_path.read_bytes().startswith(prefix)
     assert (tmp_path / "requests.jsonl").read_bytes() == request_bytes
     _assert_cli_resumes_unchanged(tmp_path, authority.run_root.name,
@@ -98,7 +99,8 @@ def test_public_provider_bundle_path_fresh_execution(tmp_path, monkeypatch):
     (commit,) = snapshot.active_commits.values()
     expected_path = _assert_provider_commit(tmp_path, authority, commit)
     assert snapshot.terminal.data["value"] == {"bundle": expected_path}
-    assert snapshot.terminal.data["value"]["bundle"] == _requests(tmp_path)[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    env = _requests(tmp_path)[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    assert os.path.isabs(env) and snapshot.terminal.data["value"]["bundle"] == workspace_relative(env, tmp_path)
     request_bytes = (tmp_path / "requests.jsonl").read_bytes()
     _assert_cli_resumes_unchanged(tmp_path, authority.run_root.name,
                                 _orchestrate_snapshot(tmp_path), request_bytes)

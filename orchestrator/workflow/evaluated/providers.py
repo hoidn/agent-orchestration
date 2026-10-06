@@ -209,7 +209,8 @@ def perform_provider(
     attempt_files.create("prompt.txt", resolved.prompt.encode("utf-8"), exclusive=True)
     stdout, stderr = b"", b""
     try:
-        invocation, error = _prepare_provider_invocation(node, resolved, result_path, executor)
+        invocation, error = _prepare_provider_invocation(
+            node, resolved, str(attempt_files.workspace / "result.json"), executor)
         if error is not None or invocation is None:
             raise ProviderPerformerError(
                 "provider_preparation_failed", str(error or "provider invocation missing"),

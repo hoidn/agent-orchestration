@@ -52,6 +52,9 @@ if mode == "stdout-only": sys.stdout.buffer.write(result); sys.exit(0)
 target = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
 if mode == "wrong-path": target = Path("other-result.json")
 if mode == "invalid": result = b'{"ok":"not-bool"}'
+if mode == "chdir":
+    os.makedirs("candidates/alpha", exist_ok=True); os.chdir("candidates/alpha")
+    target.parent.mkdir(parents=True, exist_ok=True)
 target.write_bytes(result)
 '''
 
@@ -91,6 +94,11 @@ def _cli(root: Path, fixture, *, mode="success", extra=(), payload='{"ok":true,"
 def _requests(root):
     path = root / "requests.jsonl"
     return [json.loads(row) for row in path.read_text().splitlines()] if path.exists() else []
+
+
+def workspace_relative(value: str, workspace) -> str:
+    """R2 in its command spelling: absolute values are relativized, relative ones pass through."""
+    return os.path.relpath(value, workspace).replace(os.sep, "/") if os.path.isabs(value) else value
 
 
 def _orchestrate_snapshot(root):
@@ -151,7 +159,7 @@ def _assert_attempt_evidence(run_root, commit, request):
 
 def _assert_public_request_contract(root, run_root, commit, request):
     result_path = os.path.relpath(run_root / commit["result_path"], root)
-    assert request["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == result_path
+    assert request["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == os.path.join(root, result_path)
     assert request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == (
         "sha256:" + hashlib.sha256(commit["identity"].encode()).hexdigest())
     assert request["cwd"] == str(root)
@@ -173,6 +181,20 @@ def test_public_provider_dispatches_once_and_commits_its_typed_result(tmp_path):
     assert started["implementation_files"] == commit["implementation_files"] == {}
     _assert_public_request_contract(tmp_path, run_root, commit, request)
     _assert_attempt_evidence(run_root, commit, request)
+
+
+def test_public_provider_that_changes_directory_still_writes_the_pinned_attempt(tmp_path):
+    fixture = _fixture(tmp_path)
+    result = _cli(tmp_path, fixture, mode="chdir")
+    assert result.returncode == 0, result.stderr
+    run_root, snapshot = _public_snapshot(tmp_path, fixture)
+    (commit,) = snapshot.active_commits.values()
+    (request,) = _requests(tmp_path)
+    _assert_public_request_contract(tmp_path, run_root, commit.data, request)
+    assert (run_root / commit.data["result_path"]).is_file()
+    assert not (tmp_path / "candidates" / "alpha" / ".orchestrate").exists()
+    assert request["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] not in request["prompt"]
+    assert commit.data["input_parts"]["prompt"] == "sha256:" + hashlib.sha256(request["prompt"].encode()).hexdigest()
 
 
 def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tmp_path, monkeypatch):
@@ -305,13 +327,13 @@ def test_complete_provider_request_matches_real_flat_preparation(tmp_path, monke
             code, value = _execute(tmp_path, built, authority)
             assert code == 0 and value == {"ok": True}
             assert flat["flat_outputs"] == {"return__ok": value["ok"]}
-        flat_block, current_block = _assert_prepare_parity(observed, flat, built)
+        flat_block, current_block = _assert_prepare_parity(observed, flat, built, tmp_path)
         _assert_invocation_parity(observed["invocation"], flat["flat_invocation"], flat_block, current_block)
         identity = next(iter(read_memo(authority.memo_path, site_classes(built.program)).active_commits))
         _assert_execute_parity(observed, flat, tmp_path, identity)
 
 
-def _assert_prepare_parity(observed, flat, built):
+def _assert_prepare_parity(observed, flat, built, workspace):
     current, previous = observed["prepare_kwargs"], flat["flat_prepare_kwargs"]
     assert observed["prepare_args"] == flat["flat_prepare_args"] == ()
     assert current["context"] == {} and previous["context"]
@@ -322,15 +344,17 @@ def _assert_prepare_parity(observed, flat, built):
     assert not [field.name for field in fields(current["params"])
         if getattr(current["params"], field.name) != getattr(previous["params"], field.name)]
     assert set(current["env"]) == set(previous["env"]) == {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH"}
+    assert os.path.isabs(current["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+    assert not os.path.isabs(previous["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
     node = next(row for row in built.program.tree["body"].values()
         if isinstance(row, dict) and row.get("class") == "provider")
-    return _assert_prompt_path_parity(node, current, previous)
+    return _assert_prompt_path_parity(node, current, previous, workspace)
 
 
-def _assert_prompt_path_parity(node, current, previous):
-    payload = node["contract"]["payload"]
-    flat_block = render_output_bundle_contract_block({**payload, "path": previous["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]})
-    current_block = render_output_bundle_contract_block({**payload, "path": current["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]})
+def _assert_prompt_path_parity(node, current, previous, workspace):
+    payload, key = node["contract"]["payload"], "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+    flat_block = render_output_bundle_contract_block({**payload, "path": workspace_relative(previous["env"][key], workspace)})
+    current_block = render_output_bundle_contract_block({**payload, "path": workspace_relative(current["env"][key], workspace)})
     assert flat_block in previous["prompt_content"]
     assert current["prompt_content"] == previous["prompt_content"].replace(flat_block, current_block, 1)
     return flat_block, current_block
@@ -342,11 +366,12 @@ def _assert_retry_request_parity(program, current, previous):
     output_path = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
     assert {key: value for key, value in current["env"].items() if key != output_path} == {
         key: value for key, value in previous["env"].items() if key != output_path}
+    assert os.path.isabs(current["env"][output_path]) and os.path.isabs(previous["env"][output_path])
     (node,) = [row for row in program.tree["body"].values()
         if isinstance(row, dict) and row.get("class") == "provider"]
     _assert_prompt_path_parity(node,
         {"env": current["env"], "prompt_content": current["prompt"]},
-        {"env": previous["env"], "prompt_content": previous["prompt"]})
+        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"])
 
 
 def _assert_invocation_parity(current, previous, flat_block, current_block):

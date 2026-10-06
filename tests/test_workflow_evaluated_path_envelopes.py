@@ -26,7 +26,7 @@ from tests.workflow_evaluated_path_envelope_helpers import (
 )
 from tests.workflow_evaluated_run_ref_helpers import _json_lines, _run_to_exit
 from tests.test_workflow_evaluated_providers import (
-    _assert_cli_resumes_unchanged, _orchestrate_snapshot, _requests,
+    _assert_cli_resumes_unchanged, _orchestrate_snapshot, _requests, workspace_relative,
 )
 from tests.test_workflow_evaluated_public_context import _provider_files
 from tests.test_workflow_evaluated_resume import _resume_cli
@@ -99,7 +99,8 @@ def _assert_attempt_locators(root, authority, commits, requests):
     for commit, request in zip(commits, requests, strict=True):
         path = f'{authority.header["result_root"]}/{commit["result_path"]}'
         assert path == os.path.relpath(authority.run_root / commit["result_path"], root)
-        assert request["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == path
+        env = request["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        assert os.path.isabs(env) and workspace_relative(env, root) == path
         assert commit["result_path"].endswith(f'/attempt-{commit["attempt"]}/result.json')
         raw = (root / path).read_bytes()
         assert json.loads(raw) == RAW_RESULT
@@ -149,7 +150,8 @@ def test_public_provider_bundle_paths_name_committed_attempts_through_call_loop_
     requests = _requests(tmp_path)
     assert len(requests) == 5
     failed_path = f'{authority.header["result_root"]}/{failed_start.data["result_path"]}'
-    assert requests[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == failed_path
+    env = requests[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    assert os.path.isabs(env) and workspace_relative(env, tmp_path) == failed_path
     located = _assert_attempt_locators(tmp_path, authority, commits, requests[1:])
     assert failed_path not in located
     _assert_declared_field_is_not_a_read(commits[2:], requests[3:])

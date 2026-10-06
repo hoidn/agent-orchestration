@@ -17,6 +17,7 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
+from tests.test_workflow_evaluated_providers import workspace_relative
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.test_workflow_lisp_verified_iteration_drain import FORMER_LINEAGE_PATHS, _assert_two_captured_histories
 
@@ -165,12 +166,13 @@ def _history_reads(root: Path, run_root: Path, snapshot) -> list[tuple[str, byte
                for entry in snapshot.entries if entry.data["record"] == "committed"}
     reads = []
     for request in _requests(root):
+        assert os.path.isabs(request["bundle"])
         if request["history"] is None:
             reads.append(None)
             continue
         path, raw = request["history"][0], request["history"][1].encode("utf-8")
         assert path == f"{WORK}/ledger-inputs/{_sha(raw)}.md" and (root / path).read_bytes() == raw
-        commit = commits.get(request["bundle"])
+        commit = commits.get(workspace_relative(request["bundle"], root))
         assert (commit is None) == (request["decision"] is None)
         if commit is not None:
             _assert_read_lineage(snapshot, commit, path, raw)
