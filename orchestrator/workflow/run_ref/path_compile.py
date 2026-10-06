@@ -32,6 +32,7 @@ from orchestrator.workflow_lisp.normalized_type_descriptor import (
 from orchestrator.workflow_lisp.workflows import TypedWorkflowDef
 from orchestrator.workflow_lisp.syntax import (
     target_dsl_supports_nested_structural_transport,
+    target_dsl_uses_evaluated_execution,
 )
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
@@ -262,6 +263,41 @@ def _signature(
     return {"inputs": inputs, "return": return_descriptor}
 
 
+def _admission_signature(
+    result: FrontendBuildResult,
+    workflow: TypedWorkflowDef,
+    signature: Mapping[str, object],
+    step_config: RunRefStepConfig,
+) -> Mapping[str, object]:
+    """Return the child signature that admission compares with the parent's claims.
+
+    Only an evaluated parent (target 2.35, the sole emitter of request v2)
+    states its claims with declaring-module nominal names. A legacy child's
+    frontend names stay bare for a path type declared in the same module or
+    locally, so under such a parent the comparison rebuilds the child's
+    descriptors with the canonical qualified builder. The recorded v1
+    signature, and every comparison under a legacy parent, are unchanged.
+    """
+    if not target_dsl_uses_evaluated_execution(step_config.run_ref.target_dsl_version):
+        return signature
+    from types import SimpleNamespace
+
+    from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
+
+    compile_result = result.compile_result
+    typed = SimpleNamespace(module_type_envs={
+        name: linked_module_type_environment(compile_result, name)
+        for name in compile_result.graph.topological_order
+    })
+    return {
+        "inputs": [
+            {**row, "type": canonical_type_descriptor(type_ref, typed=typed)}
+            for row, (_name, type_ref) in zip(signature["inputs"], workflow.signature.params, strict=True)
+        ],
+        "return": canonical_type_descriptor(workflow.signature.return_type_ref, typed=typed),
+    }
+
+
 def _signature_mismatch_causes(
     signature: Mapping[str, object],
     configured_inputs: tuple[RunRefInput, ...],
@@ -478,7 +514,7 @@ def compile_and_admit_path_program(
     workflow = _selected_typed_workflow(build_result)
     signature = _signature(build_result, workflow)
     mismatch_causes = _signature_mismatch_causes(
-        signature,
+        _admission_signature(build_result, workflow, signature, step_config),
         step_config.run_ref.inputs,
         program,
         target_dsl_version=step_config.run_ref.target_dsl_version,

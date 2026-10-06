@@ -158,6 +158,31 @@ class RunRefProducer:
     generated_name: str | None = None
 
 
+def _closed_path_program(program: Any, envelope: Mapping[str, Any]) -> Any:
+    """Restate a refined path program with the closed envelope's value descriptor.
+
+    The WCC refinement keeps frontend path names, which stay bare for a path
+    type declared in the same module or locally; the closed envelope qualifies
+    every nominal name. Both describe the same checked `:returns` type, so no
+    structural fact changes here. The guard on the child is admission
+    (`run_ref.path_compile._signature_mismatch_causes`), which compares the
+    child's signature exactly with this refinement: an evaluated child's
+    signature is its closed `tree.result`, and a legacy child's descriptors
+    are rebuilt with the same qualified names for that comparison.
+    """
+    from orchestrator.workflow.run_ref.config import PathProgram
+
+    if program.return_refinement is None:
+        return program
+    return PathProgram(
+        path=program.path,
+        entry_name=program.entry_name,
+        return_refinement=envelope["fields"][0]["type"],
+        environment=program.environment,
+        allow_nested_structures=True,
+    )
+
+
 def _capture_owner_groups(
     rows: tuple[Any, ...],
     *,
@@ -1481,7 +1506,7 @@ class Builder:
                 compiler_runtime_identity_digest=self.compiler_runtime_identity,
                 site_digest=producer.site_digest,
                 source=payload.source,
-                program=payload.program,
+                program=_closed_path_program(payload.program, envelope),
                 inputs=tuple(input_rows),
                 result_descriptor=result_descriptor,
                 result_digest=result_digest,
