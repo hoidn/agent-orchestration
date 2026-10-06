@@ -537,11 +537,14 @@ Astra approved this capture-only representation. It avoids a new validated-
 document API, at the cost of recursive prompt/guidance support and root-centered
 diagnostics. Target 2.31 also verifies imported/private whole-value carriage in
 the supported positions; flattened-path collisions remain rejected below.
-Recursive rendering is selected by the existing capture configuration; omitted
-capture retains the legacy prompt projection, including older nested-container
-schemas. Target 2.31 shared validation admits complete structural schemas at an
-output bundle's single root pointer and validates nested field guidance. Computed
-Context materialization uses that same generic whole-root schema path.
+Structural rendering does not depend on capture: with or without it, a record or
+union inside a list, optional or map renders its fields, or its discriminant
+and variants, at every depth. The nominal `record_name` and `union_name` lines
+render only under portable capture (`specs/versioning.md`, exceptions to target
+stability). Target 2.31 shared validation admits complete structural
+schemas at an output bundle's single root pointer and validates nested field
+guidance. Computed Context materialization uses that same generic whole-root
+schema path.
 
 Whole structural references feed the pure evaluator's typed `field_access` in
 the target-2.31 path; record-reference projection uses that shared route, not

@@ -389,6 +389,13 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
       never claims a JSON object for a scalar/enum/relpath/optional/list/map
       root result, and never names or requests the compiler-owned `__result__`
       field key.
+    - Nested record and union structure renders whether or not the step
+      captures provider context. A record or union inside a `list`,
+      `optional` or `map`, at any depth, in bundle fields, a direct root value
+      or variant fields, shows its `fields`, or its `discriminant` and
+      `variants` with their fields. The nominal `record_name` and `union_name`
+      render only with `provider_context.capture: portable`. Such schemas
+      exist only from target 2.25.
     - At v2.19, the same direct-root rendering applies to `type: value`
       regardless of whether the attempt returns `null`, a scalar, a list, or
       an object. The renderer does not infer or advertise a narrower schema

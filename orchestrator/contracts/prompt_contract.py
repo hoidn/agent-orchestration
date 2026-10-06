@@ -216,14 +216,14 @@ def _append_guidance_payload(
 
 def _append_nested_schema(
     lines: List[str], spec: Dict[str, Any], *, indent: int, key: str,
-    recursive_structures: bool = False,
+    render_nominal_names: bool = False,
 ) -> None:
     nested = spec.get(key)
     if not isinstance(nested, dict):
         return
     prefix = " " * indent
     lines.append(f"{prefix}{key}:")
-    _append_schema_spec(lines, nested, indent=indent + 2, recursive_structures=recursive_structures)
+    _append_schema_spec(lines, nested, indent=indent + 2, render_nominal_names=render_nominal_names)
 
 
 def _append_schema_spec(
@@ -232,7 +232,7 @@ def _append_schema_spec(
     *,
     indent: int,
     variant_order: Sequence[str] = (),
-    recursive_structures: bool = False,
+    render_nominal_names: bool = False,
 ) -> None:
     prefix = " " * indent
     lines.append(f"{prefix}type: {spec['type']}")
@@ -243,24 +243,27 @@ def _append_schema_spec(
         include_legacy_guidance=False,
     )
     for key in ("item", "items", "keys", "values"):
-        _append_nested_schema(lines, spec, indent=indent, key=key, recursive_structures=recursive_structures)
-    if recursive_structures:
+        _append_nested_schema(lines, spec, indent=indent, key=key, render_nominal_names=render_nominal_names)
+    if render_nominal_names:
         for name_key in ("record_name", "union_name"):
             if name_key in spec:
                 lines.append(f"{prefix}{name_key}: {json.dumps(spec[name_key], ensure_ascii=False)}")
-    if recursive_structures and "fields" in spec:
-        _append_schema_fields(lines, spec["fields"], indent=indent)
-    discriminant = spec.get("discriminant")
-    if recursive_structures and isinstance(discriminant, Mapping):
-        lines.append(f"{prefix}discriminant:")
-        lines.append(f"{prefix}  name: {json.dumps(discriminant['name'], ensure_ascii=False)}")
-        _append_schema_spec(lines, discriminant, indent=indent + 2, recursive_structures=True)
-    variants = spec.get("variants")
-    if recursive_structures and isinstance(variants, Mapping):
-        lines.append(f"{prefix}variants:")
-        for name, variant in variants.items():
-            lines.append(f"{prefix}  {json.dumps(name, ensure_ascii=False)}:")
-            _append_schema_fields(lines, variant.get("fields", ()), indent=indent + 4)
+    if spec["type"] == "record" and "fields" in spec:
+        _append_schema_fields(lines, spec["fields"], indent=indent, render_nominal_names=render_nominal_names)
+    if spec["type"] == "union":
+        discriminant = spec.get("discriminant")
+        if isinstance(discriminant, Mapping):
+            lines.append(f"{prefix}discriminant:")
+            lines.append(f"{prefix}  name: {json.dumps(discriminant['name'], ensure_ascii=False)}")
+            _append_schema_spec(lines, discriminant, indent=indent + 2)
+        variants = spec.get("variants")
+        if isinstance(variants, Mapping):
+            lines.append(f"{prefix}variants:")
+            for name, variant in variants.items():
+                lines.append(f"{prefix}  {json.dumps(name, ensure_ascii=False)}:")
+                _append_schema_fields(
+                    lines, variant.get("fields", ()), indent=indent + 4, render_nominal_names=render_nominal_names,
+                )
     _append_guidance_payload(
         lines,
         spec,
@@ -269,12 +272,14 @@ def _append_schema_spec(
     )
 
 
-def _append_schema_fields(lines: List[str], fields: Sequence[Mapping[str, Any]], *, indent: int) -> None:
+def _append_schema_fields(
+    lines: List[str], fields: Sequence[Mapping[str, Any]], *, indent: int, render_nominal_names: bool = False,
+) -> None:
     prefix = " " * indent
     lines.append(f"{prefix}fields:" if fields else f"{prefix}fields: []")
     for field in fields:
         lines.append(f"{prefix}  - name: {json.dumps(field['name'], ensure_ascii=False)}")
-        _append_schema_spec(lines, field, indent=indent + 4, recursive_structures=True)
+        _append_schema_spec(lines, field, indent=indent + 4, render_nominal_names=render_nominal_names)
 
 
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
@@ -296,13 +301,13 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
 
 
 def render_output_bundle_contract_block(
-    output_bundle: Dict[str, Any], *, recursive_structures: bool = False,
+    output_bundle: Dict[str, Any], *, render_nominal_names: bool = False,
 ) -> str:
     """Render a stable prompt suffix describing a required JSON output bundle."""
     fields = output_bundle.get("fields", [])
     if len(fields) == 1 and fields[0].get("json_pointer") == "":
         return _render_root_output_bundle_contract_block(
-            output_bundle, fields[0], recursive_structures=recursive_structures,
+            output_bundle, fields[0], render_nominal_names=render_nominal_names,
         )
 
     lines: List[str] = [
@@ -328,13 +333,13 @@ def render_output_bundle_contract_block(
     for spec in fields:
         lines.append(f"    - name: {spec['name']}")
         lines.append(f"      json_pointer: {spec['json_pointer']}")
-        _append_schema_spec(lines, spec, indent=6, recursive_structures=recursive_structures)
+        _append_schema_spec(lines, spec, indent=6, render_nominal_names=render_nominal_names)
 
     return "\n".join(lines) + "\n"
 
 
 def _render_root_output_bundle_contract_block(
-    output_bundle: Dict[str, Any], field: Dict[str, Any], *, recursive_structures: bool = False,
+    output_bundle: Dict[str, Any], field: Dict[str, Any], *, render_nominal_names: bool = False,
 ) -> str:
     """Render a stable prompt suffix for a single direct-JSON-root output bundle.
 
@@ -361,7 +366,7 @@ def _render_root_output_bundle_contract_block(
     if isinstance(guidance, Mapping):
         lines.append("  guidance:")
         _append_guidance_payload(lines, guidance, indent=4)
-    _append_schema_spec(lines, field, indent=2, recursive_structures=recursive_structures)
+    _append_schema_spec(lines, field, indent=2, render_nominal_names=render_nominal_names)
     return "\n".join(lines) + "\n"
 
 

@@ -126,7 +126,7 @@ def test_runtime_contribution_trace_orders_output_before_structured_result(
         calls.append("output_positions")
         return "OUTPUT"
 
-    def structured_block(_value):
+    def structured_block(_value, **_kwargs):
         calls.append("structured_result")
         return "STRUCTURED"
 
@@ -167,42 +167,6 @@ def test_runtime_contribution_trace_orders_output_before_structured_result(
     assert composition.prompt == "BASE\n\nOUTPUT\n\nSTRUCTURED"
 
 
-def test_portable_capture_requests_recursive_structured_contract_only(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Portable capture alone opts into the recursive schema prompt renderer."""
-    from orchestrator.workflow import prompting
-
-    calls: list[dict[str, object]] = []
-
-    def structured_block(_value, **kwargs):
-        calls.append(kwargs)
-        return "STRUCTURED"
-
-    monkeypatch.setattr(
-        prompting,
-        "render_output_bundle_contract_block",
-        structured_block,
-    )
-
-    composition = _composer(
-        tmp_path
-    ).apply_output_contract_prompt_suffix_with_trace(
-        {
-            "output_bundle": {"path": "result.json"},
-            "provider_context": {"capture": "portable"},
-        },
-        prompting.RuntimeContributionComposition(
-            base_prompt="BASE",
-            prompt="BASE",
-        ),
-    )
-
-    assert calls == [{"recursive_structures": True}]
-    assert composition.prompt == "BASE\n\nSTRUCTURED"
-
-
 @pytest.mark.parametrize(
     ("step", "expected_kind"),
     (
@@ -232,7 +196,7 @@ def test_runtime_contribution_trace_captures_each_suffix_independently(
     monkeypatch.setattr(
         prompting,
         "render_output_bundle_contract_block",
-        lambda _value: "STRUCTURED",
+        lambda _value, **_kwargs: "STRUCTURED",
     )
     initial = prompting.RuntimeContributionComposition(
         base_prompt="BASE",
@@ -278,7 +242,7 @@ def test_runtime_contribution_trace_rejects_tamper(
     monkeypatch.setattr(
         prompting,
         "render_output_bundle_contract_block",
-        lambda _value: "STRUCTURED",
+        lambda _value, **_kwargs: "STRUCTURED",
     )
     composer = _composer(tmp_path)
     initial = composer.apply_consumes_prompt_injection_with_trace(

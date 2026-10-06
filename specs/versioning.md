@@ -718,6 +718,19 @@
     `provider_parameters_missing` at the call. Before, validation accepted
     the workflow and the run failed when it reached the call. A workflow
     whose call is never reached ran before and is refused now.
+  - A provider prompt's output contract shows the structure of a record or
+    union inside a `list`, `optional` or `map`, at any depth: its fields, or
+    its discriminant and variants with their fields. Before, a contract
+    without provider-context capture showed only `type: record` or
+    `type: union` there, while validation enforced the complete schema. The
+    nominal `record_name` and `union_name` lines still render only with
+    portable capture, so captured prompts keep their bytes. Only uncaptured
+    prompts whose contract holds such a record or union change, and such
+    contracts exist only from target 2.25; nothing changes through 2.24.
+    Compile artifacts, digests and output validation are unchanged. A target
+    2.35 run whose committed provider effect has such a contract and predates
+    this change is refused on resume, because the effect's prompt digest
+    differs, until that effect is invalidated.
 
 - Amendment of targets 2.30 to 2.33 (pure payloads)
   - A nontrivial local expression that reaches a pure payload by name and is
