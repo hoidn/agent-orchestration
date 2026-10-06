@@ -123,6 +123,18 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     materializes it only into an absent leaf using descriptor-relative
     no-follow traversal and exclusive creation; an existing or
     provider-planted leaf fails closed.
+  - On the target-2.35 evaluated route (rule R2 of the
+    [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md#94-the-request-contract))
+    a provider receives `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` as the absolute,
+    lexically normalized path of its attempt's `result.json`
+    (`<run root>/effects/<identity digest>/attempt-N/result.json`), so the
+    value names that file whatever directory the provider writes from. The
+    prompt's `- path:` line is workspace-relative; the memo `result_path`
+    (run-root-relative) and the committed result locator
+    `<result_root>/<result_path>` are unchanged
+    ([State](state.md#memo-records)); commands, and every target through
+    2.34, keep the workspace-relative spelling above. See
+    [Step IO](io.md#evaluated-command-and-provider-io-target-235).
   - For v2.15 contracts, provider prompt composition renders validated
     effect-boundary `guidance`, field guidance, ordered `guidance_context`, and
     discriminant-ordered `guidance_by_variant` as data in the output-contract

@@ -8,7 +8,9 @@
     [CLI](cli.md), "Workspace execution ownership"). They are not run state and
     are never removed.
 
-- State file schema (authoritative record)
+- State file schema (authoritative record for targets through 2.34; a
+  target-2.35 evaluated run publishes a derived view instead, see
+  [Evaluated Execution Persistence Profile](#evaluated-execution-persistence-profile-target-235))
   - `schema_version: "2.1"`
   - `run_id`, `workflow_file`, `workflow_checksum`
   - Timestamps: `started_at`, `updated_at`
@@ -23,7 +25,10 @@
     second request record.
   - `result_persistence_profile`: optional additive schema-2.1 selector. Absence
     means historical bundle-backed result persistence. The only supported
-    present value is `derived_pure_replay.v1`; an unknown profile fails closed.
+    present value under schema `2.1` is `derived_pure_replay.v1`; an unknown
+    profile fails closed. The pair `evaluated_execution.v1` with
+    `schema_version: "3.0"` selects the evaluated profile below and is
+    recognized from `run.json` before any schema-2.1 check.
     The field is written atomically when a root or nested call-frame state is
     created under that profile, before any visit begins. The supported
     automatic creation policy selects it for a successfully compiled typed
@@ -237,6 +242,287 @@ or frame. Existing roots and frames, non-Workflow-Lisp callees, and
 iteration-owned child frames remain historical-profile. Recurrent, loop-owned,
 and other multiply visited pure nodes remain fully durable even inside a
 profiled root.
+
+## Evaluated Execution Persistence Profile (target 2.35)
+
+Availability: this is the run contract that the public `compile`, `run`,
+`resume`, `invalidate` and reader entries exercise for a target-2.35 entry
+([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md):
+Tasks 10–14 integrated; Task 15 recovery evidence integrated in part;
+Task 17 with the full suite and older-target byte audit pending), so this
+section states the integrated capability and its proved scope. The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
+(§§7–10) owns the model; this section owns the durable wire. Owners:
+`orchestrator/workflow/evaluated/{authority,memo,attempts,views,interpreters,run_ref}.py`
+and `orchestrator/workflow_lisp/closed/program.py`. Evidence: the public
+fixtures of `tests/test_workflow_evaluated_cli.py`,
+`tests/test_workflow_evaluated_readers.py`,
+`tests/test_workflow_evaluated_views.py`,
+`tests/test_workflow_evaluated_result_root.py`,
+`tests/test_workflow_evaluated_run_ref_root.py`,
+`tests/test_workflow_evaluated_run_ref_settlement.py` and
+`tests/test_workflow_evaluated_invalidate.py`.
+
+### Authority and run root
+
+Under exact `result_persistence_profile: "evaluated_execution.v1"` with
+`schema_version: "3.0"`, `RUN_ROOT` (`.orchestrate/runs/<run_id>`, or
+`<state-dir>/<run_id>` under `--state-dir`) holds:
+
+| Entry | Role |
+| --- | --- |
+| `run.json` | Immutable run header (below): authority for identity, bound inputs, interpreter pins, rebuild recipe and roots |
+| `closed_program.json` | The checked closed program (`schema: workflow-lisp/closed-program/1`, `representation: table/1`, `target: 2.35`): authority for the program. Its provenance-free digest equals the header `program_digest`; its byte content equals the canonical artifact serialization |
+| `memo.jsonl` | Append-only effect journal: the only authority for results |
+| `run.lock` | The run writer lock (`flock`); empty, and never authority |
+| `effects/<digest>/attempt-N/` | Per-attempt evidence directories (below) |
+| `run-ref-attempts.jsonl` | The run-reference coordinator ledger, present only once a run reference has allocated a child attempt ([Target 2.24](#target-224-run-ref-state-settlement-and-resume)) |
+| `state.json` | Derived view (below), absent until the first journal record; never authority |
+
+`run.json`, the program artifact and the empty journal are published, each
+synchronized, before the first record; no attempt is allocated or dispatched
+until all three are durably present. A nonempty journal beside missing or
+invalid authority is `memo_inconsistent` and is never rebuilt from current
+source. Authority files are never replaced after journal activity begins.
+
+Byte encodings differ per file and are a publication property, not a reader
+requirement: `run.json` is canonical JSON (sorted keys, compact separators,
+UTF-8 unescaped) without a trailing newline; `closed_program.json` and each
+memo row are canonical JSON plus `\n`; `state.json` is `json.dumps` with
+default separators in insertion order plus `\n`. Readers parse JSON, refuse
+duplicate keys and non-finite constants, and do not require canonical bytes.
+
+### Run header (`run.json`)
+
+Exactly these keys and no others:
+
+| Key | Presence | Value |
+| --- | --- | --- |
+| `schema_version` | required | `"3.0"` |
+| `result_persistence_profile` | required | `"evaluated_execution.v1"` |
+| `run_id` | required | Equals the run root's directory name |
+| `workflow_file` | required | Source locator: workspace-relative when inside the workspace, absolute otherwise |
+| `workflow_checksum` | required | `sha256:` of the entry source bytes; informational, not program identity and not compared on resume |
+| `started_at` | required | ISO-8601 UTC timestamp |
+| `program_digest` | required | `ClosedProgram.digest` of `closed_program.json` |
+| `input_digest` | required | Canonical sha256 of `bound_inputs` |
+| `bound_inputs` | required | Object of checked, normalized values, exactly one per program parameter (defaults applied) |
+| `representation` | required | `"table/1"` |
+| `interpreters` | required | `{<bare command[0] token>: {path, digest}}`: one entry per distinct bare first token of an emitted `command` site in the entry or any definition body, reached or not; `{}` otherwise. `path` is the absolute `PATH` resolution made at run creation, spelling preserved and not symlink-resolved; `digest` hashes the resolved executable's bytes |
+| `resume_request` | every new publication | The eight-field rebuild recipe below |
+| `run_ref_root` | every new publication | Canonical absolute run-reference root: the explicit `--run-ref-root`, or the default `~/.local/state/orchestrator/run-ref`, captured without creating or scanning it |
+| `result_root` | every public `run` and every evaluated path child (a direct publication that names no workspace omits it) | The run root relative to the effective workspace: `.orchestrate/runs/<run_id>`, or the normalized relative spelling of `<state-dir>/<run_id>` (for example `external-state/<run_id>`, or with leading `..` components outside the workspace); its last component equals `run_id` and it is never absolute |
+
+Every public `run` and every evaluated path child writes all fourteen keys.
+A header without `resume_request`, `run_ref_root` or `result_root` is
+historical: loaders accept every absence combination and never infer,
+default or backfill a value; what each absence refuses, and when, is given
+by the [resume precedence](cli.md#resume-preflight-precedence). A present
+malformed value of any of the three is `memo_inconsistent` in every loader,
+including read-only views and invalidation. Header validation checks
+spellings only: it opens, resolves and creates none of the locators.
+
+`resume_request` has exactly `source_roots` (an ordered array, order and
+multiplicity preserved), `entry_workflow` (the requested name, or `null`
+when none was requested), `provider_externs_path`, `prompt_externs_path`,
+`imported_workflow_bundles_path`, `command_boundaries_path` and `input_file`
+(each a locator or `null`), and `input_overrides` (a finite JSON object of
+the explicitly supplied `--input` values as the parser's strings, before
+binding, last duplicate name winning). Locators are nonempty, NUL-free,
+normalized POSIX paths, relative to the effective workspace when inside it
+(`.` for its root) and absolute otherwise, with no parent components in a
+relative path and no process-descriptor aliases. The recipe captures the
+effective invocation, not process argv, monitor metadata, build caches or the
+stored program; applied defaults are not copied into it, and it adds no
+program or input identity component.
+
+Interpreter pins are checked on resume against the recorded path only, never
+by re-resolving `PATH`: changed bytes log `interpreter_changed` and the run
+continues on the recorded path; a missing or non-launchable path refuses
+`resume_interpreter_missing`.
+
+### Memo records
+
+`memo.jsonl` holds one JSON object per line. A final line without its
+newline was never written whole: readers ignore it, and only the next writer
+truncates it, after its preflight. Exactly these record kinds and keys:
+
+| `record` | Keys (required unless noted) | Meaning |
+| --- | --- | --- |
+| `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
+| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when `effect_class` is `run_ref` | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read); `effect_class` ∈ `command`, `provider`, `run_ref` and must agree with the checked site |
+| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). No timestamp |
+| `settled` | `identity`, `attempt`, `by` ∈ `settle`, `reconcile` | A coordinator's final commit, after its `committed` |
+| `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
+| `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
+| `suspended` | — | Refused by this profile |
+
+Reducer rules (`orchestrator/workflow/evaluated/memo.py`): after a terminal
+only `started` (after a `failed` terminal) or `invalidated` is accepted, and
+each clears the terminal; `started` refuses an identity with an active commit
+or a non-next ordinal; `committed` and `failed` require the matching pending
+`started`; an ordinary effect may not carry `proof`; `settled` requires an
+unsettled coordinator commit of that identity and attempt; an invalidation
+anchor must be an active commit and its suffix must contain no coordinator
+commit; a terminal must leave no pending attempt or unsettled coordinator,
+and adjacent terminals are refused. `input_digest`, `result_digest` and
+`depends_on` are checked for spelling, matching and active-commit membership,
+not recomputed from `input_parts` or from files: a committed result is never
+revalidated against the filesystem.
+
+Identities are the canonical site and activation texts of the checked
+program, for example `workflow:main::run / built`; a `[*]` site is
+instantiated with its dynamic index (`[3]`) in identities.
+
+`input_parts` names depend on the effect class, each value a `sha256:`
+digest: a command has `argv`, `contract`, `closure`, `implementation_files`,
+plus `document` for a checked input document and `input_contract` for an
+external-tool document; a provider has `declaration`, `values`, `policy`,
+`params`, `prompt`, `dependency_rows`, plus `source:<asset_file|input_file>:<path>`
+for an extern prompt source (absent for a template prompt) and one
+`dependency:<path>` per prompt dependency; a run reference has `config` and
+`inputs`. `implementation_files` is `{}` for providers and run references;
+for a command it is the C2 evidence map whose keys are canonical JSON
+`[base, path, position]` strings (`base` ∈ `workspace`, `absolute`,
+`package:orchestrator`; `position` the argv index, or `null` for a closure
+entry) and whose rows are `{kind: file|directory, digest}` with optional
+`target`; `__pycache__` directories contribute nothing. The committed map is
+the post-attempt rehash and equals the start's. Rules:
+[design §7.3](../docs/design/workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares);
+request and file bindings: [Step IO](io.md#evaluated-command-and-provider-io-target-235).
+
+### Attempt directories
+
+Each attempt owns `effects/<sha256 hex of the identity's UTF-8 bytes>/attempt-N/`,
+created exclusively after its `started` is synchronized and never removed,
+reused or overwritten; `result_path` in the records is
+`effects/<digest>/attempt-N/result.json`, run-root-relative. Contents by
+class and outcome: a committed command leaves `result.json`, `stdout.txt`,
+`stderr.txt`, plus `inputs.json` (mode `0600`) for an external-tool input
+document; a failed command at least `stdout.txt` and `stderr.txt`, plus
+`inputs.json` (written before launch) and any `result.json` the command
+wrote; a provider
+`prompt.txt` first, then `result.json` when the provider wrote one (kept when
+invalid), `stdout.txt` and `stderr.txt`; a run reference `result.json` only,
+and an empty directory when it failed before its child. A result file
+without a `committed` record is evidence, never a result, including a file
+left by an attempt that was killed before any outcome row. A directory whose
+exclusive creation collides records `failed` with `effect_attempt_path_exists`
+and preserves the existing directory. The identity digest of attempt
+directories (`sha256(identity)`) differs from the coordinator step id
+`root.<canonical_sha256(identity)>`, which hashes the JSON-quoted text.
+
+### Coordinator records and child runs
+
+A run reference commits as `committed` with `effect_class: "run_ref"` and
+`proof: {settled_result, artifacts}`. `settled_result` is the ledger's
+settled record with exactly `accounting_digest`, `attempt_ordinal`,
+`child_run_id`, `child_terminal_state_digest`, `evidence_manifest_digest`,
+`pending_row_digest`, `result_contract_digest`, `result_payload_digest`,
+`run_ref_root`, `step_config_digest`, `visit`, `workspace_delta_digest` and
+`workspace_path` (`run_ref_root` and `workspace_path` absolute) and
+`visit: {parent_run_id, execution_frame_id: "root", call_frame_id: null, step_id: "root.<digest>", visit_count: 1}`
+bound to the identity; `artifacts` holds the flattened `accounting__*` and
+`workspace_delta__*` entries and `value`. `run-ref-attempts.jsonl` keeps its
+2.24 wire (stages `allocated`, `materialized`, `setup_completed`,
+`program_prepared`, `launched`, `child_completed`, `delta_captured`,
+`completed_pending_parent_commit`, `committed`). The sequence is `started`,
+the child attempt through the ledger, `result.json`, `committed` with the
+proof, `settled` with `by: settle`. A stop after `committed` is reconciled
+on the next resume from the proof without a second child, appending `settled`
+with `by: reconcile`. A committed coordinator is never superseded: an
+invalidation whose suffix contains one refuses whole with
+`invalidate_coordinator_committed`. A run reference that fails before its
+child records `failed` with code `evaluated_execution_failed` and `exit_info {}`;
+resume retries it at the next ordinal.
+
+A target-2.35 path child is an ordinary evaluated run in the clone's
+`.orchestrate/runs/<child_run_id>` with its own fourteen-key header:
+`workflow_file` relative to the clone root, recipe `source_roots: ["."]`,
+`entry_workflow` the program entry, the four manifests and `input_file`
+`null`, `input_overrides` the child's inputs, `run_ref_root` the host default
+(the child publication names none), `result_root: .orchestrate/runs/<child_run_id>`,
+`interpreters: {}`, and a journal of exactly one `terminal` `completed`
+record. Its private `run_ref_path_child_result.v2` carries
+`path_compile.program_identity.program_digest` equal to that header's
+`program_digest`; a 2.24 child keeps `run_ref_path_child_result.v1`. Child
+admission, authority and return:
+[design §9.3.1](../docs/design/workflow_lisp_evaluated_execution.md#931-path-child-admission-authority-and-return).
+
+### Derived view (`state.json`)
+
+`state.json` is rewritten atomically by the writer after each synchronized
+record and reconstructed read-only by readers; it is never authority and
+never supplies the profile: a stored view carrying the schema `3.0` or the
+profile only routes a reader to the checked authority loaders. Exactly
+these keys:
+
+| Key | Value |
+| --- | --- |
+| `schema_version`, `result_persistence_profile`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `bound_inputs` | Copied from the header; `resume_request`, `run_ref_root` and `result_root` are not copied |
+| `updated_at` | ISO timestamp of the last record that carries `time`, else `started_at` |
+| `status` | `completed` or `failed` from a terminal; otherwise `settling` (a writer holds the lock and replay reaches `halt`), `running` (a writer holds the lock) or `interrupted` (no writer). The writer publishes as itself active, so a stored view says `running`, `settling` or a terminal; `interrupted` appears only in a reader's reconstruction, from the `run.lock` probe, never from a heartbeat, PID or modification time |
+| `memo_offset` | Exclusive end byte offset of the complete journal prefix the view represents (`0` for an empty journal) |
+| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed`; a start without an outcome has status `running` |
+| `current_step` | `{name, identity, attempt, result_path}` of the latest pending start or unsettled coordinator, else `null` |
+| `next_effect` | The identity of the first uncommitted effect replay reaches when nothing is in flight, else `null` |
+| `error` | `{type, code, message}` from a failed terminal, else `null` |
+| `workflow_outputs` | The completed terminal's value, exactly as the program returned it (object, list, scalar or `null`), else `null` |
+
+The view carries no `step_visits`, `transition_count`, `call_frames`,
+`for_each`, `repeat_until`, `context`, observability sessions, summaries,
+prompt audits or heartbeat, and no step-name keys.
+
+Projection is one read-only pure replay of the checked program over the
+active commits, using stored values only: it performs no fresh build,
+locator IO, C4 or C6 preparation, dispatch, reconciliation or tail repair.
+A completed terminal must agree with replay's `halt` value and every
+coordinator commit must be settled, else the reader reports
+`memo_inconsistent` (V3) with no outputs; a replay that stops at a pure
+failure before any terminal is reported as the run stands, with no error row.
+Readers snapshot a complete-line prefix and ignore a partial tail without
+truncating it. A missing, stale or malformed stored view is reconstructed
+in memory from authority, not repaired, and an older completed snapshot is
+never the current terminal.
+
+View owner: `orchestrator/workflow/evaluated/views.py`
+(`has_evaluated_authority`, `load_evaluated_view`, `report_snapshot`).
+Consumers: `orchestrator/state.py` (`RunState`),
+`orchestrator/cli/commands/report.py`, `orchestrator/dashboard/scanner.py`,
+`orchestrator/monitor/scanner.py` and `orchestrator/monitor/classifier.py`.
+Authority is recognized by the presence of `run.json`, `closed_program.json`
+or `memo.jsonl`, or by a view carrying the schema `3.0` or the profile,
+before any flat-route status or schema check.
+
+### Writer sequence and durability
+
+1. Run creation: create the run root and synchronize its ancestors; under the
+   run writer lock create the empty `memo.jsonl`, publish `closed_program.json`
+   and then `run.json` by synchronized atomic replacement, and synchronize the
+   root. Nothing is dispatched before all three exist.
+2. Each record: validate, append one line, `fsync`; then reduce the
+   synchronized prefix, replay it and atomically replace `state.json`; only
+   then continue to the next dispatch. If the view replacement fails
+   (`view_write_failed`), the appended record remains authority, no `failed`
+   row or terminal is fabricated, and execution stops with exit `1`.
+3. An attempt: `started` appended and synchronized, then exclusive creation
+   of the attempt directory, then launch; `committed` or `failed` afterwards;
+   a coordinator's `settled` after its `committed`.
+4. A completed terminal is appended only when no attempt is pending and no
+   coordinator is unsettled; a failed terminal likewise, and an unchanged
+   failed terminal is never duplicated.
+5. Resume holds the same writer lock, runs the read-only preflight of
+   [CLI](cli.md#resume-preflight-precedence), and only then repairs a torn
+   tail and continues. A resume whose replay reaches the recorded completed
+   terminal returns it with no change to authority, memo, attempts or views,
+   however often it is repeated.
+6. A second writer on the run root and a competing run in the workspace are
+   refused; the codes are in [CLI](cli.md#diagnostics).
+
+Commands, resume precedence, the diagnostic table and invalidation are in
+[CLI](cli.md#evaluated-execution-target-235); command and provider requests,
+closure evidence and typed input documents in
+[Step IO](io.md#evaluated-command-and-provider-io-target-235); target
+admission in [Versioning](versioning.md).
 
 ## Durable Host Input State And Recovery
 
@@ -644,6 +930,10 @@ creates or asks a replacement question.
   are excluded. Declared artifacts remain child-contract-validated typed
   outputs; ledger/evidence views never substitute for them or for
   `RunRefResult$<site-digest>`.
+- Under a target-2.35 evaluated parent the same ledger and child protocol
+  apply, but the parent's settlement point is the memo `committed` record
+  carrying the coordinator proof, not a parent state transition; see
+  [coordinator records](#coordinator-records-and-child-runs).
 
 ## Target 2.25 Trial State, Settlement, And Replay
 
@@ -918,7 +1208,11 @@ creates or asks a replacement question.
 
 ## State File Schema (example)
 
-The state file (`${RUN_ROOT}/state.json`) is the authoritative record of execution:
+The state file (`${RUN_ROOT}/state.json`) is the authoritative record of
+execution for the flat route (schema `2.1`). A target-2.35 evaluated run
+publishes a schema-`3.0` derived view with the keys given in
+[Derived view](#derived-view-statejson) instead; this example does not apply
+to it.
 
 ```json
 {
@@ -1106,6 +1400,13 @@ orchestrate resume <run_id> --repair
 # Archive old runs
 orchestrate clean --older-than 7d
 ```
+
+An evaluated run (target 2.35) recovers from its memo alone: `resume` replays
+the committed prefix and retries the first uncommitted effect, `--force-restart`
+is refused and `--repair`, `--backup-state` and the checksum/projection
+guards above do not apply. See the
+[writer sequence](#writer-sequence-and-durability) and the
+[resume precedence](cli.md#resume-preflight-precedence).
 
 Schema boundary note:
 - Post-v2.0 runtimes reject resume from pre-v2.0 state rather than silently remapping old name-keyed lineage/freshness data.

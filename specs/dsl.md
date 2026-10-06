@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (admitted revisions extend through `"2.35"`; target 2.35 selects evaluated execution, whose closed-program compiler is in progress and whose `run` and `resume` are unavailable until Phase 3 dispatches the evaluator (see `versioning.md`, v2.35 additions). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (admitted revisions extend through `"2.35"`; target 2.35 selects evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions, for admission and availability). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -805,7 +805,17 @@ source.
       `match`, reusable calls, and effectful procedures. Target 2.24 rejects it
       in pure functions, pure settlement/evaluation bodies, `loop/recur`,
       `list/map-effect`, and generated repeat/for-each effect frames. A later
-      reviewed target owns effect-loop settlement.
+      reviewed target owns effect-loop settlement. Under a 2.35 entry a
+      path-mode `run-ref` is additionally admitted in a loop body, in a
+      budget or seed expression, as a `match` subject and as the one-effect
+      body of a serial `list/map-effect`, directly or through admitted
+      calls, including older-target helpers; exhaustion guards and other
+      pure contexts stay pure, and trials, bundle mode and effectful
+      children stay excluded. Older entries (2.24–2.34) keep the rejection
+      above.
+      Evidence: `tests/test_workflow_evaluated_run_ref.py`,
+      `tests/test_workflow_evaluated_run_ref_kills.py`,
+      `tests/test_workflow_evaluated_totality.py`.
     - The closed structural refusal codes owned by E1 are
       `trial_source_unresolvable`, `trial_source_submodules_unsupported`,
       `trial_source_lfs_unsupported`,

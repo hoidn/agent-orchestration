@@ -41,8 +41,11 @@
       the manifest can still change the build key.
       At build, C2 means canonical logical declarations enter configuration
       and program identity; compilation does not read, traverse, resolve
-      symlinks or hash closure file bytes. Runtime content hashes and
-      read-only/interpreter enforcement remain open in Phase 3. See
+      symlinks or hash closure file bytes. Content hashes, the per-run
+      interpreter pin and the read-only check belong to the run and resume
+      entries: see
+      [evaluated command and provider IO](#evaluated-command-and-provider-io-target-235)
+      and
       [command closure declaration](../docs/design/workflow_command_adapter_contract.md#command-closure-declaration),
       `closed/effects.py::require_command_closures`,
       `closed/program.py::_canonical_closure` (under
@@ -117,6 +120,9 @@
       command failure remains primary.
     - `variant_output.path` adds tagged-union validation and projection on top
       of this same runtime-owned explicit-path bundle contract.
+    - On the target-2.35 evaluated route the same variable names the
+      attempt's own `result.json` under the run root, workspace-relative; see
+      [evaluated command and provider IO](#evaluated-command-and-provider-io-target-235).
   - Target-2.29 projection contract:
     - Pure bundles remain canonical sparse values. Generated bundle pointers
       use declared source paths, not flattened artifact-name guessing. Resolve
@@ -149,6 +155,9 @@
       overall return and is carried only in workflow IR/artifact metadata.
     - If the provider exits `0` but writes the bundle to any other path, the
       step fails as an output-contract failure.
+    - On the target-2.35 evaluated route the variable is the absolute path of
+      the attempt's `result.json`, as [Providers](providers.md) states; the
+      prompt still shows the workspace-relative spelling.
     - A compiled direct `Value` result uses one compiler-owned field named
       `__result__`, with `json_pointer: ""` and `type: value`. The bundle bytes
       are the JSON encoding of the value itself; neither the runtime nor the
@@ -301,6 +310,162 @@
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.
+
+## Evaluated Command And Provider IO (target 2.35)
+
+This section owns the request a target-2.35 command or provider receives,
+the evidence the run binds for it and the files each attempt leaves. The
+effect identity, the memo records and the attempt directory layout are owned
+by [State](state.md#evaluated-execution-persistence-profile-target-235); the
+closure rules C1–C7 by
+[evaluated execution §7.3](../docs/design/workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares),
+the request fields R1–R12 by
+[§9.4](../docs/design/workflow_lisp_evaluated_execution.md#94-the-request-contract)
+and typed input documents by
+[§9.1.1](../docs/design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents).
+Availability ([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)):
+Tasks 10–14 integrated; Task 15 recovery evidence integrated in part;
+Task 17 pending. Owners:
+`orchestrator/workflow/evaluated/{commands,providers,closure,closure_evidence,inputs,runtime}.py`.
+Evidence: `tests/test_workflow_evaluated_command_templates.py`,
+`tests/test_workflow_evaluated_resume_retry.py`,
+`tests/test_workflow_evaluated_resume_replay_boundary.py`,
+`tests/test_workflow_evaluated_provider_lifecycle.py` and
+`tests/test_workflow_evaluated_invalidate_smoke.py`.
+
+- Resolved input and the limits of the promise
+  - An effect's resolved input is bound by content before its `started`
+    record: a command's argv, contract, closure declaration,
+    implementation-file evidence and, when present, input document; a
+    provider's declaration, values, policy, params, assembled prompt,
+    dependency rows, prompt source and dependency file digests. The
+    environment, the clock, modification times, the provider template and
+    model behind a provider id, files no boundary declares and `__pycache__`
+    contents are outside the promise (C5): a command whose behaviour depends
+    on them may be reused with a result a fresh run would not give. The
+    closure is the author's declaration, not a sandbox, a filesystem capture,
+    a determinism guarantee or a rollback.
+  - Provider prompt sources (`asset_file`, `input_file`, `defprompt` document
+    fills) and prompt dependency files are read once per attempt and bound
+    by digest (C6): the memo parts carry `source:<kind>:<path>` and one
+    `dependency:<path>` per declared dependency, with raw file digests. A
+    changed, missing or unreadable file at resume refuses the committed
+    effect with `effect_input_diverged` before any launch; a pending
+    provider start re-reads its sources in memory and may retry with
+    changed bytes, while a missing or unreadable source refuses without any
+    write. An ordinary path value in a program is a value, not a
+    declared read: it creates no file-content dependency, and `depends_on`
+    records value lineage only. Artifact handoff between effects follows
+    [§9.1.2](../docs/design/workflow_lisp_evaluated_execution.md#912-artifact-handoff-within-the-admitted-release):
+    declared result paths keep their roots and `must_exist` checks, and an
+    attempt's `result.json` does not replace them.
+- Command closure enforcement (C2–C4, C7)
+  - At run and resume the C2 evidence is resolved live for the reached
+    command only: automatic selection of workspace-spelled stable-command
+    tokens plus every explicit closure entry, unioned with the pertinent
+    prior map (the active commit for reuse, the latest uncommitted `started`
+    for retry), file bytes hashed, directories hashed as flat sorted row
+    lists, symlink targets recorded and `__pycache__` skipped. A missing,
+    unreadable, cyclic or unsupported entry refuses with
+    `command_closure_unreadable` before a first attempt and with
+    `effect_input_diverged` when a prior start or commit exists.
+  - C3: a bare first token launches through the header pin's recorded path;
+    the interpreter enters no effect identity.
+  - C4 is local and minimal: immediately before each reached command that
+    needs a new attempt, and only then, the runtime checks that the attempt's
+    concrete destinations (the attempt directory, `result.json`, `stdout.txt`,
+    `stderr.txt`, `inputs.json` when applicable, and `memo.jsonl`) are
+    disjoint from that command's closure files, directory roots and resolved
+    symlink targets, refusing before `started` with
+    `command_closure_unreadable` (reason `runtime destination overlaps
+    command closure`). `state.json` needs no entry of its own: any directory
+    that covers it also covers `memo.jsonl` beside it, which is checked, and
+    the view file itself can be named only by its per-run path, which no
+    static declaration carries. After the command exits the
+    runtime rehashes the closure and fails the attempt with
+    `command_closure_written` when the evidence changed. There is no startup scan of all effects or
+    routes, no protection of a closure from other effects or from run-root
+    bookkeeping, and no rollback. A memo hit creates no attempt and performs
+    no destination check. Commands run with `PYTHONDONTWRITEBYTECODE=1`.
+  - C7: a changed manifest or stable command changes the program digest and
+    refuses resume with `resume_program_changed`; a changed bound file
+    diverges only the effects that bind it, `effect_input_diverged` at the
+    first such commit in journal order, before any launch.
+- Command request and attempt files
+  - argv: the stable command with its interpreter replaced by the pinned
+    path, then the rendered authored arguments; a certified adapter's inline
+    JSON document is appended as the last token; an external tool with
+    `:inputs` receives the workspace-relative path of the attempt's
+    `inputs.json` as its last token. Environment: `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`
+    set to the workspace-relative path of the attempt's `result.json`, and
+    `PYTHONDONTWRITEBYTECODE=1`; the working directory is the workspace. A
+    template lookup that misses refuses `undefined_variables` before `started`.
+  - Result: the file at the attempt's `result.json`, validated against the
+    declared contract and projected to the declared type; stdout and stderr
+    are captured to `stdout.txt` and `stderr.txt` and are never a result
+    channel. A nonzero exit is `command_exit_nonzero` with
+    `exit_info {exit_code, error}` (no timeout is applied to an evaluated
+    command, so `command_timeout` is not raised); an exit `0` with an absent
+    or unreadable result file is `command_result_missing` or
+    `command_result_unreadable`; a file that fails its declared contract
+    fails the attempt with `evaluated_execution_failed` and the contract
+    `violations`; an unsupported contract kind or an invalid checked
+    projection is `command_result_contract` or `command_result_projection`;
+    a builtin adapter whose module resolves outside its declared package
+    tree is `command_module_origin_mismatch`. One memo attempt
+    is one external dispatch: internal executor retries are bypassed, and
+    `--max-retries` and `--retry-delay` are not read.
+- Typed command input documents (external tools)
+  - `:argv` plus `:inputs ((field expression) ...)` is admitted only at
+    target 2.35 and only for `external_tool` bindings; `certified_adapter`
+    keeps its signature-ordered inline JSON document and empty authored argv;
+    `:argv`-only forms of either kind are unchanged. Omitting `:inputs` sends
+    no document and no token; `:inputs ()` sends `{}`.
+  - Operand effects in argv and input fields run once, in expanded structural
+    source order; keyword order does not reorder argv or JSON keys.
+  - The document is the canonical finite JSON encoding of the checked field
+    values (UTF-8, sorted keys, compact separators, no trailing newline); its
+    byte digest is the `document` input part and the ordered field contract's
+    digest the `input_contract` part, neither including the attempt path. A
+    value violating its checked contract refuses with `effect_input_invalid`
+    (field, value path and violation code) before `started`; on reuse of a
+    committed effect the same check reports `effect_input_diverged`.
+  - After exclusive attempt allocation the runtime writes `inputs.json`
+    exclusively (mode `0600`) through the pinned run-root owner and passes its
+    workspace-relative path; a memo hit neither reads nor regenerates it, and
+    editing a generated document authorizes nothing.
+  - This is distinct from the CLI `--input-file` (workflow parameter binding,
+    read when `run` or `resume` binds inputs), from provider `input_file` and
+    `asset_file` (prompt sources bound by digest under C6) and from prompt
+    dependencies and artifact reads; none is renamed, rebased or converted
+    into another.
+- Provider request and attempt files
+  - The prompt is assembled through the ordinary composition pipeline
+    ([Providers](providers.md)) from the extern source or `defprompt` base,
+    dependencies at their declared positions, the typed prompt-input block
+    and the output contract; the contract's `- path:` line is the attempt's
+    `result.json` relative to the workspace (R3), and the prompt is written
+    to `prompt.txt` before launch.
+  - Environment: `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` with the spelling
+    [Providers](providers.md) gives this route, and
+    `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` as `sha256:` of the identity's
+    UTF-8 bytes (R5); the working directory is the workspace; no run context,
+    session, managed job or secrets (R1, R8). Policy is the effect node's
+    `model`, `effort` and `timeout_sec` (R7).
+  - Result: the bundle at the attempt's `result.json`; `provider_result_missing`
+    when absent, `provider_result_invalid` with `violations` when it fails
+    the declared contract (the file is kept as evidence),
+    `provider_exit_nonzero` or `provider_timeout` with
+    `exit_info {exit_code, error}` on a failed process,
+    `provider_preparation_failed` with `exit_info {error}` when the
+    invocation cannot be prepared, and `provider_result_contract` or
+    `provider_result_projection` as the provider spellings of the command
+    result codes; `stdout.txt` and `stderr.txt` are evidence only. Attempt files are created exclusively and
+    never overwritten by a later attempt.
+- Run references: the resolved input parts are `config` (the step-config
+  digest) and `inputs`; the child runs in its clone workspace under the
+  ledger of [State](state.md#target-224-run-ref-state-settlement-and-resume)
+  and the [coordinator records](state.md#coordinator-records-and-child-runs).
 
 ## Provider-Phase-Isolated Bundle Brokerage
 
