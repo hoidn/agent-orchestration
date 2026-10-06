@@ -999,7 +999,7 @@ files that differ.
 | C2 | The resolved input of a command binds, by content: each stable-command token selected as a workspace path by the conservative rules below, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
 | C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
 | C4 | A command must treat its closure as read-only. Before starting its attempt, check that the concrete runtime destinations for that attempt are disjoint from that command's closure, as below. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse any change (§8.1), even if no failure record survived. A resume that finds a committed effect's declared file changed also refuses (C7). The local check does not protect closures from startup, other effects or rejection bookkeeping (§8.2). Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
-| C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares. A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
+| C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares; `__pycache__` contents of a declared directory (§7.3), including bytecode Python loads without checking its source bytes (`unchecked-hash`, or timestamp bytecode whose recorded source mtime and size match). A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
 | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
 | C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
 
@@ -1074,6 +1074,11 @@ their declared location. Normalize redundant separators and `.` components
 to POSIX spelling, preserve `..` until filesystem resolution (a preceding
 symlink can change its meaning), then sort and deduplicate the declaration.
 Overlapping directory/file entries are allowed and do not create exclusions.
+`__pycache__` contents are not evidence: a declared directory's walk skips
+every entry named `__pycache__`, because Python uses bytecode there only for
+an existing source (PEP 3147). A `.pyc` elsewhere, such as a sourceless
+module that Python imports when no `.py` sits beside it, and an entry or token
+naming a file directly stay bound.
 This normalization does not rewrite stable-command argv or change its existing
 path resolution. An explicitly absolute declaration remains location-bound;
 moving source files alone does not rewrite it.
@@ -1099,9 +1104,10 @@ and I/O code, so the leaf adapter file alone is not its implementation.
 Declaring the package directory avoids an import-discovery system or a guessed
 empty closure; it intentionally makes other package-file changes diverge too.
 A smaller future checked-in closure needs evidence for its complete package
-dependencies. All package caches must therefore be disabled or outside that
-directory in both evaluator and child processes; existing caches are not
-excluded from directory hashing.
+dependencies. All package caches other than the `__pycache__` contents
+excluded above must therefore be disabled or outside that directory in both
+evaluator and child processes; other existing caches are not excluded from
+directory hashing.
 
 Resolve this logical base through the loaded package location already used
 by `_builtin_stdlib_source_root` and the command executor's package/PYTHONPATH
@@ -1188,7 +1194,8 @@ POSIX `path` within that directory:
 | Internal symlink resolving to a directory | `{"path": p, "kind": "directory", "target": t}`, with no `digest`; target uses the declaration's base encoding |
 | Ordinary directory | No row of its own; traverse its children |
 
-All files, including dotfiles and caches, participate. Ordinary empty
+All files, including dotfiles and caches, participate, except the
+`__pycache__` contents excluded above, which contribute no rows. Ordinary empty
 directories contribute no rows. Each internal directory symlink contributes
 its identity row even when its target is empty, then its target's files are
 traversed under the logical path through that symlink; nested directory

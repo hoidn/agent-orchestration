@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 import errno
 import os
 from pathlib import Path
@@ -151,6 +151,11 @@ def _file_row(
     return row
 
 
+def _evidence_names(entries: Iterable[os.DirEntry[str]]) -> list[str]:
+    """Sorted entry names, omitting `__pycache__` bytecode caches."""
+    return sorted(entry.name for entry in entries if entry.name != "__pycache__")
+
+
 def _directory_files(
     logical_root: str,
     resolved_root: Path,
@@ -173,7 +178,7 @@ def _directory_files(
                 raise ClosureEvidenceError(str(directory), "directory symlink cycle")
             stack.add(identity)
             with os.scandir(directory) as entries:
-                names = sorted(entry.name for entry in entries)
+                names = _evidence_names(entries)
         except ClosureEvidenceError:
             raise
         except OSError as exc:
