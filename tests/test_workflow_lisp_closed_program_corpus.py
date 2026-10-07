@@ -842,11 +842,7 @@ def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
         if row['key'][:3] == ['std/phase', 'procedure', 'review-revise-loop-proc']]
     assert len(definitions) == 2
     for row in definitions:
-        (limit,) = [value['v'] for formal, _, value in row['key'][6] if formal == 'max_iterations']
-        targets = _phase_reference_targets(row)
-        assert targets == expected[limit]
-        calls = [node for node in _ast_nodes(row['body']) if node['k'] == 'call']
-        assert [tree['definitions'][call['callee']]['key'][2] for call in calls] == list(targets)
+        _assert_phase_reference_call_owners(tree, row, expected)
     assert ClosedProgram.from_artifact(result.program.artifact()).tree == tree
 
 
@@ -1053,3 +1049,11 @@ def test_prepared_import_manifest_uses_shared_old_and_evaluated_producer_routing
     assert body["value"]["payload"]["expr"]["operator"] == "+"
     assert body["body"]["k"] == "halt"
     assert body["body"]["value"]["n"] == body["name"]
+
+
+def _assert_phase_reference_call_owners(tree, row, expected):
+    (limit,) = [value['v'] for formal, _, value in row['key'][6] if formal == 'max_iterations']
+    targets = _phase_reference_targets(row)
+    assert targets == expected[limit]
+    calls = [node for node in _ast_nodes(row['body']) if node['k'] == 'call']
+    assert [tree['definitions'][call['callee']]['key'][2] for call in calls] == list(targets)

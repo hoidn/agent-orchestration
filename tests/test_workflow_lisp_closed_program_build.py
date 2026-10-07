@@ -270,14 +270,7 @@ def test_three_static_call_sites_retain_exact_value_keys_and_three_frames(tmp_pa
     assert len(calls) == len(closed.tree["definitions"]) == 3
     first_key = closed.tree["definitions"][calls[0]["callee"]]["key"]
     for value, call, name in zip((1, 2, 3), calls, ("a", "b", "c"), strict=True):
-        definition = closed.tree["definitions"][call["callee"]]
-        key = definition["key"]
-        assert key[:3] == ["cp/three_call_sites", "procedure", "fetch"]
-        int_type = {"kind": "primitive", "name": "Int"}
-        assert key[6] == [["n", int_type, {"k": "lit", "v": value, "type": int_type}]]
-        assert key[:6] + key[7:] == first_key[:6] + first_key[7:]
-        assert key[8]["params"] == definition["params"] == call["args"] == []
-        assert call["frame"] == f"{name}={call['callee']}"
+        _assert_static_call_site_key(closed, first_key, value, call, name)
     assert closed.sites == tuple((call["callee"], "#1") for call in calls)
     restored = ClosedProgram.from_artifact(closed.artifact())
     assert (restored.tree, restored.sites, restored.digest) == (
@@ -592,19 +585,11 @@ def _assert_shared_ref_static_variants(definitions):
     helpers = [row for row in definitions.values() if row["key"][2] == "helper"]
     assert len(invokes) == len(helpers) == 2
     assert invokes[0]["key"][4] == invokes[1]["key"][4]
-    (binding,) = invokes[0]["key"][4]
-    assert binding[0] == "runner"
-    integer = {"kind": "primitive", "name": "Int"}
-    assert binding[1]["bound"] == [["fixed", integer, {"capture": 0}]]
-    assert binding[1]["residual"] == {"params": [integer], "result": integer}
-    assert binding[1]["target"][6] == []
+    integer = _assert_shared_reference_binding(invokes)
     for variants in (invokes, helpers):
         ordered = sorted(variants, key=lambda row: row["key"][6][0][2]["v"])
         for row, value in zip(ordered, (2, 3), strict=True):
-            assert row["key"][6] == [["y", integer, {"k": "lit", "type": integer, "v": value}]]
-            assert row["key"][8] == {"params": [], "result": integer}
-            assert len(row["params"]) == len(row["key"][7]) == 1
-            assert row["params"][0][1] == integer
+            _assert_static_reference_capture_variant(row, value, integer)
 
 
 @pytest.mark.parametrize(
@@ -842,19 +827,9 @@ def _assert_created_ref_variants(definitions, *, nested=False):
     assert len(helpers) == 2
     ordered = sorted(helpers, key=lambda row: row["key"][6][0][2]["v"])
     for row, value in zip(ordered, (2, 3), strict=True):
-        assert row["key"][6] == [["y", integer, {"k": "lit", "type": integer, "v": value}]]
-        assert row["key"][8] == {"params": [], "result": integer}
-        assert len(row["params"]) == len(row["key"][7]) == 1
-        assert row["params"][0][1] == integer
+        _assert_static_reference_capture_variant(row, value, integer)
     if nested:
-        references = [row for row in definitions.values() if row["key"][2] == "apply-one"]
-        assert len(references) == 2
-        assert references[0]["key"][4] == references[1]["key"][4]
-        (binding,) = references[0]["key"][4]
-        assert binding[0] == "callback"
-        assert binding[1]["bound"] == [["fixed", integer, {"capture": 0}]]
-        assert binding[1]["residual"] == {"params": [integer], "result": integer}
-        assert binding[1]["target"][6] == []
+        _assert_created_callback_binding(definitions, integer)
 
 
 def test_zero_input_effectful_bound_value_runs_at_creation_once(tmp_path: Path) -> None:
@@ -1329,8 +1304,6 @@ def test_retained_nested_match_cannot_read_same_typed_outer_binder(tmp_path, mon
 def test_source_owned_command_rows_preserve_native_projection_and_dynamic_suffix(
     tmp_path, formal, type_name, declaration, wire, suffix, active, inactive,
 ):
-    from orchestrator.variables.substitution import resolve_dictionary_suffix
-    from orchestrator.workflow.type_descriptor import command_boundary_row, command_boundary_value
     from orchestrator.workflow_lisp.closed.program import ClosedProgram
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _commands
 
@@ -1345,11 +1318,7 @@ def test_source_owned_command_rows_preserve_native_projection_and_dynamic_suffix
     native_wire, descriptor = closed.tree['params'][0]
     assert slot['value']['n'] == native_wire
     assert closed.tree['command_params'] == [[formal, 0]]
-    row = command_boundary_row(formal, descriptor, wire)
-    assert row is not None
-    assert resolve_dictionary_suffix(command_boundary_value(active, descriptor, row), suffix) == 7
-    if inactive is not None:
-        assert resolve_dictionary_suffix(command_boundary_value(inactive, descriptor, row), suffix) is None
+    _assert_command_boundary_suffix(formal, descriptor, wire, active, inactive, suffix)
     if formal != 'payload':
         assert command['argv_transport'][1] == {'kind': 'template', 'parts': [
             {'kind': 'missing', 'expression': 'inputs.' + formal + '.x'}]}
@@ -1373,14 +1342,7 @@ def test_reference_and_command_captures_keep_their_distinct_binding_owners(tmp_p
     assert len(invoke['params']) == 2
     (call,) = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'call']
     assert len(call['args']) == len(invoke['params'])
-    bindings, body = [], closed.tree['body']
-    while body['k'] == 'let' and body['value'] is not call:
-        bindings.append((body['name'], body['value']))
-        body = body['body']
-    roots = [_resolve_closed_value(argument, bindings)[0] for argument in call['args']]
-    assert roots[0]['k'] == roots[1]['k'] == 'name'
-    assert roots[0]['n'] == roots[1]['n'] == closed.tree['params'][0][0]
-    assert call['args'][0]['n'] != call['args'][1]['n']
+    _assert_distinct_capture_binding_roots(closed, call)
     (command,) = _commands(closed.tree)
     assert command['argv_transport'][0]['parts'][0]['name'] == ['input', 'input', 'input']
     assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
@@ -1401,20 +1363,15 @@ def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"',
 def _assert_opaque_body_continuity(program, body, builder):
     from dataclasses import replace
     from orchestrator.workflow_lisp.build_manifest_io import _json_data
-    from orchestrator.workflow_lisp.closed.command_templates import _wcc_call_nodes
     from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
     from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccOpaqueFrontendValue
     from tests.test_workflow_lisp_closed_command_transport import (
-        _planned, _scope_inputs, _walk_wcc, _without_authorized_annotations, _commands,
+        _walk_wcc,
     )
 
     (opaque,) = [node for node in _walk_wcc(body) if isinstance(node, WccOpaqueFrontendValue) and node.normalized_body is not None]
     assert opaque.expr is None and normalize_wcc_body_to_anf(body) == body
-    inputs, _ = _scope_inputs(program, builder)
-    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
-    planned, _ = _planned(program)
-    assert _without_authorized_annotations(neutral) == _without_authorized_annotations(planned)
-    assert len(list(_wcc_call_nodes(neutral))) == len(list(_wcc_call_nodes(planned))) == 1
+    _assert_opaque_planning_continuity(program, builder)
     state = next(node for node in _walk_wcc(opaque.normalized_body) if isinstance(node, WccNameAtom) and node.name == 'state')
     renamed = _renamed(opaque, {'state': replace(state, name='retained-state')})
     assert 'retained-state' in _free_names(renamed) and 'state' not in _free_names(renamed)
@@ -1484,11 +1441,7 @@ def _assert_runtime_proof_frames(before, after):
     expected = {'value': RUNTIME_REFERENCE} if variant == 'SCALAR' else {'value': {'text': RUNTIME_REFERENCE}}
     assert after.values[name] == expected
     if name == 'choice':
-        original = before.operands[name]
-        current = after.operands[name]
-        assert original.metadata.binding_identity == current.metadata.binding_identity
-        assert before.retained_bindings[-1] in after.retained_bindings
-        assert after.retained_bindings[-1][3] == expected
+        _assert_retained_runtime_proof_binding(before, after, name, expected)
 
 
 def test_compound_union_runtime_fact_uses_its_actual_proven_payload(tmp_path, monkeypatch):
@@ -1592,29 +1545,14 @@ def test_constructor_alias_memo_retains_nested_tags_and_original_shadowed_fact(t
     closed = build_closed_program(program)
     payloads = []
     for fact in observed:
-        if kind == 'union':
-            assert fact[:4] == ['retained-expression', 'union', True, ['literal', 'string', 'str', 'BOX']]
-            fact = dict(fact[4])['value']
-        assert fact[0] == 'fields'
-        fields = dict(fact[1])
-        assert fields['flag'] == ['literal', 'bool', 'bool', True]
-        assert fields['text'] == ['literal', 'string', 'str', 'same']
-        assert fields['n'][:3] == ['literal', 'int', 'int']
-        payloads.append(fields['n'][3])
+        payloads.append(_assert_constructor_memo_fact(fact, kind))
     assert Counter(payloads) == Counter({7: 3, 9: 1})
     assert prepared == ['cp/transport::carry'] * 2
     definitions = list(closed.tree['definitions'].values())
     assert len(definitions) == 2
     constants = []
     for row in definitions:
-        assert len(row['key'][8]['params']) == len(row['key'][7]) == 1
-        assert len(row['params']) == 2
-        assert row['params'][-1][1] == row['key'][8]['params'][0]
-        rows = {tuple(selector[3]['path']): value for selector, descriptor, value in row['key'][6]}
-        prefix = ('value',) if kind == 'union' else ()
-        constants.append(rows[(*prefix, 'n')]['v'])
-        assert rows[(*prefix, 'flag')]['v'] is True
-        assert rows[(*prefix, 'text')]['v'] == 'same'
+        _assert_constructor_memo_definition(row, kind, constants)
     assert sorted(constants) == [7, 9]
     assert len({json.dumps(row['key'], sort_keys=True) for row in definitions}) == 2
     assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
@@ -1766,36 +1704,14 @@ def test_partial_union_constructor_labels_get_projected_keys_while_preserving_ru
     by_label = {}
     projected_by_label = {}
     for definition in definitions:
-        projected = {
-            tuple(selector[3]['path']): (selector, descriptor, literal)
-            for selector, descriptor, literal in definition['key'][6]
-            if isinstance(selector, list) and len(selector) == 4
-            and selector[0] == 'projection'
-        }
-        assert set(projected) == {('label',), ('variant',)}
-        assert all(row[0][:3] == ['projection', 'value', 0] for row in projected.values())
-        assert projected[('variant',)][2]['v'] == 'YES'
-        selector, descriptor, literal = projected[('label',)]
-        assert descriptor == {'kind': 'primitive', 'name': 'String'}
-        assert literal['k'] == 'lit' and literal['type'] == descriptor
-        label = literal['v']
-        assert label in {'before', 'after'}
+        label, projected = _assert_partial_union_projections(definition)
         by_label[label] = definition
         projected_by_label[label] = projected
         _assert_partial_command(definition, label)
 
-        # K8 keeps the original Choice argument as a residual parameter.
-        assert len(definition['params']) == 1
-        assert definition['params'][0][1]['kind'] == 'union'
-        assert definition['params'][0][1]['name'] == 'probe/partial_owner::Choice'
-        assert definition['key'][8]['params'] == [definition['params'][0][1]]
+        _assert_partial_union_residual(definition)
 
-    assert set(by_label) == {'before', 'after'}
-    before, after = by_label['before'], by_label['after']
-    assert before['key'][6] != after['key'][6]
-    assert before['key'][:6] + before['key'][7:] == after['key'][:6] + after['key'][7:]
-    assert projected_by_label['before'][('variant',)] == projected_by_label['after'][('variant',)]
-    assert projected_by_label['before'][('label',)][:2] == projected_by_label['after'][('label',)][:2]
+    _assert_partial_union_variant_keys(by_label, projected_by_label)
 
     _assert_partial_operands(closed)
 
@@ -1824,12 +1740,7 @@ def _assert_partial_command(definition, label):
         if node.get('k') == 'perform' and node.get('class') == 'command']
     assert [row['kind'] for row in command['argv_transport']] == ['value', 'template']
     assert command['argv_transport'][1]['parts'][0]['text'] == label
-    assert command['argv'][0]['k'] == command['argv'][1]['k'] == 'field'
-    assert command['argv'][0]['base']['n'] == command['argv'][1]['base']['n'] == 'value'
-    assert command['argv'][0]['path'] == ['n']
-    assert command['argv'][0]['shared'] == [{'kind': 'primitive', 'name': 'Int'}]
-    assert command['argv'][1]['path'] == ['label']
-    assert command['argv'][1]['shared'] == [{'kind': 'primitive', 'name': 'String'}]
+    _assert_partial_command_field_operands(command)
 
 
 def test_retained_record_variant_field_is_distinct_from_union_tag(tmp_path):
@@ -1922,13 +1833,7 @@ def _assert_shadow_constructor_operands(closed):
         bindings.append((body['name'], body['value']))
         body = body['body']
     constructors = [(index, value) for index, (_, value) in enumerate(bindings) if value['k'] == 'inject']
-    shadow_index, shadow_name = next((index, name) for index, (name, value) in enumerate(bindings)
-        if value.get('k') == 'lit' and value.get('v') == 9)
-    assert len(constructors) == 3
-    names = [value['fields'][0][1]['n'] for _, value in constructors]
-    assert names[:2] == [row[0] for row in closed.tree['params']]
-    assert names[2] == shadow_name
-    assert constructors[1][0] < shadow_index < constructors[2][0]
+    _assert_shadow_constructor_binding_order(closed, bindings, constructors)
 
 
 def test_retained_constructor_internal_let_and_if_freeze_selected_creation_facts(tmp_path):
@@ -1949,3 +1854,162 @@ def test_retained_constructor_internal_let_and_if_freeze_selected_creation_facts
     assert fact.tag.value == 'YES'
     assert dict(fact.fields)['n'] is RUNTIME_REFERENCE
     assert dict(fact.fields)['label'].value == 'before'
+
+
+def _assert_static_call_site_key(closed, first_key, value, call, name):
+    definition = closed.tree["definitions"][call["callee"]]
+    key = definition["key"]
+    assert key[:3] == ["cp/three_call_sites", "procedure", "fetch"]
+    int_type = {"kind": "primitive", "name": "Int"}
+    assert key[6] == [["n", int_type, {"k": "lit", "v": value, "type": int_type}]]
+    assert key[:6] + key[7:] == first_key[:6] + first_key[7:]
+    assert key[8]["params"] == definition["params"] == call["args"] == []
+    assert call["frame"] == f"{name}={call['callee']}"
+
+
+def _assert_shared_reference_binding(invokes):
+    (binding,) = invokes[0]["key"][4]
+    assert binding[0] == "runner"
+    integer = {"kind": "primitive", "name": "Int"}
+    assert binding[1]["bound"] == [["fixed", integer, {"capture": 0}]]
+    assert binding[1]["residual"] == {"params": [integer], "result": integer}
+    assert binding[1]["target"][6] == []
+    return integer
+
+
+def _assert_static_reference_capture_variant(row, value, integer):
+    assert row["key"][6] == [["y", integer, {"k": "lit", "type": integer, "v": value}]]
+    assert row["key"][8] == {"params": [], "result": integer}
+    assert len(row["params"]) == len(row["key"][7]) == 1
+    assert row["params"][0][1] == integer
+
+
+def _assert_created_callback_binding(definitions, integer):
+    references = [row for row in definitions.values() if row["key"][2] == "apply-one"]
+    assert len(references) == 2
+    assert references[0]["key"][4] == references[1]["key"][4]
+    (binding,) = references[0]["key"][4]
+    assert binding[0] == "callback"
+    assert binding[1]["bound"] == [["fixed", integer, {"capture": 0}]]
+    assert binding[1]["residual"] == {"params": [integer], "result": integer}
+    assert binding[1]["target"][6] == []
+
+
+def _assert_command_boundary_suffix(formal, descriptor, wire, active, inactive, suffix):
+    from orchestrator.variables.substitution import resolve_dictionary_suffix
+    from orchestrator.workflow.type_descriptor import command_boundary_row, command_boundary_value
+
+    row = command_boundary_row(formal, descriptor, wire)
+    assert row is not None
+    assert resolve_dictionary_suffix(command_boundary_value(active, descriptor, row), suffix) == 7
+    if inactive is not None:
+        assert resolve_dictionary_suffix(command_boundary_value(inactive, descriptor, row), suffix) is None
+
+
+def _assert_distinct_capture_binding_roots(closed, call):
+    bindings, body = [], closed.tree['body']
+    while body['k'] == 'let' and body['value'] is not call:
+        bindings.append((body['name'], body['value']))
+        body = body['body']
+    roots = [_resolve_closed_value(argument, bindings)[0] for argument in call['args']]
+    assert roots[0]['k'] == roots[1]['k'] == 'name'
+    assert roots[0]['n'] == roots[1]['n'] == closed.tree['params'][0][0]
+    assert call['args'][0]['n'] != call['args'][1]['n']
+
+
+def _assert_opaque_planning_continuity(program, builder):
+    from orchestrator.workflow_lisp.closed.command_templates import _wcc_call_nodes
+    from tests.test_workflow_lisp_closed_command_transport import (
+        _planned, _scope_inputs, _without_authorized_annotations,
+    )
+
+    inputs, _ = _scope_inputs(program, builder)
+    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
+    planned, _ = _planned(program)
+    assert _without_authorized_annotations(neutral) == _without_authorized_annotations(planned)
+    assert len(list(_wcc_call_nodes(neutral))) == len(list(_wcc_call_nodes(planned))) == 1
+
+
+def _assert_retained_runtime_proof_binding(before, after, name, expected):
+    original = before.operands[name]
+    current = after.operands[name]
+    assert original.metadata.binding_identity == current.metadata.binding_identity
+    assert before.retained_bindings[-1] in after.retained_bindings
+    assert after.retained_bindings[-1][3] == expected
+
+
+def _assert_constructor_memo_fact(fact, kind):
+    if kind == 'union':
+        assert fact[:4] == ['retained-expression', 'union', True, ['literal', 'string', 'str', 'BOX']]
+        fact = dict(fact[4])['value']
+    assert fact[0] == 'fields'
+    fields = dict(fact[1])
+    assert fields['flag'] == ['literal', 'bool', 'bool', True]
+    assert fields['text'] == ['literal', 'string', 'str', 'same']
+    assert fields['n'][:3] == ['literal', 'int', 'int']
+    return fields['n'][3]
+
+
+def _assert_constructor_memo_definition(row, kind, constants):
+    assert len(row['key'][8]['params']) == len(row['key'][7]) == 1
+    assert len(row['params']) == 2
+    assert row['params'][-1][1] == row['key'][8]['params'][0]
+    rows = {tuple(selector[3]['path']): value for selector, descriptor, value in row['key'][6]}
+    prefix = ('value',) if kind == 'union' else ()
+    constants.append(rows[(*prefix, 'n')]['v'])
+    assert rows[(*prefix, 'flag')]['v'] is True
+    assert rows[(*prefix, 'text')]['v'] == 'same'
+
+
+def _assert_partial_union_projections(definition):
+    projected = {
+        tuple(selector[3]['path']): (selector, descriptor, literal)
+        for selector, descriptor, literal in definition['key'][6]
+        if isinstance(selector, list) and len(selector) == 4
+        and selector[0] == 'projection'
+    }
+    assert set(projected) == {('label',), ('variant',)}
+    assert all(row[0][:3] == ['projection', 'value', 0] for row in projected.values())
+    assert projected[('variant',)][2]['v'] == 'YES'
+    selector, descriptor, literal = projected[('label',)]
+    assert descriptor == {'kind': 'primitive', 'name': 'String'}
+    assert literal['k'] == 'lit' and literal['type'] == descriptor
+    label = literal['v']
+    assert label in {'before', 'after'}
+    return label, projected
+
+
+def _assert_partial_union_residual(definition):
+    # K8 keeps the original Choice argument as a residual parameter.
+    assert len(definition['params']) == 1
+    assert definition['params'][0][1]['kind'] == 'union'
+    assert definition['params'][0][1]['name'] == 'probe/partial_owner::Choice'
+    assert definition['key'][8]['params'] == [definition['params'][0][1]]
+
+
+def _assert_partial_union_variant_keys(by_label, projected_by_label):
+    assert set(by_label) == {'before', 'after'}
+    before, after = by_label['before'], by_label['after']
+    assert before['key'][6] != after['key'][6]
+    assert before['key'][:6] + before['key'][7:] == after['key'][:6] + after['key'][7:]
+    assert projected_by_label['before'][('variant',)] == projected_by_label['after'][('variant',)]
+    assert projected_by_label['before'][('label',)][:2] == projected_by_label['after'][('label',)][:2]
+
+
+def _assert_partial_command_field_operands(command):
+    assert command['argv'][0]['k'] == command['argv'][1]['k'] == 'field'
+    assert command['argv'][0]['base']['n'] == command['argv'][1]['base']['n'] == 'value'
+    assert command['argv'][0]['path'] == ['n']
+    assert command['argv'][0]['shared'] == [{'kind': 'primitive', 'name': 'Int'}]
+    assert command['argv'][1]['path'] == ['label']
+    assert command['argv'][1]['shared'] == [{'kind': 'primitive', 'name': 'String'}]
+
+
+def _assert_shadow_constructor_binding_order(closed, bindings, constructors):
+    shadow_index, shadow_name = next((index, name) for index, (name, value) in enumerate(bindings)
+        if value.get('k') == 'lit' and value.get('v') == 9)
+    assert len(constructors) == 3
+    names = [value['fields'][0][1]['n'] for _, value in constructors]
+    assert names[:2] == [row[0] for row in closed.tree['params']]
+    assert names[2] == shadow_name
+    assert constructors[1][0] < shadow_index < constructors[2][0]

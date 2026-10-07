@@ -335,9 +335,7 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
     )
     parent_bundle = parent_result.validated_bundles_by_name["cp/parent::run"]
     parent_snapshot = parent_bundle.typed_program
-    assert parent_snapshot.producer_lowering_schema == 2
-    assert parent_snapshot.imported_programs["dep"] is child_snapshot
-    assert child_bundle.provenance.frontend_build_root == child_build.build_root
+    _assert_original_mixed_schema_snapshots(parent_snapshot, child_snapshot, child_bundle, child_build)
 
     identity = "sha256:" + "c" * 64
     bundles = {
@@ -395,15 +393,8 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         expected_capsule_digest=encoded.capsule_digest,
         expected_compiler_runtime_identity_digest=identity,
     )
-    assert decoded.bundles_by_name[child_bundle.surface.name].typed_program is None
-    assert decoded.bundles_by_name[parent_bundle.surface.name].typed_program is None
-    restored_child = replace(
-        decoded.bundles_by_name[child_bundle.surface.name],
-        typed_program=child_snapshot,
-    )
-    restored_parent = replace(
-        decoded.bundles_by_name[parent_bundle.surface.name],
-        typed_program=parent_snapshot,
+    restored_child, restored_parent = _reattach_original_mixed_schema_snapshots(
+        decoded, child_bundle, parent_bundle, child_snapshot, parent_snapshot,
     )
 
     consumer_path = tmp_path / "cp" / "consumer.orc"
@@ -423,11 +414,7 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
             "child": restored_child,
         },
     )
-    assert consumer.imported_programs["parent"].producer_lowering_schema == 2
-    assert consumer.imported_programs["parent"].imported_programs[
-        "dep"
-    ].producer_lowering_schema == 1
-    assert consumer.imported_programs["child"] is child_snapshot
+    _assert_consumer_mixed_schema_snapshots(consumer, child_snapshot)
     consumer_path.unlink()
     assert not consumer_path.exists()
 
@@ -439,40 +426,7 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         built.digest,
     )
 
-    def owner_definition(module: str) -> Mapping[str, object]:
-        matches = [
-            row
-            for row in restored.tree["definitions"].values()
-            if row["key"][:3] == [module, "workflow", "run"]
-        ]
-        assert len(matches) == 1
-        return matches[0]
-
-    for module, provider, prompt, command in (
-        ("cp/child", "child-provider", "child.txt", ["python", "child-probe.py"]),
-        ("cp/parent", "parent-provider", "parent.txt", ["python", "parent-probe.py"]),
-    ):
-        definition = owner_definition(module)
-        effects = [
-            node
-            for node in _ast_nodes(definition["body"])
-            if node["k"] == "perform"
-        ]
-        assert len(effects) == 2
-        (provider_effect,) = [node for node in effects if node.get("provider")]
-        assert provider_effect["provider"] == provider
-        assert provider_effect["prompt"]["path"] == prompt
-
-        (command_effect,) = [
-            node
-            for node in effects
-            if node.get("class") == "command"
-        ]
-        assert command_effect["command"] == command
-        assert definition["command_params"] == [["n", 0]]
-        slot = command_effect["argv_transport"][0]["parts"][0]
-        assert slot["name"] == ["input", "n", "n"]
-        assert slot["value"]["n"] == definition["params"][0][0]
+    _assert_mixed_schema_effect_owners(restored)
 
 
 def test_a_program_the_flat_route_refuses_typechecks_into_a_typed_program(tmp_path: Path) -> None:
@@ -3116,3 +3070,75 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         )
     ).digest == valid_bundle_program.digest
     assert source_readback.sites
+
+
+def _assert_original_mixed_schema_snapshots(parent_snapshot, child_snapshot, child_bundle, child_build):
+    assert parent_snapshot.producer_lowering_schema == 2
+    assert parent_snapshot.imported_programs["dep"] is child_snapshot
+    assert child_bundle.provenance.frontend_build_root == child_build.build_root
+
+
+def _reattach_original_mixed_schema_snapshots(decoded, child_bundle, parent_bundle, child_snapshot, parent_snapshot):
+    assert decoded.bundles_by_name[child_bundle.surface.name].typed_program is None
+    assert decoded.bundles_by_name[parent_bundle.surface.name].typed_program is None
+    restored_child = replace(
+        decoded.bundles_by_name[child_bundle.surface.name],
+        typed_program=child_snapshot,
+    )
+    restored_parent = replace(
+        decoded.bundles_by_name[parent_bundle.surface.name],
+        typed_program=parent_snapshot,
+    )
+    return restored_child, restored_parent
+
+
+def _assert_consumer_mixed_schema_snapshots(consumer, child_snapshot):
+    assert consumer.imported_programs["parent"].producer_lowering_schema == 2
+    assert consumer.imported_programs["parent"].imported_programs[
+        "dep"
+    ].producer_lowering_schema == 1
+    assert consumer.imported_programs["child"] is child_snapshot
+
+
+def _assert_mixed_schema_effect_owners(restored):
+    def owner_definition(module: str) -> Mapping[str, object]:
+        matches = [
+            row
+            for row in restored.tree["definitions"].values()
+            if row["key"][:3] == [module, "workflow", "run"]
+        ]
+        assert len(matches) == 1
+        return matches[0]
+
+    for module, provider, prompt, command in (
+        ("cp/child", "child-provider", "child.txt", ["python", "child-probe.py"]),
+        ("cp/parent", "parent-provider", "parent.txt", ["python", "parent-probe.py"]),
+    ):
+        definition = owner_definition(module)
+        _assert_mixed_schema_owner_effects(definition, provider, prompt, command)
+
+
+def _assert_mixed_schema_owner_effects(definition, provider, prompt, command):
+    effects = [
+        node
+        for node in _ast_nodes(definition["body"])
+        if node["k"] == "perform"
+    ]
+    assert len(effects) == 2
+    (provider_effect,) = [node for node in effects if node.get("provider")]
+    assert provider_effect["provider"] == provider
+    assert provider_effect["prompt"]["path"] == prompt
+    _assert_mixed_schema_command_owner(definition, effects, command)
+
+
+def _assert_mixed_schema_command_owner(definition, effects, command):
+    (command_effect,) = [
+        node
+        for node in effects
+        if node.get("class") == "command"
+    ]
+    assert command_effect["command"] == command
+    assert definition["command_params"] == [["n", 0]]
+    slot = command_effect["argv_transport"][0]["parts"][0]
+    assert slot["name"] == ["input", "n", "n"]
+    assert slot["value"]["n"] == definition["params"][0][0]

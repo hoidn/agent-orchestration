@@ -1210,15 +1210,7 @@ def test_projected_union_tag_finalizes_its_phantom_run_ref_owner(tmp_path, mutat
         workspace_root=tmp_path, command_boundaries=BOUNDARIES)
     path.unlink()
     closed = _build_source_free(typed)
-    projections = [row for definition in closed.tree['definitions'].values()
-        for row in definition['key'][6]
-        if isinstance(row[0], list) and row[0][3]['path'] == ['variant']]
-    assert len(projections) == 1
-    selector, descriptor, literal = projections[0]
-    assert selector[:3] == ['projection', 'value', 0]
-    assert descriptor['kind'] == 'enum' and literal == {'k': 'lit', 'v': 'WRAP', 'type': descriptor}
-    assert descriptor['name']['member'] == 'variant'
-    assert descriptor['name']['owner']['args'][0]['kind'] == 'run-ref-result'
+    _assert_projected_run_ref_tag_owner(closed)
     finalized = [row for name, row in closed.tree['types'].items()
         if 'RunRefResult$' in name and row['kind'] == 'enum']
     assert len(finalized) == 1 and finalized[0]['allowed'] == ['WRAP']
@@ -1255,9 +1247,7 @@ def _reject_forged_projected_run_ref_tag(closed, mutation):
         projection[2]['type'] = deepcopy(projection[1])
         _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition)
     else:
-        for name, row in tree['types'].items():
-            if 'RunRefResult$' in name and row['kind'] == 'enum':
-                row['allowed'] = ['FORGED']
+        _forge_finalized_run_ref_tag(tree)
     with pytest.raises(ClosedProgramInvalid) as error:
         ClosedProgram.from_artifact(_closed(tree).artifact())
     assert error.value.rule == 'definition_key'
@@ -1829,6 +1819,31 @@ def test_repeated_mixed_reference_calls_keep_both_original_materialized_bindings
     assert set(originals[0].specialization.workflow_ref_bindings) == {'runner'}
     assert set(originals[0].specialization.proc_ref_bindings) == {'map'}
     closed = build_closed_program(program)
+    _assert_repeated_mixed_reference_bindings(closed)
+    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
+
+
+def _assert_projected_run_ref_tag_owner(closed):
+    projections = [row for definition in closed.tree['definitions'].values()
+        for row in definition['key'][6]
+        if isinstance(row[0], list) and row[0][3]['path'] == ['variant']]
+    assert len(projections) == 1
+    selector, descriptor, literal = projections[0]
+    assert selector[:3] == ['projection', 'value', 0]
+    assert descriptor['kind'] == 'enum' and literal == {'k': 'lit', 'v': 'WRAP', 'type': descriptor}
+    assert descriptor['name']['member'] == 'variant'
+    assert descriptor['name']['owner']['args'][0]['kind'] == 'run-ref-result'
+
+
+def _forge_finalized_run_ref_tag(tree):
+    for name, row in tree['types'].items():
+        if 'RunRefResult$' in name and row['kind'] == 'enum':
+            row['allowed'] = ['FORGED']
+
+
+def _assert_repeated_mixed_reference_bindings(closed):
+    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+
     (invoke,) = [row for row in closed.tree['definitions'].values() if row['key'][2] == 'invoke']
     assert [row[0] for row in invoke['key'][4]] == ['map']
     assert [row[0] for row in invoke['key'][5]] == ['runner']
@@ -1836,4 +1851,3 @@ def test_repeated_mixed_reference_calls_keep_both_original_materialized_bindings
     calls = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'call']
     assert len(calls) == 2
     assert calls[0]['callee'] == calls[1]['callee']
-    assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree

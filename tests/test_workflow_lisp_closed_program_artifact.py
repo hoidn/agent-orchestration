@@ -770,16 +770,7 @@ def _projected_k6_negative_target(tree):
     assert old_name is not None and definition is not None
 
     key = definition["key"]
-    label_row = None
-    tag_row = None
-    for row in key[6]:
-        selector = row[0]
-        if isinstance(selector, list) and selector[:2] == ["projection", "value"]:
-            if selector[3].get("path") == ["label"]:
-                label_row = row
-            elif selector[3].get("path") == ["variant"]:
-                tag_row = row
-    assert label_row is not None and tag_row is not None
+    label_row, tag_row = _projected_k6_projection_rows(key)
     assert len(key[8]["params"]) == 2
     assert key[8]["params"][0] == key[8]["params"][1]
     assert label_row[0][2] == 0
@@ -978,3 +969,17 @@ def test_projected_nonuniform_payload_requires_its_same_root_tag(tmp_path):
         ClosedProgram.from_artifact(_closed(tree).artifact())
     assert error.value.rule == 'definition_key'
     assert 'variant' in str(error.value)
+
+
+def _projected_k6_projection_rows(key):
+    label_row = None
+    tag_row = None
+    for row in key[6]:
+        selector = row[0]
+        if isinstance(selector, list) and selector[:2] == ["projection", "value"]:
+            if selector[3].get("path") == ["label"]:
+                label_row = row
+            elif selector[3].get("path") == ["variant"]:
+                tag_row = row
+    assert label_row is not None and tag_row is not None
+    return label_row, tag_row
