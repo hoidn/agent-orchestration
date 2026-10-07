@@ -381,9 +381,10 @@ def _start_pending_required_dependency(tmp_path: Path, monkeypatch, dependency_f
 def _assert_required_dependency_refusal(tmp_path, monkeypatch, state):
     run_root, _memo, _dependency, _attempt_one, _evidence, before = state
     executor_calls = []
+    from orchestrator.workflow.evaluated import effect_inputs
     from orchestrator.workflow.evaluated import runtime as runtime_module
     from orchestrator.cli.commands.resume import resume_workflow
-    original_resolver = runtime_module.resolve_provider_input
+    original_resolver = effect_inputs.resolve_provider_input
     resolver_calls = []
 
     def forbidden_executor(*args, **kwargs):
@@ -396,7 +397,7 @@ def _assert_required_dependency_refusal(tmp_path, monkeypatch, state):
 
     with monkeypatch.context() as patched:
         patched.setattr(runtime_module, "ProviderExecutor", forbidden_executor)
-        patched.setattr(runtime_module, "resolve_provider_input", prove_dependency_c6)
+        patched.setattr(effect_inputs, "resolve_provider_input", prove_dependency_c6)
         assert resume_workflow(run_root.name) == 2
     assert not executor_calls
     assert len(resolver_calls) == 1

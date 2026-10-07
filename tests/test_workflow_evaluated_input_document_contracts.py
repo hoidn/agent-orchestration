@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.evaluated import effect_inputs
 from orchestrator.workflow.evaluated import runtime
 from tests.test_workflow_evaluated_command_lifecycle import _program, _publish, _started_snapshot
 
@@ -33,7 +34,7 @@ def _path_program(root, *, remove=True):
 def test_input_contract_is_checked_before_own_started(tmp_path, monkeypatch):
     _, program = _path_program(tmp_path)
     errors = []
-    real = runtime._resolve_effect_input
+    real = effect_inputs._resolve_effect_input
 
     def capture(*args, **kwargs):
         try:
@@ -42,7 +43,7 @@ def test_input_contract_is_checked_before_own_started(tmp_path, monkeypatch):
             errors.append(exc)
             raise
 
-    monkeypatch.setattr(runtime, "_resolve_effect_input", capture)
+    monkeypatch.setattr(effect_inputs, "_resolve_effect_input", capture)
     with _publish(tmp_path, program) as authority:
         assert runtime.execute_pure_run(authority, {}, run_id="run-1", workspace=tmp_path) == (1, None)
         snapshot = _started_snapshot(authority, program)

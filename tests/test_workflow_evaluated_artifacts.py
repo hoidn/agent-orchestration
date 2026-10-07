@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.cli.commands.resume import resume_workflow
+from orchestrator.workflow.evaluated import effect_inputs
 from orchestrator.workflow.evaluated import runtime
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_consumers import EVIDENCE, PROBE, REPAIR, REPAIRED, REPAIR_OUTPUT
@@ -222,14 +223,14 @@ def _parts_changed_on_service_resume(root: Path, monkeypatch, committed: dict) -
     Observed like `_assert_public_raw_c6_service_refusal`: the refusal writes nothing, so the parts it
     compared are visible only at the reuse comparison."""
     captured = []
-    real = runtime._reuse_effect_commit
+    real = effect_inputs._reuse_effect_commit
 
     def capture(*args, **kwargs):
         captured.append(dict(inspect.signature(real).bind(*args, **kwargs).arguments["parts"]))
         return real(*args, **kwargs)
 
     monkeypatch.chdir(root)
-    monkeypatch.setattr(runtime, "_reuse_effect_commit", capture)
+    monkeypatch.setattr(effect_inputs, "_reuse_effect_commit", capture)
     assert resume_workflow(checked_run(root)[0].run_root.name) == 2
     *_probe, parts = captured
     return {name for name in {*parts, *committed} if parts.get(name) != committed.get(name)}

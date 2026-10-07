@@ -12,6 +12,7 @@ from tests.test_workflow_evaluated_command_template_scopes import _assert_two_pu
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.authority import publish_run_authority
 from orchestrator.workflow.evaluated.memo import read_memo
+from orchestrator.workflow.evaluated import effect_inputs
 from orchestrator.workflow.evaluated import runtime as runtime_module
 from orchestrator.workflow.evaluated.machine import site_classes as command_site_classes
 from orchestrator.workflow.evaluated.memo import memo_writer_lock
@@ -470,7 +471,7 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
     artifact = tmp_path / "artifacts/work/output.json"
     assert artifact.is_file()
     dispatches_before = prior.raw
-    real_reuse = runtime_module._reuse_effect_commit
+    real_reuse = effect_inputs._reuse_effect_commit
 
     def remove_artifact_before_path_reuse(*args, **kwargs):
         if inspect.signature(real_reuse).bind(*args, **kwargs).arguments["node"]["boundary"] == "produce":
@@ -478,7 +479,7 @@ def test_committed_must_exist_path_can_be_rendered_after_artifact_disappears(
         return real_reuse(*args, **kwargs)
 
     with monkeypatch.context() as patched:
-        patched.setattr(runtime_module, "_reuse_effect_commit", remove_artifact_before_path_reuse)
+        patched.setattr(effect_inputs, "_reuse_effect_commit", remove_artifact_before_path_reuse)
         with memo_writer_lock(authority.run_root):
             exit_code, value = runtime_module.execute_pure_run(
                 authority, {}, run_id="run-1", workspace=tmp_path

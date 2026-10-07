@@ -12,6 +12,7 @@ import pytest
 
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
+from orchestrator.workflow.evaluated import effect_inputs
 from orchestrator.workflow.evaluated import runtime
 from orchestrator.workflow.evaluated import attempts
 from orchestrator.workflow.evaluated.authority import load_run_authority, publish_run_authority
@@ -339,13 +340,13 @@ def test_provider_raw_c6_changes_diverge_even_when_rendered_prompt_is_identical(
         before = authority.memo_path.read_bytes()
         _write_raw_c6_variant(target, source_case, changed=True)
         captured = []
-        real_reuse = runtime._reuse_effect_commit
+        real_reuse = effect_inputs._reuse_effect_commit
 
         def reuse(*args, **kwargs):
             captured.append(inspect.signature(real_reuse).bind(*args, **kwargs).arguments["parts"])
             return real_reuse(*args, **kwargs)
 
-        monkeypatch.setattr(runtime, "_reuse_effect_commit", reuse)
+        monkeypatch.setattr(effect_inputs, "_reuse_effect_commit", reuse)
         assert _execute(tmp_path, built, authority, inputs=inputs) == (1, None)
         assert captured[0]["prompt"] == commit.data["input_parts"]["prompt"]
         assert captured[0] != commit.data["input_parts"]
@@ -399,14 +400,14 @@ def _assert_public_raw_c6_service_refusal(
     from orchestrator.cli.commands.resume import resume_workflow
 
     captured = []
-    real_reuse = runtime._reuse_effect_commit
+    real_reuse = effect_inputs._reuse_effect_commit
 
     def capture_reuse(*args, **kwargs):
         captured.append(dict(inspect.signature(real_reuse).bind(*args, **kwargs).arguments["parts"]))
         return real_reuse(*args, **kwargs)
 
     monkeypatch.chdir(root)
-    monkeypatch.setattr(runtime, "_reuse_effect_commit", capture_reuse)
+    monkeypatch.setattr(effect_inputs, "_reuse_effect_commit", capture_reuse)
     prepare_calls = _spy_provider_prepare(monkeypatch)
     assert resume_workflow(run_id) == 2
     assert "effect_input_diverged" in caplog.text

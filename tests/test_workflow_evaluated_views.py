@@ -10,6 +10,7 @@ import pytest
 
 from orchestrator.run_lock import run_writer_active
 from orchestrator.state import RunState, StateManager
+from orchestrator.workflow.evaluated import effect_inputs
 from orchestrator.workflow.evaluated import runtime
 from orchestrator.workflow.evaluated import memo as memo_module
 from orchestrator.cli.commands import evaluated as evaluated_cli
@@ -48,8 +49,10 @@ def _no_effects(*_args, **_kwargs):
 
 
 def _forbid_mutable_paths(monkeypatch):
-    for name in ("_resolve_effect_input", "_check_resume_boundary", "_execute_effect",
-                 "_replay_resume_prefix", "prepare_evaluated_run_ref", "validate_evaluated_run_ref"):
+    for name in ("_resolve_effect_input", "_check_resume_boundary", "validate_evaluated_run_ref"):
+        monkeypatch.setattr(effect_inputs, name, _no_effects)
+    for name in ("_execute_effect", "_replay_resume_prefix", "prepare_evaluated_run_ref",
+                 "validate_evaluated_run_ref"):
         monkeypatch.setattr(runtime, name, _no_effects)
     for name in ("prepare_run_ref_settlement", "recover_run_ref_settlement",
                  "validate_completed_run_ref_authority"):
