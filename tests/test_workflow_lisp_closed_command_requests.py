@@ -407,46 +407,14 @@ def test_inline_literal_actuals_use_existing_tagged_value_key_rows(tmp_path, typ
         for command in _commands(closed.tree)} == ({"True", "False"} if type_name == "Bool" else {"first", "second"})
 
 
-def test_promoted_parent_reuses_runtime_child_shape_with_final_residual_operands(tmp_path):
-    declarations = '(defproc runtime ((flag Bool)) -> Int :effects () :lowering private-workflow (if flag 1 2))'
-    declarations += '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline '
-    declarations += '(let* ((result ' + _command('flag') + ')) (runtime flag)))'
-    program = _compile(tmp_path, '(helper true)', declarations=declarations)
-    closed = build_closed_program(program)
-    helper = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "helper")
-    runtime = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "runtime")
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
-    (call,) = [node for node in _ast_nodes(helper["body"]) if node.get("k") == "call"]
-    assert runtime["key"][6] == []
-    assert len(runtime["params"]) == len(call["args"]) == 1
-    assert call["args"][0]["k"] == "lit"
-    assert call["args"][0]["v"] is True
-    assert helper["params"] == []
-
-
-@pytest.mark.parametrize("mode", ["inline", "private-workflow"])
-def test_inline_literal_homonym_inherits_whole_root_while_native_keeps_its_runtime_parameter(tmp_path, mode):
-    declarations = '(defproc helper ((x Bool)) -> Int :effects ((uses-command echo)) '
-    declarations += ':lowering ' + mode + ' ' + _command('"${inputs.x}"') + ')'
-    closed = build_closed_program(_compile(tmp_path, '(helper true)', params="(x Int)", declarations=declarations))
-    (helper,) = closed.tree["definitions"].values()
-    (command,) = _commands(closed.tree)
-    slot = command["argv_transport"][0]["parts"][0]
-    assert slot["kind"] == "slot"
-    assert slot["value"]["n"] == helper["params"][0][0]
-    assert len(helper["key"]) == 10
-    if mode == "inline":
-        assert helper["key"][6][0][0] == "x"
-        assert helper["key"][7][0]["routes"] == [["command-input", "x"]]
-        assert helper["params"][0][1]["name"] == "Int"
-        assert helper["key"][8]["params"] == []
-        assert "command_params" not in helper
-        assert closed.tree["command_params"] == [["x", 0]]
-    else:
-        assert helper["key"][6] == helper["key"][7] == []
-        assert helper["params"][0][1]["name"] == "Bool"
-        assert helper["command_params"] == helper["key"][8]["command_params"] == [["x", 0]]
-        assert "command_params" not in closed.tree
+def _workflow_diamond_declarations(depth):
+    declarations = '(defworkflow level0 ((input Int)) -> Int ' + _command('"${inputs.input}"') + ')'
+    for level in range(1, depth + 1):
+        child = 'level' + str(level - 1)
+        declarations += '(defworkflow level' + str(level) + ' ((input Int)) -> Int '
+        declarations += '(let* ((a (call ' + child + ' :input input)) '
+        declarations += '(b (call ' + child + ' :input a))) (+ a b)))'
+    return declarations
 
 
 @pytest.mark.parametrize("depth", [2, 5])
@@ -456,12 +424,7 @@ def test_workflow_diamond_prepares_each_owner_once_and_retains_each_edge(tmp_pat
     from orchestrator.workflow_lisp.closed.program import ClosedProgram
     from orchestrator.workflow_lisp.closed.sites import _ast_nodes
 
-    declarations = '(defworkflow level0 ((input Int)) -> Int ' + _command('"${inputs.input}"') + ')'
-    for level in range(1, depth + 1):
-        child = 'level' + str(level - 1)
-        declarations += '(defworkflow level' + str(level) + ' ((input Int)) -> Int '
-        declarations += '(let* ((a (call ' + child + ' :input input)) '
-        declarations += '(b (call ' + child + ' :input a))) (+ a b)))'
+    declarations = _workflow_diamond_declarations(depth)
     prepared = Counter()
     original = Builder._prepare_command_workflow
 

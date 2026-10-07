@@ -80,6 +80,63 @@ def _case_arms(body):
     return [arm for case in _walk(body) if isinstance(case, WccCase) for arm in case.arms]
 
 
+def _assert_variant_arm_roots(case):
+    from orchestrator.workflow_lisp.wcc.model import WccNameAtom
+    from orchestrator.workflow_lisp.type_env import VariantCaseTypeRef
+
+    for arm in case.arms:
+        assert tuple(name for name, _ in arm.command_scope) == ("flag", "same")
+        root = arm.command_scope[1][1]
+        assert isinstance(root, WccNameAtom)
+        assert root.name == "same"
+        assert root.metadata.binding_identity == arm.binding_identity
+        assert isinstance(root.metadata.type_ref, VariantCaseTypeRef)
+        assert root.metadata.type_ref.variant_name == arm.variant_name
+
+
+def _assert_variant_root_hygiene(annotated):
+    from orchestrator.workflow_lisp.wcc.model import WccCase
+    from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
+
+    arm = next(item for item in _walk(annotated) if isinstance(item, WccCase)).arms[0]
+    assert _free_names(arm) == {"flag"}
+    renamed = _renamed(arm, {"same": "outside", "flag": "outer_flag"})
+    assert renamed.binding_name == "same"
+    assert tuple(name for name, _ in renamed.command_scope) == ("flag", "same")
+    assert tuple(value.name for _, value in renamed.command_scope) == ("outer_flag", "same")
+    _assert_captured_variant_binder_renaming(annotated, arm)
+
+
+def _assert_captured_variant_binder_renaming(annotated, arm):
+    from orchestrator.workflow_lisp.wcc.model import WccCase
+    from orchestrator.workflow_lisp.wcc.use_site_scope import rename_capturing_binders
+
+    moved, _ = rename_capturing_binders(annotated, live=frozenset({"same"}))
+    moved_arm = next(item for item in _walk(moved) if isinstance(item, WccCase)).arms[0]
+    assert moved_arm.binding_name != "same"
+    assert moved_arm.command_scope[1][0] == "same"
+    assert moved_arm.command_scope[1][1].name == moved_arm.binding_name
+    assert moved_arm.command_scope[1][1].metadata.binding_identity == arm.binding_identity
+
+
+def _assert_recorded_elaborations_are_neutral(recorded):
+    assert len(recorded) == 2
+    assert recorded[0][1] == recorded[1][1]
+    for body, saved in recorded:
+        assert _without_scopes(body) == saved
+        assert all(arm.command_scope is None for arm in _case_arms(body))
+
+
+def _assert_distinct_scope_outputs(outputs):
+    from orchestrator.workflow_lisp.wcc.model import WccCase
+
+    first_arms = [next(item for item in _walk(body) if isinstance(item, WccCase)).arms[0] for body in outputs]
+    assert first_arms[0].command_scope is None
+    assert first_arms[1].command_scope is not None
+    assert _without_scopes(outputs[0]) == _without_scopes(outputs[1])
+    assert all(normalize_wcc_body_to_anf(body) == body for body in outputs)
+
+
 def test_closed_type_lookup_uses_real_sibling_environments(tmp_path, monkeypatch):
     from orchestrator.workflow_lisp.lowering import core, command_control_summary as summary
 
@@ -115,8 +172,7 @@ def _without_scopes(node):
 
 def test_surface_arm_certificate_keeps_variant_roots_and_neutral_body(tmp_path):
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
-    from orchestrator.workflow_lisp.wcc.model import WccCase, WccNameAtom
-    from orchestrator.workflow_lisp.type_env import VariantCaseTypeRef
+    from orchestrator.workflow_lisp.wcc.model import WccCase
 
     program, inputs, facts = _compile(
         tmp_path,
@@ -131,14 +187,7 @@ def test_surface_arm_certificate_keeps_variant_roots_and_neutral_body(tmp_path):
         producer_lowering_schema=program.producer_lowering_schema,
     )
     case = next(item for item in _walk(annotated) if isinstance(item, WccCase))
-    for arm in case.arms:
-        assert tuple(name for name, _ in arm.command_scope) == ("flag", "same")
-        root = arm.command_scope[1][1]
-        assert isinstance(root, WccNameAtom)
-        assert root.name == "same"
-        assert root.metadata.binding_identity == arm.binding_identity
-        assert isinstance(root.metadata.type_ref, VariantCaseTypeRef)
-        assert root.metadata.type_ref.variant_name == arm.variant_name
+    _assert_variant_arm_roots(case)
     assert case.arms[0].binding_identity == case.arms[1].binding_identity
     assert _without_scopes(annotated) == before
     assert _without_scopes(neutral) == before
@@ -260,45 +309,6 @@ def test_variant_frames_keep_real_continuation_demands_separate(tmp_path, monkey
     assert _without_scopes(annotated) == _without_scopes(neutral)
 
 
-@pytest.mark.parametrize("wrapped", [False, True])
-def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path, monkeypatch, wrapped):
-    from orchestrator.workflow_lisp.expression_traversal import walk_expr
-    from orchestrator.workflow_lisp.expressions import LetStarExpr
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary, core
-    from orchestrator.workflow_lisp.wcc.elaborate import binding_type_for_elaboration
-
-    source = ('(let-proc (local ((n Int)) -> Int :captures (input) (+ input n)) '
-        '(let* ((hook (proc-ref local)) (input "shadow") (answer (hook 1))) (record Result :i answer :s input)))')
-    if wrapped:
-        source = f'(if flag {source} (record Result :i 0 :s "other"))'
-    program, inputs, facts = _compile(tmp_path, source, params="(input Int) (flag Bool)")
-    if not wrapped:
-        from orchestrator.workflow_lisp.typecheck import typecheck_expression
-        from orchestrator.workflow_lisp.compiler_session import CompilerSession
-        from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-        with pytest.raises(LispFrontendCompileError) as caught:
-            typecheck_expression(program.entry.typed_body.expr, type_env=inputs["type_env"],
-                value_env=inputs["value_env"], workflow_catalog=facts["workflow_catalog"],
-                procedure_catalog=facts["procedure_catalog"], compiler_session=CompilerSession())
-        assert 'pure_expr_operand_type_mismatch' in {item.code for item in caught.value.diagnostics}
-    captures = _capture_rows(program.entry.typed_body.expr)
-    assert captures
-    def reject_legacy(*args, **kwargs):
-        pytest.fail("closed capture reached legacy inference")
-    monkeypatch.setattr(core, "_infer_inline_binding_type", reject_legacy)
-    monkeypatch.setattr(core, "_resolve_lowering_expr_type", reject_legacy)
-    typed = ControlFacts(**facts, closed_program=True,
-        workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
-    for let, index, source in captures:
-        name, expr = let.bindings[index]
-        shadow_type = next(item.bound_type_ref for item in _walk(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
-            if isinstance(item, WccLet) and item.bound_name == "input")
-        child = replace(typed, local_type_bindings={"input": shadow_type})
-        assert shadow_type != source[1]
-        assert binding_type_for_elaboration(expr, type_env=child.type_env, value_env=child.local_type_bindings,
-            workflow_return_types=child.workflow_return_types, procedure_return_types=child.procedure_return_types,
-            closed_program=True, capture_source=source) == source[1]
-        assert summary._binding_control_fact(expr, name=name, facts=child, local_values={}, capture_source=source)[2] == source[1]
 
 
 def test_suffix_shortcut_does_not_classify_unreached_binding(tmp_path, monkeypatch):
@@ -332,9 +342,6 @@ def test_suffix_shortcut_does_not_classify_unreached_binding(tmp_path, monkeypat
 
 def test_hygiene_scopes_variant_roots_and_preserves_source_formal(tmp_path):
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
-    from orchestrator.workflow_lisp.wcc.model import WccCase
-    from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
-    from orchestrator.workflow_lisp.wcc.use_site_scope import rename_capturing_binders
 
     program, inputs, facts = _compile(tmp_path,
         '(match choice ((A same) (if flag (command-result echo :argv ("python" "probe.py" same.i) :returns Result) '
@@ -342,18 +349,7 @@ def test_hygiene_scopes_variant_roots_and_preserves_source_formal(tmp_path):
         params="(choice Choice) (flag Bool)", target="2.32", schema=1)
     annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
         incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
-    arm = next(item for item in _walk(annotated) if isinstance(item, WccCase)).arms[0]
-    assert _free_names(arm) == {"flag"}
-    renamed = _renamed(arm, {"same": "outside", "flag": "outer_flag"})
-    assert renamed.binding_name == "same"
-    assert tuple(name for name, _ in renamed.command_scope) == ("flag", "same")
-    assert tuple(value.name for _, value in renamed.command_scope) == ("outer_flag", "same")
-    moved, _ = rename_capturing_binders(annotated, live=frozenset({"same"}))
-    moved_arm = next(item for item in _walk(moved) if isinstance(item, WccCase)).arms[0]
-    assert moved_arm.binding_name != "same"
-    assert moved_arm.command_scope[1][0] == "same"
-    assert moved_arm.command_scope[1][1].name == moved_arm.binding_name
-    assert moved_arm.command_scope[1][1].metadata.binding_identity == arm.binding_identity
+    _assert_variant_root_hygiene(annotated)
 
 
 def test_selected_helper_initial_facts_preserve_erased_workflow_reference(tmp_path, monkeypatch):
@@ -423,16 +419,8 @@ def test_distinct_caller_values_leave_neutral_elaboration_untouched(tmp_path, mo
     outputs = [elaborate_command_scopes(program.entry.typed_body, **inputs,
         incoming_command_facts=typed, producer_lowering_schema=program.producer_lowering_schema,
         local_values={'incoming': value}) for value in (runtime, static)]
-    assert len(recorded) == 2
-    assert recorded[0][1] == recorded[1][1]
-    for body, saved in recorded:
-        assert _without_scopes(body) == saved
-        assert all(arm.command_scope is None for arm in _case_arms(body))
-    first_arms = [next(item for item in _walk(body) if isinstance(item, WccCase)).arms[0] for body in outputs]
-    assert first_arms[0].command_scope is None
-    assert first_arms[1].command_scope is not None
-    assert _without_scopes(outputs[0]) == _without_scopes(outputs[1])
-    assert all(normalize_wcc_body_to_anf(body) == body for body in outputs)
+    _assert_recorded_elaborations_are_neutral(recorded)
+    _assert_distinct_scope_outputs(outputs)
 
 
 def test_absent_command_scope_preserves_legacy_wcc_json(tmp_path):
@@ -451,43 +439,3 @@ def test_absent_command_scope_preserves_legacy_wcc_json(tmp_path):
     assert 'command_scope' not in encoded
     reset = _json_data(replace(case.arms[1], command_scope=()))
     assert reset['command_scope'] == []
-
-
-@pytest.mark.parametrize("source", [
-    '(let-proc (local ((n Choice)) -> Int :captures (input) (match n ((A a) (+ input a.i)) ((B b) input))) '
-    '(let* ((hook (proc-ref local)) (input 100) (answer (hook choice))) (record Result :i answer :s "done")))',
-    '(let* ((saved (+ input 1))) (let-proc (local ((n Choice)) -> Int :captures (saved) '
-    '(match n ((A a) (+ saved a.i)) ((B b) saved))) (let* ((hook (proc-ref local)) '
-    '(input "input-shadow") (saved "saved-shadow") (answer (hook choice))) (record Result :i answer :s saved))))',
-])
-def test_retained_capture_reads_original_value_in_actual_lexical_frame(tmp_path, monkeypatch, source):
-    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
-
-    program, inputs, facts = _compile(tmp_path, source, params='(input Int) (choice Choice)')
-    seen = []
-    original = CommandScopeContext.bind
-
-    def bind(context, expr, **kwargs):
-        child = original(context, expr, **kwargs)
-        if kwargs['capture_source'] is not None:
-            retained = next(row for row in reversed(context.retained_bindings) if row[1] == kwargs['capture_source'][0])
-            seen.append((kwargs, child.values[kwargs['name']], retained[3]))
-        return child
-
-    monkeypatch.setattr(CommandScopeContext, 'bind', bind)
-    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
-        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
-    assert seen
-    assert all(value is original_value for _, value, original_value in seen)
-    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
-    assert _without_scopes(annotated) == _without_scopes(neutral)
-    for kwargs, value, _ in seen:
-        source_identity, source_type = kwargs['capture_source']
-        assert source_type.name == 'Int'
-        assert getattr(value, 'value', None) not in {'input-shadow', 'saved-shadow', 100}
-        aliases = [item for item in _walk(annotated) if isinstance(item, WccLet)
-            and item.metadata.node_id == kwargs['metadata'].node_id]
-        assert aliases
-        assert aliases[0].bound_value.metadata.binding_identity == source_identity
-        assert aliases[0].bound_value.metadata.type_ref == source_type

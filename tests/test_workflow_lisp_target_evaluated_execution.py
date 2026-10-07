@@ -94,6 +94,36 @@ def test_entry_target_version_and_refusal_diagnostic(tmp_path: Path) -> None:
     ) == ("evaluated_execution_unavailable", "lowering", files["source"], line)
 
 
+def _assert_public_run_dependency_result(tmp_path: Path, result) -> None:
+    assert (result.exit_code, dict(result.workflow_outputs)) == (
+        0,
+        {"title": "seed+r+r", "score": 2},
+    )
+    assert _log(tmp_path / "probe_revise.py") == [
+        "seed tidy fb",
+        "seed+r tidy fb",
+    ]
+
+
+def _committed_rows_from_run(tmp_path: Path):
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    assert (run_root / "run.json").is_file()
+    memo = [
+        json.loads(line)
+        for line in (run_root / "memo.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    committed = [row for row in memo if row["record"] == "committed"]
+    assert len(committed) == 2
+    return memo, committed
+
+
+def _assert_committed_argv_digests(committed, probe: str) -> None:
+    assert [row["input_parts"]["argv"] for row in committed] == [
+        canonical_sha256(["python", probe, "seed", "tidy", "fb"]),
+        canonical_sha256(["python", probe, "seed+r", "tidy", "fb"]),
+    ]
+
+
 def test_public_run_235_dispatches_commands_and_commits_dependency_chain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -107,28 +137,11 @@ def test_public_run_235_dispatches_commands_and_commits_dependency_chain(
 
     result = _public_run(files)
 
-    assert (result.exit_code, dict(result.workflow_outputs)) == (
-        0,
-        {"title": "seed+r+r", "score": 2},
-    )
-    assert _log(tmp_path / "probe_revise.py") == [
-        "seed tidy fb",
-        "seed+r tidy fb",
-    ]
-    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
-    assert (run_root / "run.json").is_file()
-    memo = [
-        json.loads(line)
-        for line in (run_root / "memo.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    committed = [row for row in memo if row["record"] == "committed"]
-    assert len(committed) == 2
+    _assert_public_run_dependency_result(tmp_path, result)
+    memo, committed = _committed_rows_from_run(tmp_path)
     first, second = committed
     probe = str(tmp_path / "probe_revise.py")
-    assert [row["input_parts"]["argv"] for row in committed] == [
-        canonical_sha256(["python", probe, "seed", "tidy", "fb"]),
-        canonical_sha256(["python", probe, "seed+r", "tidy", "fb"]),
-    ]
+    _assert_committed_argv_digests(committed, probe)
     assert first["depends_on"] == []
     assert second["depends_on"] == [first["identity"]]
     assert memo[-1] == {

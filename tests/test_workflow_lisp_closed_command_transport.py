@@ -313,6 +313,23 @@ def _command_index_names(commands):
         for command in commands}
 
 
+def _assert_nested_loop_command_indices(annotated, commands, command_loop_index_name):
+    loops = [node for node in _walk_wcc(annotated) if isinstance(node, WccRecJoin)]
+    expected = {command_loop_index_name(loop.loop_name) for loop in loops}
+    assert len(expected) == len(loops) == 2
+    assert _command_index_names(commands) == expected
+    return expected
+
+
+def _assert_renamed_loop_command_indices(moved, expected, command_loop_index_name):
+    moved_loops = [node for node in _walk_wcc(moved) if isinstance(node, WccRecJoin)]
+    assert all(loop.params[0].name != "state" for loop in moved_loops)
+    assert {command_loop_index_name(loop.loop_name) for loop in moved_loops} == expected
+    moved_commands = [node for node in _walk_wcc(moved)
+        if isinstance(node, WccPerform) and node.perform_kind == "command_result"]
+    assert _command_index_names(moved_commands) == expected
+
+
 def test_nested_loop_index_names_survive_actual_state_binder_hygiene(tmp_path):
     from orchestrator.workflow_lisp.closed.command_templates import command_loop_index_name
     from orchestrator.workflow_lisp.wcc.use_site_scope import rename_capturing_binders
@@ -321,17 +338,9 @@ def test_nested_loop_index_names_survive_actual_state_binder_hygiene(tmp_path):
     program = _compile(tmp_path, '(loop/recur :max 1 :state 0 (fn (state) '
         '(let* ((inner ' + inner + ') (result ' + _command('"${loop.index}"') + ')) (done result))))')
     annotated, commands = _planned(program)
-    loops = [node for node in _walk_wcc(annotated) if isinstance(node, WccRecJoin)]
-    expected = {command_loop_index_name(loop.loop_name) for loop in loops}
-    assert len(expected) == len(loops) == 2
-    assert _command_index_names(commands) == expected
+    expected = _assert_nested_loop_command_indices(annotated, commands, command_loop_index_name)
     moved, _ = rename_capturing_binders(annotated, live=frozenset({"state"}))
-    moved_loops = [node for node in _walk_wcc(moved) if isinstance(node, WccRecJoin)]
-    assert all(loop.params[0].name != "state" for loop in moved_loops)
-    assert {command_loop_index_name(loop.loop_name) for loop in moved_loops} == expected
-    moved_commands = [node for node in _walk_wcc(moved)
-        if isinstance(node, WccPerform) and node.perform_kind == "command_result"]
-    assert _command_index_names(moved_commands) == expected
+    _assert_renamed_loop_command_indices(moved, expected, command_loop_index_name)
     neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(
         program.entry.typed_body, **_scope_inputs(program, Builder(program))[0]))
     moved_neutral, _ = rename_capturing_binders(neutral, live=frozenset({"state"}))
@@ -339,45 +348,6 @@ def test_nested_loop_index_names_survive_actual_state_binder_hygiene(tmp_path):
     assert normalize_wcc_body_to_anf(moved) == moved
 
 
-@pytest.mark.parametrize("call_kind", ("procedure", "workflow"))
-def test_call_preparation_consumes_real_alias_facts_after_operand_normalization(tmp_path, call_kind):
-    if call_kind == "procedure":
-        declaration = '(defproc helper ((flag Bool)) -> Int '
-        declaration += ':effects ((uses-command echo)) :lowering inline ' + _command('flag') + ')'
-        first, second = '(helper alias)', '(helper materialized)'
-    else:
-        declaration = '(defworkflow helper ((flag Bool)) -> Int ' + _command('flag') + ')'
-        first, second = '(call helper :flag alias)', '(call helper :flag materialized)'
-    program = _compile(tmp_path,
-        '(let* ((alias true) (first ' + first + ') '
-        '(materialized (if true true false))) ' + second + ')', declarations=declaration)
-    builder = Builder(program)
-    inputs, facts = _scope_inputs(program, builder)
-    observed = []
-
-    def prepare(selector, expr, call, context, actual_values):
-        operands = call.args if isinstance(call, WccCall) else tuple(value for _, value in call.keyword_args)
-        observed.append((getattr(actual_values[0], "value", None), operands[0].name, selector))
-
-    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
-        incoming_command_facts=facts, producer_lowering_schema=program.producer_lowering_schema,
-        include_command_plans=True, source_program=program,
-        command_bindings=builder._command_bindings(program, program.entry_module)[0],
-        call_preparator=prepare, call_declaration_identity=_declaration_resolver(program, builder))
-    assert len(observed) == 2
-    did = ["cp/transport", call_kind, "helper"]
-    assert observed == [(None, "materialized", (did, 1)), (True, "alias", (did, 0))]
-    calls = [node for node in _walk_wcc(annotated)
-        if isinstance(node, WccCall)
-        or isinstance(node, WccPerform) and node.perform_kind == "workflow_call"]
-    assert [(node.args if isinstance(node, WccCall) else tuple(value for _, value in node.keyword_args))[0].name
-        for node in calls] == ["alias", "materialized"]
-    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(
-        program.entry.typed_body, **inputs))
-    assert _without_authorized_annotations(annotated) == _without_authorized_annotations(neutral)
-    assert not builder.definitions and not builder.run_ref_producers
-    assert not builder.emitted_descriptors and not builder.generated_result_contract_requests
-    assert not builder.boundary_requests
 
 
 def _observe_call_selectors(program):

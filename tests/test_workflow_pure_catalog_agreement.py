@@ -222,53 +222,58 @@ def test_frontend_and_payload_validation_refuse_every_arity_outside_the_catalog(
     assert accepted == []
 
 
+def _closed_value_catalog_application(operator, operands):
+    typed_operands = [
+        (OPERAND_TYPES[name][1], OPERAND_TYPES[name][2]) for name in operands
+    ]
+    try:
+        expected_type, expected_value = evaluate_pure_operator(operator, typed_operands)
+    except PureExprEvaluationError as exc:
+        expected = f"refused:{exc.code}"
+        result_type = {"kind": "primitive", "name": "String"}
+    else:
+        expected = (_descriptor_name(expected_type), expected_value)
+        result_type = expected_type
+
+    payload = {
+        "pure_expr_schema_version": 2,
+        "result_type": result_type,
+        "bindings": {
+            f"a{index}": {"type": descriptor}
+            for index, (descriptor, _) in enumerate(typed_operands)
+        },
+        "expr": {
+            "kind": "op",
+            "operator": operator,
+            "args": [
+                {"kind": "binding", "name": f"a{index}"}
+                for index in range(len(typed_operands))
+            ],
+        },
+    }
+    closed = {
+        "k": "op",
+        "payload": payload,
+        "args": [
+            {"k": "lit", "v": value, "type": descriptor}
+            for descriptor, value in typed_operands
+        ],
+    }
+    try:
+        evaluated = evaluate_closed_value(closed, LexicalEnvironment())
+    except PureExprEvaluationError as exc:
+        observed = f"refused:{exc.code}"
+    else:
+        observed = (_descriptor_name(evaluated.descriptor), evaluated.json_value())
+    return expected, observed
+
+
 @pytest.mark.parametrize("operator", OPERATORS)
 def test_closed_value_evaluator_matches_catalog_for_generated_applications(operator: str) -> None:
     inside, _ = _arities(operator)
     disagreements = []
     for operands in (case for arity in inside for case in _applications(arity)):
-        typed_operands = [
-            (OPERAND_TYPES[name][1], OPERAND_TYPES[name][2]) for name in operands
-        ]
-        try:
-            expected_type, expected_value = evaluate_pure_operator(operator, typed_operands)
-        except PureExprEvaluationError as exc:
-            expected = f"refused:{exc.code}"
-            result_type = {"kind": "primitive", "name": "String"}
-        else:
-            expected = (_descriptor_name(expected_type), expected_value)
-            result_type = expected_type
-
-        payload = {
-            "pure_expr_schema_version": 2,
-            "result_type": result_type,
-            "bindings": {
-                f"a{index}": {"type": descriptor}
-                for index, (descriptor, _) in enumerate(typed_operands)
-            },
-            "expr": {
-                "kind": "op",
-                "operator": operator,
-                "args": [
-                    {"kind": "binding", "name": f"a{index}"}
-                    for index in range(len(typed_operands))
-                ],
-            },
-        }
-        closed = {
-            "k": "op",
-            "payload": payload,
-            "args": [
-                {"k": "lit", "v": value, "type": descriptor}
-                for descriptor, value in typed_operands
-            ],
-        }
-        try:
-            evaluated = evaluate_closed_value(closed, LexicalEnvironment())
-        except PureExprEvaluationError as exc:
-            observed = f"refused:{exc.code}"
-        else:
-            observed = (_descriptor_name(evaluated.descriptor), evaluated.json_value())
+        expected, observed = _closed_value_catalog_application(operator, operands)
         if observed != expected:
             disagreements.append((operands, expected, observed))
 
