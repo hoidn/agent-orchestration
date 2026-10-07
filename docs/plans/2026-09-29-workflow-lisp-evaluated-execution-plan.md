@@ -46,14 +46,19 @@ Phase 2 compiler closeout is complete: code/verification review passed at
 `17049e79`, documentation review passed at `a6efc7e7`, and both were integrated
 at `a7b157d8`.
 The owner's 2026-10-01 amendment sets the downstream order below. Phase 3
-runtime Tasks 1–14 of the [Phase 3 plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
-are integrated (head `dc4a4e3a`, 2026-10-06), as is Task 15: 15C
-(`dab04431`), 15D (`a84f2769`) and 15A/15B (external kills at every window;
-`2604e887`), recorded complete at `500767d0`. Task 17 (full suite,
-old-target byte audit, whole-phase review, merge) is pending, so Phase 3 is
-not complete. Phases 4 to 7 remain
-pending; the amendment records neither implementation nor completion of
-those phases.
+Tasks 1–15, documentation cuts 16A–16D and the reviewed size/complexity
+corrections are integrated through `ef689a39`. Task 17 remains open: the
+original full suite completed RED (402 failed, 23054 passed, exit 1), all
+402 dispositions are recorded, and final affected execution passed all
+2857 cases (including public smoke/recovery subsets) at `ef689a39`. The
+refreshed old-target audit and qualified real-provider smoke are recorded;
+independent final code/evidence review is PASS, while final documentation
+review and delivery are pending. The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+records exact tested revisions, receipts and remaining gates. The reviewed
+[early Phase 6a pilot plan](2026-10-07-evaluated-execution-phase-6a-pilot-plan.md)
+is preparation only, entry-gated on Phase 3 Task 17 and delivery. Phase 3 is
+not complete; Phases 4–7 remain pending, with no new target, capability or
+retirement selection inferred from this status.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
@@ -470,7 +475,7 @@ design specifies, not compositional semantics within that admission.
 | `run`, `resume`, `--dry-run` | Public compile, dry-run, run and resume of first-release fixtures, including consumers nominated for Phase 6a; the authoring pilot follows Phase 3, not a prerequisite for it |
 | The state profile in `specs/state.md` | The specification and the code agree on every key of the view |
 
-Status, 2026-10-06 (Task 16, partial closeout): Tasks 1–14 of the Phase 3
+Historical milestone evidence, 2026-10-06 (Tasks 1–15): Tasks 1–14 of the Phase 3
 plan are implemented, reviewed and integrated at head `dc4a4e3a`. Per
 milestone, the public owners are: values and the single pure catalog,
 `tests/test_workflow_evaluated_values.py`; every admitted construct with
@@ -495,7 +500,7 @@ redispatch, completed resume); calls and path-mode run references,
 compile/dry-run/run/resume, `tests/test_workflow_evaluated_cli.py` and the
 [drafting guide recipe](../lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate);
 the state profile, the Task 16 key-for-key inventory of 28 public cases and
-46 run roots, published by the Task 16D closeout) against `specs/state.md`.
+46 run roots, published by the Task 16D closeout, against `specs/state.md`.
 Task 15C (durable publication fault model, invalidation kill windows;
 [`tests/test_workflow_evaluated_durability_model.py`](../../tests/test_workflow_evaluated_durability_model.py),
 [`tests/test_workflow_evaluated_invalidate_windows.py`](../../tests/test_workflow_evaluated_invalidate_windows.py)) is integrated at
@@ -507,12 +512,18 @@ consumer harness's branch scenarios, must-not-repeat launcher controls,
 closure mutation then kill;
 [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py),
 [`tests/test_workflow_evaluated_recovery_branches.py`](../../tests/test_workflow_evaluated_recovery_branches.py))
-at `2604e887`, with Task 15 recorded complete at `500767d0`. Pending: Task 17
-(full suite alone, old-target raw byte audit, independent whole-phase review,
-fast-forward merge and push). The Phase 3 closeout report (Task 16D) is still
-to be written; this status is not Phase 3 completion, a full-suite result or a
-release. The delivery order above is unchanged: Phase 3 → early Phase 6a
-pilot → Phase 4 additions and independent Phase 5 → Phase 6b → Phase 7.
+at `2604e887`, with Task 15 recorded complete at `500767d0`. Documentation
+cuts 16A–16D and the independent corrective reviews are integrated through
+`ef689a39`; the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md#task-17-open-full-run-completed-red)
+records the original completed RED full run and its dispositions alongside
+the completed 2857-case final affected run (including public smoke/recovery
+subsets), refreshed audit and qualified real-provider smoke. Independent final
+code/evidence review is PASS at `ef689a39`; final documentation review and
+fast-forward merge/push remain pending. This is not Phase 3 completion or a release.
+The reviewed early pilot remains entry-gated; closing its bounded checks
+will not close global Phase 6a while W3 Task 4 migration/compatibility is
+open. Delivery order remains Phase 3 → early Phase 6a pilot → consumer-selected
+Phase 4 additions and independent Phase 5 → Phase 6b → Phase 7.
 
 ### Phase 4: Consumer Capabilities And Authoring
 
