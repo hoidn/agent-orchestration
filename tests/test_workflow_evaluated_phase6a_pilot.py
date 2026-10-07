@@ -52,8 +52,10 @@ from tests.workflow_evaluated_totality_helpers import assert_commit_bytes
 
 VARIANT = ROOT / "experiments/orc_repetition_census/variants/phase6a_proposal.orc.txt"
 REVIEWED_VARIANT = ROOT / "experiments/orc_repetition_census/variants/phase6a_reviewed_change.orc.txt"
+BOUND_REVIEWED_VARIANT = ROOT / "experiments/orc_repetition_census/variants/phase6a_reviewed_change_bound.orc.txt"
 REVIEW = "decision=procedure:improve_experiment_proposal::review-proposal"
 REVIEWED_STOP = "review-for-improve"
+CHANGE_STOP = "::reviewed-change / change"
 FOCI = ("scope-marker:focus-a7c4", "scope-marker:focus-b2d9")
 SCENARIOS = [
     pytest.param(("REVISE", "APPROVE"), APPROVED_LAUNCH, id="approved"),
@@ -87,6 +89,88 @@ def _capture(root: Path, argv: list[str], extra_env: dict[str, str] | None = Non
 def _effective_request(request: dict) -> tuple:
     env = {key: value for key, value in request["env"].items() if key not in (BUNDLE, SITE)}
     return request["tool"], request["argv"], env, r3(request)
+
+
+def _request_without_focus(request: dict, focus: str) -> tuple:
+    view = _effective_request(request)
+    return (*view[:3], view[3].replace(focus, "<focus>"))
+
+
+def _replace_source_once(source: str, before: str, after: str) -> str:
+    assert source.count(before) == 1
+    return source.replace(before, after, 1)
+
+
+def _bound_locality_source(source: str) -> str:
+    source = _replace_source_once(
+        source,
+        "    ((task String)\n     (intent String)\n     (repo String))",
+        "    ((task String)\n     (intent String)\n     (repo String)\n     (review_focus String))",
+    )
+    source = _replace_source_once(
+        source,
+        '           (initial (record ReviewState :round 1 :account change.account :replies "none"))\n'
+        '           (review-hook',
+        '           (initial (record ReviewState :round 1 :account change.account :replies "none"))\n'
+        '           (review-intent (string/concat intent "\\n" review_focus))\n'
+        '           (review-hook',
+    )
+    return _replace_source_once(source, ":intent intent))", ":intent review-intent))")
+
+
+def _bound_capture_source(source: str) -> str:
+    source = _replace_source_once(
+        source,
+        '           (initial (record ReviewState :round 1 :account change.account :replies "none"))\n'
+        '           (review-hook',
+        '           (initial (record ReviewState :round 1 :account change.account :replies "none"))\n'
+        '           (intent change.account)\n'
+        '           (review-hook',
+    )
+    source = _replace_source_once(
+        source,
+        "           (revise-hook (bind-proc (proc-ref revise-for-improve) :task task))\n"
+        "           (result (improve-bound initial review-hook revise-hook 3)))\n"
+        "      (match result",
+        "           (revise-hook (bind-proc (proc-ref revise-for-improve) :task task)))\n"
+        '      (let* ((intent "later-shadow-poison")\n'
+        "             (result (improve-bound initial review-hook revise-hook 3)))\n"
+        "        (match result",
+    )
+    return _replace_source_once(
+        source,
+        ':rounds exhausted.value.round)))))\n)',
+        ':rounds exhausted.value.round))))))\n)',
+    )
+
+
+def _run_bound_focus(root: Path, program, focus: str) -> Route:
+    inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
+              "intent": "Add returns a + b", "repo": "repo", "review_focus": focus}
+    frontend = install(root, program, inputs, current=True)
+    (root / program.source).write_text(
+        _bound_locality_source(BOUND_REVIEWED_VARIANT.read_text(encoding="utf-8")),
+        encoding="utf-8",
+    )
+    return _run_reviewed_variant(root, frontend, REVIEWED_STOP)
+
+
+def _assert_bound_focus_route(route: Route, focus: str) -> None:
+    assert [request["tool"] for request in route.requests] == ["claude", "codex", "claude", "codex"]
+    reviewers = [request for request in route.requests if request["tool"] == "codex"]
+    coders = [request for request in route.requests if request["tool"] == "claude"]
+    assert len(reviewers) == len(coders) == 2
+    assert all("Add returns a + b" in request["prompt"] for request in reviewers)
+    assert all(focus in request["prompt"] for request in reviewers)
+    assert all(focus not in request["prompt"] for request in coders)
+
+
+def _assert_focus_normalized_requests_match(first: Route, second: Route) -> None:
+    assert [
+        _request_without_focus(request, FOCI[0]) for request in first.requests
+    ] == [
+        _request_without_focus(request, FOCI[1]) for request in second.requests
+    ]
 
 
 def _run_baseline(root: Path, monkeypatch, plan: dict) -> Route:
@@ -213,7 +297,7 @@ def _run_reviewed_baseline(root: Path, plan: dict, inputs: dict) -> Route:
     return Route(root, state["workflow_outputs"], requests(root))
 
 
-def _run_reviewed_variant(root: Path, frontend: list[str], marker: str) -> Route:
+def _run_reviewed_variant(root: Path, frontend: list[str], marker: str, paused_count: int = 2) -> Route:
     compiled = _capture(root, [sys.executable, "-m", "orchestrator", "compile", *frontend,
                                "--diagnostics-json"])
     assert compiled.returncode == 0, compiled.stderr
@@ -228,15 +312,19 @@ def _run_reviewed_variant(root: Path, frontend: list[str], marker: str) -> Route
     authority, paused = checked_run(root)
     last = paused.entries[-1].data
     assert (paused.terminal, last["record"], marker in last["identity"]) == (None, "committed", True)
-    assert len(paused.active_commits) == len(requests(root)) == 2
+    assert len(paused.active_commits) == len(requests(root)) == paused_count
     prefix = authority.memo_path.read_bytes()
     paused_requests = requests(root)
     return _resume_and_replay(root, authority, prefix, paused_requests)
 
 
+@pytest.mark.parametrize("variant_path", [
+    pytest.param(REVIEWED_VARIANT, id="explicit"),
+    pytest.param(BOUND_REVIEWED_VARIANT, id="bound"),
+])
 @pytest.mark.parametrize("plan,marker,paused_count,value", REVIEWED_CASES)
 def test_reviewed_change_reuses_improve_without_changing_its_contract(
-    tmp_path, monkeypatch, plan, marker, paused_count, value,
+    tmp_path, monkeypatch, plan, marker, paused_count, value, variant_path,
 ):
     install_shims(tmp_path / "bin", monkeypatch, plan)
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
@@ -245,9 +333,55 @@ def test_reviewed_change_reuses_improve_without_changing_its_contract(
     new_root = tmp_path / "new"
     program = PROGRAMS["reviewed_change"]
     frontend = install(new_root, program, inputs, current=True)
-    (new_root / program.source).write_text(REVIEWED_VARIANT.read_text(encoding="utf-8"), encoding="utf-8")
+    (new_root / program.source).write_text(variant_path.read_text(encoding="utf-8"), encoding="utf-8")
     new = _run_reviewed_variant(new_root, frontend, marker)
     _assert_reviewed_contract(old, new, plan, value, paused_count)
+
+
+@pytest.mark.parametrize("account", ("captured-account-alpha", "captured-account-beta"))
+def test_bound_review_captures_the_committed_account_before_shadowing_and_resume(
+    tmp_path, monkeypatch, account,
+):
+    plan = {
+        "claude": [{**CHANGE, "result": {**CHANGE["result"], "account": account}}],
+        "codex": [_review("APPROVE", 1, notes=["fine"])],
+    }
+    install_shims(tmp_path / "bin", monkeypatch, plan)
+    inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
+              "intent": "outer-intent-decoy", "repo": "repo"}
+    root = tmp_path / "new"
+    program = PROGRAMS["reviewed_change"]
+    frontend = install(root, program, inputs, current=True)
+    source = _bound_capture_source(BOUND_REVIEWED_VARIANT.read_text(encoding="utf-8"))
+    (root / program.source).write_text(source, encoding="utf-8")
+    new = _run_reviewed_variant(root, frontend, CHANGE_STOP, paused_count=1)
+
+    assert len(new.paused) == 1
+    assert len(new.requests) == 2
+    assert [request["tool"] for request in new.paused] == ["claude"]
+    assert [request["tool"] for request in new.requests] == ["claude", "codex"]
+    reviewer_prompt = new.requests[1]["prompt"]
+    assert reviewer_prompt.count(account) == 2
+    assert "outer-intent-decoy" not in reviewer_prompt
+    assert "later-shadow-poison" not in reviewer_prompt
+    assert sum(new.started().values()) == 2
+    assert new.value == {"variant": "READY", "report": "artifacts/review/round-1.md", "rounds": 1}
+
+
+def test_bound_review_intent_changes_only_reviewer_requests_across_resume(tmp_path, monkeypatch):
+    plan = REVIEWED_CASES[0].values[0]
+    install_shims(tmp_path / "bin", monkeypatch, plan)
+    program = PROGRAMS["reviewed_change"]
+    routes_by_focus = [
+        _run_bound_focus(tmp_path / f"focus-{index}", program, focus)
+        for index, focus in enumerate(FOCI)
+    ]
+    first, second = routes_by_focus
+    assert first.value == second.value == REVIEWED_CASES[0].values[3]
+    for route, focus in zip(routes_by_focus, FOCI, strict=True):
+        _assert_bound_focus_route(route, focus)
+    _assert_focus_normalized_requests_match(first, second)
+    assert _consumer_files(first.root, "artifacts", "repo") == _consumer_files(second.root, "artifacts", "repo")
 
 
 def _assert_reviewed_contract(old: Route, new: Route, plan: dict, value: dict, paused_count: int) -> None:
