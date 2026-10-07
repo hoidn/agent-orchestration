@@ -383,6 +383,8 @@ def _evaluate_block(
 
 def _field_descriptor(descriptor: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     kind = descriptor.get("kind")
+    if kind == "union":
+        return _union_field_descriptor(descriptor, name)
     if kind == "record":
         fields = descriptor["fields"]
     elif kind == "variant_case":
@@ -393,20 +395,6 @@ def _field_descriptor(descriptor: Mapping[str, Any], name: str) -> Mapping[str, 
                 "allowed": [descriptor["variant"]],
             }
         fields = descriptor["fields"]
-    elif kind == "union" and name != "variant":
-        candidates = [field["type"] for variant in descriptor["variants"]
-                      for field in variant["fields"] if field["name"] == name]
-        if candidates and len(candidates) == len(descriptor["variants"]) and all(
-            candidate == candidates[0] for candidate in candidates[1:]
-        ):
-            return candidates[0]
-        raise EvaluatedValueError("record_field_unknown", f"union field {name!r} is not common")
-    elif kind == "union" and name == "variant":
-        return {
-            "kind": "enum",
-            "name": descriptor["name"] + ".variant",
-            "allowed": [row["name"] for row in descriptor["variants"]],
-        }
     else:
         raise EvaluatedValueError(
             "pure_expr_operand_type_mismatch",
@@ -416,6 +404,24 @@ def _field_descriptor(descriptor: Mapping[str, Any], name: str) -> Mapping[str, 
         if field_descriptor["name"] == name:
             return field_descriptor["type"]
     raise EvaluatedValueError("record_field_unknown", f"unknown field {name!r}")
+
+
+def _union_field_descriptor(
+    descriptor: Mapping[str, Any], name: str,
+) -> Mapping[str, Any]:
+    if name == "variant":
+        return {
+            "kind": "enum",
+            "name": descriptor["name"] + ".variant",
+            "allowed": [row["name"] for row in descriptor["variants"]],
+        }
+    candidates = [field["type"] for variant in descriptor["variants"]
+                  for field in variant["fields"] if field["name"] == name]
+    if candidates and len(candidates) == len(descriptor["variants"]) and all(
+        candidate == candidates[0] for candidate in candidates[1:]
+    ):
+        return candidates[0]
+    raise EvaluatedValueError("record_field_unknown", f"union field {name!r} is not common")
 
 
 def _operator_error(

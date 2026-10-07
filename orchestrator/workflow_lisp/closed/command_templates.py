@@ -433,6 +433,16 @@ class CommandScopeContext:
                 iteration_scope=None, workflow_name=f"%composition.{control.workflow_name}"))
 
 
+def _validate_command_scope_inputs(producer_lowering_schema, closed_program,
+    include_command_plans, source_program, command_bindings):
+    if type(producer_lowering_schema) is not int or producer_lowering_schema not in (1, 2):
+        raise ValueError("command scope analysis requires the producer's schema 1 or 2")
+    if not closed_program:
+        raise ValueError("command scope analysis requires closed elaboration")
+    if include_command_plans and (source_program is None or command_bindings is None):
+        raise ValueError("command plans require the exact source and command binding owner")
+
+
 def elaborate_command_scopes(typed_body, *, incoming_command_facts,
     producer_lowering_schema, local_values=None, include_command_plans=False,
     source_program=None, command_bindings=None, command_roots=None,
@@ -442,12 +452,10 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
     from ..wcc.elaborate import elaborate_typed_workflow_body, prepare_elaboration_call_types
     from ..wcc.model import WccIdentityFactory
 
-    if type(producer_lowering_schema) is not int or producer_lowering_schema not in (1, 2):
-        raise ValueError("command scope analysis requires the producer's schema 1 or 2")
-    if not elaboration_inputs.get("closed_program"):
-        raise ValueError("command scope analysis requires closed elaboration")
-    if include_command_plans and (source_program is None or command_bindings is None):
-        raise ValueError("command plans require the exact source and command binding owner")
+    _validate_command_scope_inputs(
+        producer_lowering_schema, elaboration_inputs.get("closed_program"),
+        include_command_plans, source_program, command_bindings,
+    )
     inputs = dict(elaboration_inputs)
     inputs.update(workflow_catalog=incoming_command_facts.workflow_catalog,
         typed_workflows_by_name=incoming_command_facts.workflows_by_name)

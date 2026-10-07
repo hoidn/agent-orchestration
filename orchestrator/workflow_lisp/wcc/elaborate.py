@@ -343,6 +343,18 @@ def _site_procedure_specializations(node, edge_name, resolved_procedures_by_name
     )
 
 
+def _selected_site_specialization(candidates, procedure, *, closed_program):
+    if len(candidates) > 1:
+        if closed_program and any(isinstance(type_ref, WorkflowRefTypeRef)
+            for _, type_ref in procedure.signature.params):
+            return None
+        raise TypeError(
+            "compiler-owned procedure specialization is "
+            "ambiguous at one WCC call site"
+        )
+    return candidates[0] if candidates else None
+
+
 def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, resolved_procedures_by_name,
     *, closed_program=False):
     if resolved_procedures_by_name is not None:
@@ -364,17 +376,12 @@ def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, res
             site_specializations = _site_procedure_specializations(
                 node, edge_name, resolved_procedures_by_name,
             )
-            if len(site_specializations) > 1:
-                if closed_program and any(isinstance(type_ref, WorkflowRefTypeRef)
-                    for _, type_ref in edge_procedure.signature.params):
-                    continue
-                raise TypeError(
-                    "compiler-owned procedure specialization is "
-                    "ambiguous at one WCC call site"
-                )
-            if site_specializations:
+            selected = _selected_site_specialization(
+                site_specializations, edge_procedure, closed_program=closed_program,
+            )
+            if selected is not None:
                 procedure_edges_by_site[site] = (
-                    site_specializations[0].definition.name
+                    selected.definition.name
                 )
 
 
