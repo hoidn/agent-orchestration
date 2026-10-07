@@ -140,6 +140,7 @@ class CallableRequest:
     source_program: Any = None
     io_reader: tuple | None = None
     io_references: Mapping | None = None
+    retained_capture_bindings: frozenset[object] = frozenset()
 
 
 @dataclass(eq=False)
@@ -222,6 +223,7 @@ class WorkflowRequest:
     source_program: Any = None
     io_reader: tuple | None = None
     io_references: Mapping | None = None
+    retained_capture_bindings: frozenset[object] = frozenset()
 
 
 def gap_diagnostic(gap: ClosedProgramGap) -> LispFrontendDiagnostic:
@@ -883,6 +885,7 @@ class Builder:
             prepared_body=prepared["body"], prepared_children=prepared["children"],
             command_interface=prepared["interface"], command_params=prepared["command_params"],
             command_bearing=prepared["bearing"],
+            retained_capture_bindings=prepared["retained_capture_bindings"],
             workflow=workflow, source_program=source_program,
         ))
         self.completed_preparations[inputs] = request
@@ -957,7 +960,8 @@ class Builder:
             child_bearings={selector: child.command_bearing for selector, child in children.items()},
             call_declaration_identity=resolver)
         return {"body": body, "children": children, "interface": interface,
-            "command_params": params, "bearing": bearing}
+            "command_params": params, "bearing": bearing,
+            "retained_capture_bindings": local.capture_binding_identities}
 
     def _workflow_call_occurrences(
         self,
@@ -2295,6 +2299,11 @@ class Builder:
                 )
                 facts[formal] = {"capture": index}
                 continue
+            forwarded = self._instantiate_forwarded_reference_capture(
+                argument, path, captures, d, source_program)
+            if forwarded is not None:
+                facts[formal] = {"capture": forwarded}
+                continue
             bound_alias = (d.reference_capture_aliases or {}).get(
                 (id(argument.value_expr), formal)
             )
@@ -2322,8 +2331,10 @@ class Builder:
                 if actual is None:
                     # A retained lexical name can be used directly when the
                     # frontend did not need an alias let for this boundary.
-                    actual = {"k": "name", "n": d.ref(argument.value_expr.name)}
-                    alias_identity = None
+                    binding_identity = argument.source_binding_identity
+                    wire_name = d.ref(argument.value_expr.name, binding_identity)
+                    actual = {"k": "name", "n": wire_name}
+                    alias_identity = ("lexical-binding", binding_identity) if binding_identity is not None else ("lexical-wire", wire_name)
                 source_name = (
                     actual.name if isinstance(actual, WccNameAtom)
                     else argument.value_expr.name
@@ -2380,6 +2391,23 @@ class Builder:
             )
         return {"bound": facts}
 
+    def _instantiate_forwarded_reference_capture(self, argument, path, captures, d, source_program):
+        from ..expressions import NameExpr
+
+        if not isinstance(argument.value_expr, NameExpr):
+            return None
+        route = ["reference", list(path), ["parameter", argument.name]]
+        outer = self._forwarded_reference_capture(d.captures, route)
+        if outer is None:
+            return None
+        source_name = d.capture_names[outer]
+        actual = {"k": "name", "n": d.ref(source_name)}
+        return self._add_capture(captures, typed=source_program,
+            type_ref=argument.type_ref, route=route, value=actual,
+            source_name=source_name, identity=("forwarded-capture", outer),
+            run_ref_producers=self._run_ref_context_for_value(actual, d)
+            or d.captures[outer].run_ref_producers)
+
     @staticmethod
     def _creation_identity(argument, creation_facts):
         selector = (id(argument.value_expr), argument.name)
@@ -2423,6 +2451,7 @@ class Builder:
         if identity is None:
             operand = self._retained_capture_operand(argument, aliases, context)
             if operand is not None:
+                self._retain_shadowed_reference_capture(argument, context, d)
                 identity = ("lexical-capture", operand)
         if identity is None:
             from ..expression_traversal import free_expr_names
@@ -2434,6 +2463,17 @@ class Builder:
         return self._add_capture(captures, typed=source_program,
             type_ref=argument.type_ref, route=route, value=None,
             source_name=None, identity=identity)
+
+    @staticmethod
+    def _retain_shadowed_reference_capture(argument, context, d):
+        from ..expressions import NameExpr
+
+        binding = argument.source_binding_identity
+        if binding is None or not isinstance(argument.value_expr, NameExpr):
+            return
+        current = context.operands.get(argument.value_expr.name)
+        if current is not None and current.metadata.binding_identity != binding:
+            d.capture_binding_identities = d.capture_binding_identities | {binding}
 
     @staticmethod
     def _forwarded_reference_capture(captures, route):
@@ -2696,7 +2736,8 @@ class Builder:
             "prepared_children": prepared["children"], "command_interface": prepared["interface"],
             "command_params": prepared["command_params"], "command_fact_demand": prepared["fact_demand"],
             "command_lookup_demand": prepared["lookup_demand"], "command_bearing": prepared["bearing"],
-            "projection_type_obligations": prepared["projection_type_obligations"]}
+            "projection_type_obligations": prepared["projection_type_obligations"],
+            "retained_capture_bindings": prepared["retained_capture_bindings"]}
 
     def _preparation_inputs(self, procedure, source, captures, facts, actual_values, context):
         from .names import _key_type_ref, _source_expression_identity
@@ -2980,6 +3021,8 @@ class Builder:
             if effective is not procedure:
                 procedure = effective
                 value_env.update(_procedure_signature_local_type_bindings(procedure))
+                local = self._command_procedure_context(procedure, source_program,
+                    type_env, captures, binding_facts)
                 body, children = self._prepare_command_owner(procedure, source_program, local,
                     type_env=type_env, value_env=value_env,
                     compile_time_bindings=self._procedure_compile_time_bindings(procedure, captures),
@@ -2997,7 +3040,8 @@ class Builder:
             "argument_indices": indices, "body": body, "children": children,
             "interface": interface, "command_params": command_params,
             "fact_demand": inline and demand, "lookup_demand": inline and lookup_demand,
-            "bearing": bearing, "projection_type_obligations": obligations}
+            "bearing": bearing, "projection_type_obligations": obligations,
+            "retained_capture_bindings": local.capture_binding_identities}
 
     def _command_procedure_context(self, procedure, source_program, type_env, captures, binding_facts):
         local = self.definition_context(canonical=procedure.definition.name,
@@ -3797,6 +3841,8 @@ class Builder:
                     compile_time_bindings=compile_time_bindings,
                 )
                 normalized = normalize_wcc_body_to_anf(wcc)
+            if request is not None:
+                context.capture_binding_identities = request.retained_capture_bindings
             self._prepare_computed_capture_requests(normalized, context, source_program)
             context, capture_prefix = self._freeze_parameter_captures(
                 context,
@@ -3900,6 +3946,8 @@ class Builder:
                 source_program,
                 name,
             )
+            if request is not None:
+                context.capture_binding_identities = request.retained_capture_bindings
             self._prepare_computed_capture_requests(normalized, context, source_program)
             context, capture_prefix = self._freeze_parameter_captures(
                 context,
@@ -3984,7 +4032,10 @@ class Builder:
             seen.add(id(resolved))
             for argument in getattr(resolved, "bound_args", ()):
                 identity = getattr(argument, "source_binding_identity", None)
-                if identity is not None:
+                if identity is not None and (
+                    self._local_capture(resolved, source_program, argument.name) is not None
+                    or not isinstance(argument.value_expr, NameExpr)
+                ):
                     capture_binding_identities.add(identity)
                 value = getattr(argument, "value_expr", None)
                 if hasattr(value, "bound_args"):

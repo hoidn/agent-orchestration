@@ -552,7 +552,12 @@ def _typecheck(
                     form_path=binding.value_expr.form_path,
                     expansion_stack=binding.value_expr.expansion_stack,
                 )
-            typed_bindings.append(replace(binding, value_expr=typed_binding.expr))
+            source_identity = binding.source_binding_identity
+            if compiler_session.closed_program and isinstance(typed_binding.expr, NameExpr):
+                if source_identity is None:
+                    source_identity = binding_env.get(typed_binding.expr.name)
+            typed_bindings.append(replace(binding, value_expr=typed_binding.expr,
+                source_binding_identity=source_identity))
         expr = replace(expr, base_expr=base_typed.expr, bindings=tuple(typed_bindings))
         resolved = resolve_proc_ref_value(
             expr,
@@ -945,7 +950,7 @@ def _typecheck(
             rewritten_bindings.append((name, typed_binding.expr))
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
                 resolved_binding = resolve_proc_ref_value(
-                    binding_expr,
+                    typed_binding.expr if compiler_session.closed_program else binding_expr,
                     procedure_catalog=procedure_catalog,
                     proc_ref_env=local_proc_ref_env,
                     resolution_context=proc_ref_resolution_context,

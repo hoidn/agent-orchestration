@@ -33,7 +33,8 @@ def _strict_equal(left, right):
 
 def _frame():
     return {"names": ({}, {}), "identities": ({}, {}), "targets": ({}, {}),
-        "roots": ({}, {}), "index": (None, None), "variants": ()}
+        "roots": ({}, {}), "index": (None, None), "variants": (),
+        "retention_demands": (frozenset(), frozenset()), "retention_tokens": (set(), set())}
 
 
 def _copy_frame(frame):
@@ -47,7 +48,13 @@ def _bind(frame, names, identities, token, *, namespace="names"):
         local[namespace][side][name] = token
         if identities[side] is not None:
             local["identities"][side][identities[side]] = token
+            _retain_token(local, side, identities[side], token)
     return local
+
+
+def _retain_token(frame, side, identity, token):
+    if identity in frame["retention_demands"][side]:
+        frame["retention_tokens"][side].add(token)
 
 
 def _reference(name, identity, frame, side, *, namespace="names"):
@@ -118,6 +125,7 @@ class _Comparison:
 
     def seed(self):
         frame = _frame()
+        frame["retention_demands"] = tuple(row.retained_capture_bindings for row in self.requests)
         for side, request in enumerate(self.requests):
             callable_def = self.callables[side]
             retained = callable_def.typed_body.binding_environment or {}
@@ -137,7 +145,21 @@ class _Comparison:
                 if name in frame["names"][side]:
                     frame["identities"][side][identity] = frame["names"][side][name]
             self.seed_native(frame, side, request)
+        self.seed_retention(frame)
         return frame
+
+    @staticmethod
+    def seed_retention(frame):
+        for side, identities in enumerate(frame["identities"]):
+            for identity, token in identities.items():
+                _retain_token(frame, side, identity, token)
+
+    @staticmethod
+    def retention(frame):
+        for demands, tokens in zip(frame["retention_demands"], frame["retention_tokens"], strict=True):
+            if not isinstance(demands, frozenset) or len(demands) != len(tokens):
+                _fail("retention binding owner")
+        _same(*frame["retention_tokens"], "retention bindings")
 
     def seed_route(self, frame, side, route, index):
         if route[0] == "parameter":
@@ -481,4 +503,6 @@ def assert_same_prepared_body(left, right, *, builder):
     """Validate equality without emission, registration or another body copy."""
     comparison = _Comparison((left, right), builder)
     comparison.header()
-    comparison.walk(left.prepared_body, right.prepared_body, comparison.seed(), "body")
+    frame = comparison.seed()
+    comparison.walk(left.prepared_body, right.prepared_body, frame, "body")
+    comparison.retention(frame)

@@ -1228,6 +1228,8 @@ def normalize_resolved_inline_procedure_calls(
                     argument.name: argument
                     for argument in getattr(selected_binding, "bound_args", ())
                 }
+                local_capture_names = getattr(
+                    procedure.definition.generated_local_procedure, "capture_names", ())
                 static_capture_rows = tuple(
                     (
                         argument.source_binding_identity,
@@ -1235,6 +1237,7 @@ def normalize_resolved_inline_procedure_calls(
                     )
                     if (argument := bound_capture_sources.get(param_name)) is not None
                     and argument.source_binding_identity is not None
+                    and param_name in local_capture_names
                     else None
                     for param_name, _type_ref in static_params
                 )
