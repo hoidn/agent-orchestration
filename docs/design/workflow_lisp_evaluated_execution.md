@@ -1285,9 +1285,10 @@ implemented list that [`specs/io.md`](../../specs/io.md#evaluated-command-and-pr
 states: the attempt directory, `result.json`, `stdout.txt`, `stderr.txt`,
 `inputs.json` when applicable, and `memo.jsonl`. `state.json`, its
 replacement temporary and run caches are not checked; `state.json` needs no
-separate check because any closure that covers it covers `memo.jsonl` beside
-it, which is checked. Check before `started`, mkdir or constructing
-`StepExecutor`, whose constructor prepares capture. A nonconflicting leaf
+separate check because any directory that covers it also covers `memo.jsonl`
+beside it, which is checked, and the view file itself can be named only by its
+per-run path, which no static declaration carries. Check before `started`, mkdir
+or constructing `StepExecutor`, whose constructor prepares capture. A nonconflicting leaf
 inside the run root is not rejected merely for belonging to that namespace.
 A memo hit creates no attempt and needs no preventive destination check.
 
