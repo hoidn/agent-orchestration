@@ -597,6 +597,8 @@ written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 
+The [prepared Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the remaining **D1 owner target decision**. No target, implementation or public parallel-execution evidence is selected or established by publishing it.
+
 Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
 single-call comparison is one: its four implementers run in sequence.
 Recommended alongside the early pilot, independently of unneeded Phase 4
