@@ -57,8 +57,7 @@ refreshed old-target audit and qualified real-provider smoke are recorded;
 independent final code/evidence and documentation/spec reviews are PASS. The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
 records exact tested revisions, receipts and the downstream handoff. The reviewed
 [early Phase 6a pilot plan](2026-10-07-evaluated-execution-phase-6a-pilot-plan.md)
-has its Phase 3 Task 17/delivery entry satisfied; execution/completion is
-not claimed here. Phases 4–7 remain pending, with no new target, capability or
+records executed Tasks 1–3 and the [caller assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md): all 21 pilot cases pass in the final `688695e3` campaign, while the full suite remains RED; the report owns closeout status. Global Phase 6a and W3 Task 4 compatibility remain open. Phases 4–7 remain pending, with no new target, capability or
 retirement selection inferred from Phase 3 closure.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
@@ -522,9 +521,7 @@ subsets), refreshed audit and qualified real-provider smoke. Independent final
 code/evidence review is PASS at `ef689a39`; final documentation/spec review
 is PASS, and fast-forward merge/push delivered `06130a53` to `main` and
 `origin/main`. Tasks 16/17 and Phase 3 are closed. The reviewed early pilot’s
-entry is satisfied, without claiming its execution; closing its bounded checks
-will not close global Phase 6a while W3 Task 4 migration/compatibility is
-open. Delivery order remains Phase 3 → early Phase 6a pilot → consumer-selected
+entry was satisfied and Tasks 1–3 have bounded independent PASS reviews. Its [final campaign and assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) record 21 passing pilot cases and a RED full suite, with closeout status owned by that report. The finite totality matrix does not cover the known pre-existing pure-inline shadow defect (101 versus lexical 8). Closing the bounded pilot will not close global Phase 6a while W3 Task 4 migration/compatibility is open. Delivery order remains Phase 3 → early Phase 6a pilot → consumer-selected
 Phase 4 additions and independent Phase 5 → Phase 6b → Phase 7.
 
 ### Phase 4: Consumer Capabilities And Authoring
@@ -638,6 +635,8 @@ compare the local-hook proposal, identify forwarding to delete and settle
 the migration/compatibility decision. Qualification preparation can overlap
 Phase 3; the pilot supplies executable caller evidence before Phase 4c.
 Do not require unimplemented W3 syntax to run the pilot.
+
+Execution update, 2026-10-07: the [pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#assessment-and-next-handoff) supplies the proposal/explicit/bound caller assessment, truthful helper-inclusive counts, two separately reviewed compiler corrections and the W3 decision table. The full campaign passes all 21 pilot cases and the existing 400-case totality owner but remains RED overall; the report owns closeout status. The pure-inline lexical shadow defect remains with the frontend/compiler owner. W3 grammar/inference, target, standard-module and checkpoint/migration decisions remain open for Phase 4c; portable context needs a named consumer, and the existing serial `best_of_n` need goes to Phase 5. No canonical migration or later capability is selected here.
 
 Use observed friction to select a principled improvement, a justified
 design/type-system revision, or explicit simplification of an unhelpful

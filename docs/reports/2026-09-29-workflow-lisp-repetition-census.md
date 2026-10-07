@@ -203,3 +203,9 @@ python experiments/orc_repetition_census/count_lines.py <file.orc>
 
 `census.py` writes `census.json` beside itself; `summarize.py` prints the
 tables of section 4 from it.
+
+## Phase 6a pilot addendum (2026-10-07)
+
+The [early evaluated-execution pilot](2026-10-07-evaluated-execution-phase-6a-pilot.md) executes maintained-contract comparisons rather than treating this census's 92/93-line compile/dry-run variants as runtime baselines. Current counts are maintained reviewed change 97, explicit caller 135, bound source 152 including its 23-line local helper, proposed-only W3 caller 122 excluding a shared helper, and unchanged `std/improve` 37. Proposal remains 60. No overall source-size reduction is demonstrated; the bound caller remainder is 129 and must not hide its helper cost.
+
+All 21 pilot cases pass in the final `688695e3` full campaign; the suite remains RED overall, with closeout status owned by the linked pilot report. Current-syntax effectful capture/resume and review-only input locality have bounded evidence. Proposed W3 syntax is unexecuted; grammar/inference, target, module/checkpoint compatibility and migration decisions remain open in [W3 Task 4](../plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md#task-4-qualify-w3-on-concrete-callers). The known pure-inline shadow result 101 versus lexical 8 remains a compiler follow-up. This addendum does not alter the historical census or establish general authoring effectiveness.

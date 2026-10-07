@@ -200,6 +200,8 @@ codes and how `--dry-run` prints them.
 
 - [ ] Complete
 
+Bounded qualification update, 2026-10-07: the [Phase 6a pilot assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#w3-specimen-and-qualification-status) records current-syntax explicit/bound callers, public parity/capture/resume and review-only locality evidence, proposed-only W3 counts and a bounded caller inventory. All 21 pilot cases pass in its full campaign, which remains RED overall; that report owns closeout status. No overall size reduction or W3 feasibility is established. This task stays open for grammar/expected-signature inference, target, standard-module/checkpoint compatibility and migration decisions; Phase 4c consumes the decision table. The known pure-inline shadow defect remains a compiler follow-up.
+
 **Read/trace:** `experiments/orc_repetition_census/variants/`, the
 `let-proc` and `bind-proc` contracts, design §6,
 `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`, its maintained

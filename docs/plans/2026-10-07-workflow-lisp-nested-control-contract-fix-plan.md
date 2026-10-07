@@ -1,6 +1,6 @@
 # Nested union control-summary correction
 
-Status: bounded correction selected by the coordinator during the early Phase 6a pilot; implementation and independent review pending. No language-target or Phase 5 selection.
+Status: bounded correction implemented and independently reviewed PASS at `d6adb627` during the early Phase 6a pilot. The [pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) owns later caller qualification, compatibility/full-suite evidence and closeout status. No language-target or Phase 5 selection.
 
 The pilot's target-2.35 `std/improve` specialization rejects an admitted nested union with `collection_element_type_unsupported`. A scratch instrumented compile reaches `command_control_summary._leaf_output_names` and then `_flatten_boundary_leaf_paths` without a type environment; the contract builder consequently disables nested structural transport. Flattening the workflow's internal data into extra records works, but must not become a required workaround for a compiler defect.
 
