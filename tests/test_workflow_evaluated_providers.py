@@ -333,6 +333,17 @@ def test_complete_provider_request_matches_real_flat_preparation(tmp_path, monke
         _assert_execute_parity(observed, flat, tmp_path, identity)
 
 
+def _assert_prepare_params_match(current, previous):
+    assert not [field.name for field in fields(current["params"])
+        if getattr(current["params"], field.name) != getattr(previous["params"], field.name)]
+
+
+def _assert_prepare_output_bundle_locations(current, previous):
+    assert set(current["env"]) == set(previous["env"]) == {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH"}
+    assert os.path.isabs(current["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+    assert not os.path.isabs(previous["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+
+
 def _assert_prepare_parity(observed, flat, built, workspace):
     current, previous = observed["prepare_kwargs"], flat["flat_prepare_kwargs"]
     assert observed["prepare_args"] == flat["flat_prepare_args"] == ()
@@ -341,11 +352,8 @@ def _assert_prepare_parity(observed, flat, built, workspace):
     allowed = {"context", "env", "prompt_content", "params"}
     assert {key: value for key, value in current.items() if key not in allowed} == {
         key: value for key, value in previous.items() if key not in allowed}
-    assert not [field.name for field in fields(current["params"])
-        if getattr(current["params"], field.name) != getattr(previous["params"], field.name)]
-    assert set(current["env"]) == set(previous["env"]) == {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH"}
-    assert os.path.isabs(current["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
-    assert not os.path.isabs(previous["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+    _assert_prepare_params_match(current, previous)
+    _assert_prepare_output_bundle_locations(current, previous)
     node = next(row for row in built.program.tree["body"].values()
         if isinstance(row, dict) and row.get("class") == "provider")
     return _assert_prompt_path_parity(node, current, previous, workspace)
@@ -402,8 +410,6 @@ def _assert_execute_parity(observed, flat, workspace, identity):
     assert {key: value for key, value in overlay.items() if key != r5} == {
         key: value for key, value in (prior_overlay or {}).items() if key != r5}
     assert overlay[r5] == "sha256:" + hashlib.sha256(identity.encode()).hexdigest()
-
-
 
 
 @pytest.mark.parametrize("document_kind", ["doc", "dependencies"])

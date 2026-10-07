@@ -56,6 +56,67 @@ def _run_cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _assert_single_command_attempt(snapshot):
+    starts = [entry.data for entry in snapshot.entries if entry.data["record"] == "started"]
+    commits = [entry.data for entry in snapshot.entries if entry.data["record"] == "committed"]
+    assert len(starts) == len(commits) == 1
+    assert starts[0]["identity"] == commits[0]["identity"]
+    assert starts[0]["attempt"] == commits[0]["attempt"] == 1
+    return commits[0]
+
+
+def _assert_typed_command_result(snapshot, run_root, commit):
+    assert commit["effect_class"] == "command"
+    assert commit["value"] == {"ok": True}
+    result_path = run_root / commit["result_path"]
+    assert commit["result_digest"] == "sha256:" + hashlib.sha256(result_path.read_bytes()).hexdigest()
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.data == {
+        "record": "terminal", "outcome": "completed", "value": {"ok": True}
+    }
+
+
+def _assert_unreached_command_was_skipped(snapshot, run_root):
+    assert [entry.data["record"] for entry in snapshot.entries] == [
+        "started", "committed", "terminal"
+    ]
+    assert snapshot.entries[1].data["effect_class"] == "command"
+    assert snapshot.entries[1].data["value"] == 7
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.data["value"] == 7
+    assert len(list(run_root.glob("effects/*/attempt-*"))) == 1
+
+
+def _assert_first_command_commit(snapshot):
+    starts = [entry.data for entry in snapshot.entries if entry.data["record"] == "started"]
+    commits = [entry.data for entry in snapshot.entries if entry.data["record"] == "committed"]
+    assert len(starts) == len(commits) == 1
+    assert starts[0]["identity"] == commits[0]["identity"]
+    assert commits[0]["effect_class"] == "command"
+    assert commits[0]["value"] == 7
+
+
+def _assert_c4_refusal_terminal(snapshot, run_root):
+    assert [entry.data["record"] for entry in snapshot.entries] == [
+        "started", "committed", "terminal"
+    ]
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.data["outcome"] == "failed"
+    assert snapshot.terminal.data["code"] == "command_closure_unreadable"
+    assert "runtime destination overlaps command closure" in snapshot.terminal.data["message"]
+    assert len(list(run_root.glob("effects/*/attempt-*"))) == 1
+
+
+def _assert_loop_index_command_attempts(snapshot):
+    starts = [entry.data for entry in snapshot.entries if entry.data["record"] == "started"]
+    commits = [entry.data for entry in snapshot.entries if entry.data["record"] == "committed"]
+    assert len(starts) == len(commits) == 2
+    assert [row["effect_class"] for row in commits] == ["command", "command"]
+    assert [row["value"] for row in commits] == [0, 1]
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.data["value"] == 1
+
+
 def test_input_binding_applies_defaults_and_rejects_bad_inputs(tmp_path: Path) -> None:
     _source, program = _build(tmp_path)
 
@@ -201,19 +262,8 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_bytes(b'{"ok":true}')
     raw_rows = [json.loads(line) for line in memo_path.read_text(encoding="utf-8").splitlines()]
     effects = [row for row in raw_rows if row["record"] in {"started", "committed"}]
     snapshot = read_memo(memo_path, {row["identity"]: "command" for row in effects})
-    starts = [entry.data for entry in snapshot.entries if entry.data["record"] == "started"]
-    commits = [entry.data for entry in snapshot.entries if entry.data["record"] == "committed"]
-    assert len(starts) == len(commits) == 1
-    assert starts[0]["identity"] == commits[0]["identity"]
-    assert starts[0]["attempt"] == commits[0]["attempt"] == 1
-    assert commits[0]["effect_class"] == "command"
-    assert commits[0]["value"] == {"ok": True}
-    result_path = run_root / commits[0]["result_path"]
-    assert commits[0]["result_digest"] == "sha256:" + hashlib.sha256(result_path.read_bytes()).hexdigest()
-    assert snapshot.terminal is not None
-    assert snapshot.terminal.data == {
-        "record": "terminal", "outcome": "completed", "value": {"ok": True}
-    }
+    commit = _assert_single_command_attempt(snapshot)
+    _assert_typed_command_result(snapshot, run_root, commit)
 
 
 def test_public_run_skips_c4_for_an_unreached_command_branch(tmp_path: Path) -> None:
@@ -265,14 +315,7 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("8", encoding="ut
     raw_rows = [json.loads(line) for line in memo_path.read_text(encoding="utf-8").splitlines()]
     effects = [row for row in raw_rows if row["record"] in {"started", "committed"}]
     snapshot = read_memo(memo_path, {row["identity"]: "command" for row in effects})
-    assert [entry.data["record"] for entry in snapshot.entries] == [
-        "started", "committed", "terminal"
-    ]
-    assert snapshot.entries[1].data["effect_class"] == "command"
-    assert snapshot.entries[1].data["value"] == 7
-    assert snapshot.terminal is not None
-    assert snapshot.terminal.data["value"] == 7
-    assert len(list(run_root.glob("effects/*/attempt-*"))) == 1
+    _assert_unreached_command_was_skipped(snapshot, run_root)
 
 
 def test_public_run_preserves_an_earlier_commit_on_later_local_c4_refusal(tmp_path: Path) -> None:
@@ -325,20 +368,8 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("9", encoding="ut
     raw_rows = [json.loads(line) for line in memo_path.read_text(encoding="utf-8").splitlines()]
     effects = [row for row in raw_rows if row["record"] in {"started", "committed"}]
     snapshot = read_memo(memo_path, {row["identity"]: "command" for row in effects})
-    starts = [entry.data for entry in snapshot.entries if entry.data["record"] == "started"]
-    commits = [entry.data for entry in snapshot.entries if entry.data["record"] == "committed"]
-    assert len(starts) == len(commits) == 1
-    assert starts[0]["identity"] == commits[0]["identity"]
-    assert commits[0]["effect_class"] == "command"
-    assert commits[0]["value"] == 7
-    assert [entry.data["record"] for entry in snapshot.entries] == [
-        "started", "committed", "terminal"
-    ]
-    assert snapshot.terminal is not None
-    assert snapshot.terminal.data["outcome"] == "failed"
-    assert snapshot.terminal.data["code"] == "command_closure_unreadable"
-    assert "runtime destination overlaps command closure" in snapshot.terminal.data["message"]
-    assert len(list(run_root.glob("effects/*/attempt-*"))) == 1
+    _assert_first_command_commit(snapshot)
+    _assert_c4_refusal_terminal(snapshot, run_root)
 
 
 def test_command_template_loop_index_reaches_each_attempt_argv(tmp_path: Path) -> None:
@@ -386,10 +417,4 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(index, encoding="
     raw_rows = [json.loads(line) for line in memo_path.read_text(encoding="utf-8").splitlines()]
     effects = [row for row in raw_rows if row["record"] in {"started", "committed"}]
     snapshot = read_memo(memo_path, {row["identity"]: "command" for row in effects})
-    starts = [entry.data for entry in snapshot.entries if entry.data["record"] == "started"]
-    commits = [entry.data for entry in snapshot.entries if entry.data["record"] == "committed"]
-    assert len(starts) == len(commits) == 2
-    assert all(row["effect_class"] == "command" for row in commits)
-    assert [row["value"] for row in commits] == [0, 1]
-    assert snapshot.terminal is not None
-    assert snapshot.terminal.data["value"] == 1
+    _assert_loop_index_command_attempts(snapshot)

@@ -102,6 +102,18 @@ _FIXED_PHASE_TARGET_SOURCE = '''(workflow-lisp
                phase-ctx.implementation_state_bundle_path)))))))'''
 
 
+def _write_phase_target_inputs(tmp_path, inputs, context):
+    for relative in (*inputs.values(), context["execution_report_target"]):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("evidence\n", encoding="utf-8")
+
+
+def _assert_legacy_phase_execution(old_outcome, provider):
+    assert old_outcome["status"] == "completed"
+    assert provider.calls == 1
+
+
 def test_fixed_phase_target_values_match_legacy_after_readback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -116,10 +128,7 @@ def test_fixed_phase_target_values_match_legacy_after_readback(
         "implementation_state": "COMPLETED",
         "execution_report_path": context["execution_report_target"],
     }
-    for relative in (*inputs.values(), context["execution_report_target"]):
-        path = tmp_path / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("evidence\n", encoding="utf-8")
+    _write_phase_target_inputs(tmp_path, inputs, context)
     prompt_path = tmp_path / "prompt.md"
     prompt_path.write_text("Return the supplied execution report target.\n", encoding="utf-8")
     configuration = {
@@ -177,8 +186,7 @@ def test_fixed_phase_target_values_match_legacy_after_readback(
         old_outcome = WorkflowExecutor(bundle, tmp_path, state, retry_delay_ms=0).execute(
             on_error="stop"
         )
-    assert old_outcome["status"] == "completed"
-    assert provider.calls == 1
+    _assert_legacy_phase_execution(old_outcome, provider)
 
     source_path.write_text(
         _FIXED_PHASE_TARGET_SOURCE.replace("TARGET", TARGET), encoding="utf-8",

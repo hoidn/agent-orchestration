@@ -12,6 +12,7 @@ from orchestrator.cli.commands.run import run_workflow
 from orchestrator.run_lock import reserved_run_writer_lock
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
+from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.test_workflow_evaluated_cli import PROGRAM
 from tests.test_cli_prompt import fake_runtime, MODEL, TASK_TEXT
@@ -340,28 +341,40 @@ def test_reserved_internal_snapshot_resume_reopens_only_through_new_root_fd(tmp_
         assert _snapshot(root) == before
 
 
+def _assert_prompt_request_paths(args, kwargs):
+    assert isinstance(getattr(args, "physical_build_request", None), FrontendBuildRequest)
+    assert isinstance(getattr(args, "logical_build_request", None), FrontendBuildRequest)
+    physical, logical = args.physical_build_request, args.logical_build_request
+    assert physical.source_path == Path(args.workflow)
+    assert logical.source_path == kwargs["logical_workflow_path"]
+    assert physical.source_roots == (physical.source_path.parent,)
+    assert logical.source_roots == (logical.source_path.parent,)
+    assert physical.provider_externs_path == physical.source_path.parent / "providers.json"
+    assert logical.prompt_externs_path == logical.source_path.parent / "prompts.json"
+    return physical, logical
+
+
+def _assert_prompt_request_optional_fields(args, physical, logical):
+    assert physical.imported_workflow_bundles_path is logical.imported_workflow_bundles_path is None
+    assert physical.command_boundaries_path is logical.command_boundaries_path is None
+    assert physical.entry_workflow is logical.entry_workflow is None
+    assert args.input_file is args.logical_input_file is None
+
+
+def _assert_prompt_request_target_version(physical):
+    assert entry_target_dsl_version(physical.source_path) == "2.27"
+
+
 def test_both_prompt_callers_supply_complete_requests_at_target_227(tmp_path, monkeypatch, fake_runtime):
     from orchestrator.cli.main import main
     from orchestrator.cli.commands import prompt_run_service, prompt
-    from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
     seen = []
 
     def record_request(args, **kwargs):
         seen.append((args, kwargs))
-        assert isinstance(getattr(args, "physical_build_request", None), FrontendBuildRequest)
-        assert isinstance(getattr(args, "logical_build_request", None), FrontendBuildRequest)
-        physical, logical = args.physical_build_request, args.logical_build_request
-        assert physical.source_path == Path(args.workflow)
-        assert logical.source_path == kwargs["logical_workflow_path"]
-        assert physical.source_roots == (physical.source_path.parent,)
-        assert logical.source_roots == (logical.source_path.parent,)
-        assert physical.provider_externs_path == physical.source_path.parent / "providers.json"
-        assert logical.prompt_externs_path == logical.source_path.parent / "prompts.json"
-        assert physical.imported_workflow_bundles_path is logical.imported_workflow_bundles_path is None
-        assert physical.command_boundaries_path is logical.command_boundaries_path is None
-        assert physical.entry_workflow is logical.entry_workflow is None
-        assert args.input_file is args.logical_input_file is None
-        assert entry_target_dsl_version(physical.source_path) == "2.27"
+        physical, logical = _assert_prompt_request_paths(args, kwargs)
+        _assert_prompt_request_optional_fields(args, physical, logical)
+        _assert_prompt_request_target_version(physical)
         return run_workflow(args, **kwargs)
 
     monkeypatch.chdir(tmp_path)

@@ -10,6 +10,38 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding, PromptExte
 from tests.workflow_lisp_closed_program_helpers import TARGET, install
 
 
+def _assert_producer_and_caller_configuration(program, definition):
+    imported_config = program.tree["configuration"]["imports"][
+        definition["configuration"]
+    ]
+    assert imported_config["commands"]["shared"]["stable_command"] == [
+        "python",
+        "producer.py",
+    ]
+    assert imported_config["providers"]["provider"]["provider_id"] == (
+        "producer-provider"
+    )
+    assert imported_config["prompts"]["prompt"]["path"] == "prompt.md"
+    assert program.tree["configuration"]["commands"]["shared"]["stable_command"] == [
+        "python",
+        "consumer.py",
+    ]
+    assert program.tree["configuration"]["providers"]["provider"]["provider_id"] == (
+        "consumer-provider"
+    )
+
+
+def _assert_imported_effect_result(result, effects):
+    assert result.json_value() == 18
+    assert len(effects) == 2
+    command = next(node for node, _identity in effects if node["class"] == "command")
+    provider = next(node for node, _identity in effects if node["class"] == "provider")
+    assert command["command"] == ["python", "producer.py"]
+    assert provider["provider"] == "producer-provider"
+    assert provider["prompt"]["path"] == "prompt.md"
+    assert result.dependencies == frozenset(identity for _node, identity in effects)
+
+
 def test_imported_effect_uses_producer_configuration_on_name_conflicts(
     tmp_path: Path,
 ) -> None:
@@ -86,25 +118,7 @@ def test_imported_effect_uses_producer_configuration_on_name_conflicts(
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
     call = program.tree["body"]["value"]
     definition = program.tree["definitions"][call["callee"]]
-    imported_config = program.tree["configuration"]["imports"][
-        definition["configuration"]
-    ]
-
-    assert imported_config["commands"]["shared"]["stable_command"] == [
-        "python",
-        "producer.py",
-    ]
-    assert imported_config["providers"]["provider"]["provider_id"] == (
-        "producer-provider"
-    )
-    assert imported_config["prompts"]["prompt"]["path"] == "prompt.md"
-    assert program.tree["configuration"]["commands"]["shared"]["stable_command"] == [
-        "python",
-        "consumer.py",
-    ]
-    assert program.tree["configuration"]["providers"]["provider"]["provider_id"] == (
-        "consumer-provider"
-    )
+    _assert_producer_and_caller_configuration(program, definition)
 
     effects: list[tuple[dict, str]] = []
 
@@ -123,14 +137,7 @@ def test_imported_effect_uses_producer_configuration_on_name_conflicts(
         effect_handler=perform,
     )
 
-    assert result.json_value() == 18
-    assert len(effects) == 2
-    command = next(node for node, _identity in effects if node["class"] == "command")
-    provider = next(node for node, _identity in effects if node["class"] == "provider")
-    assert command["command"] == ["python", "producer.py"]
-    assert provider["provider"] == "producer-provider"
-    assert provider["prompt"]["path"] == "prompt.md"
-    assert result.dependencies == frozenset(identity for _node, identity in effects)
+    _assert_imported_effect_result(result, effects)
 
 
 def test_projected_import_result_keeps_committed_file_lineage_without_reread(

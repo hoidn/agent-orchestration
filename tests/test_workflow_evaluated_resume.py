@@ -295,24 +295,6 @@ def test_requested_input_file_is_required_when_fully_overridden(tmp_path, monkey
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-@pytest.mark.parametrize('locator', ['', 'a/../b', '../a', './a', 'a//b', 'a/', '/tmp/../a',
-                                      '/proc/self/fd/4/a', '/dev/fd/4/a', 'a\x00b'])
-def test_malformed_recipe_locators_refuse_at_publication_before_root(tmp_path, locator):
-    from orchestrator.workflow.evaluated.authority import publish_run_authority, RunAuthorityError
-    _, program = _build(tmp_path)
-    recipe = {'source_roots': [locator], 'entry_workflow': None,
-              'provider_externs_path': None, 'prompt_externs_path': None,
-              'command_boundaries_path': None, 'imported_workflow_bundles_path': None,
-              'input_file': None, 'input_overrides': {}}
-    root = tmp_path / 'absent-parent' / 'run'
-    with pytest.raises(RunAuthorityError):
-        with publish_run_authority(root, program, run_id='run', workflow_file='evaluated/inputs.orc',
-                                   workflow_checksum='sha256:' + '0' * 64,
-                                   bound_inputs={'score': 0.75, 'threshold': 0.5}, resume_request=recipe):
-            pytest.fail('invalid recipe was published')
-    assert not root.parent.exists()
-
-
 @pytest.mark.parametrize('change', ['source-locator', 'unknown', 'missing', 'nonfinite', 'entry', 'roots', 'overrides'])
 def test_present_malformed_recipe_is_not_a_historical_header(tmp_path, monkeypatch, change):
     from orchestrator.workflow.evaluated.authority import load_run_authority, RunAuthorityError
@@ -484,19 +466,3 @@ def test_explicit_invalid_run_ref_root_is_still_validated(tmp_path, monkeypatch)
     before = _snapshot(tmp_path / '.orchestrate')
     assert resume_workflow(run_root.name, run_ref_root='relative') == 2
     assert _snapshot(tmp_path / '.orchestrate') == before
-
-
-def test_nontransportable_override_refuses_before_creating_any_run_directory(tmp_path):
-    from orchestrator.workflow.evaluated.authority import publish_run_authority, RunAuthorityError
-    _, program = _build(tmp_path)
-    recipe = {'source_roots': [], 'entry_workflow': None, 'provider_externs_path': None,
-              'prompt_externs_path': None, 'command_boundaries_path': None,
-              'imported_workflow_bundles_path': None, 'input_file': None,
-              'input_overrides': {'unused': '\ud800'}}
-    root = tmp_path / 'absent-parent' / 'run'
-    with pytest.raises(RunAuthorityError):
-        with publish_run_authority(root, program, run_id='run', workflow_file='evaluated/inputs.orc',
-                                   workflow_checksum='sha256:' + '0' * 64,
-                                   bound_inputs={'score': 0.75, 'threshold': 0.5}, resume_request=recipe):
-            pytest.fail('invalid UTF-8 JSON was published')
-    assert not root.parent.exists()

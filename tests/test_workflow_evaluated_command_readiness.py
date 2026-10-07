@@ -13,7 +13,8 @@ from orchestrator.workflow.evaluated.authority import (
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.sites import _ast_nodes
-from tests.test_workflow_evaluated_authority import _checked_command_program, _publish
+from tests.test_workflow_evaluated_authority import _publish
+from tests.test_workflow_evaluated_interpreters import _checked_command_program
 
 
 def _without_argv_transport(program: ClosedProgram) -> ClosedProgram:

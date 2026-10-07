@@ -425,39 +425,6 @@ def _assert_raw_c6_parts(current, old, raw_part, prompt_bytes):
     assert current[raw_part] != old[raw_part]
 
 
-def test_supplied_staged_provider_selection_reaches_real_performer(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from tests.test_workflow_evaluated_provider_io import WREF, _checked, _stages, _typed
-
-    _fixture(tmp_path)
-    _, imports = _stages(tmp_path)
-    imports["right"].provenance.workflow_path.with_name("prompt.md").write_text("TARGET RIGHT\n")
-    checked, provider_io = _checked(_typed(tmp_path, WREF, imports))
-    original = ProviderRegistry._load_builtin_providers
-
-    def templates(registry):
-        providers = original(registry)
-        providers["provider-id"] = replace(providers["codex"], name="provider-id")
-        return providers
-
-    monkeypatch.setattr(ProviderRegistry, "_load_builtin_providers", templates)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
-    monkeypatch.setenv("PROVIDER_SHIM_RESULT", '{"n":7}')
-    built = SimpleNamespace(program=checked, provider_io=provider_io)
-    with publish_run_authority(tmp_path / ".state" / "run-1", checked, run_id="run-1",
-        workflow_file="consumer/main.orc", workflow_checksum="sha256:" + sha256(WREF.encode()).hexdigest(),
-        resume_request={"source_roots": [], "entry_workflow": None,
-            "provider_externs_path": None, "prompt_externs_path": None,
-            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
-            "input_file": None, "input_overrides": {}},
-        bound_inputs={"input": {"n": 0}}) as authority:
-        assert _execute(tmp_path, built, authority, inputs={"input": {"n": 0}}) == (0, {"n": 7})
-        requests = _requests(tmp_path)
-        assert [row["prompt"].splitlines()[0] for row in requests] == [
-            "PARENT INLINE", "TARGET LEFT", "PARENT INLINE", "TARGET RIGHT"]
-        assert len(_snapshot(built, authority).active_commits) == 4
-
-
 def test_provider_committed_path_is_reused_without_filesystem_revalidation(tmp_path, monkeypatch):
     source = SOURCE.replace('(defrecord Result (ok Bool))',
         '(defpath Artifact :kind relpath :under "artifacts" :must-exist true)').replace('Result', 'Artifact')

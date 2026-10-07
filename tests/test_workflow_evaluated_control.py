@@ -101,6 +101,27 @@ def test_effectful_if_selects_values_without_making_branch_entry_an_effect_input
     assert result.dependencies == frozenset({"input:flag", effects[0][2], effects[1][2]})
 
 
+def _selected_arm_prefix_key(tree):
+    arm_prefix_keys = [
+        key for key, definition in tree["definitions"].items()
+        if definition["key"][:3] == ["cp/probe", "procedure", "arm-prefix"]
+        and any(
+            name == "n" and value == {"k": "lit", "type": INT, "v": 11}
+            for name, _type, value in definition["key"][6]
+        )
+    ]
+    assert len(arm_prefix_keys) == 1
+    return arm_prefix_keys[0]
+
+
+def _assert_selected_prefix_machine_result(result, effects, arm_prefix):
+    assert result.value == 13
+    assert [row[0] for row in effects] == ["arm-prefix"]
+    assert effects[0][2] == f"workflow:cp/probe::run / chosen / then / left={arm_prefix} / #1"
+    assert "input:flag" not in effects[0][3]
+    assert result.dependencies == frozenset({"input:flag", effects[0][2]})
+
+
 def test_selected_select_prefix_uses_the_machine_binding_callback(tmp_path: Path) -> None:
     sources, entry = _control_sources("pure_select_prefixes", "direct")
     sources["cp/probe.orc"] = sources["cp/probe.orc"].replace(
@@ -110,16 +131,7 @@ def test_selected_select_prefix_uses_the_machine_binding_callback(tmp_path: Path
     effectful_sources, effectful_entry = _control_sources("effectful_if_branches", "direct")
     effectful = _build_read_back(tmp_path / "effectful", effectful_sources, effectful_entry)
     tree = deepcopy(compiled.tree)
-    arm_prefix_keys = [
-        key for key, definition in effectful.tree["definitions"].items()
-        if definition["key"][:3] == ["cp/probe", "procedure", "arm-prefix"]
-        and any(
-            name == "n" and value == {"k": "lit", "type": INT, "v": 11}
-            for name, _type, value in definition["key"][6]
-        )
-    ]
-    assert len(arm_prefix_keys) == 1
-    arm_prefix = arm_prefix_keys[0]
+    arm_prefix = _selected_arm_prefix_key(effectful.tree)
     tree["definitions"][arm_prefix] = deepcopy(effectful.tree["definitions"][arm_prefix])
     select = next(node for node in _ast_nodes(tree["body"]) if node.get("k") == "select")
     prefix = select["then"]["prefix"][0]
@@ -142,11 +154,7 @@ def test_selected_select_prefix_uses_the_machine_binding_callback(tmp_path: Path
         effect_handler=_effect_handler(values, effects),
     )
 
-    assert result.value == 13
-    assert [row[0] for row in effects] == ["arm-prefix"]
-    assert effects[0][2] == f"workflow:cp/probe::run / chosen / then / left={arm_prefix} / #1"
-    assert "input:flag" not in effects[0][3]
-    assert result.dependencies == frozenset({"input:flag", effects[0][2]})
+    _assert_selected_prefix_machine_result(result, effects, arm_prefix)
 
 
 def test_case_variant_value_and_nested_block_execute_selected_effects(tmp_path: Path) -> None:

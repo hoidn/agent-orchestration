@@ -1,6 +1,7 @@
 """Public checked shared-union projection through real durable commands."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,11 @@ from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.test_workflow_evaluated_command_template_scopes import _assert_two_public_resumes
 from tests.test_workflow_lisp_closed_shared_union_field import NESTED_SOURCE, HELPER_SOURCE, ENTRY_SOURCE, PREFIX_SOURCE, PATH_SOURCE, MATCH_SOURCE, BOUND_SOURCE, _nodes
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from tests.test_workflow_evaluated_values import (
+    INT, PATH, EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+    ClosedProgram, _values_api, build_closed_program, canonical_json_for_pure_value,
+    compile_typed_program,
+)
 
 
 @pytest.mark.parametrize("variant", ("YES", "NO"))
@@ -281,3 +287,71 @@ def test_public_unprojected_homonymous_union_keeps_ordinary_nominal_refusal(tmp_
     line, row = next((number, row) for number, row in enumerate(sources["entry.orc"].splitlines(), 1) if operand in row)
     assert result.returncode != 0
     assert f"entry.orc:{line}:{row.index(operand) + 1}: [type_mismatch]" in result.stderr
+
+
+def test_built_union_variant_field_retains_checked_enum_descriptor(tmp_path: Path) -> None:
+    source = tmp_path / "choice.orc"
+    source.write_text(f"""(workflow-lisp
+      (:language "0.1") (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+      (defmodule choice) (export run)
+      (defunion Choice (YES) (NO))
+      (defworkflow run ((choice Choice) (other Choice)) -> Bool
+        (= choice.variant other.variant)))""")
+    typed = compile_typed_program(
+        source, entry_workflow="run", source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={},
+    )
+    program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
+    operator = program.tree["body"]["value"]
+    values = _values_api()
+    descriptor = program.tree["params"][0][1]
+    choice = values.coerce_evaluated_value(
+        {"variant": "YES"}, descriptor, dependencies={"committed:choice"},
+    )
+    environment = values.LexicalEnvironment({"choice": choice, "other": choice})
+
+    result = values.evaluate_closed_value(operator["args"][0], environment)
+
+    assert result.value == "YES"
+    assert canonical_json_for_pure_value(result.descriptor) == canonical_json_for_pure_value(
+        operator["payload"]["bindings"]["a0"]["type"]
+    )
+    assert result.dependencies == {"committed:choice"}
+    assert values.evaluate_closed_value(operator, environment).value is True
+
+
+@pytest.mark.parametrize("active", ["REPORT", "ARTIFACT"])
+def test_checked_shared_field_preserves_declared_path_dependencies_without_reads(monkeypatch, active):
+    values = _values_api()
+    other = {**PATH, "name": "other::ReportPath"}
+    target = {**PATH, "name": "Path.artifact-root", "must_exist_target": False}
+    choice = {"kind": "union", "name": "sample::Choice", "variants": [
+        {"name": tag, "fields": [{"name": "artifact", "type": descriptor}]}
+        for tag, descriptor in (("REPORT", PATH), ("ARTIFACT", other))]}
+    seen = []
+    def observe(*args, **kwargs):
+        raise AssertionError("pure projection reread the filesystem")
+    for attribute in ("exists", "is_file", "read_text", "read_bytes", "resolve"):
+        monkeypatch.setattr(Path, attribute, observe)
+    monkeypatch.setattr(os.path, "exists", observe)
+    producer = values.coerce_evaluated_value({"variant": active, "artifact": "artifacts/result"}, choice, dependencies={"committed-producer"})
+    def evaluate_body(body, environment):
+        seen.append(body)
+        return producer
+    node = {"k": "field", "base": {"k": "block", "body": {"k": "halt"}},
+            "path": ["artifact"], "shared": [target]}
+    result = values.evaluate_closed_value(node, values.LexicalEnvironment(), evaluate_body=evaluate_body)
+    assert result.json_value() == "artifacts/result"
+    assert dict(result.descriptor) == target
+    assert result.dependencies == producer.dependencies
+    assert seen == [{"k": "halt"}]
+
+
+def test_pure_ordinary_union_common_field_works_without_shared_evidence():
+    values = _values_api()
+    choice = {"kind": "union", "name": "sample::Choice", "variants": [
+        {"name": tag, "fields": [{"name": "n", "type": INT}]} for tag in ("A", "B")]}
+    node = {"k": "field", "base": {"k": "name", "n": "choice"}, "path": ["n"]}
+    for tag in ("A", "B"):
+        environment = values.LexicalEnvironment({"choice": values.coerce_evaluated_value({"variant": tag, "n": 7}, choice)})
+        assert values.evaluate_closed_value(node, environment).value == 7

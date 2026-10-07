@@ -80,6 +80,32 @@ def test_loop_literal_result_retains_choices_without_reading_unused_state(
     assert [boundary for boundary, _, _ in effects].count("work") == sum(decisions)
 
 
+def _assert_loop_continue_done_effects(result, effects):
+    assert result.value == 2
+    assert [row[0] for row in effects] == ["next-val", "next-val", "done-val"]
+    assert [row[2].split("loop:state[")[1].split("]", 1)[0] for row in effects] == [
+        "1", "2", "3"
+    ]
+
+
+def _assert_budget_seed_order(result, calls, expected):
+    assert result.value == 0
+    assert [row[0] for row in calls[:2]] == expected
+    assert calls[2][0] == "done-val"
+
+
+def _assert_nested_if_loop_effects(result, effects):
+    assert result.value == 2
+    assert [row[0] for row in effects] == [
+        "seed", "next-val", "next-val", "done-val"
+    ]
+
+
+def _assert_nested_done_effects(result, effects):
+    assert result.value is True
+    assert [row[0] for row in effects] == ["seed", "budget", "check"]
+
+
 def test_loop_continue_done_and_parser_ordered_seed_budget(tmp_path: Path) -> None:
     values = import_module("orchestrator.workflow.evaluated.values")
     sources, entry = _control_sources("loop_continue_and_done", "direct")
@@ -88,11 +114,7 @@ def test_loop_continue_done_and_parser_ordered_seed_budget(tmp_path: Path) -> No
     result = _machine_api().evaluate_closed_program(
         loop_program, {}, effect_handler=_effect_handler(values, effects)
     )
-    assert result.value == 2
-    assert [row[0] for row in effects] == ["next-val", "next-val", "done-val"]
-    assert [row[2].split("loop:state[")[1].split("]", 1)[0] for row in effects] == [
-        "1", "2", "3"
-    ]
+    _assert_loop_continue_done_effects(result, effects)
 
     for index, (case, expected) in enumerate((
         ("loop_budget_before_seed", ["budget", "seed"]),
@@ -104,9 +126,7 @@ def test_loop_continue_done_and_parser_ordered_seed_budget(tmp_path: Path) -> No
         result = _machine_api().evaluate_closed_program(
             ordered, {}, effect_handler=_effect_handler(values, calls)
         )
-        assert result.value == 0
-        assert [row[0] for row in calls[:2]] == expected
-        assert calls[2][0] == "done-val"
+        _assert_budget_seed_order(result, calls, expected)
 
     sources, entry = _control_sources("loop_nested_in_if", "direct")
     nested_if = _build_read_back(tmp_path / "nested-if", sources, entry)
@@ -114,10 +134,7 @@ def test_loop_continue_done_and_parser_ordered_seed_budget(tmp_path: Path) -> No
     result = _machine_api().evaluate_closed_program(
         nested_if, {}, effect_handler=_effect_handler(values, nested_effects)
     )
-    assert result.value == 2
-    assert [row[0] for row in nested_effects] == [
-        "seed", "next-val", "next-val", "done-val"
-    ]
+    _assert_nested_if_loop_effects(result, nested_effects)
 
     sources, entry = _control_sources("nested_loop_in_done", "direct")
     nested_done = _build_read_back(tmp_path / "nested-done", sources, entry)
@@ -125,9 +142,7 @@ def test_loop_continue_done_and_parser_ordered_seed_budget(tmp_path: Path) -> No
     result = _machine_api().evaluate_closed_program(
         nested_done, {}, effect_handler=_effect_handler(values, nested_effects)
     )
-    assert result.value is True
-    assert [row[0] for row in nested_effects] == ["seed", "budget", "check"]
-
+    _assert_nested_done_effects(result, nested_effects)
 
 
 def test_loop_exhaustion_returns_the_last_committed_state(tmp_path: Path) -> None:
@@ -146,7 +161,6 @@ def test_loop_exhaustion_returns_the_last_committed_state(tmp_path: Path) -> Non
     )
     result = _machine_api().evaluate_closed_program(program, {})
     assert result.value == 2
-
 
 
 def test_loop_budget_result_dependency_does_not_leak_into_body_effect_inputs(

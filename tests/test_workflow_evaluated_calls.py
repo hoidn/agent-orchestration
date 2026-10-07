@@ -66,6 +66,38 @@ def _walk_nodes(value):
             yield from _walk_nodes(child)
 
 
+def _assert_cached_call_arguments(native_environment):
+    assert native_environment.lookup("a__x").dependencies == {"pair-provider-id"}
+    assert native_environment.lookup("a__y").dependencies == {"pair-provider-id"}
+    assert native_environment.lookup("a__x").committed_result_path is None
+    assert native_environment.lookup("a__y").committed_result_path is None
+    assert native_environment.lookup("count").dependencies == {"count-provider-id"}
+    assert native_environment.lookup("count").committed_result_path == (
+        "artifacts/count-result.json"
+    )
+
+
+def _assert_imported_call_effect_result(result, effects, dependencies):
+    assert [provider for provider, _identity in effects] == [
+        "count-provider-id",
+        "pair-provider-id",
+    ]
+    assert {identity for _provider, identity in effects} == dependencies
+    assert result.json_value() == {
+        "defaulted": {
+            "left": "reports/input-left.txt",
+            "right": "reports/input-right.txt",
+            "count": 3,
+        },
+        "supplied": {
+            "left": "reports/left.txt",
+            "right": "reports/right.txt",
+            "count": 11,
+        },
+    }
+    assert result.dependencies == frozenset(dependencies)
+
+
 def test_imported_boundary_call_projects_cached_values_and_native_result(
     tmp_path: Path,
 ) -> None:
@@ -163,14 +195,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
     native_environment = call_environment(
         call, native, cached_arguments, run_id="calls"
     )
-    assert native_environment.lookup("a__x").dependencies == {"pair-provider-id"}
-    assert native_environment.lookup("a__y").dependencies == {"pair-provider-id"}
-    assert native_environment.lookup("a__x").committed_result_path is None
-    assert native_environment.lookup("a__y").committed_result_path is None
-    assert native_environment.lookup("count").dependencies == {"count-provider-id"}
-    assert native_environment.lookup("count").committed_result_path == (
-        "artifacts/count-result.json"
-    )
+    _assert_cached_call_arguments(native_environment)
 
     effects: list[tuple[str, str]] = []
     dependencies: set[str] = set()
@@ -195,24 +220,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
         run_id="calls",
     )
 
-    assert [provider for provider, _identity in effects] == [
-        "count-provider-id",
-        "pair-provider-id",
-    ]
-    assert {identity for _provider, identity in effects} == dependencies
-    assert result.json_value() == {
-        "defaulted": {
-            "left": "reports/input-left.txt",
-            "right": "reports/input-right.txt",
-            "count": 3,
-        },
-        "supplied": {
-            "left": "reports/left.txt",
-            "right": "reports/right.txt",
-            "count": 11,
-        },
-    }
-    assert result.dependencies == frozenset(dependencies)
+    _assert_imported_call_effect_result(result, effects, dependencies)
 
 
 def test_union_boundary_skips_inactive_path_rows_on_input_and_result() -> None:
