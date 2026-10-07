@@ -1315,23 +1315,27 @@ def test_typed_snapshot_failure_publishes_closed_row_context_before_preparation(
         f"typed-{category}",
     )
     dependency = tmp_path / "artifacts/work/required.md"
+    failed_reads = 0
     if category == "invalid_utf8_dependency":
         dependency.write_bytes(b"\xff")
     else:
-        original_read_text = Path.read_text
+        original_open = Path.open
 
-        def _read_text(path: Path, *args, **kwargs):
-            if path == dependency:
+        def _open(path: Path, mode="r", *args, **kwargs):
+            nonlocal failed_reads
+            if path == dependency and mode in {"r", "rb"}:
+                failed_reads += 1
                 raise PermissionError("READ_FAILURE_SENTINEL")
-            return original_read_text(path, *args, **kwargs)
+            return original_open(path, mode, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_text", _read_text)
+        monkeypatch.setattr(Path, "open", _open)
     executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
         pytest.fail("provider preparation must not be reached")
     )
 
     state = executor.execute(on_error="stop")
 
+    assert failed_reads == (1 if category == "unreadable_dependency" else 0)
     assert state["steps"]["mixed__result"]["exit_code"] == 2
     records = _published_typed_attempt_records(manager)
     assert len(records) == 1
