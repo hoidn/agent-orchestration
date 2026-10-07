@@ -108,7 +108,8 @@ def _expression_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts
     if isinstance(expr, _CONTROL_EMITTERS):
         return True, ()
     if isinstance(expr, _LEAF_EMITTERS):
-        return False, _leaf_output_names(expr, result_type=result_type)
+        return False, _leaf_output_names(expr, result_type=result_type,
+            type_env=facts.type_env if facts is not None and facts.closed_program else None)
     if isinstance(expr, ex.LetStarExpr):
         if compiler_owned_pure_let(expr, target_dsl_version=facts.type_env.target_dsl_version):
             return False, _projection_output_names(expr, result_type=result_type, facts=facts)
@@ -134,13 +135,14 @@ def _with_phase_facts(expr: Any, *, facts: ControlFacts, local_values: Mapping[s
     ), phase_target_values=targets)
 
 
-def _leaf_output_names(expr: Any, *, result_type: Any) -> tuple[str, ...]:
+def _leaf_output_names(expr: Any, *, result_type: Any, type_env: Any | None) -> tuple[str, ...]:
     if isinstance(expr, ex.ProviderResultExpr):
         captured = provider_capture_artifact_names(result_type, capture_context=expr.capture_context == "portable")
         if captured is not None:
             return tuple(captured)
     if isinstance(result_type, (RecordTypeRef, UnionTypeRef)):
-        return tuple(name for name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return"))
+        return tuple(name for name, _ in _flatten_boundary_leaf_paths(
+            result_type, generated_name="return", type_env=type_env))
     return ("return",)
 
 
@@ -294,9 +296,9 @@ def _procedure_return_types(procedure, *, facts, source_program):
     return return_types
 
 
-def _private_procedure_output_names(expr: Any, *, result_type: Any, closed_program: bool) -> tuple[str, ...]:
+def _private_procedure_output_names(expr: Any, *, result_type: Any, closed_program: bool, type_env: Any) -> tuple[str, ...]:
     if closed_program:
-        return _leaf_output_names(expr, result_type=result_type)
+        return _leaf_output_names(expr, result_type=result_type, type_env=type_env)
     return tuple(name for name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return"))
 
 
@@ -321,6 +323,7 @@ def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Map
     ):
         return False, _private_procedure_output_names(
             expr, result_type=procedure.typed_body.type_ref, closed_program=facts.closed_program,
+            type_env=env,
         )
     values = inline_procedure_bindings(procedure, caller_values=local_values, actual_values=tuple(
         _resolve_inline_expr_value(arg, local_values=local_values, retain_expression_facts=facts.closed_program) for arg in args
