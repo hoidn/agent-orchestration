@@ -824,11 +824,9 @@
     resume precedence and diagnostics by
     [CLI](cli.md#evaluated-execution-target-235); the model by the
     [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md).
-    Availability ([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)):
-    Tasks 10–14 (readers, typed inputs, totality/calls/search/consumers,
-    artifact handoff and live providers) integrated; Task 15 recovery
-    evidence integrated in part; Task 17 (full suite, older-target byte
-    audit, whole-phase review, merge) pending. Evidence:
+    Availability: implemented at target 2.35; Phase 3 is complete and
+    delivered at `06130a53`
+    ([closeout report](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)). Evidence:
     `tests/test_workflow_evaluated_cli.py`,
     `tests/test_workflow_evaluated_resume_replay_boundary.py`,
     `tests/test_workflow_evaluated_invalidate.py`,
@@ -911,7 +909,7 @@
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
   - `v2.34`: implemented decimal literals in expressions, numeric operators and finite boundary values; repetition reduction remains an unapproved proposal
-  - `v2.35`: evaluated execution: closed-program compilation and the memo-backed public `run`/`resume`/`invalidate` route (Phase 3 closeout pending)
+  - `v2.35`: evaluated execution: closed-program compilation and the memo-backed public `run`/`resume`/`invalidate` route (Phase 3 complete; [closeout](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md))
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.

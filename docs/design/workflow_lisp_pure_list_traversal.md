@@ -253,7 +253,9 @@ entries: the Task 9 frontend cut with its public 9F/9G gates
 state forwarding and read-only resumes; `tests/test_workflow_evaluated_run_ref_kills.py`)
 and the Task 13A totality cells for the serial-map body
 (`tests/test_workflow_evaluated_totality.py`); Phase 3 Task 15 (external
-kills) is integrated and Task 17 (phase closeout) pending. It does not widen
+kills) is integrated and Task 17 / Phase 3 are closed, delivered at
+`06130a53` with independent reviews and qualified evidence in the
+[closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md). This does not widen
 the other first-tranche body restrictions, selects no general or parallel
 map, and target-2.18 and 2.24 entries keep the rejection above.
 

@@ -323,9 +323,8 @@ the request fields R1–R12 by
 [§9.4](../docs/design/workflow_lisp_evaluated_execution.md#94-the-request-contract)
 and typed input documents by
 [§9.1.1](../docs/design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents).
-Availability ([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)):
-Tasks 10–14 integrated; Task 15 recovery evidence integrated in part;
-Task 17 pending. Owners:
+Availability: implemented at target 2.35; Phase 3 is complete and delivered
+at `06130a53` ([closeout report](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)). Owners:
 `orchestrator/workflow/evaluated/{commands,providers,closure,closure_evidence,inputs,runtime}.py`.
 Evidence: `tests/test_workflow_evaluated_command_templates.py`,
 `tests/test_workflow_evaluated_resume_retry.py`,

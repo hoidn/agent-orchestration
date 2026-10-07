@@ -247,10 +247,11 @@ profiled root.
 
 Availability: this is the run contract that the public `compile`, `run`,
 `resume`, `invalidate` and reader entries exercise for a target-2.35 entry
-([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md):
-Tasks 10–14 integrated; Task 15 recovery evidence integrated in part;
-Task 17 with the full suite and older-target byte audit pending), so this
-section states the integrated capability and its proved scope. The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
+([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)).
+Phase 3 is complete and delivered at `06130a53`; the
+[closeout report](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+records availability and evidence scope. This section states the integrated
+capability and its proved scope. The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
 (§§7–10) owns the model; this section owns the durable wire. Owners:
 `orchestrator/workflow/evaluated/{authority,memo,attempts,views,interpreters,run_ref}.py`
 and `orchestrator/workflow_lisp/closed/program.py`. Evidence: the public

@@ -260,10 +260,8 @@ its derived view. The run contract is owned by
 command/provider requests by
 [Step IO](io.md#evaluated-command-and-provider-io-target-235); this section
 owns the public commands, their flags, the resume precedence and the exit
-codes. Availability ([Phase 3 plan](../docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)):
-Tasks 10–14 integrated; Task 15 recovery evidence integrated in part;
-Task 17 (full suite, older-target byte audit, whole-phase review, merge)
-pending. Owners: `orchestrator/cli/main.py`,
+codes. Availability: implemented at target 2.35; Phase 3 is complete and delivered
+at `06130a53` ([closeout report](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)). Owners: `orchestrator/cli/main.py`,
 `orchestrator/cli/commands/{run,resume,evaluated,invalidate,compile,report}.py`.
 Evidence: `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_lisp_closed_program_compile_cli.py`,

@@ -47,18 +47,19 @@ Phase 2 compiler closeout is complete: code/verification review passed at
 at `a7b157d8`.
 The owner's 2026-10-01 amendment sets the downstream order below. Phase 3
 Tasks 1–15, documentation cuts 16A–16D and the reviewed size/complexity
-corrections are integrated through `ef689a39`. Task 17 remains open: the
+corrections are integrated through tested code `ef689a39`. Tasks 16/17 and
+Phase 3 are closed, delivered to `main` and `origin/main` at
+`06130a53193e42dc1fdc2e9aa4575220bb43d707`. The
 original full suite completed RED (402 failed, 23054 passed, exit 1), all
 402 dispositions are recorded, and final affected execution passed all
 2857 cases (including public smoke/recovery subsets) at `ef689a39`. The
 refreshed old-target audit and qualified real-provider smoke are recorded;
-independent final code/evidence review is PASS, while final documentation
-review and delivery are pending. The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
-records exact tested revisions, receipts and remaining gates. The reviewed
+independent final code/evidence and documentation/spec reviews are PASS. The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+records exact tested revisions, receipts and the downstream handoff. The reviewed
 [early Phase 6a pilot plan](2026-10-07-evaluated-execution-phase-6a-pilot-plan.md)
-is preparation only, entry-gated on Phase 3 Task 17 and delivery. Phase 3 is
-not complete; Phases 4–7 remain pending, with no new target, capability or
-retirement selection inferred from this status.
+has its Phase 3 Task 17/delivery entry satisfied; execution/completion is
+not claimed here. Phases 4–7 remain pending, with no new target, capability or
+retirement selection inferred from Phase 3 closure.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
@@ -518,9 +519,10 @@ cuts 16A–16D and the independent corrective reviews are integrated through
 records the original completed RED full run and its dispositions alongside
 the completed 2857-case final affected run (including public smoke/recovery
 subsets), refreshed audit and qualified real-provider smoke. Independent final
-code/evidence review is PASS at `ef689a39`; final documentation review and
-fast-forward merge/push remain pending. This is not Phase 3 completion or a release.
-The reviewed early pilot remains entry-gated; closing its bounded checks
+code/evidence review is PASS at `ef689a39`; final documentation/spec review
+is PASS, and fast-forward merge/push delivered `06130a53` to `main` and
+`origin/main`. Tasks 16/17 and Phase 3 are closed. The reviewed early pilot’s
+entry is satisfied, without claiming its execution; closing its bounded checks
 will not close global Phase 6a while W3 Task 4 migration/compatibility is
 open. Delivery order remains Phase 3 → early Phase 6a pilot → consumer-selected
 Phase 4 additions and independent Phase 5 → Phase 6b → Phase 7.

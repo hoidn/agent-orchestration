@@ -2,43 +2,32 @@
 
 ## Metadata
 
-- **Status:** accepted for the first release at gate G1 on 2026-09-29;
-  Phase 2 closed-program compilation is implemented at target 2.35 and the
-  Phase 3 runtime of this design is integrated for the admitted first-release
-  classes (Phase 3 plan Tasks 1–14, integration head `dc4a4e3a`): public
-  `compile`, `--dry-run`, `run`, `resume`, `invalidate` and the readers
-  (`report`, dashboard, monitor, watchdog probe/watcher) execute and project
-  evaluated runs of commands, portable composed providers, calls/captures and
-  path-mode run references. `evaluated_execution_unavailable` remains the
-  refusal of `resume --force-restart` on an evaluated run and of resuming a
-  schema-2.1 run whose source now targets 2.35
+- **Status:** accepted for the first release at gate G1 on 2026-09-29.
+  Phase 2 compilation and Phase 3 Tasks 1–17 are complete at target 2.35
+  for the admitted first-release classes: commands, portable composed
+  providers without context capture, calls/captures and path-mode run
+  references. Public `compile`, `--dry-run`, `run`, `resume`, `invalidate`
+  and readers (`report`, dashboard, monitor, watchdog probe/watcher) are
+  delivered to `main` and `origin/main` at `06130a53`; tested code is
+  `ef689a39`. The [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+  and [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+  own completion, receipts, the original RED full-suite dispositions and
+  qualified compatibility/live evidence. Later classes and phases are not
+  selected by this closure.
+  `evaluated_execution_unavailable` remains the refusal of
+  `resume --force-restart` on an evaluated run and of resuming a schema-2.1
+  run whose source now targets 2.35
   ([`specs/cli.md`](../../specs/cli.md#diagnostics)); it no longer refuses
-  `run` or `resume` of a 2.35 entry. Of Task 15 of the
-  [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md),
-  15C (durable publication fault model, invalidation windows; `dab04431`) and
-  15D (view failure, later divergence before reconcile/tail repair, completed
-  resume twice; `a84f2769`) and 15A/15B (external kills at every window of
-  the three real programs, must-not-repeat, closure mutation then kill;
-  `2604e887`) are integrated, so Task 15 is complete; Task 17 (full suite,
-  old-target byte audit, whole-phase review, merge) is pending. This metadata
-  records the integrated capability and its proved scope, not Phase 3
-  completion or a release. The normative owners are
-  `specs/state.md` (profile, header, journal, view), `specs/io.md` (command
-  closure and typed inputs), `specs/cli.md` (entries, exits, locks) and
-  `specs/versioning.md` (admission at 2.35); this design links to them and
-  does not restate them. Evidence: the public fixture owners named in §17
-  and §18 (`tests/test_workflow_evaluated_*.py`), the
-  [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
-  the [target tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
-  and the [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
-  Phase-wide Phase 2 checks and the completed red-suite diagnosis are recorded
-  in the [Phase 2 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
-  Phase 2 compiler closeout is complete: code/verification PASS `17049e79`,
-  documentation PASS `a6efc7e7` and integration `a7b157d8`. The Phase 3
-  closeout report (Task 16D) is still to be written and publishes the receipts behind the Phase 3 claims and the Task 16A wire
-  inventory (28 public cases, 46 run roots), which are not in the repository
-  yet. The spike under `experiments/evaluated_execution_spike/` remains
-  separate historical runtime evidence (§18).
+  `run` or `resume` of a 2.35 entry. Normative owners remain `specs/state.md`
+  (profile, header, journal, view), `specs/io.md` (command closure and typed
+  inputs), `specs/cli.md` (entries, exits, locks) and `specs/versioning.md`
+  (admission); this design links to them. Public owners are named in §17/18,
+  the [compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py)
+  and [target tests](../../tests/test_workflow_lisp_target_evaluated_execution.py).
+  The [Phase 2 closeout](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md)
+  retains its compiler evidence; the spike under
+  `experiments/evaluated_execution_spike/` remains separate historical
+  runtime evidence (§18).
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
@@ -3017,9 +3006,9 @@ resume entries. Where the spike met it, the reference is the measure to
 repeat. The third column records the historical spike evidence and the
 public owner that repeats it in the integrated runtime. Task 15 is integrated
 (15C `dab04431`, 15D `a84f2769`, 15A/15B `2604e887`); rows naming Task 17
-(pending) are not yet met. Receipts
-(commands, exits, hashes) are published by the Phase 3 closeout report
-(Task 16D).
+are closed by the final reviewed verification and delivery at `06130a53`.
+The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+records commands, exits, hashes and limits separately from historical evidence.
 
 | Requirement | Measure | Spike and public evidence |
 | --- | --- | --- |
@@ -3034,7 +3023,7 @@ public owner that repeats it in the integrated runtime. Task 15 is integrated
 | Identity | Adding blank lines, and moving the program and the package, change no identity | Spike: met (gate report, §2, criterion 5). Public: [`tests/test_workflow_evaluated_public_identity.py`](../../tests/test_workflow_evaluated_public_identity.py) (Task 13B) |
 | Sites | Independent `perform`-node/site-table bijection and one frame per effectful call; fixtures cover `select` prefixes, nested `block`, `join` body/continuation, exhaustion and control in aggregate/terminal positions. Every memo identity instantiates one site and its frames | Spike: existing corpus instances met (gate report, §2, criterion 6). Public: the 2.35 totality matrix of Task 13A, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), on top of the Phase 2 site owners |
 | Parity | On programs both routes accept, the effect traces are equal and the requests are equal apart from R1 to R12 | Spike: met on 68 matrix cells, the shipped examples and a reduced decisive program (gate report, §2, criterion 7). Public: request fields on public runs in [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py), [`tests/test_workflow_evaluated_prompts.py`](../../tests/test_workflow_evaluated_prompts.py) and [`tests/test_workflow_evaluated_command_templates.py`](../../tests/test_workflow_evaluated_command_templates.py) |
-| Older targets | Byte-identical build artifacts | Per-cut comparisons recorded in the Phase 3 plan's task evidence (unchanged old-target artifacts after each product cut); the phase-wide raw old-target audit at fixed paths with `PYTHONHASHSEED=0` is Task 17, pending |
+| Older targets | Byte-identical build artifacts | Per-cut comparisons remain recorded in the Phase 3 plan. Final Task 17 audit at `ef689a39`, fixed source/package paths and `PYTHONHASHSEED=0`: 88/88 raw public artifact pairs equal; authentic capsules 55/67 equal with 12 pin/derived-identity differences (exit 1); separate fixed-identity serialization control 67/67 equal (exit 0); old 2.34 run/resume exit 0/0 with no redispatch. [Closeout and limits](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md#task-17-open-full-run-completed-red); the control is not authentic-pin byte equality |
 | A dependence through a file | Command A writes a path that command B reads by a fixed name, with no value between them. After A's input changes and `invalidate A`, the resume gives the value of a fresh run, and B ran again | Spike: failed on the value-only rule; iteration 4 reproduced and corrected it with suffix invalidation. Public: met, A writes `handoff.txt` and B reads it by name; after `invalidate` of the writer the resume gives the fresh run's value and B ran again, [`tests/test_workflow_evaluated_invalidate.py`](../../tests/test_workflow_evaluated_invalidate.py) |
 | A read-only closure with external caches | A Python package command resumes with cache files absent from the closure (disabled or outside it); assert that placement. A changed authored script refuses resume, and a command modifying its closure fails before commit | Spike: iteration 4 measured both cache placement and write detection. Public: [`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py), [`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py) (`__pycache__` outside the evidence, C5) and [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py) (changed authored script and changed package helper refuse) |
 | The interpreter fixed for the run | Changing `PATH` alone launches the recorded executable with no change diagnostic. Changing bytes at that path emits `interpreter_changed` and continues on it; a missing/unlaunchable recorded path refuses. No interpreter digest enters effect-input identity | Spike: iteration 4 demonstrated PATH pinning but retained digest-based refusal. Public: the accepted C3 policy is met, PATH redirected and bytes changed after a kill, resume logs `interpreter_changed` and launches the pinned path, [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py) and [`tests/test_workflow_evaluated_interpreters.py`](../../tests/test_workflow_evaluated_interpreters.py); `resume_interpreter_missing` is owned there and not observed in a retained public file |
@@ -3059,7 +3048,10 @@ compiler evidence and the public runtime evidence of the integrated Phase 3
 cuts. The [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
 owns compiler task completion; the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
 owns runtime task completion: Task 15 is integrated (15C `dab04431`, 15D
-`a84f2769`, 15A/15B `2604e887`) and Task 17 is pending.
+`a84f2769`, 15A/15B `2604e887`); Task 17 is closed with independent
+code/evidence and documentation PASS and delivery at `06130a53`. The
+[closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+retains exact tested revisions and qualified evidence.
 
 | Claim | Fixture | Evidence and remaining work |
 | --- | --- | --- |
