@@ -41,17 +41,6 @@
     (account String)
     (replies String))
 
-  (defrecord ReviewSignal
-    (report ReviewReport)
-    (details List[String])
-    (text String)
-    (redo Bool))
-
-  (defrecord ReviewBlock
-    (escalated Bool)
-    (detail String)
-    (rounds Int))
-
   (defprompt implement-prompt
     (:fills (task :text))
     -> Change
@@ -73,7 +62,7 @@
     "The reviewer rejected the approach. Discard the current changes and implement the task differently.\n\nTask: {task}\n\nWhy the approach was rejected: {reason}\n\nReport two things. `summary`: one sentence. `account`: what you changed and why, the alternatives you tried or considered and why you discarded them, and what you did not cover.\n\nWhen you finish, write the required JSON result to the file whose path is in the environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH; that file is how your result is received.")
 
   (defproc review-for-improve ((state ReviewState) (context ReviewContext))
-    -> Decision[ReviewSignal ReviewBlock]
+    -> Decision[Review Outcome]
     :effects ((uses-provider providers.reviewer))
     :lowering inline
     (let* ((review (provider-result providers.reviewer
@@ -87,47 +76,45 @@
                      :timeout-sec 5400)))
       (match review
         ((APPROVE a)
-         (variant Decision[ReviewSignal ReviewBlock] APPROVE
-           :evidence (record ReviewSignal :report a.report
-                        :details a.notes :text "" :redo false)))
+         (variant Decision[Review Outcome] APPROVE :evidence review))
         ((REQUEST_CHANGES r)
          (if (= state.round 3)
-           (variant Decision[ReviewSignal ReviewBlock] BLOCKED
-             :reason (record ReviewBlock :escalated false :detail r.summary :rounds state.round))
-           (variant Decision[ReviewSignal ReviewBlock] REVISE
-             :feedback (record ReviewSignal :report r.report
-                          :details r.findings :text r.summary :redo false))))
+           (variant Decision[Review Outcome] BLOCKED
+             :reason (variant Outcome UNRESOLVED :reason r.summary :rounds state.round))
+           (variant Decision[Review Outcome] REVISE :feedback review)))
         ((WRONG_APPROACH w)
          (if (= state.round 3)
-           (variant Decision[ReviewSignal ReviewBlock] BLOCKED
-             :reason (record ReviewBlock :escalated false :detail w.reason :rounds state.round))
-           (variant Decision[ReviewSignal ReviewBlock] REVISE
-             :feedback (record ReviewSignal :report w.report
-                          :details (list) :text w.reason :redo true))))
+           (variant Decision[Review Outcome] BLOCKED
+             :reason (variant Outcome UNRESOLVED :reason w.reason :rounds state.round))
+           (variant Decision[Review Outcome] REVISE :feedback review)))
         ((NEEDS_HUMAN h)
-         (variant Decision[ReviewSignal ReviewBlock] BLOCKED
-           :reason (record ReviewBlock :escalated true :detail h.question :rounds state.round))))))
+         (variant Decision[Review Outcome] BLOCKED
+           :reason (variant Outcome ESCALATED :question h.question))))))
 
   (defproc revise-for-improve
-    ((state ReviewState) (context ReviewContext) (signal ReviewSignal))
+    ((state ReviewState) (context ReviewContext) (review Review))
     -> ReviewState
     :effects ((uses-provider providers.coder))
     :lowering inline
-    (if signal.redo
-      (let* ((redo (provider-result providers.coder
-                     :prompt (redo-prompt :task context.task :reason signal.text)
-                     :model "claude-sonnet-5-5"
-                     :effort "medium"
-                     :timeout-sec 5400)))
-        (record ReviewState :round (+ state.round 1)
-          :account redo.account :replies "none"))
-      (let* ((revision (provider-result providers.coder
-                         :prompt (fix-prompt :task context.task :findings signal.details)
-                         :model "claude-sonnet-5-5"
-                         :effort "medium"
-                         :timeout-sec 5400)))
-        (record ReviewState :round (+ state.round 1)
-          :account revision.account :replies revision.replies))))
+    (match review
+      ((REQUEST_CHANGES r)
+       (let* ((revision (provider-result providers.coder
+                          :prompt (fix-prompt :task context.task :findings r.findings)
+                          :model "claude-sonnet-5-5"
+                          :effort "medium"
+                          :timeout-sec 5400)))
+         (record ReviewState :round (+ state.round 1)
+           :account revision.account :replies revision.replies)))
+      ((WRONG_APPROACH w)
+       (let* ((redo (provider-result providers.coder
+                      :prompt (redo-prompt :task context.task :reason w.reason)
+                      :model "claude-sonnet-5-5"
+                      :effort "medium"
+                      :timeout-sec 5400)))
+         (record ReviewState :round (+ state.round 1)
+           :account redo.account :replies "none")))
+      ((APPROVE a) state)
+      ((NEEDS_HUMAN h) state)))
 
   (defworkflow reviewed-change
     ((task String)
@@ -147,11 +134,17 @@
                             3)))
       (match result
         ((APPROVED approved)
-         (variant Outcome READY :report approved.evidence.report :rounds approved.value.round))
+         (match approved.evidence
+           ((APPROVE a)
+            (variant Outcome READY :report a.report :rounds approved.value.round))
+           ((REQUEST_CHANGES r)
+            (variant Outcome UNRESOLVED :reason r.summary :rounds approved.value.round))
+           ((WRONG_APPROACH w)
+            (variant Outcome UNRESOLVED :reason w.reason :rounds approved.value.round))
+           ((NEEDS_HUMAN h)
+            (variant Outcome ESCALATED :question h.question))))
         ((BLOCKED blocked)
-         (if blocked.reason.escalated
-           (variant Outcome ESCALATED :question blocked.reason.detail)
-           (variant Outcome UNRESOLVED :reason blocked.reason.detail :rounds blocked.reason.rounds)))
+         blocked.reason)
         ((EXHAUSTED exhausted)
          (variant Outcome UNRESOLVED :reason "round limit reached" :rounds exhausted.value.round)))))
 )
