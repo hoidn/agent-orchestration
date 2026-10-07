@@ -1,0 +1,84 @@
+# Evaluated Execution Phase 6a Pilot Implementation Plan
+
+> **For agentic workers:** use `superpowers:subagent-driven-development` for execution, `superpowers:test-driven-development` for changed behavior, and `superpowers:verification-before-completion` before completion claims. The coordinator integrates and owns the sole verification window; a reviewer distinct from the author reviews each bounded result.
+
+**Goal:** Assess actual reuse and modification of the proposal and reviewed-change consumers on the evaluated runtime, preserving their contracts and producing concrete W3 qualification evidence.
+
+**Architecture:** Author small variants of maintained programs using the current `std/improve` and explicit hooks. Reuse the existing public CLI fixture, deterministic provider shims, invocation logs and artifact checks. This keeps the pilot reproducible and small; it cannot establish broad agent-authoring effectiveness or live-provider utility, which would need separately selected work.
+
+**Tech stack:** Workflow Lisp 2.35, current `ProcRef`/`bind-proc`, Python pytest fixtures and public `python -m orchestrator` commands. No runtime/compiler change or trial framework is planned.
+
+## Status and entry
+
+**Reviewed preparation plan; execution remains gated. No task below has executed.** Entry requires the coordinator to record **Phase 3 Task 17 verification, independent review and delivery closed**, including the parent's fast-forward merge/push item. Record that delivered SHA as this phase's baseline. A passing slice, an open delivery constraint, or the current closeout draft does not satisfy entry.
+
+Authority: [parent Phase 6a and delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#phase-6-migration), [current capability matrix](../capability_status_matrix.md), [composition-first contract](../design/workflow_lisp_composition_first.md), and [W3 Task 4](2026-09-29-workflow-lisp-repetition-reduction-plan.md#task-4-qualify-w3-on-concrete-callers), governed by [write-once §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context). The existing drafting guide remains the authoring entry.
+
+This is the next pilot within the authorized Phases 3–7 goal. It selects no PC/W3/EL/AA/CE language target or new effect class, changes no shared stdlib API, and makes no retirement decision. W3 grammar/target/module compatibility findings are outputs for later resolution before Phase 4c; they do not block the current-syntax pilot. Best-of-N is only a Phase 5 handoff, and watchdog is an artifact-handoff control.
+
+## Files and evidence to reuse
+
+| Owner | Use |
+| --- | --- |
+| `workflows/examples/improve_experiment_proposal.orc`; `workflows/examples/inputs/improve_experiment_proposal/{providers,prompts,commands,inputs}.json` | Proposal baseline, manifests and input layout; retain the named launcher stand-in. |
+| `experiments/orc_vs_single_call/workflows/reviewed_change.orc` and `reviewed_change.providers.json` | Maintained review/revise behavior, refined `ReviewReport`, `Review`/`Outcome` contracts and provider identities. |
+| `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc` | One existing generic helper reused with different domain records and hooks. Read, do not change. |
+| `tests/workflow_evaluated_consumer_sources.py` | `PROGRAMS`, `install`, `install_shims`, `compile_current`, `current_route`, `stop_after`, `resume_to_completion`, `requests`, `checked_run`, lineage helpers. `install` prepares a retargeted copy and explicit command closures; overlay the pilot source in that copied workspace, not the original. |
+| `tests/test_workflow_evaluated_consumers.py` | Existing `IMPROVE`, `_improve_plan`, `REVIEWED` scenarios and their value/order/file oracles. Reuse data and helpers; do not copy the entire campaign or impose original source-site identities on a refactored program. |
+| `tests/workflow_evaluated_artifact_helpers.py`; `tests/test_workflow_evaluated_artifacts.py` | `watchdog_workspace`/`install_watchdog` declare the probe's imported package closure; `test_public_watchdog_repair_links_producer_read_and_publication` checks real producer files, declared-read evidence and once-only publication. |
+| `experiments/orc_repetition_census/count_lines.py`; `variants/reviewed_change_{a,b,c0}.orc.txt`; [census report](../reports/2026-09-29-workflow-lisp-repetition-census.md) | Existing counting categories and historical friction. Those variants were only compiled/dry-run and change output/path contracts; they are not executable parity baselines. Preserve their bytes and historical 92/93 counts. |
+
+Create only four measurement sources under `experiments/orc_repetition_census/variants/`: `phase6a_proposal.orc.txt`, `phase6a_reviewed_change.orc.txt`, `phase6a_reviewed_change_bound.orc.txt`, and `phase6a_w3_proposed.orc.txt`. The first three contain current 2.35 syntax and are installed as `.orc` files only in isolated fixture workspaces. The last is explicitly non-runnable proposed syntax. Create `tests/test_workflow_evaluated_phase6a_pilot.py` and `docs/reports/2026-10-07-evaluated-execution-phase-6a-pilot.md`; add a short linked addendum to the census and a report route to `docs/index.md` at closeout. Existing helpers may receive only a necessary bounded reuse correction after coordinator review. No canonical consumer migration belongs to this pilot.
+
+Physical prior evidence is under `.superpowers/sdd/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan/`: `task-13d-consumers-campaign-receipt.json`, `task-14ab-campaign-receipt.json`, `evidence-14d-live/reviewed_change.receipt.json`, `evidence-14d-live/round2/improve.receipt.json`, `task-15-campaign-receipt.json`, plus the final Task 17 receipts once closed. Their results remain attached to their original SHAs. At entry, reread the final helper/test owners after Phase 3's size correction and record any path movement; reuse unchanged evidence by hash. New artifacts go under `.superpowers/sdd/2026-10-07-evaluated-execution-phase-6a-pilot-plan/` (called C6 below).
+
+## Task 1 — Freeze the small baseline and authoring ledger
+
+**Files:** new pilot report and C6 receipt; existing sources/helpers above are read-only.
+
+- [ ] Record the entry receipt, baseline SHA, source/helper hashes and exact reused receipt claims. Reuse Phase 3's unchanged proposal/reviewed-change run/resume, watchdog handoff, live-provider and durability evidence. Do not rerun the six-consumer or SIGKILL campaigns to populate this report.
+- [ ] Record before values for each planned edit: files/declarations affected; authored procedure layers on the workflow → helper → hook → effect path; context-only records/constructors, forwarding parameters and positional-workaround helpers; current line categories from `count_lines.py`. Classify each layer's responsibility, not just its count. Use the maintained sources as today's baseline, keeping historical counts separate.
+- [ ] Start a plain table in the report for edit intent, changed files/declarations, failed compile/run attempts with diagnostic code/location and cause, correction made, final result and reviewer judgment. Distinguish author errors, missing fixture inputs and product limitations. Record actual effort when observable; no invented timings, score, fixed percentage or minimum build count.
+
+## Task 2 — Perform two real edits using today's API
+
+**Create:** `phase6a_proposal.orc.txt`, `phase6a_reviewed_change.orc.txt`, `tests/test_workflow_evaluated_phase6a_pilot.py`.
+
+- [ ] **Proposal edit:** copy the maintained proposal at 2.35 and add a `review_focus` input used only by the review hook. Keep the existing explicit context/API, typed proposal and launcher behavior. Record every context/constructor/hook/call-site edit this requires. Exercise two distinct focus values: the review provider receives the chosen value, while the revise provider's delivered inputs remain unchanged. The explicit context record may still reach both hooks; that forwarding cost is part of the assessment. Check dynamic input transport, not literal prompt prose.
+- [ ] **Reviewed-change edit:** reuse the same shipped `std/improve` with this domain's state and review/revise hooks. Preserve the original `Review` provider boundary, refined `ReviewReport` and exact terminal `Outcome`; map inside the typed workflow. Preserve independent coder/reviewer order, REQUEST_CHANGES versus WRONG_APPROACH, NEEDS_HUMAN as a value, report files, round counts and the final-round refusal to invoke another coder. Keep nested condition/call/result mapping in its natural place; add no private-workflow wrapper merely to repair a historical positional restriction. Current `std/improve` invokes revise even on its last REVISE; the review hook must terminate final-round rejection before revise, preserving the original summary/reason and round value.
+- [ ] Write behavioral oracles before adapting each variant. Reuse the proposal and reviewed-change scenario data; cover proposal APPROVED/BLOCKED/EXHAUSTED and reviewed-change approval, revision, redo, escalation and both terminal revision/redo reasons. Verify returned values, artifact bytes/path contracts, required effect order and invocation counts. Where the old route works, compare with its maintained baseline; for formerly broken helper compositions, check the intended contract rather than weakened historical variants.
+- [ ] For each changed program, collect diagnostics and public compile/dry-run/run/resume output using the existing CLI seam below. Stop at a committed review or revision using the existing stop hook; choose a marker from the variant's own effect identity and record it. Assert that resume adds only remaining requests, preserves committed bytes, and that completed resume changes no workspace byte. A compilation failure or missing parity is recorded as missing evidence, never an expected-failure substitute for acceptance.
+
+The existing `_cli` in `tests/test_workflow_evaluated_invalidate.py` and installed `frontend` argv make the commands concrete without another launcher:
+
+```python
+_cli(root, "compile", *frontend, "--diagnostics-json")
+_cli(root, "run", *frontend, "--input-file", "inputs.json", "--dry-run")
+stop_after(root, ["run", *frontend, "--input-file", "inputs.json"], marker)
+resume_to_completion(root)  # public resume, then byte-identical completed resume
+```
+
+Retain actual argv, exits, source/input hashes, run IDs, memo/request counts and logs in C6. Compile/dry-run/resumes must exit 0; the deliberate post-commit stop exits 75. Use subprocess CLI execution, not an evaluator-only shortcut. Shims exercise the real performer/result lifecycle; they do not establish real model quality. Existing 14D live evidence covers the unchanged provider boundary, not the new variant's utility; no additional live study or experiment launcher is selected.
+
+## Task 3 — Qualify W3 without implementing it
+
+**Create:** `phase6a_reviewed_change_bound.orc.txt`, `phase6a_w3_proposed.orc.txt`; extend the pilot test/report.
+
+- [ ] Following component Task 4, make a scratch-only local copy of `improve` without `inputs I` in the bound variant's module, and use today's `bind-proc` or explicitly captured/typed `let-proc` to supply the reviewed-change context. Reuse the contract and scenario oracles from Task 2. The scratch helper is feasibility evidence, not an exported production API or an `improve-v2` compatibility layer.
+- [ ] Exercise the current-syntax bound variant through public compile/run/resume, including distinct enclosing values and forwarding a committed result without redispatch. If an unsupported shape appears, retain the smallest failing source, diagnostic and missing behavior for Design; do not silently weaken the contract or implement a compiler change under this plan.
+- [ ] Write the corresponding proposed W3 caller as `.orc.txt`, clearly marked non-runnable and excluded from collection/CLI execution. Compare multiple local bindings, inferred captures and expected signatures against the working explicit variants. Show what changes when only one hook needs an additional enclosing value; retain domain records with independent uses. Run the existing line counter, report deleted forwarding and meaningful layers, and assess locality without a percentage gate.
+- [ ] Produce Task 4's decision table: concrete grammar/expected-signature questions, lexical capture obligations, maintained `improve` callers/fixtures/imports, and target/std-module/checkpoint compatibility options. Inventory with `rg -n 'std/improve|\(improve\b' workflows experiments tests orchestrator/workflow_lisp/stdlib_modules`. Distinguish historical copies from maintained consumers. **Recommendations are not selections:** leave unresolved target/compatibility decisions explicitly open for the coordinator/owner before W3 Task 6 and Tasks 11–14. Pilot completion does not mark all of W3 Task 4 complete when its decisions remain open.
+
+## Task 4 — Verify, assess and hand off
+
+**Files:** pilot tests/report; census addendum and index route. No product changes.
+
+- [ ] After adding tests, run `python -m pytest --collect-only -q tests/test_workflow_evaluated_phase6a_pilot.py`, then `python -m pytest -q tests/test_workflow_evaluated_phase6a_pilot.py`. Launch from the execution checkout root with `PYTHONPATH=$PWD`; subprocess workspaces are created by the existing fixtures. Extend checks only for actual changes or unresolved failures. Keep new modules under 500 lines and new functions at default Radon CC below 12; keep assertion groups readable.
+- [ ] Reuse an exact valid final Phase 3 watchdog handoff receipt; if absent or relevant fixture/runtime owners changed, run `python -m pytest -q tests/test_workflow_evaluated_artifacts.py::test_public_watchdog_repair_links_producer_read_and_publication` once. It supplies the producer → declared read → provider → publisher control; no new handoff harness is needed. Do not count a path string or C9 edge alone as evidence of an actual file read.
+- [ ] Have an independent reviewer inspect both edits, failed attempts and public evidence: does the shared helper preserve both domains, do the layers serve real responsibilities, is input-change locality improved, and what friction remains? Missing W3/context/parallel evidence stays missing. This is a bounded first assessment, not a global abandon/continue verdict or an AA trial.
+- [ ] Coordinator applies the parent's per-phase closeout: compatibility against the delivered Phase 3 baseline, totality accounting, fresh public evidence for changed forms, an isolated full suite in tmux using `pytest -q -n 16 --dist=worksteal`, baseline disposition of failures, required independent phase review, and safe fast-forward merge/push. Reuse still-valid baseline/old-target evidence where source and identity inputs are unchanged; no normalization, weakened pins or unreviewed gate waiver. Record the exact candidate and fresh/reused scope before claiming closure.
+- [ ] Publish the report and census addendum, retaining before/after sources and evidence limits. Hand the W3 qualification/decisions to Phase 4c, artifact/control findings to consumer-driven Phase 4, and only the existing serial `best_of_n.orc` need to independent Phase 5. Phase 6b still owns canonical maintained-consumer migration; Phase 7 still requires completed 6b and explicit decision 8 for old targets/runs.
+
+Acceptance is executable contract preservation for the two edits plus an honest authoring/W3 assessment. An unexpected admitted-runtime defect returns to the responsible owner with a bounded reproduction and reviewed correction; it is not permission for speculative architecture, a new target, or retirement.
+
+Completing this bounded pilot does not close all of parent Phase 6a while W3 Task 4's migration/compatibility decision remains unresolved. Keep that decision, its owner and next step open in the delivery ledger; a later decision-only update reuses valid unchanged verification evidence.
