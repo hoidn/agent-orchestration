@@ -380,16 +380,18 @@ def local_definition_keys_for_module(
                 walk(item, callable_owner)
             return
         if head_name == "let-proc" and len(datum.items) > 1:
-            binding = datum.items[1]
-            if isinstance(binding, SyntaxList) and binding.items:
-                name = binding.items[0]
-                if isinstance(name, SyntaxIdentifier) and owner is not None:
-                    ordinal_key = (owner, name.resolved_name)
-                    ordinal = declaration_ordinals[ordinal_key]
-                    declaration_ordinals[ordinal_key] += 1
-                    declarations_by_origin[
-                        (span_key(binding.span), owner, name.resolved_name)
-                    ].append(ordinal)
+            container = datum.items[1]
+            bindings = container.items if isinstance(container, SyntaxList) and container.items and isinstance(container.items[0], SyntaxList) else (container,)
+            for binding in bindings:
+                if isinstance(binding, SyntaxList) and binding.items:
+                    name = binding.items[0]
+                    if isinstance(name, SyntaxIdentifier) and owner is not None:
+                        ordinal_key = (owner, name.resolved_name)
+                        ordinal = declaration_ordinals[ordinal_key]
+                        declaration_ordinals[ordinal_key] += 1
+                        declarations_by_origin[
+                            (span_key(binding.span), owner, name.resolved_name)
+                        ].append(ordinal)
             for item in datum.items[1:]:
                 walk(item, owner)
             return
@@ -521,28 +523,30 @@ def local_definition_dids_for_module(
                 walk(item, owner_did)
             return
         if head_name == "let-proc" and len(datum.items) > 1:
-            binding = datum.items[1]
-            if isinstance(binding, SyntaxList) and binding.items:
-                name = binding.items[0]
-                if owner_did is not None and isinstance(name, SyntaxIdentifier):
-                    from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
+            container = datum.items[1]
+            bindings = container.items if isinstance(container, SyntaxList) and container.items and isinstance(container.items[0], SyntaxList) else (container,)
+            for binding in bindings:
+                if isinstance(binding, SyntaxList) and binding.items:
+                    name = binding.items[0]
+                    if owner_did is not None and isinstance(name, SyntaxIdentifier):
+                        from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 
-                    owner_key = canonical_json_for_pure_value(owner_did)
-                    ordinal_key = (owner_key, name.resolved_name)
-                    ordinal = declaration_ordinals[ordinal_key]
-                    declaration_ordinals[ordinal_key] = ordinal + 1
-                    local_did = (
-                        module_name,
-                        "procedure",
-                        {
-                            "owner": list(owner_did),
-                            "name": name.resolved_name,
-                            "ordinal": ordinal,
-                        },
-                    )
-                    declarations_by_origin[
-                        (span_key(binding.span), owner_did[2], name.resolved_name)
-                    ].append(local_did)
+                        owner_key = canonical_json_for_pure_value(owner_did)
+                        ordinal_key = (owner_key, name.resolved_name)
+                        ordinal = declaration_ordinals[ordinal_key]
+                        declaration_ordinals[ordinal_key] = ordinal + 1
+                        local_did = (
+                            module_name,
+                            "procedure",
+                            {
+                                "owner": list(owner_did),
+                                "name": name.resolved_name,
+                                "ordinal": ordinal,
+                            },
+                        )
+                        declarations_by_origin[
+                            (span_key(binding.span), owner_did[2], name.resolved_name)
+                        ].append(local_did)
             for item in datum.items[1:]:
                 walk(item, owner_did)
             return

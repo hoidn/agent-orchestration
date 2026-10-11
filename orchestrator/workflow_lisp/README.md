@@ -6,7 +6,12 @@ forms through the WCC/schema-2 middle-end into Core AST / Semantic IR /
 Executable IR, and then sends the validated executable workflow through the
 existing workflow loader and runtime pipeline. Legacy schema-1/direct lowering
 surfaces remain compatibility paths, not the preferred route for new migrated
-evidence.
+evidence. Registered evaluated targets 2.35/2.36 instead compile a checked
+closed program and execute through the evaluated runtime; this does not add
+an evaluated value to the flat `LoweringRoute` enum. At 2.36, source-graph
+selection supplies one W3 `std/improve` API and existing generated local
+procedures. The [Phase 4c plan](../../docs/plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+records qualification and delivery evidence.
 
 Start with these project docs before changing the package:
 
@@ -89,8 +94,10 @@ control, effects, values, and stdlib bridge surfaces.
 
 Use [../../docs/workflow_lisp_route_readiness_registry.json](../../docs/workflow_lisp_route_readiness_registry.json)
 and `route_readiness.py` when deciding whether an example, fixture, or
-migration target is current `wcc_default` evidence or legacy compatibility
-evidence.
+migration target is `wcc_default` flat evidence, `evaluated_execution` closed
+program evidence, or legacy compatibility evidence. Evaluated rows omit flat
+lowering route/schema fields and use public CLI evidence; the registry does
+not select compiler/runtime behavior or certify evaluated LSP support.
 
 ## Main Data Shapes
 

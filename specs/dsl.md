@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (admitted revisions extend through `"2.35"`; target 2.35 selects evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions, for admission and availability). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (admitted revisions extend through `"2.36"`; targets 2.35 and 2.36 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -805,7 +805,7 @@ source.
       `match`, reusable calls, and effectful procedures. Target 2.24 rejects it
       in pure functions, pure settlement/evaluation bodies, `loop/recur`,
       `list/map-effect`, and generated repeat/for-each effect frames. A later
-      reviewed target owns effect-loop settlement. Under a 2.35 entry a
+      reviewed target owns effect-loop settlement. Under a 2.35 or 2.36 entry a
       path-mode `run-ref` is additionally admitted in a loop body, in a
       budget or seed expression, as a `match` subject and as the one-effect
       body of a serial `list/map-effect`, directly or through admitted

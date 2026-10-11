@@ -111,6 +111,39 @@ def _codes(validation) -> set[str]:
     return {issue.code for issue in validation.issues}
 
 
+def test_evaluated_registry_metadata_has_no_flat_route(tmp_path: Path) -> None:
+    entry = _base_entry(route_label="evaluated_execution")
+    entry.pop("lowering_route")
+    entry.pop("lowering_schema_version")
+    registry = load_route_readiness_registry(_write_registry(tmp_path, [entry]))
+    issues = validate_route_readiness_registry(registry, REPO_ROOT).issues
+    assert not [issue for issue in issues if issue.surface_id == entry["surface_id"]]
+
+
+@pytest.mark.parametrize("field,value", [("lowering_route", "wcc_m4"), ("lowering_schema_version", 2)])
+def test_evaluated_registry_rejects_either_flat_field(tmp_path: Path, field, value) -> None:
+    entry = _base_entry(route_label="evaluated_execution")
+    entry.pop("lowering_route")
+    entry.pop("lowering_schema_version")
+    entry[field] = value
+    registry = load_route_readiness_registry(_write_registry(tmp_path, [entry]))
+    issues = validate_route_readiness_registry(registry, REPO_ROOT).issues
+    assert any(issue.code == "route_readiness_schema_mismatch" and issue.field == field for issue in issues)
+
+
+def test_evaluated_registry_cannot_invoke_flat_compile_helper(tmp_path: Path) -> None:
+    entry = _base_entry(route_label="evaluated_execution")
+    entry.pop("lowering_route")
+    entry.pop("lowering_schema_version")
+    path = _write_registry(tmp_path, [entry])
+    calls = []
+    with pytest.raises(AssertionError, match="no compile route/schema"):
+        compile_registered_route_case(entry["surface_id"], source_path=REPO_ROOT / entry["path"],
+                                      repo_root=REPO_ROOT, registry_path=path,
+                                      compile_func=lambda *args, **kwargs: calls.append(args))
+    assert calls == []
+
+
 def _evidence_codes(validation) -> set[str]:
     return {
         issue.code

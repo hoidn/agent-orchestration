@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
 from ..compiler_session import LoweringSessionState
-from ..conditionals import PureExprCondition, render_condition_predicate
+from ..conditionals import LiteralBoolCondition, PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..expression_traversal import free_expr_names, iter_child_exprs, map_expr
 from ..expressions import (
@@ -67,7 +67,7 @@ from ..syntax import (
     target_dsl_supports_rich_loop_values,
 )
 from ..typecheck_context import TypedExpr
-from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
+from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef, VariantCaseTypeRef
 from ..workflows import CommandBoundaryEnvironment, ExternEnvironment, TypedWorkflowDef, WorkflowCatalog, WorkflowDef, WorkflowSignature
 from ..workflow_refs import WorkflowCallableSpecialization, specialization_name
 from ..workflow_refs import ResolvedWorkflowRef
@@ -82,6 +82,8 @@ from ..lexical_checkpoint_restore import build_restore_metadata
 from ..lexical_checkpoint_effect_policies import build_effect_resume_policy
 from ..lexical_checkpoints import allocate_checkpoint_storage, derive_checkpoint_id, derive_program_point_id
 from ..lowering.context import (
+    _capture_private_reserved,
+    _consume_capture_expr,
     _LoweringContext,
     _TerminalResult,
     _context_with_local_type_binding,
@@ -761,6 +763,10 @@ def _lower_one_wcc_workflow(
         )
     )
     local_values = _signature_local_values(typed_workflow, type_env=type_env)
+    capture_roots = dict(typed_workflow.typed_body.binding_environment)
+    context = replace(context, capture_visible_bindings=capture_roots,
+        capture_original_values={identity: (local_values[name], context.local_type_bindings[name])
+            for name, identity in capture_roots.items() if name in local_values and name in context.local_type_bindings})
     wcc_body, _ = rename_capturing_binders(wcc_body, reserved=local_values)
     scope_analysis = analyze_wcc_body(wcc_body)
     continuation_binding_demands = _wcc_continuation_binding_demands(wcc_body)
@@ -2297,6 +2303,10 @@ def _defunctionalize_body(
                 updated_locals[body.bound_name] = local_value
         else:
             binding_expr = _frontend_expr_from_wcc_binding_value(body.bound_value)
+            projection_context, projection_locals = context, updated_locals
+            if isinstance(body.bound_value, (WccOpaqueFrontendValue, WccSelect)):
+                binding_expr, projection_context, projection_locals = _capture_opaque_projection_scope(
+                    binding_expr, context=context, local_values=updated_locals)
             expansion_owned = (
                 target_dsl_supports_pure_call_composition(
                     context.type_env.target_dsl_version
@@ -2310,15 +2320,24 @@ def _defunctionalize_body(
                 )
             )
             expansion_projection = expansion_owned and is_pure_projection_expr(binding_expr)
+            if isinstance(body.bound_value, WccNameAtom) and body.bound_value.is_capture_read:
+                private_values, private_types = dict(updated_locals), {}
+                binding_expr = _consume_capture_expr(
+                    replace(binding_expr, capture_origin=(body.bound_value.metadata.binding_identity, body.bound_value.metadata.type_ref)),
+                    context=context, private_values=private_values, private_types=private_types,
+                    reserved=_capture_private_reserved(binding_expr, context, updated_locals))
+                if private_types:
+                    projection_context = replace(context, local_type_bindings={**context.local_type_bindings, **private_types})
+                    projection_locals = private_values
             resolved_binding = (
                 None if expansion_projection else _resolve_wcc_inline_expr_value(
-                    binding_expr, local_values=updated_locals,
+                    binding_expr, local_values=projection_locals,
                 )
             )
             binding_kind, selected_value = wcc_binding_materialization(
                 binding_expr,
                 expansion_owned=expansion_owned,
-                existing_ref=(updated_locals.get(binding_expr.name) if isinstance(binding_expr, NameExpr) else None),
+                existing_ref=(projection_locals.get(binding_expr.name) if isinstance(binding_expr, NameExpr) else None),
                 resolved_binding=resolved_binding,
                 run_ref_demand=body.bound_name in run_ref_input_names,
                 provider_context_demand=body.bound_name in provider_context_names,
@@ -2336,8 +2355,8 @@ def _defunctionalize_body(
                         source_expr=binding_expr,
                         binding_name=body.bound_name,
                         binding_type=binding_type,
-                        context=context,
-                        local_values=updated_locals,
+                        context=projection_context,
+                        local_values=projection_locals,
                         step_name_prefix=binding_step_name,
                     )
                 )
@@ -2371,8 +2390,8 @@ def _defunctionalize_body(
                     source_expr=binding_expr,
                     binding_name=body.bound_name,
                     binding_type=binding_type,
-                    context=context,
-                    local_values=updated_locals,
+                    context=projection_context,
+                    local_values=projection_locals,
                     step_name_prefix=binding_step_name,
                     whole_value=True,
                 )
@@ -2385,8 +2404,8 @@ def _defunctionalize_body(
                     source_expr=binding_expr,
                     binding_name=body.bound_name,
                     binding_type=binding_type,
-                    context=context,
-                    local_values=updated_locals,
+                    context=projection_context,
+                    local_values=projection_locals,
                     step_name_prefix=binding_step_name,
                 )
                 binding_hidden_inputs.update(binding_terminal.hidden_inputs)
@@ -2402,8 +2421,8 @@ def _defunctionalize_body(
                 lowered_projection = lower_pure_projection_step(
                     selected_value,
                     result_type=binding_type,
-                    context=context,
-                    local_values=updated_locals,
+                    context=projection_context,
+                    local_values=projection_locals,
                     step_name=binding_step_name,
                     step_id=binding_step_id,
                     stable_target="binding_projection",
@@ -2435,10 +2454,16 @@ def _defunctionalize_body(
                 )
             else:
                 updated_locals[body.bound_name] = selected_value
+        origin_values = dict(context.capture_original_values)
+        visible_origins = dict(context.capture_visible_bindings)
+        visible_origins[body.bound_name] = body.metadata.binding_identity
+        if body.metadata.binding_identity is not None:
+            origin_values[body.metadata.binding_identity] = (updated_locals[body.bound_name], binding_type)
+        scoped_context = replace(context, capture_original_values=origin_values, capture_visible_bindings=visible_origins)
         nested_steps, nested_terminal = _defunctionalize_body(
             body.body,
             context=lowering_core._context_with_local_type_binding(
-                context,
+                scoped_context,
                 binding_name=body.bound_name,
                 binding_type=binding_type,
             ),
@@ -2943,6 +2968,7 @@ def _defunctionalize_rec_join(
         ),
         context=loop_context,
         local_values=loop_local_values,
+        loop_binding_identity=body.metadata.binding_identity,
     )
     if pending_effect_values:
         raise _loop_effect_compile_error(
@@ -3400,15 +3426,26 @@ def _defunctionalize_case(
                 binding_name=arm.binding_name,
                 binding_type=arm_binding_type,
             )
+        arm_values = _match_arm_local_values(
+            local_values=local_values,
+            binding_name=arm.binding_name,
+            binding_terminal=binding_terminal,
+            binding_type=arm_binding_type,
+        )
+        arm_visible = dict(arm_context.capture_visible_bindings)
+        arm_visible[arm.binding_name] = arm.binding_identity
+        arm_original_values = dict(arm_context.capture_original_values)
+        if arm.binding_identity is not None:
+            arm_original_values[arm.binding_identity] = (
+                arm_values[arm.binding_name], arm.binding_type_ref,
+            )
+        arm_context = replace(arm_context,
+            capture_visible_bindings=arm_visible,
+            capture_original_values=arm_original_values)
         arm_steps, arm_terminal = _defunctionalize_body(
             arm.body,
             context=arm_context,
-            local_values=_match_arm_local_values(
-                local_values=local_values,
-                binding_name=arm.binding_name,
-                binding_terminal=binding_terminal,
-                binding_type=arm_binding_type,
-            ),
+            local_values=arm_values,
             scope_analysis=scope_analysis,
             continuation_binding_demands=continuation_binding_demands,
             lexical_checkpoint_points=lexical_checkpoint_points,
@@ -3607,9 +3644,12 @@ def _defunctionalize_if(
         if body.else_proof_context
         else local_values
     )
+    capture_literal = body.condition_shape.value if isinstance(body.condition_shape, LiteralBoolCondition) else None
+    then_capture_context = replace(context, capture_consumption_enabled=context.capture_consumption_enabled and capture_literal is not False)
+    else_capture_context = replace(context, capture_consumption_enabled=context.capture_consumption_enabled and capture_literal is not True)
     then_steps, then_terminal = _defunctionalize_body(
         body.then_body,
-        context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=then_step_name),
+        context=lowering_core._copy_context_with_step_prefix(then_capture_context, step_name_prefix=then_step_name),
         local_values=then_local_values,
         scope_analysis=scope_analysis,
         continuation_binding_demands=continuation_binding_demands,
@@ -3622,7 +3662,7 @@ def _defunctionalize_if(
     ]
     else_steps, else_terminal = _defunctionalize_body(
         body.else_body,
-        context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=else_step_name),
+        context=lowering_core._copy_context_with_step_prefix(else_capture_context, step_name_prefix=else_step_name),
         local_values=else_local_values,
         scope_analysis=scope_analysis,
         continuation_binding_demands=continuation_binding_demands,
@@ -6694,6 +6734,21 @@ def _lower_wcc_procedure_call(
         procedure, caller_values=local_values, actual_values=arg_values,
     )
 
+    from ..expression_traversal import map_expr
+    from ..expressions import BindProcExpr
+    private_types = {}
+    actual_source = value.bound_proc_source
+    static_values = dict(getattr(procedure.specialization, "value_bindings", {}))
+    if isinstance(actual_source, BindProcExpr):
+        static_values.update({item.name: item.value_expr for item in actual_source.bindings})
+    else:
+        static_values.update({item.name: item.value_expr for item in getattr(actual_source, "bound_args", ())})
+    private_reserved = _capture_private_reserved(tuple(static_values.values()), context, child_locals)
+    for static_name, static_expr in static_values.items():
+        child_locals[static_name] = _consume_capture_expr(
+            static_expr, context=context, private_values=child_locals,
+            private_types=private_types, reserved=private_reserved)
+
     prefix_ordinal = context.inline_call_counters.get(value.callee_name, 0) + 1
     context.inline_call_counters[value.callee_name] = prefix_ordinal
     call_source = LowerableProcedureCall(
@@ -6734,6 +6789,7 @@ def _lower_wcc_procedure_call(
         local_type_bindings={
             **dict(context.local_type_bindings),
             **_procedure_signature_local_type_bindings(procedure),
+            **private_types,
         },
         type_env=_procedure_type_env_for(
             procedure,
@@ -6787,6 +6843,18 @@ def _lower_wcc_procedure_call(
             caller_locals=local_values,
             caller_context=context,
         )
+    activation_types = _procedure_signature_local_type_bindings(procedure)
+    activation_ids = procedure.typed_body.binding_environment
+    activation_origins = dict(child_context.capture_original_values)
+    activation_visible = dict(child_context.capture_visible_bindings)
+    for name, param_type in activation_types.items():
+        identity = activation_ids.get(name)
+        actual_name = renamed_params.get(name, name)
+        if identity is not None and actual_name in child_locals:
+            activation_origins[identity] = (child_locals[actual_name], param_type)
+            activation_visible[actual_name] = identity
+    child_context = replace(child_context, capture_original_values=activation_origins,
+        capture_visible_bindings=activation_visible)
     steps, terminal = _defunctionalize_body(
         wcc_body,
         context=child_context,
@@ -6962,7 +7030,14 @@ def _wcc_workflow_call_exclusively_consumes_binding(
 def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] | None = None):
     resolved_env: Mapping[str, object] = env or {}
     if isinstance(body, WccLet):
+        capture_source = None
+        if isinstance(body.bound_value, WccNameAtom) and body.bound_value.is_capture_read:
+            if body.bound_value.metadata.binding_identity is None:
+                raise ValueError("loop capture read has no origin identity")
+            capture_source = (body.bound_value.metadata.binding_identity, body.bound_type_ref)
         binding_expr = (
+            _frontend_expr_from_wcc_value(body.bound_value)
+            if capture_source is not None else
             _frontend_expr_from_wcc_loop_binding_value(
                 body.bound_value,
                 env=resolved_env,
@@ -6972,7 +7047,10 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] |
         )
         nested_env: Mapping[str, object] = resolved_env
         if not isinstance(body.bound_value, (WccPerform, WccCall)):
-            nested_env = {**dict(resolved_env), body.bound_name: binding_expr}
+            nested_env = {**dict(resolved_env), body.bound_name: (
+                NameExpr(name=body.bound_name, span=body.metadata.source_span,
+                    form_path=body.metadata.form_path, expansion_stack=body.metadata.expansion_stack)
+                if capture_source is not None else binding_expr)}
         if (
             isinstance(binding_expr, PathJoinUnderExpr)
             and _wcc_workflow_call_exclusively_consumes_binding(
@@ -6986,6 +7064,8 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] |
             )
         return LetStarExpr(
             bindings=((body.bound_name, binding_expr),),
+            binding_identities=(body.metadata.binding_identity,),
+            binding_capture_sources=(capture_source,),
             body=_frontend_expr_from_wcc_loop_body(body.body, nested_env),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
@@ -6998,6 +7078,7 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] |
                 MatchArm(
                     variant_name=arm.variant_name,
                     binding_name=arm.binding_name,
+                    binding_identity=arm.binding_identity,
                     body=_frontend_expr_from_wcc_loop_body(arm.body, resolved_env),
                     span=arm.body.metadata.source_span,
                     form_path=arm.body.metadata.form_path,
@@ -7251,10 +7332,9 @@ def _frontend_wcc_select_arm_with_env(
         bindings.append(
             (
                 let_node.bound_name,
-                _frontend_expr_from_wcc_value_with_env(
-                    let_node.bound_value,
-                    local_env,
-                ),
+                (_frontend_expr_from_wcc_value(let_node.bound_value)
+                    if isinstance(let_node.bound_value, WccNameAtom) and let_node.bound_value.is_capture_read
+                    else _frontend_expr_from_wcc_value_with_env(let_node.bound_value, local_env)),
             )
         )
         local_env[let_node.bound_name] = NameExpr(
@@ -7268,6 +7348,11 @@ def _frontend_wcc_select_arm_with_env(
         return value_expr
     return LetStarExpr(
         bindings=tuple(bindings),
+        binding_identities=tuple(node.metadata.binding_identity for node in arm.prefix),
+        binding_capture_sources=tuple(
+            (node.bound_value.metadata.binding_identity, node.bound_type_ref)
+            if isinstance(node.bound_value, WccNameAtom) and node.bound_value.is_capture_read
+            else None for node in arm.prefix),
         body=value_expr,
         span=arm.value.metadata.source_span,
         form_path=arm.value.metadata.form_path,
@@ -7634,8 +7719,47 @@ def _frontend_wcc_select_arm(arm: WccSelectArm):
         return value_expr
     return LetStarExpr(
         bindings=bindings,
+        binding_identities=tuple(node.metadata.binding_identity for node in arm.prefix),
+        binding_capture_sources=tuple(
+            (node.bound_value.metadata.binding_identity, node.bound_type_ref)
+            if isinstance(node.bound_value, WccNameAtom) and node.bound_value.is_capture_read
+            else None for node in arm.prefix),
         body=value_expr,
         span=arm.value.metadata.source_span,
         form_path=arm.value.metadata.form_path,
         expansion_stack=arm.value.metadata.expansion_stack,
     )
+
+
+def _capture_opaque_projection_scope(expr, *, context, local_values):
+    from ..expressions import BindProcExpr, LetProcExpr, LetStarExpr, NameExpr
+    from ..expression_traversal import iter_child_exprs, _rebuild_with_replacements
+    private_values, private_types = dict(local_values), {}
+    reserved = _capture_private_reserved(expr, context, local_values)
+    def rewrite(node, visible_bindings):
+        # Declarations are not an actual capture consumer.
+        if isinstance(node, (BindProcExpr, LetProcExpr)):
+            return node
+        if isinstance(node, LetStarExpr):
+            local_visible = dict(visible_bindings)
+            bindings = []
+            for index, (name, value) in enumerate(node.bindings):
+                row = node.binding_capture_sources[index] if index < len(node.binding_capture_sources) else None
+                if row is not None:
+                    if not isinstance(value, NameExpr):
+                        raise ValueError("capture row RHS is not the retained name read")
+                    value = _consume_capture_expr(replace(value, capture_origin=row),
+                        context=replace(context, capture_visible_bindings=local_visible), private_values=private_values,
+                        private_types=private_types, reserved=reserved)
+                else:
+                    value = rewrite(value, local_visible)
+                bindings.append((name, value))
+                local_visible[name] = node.binding_identities[index] if index < len(node.binding_identities) else None
+            return replace(node, bindings=tuple(bindings), body=rewrite(node.body, local_visible))
+        children = iter_child_exprs(node)
+        replacements = {id(child): rewrite(child, visible_bindings) for child in children}
+        return _rebuild_with_replacements(node, replacements) if replacements else node
+    rewritten = rewrite(expr, context.capture_visible_bindings)
+    if not private_types:
+        return expr, context, local_values
+    return rewritten, replace(context, local_type_bindings={**context.local_type_bindings, **private_types}), private_values

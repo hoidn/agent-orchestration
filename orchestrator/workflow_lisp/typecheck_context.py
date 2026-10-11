@@ -122,6 +122,7 @@ def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionStat
         loop_context=list(state.loop_context),
         generated_local_procedures=dict(state.generated_local_procedures),
         let_proc_rewrite_results=dict(state.let_proc_rewrite_results),
+        pending_local_hook_preparer=state.pending_local_hook_preparer,
         workflow_signature=state.workflow_signature,
         procedure_hidden_context_signature=state.procedure_hidden_context_signature,
         reusable_state_producer_context=(
@@ -168,6 +169,7 @@ def restore_session_state(
     state.loop_context = list(snapshot.loop_context)
     state.generated_local_procedures = dict(snapshot.generated_local_procedures)
     state.let_proc_rewrite_results = dict(snapshot.let_proc_rewrite_results)
+    state.pending_local_hook_preparer = snapshot.pending_local_hook_preparer
     state.workflow_signature = snapshot.workflow_signature
     state.procedure_hidden_context_signature = snapshot.procedure_hidden_context_signature
     state.reusable_state_producer_context = snapshot.reusable_state_producer_context

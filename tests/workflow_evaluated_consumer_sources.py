@@ -121,13 +121,15 @@ class Program:
     manifests: dict[str, str]
     assets: tuple[str, ...] = ()
     prepare: Callable[[Path], None] = lambda root: None
+    source_fixture: str | None = None
 
 
 PROGRAMS = {
     "improve": Program(
         "workflows/examples/improve_experiment_proposal.orc", "2.33", "improve_experiment_proposal::run-experiment",
         "workflows/examples", {kind: f"{IMPROVE_INPUTS}/{kind}.json" for kind in FLAGS},
-        (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher),
+        (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher,
+        "tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc"),
     "reviewed_change": Program(
         f"{COMPARISON}/reviewed_change.orc", "2.28", "reviewed_change::reviewed-change", COMPARISON,
         {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo")),
@@ -142,11 +144,21 @@ PROGRAMS = {
          "workflows/library/prompts/generic_run_watchdog/repair_run_failure.md")),
 }
 
+PROGRAMS["improve"].manifests["commands"] = "tests/fixtures/workflow_lisp/improve_legacy/commands.json"
+PROGRAMS["w3_improve"] = Program(
+    "workflows/examples/improve_experiment_proposal.orc", "2.36", "improve_experiment_proposal::run-experiment",
+    "workflows/examples", {kind: f"{IMPROVE_INPUTS}/{kind}.json" for kind in FLAGS},
+    (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher)
+PROGRAMS["w3_reviewed_change"] = Program(
+    "tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc", "2.36", "reviewed_change::reviewed-change",
+    "tests/fixtures/workflow_lisp/w3_consumers", {"providers": f"{COMPARISON}/reviewed_change.providers.json"},
+    prepare=lambda root: _repository(root / "repo"))
 
-def _copy(root: Path, relpath: str) -> None:
+
+def _copy(root: Path, relpath: str, *, source_fixture: str | None = None) -> None:
     """Copy one file to the same path under `root`; a Python script also logs its executions."""
     (root / relpath).parent.mkdir(parents=True, exist_ok=True)
-    text = (ROOT / relpath).read_text(encoding="utf-8")
+    text = (ROOT / (source_fixture or relpath)).read_text(encoding="utf-8")
     if relpath.endswith(".py"):
         assert text.count(FUTURE) == 1
         text = text.replace(FUTURE, FUTURE + EXEC_LOG)
@@ -172,7 +184,8 @@ def install_shims(bin_dir: Path, monkeypatch, plan: dict) -> None:
 
 def install(root: Path, program: Program, inputs: dict, *, current: bool) -> list[str]:
     """Copy the program into `root`; return its workspace-relative frontend arguments."""
-    for relpath in (program.source, *program.assets):
+    _copy(root, program.source, source_fixture=program.source_fixture)
+    for relpath in program.assets:
         _copy(root, relpath)
     if current:
         source, header = root / program.source, f'(:target-dsl "{program.target}")'

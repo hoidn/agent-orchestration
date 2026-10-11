@@ -621,6 +621,40 @@ def test_readback_refuses_schema_representation_and_site_table_changes(field, va
     assert (excinfo.value.code, excinfo.value.rule) == ("closed_program_invalid", rule)
 
 
+@pytest.mark.parametrize("target", ["2.35", "2.36"])
+def test_readback_accepts_registered_evaluated_source_targets(target) -> None:
+    tree, _ = _command_result_tree()
+    tree["target"] = target
+
+    readback = ClosedProgram.from_artifact(json.dumps(tree))
+
+    assert readback.tree["target"] == target
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("2.34", id="known-flat-target"),
+        pytest.param("99.99", id="unknown-string"),
+        pytest.param(236, id="integer"),
+        pytest.param(None, id="null"),
+        pytest.param([], id="array"),
+        pytest.param({}, id="object"),
+    ],
+)
+def test_readback_refuses_old_unknown_and_malformed_targets(target) -> None:
+    tree, _ = _command_result_tree()
+    tree["target"] = target
+
+    with pytest.raises(ClosedProgramInvalid) as excinfo:
+        ClosedProgram.from_artifact(json.dumps(tree))
+
+    assert (excinfo.value.code, excinfo.value.rule) == (
+        "closed_program_invalid",
+        "program_target",
+    )
+
+
 def test_readback_rejects_duplicate_json_keys() -> None:
     tree, _ = _command_result_tree()
     text = json.dumps(tree, separators=(",", ":"))

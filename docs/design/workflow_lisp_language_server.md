@@ -3,6 +3,7 @@
 - **Status:** implemented through L2/L3/L4/L5; L4 is complete at
   `251d9d53674e863fddae4535ea4f7022914287cd`, tree
   `e2417d395cbcabe9adaffb136759ebff3d42b677`
+- **Evaluated availability:** source/helper selection parity only; evaluated F2 **OPEN_NOT_WAIVED**. See the availability note below.
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -97,6 +98,16 @@
   transport-local serialized compile progress is implemented at `0d5f7009`
   under
   `docs/plans/2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md`.
+
+Evaluated-entry availability is narrower than the legacy LSP surface. For
+the demonstrated W3 sources, CLI and LSP select the same source graph and
+builtin helper, but the LSP still terminates with
+`evaluated_execution_unavailable` after graph
+compilation. Selection/root/hash/read-trace parity does not establish a
+successful evaluated snapshot, semantic navigation or terminal diagnostic
+parity. Evaluated F2 remains **OPEN_NOT_WAIVED**; the existing F2 acceptance
+contract and legacy checks remain unchanged. L2 may supply its existing frozen
+static-form recovery response, never stale callables.
 
 ## Summary
 

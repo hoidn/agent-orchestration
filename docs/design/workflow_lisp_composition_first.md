@@ -6,7 +6,9 @@
   [`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
   and its rules and known defects are in §11. Not implemented: the EL-1 effect
   rules that §7 adopts, and the §8 consumer migration. The roadmap owns their
-  entry conditions.
+  entry conditions. W3 at 2.36 is implemented;
+  qualification evidence is recorded in the Phase 4c closeout; §3 scopes the graph-selected API and §11.4
+  records the remaining evaluated composition boundaries.
 - **Kind:** language and standard-library architecture decision
 - **Owner:** Workflow Lisp frontend (parametric type system) and standard library
 - **Created:** 2026-09-28
@@ -62,6 +64,19 @@ identifiers, explanation surfaces, or executor extraction.
 | EL-1 distinguishes omitted from explicit-empty effect clauses; specialized forwarding helpers acquire effects under empty clauses. | `docs/design/workflow_lisp_effect_ledger_simplification.md`; `docs/reports/2026-09-08-workflow-lisp-effect-tracking-audit.md` | Adopt EL-1 as written. Migration must be definition-origin aware. |
 
 ## 3. Interface
+
+The five-argument interface below is the legacy source-graph API selected by
+entries through target 2.35. A target-2.36 entry selects the four-argument API
+in [`w3/std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc):
+`improve(initial S, review ProcRef[(S) -> Decision[F B]],
+revise ProcRef[(S F) -> S], limit Int) -> Improvement[S F B]`, with
+`:forall (S F B)` and `S is-record`. The helper keeps source header 2.33;
+every source importer sees the entry-selected API. Old five-argument source
+callers must migrate on retargeting; complete snapshots retain producer
+authority. [Write-once §9](workflow_lisp_write_once.md#9-targets-and-compatibility)
+owns selection and compatibility. W3 is implemented at 2.36; its
+[closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded qualification evidence. Outcome/evidence pairing and exhaustion
+policy are the same for both APIs.
 
 ```text
 (defunion Decision :forall (F B)
@@ -164,6 +179,10 @@ is the reference; it binds both hook results with `let*` before use.
   seeded evidence is needed.
 
 ## 5. Boundaries
+
+This section describes the legacy five-argument API. In a target-2.36
+source graph, hooks take `S` and `S F`; caller context is captured locally
+or prebound with existing `bind-proc`. Effect restrictions remain unchanged.
 
 **Typed feedback.** `F` is domain-owned. The selected hook is a `defproc`. A
 provider-backed review hook may declare
@@ -340,6 +359,10 @@ plus a public compile/run/resume path for the new caller.
 
 ## 11. Known defects and rules at target 2.33
 
+Sections 11.1–11.3 describe the legacy flat target-2.33 route; their rejection
+tables do not establish target-2.36 refusals or remedies. The evaluated W3
+boundaries are in §11.4.
+
 A **rule** is a restriction the language makes on purpose; its diagnostic
 names it. A **defect** is a failure after typecheck, a wrong diagnostic, or
 behavior that contradicts a contract. The
@@ -410,7 +433,7 @@ Labels are those of the totality matrix, or the case letters of the
 | `match` subject identity | A direct generic call without a type-dependent hook or typed prompt can still lower under different step identities from the same call bound by `let*` | At 2.33 and 2.34, `_kept_match_subject` retains the typed subject only for typed prompts and type-dependent hooks; target 2.34 does not broaden this rule to every generic subject | - | `tests/test_workflow_lisp_match_subject_calls.py::test_generic_helper_that_already_compiled_as_match_subject_keeps_its_lowered_output` |
 | Sibling field renaming | A record field that holds a `match` skips the renaming of hoisted bindings of its sibling fields (`wcc/elaborate.py`); no wrong value is known, because such a run stops earlier at the replay index | The elaborator's path for a constructor field that holds a `match` does not compose the other fields' prefixes, so a sibling field's hoisted binding wraps the arms | - | No test yet |
 | Copied pure procedure target | A pure procedure copied by the resolved-inline normalizer is elaborated under the caller's target, against the per-module admission of [versioning](../../specs/versioning.md) | The normalizer does not carry the defining module's target | - | No test yet |
-| Remaining capture defects | `bind-proc` and `let-proc` values can be resolved at the call site and captured by a binder in their defining body; a `let-proc` capture of an effect result can replay the effect; and `with-live-providers` member names can capture in the settlement body. Inlined specialization bindings are otherwise handled. | These are the remaining delayed-capture and effect-replay cases in the all-target scope correction; the other specialization-binding forms are covered | - | `tests/test_workflow_lisp_use_site_scope.py::test_a_bound_value_keeps_its_scope_across_a_later_binder`; `tests/test_workflow_lisp_use_site_scope.py::test_a_captured_effect_result_runs_once`; `tests/test_workflow_lisp_use_site_scope.py::test_a_live_provider_member_does_not_capture_a_pure_binding` |
+| Capture correction and remaining settlement defect | `bind-proc` values and `let-proc` captures retain creation-scope binding identity/type through consuming specialization; an already-produced captured effect result is read once. Capture of a pure binding by a `with-live-providers` member in the settlement body remains OPEN. | The creator-scope and duplicate-producer cases are corrected under [versioning](../../specs/versioning.md); the [pure correction report](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) records their bounded evidence and compatibility limits. The settlement case remains a distinct defect. | - | `tests/test_workflow_lisp_use_site_scope.py::test_a_bound_value_keeps_its_scope_across_a_later_binder`; `tests/test_workflow_lisp_use_site_scope.py::test_a_captured_effect_result_runs_once`; `tests/test_workflow_lisp_use_site_scope.py::test_a_live_provider_member_does_not_capture_a_pure_binding` |
 
 ### 11.4 Runtime and tooling repairs and limitations
 
@@ -423,3 +446,41 @@ Labels are those of the totality matrix, or the case letters of the
 | Explicitly selecting `review_revise_design_docs::review-revise-design-docs` makes `--dry-run` exit 2 with `workflow_signature_mismatch` ("call is missing required binding `run`") and `entry_bootstrap_name_gate_denied`. Compilation without entry selection succeeds ([command](../../README.md#first-compile-check)) | The entry bootstrap accepts only entries named `entry`, `drain` or `promoted-entry-resume-plan-gate-wrapper` | No test yet |
 | A fresh run is retried after a late refusal | The ordinary late-refusal retry is repaired. One strict-`xfail` case remains: after the fresh run is admitted, the watcher can continue following the old completed run ID. | `tests/test_watch_workflow_usage_limit.py::test_a_refusal_printed_after_two_polls_is_retried`; `tests/test_watch_workflow_usage_limit.py::test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id` |
 | The generic run watchdog cannot resume a stalled target while the stalled process holds the target's workspace lock | One run at a time in a workspace (`specs/cli.md`) | No test of a stalled target |
+
+### 11.4 Evaluated W3 boundaries
+
+The maintained target-2.36
+[proposal](../../workflows/examples/improve_experiment_proposal.orc) and
+[reviewed-change fixture](../../tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc)
+exercise provider-backed local hooks, domain dataflow, outcome pairing,
+round-three guards and committed-stop/resume/replay in
+`tests/test_workflow_evaluated_consumers.py`. This bounded evidence does not
+close all composition or compatibility obligations.
+
+Normal lexical/imported consumers returning `Int`, including the demonstrated
+bound and alias forms, are supported. The following distinct limits remain
+OPEN under [Phase 4c Tasks 12/13](../plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md);
+none is a runtime-closure admission. The two Task12 paths below identify
+retained qualification artifacts, not maintained authoring examples:
+
+- A concrete nested direct relay completes an incomplete signature, then
+  refuses `proc_ref_literal_required`; its fully annotated counterpart has
+  the same downstream refusal. This is not a one-site inference refusal.
+- An imported relay returning a local ProcRef for outside use refuses
+  `name_unknown(hook)` for both full/inferred counterparts. Its catalog is
+  signature-only; no executable escape or hidden-body transport is established.
+- The exact explicit target-2.35 pure-helper fixture
+  `unsupported-pure-helper/2.35/w3/local_hooks.orc` still refuses
+  `procedure_call_unknown(hook)`; it predates W3.
+- The exact explicit target-2.35 combined local-record/lexical-callee fixture
+  `public-diagnostic-attested02/before-2.35-combined-local/source.orc` still
+  refuses `compiler_defect(unbound ctx)`; it predates W3. Its matching
+  inferred-2.36 fixture also refuses. Independent field-only, callee-only,
+  creator-record and entry-argument successes do not close this combined case.
+
+Task14B pilot/census evidence has bounded independent acceptance under the
+[recovery owner](../plans/2026-10-10-phase4c-recovery-plan.md). The [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns exact raw
+old-artifact identity, authentic compatible retained-run resume and affected/full
+qualification evidence.
+Evaluated LSP F2 is independently **OPEN_NOT_WAIVED**; source/helper selection
+parity does not certify an evaluated editor snapshot or terminal parity.

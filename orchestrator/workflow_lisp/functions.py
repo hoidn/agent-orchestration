@@ -373,6 +373,7 @@ def retypecheck_resolved_function_definitions(
             workflow_catalog=workflow_catalog,
             typed_workflows_by_name=typed_workflows_by_name,
             require_pure_procedure_calls=True,
+            closed_program=compiler_session.closed_program,
             inlined_constructor_type=inlined_constructor_type,
         )
         typed_body = typecheck_expression(
@@ -853,6 +854,7 @@ def normalize_resolved_inline_procedure_calls(
     workflow_catalog: "WorkflowCatalog | None" = None,
     typed_workflows_by_name: Mapping[str, object] | None = None,
     require_pure_procedure_calls: bool = False,
+    closed_program: bool = False,
     inlined_constructor_type: Callable[[object, ExprNode], TypeRef] | None = None,
 ) -> TypedExpr | ExprNode:
     """Reduce final-inline procedure calls through the shared typed-expression path.
@@ -871,6 +873,37 @@ def normalize_resolved_inline_procedure_calls(
     from .procedure_specialization import materialized_specialization_rows
     from .workflow_refs import resolve_workflow_ref_expr
 
+    def contains_selected_effect(
+        value: ExprNode,
+        *,
+        proc_ref_bindings: Mapping[str, object],
+        workflow_ref_bindings: Mapping[str, object],
+    ) -> bool:
+        from .conditionals import _EFFECT_EXPRS
+
+        for candidate in walk_expr(value):
+            if isinstance(candidate, ProcedureCallExpr):
+                _binding, owner, _args = select_call_procedure(
+                    candidate,
+                    candidate.args,
+                    proc_ref_bindings=proc_ref_bindings,
+                    workflow_ref_bindings=workflow_ref_bindings,
+                )
+                summary = getattr(owner, "transitive_effect_summary", None)
+                if summary is not None and (
+                    summary.direct_effects or summary.transitive_effects
+                ):
+                    return True
+            elif isinstance(candidate, _EFFECT_EXPRS + (
+                TrialExpr, ResumeOrStartExpr, WithLiveProvidersExpr,
+                WithLiveProviderPeersExpr, ListMapEffectExpr,
+            )):
+                return True
+        return False
+
+    visible_bindings = dict(node.binding_environment) if isinstance(node, TypedExpr) else {}
+    visible_literal_values: dict[object, LiteralExpr] = {}
+    capture_reification_enabled = True
     active_callees: set[str] = set()
     allocator = _HygienicExpansionMode()
 
@@ -964,12 +997,51 @@ def normalize_resolved_inline_procedure_calls(
             )
         return rows[0]
 
+    def select_call_procedure(
+        expr: ProcedureCallExpr,
+        rewritten_args: tuple[ExprNode, ...],
+        *,
+        proc_ref_bindings: Mapping[str, object],
+        workflow_ref_bindings: Mapping[str, object],
+    ) -> tuple[object | None, object | None, tuple[ExprNode, ...]]:
+        selected_binding = proc_ref_bindings.get(expr.callee_name)
+        selected_name = getattr(selected_binding, "call_target_name", expr.callee_name)
+        candidate_procedure = typed_procedures_by_name.get(selected_name)
+        procedure = candidate_procedure
+        expansion_args = rewritten_args
+        if candidate_procedure is not None:
+            authored_params = candidate_procedure.signature.params
+            selected_procedure = select_materialized_procedure(
+                candidate_procedure,
+                args=rewritten_args,
+                proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings,
+            )
+            if selected_procedure is None:
+                return selected_binding, None, rewritten_args
+            procedure = selected_procedure
+            selected_specialization = getattr(procedure, "specialization", None)
+            selected_compile_time_params = {
+                *getattr(selected_specialization, "proc_ref_bindings", {}),
+                *getattr(selected_specialization, "workflow_ref_bindings", {}),
+            }
+            if selected_compile_time_params and len(rewritten_args) == len(authored_params):
+                expansion_args = tuple(
+                    arg
+                    for arg, (param_name, _) in zip(
+                        rewritten_args, authored_params, strict=True
+                    )
+                    if param_name not in selected_compile_time_params
+                )
+        return selected_binding, procedure, expansion_args
+
     def rewrite(
         expr: ExprNode,
         *,
         proc_ref_bindings: Mapping[str, object],
         workflow_ref_bindings: Mapping[str, object],
     ) -> ExprNode:
+        nonlocal capture_reification_enabled
         def representation_unsupported() -> LispFrontendCompileError:
             return LispFrontendCompileError(
                 (
@@ -986,7 +1058,66 @@ def normalize_resolved_inline_procedure_calls(
                 )
             )
 
+        if isinstance(expr, IfExpr):
+            from .conditionals import LiteralBoolCondition, classify_condition_expr
+            from .type_env import PrimitiveTypeRef
+            condition = rewrite(expr.condition_expr, proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings)
+            literal = (classify_condition_expr(condition, type_ref=PrimitiveTypeRef("Bool"))
+                if isinstance(condition, LiteralExpr) and condition.literal_kind == "bool" else None)
+            def branch(node, selected):
+                nonlocal capture_reification_enabled
+                previous = capture_reification_enabled
+                capture_reification_enabled = previous and selected
+                try:
+                    return rewrite(node, proc_ref_bindings=proc_ref_bindings,
+                        workflow_ref_bindings=workflow_ref_bindings)
+                finally:
+                    capture_reification_enabled = previous
+            then = branch(expr.then_expr, not isinstance(literal, LiteralBoolCondition) or literal.value)
+            otherwise = branch(expr.else_expr, not isinstance(literal, LiteralBoolCondition) or not literal.value)
+            return replace(expr, condition_expr=condition, then_expr=then, else_expr=otherwise)
+        if isinstance(expr, LoopRecurExpr):
+            maximum = rewrite(expr.max_iterations_expr,
+                proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings)
+            initial_state = rewrite(expr.initial_state_expr,
+                proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings)
+            saved_visible = dict(visible_bindings)
+            visible_bindings[expr.binding_name] = expr.binding_identity
+            try:
+                body = rewrite(expr.body_expr,
+                    proc_ref_bindings=proc_ref_bindings,
+                    workflow_ref_bindings=workflow_ref_bindings)
+                exhausted = (rewrite(expr.on_exhausted_result_expr,
+                    proc_ref_bindings=proc_ref_bindings,
+                    workflow_ref_bindings=workflow_ref_bindings)
+                    if expr.on_exhausted_result_expr is not None else None)
+            finally:
+                visible_bindings.clear()
+                visible_bindings.update(saved_visible)
+            return replace(expr, max_iterations_expr=maximum,
+                initial_state_expr=initial_state, body_expr=body,
+                on_exhausted_result_expr=exhausted)
+        if isinstance(expr, MatchExpr):
+            subject = rewrite(expr.subject, proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings)
+            rewritten_arms = []
+            for arm in expr.arms:
+                saved_visible = dict(visible_bindings)
+                visible_bindings[arm.binding_name] = arm.binding_identity
+                try:
+                    rewritten_arms.append(replace(arm, body=rewrite(arm.body,
+                        proc_ref_bindings=proc_ref_bindings,
+                        workflow_ref_bindings=workflow_ref_bindings)))
+                finally:
+                    visible_bindings.clear()
+                    visible_bindings.update(saved_visible)
+            return replace(expr, subject=subject, arms=tuple(rewritten_arms))
         if isinstance(expr, LetStarExpr):
+            saved_visible = dict(visible_bindings)
+            saved_literal_values = dict(visible_literal_values)
             retained_input = (
                 rewrite(
                     expr.condition_normalization_input,
@@ -999,13 +1130,17 @@ def normalize_resolved_inline_procedure_calls(
             child_proc_ref_bindings = dict(proc_ref_bindings)
             child_workflow_ref_bindings = dict(workflow_ref_bindings)
             rewritten_bindings: list[tuple[str, ExprNode]] = []
-            for binding_name, binding_expr in expr.bindings:
+            for binding_index, (binding_name, binding_expr) in enumerate(expr.bindings):
                 rewritten_binding = rewrite(
                     binding_expr,
                     proc_ref_bindings=child_proc_ref_bindings,
                     workflow_ref_bindings=child_workflow_ref_bindings,
                 )
                 rewritten_bindings.append((binding_name, rewritten_binding))
+                if binding_index < len(expr.binding_identities):
+                    visible_bindings[binding_name] = expr.binding_identities[binding_index]
+                    if isinstance(binding_expr, LiteralExpr):
+                        visible_literal_values[expr.binding_identities[binding_index]] = binding_expr
                 if procedure_catalog is not None:
                     resolved_proc_ref = resolve_proc_ref_value(
                         rewritten_binding,
@@ -1039,7 +1174,7 @@ def normalize_resolved_inline_procedure_calls(
                         and rewritten_binding.name in child_workflow_ref_bindings
                     ):
                         child_workflow_ref_bindings[binding_name] = resolved_workflow_ref
-            return replace(
+            result = replace(
                 expr,
                 bindings=tuple(rewritten_bindings),
                 body=rewrite(
@@ -1049,6 +1184,11 @@ def normalize_resolved_inline_procedure_calls(
                 ),
                 condition_normalization_input=retained_input,
             )
+            visible_bindings.clear()
+            visible_bindings.update(saved_visible)
+            visible_literal_values.clear()
+            visible_literal_values.update(saved_literal_values)
+            return result
         if isinstance(expr, ProcedureCallExpr):
             rewritten_args = tuple(
                 rewrite(
@@ -1058,35 +1198,12 @@ def normalize_resolved_inline_procedure_calls(
                 )
                 for arg in expr.args
             )
-            selected_binding = proc_ref_bindings.get(expr.callee_name)
-            selected_name = getattr(selected_binding, "call_target_name", expr.callee_name)
-            candidate_procedure = typed_procedures_by_name.get(selected_name)
-            procedure = candidate_procedure
-            expansion_args = rewritten_args
-            if candidate_procedure is not None:
-                authored_params = candidate_procedure.signature.params
-                selected_procedure = select_materialized_procedure(
-                    candidate_procedure,
-                    args=rewritten_args,
-                    proc_ref_bindings=proc_ref_bindings,
-                    workflow_ref_bindings=workflow_ref_bindings,
-                )
-                if selected_procedure is None:
-                    return replace(expr, args=rewritten_args)
-                procedure = selected_procedure
-                selected_specialization = getattr(procedure, "specialization", None)
-                selected_compile_time_params = {
-                    *getattr(selected_specialization, "proc_ref_bindings", {}),
-                    *getattr(selected_specialization, "workflow_ref_bindings", {}),
-                }
-                if selected_compile_time_params and len(rewritten_args) == len(authored_params):
-                    expansion_args = tuple(
-                        arg
-                        for arg, (param_name, _) in zip(
-                            rewritten_args, authored_params, strict=True
-                        )
-                        if param_name not in selected_compile_time_params
-                    )
+            selected_binding, procedure, expansion_args = select_call_procedure(
+                expr,
+                rewritten_args,
+                proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings,
+            )
             procedure_effect_summary = getattr(
                 procedure, "transitive_effect_summary", None
             )
@@ -1205,24 +1322,29 @@ def normalize_resolved_inline_procedure_calls(
                 static_value_bindings = dict(
                     getattr(specialization, "value_bindings", {})
                 )
+                static_value_bindings.update({argument.name: argument.value_expr
+                    for argument in getattr(selected_binding, "bound_args", ())})
+                from .expression_traversal import map_expr
+                capture_prefix = []
+                capture_prefix_rows = []
+                def consume_capture(node):
+                    if not capture_reification_enabled or node.capture_origin is None or visible_bindings.get(node.name) == node.capture_origin[0]:
+                        return node
+                    identity, origin_type = node.capture_origin
+                    original_literal = visible_literal_values.get(identity)
+                    current_literal = visible_literal_values.get(visible_bindings.get(node.name))
+                    if original_literal is not None and current_literal is not None:
+                        from .procedure_refs import _source_identity
+                        if _source_identity(original_literal) == _source_identity(current_literal):
+                            return node
+                    name = allocator.fresh(role="capture", source_expr=node)
+                    capture_prefix.append((name, node))
+                    capture_prefix_rows.append((identity, origin_type))
+                    return replace(node, name=name)
                 static_params = tuple(
                     (param_name, bound_param_types[param_name])
                     for param_name in static_value_bindings
                     if param_name in bound_param_types
-                )
-                static_call_bindings = _ordered_call_bindings(
-                    params=static_params,
-                    args=tuple(
-                        rewrite(
-                            static_value_bindings[param_name],
-                            proc_ref_bindings=proc_ref_bindings,
-                            workflow_ref_bindings=workflow_ref_bindings,
-                        )
-                        for param_name, _ in static_params
-                    ),
-                    source_expr=expr,
-                    role="procedure_bound",
-                    allocator=allocator,
                 )
                 bound_capture_sources = {
                     argument.name: argument
@@ -1241,6 +1363,40 @@ def normalize_resolved_inline_procedure_calls(
                     else None
                     for param_name, _type_ref in static_params
                 )
+                # A whole-origin row supplies the bound value itself. Its RHS
+                # is historical metadata, so do not reify its free leaves.
+                normalized_static_values = tuple(
+                    static_value_bindings[param_name]
+                    if capture_source is not None
+                    else rewrite(
+                        map_expr(static_value_bindings[param_name], consume_capture),
+                        proc_ref_bindings=proc_ref_bindings,
+                        workflow_ref_bindings=workflow_ref_bindings,
+                    )
+                    for (param_name, _), capture_source in zip(
+                        static_params, static_capture_rows, strict=True
+                    )
+                )
+                if closed_program and not is_pure_function_expansion and any(
+                    capture_source is None and contains_selected_effect(
+                        value,
+                        proc_ref_bindings=proc_ref_bindings,
+                        workflow_ref_bindings=workflow_ref_bindings,
+                    )
+                    for value, capture_source in zip(
+                        normalized_static_values, static_capture_rows, strict=True
+                    )
+                ):
+                    # The caller already evaluates the computed binding. Keep
+                    # the reference call so Builder consumes its capture slot.
+                    return replace(expr, args=rewritten_args)
+                static_call_bindings = _ordered_call_bindings(
+                    params=static_params,
+                    args=normalized_static_values,
+                    source_expr=expr,
+                    role="procedure_bound",
+                    allocator=allocator,
+                )
                 body_proc_ref_bindings = dict(
                     getattr(getattr(procedure, "specialization", None), "proc_ref_bindings", {})
                 )
@@ -1256,6 +1412,7 @@ def normalize_resolved_inline_procedure_calls(
                 # specialization, whose names belong to their definition.
                 expanded = LetStarExpr(
                     bindings=(
+                        *capture_prefix,
                         *static_call_bindings.bindings,
                         *call_bindings.bindings,
                     ),
@@ -1275,8 +1432,9 @@ def normalize_resolved_inline_procedure_calls(
                     expansion_stack=helper_stack,
                     binding_labels=(
                         None,
-                    ) * (len(static_call_bindings.bindings) + len(call_bindings.bindings)),
+                    ) * (len(capture_prefix) + len(static_call_bindings.bindings) + len(call_bindings.bindings)),
                     binding_capture_sources=(
+                        *capture_prefix_rows,
                         *static_capture_rows,
                         *((None,) * (len(static_call_bindings.bindings) - len(static_capture_rows))),
                         *((None,) * len(call_bindings.bindings)),
@@ -1771,6 +1929,7 @@ def _clone_function_expr(
                     form_path=form_path,
                     expansion_stack=expansion_stack,
                     binding_label=arm.binding_label,
+                    binding_identity=arm.binding_identity,
                 )
                 for arm in expr.arms
             ),

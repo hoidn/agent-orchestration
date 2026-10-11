@@ -50,6 +50,7 @@ from orchestrator.workflow.view_renderer import (
 )
 
 from ..type_env import _named_type_basename
+from ..syntax import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution
 
 from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .names import (
@@ -286,11 +287,10 @@ class _Checker:
             self.fail("program_schema", "unsupported closed-program schema")
         if self.tree.get("representation") != "table/1":
             self.fail("program_representation", "unsupported closed-program representation")
-        if self.tree.get("target") != EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION:
-            self.fail(
-                "program_target",
-                f"closed program target must be {EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}",
-            )
+        target = self.tree.get("target")
+        if (not isinstance(target, str) or target not in SUPPORTED_TARGET_DSL_VERSIONS
+                or not target_dsl_uses_evaluated_execution(target)):
+            self.fail("program_target", "closed program target must be a registered evaluated target")
         if not isinstance(self.tree.get("entry"), str) or not self.tree["entry"]:
             self.fail("program_shape", "closed program entry must be a nonempty name")
         self.definitions = self._mapping(self.tree.get("definitions"), "definition_table")

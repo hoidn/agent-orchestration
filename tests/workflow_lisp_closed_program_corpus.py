@@ -379,6 +379,16 @@ def _copy_command_implementation(
                 continue
             source = REPO_ROOT / closure_path
             if not source.is_file():
+                if (name == "launch_experiment"
+                        and binding.stable_command == ("python", "scripts/launch_experiment.py")
+                        and closure_path == "scripts/launch_experiment.py"):
+                    from tests.workflow_lisp_improve_example_sources import LAUNCH_PROBE
+
+                    target = workspace / closure_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(LAUNCH_PROBE, encoding="utf-8")
+                    synthetic.append(f"command:{name}:compile-only-script-stand-in")
+                    continue
                 raise NotSynthesizableError(
                     f"checked command closure path {closure_path!r} has no source file"
                 )
@@ -544,13 +554,17 @@ def entry_with_target(source: Path, target: str) -> str:
 
 def _replace_entry_target(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    target = target_dsl_version(source)
+    if not syntax.target_dsl_uses_evaluated_execution(target):
+        target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
     destination.write_text(
-        entry_with_target(source, syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION),
+        entry_with_target(source, target),
         encoding="utf-8",
     )
 
 
-def prepare(workflow: Workflow, scratch: Path) -> Prepared:
+def prepare(workflow: Workflow, scratch: Path, *, source_fixture: Path | None = None,
+            command_manifest: Path | None = None) -> Prepared:
     """Copy a workflow's owner root and synthesize only explicit compile facts."""
 
     destination_root = scratch / "source"
@@ -559,7 +573,7 @@ def prepare(workflow: Workflow, scratch: Path) -> Prepared:
     shutil.copytree(workflow.source_root, destination_root)
     source_relative = workflow.source.relative_to(workflow.source_root)
     entry = destination_root / source_relative
-    _replace_entry_target(workflow.source, entry)
+    _replace_entry_target(source_fixture or workflow.source, entry)
     roots = [destination_root]
     library = REPO_ROOT / "workflows/library"
     library_copy: Path | None = None
@@ -576,7 +590,8 @@ def prepare(workflow: Workflow, scratch: Path) -> Prepared:
     facts = _facts_from_graph(entry, tuple(roots))
     provider_rows = _manifest_entries(workflow, "providers")
     prompt_rows = _manifest_entries(workflow, "prompts")
-    command_rows = _manifest_entries(workflow, "commands")
+    command_rows = (json.loads(command_manifest.read_text(encoding="utf-8")) if command_manifest
+                    else _manifest_entries(workflow, "commands"))
     global_commands = _checked_command_entries()
     for name in facts.commands:
         if name not in command_rows and name in global_commands:

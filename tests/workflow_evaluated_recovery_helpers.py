@@ -223,7 +223,7 @@ def current_source(name: str) -> bytes:
     """The program's 2.35 copy: its repository source with only the target header changed."""
     program = PROGRAMS[name]
     header = f'(:target-dsl "{program.target}")'
-    text = (ROOT / program.source).read_text(encoding="utf-8")
+    text = (ROOT / (program.source_fixture or program.source)).read_text(encoding="utf-8")
     assert text.count(header) == 1
     return text.replace(header, '(:target-dsl "2.35")').encode("utf-8")
 

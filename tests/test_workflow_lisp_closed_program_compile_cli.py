@@ -11,6 +11,7 @@ from pathlib import Path
 import orchestrator
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow_lisp import syntax
 import pytest
 
@@ -321,6 +322,7 @@ def test_compile_writes_the_closed_program_and_its_manifest(tmp_path: Path) -> N
         "closed_program": f"build/{build_root.name}/closed_program.json"
     }
     assert manifest["program_digest"] == program.digest
+    assert program.tree["target"] == entry_target_dsl_version(files["source"]) == manifest["target"]
     assert manifest["build_key"] == build_root.name
     assert program.tree["entry"] == "workflow:grt/entry::run"
     assert program.sites
@@ -1264,7 +1266,10 @@ def test_imported_producer_peek_and_compile_share_a_separate_trace(
     assert not (files["workspace"] / ".orchestrate" / "build").exists()
 
 
-@pytest.mark.parametrize("producer_target", ["2.34", syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION])
+@pytest.mark.parametrize(
+    "producer_target",
+    ["2.34", syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, "2.36"],
+)
 def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
 ) -> None:
@@ -1276,7 +1281,7 @@ def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
     monkeypatch.chdir(files["workspace"])
     original_build = (
         compile_module.build_closed_program_bundle
-        if producer_target == syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+        if syntax.target_dsl_uses_evaluated_execution(producer_target)
         else compile_module.build_frontend_bundle
     )
 
@@ -1286,7 +1291,7 @@ def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
 
     target_builder_name = (
         "build_closed_program_bundle"
-        if producer_target == syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+        if syntax.target_dsl_uses_evaluated_execution(producer_target)
         else "build_frontend_bundle"
     )
     monkeypatch.setattr(compile_module, target_builder_name, mutate_after_peek)

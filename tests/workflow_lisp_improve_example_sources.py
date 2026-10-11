@@ -15,7 +15,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = REPO_ROOT / "workflows" / "examples" / "improve_experiment_proposal.orc"
+MAINTAINED_EXAMPLE = REPO_ROOT / "workflows" / "examples" / "improve_experiment_proposal.orc"
+EXAMPLE = REPO_ROOT / "tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc"
+LEGACY_COMMANDS = EXAMPLE.with_name("commands.json")
 EXAMPLE_INPUTS = REPO_ROOT / "workflows" / "examples" / "inputs" / "improve_experiment_proposal"
 EXAMPLE_PROMPTS = REPO_ROOT / "workflows" / "examples" / "prompts" / "workflows" / "improve_experiment_proposal"
 
@@ -67,4 +69,5 @@ def panel_source(example: str) -> str:
     """The example with the panel added and selected as the `review` hook; nothing else changes."""
 
     anchor = "  (defproc revise-proposal"
+    assert example.count(anchor) == example.count(SELECTED_REVIEW) == 1
     return example.replace(anchor, PANEL_HOOKS + anchor).replace(SELECTED_REVIEW, PANEL_REVIEW)

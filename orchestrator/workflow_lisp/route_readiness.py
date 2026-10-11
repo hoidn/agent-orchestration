@@ -35,6 +35,7 @@ SURFACE_KINDS = frozenset(
 ROUTE_LABELS = frozenset(
     {
         "wcc_default",
+        "evaluated_execution",
         "legacy_schema1_compat",
         "historical_negative",
         "migration_candidate",
@@ -277,7 +278,7 @@ def compile_registered_route_case(
     registry_path: Path | None = None,
     **compile_kwargs: Any,
 ):
-    """Compile a registry-covered source using its registered route."""
+    """Compile a flat registry-covered source using its registered route."""
 
     registry = load_route_readiness_registry(registry_path or (repo_root / DEFAULT_REGISTRY_RELPATH))
     entry = next((entry for entry in registry.surfaces if entry.surface_id == registry_id), None)
@@ -387,69 +388,75 @@ def _validate_entry(entry: RouteReadinessEntry, *, repo_root: Path) -> list[Rout
     if not (repo_root / entry.path).exists():
         issues.append(_issue("route_readiness_path_unknown", entry, f"path `{entry.path}` does not exist"))
 
-    route: LoweringRoute | None = None
-    if entry.lowering_route is not None:
-        try:
-            route = normalize_lowering_route(entry.lowering_route)
-        except ValueError:
+    if entry.route_label == "evaluated_execution":
+        for field in ("lowering_route", "lowering_schema_version"):
+            if getattr(entry, field) is not None:
+                issues.append(_issue("route_readiness_schema_mismatch", entry,
+                                     "evaluated entries must omit flat route/schema fields", field=field))
+    else:
+        route: LoweringRoute | None = None
+        if entry.lowering_route is not None:
+            try:
+                route = normalize_lowering_route(entry.lowering_route)
+            except ValueError:
+                issues.append(
+                    _issue(
+                        "route_readiness_route_unknown",
+                        entry,
+                        f"unknown lowering_route `{entry.lowering_route}`",
+                        field="lowering_route",
+                    )
+                )
+        elif entry.route_label != "historical_negative":
             issues.append(
                 _issue(
-                    "route_readiness_route_unknown",
+                    "route_readiness_test_route_unpinned",
                     entry,
-                    f"unknown lowering_route `{entry.lowering_route}`",
+                    "route-bearing registry entries must declare lowering_route",
                     field="lowering_route",
                 )
             )
-    elif entry.route_label != "historical_negative":
-        issues.append(
-            _issue(
-                "route_readiness_test_route_unpinned",
-                entry,
-                "route-bearing registry entries must declare lowering_route",
-                field="lowering_route",
-            )
-        )
 
-    if route is not None:
-        if entry.lowering_schema_version is None:
-            issues.append(
-                _issue(
-                    "route_readiness_schema_mismatch",
-                    entry,
-                    "lowering_schema_version is required when lowering_route is declared",
-                    field="lowering_schema_version",
+        if route is not None:
+            if entry.lowering_schema_version is None:
+                issues.append(
+                    _issue(
+                        "route_readiness_schema_mismatch",
+                        entry,
+                        "lowering_schema_version is required when lowering_route is declared",
+                        field="lowering_schema_version",
+                    )
                 )
-            )
-        elif entry.lowering_schema_version != lowering_schema_for_route(route):
-            issues.append(
-                _issue(
-                    "route_readiness_schema_mismatch",
-                    entry,
-                    (
-                        f"route `{route.value}` requires schema {lowering_schema_for_route(route)}, "
-                        f"not {entry.lowering_schema_version}"
-                    ),
-                    field="lowering_schema_version",
+            elif entry.lowering_schema_version != lowering_schema_for_route(route):
+                issues.append(
+                    _issue(
+                        "route_readiness_schema_mismatch",
+                        entry,
+                        (
+                            f"route `{route.value}` requires schema {lowering_schema_for_route(route)}, "
+                            f"not {entry.lowering_schema_version}"
+                        ),
+                        field="lowering_schema_version",
+                    )
                 )
-            )
-        if entry.route_label == "wcc_default" and route is not DEFAULT_LOWERING_ROUTE:
-            issues.append(
-                _issue(
-                    "route_readiness_default_route_mismatch",
-                    entry,
-                    f"wcc_default entries must use `{DEFAULT_LOWERING_ROUTE.value}`",
-                    field="lowering_route",
+            if entry.route_label == "wcc_default" and route is not DEFAULT_LOWERING_ROUTE:
+                issues.append(
+                    _issue(
+                        "route_readiness_default_route_mismatch",
+                        entry,
+                        f"wcc_default entries must use `{DEFAULT_LOWERING_ROUTE.value}`",
+                        field="lowering_route",
+                    )
                 )
-            )
-        if entry.route_label == "legacy_schema1_compat" and route is not LoweringRoute.LEGACY:
-            issues.append(
-                _issue(
-                    "route_readiness_default_route_mismatch",
-                    entry,
-                    "legacy_schema1_compat entries must use `legacy`",
-                    field="lowering_route",
+            if entry.route_label == "legacy_schema1_compat" and route is not LoweringRoute.LEGACY:
+                issues.append(
+                    _issue(
+                        "route_readiness_default_route_mismatch",
+                        entry,
+                        "legacy_schema1_compat entries must use `legacy`",
+                        field="lowering_route",
+                    )
                 )
-            )
 
     if entry.route_label == "migration_candidate" and entry.readiness_label is None:
         issues.append(

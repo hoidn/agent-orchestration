@@ -166,6 +166,25 @@ MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (let* ((tmp 99)) (splice body)))))'''
 
 
+def test_public_235_to_236_retarget_refuses_without_run_writes_or_redispatch(tmp_path, monkeypatch):
+    files, inputs = _effect_files(tmp_path, _arms_source())
+    authority, _snapshot = _complete_effects(files, inputs, monkeypatch)
+    source = files["source"].read_text()
+    assert source.count('(:target-dsl "2.35")') == 1
+    files["source"].write_text(
+        source.replace('(:target-dsl "2.35")', '(:target-dsl "2.36")', 1)
+    )
+
+    before = _orchestrate_snapshot(tmp_path)
+    requests = (tmp_path / "requests.jsonl").read_bytes()
+    refused = _resume_cli(tmp_path, authority.header["run_id"])
+
+    assert refused.returncode == 2, refused.stderr
+    assert "resume_program_changed" in refused.stderr
+    assert _orchestrate_snapshot(tmp_path) == before
+    assert (tmp_path / "requests.jsonl").read_bytes() == requests
+
+
 def _macro_observation(root, authority, snapshot, source):
     (entry,) = snapshot.active_commits.values()
     assert len(snapshot.latest_starts) == 1

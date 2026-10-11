@@ -85,7 +85,7 @@ python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
 
 | Goal | Starting point | Route status |
 | --- | --- | --- |
-| Start new authoring | [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) for a `std/improve` review loop; [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc) for generate-and-select and a hand-written review loop | Recent examples; each passes `--dry-run` through the command-line entry. The registry labels `improve_experiment_proposal.orc` `preferred_current_guidance`; the two experiment workflows have no registry entry. |
+| Start new authoring | [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) for a target-2.36 `std/improve` review loop; [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc) for generate-and-select and a hand-written review loop | Proposal W3 is implemented at 2.36. [Recipe and launcher prerequisites](../docs/lisp_workflow_drafting_guide.md#137-improve); the registry owns classification/copy safety. The two historical experiment workflows retain their own targets. |
 | Translate or audit historical YAML | [Historical YAML reference](../docs/workflow_drafting_guide.md) | Translation/history only; YAML/YML is not runnable workflow source. |
 
 Fresh preferred starting points:
@@ -127,10 +127,18 @@ Reference corpus:
 Workflow Lisp `.orc` copy-safety is recorded in
 `docs/workflow_lisp_route_readiness_registry.json`. The registry labels, not
 filenames, modification dates, or prose status alone, determine whether an
-example is current WCC/schema-2 guidance, legacy compatibility evidence,
+example is current WCC/schema-2 or evaluated closed-program evidence, legacy compatibility evidence,
 migration-only evidence, historical negative coverage, or stale material.
 
-Use `wcc_default` entries as current WCC/schema-2 examples. Treat
+Use `wcc_default` entries as WCC/schema-2 examples and `evaluated_execution`
+entries as registered evaluated-target closed-program evidence. Evaluated rows
+omit flat lowering route/schema fields, preserve registry v1, and use public
+CLI evidence; the classification does not certify evaluated LSP support.
+Copy safety still follows the row's `copy_safety` and proving evidence. The
+maintained proposal requires provider/prompt manifests and the command closure
+declaration for compile/dry-run. Execution also requires the workspace-owned
+`scripts/launch_experiment.py` at that exact path; the example does not ship
+this launcher. Compile/dry-run do not certify its bytes. Treat
 `legacy_schema1_compat` as compatibility evidence, not new authoring guidance.
 Treat `migration_candidate` as non-promoted until direct owner evidence and a
 reviewed registry update establish a stronger route. Do not cite
@@ -188,7 +196,7 @@ Resolution rules:
 | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `design-plan-impl-review-stack` | Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |
 | `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Its review call uses explicit phased delivery. Compilation without `--entry-workflow` succeeds; selecting the listed entry explicitly makes `--dry-run` fail with `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. It remains a reference (`not_current_guidance`); it is not a production drain or YAML parity replacement. |
 | `workflows/examples/review_revise_parametric_design_docs.orc` | Workflow Lisp historical one-off review/fix workflow; input-required | `2.14` | `review-revise-parametric-design-docs` | Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path; start new authoring from a recent example. |
-| `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp `std/improve` evidence; input-required | `2.33` | `improve_experiment_proposal::run-experiment` | Drafts a typed experiment proposal, runs it through `std/improve`'s review/revise loop with provider-backed review and revise hooks, and hands the returned proposal to the workspace's `scripts/launch_experiment.py` in every outcome. Route-readiness `preferred_current_guidance` for this bounded review-loop shape; a real run requires the workspace launcher. Dry-run command and launcher protocol: [drafting guide](../docs/lisp_workflow_drafting_guide.md#137-improve). |
+| `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp W3 `std/improve` evidence; input-required | `2.36` | `improve_experiment_proposal::run-experiment` | Drafts a typed proposal, uses inferred local review/revise signatures and lexical context with the four-argument graph-selected helper, and passes the returned proposal to the workspace launcher in every outcome. Implemented at 2.36. Bounded public lifecycle evidence uses deterministic provider shims. Compile/dry-run validate manifests and the command closure declaration without certifying launcher bytes. Execution requires configured providers and the workspace-owned `scripts/launch_experiment.py` at that exact path; the example does not supply it; [recipe](../docs/lisp_workflow_drafting_guide.md#137-improve). |
 ## Reusable Library Workflows
 
 | Path | DSL | Workflow Name | Purpose |

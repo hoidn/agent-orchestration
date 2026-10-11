@@ -1,0 +1,6 @@
+{
+  "launch_experiment": {
+    "kind": "external_tool",
+    "stable_command": ["python", "scripts/launch_experiment.py"]
+  }
+}

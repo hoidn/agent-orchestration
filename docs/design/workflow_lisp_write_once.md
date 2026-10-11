@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** proposed target; not implemented and not current syntax
+- **Status:** W3 is implemented at target 2.36. Other rules remain unselected proposals.
 - **Kind:** language and standard-library contract, with one authoring rule
   that needs no language change
 - **Owner:** Workflow Lisp frontend
@@ -209,20 +209,86 @@ reads or produces.
 
 ### 6.3 Language changes to `let-proc`
 
-`let-proc` defines one local procedure with an explicit capture list. Three
-extensions:
+Through target 2.35, `let-proc` defines one fully annotated local procedure with an explicit
+capture list. W3 at target 2.36 extends the existing representation and
+specialization path; both spellings have one consumer expression:
+
+```lisp
+(let-proc
+  (name ((arg ArgType)) -> ResultType :captures (context) body)
+  consumer)
+(let-proc
+  ((review (candidate) body)
+   (revise (candidate feedback) body))
+  consumer)
+```
+
+A binding is `(name (parameter ...) [-> ReturnType]
+[:captures (name ...)] body)`, with clauses in that order. A parameter is a
+bare name or `(name Type)`; omitted types require the bounded expectation
+below. The outer list spelling starts with a list, rather than a name.
+Empty lists, duplicate local/parameter names and malformed clauses are
+located errors. The three extensions are:
 
 1. **Several bindings.** One `let-proc` form binds several local procedures.
-   None may refer to another or to itself. Order is source order.
+   None may refer to another or to itself. All bodies see the same creator
+   environment; only the consumer sees local ProcRefs. Source order governs
+   declarations and diagnostics, not inference success.
 2. **Inferred captures.** When `:captures` is omitted, the captures are the
    free identifiers of the body that are bound in the enclosing scope. An
-   authored `:captures` list stays valid and is checked as an upper bound: a
-   body that uses a name outside the list is rejected.
+   authored `:captures` list is a checked upper bound: reject missing used
+   names, unknown entries and duplicates. Capture field roots, and lexical
+   ProcRefs used as callees, with parameter/local-binder shadowing applied;
+   top-level procedures, types, field labels and declared provider/prompt
+   externs are not captures. Externs remain available when typing the body;
+   actual lexical Provider/Prompt parameters or aliases remain eligible only
+   under existing admission rules, without new runtime capability transport.
+   Resolve values and their lexical binding identities in the creator scope.
+   At 2.36, both spellings retain only used captures, ordered deterministically
+   by resolved name, including when an explicit list is a reordered superset.
+   Existing targets retain authored capture order and behavior.
 3. **Signature from the expected type.** When a local procedure is passed
    directly to a parameter of type `ProcRef[…]`, its parameter types and its
    return type may be omitted where that type fixes them. A type parameter of
    the callee that the local procedure's body determines is bound from the
-   body's type.
+   body's type. If any residual parameter type or return type is omitted,
+   the local requires exactly **one authored direct consumer call site** in
+   the complete lexical consumer body. Several direct `(proc-ref local)`
+   arguments of that call share one site and must satisfy every expectation;
+   loop iterations and other repeated runtime activations are still one site.
+   Zero sites, two authored calls (including alternative branches), or a local
+   ProcRef literal outside a direct procedure-call argument position are refused
+   before consumer typechecking. Aliases, `bind-proc`, conditional values and
+   returned values do not transport an enclosing call's expected signature to
+   an incomplete local. A direct call's own resolved parameter signature may
+   complete the local even when that call returns its reference; existing
+   nonescape checks still apply to the complete `let-proc` consumer. A resolved
+   lexical ProcRef callee supplies its residual signature under the same rule.
+   Fully annotated signatures retain ordinary reuse and forwarding, even with
+   inferred captures.
+
+At the one eligible call, check arity, then type ordinary arguments and fully
+annotated ProcRefs, then bind the callee's type parameters through the existing unifier.
+Group pending occurrences by lexical local binding and collect all expected
+positions before checking a body. A local becomes ready when every residual
+parameter type is concrete, from annotations or expectations. Type its body
+once in its creator environment plus parameters, using a concrete expected
+return when available; otherwise infer its ordinary result and unify it with
+the expected return. New bindings may make another local ready. Repeat until
+complete or no progress; reject missing/conflicting expectations with located
+diagnostics requesting explicit annotations. Do not guess, backtrack, choose
+the first occurrence's signature or cache evidence across authored calls.
+The review/revise pair resolves `S` from `initial`, `F/B` from review's result,
+then revise's `S/F` parameters, regardless of declaration/argument order.
+Constructors and effect restrictions keep their existing rules.
+
+Count direct sites by structural occurrence paths within this consumer,
+resolved to its lexical local bindings, before rewriting/specialization.
+Names, equal spans, AST object identity, normalization copies and runtime
+activation counts are not site identities. Disjoint same-named locals remain
+separate. Any temporary pending-local/site state is compile-scoped and
+restored on exit; completed signatures feed existing generated definitions,
+ProcRef binding and specialization before closed-program construction.
 
 Captures remain compile-time. The local procedure is converted into a private
 procedure specialized with its captures, as today. No runtime closure is
@@ -264,9 +330,11 @@ could read directly, and a constructor that must list every one of them.
 ### 6.6 Before And After
 
 Illustrative fragments; domain types, agent operations, imports and effect
-annotations are omitted in both versions. The after form is proposed, not
-runnable current syntax. Its multiple-binding and omitted-type grammar must
-be settled before implementation.
+annotations are omitted in both versions, so these fragments are not standalone
+programs. The after form uses the selected 2.36 grammar and the single authored
+call that supplies both incomplete hooks' expectations. The maintained
+[proposal recipe](../lisp_workflow_drafting_guide.md#137-improve) supplies the
+actual provider bodies, imports and execution prerequisites.
 
 ```lisp
 ; Before: context is packed solely for the helper to forward.
@@ -294,6 +362,12 @@ be settled before implementation.
 `review` captures `goal` and `rubric`; `revise` captures only `goal`.
 `Proposal` comes from `initial`; the review result supplies the feedback and
 blocker types, including the expected feedback parameter of `revise`.
+Reusing either incomplete local at a second authored call is refused; write
+its full signature or use distinct local bindings for that call. For example,
+`need<T>(ProcRef[(T)->T])->Int` and
+`seed<T>(T, ProcRef[(T)->T])->Int` cannot infer one `h(x)=x` shared by
+`need(h)` and `seed(1,h)` in either order. Fully annotating `h` as
+`(Int)->Int` admits both calls through existing rules.
 Adding another enclosing value used by one hook requires no context-record,
 constructor or helper-signature edit. Records with independent domain uses
 remain domain values; only forwarding scaffolding is removed.
@@ -301,10 +375,18 @@ remain domain values; only forwarding scaffolding is removed.
 ### 6.7 Execution Prerequisites
 
 The [composition-first contract](workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
-records current-route placement, delayed-capture and effect-replay defects.
-W3 must demonstrate lexical capture and once-only effect execution on its
-selected route. Successful specialization or an illustrative rewrite does
-not establish fresh-run/resume behavior or repair the execution model.
+records current-route placement limits and the remaining live-provider
+settlement-capture defect. The [pure correction report](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
+records the repaired creator-scope/duplicate-producer cases and their bounded
+compatibility evidence.
+The target-2.36 proposal and reviewed-change consumers exercise lexical
+captures, final values and committed-boundary resume through public CLI
+harnesses in `tests/test_workflow_evaluated_consumers.py`. Exact compatibility
+and package-bound phase qualification evidence are recorded in the
+[closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md).
+Successful specialization or an illustrative rewrite does not establish
+general composition coverage. The exact remaining evaluated composition
+limits are scoped in [composition-first §11.4](workflow_lisp_composition_first.md#114-evaluated-w3-boundaries).
 
 ## 7. W4: Provider Options Are Bound Once
 
@@ -392,15 +474,36 @@ serve.
 ## 9. Targets And Compatibility
 
 - W0 applies to every target. It changes no language rule.
-- W1, W2 and W4 share a proposed target; W3 may be selected separately.
-  Each selected change needs a target/route decision. Older targets accept
-  and lower what they do today.
-- The change to `improve` in 6.4 replaces its signature; a standard-library
-  procedure has one signature per resolved module. Inventory maintained
-  callers, imports and fixtures before migration; do not assume one caller.
-  Resolve target/module compatibility before replacing the bundled definition:
-  older-target builds and checkpoints cannot silently receive the new API.
-  Do not add a parallel `improve-v2` forwarding API.
+- W1, W2 and W4 retain their separate unselected target proposal. W3 is
+  selected for 2.36 on the evaluated route and implemented;
+  the [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns qualification evidence. Existing targets retain their
+  admitted syntax and lowering.
+- One `std/improve` API is selected for each **source import graph** by its
+  entry target. Entries through 2.35 keep the current bundled
+  `stdlib_modules/std/improve.orc` bytes and path. At 2.36 (and later supported
+  compatible targets), replace only that builtin candidate with the no-context
+  `stdlib_modules/w3/std/improve.orc`, using its actual alternate source root.
+  The helper retains syntax header 2.33; syntax admission still follows each
+  defining module. Other imports and user-root ambiguity rules are unchanged;
+  do not expose both builtin variants or adopt first-match resolution.
+- Every source module in a new graph sees that one API. Retargeting requires
+  migrating any source dependency that still calls five-argument `improve`,
+  with a located migration diagnostic. Older type-only or compatible callers
+  remain legal; do not reject unrelated modules solely for their target.
+  Inventory source producers, fixtures and indirect callers as well as `.orc`
+  imports. No parallel `improve-v2`, per-importer versions or hidden old-call
+  rewriting is part of W3.
+- Complete imported snapshots retain their producer's checked authority;
+  graph selection does not reopen or retarget their sources. A sole old
+  `std/improve` snapshot authority remains valid. Differing canonical overlap
+  retains the existing `compiled_workflow_snapshot_conflict` refusal.
+- Preserve old module/source identities and resume recipes. Prove raw old-target
+  artifact identity with fixed paths, seed and identity inputs, and actual
+  resume of a compatible retained run. Truthful package/command-closure pins
+  and the program-digest guard remain authoritative; genuine pin changes and
+  retargeted/migrated source may correctly refuse. Refusal alone is not proof
+  of successful checkpoint compatibility, and W3 promises no unconditional
+  resume after a package upgrade.
 - Inferred and explicit forms have equivalent semantics and canonical output
   on the same execution route. Cross-route checks compare values, effects and
   resume behavior, not flat artifacts with closed-program artifacts.
@@ -429,7 +532,7 @@ census on the same corpus and on the rewrite of `reviewed_change.orc`.
 | W2 | The acceptance lanes of the effect ledger simplification design |
 | W3 | Preserve behavior while removing context-only records/constructors, helper forwarding and restated hook signatures. Review actual callers, capture clarity and edit locality when a hook needs another enclosing value. Report line counts as evidence, not a percentage adoption gate |
 | W4 | No call in the corpus sets an option that equals its binding's default. Build artifacts of a workflow are identical whether an option is written on the call or taken from the binding |
-| All | Older targets: byte-identical build artifacts. Compile, run and resume through the public entry for each new form |
+| All | Older targets: raw byte-identical artifacts with identical identity inputs; report genuine pin differences separately under §9. Compile, run and resume through the public entry for each new form |
 
 ## 12. Feasibility Obligations
 
@@ -441,9 +544,11 @@ Each is an open prerequisite until its fixture passes.
 | A loop receives an expected type from its position | A loop at a workflow tail whose `done` and `:on-exhausted` values omit the union name |
 | A constructor without its type in a generic body lowers like the explicit form when the body is inlined in another module | `std/improve` rewritten with `(variant APPROVED …)`, called from a module that does not import `Improvement` |
 | Captures can be inferred without capturing a name the author did not intend | A local procedure whose body uses a name bound both in the enclosing scope and as its own parameter; the parameter wins, and the capture list shown by the compiler matches |
-| Captures retain definition-site values without repeating effects | Two helper calls capture different values; later binders cannot change them; an effect-produced captured value is obtained once fresh and reused on committed-boundary resume |
-| A local procedure's signature can be taken from the expected `ProcRef` type while the callee's type parameters are still being bound | Typed `initial` and two unannotated local hooks; the review result fixes the revise feedback type. Missing/conflicting expectations produce located diagnostics |
-| Removing `inputs I` preserves existing consumers | Inventory maintained imports/fixtures; prove the selected target/module migration and older-target build/checkpoint compatibility before replacing the bundled API |
+| Captures retain definition-site values without repeating effects | Two helper calls use distinct inferred locals or fully annotated reused locals and capture different values; later binders cannot change them; an effect-produced captured value is obtained once fresh and reused on committed-boundary resume |
+| A local procedure's signature can be taken from the expected `ProcRef` type while the callee's type parameters are still being bound | Typed `initial` and two unannotated local hooks at one call; review fixes revise's feedback type in either declaration/argument order, with one body check per hook. Missing/conflicting expectations produce located diagnostics |
+| Signature inference is independent of consumer traversal order | Reject both `need`/`seed` orders for one incomplete local; accept full annotations in both orders. Accept repeated agreeing arguments at one site and repeated activations; reject conflicting same-site expectations, zero/multiple/indirect sites before inference, and isolate disjoint same-name locals |
+| Explicit capture restrictions and inference canonicalize equally at 2.36 | Compare canonical definitions/programs for omitted, reordered and superset captures; cover field roots, lexical ProcRef callees and shadowing, preserving old-target authored capture output |
+| Removing `inputs I` preserves existing consumers under the selected graph migration | Inventory maintained imports/fixtures; qualify old/new builtin source roots, package/LSP parity, user-root ambiguity, migrated/old/type-only source callers, sole-old snapshots and canonical overlap refusal; prove raw old-target identity and actual compatible retained-run resume |
 | Binding defaults reach supervision, peer-group and adjudication calls | One call of each kind with options only on the binding |
 
 ## 13. Relationship To The Execution Model

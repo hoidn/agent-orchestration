@@ -117,6 +117,9 @@ class _LoweringContext:
     provider_peer_group_prompt_dependency_lineages: list[
         PromptDependencyLineage
     ] = field(default_factory=list)
+    capture_original_values: Mapping[object, tuple[Any, TypeRef]] = field(default_factory=dict)
+    capture_visible_bindings: Mapping[str, object] = field(default_factory=dict)
+    capture_consumption_enabled: bool = True
     phase_scope: _ActivePhaseScope | None = None
     iteration_scope: str | None = None
     # Proc-shaped active signature for hidden-context eligibility while an
@@ -246,3 +249,37 @@ def _compile_error(
             ),
         )
     )
+
+
+def _capture_private_reserved(expr, context, local_values):
+    from ..wcc.hygiene import reserved_identifiers
+    return reserved_identifiers(expr, value_env=context.local_type_bindings,
+        compile_time_bindings=local_values)
+
+
+def _consume_capture_expr(expr, *, context, private_values, private_types, reserved):
+    if not context.capture_consumption_enabled:
+        return expr
+    from ..expression_traversal import map_expr
+    from ..expressions import LiteralExpr
+    from ..type_env import VariantCaseTypeRef
+    from ..wcc.hygiene import fresh_name
+    def consume(node):
+        if node.capture_origin is None:
+            return node
+        identity, origin_type = node.capture_origin
+        if context.capture_visible_bindings.get(node.name) == identity:
+            return node
+        if identity not in context.capture_original_values:
+            raise ValueError(f"capture origin missing at actual flat use: {identity!r}")
+        private_name = fresh_name("capture_" + node.name, reserved)
+        private_value = context.capture_original_values[identity][0]
+        if isinstance(origin_type, VariantCaseTypeRef) and isinstance(private_value, Mapping):
+            private_value = {**private_value, "variant": LiteralExpr(
+                value=origin_type.variant_name, literal_kind="string",
+                span=node.span, form_path=node.form_path,
+                expansion_stack=node.expansion_stack)}
+        private_values[private_name] = private_value
+        private_types[private_name] = origin_type
+        return replace(node, name=private_name)
+    return map_expr(expr, consume)

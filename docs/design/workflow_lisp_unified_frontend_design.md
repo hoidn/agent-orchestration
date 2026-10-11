@@ -13,7 +13,12 @@ Does not supersede: current implementation behavior, current tests, shared workf
 
 Current-status note: bounded V1 `let-proc` is implemented under
 [its component contract](workflow_lisp_let_proc_local_proc_refs.md). Part I
-preserves that tranche's design and acceptance rationale. Use the
+preserves that tranche's design and acceptance rationale through target 2.35.
+The target-2.36 [W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+adds several local bindings, inferred lexical captures and bounded expected
+signatures at 2.36; the [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded qualification evidence.
+Part I's explicit-capture/one-binding restrictions are V1 scope, while nested
+definitions, recursion and runtime closures remain outside W3. Use the
 [capability matrix](../capability_status_matrix.md) to distinguish implemented
 portions from remaining targets; this historical proposal does not select work.
 

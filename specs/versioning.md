@@ -696,17 +696,33 @@
     the parameters bound before it. From 2.30, a value bound by `bind-proc` or
     captured by `let-proc` keeps the names of its definition when it is
     expanded inside another procedure.
-  - Known defects, at every target: a `bind-proc` or `let-proc` value is
-    resolved where the procedure is called, so a binder of the defining body
-    between the definition and the call captures its names; member names of
-    `with-live-providers` capture in the settlement body. From 2.30, a
-    `let-proc` capture of an effect result evaluates the effect again where
-    the procedure is applied.
-  - These corrections change only the value of a program whose result was not
-    the value lexical scope gives: a silent wrong value is corrected at every
-    target. A form that failed in lowering only because of such a capture now
-    compiles; a form that a target refuses for any other reason stays refused.
-    Programs without such a shadowed name build byte-identical artifacts.
+  - A `bind-proc` or `let-proc` capture retains its creation-scope binding
+    identity and type through specialization and actual consuming expansion;
+    a later binder cannot replace its value. A `let-proc` capture of an already
+    produced effect result reads that value instead of evaluating its producer
+    again. The remaining known defect is capture of a pure binding by a
+    `with-live-providers` member in the settlement body.
+  - Silent wrong lexical values are corrected at every accepting target. A
+    form rejected solely because of that capture may now compile; unrelated
+    refusals stay refused. Programs without such a shadow retain byte-identical
+    build artifacts, except for the bounded correction of generated duplicate
+    effect evaluation demonstrated at 2.30/2.33: even without an authored
+    shadow and with the same terminal value, removing the duplicate producer
+    may change its executable artifacts and consequent identities/checkpoints.
+    This is a material exception, not raw equality or the separate latent
+    typed-specialization exception. Accepted-correct programs retain their
+    raw-artifact and compatible-resume requirements; truthful implementation
+    pins are preserved and genuine pin differences reported separately.
+  - A retained incorrect legacy checkpoint whose semantic digest changes from
+    this duplicate-effect correction must fail closed before further effects.
+    For the demonstrated 2.30 case, existing legacy resume exits 1 with
+    `lexical_restore_invalid` / `lexical_restore_semantic_digest_mismatch`,
+    preserves committed results, checkpoint records and effect-log bytes, and
+    writes only failure/session state, monitor state and default/restore reports.
+    This is not successful compatible resume or the evaluated route's
+    `resume_program_changed` refusal without writes. No new runtime policy,
+    representation or target is introduced. The [correction report](../docs/reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
+    records the bounded evidence and original failed gates.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
@@ -867,6 +883,46 @@
     `tests/test_workflow_lisp_target_evaluated_execution.py`,
     `tests/test_workflow_evaluated_run_ref.py`.
 
+- v2.36 additions (W3)
+  - Target 2.36 selects the existing evaluated route. The closed program's
+    top-level `target` is the entry's source target, also recorded in its build
+    manifest. The admitted evaluated targets are `"2.35"` and `"2.36"`.
+    Schema `workflow-lisp/closed-program/1`, representation `table/1`, runtime
+    profile `evaluated_execution.v1`, state schema `3.0`, read-back equality
+    and the separate internal run-reference target `2.35` retain their contracts.
+  - W3 extends `let-proc` with several nonempty local bindings, inferred lexical
+    captures and bounded expected `ProcRef` signatures; the
+    [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+    owns grammar and preparation. An incomplete signature requires exactly one
+    authored direct consumer call site; complete signatures retain reuse.
+    Only used lexical captures are retained, ordered by resolved name at 2.36.
+    Older targets preserve authored capture order and syntax admission.
+    Declared provider/prompt externs remain available in local bodies without
+    becoming captures; eligible lexical aliases retain ordinary admission rules.
+    No runtime closure, nesting, recursion or effect-annotation change is added.
+  - One builtin `std/improve` API is selected per source import graph by the
+    entry target. Through 2.35, retain `stdlib_modules/std/improve.orc` bytes
+    and path. At 2.36, replace only that builtin candidate with
+    `stdlib_modules/w3/std/improve.orc` and its actual source root; its source
+    header remains 2.33. The API is `improve(initial, review, revise, limit)`,
+    with `review(S) -> Decision[F B]` and `revise(S F) -> S`.
+    Every source importer sees this one API; five-argument source callers must
+    migrate when the graph is retargeted. Defining-module syntax admission,
+    other roots and ambiguity checks remain unchanged. Compatible old and
+    type-only imports are admitted; both builtin variants are never exposed.
+  - Complete imported snapshots retain producer authority without reopening
+    or retargeting source. Sole old helper authority remains admitted;
+    differing canonical overlap still refuses
+    `compiled_workflow_snapshot_conflict`.
+  - Retargeting changes the program digest when the rebuild is valid after
+    required caller migration. Resume then refuses `resume_program_changed`;
+    an invalid rebuild preserves its compile refusal. Both refuse before
+    evidence writes. Genuine package/command-closure pin changes retain their
+    existing guards; rejection does not prove compatible retained-run resume.
+    Qualification and delivery status belong to the
+    [bounded Phase 4c plan](../docs/plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+    and [recovery plan](../docs/plans/2026-10-10-phase4c-recovery-plan.md).
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -910,6 +966,7 @@
   - `v2.33`: first-order generic unions and `std/improve`
   - `v2.34`: implemented decimal literals in expressions, numeric operators and finite boundary values; repetition reduction remains an unapproved proposal
   - `v2.35`: evaluated execution: closed-program compilation and the memo-backed public `run`/`resume`/`invalidate` route (Phase 3 complete; [closeout](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md))
+  - `v2.36`: W3 local-hook and graph-selected helper contract on the existing evaluated route; [qualification record](../docs/reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -1062,5 +1119,6 @@ Planned acceptance:
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Typed match-subject preservation is limited to typed prompts and type-dependent hooks; a direct generic subject without either still lowers differently from the same call bound by `let*`, including at 2.34. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
 | 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
 | 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Existing targets retain their current route, profile and artifacts. |
+| 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, several local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with old-caller migration on retargeting and unchanged snapshot/resume guards. See v2.36 additions and the Phase 4c plan for qualification status. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

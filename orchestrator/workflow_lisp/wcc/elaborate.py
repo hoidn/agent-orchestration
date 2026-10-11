@@ -2229,7 +2229,7 @@ def binding_type_for_elaboration(
     procedure_return_types, closed_program, capture_source=None,
 ):
     """Resolve the reached RHS under its incoming lexical environment."""
-    if closed_program and capture_source is not None:
+    if capture_source is not None:
         return capture_source[1]
     return _infer_expr_type(
         binding_expr, type_env=type_env, value_env=value_env,
@@ -2468,7 +2468,7 @@ def _elaborate_let_star(
                 scope=owner_scope, metadata=metadata,
                 expansion_owned=expansion_owned, capture_source=capture_source)
 
-        if scope.closed_program and capture_source is not None:
+        if capture_source is not None:
             source_identity, source_type_ref = capture_source
             source_name = getattr(source_identity, "name", None)
             if not isinstance(source_name, str):
@@ -2501,6 +2501,7 @@ def _elaborate_let_star(
                         binding_identity=source_identity,
                     ),
                     name=source_name,
+                    is_capture_read=True,
                 ),
                 body=tail,
             )
@@ -5355,6 +5356,8 @@ def _prebind_effect_argument_matches(
         prebind_pure_projection: bool = False,
         force_prebind: bool = False,
     ):
+        if scope.closed_program and isinstance(arg_expr, BindProcExpr):
+            return arg_expr
         if force_prebind and isinstance(
             arg_expr,
             (LiteralExpr, NameExpr, FieldAccessExpr),
@@ -6636,6 +6639,8 @@ def _elaborate_effect_expr_to_binding_value(
             bound_proc_source=(
                 compile_time_callee.source_binding
                 if isinstance(compile_time_callee, _WccBoundProcedureBinding)
+                else compile_time_callee
+                if isinstance(compile_time_callee, (BindProcExpr, ResolvedProcRefValue))
                 else None
             ),
             proc_ref_callee_source=(

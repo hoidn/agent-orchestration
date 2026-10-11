@@ -328,6 +328,244 @@ def test_compile_stage1_entrypoint_resolves_builtin_stdlib_imports_without_manua
     assert result.compiled_modules_by_name["std/phase"].module_name == "std/phase"
     assert result.graph.modules_by_name["std/phase"].source_root != source_root
 
+@pytest.mark.parametrize(
+    ("entry_target", "w3_selected"),
+    [("2.33", False), ("2.34", False), ("2.35", False), ("2.36", True)],
+)
+@pytest.mark.parametrize("entry_api", ["stage1", "stage3"])
+def test_w3_graph_selects_one_improve_api(
+    tmp_path: Path, entry_target: str, w3_selected: bool, entry_api: str
+) -> None:
+    source_root = tmp_path / f"improve_graph_{entry_target}_{entry_api}"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{entry_target}")',
+                "  (defmodule demo/entry)",
+                "  (import std/improve :only (Decision))",
+                "  (export Outcome run)",
+                "  (defrecord Outcome (decision Decision[String String]))",
+                '  (defworkflow run () -> Outcome',
+                '    (record Outcome :decision',
+                '      (variant Decision[String String] APPROVE :evidence "ok"))))',
+            ]
+        ),
+    )
+
+    if entry_api == "stage1":
+        result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
+    else:
+        result = _compile_stage3_entrypoint(
+            entry_path, source_root=source_root, tmp_path=tmp_path
+        )
+
+    selected = result.graph.modules_by_name["std/improve"]
+    builtin_root = Path(_compiler_module().__file__).resolve().parent / "stdlib_modules"
+    expected_root = builtin_root / ("w3" if w3_selected else "")
+    assert selected.path.resolve() == (expected_root / "std" / "improve.orc").resolve()
+    assert selected.source_root.resolve() == expected_root.resolve()
+
+
+def test_imported_old_module_keeps_its_own_target_for_w3_syntax(tmp_path: Path) -> None:
+    source_root = tmp_path / "old_defining_module_target"
+    legacy_path = _write_module(
+        source_root / "demo" / "legacy.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule demo/legacy)
+  (export State run)
+  (defrecord State (value Int))
+  (defproc helper ((n Int)) -> Int :effects () :lowering inline
+    (let-proc ((left ((x Int)) -> Int :captures () x)
+               (right ((x Int)) -> Int :captures () x))
+      n))
+  (defworkflow run ((state State)) -> State
+    (record State :value (helper state.value))))
+''',
+    )
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.36")
+  (defmodule demo/entry)
+  (import demo/legacy :as old :only (State run))
+  (import std/improve :only (Decision))
+  (export run)
+  (defworkflow run ((state State)) -> State (call old.run state)))
+''',
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_multiple_bindings_unsupported")
+    assert Path(excinfo.value.diagnostics[0].span.start.path) == legacy_path
+
+
+@pytest.mark.parametrize("entry_api", ["stage1", "stage3"])
+def test_w3_graph_accepts_older_type_only_std_improve_import(
+    tmp_path: Path, entry_api: str
+) -> None:
+    source_root = tmp_path / f"old_type_only_import_{entry_api}"
+    legacy_path = _write_module(
+        source_root / "demo" / "legacy.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule demo/legacy)
+  (import std/improve :only (Decision))
+  (export LegacyResult)
+  (defrecord LegacyResult (decision Decision[String String])))
+''',
+    )
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.36")
+  (defmodule demo/entry)
+  (import demo/legacy :only (LegacyResult))
+  (export Outcome run)
+  (defrecord Outcome (legacy LegacyResult))
+  (defworkflow run ((legacy LegacyResult)) -> Outcome
+    (record Outcome :legacy legacy)))
+''',
+    )
+
+    if entry_api == "stage1":
+        result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
+    else:
+        result = _compile_stage3_entrypoint(
+            entry_path, source_root=source_root, tmp_path=tmp_path
+        )
+
+    builtin_root = Path(_compiler_module().__file__).resolve().parent / "stdlib_modules"
+    selected = result.graph.modules_by_name["std/improve"]
+    assert Path(result.graph.modules_by_name["demo/legacy"].path).resolve() == legacy_path.resolve()
+    assert selected.path.resolve() == (builtin_root / "w3/std/improve.orc").resolve()
+    assert selected.source_root.resolve() == (builtin_root / "w3").resolve()
+
+
+def test_w3_graph_accepts_older_helper_using_four_argument_improve(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "old_helper_new_improve_api"
+    legacy_path = _write_module(
+        source_root / "demo" / "legacy.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule demo/legacy)
+  (import std/improve :only (Decision Improvement improve))
+  (export Outcome run)
+  (defrecord State (n Int))
+  (defrecord Outcome (result Improvement[State String String]))
+  (defproc review ((state State)) -> Decision[String String]
+    :effects () :lowering inline
+    (variant Decision[String String] APPROVE :evidence "ok"))
+  (defproc revise ((state State) (feedback String)) -> State
+    :effects () :lowering inline state)
+  (defworkflow run () -> Outcome
+    (let* ((result
+             (improve (record State :n 0)
+                      (proc-ref review)
+                      (proc-ref revise)
+                      3)))
+      (record Outcome :result result))))
+''',
+    )
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.36")
+  (defmodule demo/entry)
+  (import demo/legacy :as old :only (Outcome run))
+  (export run)
+  (defworkflow run () -> Outcome (call old.run)))
+''',
+    )
+
+    result = _compile_stage3_entrypoint(
+        entry_path, source_root=source_root, tmp_path=tmp_path
+    )
+
+    builtin_root = Path(_compiler_module().__file__).resolve().parent / "stdlib_modules"
+    selected = result.graph.modules_by_name["std/improve"]
+    assert result.graph.modules_by_name["demo/legacy"].syntax_module.target_dsl_version == "2.35"
+    assert result.graph.modules_by_name["demo/legacy"].path.resolve() == legacy_path.resolve()
+    assert selected.path.resolve() == (builtin_root / "w3/std/improve.orc").resolve()
+    assert selected.source_root.resolve() == (builtin_root / "w3").resolve()
+
+
+def test_old_five_argument_improve_source_is_refused_under_new_entry_graph(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "old_improve_consumer"
+    legacy_path = _write_module(
+        source_root / "grt" / "legacy.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule grt/legacy)
+  (import std/improve :only (Decision improve))
+  (export run)
+  (defrecord State (n Int))
+  (defproc review ((state State) (input Int)) -> Decision[String String]
+    :effects () :lowering inline
+    (variant Decision[String String] APPROVE :evidence "ok"))
+  (defproc revise ((state State) (input Int) (feedback String)) -> State
+    :effects () :lowering inline state)
+  (defworkflow run () -> Int
+    (let* ((result (improve (record State :n 0)
+                            1
+                            (proc-ref review)
+                            (proc-ref revise)
+                            3)))
+      1)))
+''',
+    )
+    entry_path = _write_module(
+        source_root / "grt" / "entry.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.36")
+  (defmodule grt/entry)
+  (import grt/legacy :as old :only (run))
+  (export run)
+  (defworkflow run () -> Int (call old.run)))
+''',
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_entrypoint(
+            entry_path, source_root=source_root, tmp_path=tmp_path
+        )
+
+    _assert_diagnostic_code(excinfo, "procedure_arity_mismatch")
+    diagnostic = excinfo.value.diagnostics[0]
+    call_line = next(
+        line_number
+        for line_number, line in enumerate(
+            legacy_path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if "(improve (record State" in line
+    )
+    assert (Path(diagnostic.span.start.path), diagnostic.span.start.line) == (
+        legacy_path,
+        call_line,
+    )
+    guidance = diagnostic.message.lower()
+    assert "migrat" in guidance
+    assert "remov" in guidance and "inputs" in guidance
+    assert "captur" in guidance and "review" in guidance and "revise" in guidance
+
+
 def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib(
     tmp_path: Path,
 ) -> None:
@@ -354,6 +592,53 @@ def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib
     assert "review-revise-loop-proc" in result.graph.export_surfaces_by_name["std/phase"].procedures_by_name
     assert result.graph.export_surfaces_by_name["std/phase"].binding_for("review-revise-loop") is not None
     assert result.graph.export_surfaces_by_name["std/phase"].binding_for("review-revise-loop-proc") is not None
+
+
+@pytest.mark.parametrize("entry_target", ["2.35", "2.36"])
+@pytest.mark.parametrize("entry_api", ["stage1", "stage3"])
+def test_project_std_improve_shadow_remains_ambiguous(
+    tmp_path: Path, entry_target: str, entry_api: str
+) -> None:
+    source_root = tmp_path / f"shadowed_std_improve_{entry_target}_{entry_api}"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{entry_target}")',
+                "  (defmodule demo/entry)",
+                "  (import std/improve :only (Decision))",
+                "  (export Outcome run)",
+                "  (defrecord Outcome (decision Decision[String String]))",
+                '  (defworkflow run () -> Outcome',
+                '    (record Outcome :decision',
+                '      (variant Decision[String String] APPROVE :evidence "ok"))))',
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "std" / "improve.orc",
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.33")
+  (defmodule std/improve)
+  (export Decision)
+  (defunion Decision :forall (F B)
+    (APPROVE (evidence F))
+    (BLOCKED (reason B))))
+''',
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        if entry_api == "stage1":
+            _compile_stage1_entrypoint(entry_path, source_root=source_root)
+        else:
+            _compile_stage3_entrypoint(
+                entry_path, source_root=source_root, tmp_path=tmp_path
+            )
+
+    _assert_diagnostic_code(excinfo, "module_import_ambiguous")
 
 
 def test_compile_stage1_entrypoint_rejects_project_local_stdlib_shadowing(tmp_path: Path) -> None:

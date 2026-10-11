@@ -144,6 +144,18 @@ class _Comparison:
             for name, identity in retained.items():
                 if name in frame["names"][side]:
                     frame["identities"][side][identity] = frame["names"][side][name]
+            for source_name, identity, type_ref in getattr(request, "capture_source_bindings", ()):
+                names = {self.builder._capture_source(index): index for index in range(len(request.captures))}
+                if identity is None or source_name not in names:
+                    _fail("capture source slot owner")
+                index = names[source_name]
+                self.types(type_ref, request.captures[index].type_ref,
+                    f"capture source[{index}].type", (self.owners[side], self.owners[side]))
+                token = ("capture", index)
+                existing = frame["identities"][side].get(identity)
+                if existing is not None and existing != token:
+                    _fail("capture source origin has incompatible slots")
+                frame["identities"][side][identity] = token
             self.seed_native(frame, side, request)
         self.seed_retention(frame)
         return frame

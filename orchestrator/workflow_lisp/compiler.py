@@ -2382,6 +2382,7 @@ def _run_stage3_validation_pipeline(
                     procedure,
                     typed_body=normalize_resolved_inline_procedure_calls(
                         procedure.typed_body,
+                        closed_program=compiler_session.closed_program,
                         typed_procedures_by_name=resolved_procedures_by_name,
                         target_dsl_version=module.target_dsl_version,
                         inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
@@ -2413,6 +2414,7 @@ def _run_stage3_validation_pipeline(
                     workflow,
                     typed_body=normalize_resolved_inline_procedure_calls(
                         workflow.typed_body,
+                        closed_program=compiler_session.closed_program,
                         typed_procedures_by_name=resolved_procedures_by_name,
                         target_dsl_version=module.target_dsl_version,
                         inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
@@ -3527,6 +3529,7 @@ def _compile_stage3_graph(
                 procedure,
                 typed_body=normalize_resolved_inline_procedure_calls(
                     procedure.typed_body,
+                    closed_program=compiler_session.closed_program,
                     typed_procedures_by_name=resolved_procedures_by_name,
                     target_dsl_version=definition_module.target_dsl_version,
                     inlined_constructor_type=inlined_constructor_type,
@@ -3561,6 +3564,7 @@ def _compile_stage3_graph(
                 workflow,
                 typed_body=normalize_resolved_inline_procedure_calls(
                     workflow.typed_body,
+                    closed_program=compiler_session.closed_program,
                     typed_procedures_by_name=resolved_procedures_by_name,
                     target_dsl_version=definition_module.target_dsl_version,
                     inlined_constructor_type=inlined_constructor_type,

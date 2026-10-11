@@ -328,7 +328,7 @@ def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path,
         source = f'(if flag {source} (record Result :i 0 :s "other"))'
     program, inputs, facts = _compile(tmp_path, source, params="(input Int) (flag Bool)")
     if not wrapped:
-        _assert_unwrapped_capture_type_error(program, inputs, facts)
+        _assert_unwrapped_capture_keeps_its_type(program, inputs, facts)
     captures = _capture_rows(program.entry.typed_body.expr)
     assert captures
     def reject_legacy(*args, **kwargs):
@@ -340,16 +340,14 @@ def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path,
     _assert_capture_binding_uses_incoming_type(program, inputs, typed, captures, binding_type_for_elaboration, summary)
 
 
-def _assert_unwrapped_capture_type_error(program, inputs, facts):
+def _assert_unwrapped_capture_keeps_its_type(program, inputs, facts):
     from orchestrator.workflow_lisp.typecheck import typecheck_expression
     from orchestrator.workflow_lisp.compiler_session import CompilerSession
-    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
-    with pytest.raises(LispFrontendCompileError) as caught:
-        typecheck_expression(program.entry.typed_body.expr, type_env=inputs["type_env"],
-            value_env=inputs["value_env"], workflow_catalog=facts["workflow_catalog"],
-            procedure_catalog=facts["procedure_catalog"], compiler_session=CompilerSession())
-    assert 'pure_expr_operand_type_mismatch' in {item.code for item in caught.value.diagnostics}
+    retyped = typecheck_expression(program.entry.typed_body.expr, type_env=inputs["type_env"],
+        value_env=inputs["value_env"], workflow_catalog=facts["workflow_catalog"],
+        procedure_catalog=facts["procedure_catalog"], compiler_session=CompilerSession())
+    assert retyped.type_ref == program.entry.typed_body.type_ref
 
 
 def _assert_capture_binding_uses_incoming_type(program, inputs, typed, captures, binding_type_for_elaboration, summary):

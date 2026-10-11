@@ -594,7 +594,7 @@ leaf .orc compile success
   primary-surface decision.
 - Leaf compile evidence is necessary but never sufficient for family
   promotion; parity evidence carries explicit readiness labels.
-- Lowering-route identity is a semantic dimension of fixtures, examples,
+- For flat-route evidence, lowering-route identity is a semantic dimension of fixtures, examples,
   tests, and migration evidence, and it is multi-valued: the route enum
   (`LoweringRoute.LEGACY`, `WCC_M1` through `WCC_M4`) and the lowering schema
   version are recorded as distinct dimensions. A result whose route is
@@ -739,7 +739,7 @@ readiness state:
 
 Leaf-only evidence must never satisfy `--require-promotable`.
 
-Every readiness label must also record the specific lowering route that
+Every flat-route readiness label must also record the specific lowering route that
 produced its evidence (the `LoweringRoute` enum value, e.g. `LEGACY` or
 `WCC_M4`) and the lowering schema version. A label whose route is unstated,
 whose route is an intermediate preview route presented as default-route
@@ -753,13 +753,18 @@ filename or recency:
 | Example/fixture label | Meaning |
 | --- | --- |
 | `wcc_default` | Compiles and runs under the default WCC schema-2 route. This is route evidence only; the registry row's `copy_safety` field says whether the example is copy-safe guidance |
+| `evaluated_execution` | A registered evaluated entry target produces a checked closed program; public compile/run evidence proves the selected source. Both flat lowering fields are omitted. It is route evidence, not copy approval, family promotion or LSP certification. |
 | `legacy_schema1_compat` | Exists to preserve or prove legacy schema-1 behavior; not current authoring guidance |
 | `historical_negative` | Kept as a negative or historical fixture; expected to fail or demonstrate retired behavior |
 | `migration_candidate` | Mid-migration; route and parity status tracked in migration records |
 | `stale_needs_update` | Known-broken under the current default; must not be cited as evidence of anything except its own staleness |
 
-Compiler/lowering tests must pin their route explicitly unless the test
-intentionally checks the default route.
+Flat compiler/lowering tests must pin their route explicitly unless the test
+intentionally checks the default route. Evaluated registry evidence uses the
+existing public CLI harness and checked closed artifact; it does not add an
+evaluated `LoweringRoute` value, runtime route selector or schema extension.
+The registry remains `workflow_lisp_route_readiness_registry.v1`; shared path,
+coverage, readiness, copy-safety and evidence validation apply to every label.
 
 ### 11.3 Tasks
 

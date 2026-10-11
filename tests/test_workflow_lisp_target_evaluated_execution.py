@@ -50,8 +50,9 @@ def test_target_235_is_registered(registry) -> None:
     assert TARGET in registry
 
 
-def test_shared_validation_orders_235_last() -> None:
-    assert validation.DEFAULT_VERSION_ORDER[-2:] == ("2.34", TARGET)
+def test_shared_validation_keeps_235_adjacent_to_234() -> None:
+    order = validation.DEFAULT_VERSION_ORDER
+    assert order[order.index("2.34") + 1] == TARGET
 
 
 def test_evaluated_execution_gate_starts_at_235() -> None:

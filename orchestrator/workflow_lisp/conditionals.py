@@ -1018,6 +1018,18 @@ def _normalize_composite(
     path: tuple[int, ...],
     closed_program: bool = False,
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
+    if closed_program and isinstance(expr, BindProcExpr):
+        prefix, base = _normalize_operand(expr.base_expr, path=path + (0,), closed_program=True)
+        hoisted = list(prefix)
+        bindings = []
+        for index, binding in enumerate(expr.bindings):
+            value = binding.value_expr
+            # A whole-binding origin owns this value; its RHS is historical.
+            if binding.source_binding_identity is None or isinstance(value, BindProcExpr):
+                prefix, value = _normalize_operand(value, path=path + (index + 1,), closed_program=True)
+                hoisted.extend(prefix)
+            bindings.append(dataclasses.replace(binding, value_expr=value))
+        return tuple(hoisted), dataclasses.replace(expr, base_expr=base, bindings=tuple(bindings))
     children = iter_child_exprs(expr)
     if not children:
         return (), expr

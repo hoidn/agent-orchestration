@@ -14,6 +14,7 @@ inputs; the executor is `LAUNCH_PROBE`, supplied as the workspace's
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -36,6 +37,8 @@ from tests.workflow_lisp_improve_example_sources import (
     EXAMPLE,
     EXAMPLE_INPUTS,
     EXAMPLE_PROMPTS,
+    LEGACY_COMMANDS,
+    MAINTAINED_EXAMPLE,
     LAUNCH_PROBE,
     PANEL_HOOKS,
     PANEL_REVIEW,
@@ -102,7 +105,7 @@ def _install(root: Path, source: str) -> dict[str, Path]:
         "source_root": root,
         "providers": root / "providers.json",
         "prompts": EXAMPLE_INPUTS / "prompts.json",
-        "commands": EXAMPLE_INPUTS / "commands.json",
+        "commands": LEGACY_COMMANDS,
         "inputs": root / "inputs.json",
     }
     files["providers"].write_text(json.dumps(PROVIDERS), encoding="utf-8")
@@ -224,11 +227,13 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_documented_command_dry_runs_the_example(tmp_path: Path) -> None:
-    header = EXAMPLE.read_text(encoding="utf-8").split("python -m orchestrator run", 1)[1].split("--dry-run", 1)[0]
+    header = MAINTAINED_EXAMPLE.read_text(encoding="utf-8").split("python -m orchestrator run", 1)[1].split("--dry-run", 1)[0]
     documented = "python -m orchestrator run " + " ".join(line.strip(" ;\\") for line in header.splitlines()) + " --dry-run"
     argv = shlex.split(documented)
 
-    result = subprocess.run([sys.executable, *argv[1:]], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
+    result = subprocess.run([sys.executable, *argv[1:]], cwd=REPO_ROOT, env=env,
+                            capture_output=True, text=True, check=False)
 
     assert (argv[:4], result.returncode) == (["python", "-m", "orchestrator", "run"], 0), result.stderr
 

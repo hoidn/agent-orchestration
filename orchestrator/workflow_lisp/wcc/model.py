@@ -253,6 +253,14 @@ class WccLiteralAtom:
 class WccNameAtom:
     metadata: WccNodeMetadata
     name: str
+    is_capture_read: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+
+    def __post_init__(self):
+        if self.is_capture_read and self.metadata.binding_identity is None:
+            raise ValueError("capture read requires its retained binding identity")
 
 
 @dataclass(frozen=True)

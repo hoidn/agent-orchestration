@@ -71,6 +71,7 @@ from .syntax import (
     syntax_node_datum,
     syntax_resolved_name,
     target_dsl_uses_evaluated_execution,
+    target_dsl_supports_local_hook_inference,
     target_dsl_supports_rich_loop_values,
     target_dsl_supports_trial,
 )
@@ -2756,6 +2757,9 @@ def typecheck_workflow_definitions(
         value_env: dict[str, TypeRef] = {
             param_name: type_ref for param_name, type_ref in signature.params
         }
+        extern_names = frozenset(externs.bindings_by_name)
+        lexical_names = frozenset(value_env) - extern_names
+        w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)
         for extern_name, binding in externs.bindings_by_name.items():
             if isinstance(binding, ProviderExtern):
                 value_env[extern_name] = PrimitiveTypeRef(name="Provider")
@@ -2765,7 +2769,8 @@ def typecheck_workflow_definitions(
         if isinstance(workflow_def.body, SyntaxNode):
             body_expr = elaborate_expression(
                 workflow_def.body,
-                bound_names=frozenset(value_env),
+                bound_names=lexical_names if w3 else frozenset(value_env),
+                extern_names=extern_names if w3 else frozenset(),
                 procedure_names=procedure_names,
                 function_names=function_names,
                 function_name_resolver=function_name_resolver,

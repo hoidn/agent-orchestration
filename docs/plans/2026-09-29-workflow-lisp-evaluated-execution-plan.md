@@ -57,8 +57,7 @@ refreshed old-target audit and qualified real-provider smoke are recorded;
 independent final code/evidence and documentation/spec reviews are PASS. The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
 records exact tested revisions, receipts and the downstream handoff. The reviewed
 [early Phase 6a pilot plan](2026-10-07-evaluated-execution-phase-6a-pilot-plan.md)
-records executed Tasks 1–3 and the [caller assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md): all 21 pilot cases pass in the final `688695e3` campaign, while the full suite remains RED; the report owns closeout status. Global Phase 6a and W3 Task 4 compatibility remain open. Phases 4–7 remain pending, with no new target, capability or
-retirement selection inferred from Phase 3 closure.
+records executed Tasks 1–3 and the [caller assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md): all 21 pilot cases pass in the final `688695e3` campaign, while the full suite remains RED; the report owns closeout status. Global Phase 6a remains open; the Phase 4c closeout owns subsequent bounded W3 compatibility evidence. Phases 4–7 remain pending delivery. The subsequent 2026-10-07 owner selection assigns W3 to 2.36 after pure-capture correction and before Phase 5; no capability or retirement selection is inferred from Phase 3 closure.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
@@ -391,16 +390,15 @@ selected.
 
 ### Delivery Order And Preserved Capabilities
 
-Owner amendment, 2026-10-01:
+Owner amendment, 2026-10-01, updated by selection on 2026-10-07:
 
-**Phase 2 → Phase 3 → Phase 6a pilot → Phase 4 additions (including W3) and
-Phase 5 → Phase 6b migration → Phase 7 retirement.**
+**Phase 2 → Phase 3 → Phase 6a pilot → pure lexical-capture correction →
+Phase 4c/W3 → Phase 5 → Phase 6b migration → Phase 7 retirement.**
 
-This is the preferred delivery order, not a serial dependency chain or a
-requirement to finish every effect class before using the runtime. Phase 5
-may start after Phase 3 alongside the
-pilot; it does not wait for all of Phase 4. Phase 6b advances consumer by
-consumer as the capabilities each needs land. Existing phase numbers and
+Owner selection, 2026-10-07, orders the pure-capture correction and W3 before
+Phase 5. Other Phase 4 additions remain consumer-conditioned and independent;
+this does not require finishing every effect class before using the runtime.
+Phase 6b advances consumer by consumer as the capabilities each needs land. Existing phase numbers and
 the selected Phase 2 task order stay unchanged.
 
 Simplify the execution machinery, not the language's useful contracts:
@@ -416,9 +414,18 @@ Simplify the execution machinery, not the language's useful contracts:
 
 Delivery integration, 2026-10-01: W3 belongs to this delivery sequence as
 Phase 4c. The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
-retains its technical tasks, not a competing schedule. Grammar, target and
-module compatibility remain open prerequisites; scheduling W3 does not mark
-it implemented or start a run. Other repetition rules and the
+retains its technical tasks, not a competing schedule. The owner selected
+target 2.36 and one `std/improve` API per source import graph on 2026-10-07;
+retargeting requires migrating old source callers. The accepted bounded
+grammar/inference and compatibility contract is in write-once §§6/9; the
+[Phase 4c plan](2026-10-07-evaluated-execution-phase-4c-w3-plan.md) owns
+implementation and final qualification. At the 2026-10-11 recovery cut, bounded
+Tasks 4/6/11–13/14A/14B/F-CODE-1 are accepted and W3 is implemented
+at 2.36. Exact compatibility03 old-artifact/resume controls are accepted for the
+final frozen package. The [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
+owns final Task F qualification, original RED campaigns, bounded causal
+dispositions, reviews and delivery.
+Other repetition rules and the
 [effect-ledger workstream](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
 remain separately scoped. None becomes a prerequisite for Phases 2–3.
 
@@ -521,8 +528,9 @@ subsets), refreshed audit and qualified real-provider smoke. Independent final
 code/evidence review is PASS at `ef689a39`; final documentation/spec review
 is PASS, and fast-forward merge/push delivered `06130a53` to `main` and
 `origin/main`. Tasks 16/17 and Phase 3 are closed. The reviewed early pilot’s
-entry was satisfied and Tasks 1–3 have bounded independent PASS reviews. Its [final campaign and assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) record 21 passing pilot cases and a RED full suite, with closeout status owned by that report. The finite totality matrix does not cover the known pre-existing pure-inline shadow defect (101 versus lexical 8). Closing the bounded pilot will not close global Phase 6a while W3 Task 4 migration/compatibility is open. Delivery order remains Phase 3 → early Phase 6a pilot → consumer-selected
-Phase 4 additions and independent Phase 5 → Phase 6b → Phase 7.
+entry was satisfied and Tasks 1–3 have bounded independent PASS reviews. Its [final campaign and assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) record 21 passing pilot cases and a RED full suite, with closeout status owned by that report. The finite totality matrix did not cover the pre-existing pure-inline shadow defect (101 versus lexical 8); the [subsequent pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) supplies bounded lexical/effect-once and retained-run evidence, with historical final code/spec PASS and bounded acceptance in the original worktree before interruption. Its report owns recovery verification; the Phase 4c closeout owns shared final qualification and delivery. Closing the bounded pilot does not close global Phase 6a; W3 has subsequent bounded compatibility evidence, while broader Phase 6b migration remains separate. The subsequent owner order is Phase 3 → early Phase 6a pilot → pure-capture
+correction → W3 → Phase 5 → Phase 6b → Phase 7; unrelated Phase 4 additions
+remain consumer-conditioned.
 
 ### Phase 4: Consumer Capabilities And Authoring
 
@@ -553,17 +561,27 @@ ledger. Authoring changes reuse existing effect and execution owners.
   `inputs I`, using the existing compiler and Phase 3 evaluator. The
   [component plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#e-hooks-that-capture-their-context)
   owns Tasks 11 → 12 → 13 → 14, after Task 4 qualification and Task 6 target
-  registration. Entry includes the Phase 6a caller assessment and resolved
-  grammar/target/module compatibility. Prove public compile/run/resume,
+  registration at selected target 2.36. The [bounded execution plan](2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+  requires the Phase 6a caller assessment, completion of the separate pure-capture
+  correction prerequisite and executable qualification of the accepted contract.
+  One source-graph API requires migrating old five-argument callers on retargeting;
+  old-target module bytes/path, complete snapshot authority and conflict guards
+  remain protected. Incomplete hooks have one authored direct consumer site;
+  fully annotated hooks retain reuse. Prove public compile/run/resume,
   definition-site captures and no repeated committed effects on the shipped
   proposal example and the `reviewed_change.orc` helper variant. Task 14
   proves representative migration; the maintained-consumer rollout belongs
   to Phase 6b. W3 adds no runtime closure or new effect class.
+  Current bounded 14A/14B acceptance includes nine public lifecycle cases, four
+  capture pilots, a 232 → 220 selected helper-plus-callers census and a 30-row
+  W3 source handoff. Exact old-run compatibility controls are subsequently accepted; the closeout
+  owns final F qualification; no broader Phase 6b rollout or Phase 5 target is selected.
 
 An unneeded class may remain deferred or be retired with its consumers by
 explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
 for unrelated effect ports or W0/W1/W2/W4. Phase 4 is not an all-or-nothing
-prerequisite for Phase 5 or each Phase 6b consumer.
+prerequisite for each Phase 6b consumer. The selected W3 slice precedes
+Phase 5; this adds no dependency on unrelated Phase 4 ports.
 
 #### PQ-1: Sequential Native-Session Turns
 
@@ -601,8 +619,8 @@ The [prepared Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md) reco
 
 Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
 single-call comparison is one: its four implementers run in sequence.
-Recommended alongside the early pilot, independently of unneeded Phase 4
-classes. Reuse the evaluator and memo; no general scheduling framework is
+The 2026-10-07 owner order places execution after pure-capture correction
+and W3; unrelated Phase 4 classes remain independent. Reuse the evaluator and memo; no general scheduling framework is
 part of this phase.
 
 | Milestone | Evidence |
@@ -638,7 +656,7 @@ the migration/compatibility decision. Qualification preparation can overlap
 Phase 3; the pilot supplies executable caller evidence before Phase 4c.
 Do not require unimplemented W3 syntax to run the pilot.
 
-Execution update, 2026-10-07: the [pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#assessment-and-next-handoff) supplies the proposal/explicit/bound caller assessment, truthful helper-inclusive counts, two separately reviewed compiler corrections and the W3 decision table. The full campaign passes all 21 pilot cases and the existing 400-case totality owner but remains RED overall; the report owns closeout status. The pure-inline lexical shadow defect remains with the frontend/compiler owner. W3 grammar/inference, target, standard-module and checkpoint/migration decisions remain open for Phase 4c; portable context needs a named consumer, and the existing serial `best_of_n` need goes to Phase 5. No canonical migration or later capability is selected here.
+Execution update, 2026-10-07: the [pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#assessment-and-next-handoff) supplies the proposal/explicit/bound caller assessment, truthful helper-inclusive counts, two separately reviewed compiler corrections and the W3 decision table. The full campaign passes all 21 pilot cases and the existing 400-case totality owner but remains RED overall; the report owns closeout status. The [subsequent uncommitted pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) demonstrates lexical 8 and the coupled effect-once repair; historical final code/spec reviews passed and the bounded prerequisite was accepted in the original worktree before interruption. Its report owns recovery verification; the [Phase 4c closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns the shared full-freeze result and delivery. The subsequent owner selection assigns W3 target 2.36 and graph migration; the Phase 4c plan owns the accepted bounded contract and the closeout records final-package compatibility and verification. Pure-capture correction precedes W3, which precedes Phase 5. Portable context still needs a named consumer, and serial `best_of_n` goes to Phase 5. No canonical migration or unrelated later capability is selected here.
 
 Use observed friction to select a principled improvement, a justified
 design/type-system revision, or explicit simplification of an unhelpful

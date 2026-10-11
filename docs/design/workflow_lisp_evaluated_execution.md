@@ -18,10 +18,25 @@
   has bounded caller reviews and 21 passing pilot cases at `688695e3`,
   with production corrections at `d6adb627` and `b11e678`. Its full suite
   remains RED; the report owns closeout status. The
-  pre-existing pure-inline same-name shadow defect still returns 101
-  instead of lexical 8; current finite matrix/capture evidence does not
-  establish universal admitted-program correctness. Global Phase 6a and
-  W3 compatibility/migration decisions remain open.
+  pilot recorded the pre-existing pure-inline shadow result 101 instead of
+  lexical 8. The subsequent [pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
+  demonstrates lexical 8 and coupled effect-once repair with bounded raw/resume
+  historical evidence; final code/spec reviews passed and the bounded prerequisite
+  was accepted before interruption. Recovery qualification and delivery are
+  recorded in the Phase 4c closeout. This does
+  not establish universal admitted-program correctness. Global Phase 6a remains
+  open. The subsequent owner selection assigns W3 to 2.36 with one
+  `std/improve` API per source import graph and old source caller migration
+  on retargeting; the [Phase 4c plan](../plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+  owns executable qualification and compatibility proof. W3 target registration,
+  local bindings/captures/signatures and graph-selected helper are implemented
+  at 2.36. The bounded
+  extern/capture correction and public proposal/reviewed-change lifecycle
+  checks are accepted; Task14B pilot/census evidence has bounded
+  independent acceptance. Exact old-artifact/resume proof and affected/full freeze
+  are recorded in the [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md). This does not close
+  [remaining composition limits](workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
+  or evaluated LSP F2 (**OPEN_NOT_WAIVED**).
   `evaluated_execution_unavailable` remains the refusal of
   `resume --force-restart` on an evaluated run and of resuming a schema-2.1
   run whose source now targets 2.35
@@ -1458,6 +1473,19 @@ The exact evaluated selector is
 `schema_version: "3.0"`, in both `run.json` and its derived `state.json`.
 These name the memo-backed run contract; the independent closed-artifact
 schema remains `workflow-lisp/closed-program/1`, representation `table/1`.
+The closed artifact's top-level `target` records the entry source target, also
+recorded in the build manifest. It must be a string registered for evaluated
+execution, currently `"2.35"` or `"2.36"`; it is not a representation version.
+The separate internal run-reference target remains `2.35`. Target registration
+preserves read-back equality and the runtime/profile contracts here. Retargeting
+source from 2.35 to 2.36 changes the program digest when the rebuild is valid
+after required source-caller migration; retained-run resume then refuses
+`resume_program_changed`. An invalid rebuild preserves the earlier compile
+refusal instead. Both refuse before evidence writes without conversion.
+The [W3 contract](workflow_lisp_write_once.md#9-targets-and-compatibility)
+adds local hooks and graph-selected `std/improve` at 2.36 without changing this
+runtime profile. The [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
+owns Tasks 14/F qualification and delivery status.
 There is no per-record version or second runtime selector. Schema 2.1 with
 an absent profile, or `derived_pure_replay.v1`, retains its existing route.
 Unknown profiles or unsupported versions in authoritative run metadata fail
@@ -3021,7 +3049,7 @@ records commands, exits, hashes and limits separately from historical evidence.
 
 | Requirement | Measure | Spike and public evidence |
 | --- | --- | --- |
-| Totality | Every cell admitted at this target runs; refusals name only the release exclusions. No known defect remains among admitted forms. The matrix covers each form directly, through a same-module helper and through an imported helper | Spike: met on 100 typechecking cells of 120, the 32 the present route fails among them (gate report, §2, criterion 1). Public: the finite target-2.35 matrix of Task 13A, direct, same-module and imported helper, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), passes all 400 cases in the final pilot campaign. Its 275 projected cells are 225 admitted, 12 type-incompatible and 38 source-rule refusals; 125 further controls are separate. The defect-free criterion remains a requirement, not a universal evidence verdict: the [pilot](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) records an unresolved pure-inline shadow defect outside that matrix |
+| Totality | Every cell admitted at this target runs; refusals name only the release exclusions. No known defect remains among admitted forms. The matrix covers each form directly, through a same-module helper and through an imported helper | Spike: met on 100 typechecking cells of 120, the 32 the present route fails among them (gate report, §2, criterion 1). Public: the finite target-2.35 matrix of Task 13A, direct, same-module and imported helper, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), passes all 400 cases in the final pilot campaign. Its 275 projected cells are 225 admitted, 12 type-incompatible and 38 source-rule refusals; 125 further controls are separate. The defect-free criterion remains a requirement, not a universal evidence verdict: the [pilot](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) records the then-unresolved pure-inline shadow defect outside that matrix; the [subsequent correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) has accepted bounded uncommitted evidence, with main integration/full freeze pending |
 | Real programs | The `std/improve` example and the two workflows of the single-call comparison run to their expected result, unchanged in source apart from the target | Spike: met with stand-in providers (gate report, §2, criterion 1). Public: stand-ins in [`tests/test_workflow_evaluated_consumers.py`](../../tests/test_workflow_evaluated_consumers.py) and [`tests/test_workflow_evaluated_programs.py`](../../tests/test_workflow_evaluated_programs.py); the configured live providers (Task 14D, rounds 1–2): each of `std/improve`, `reviewed_change` and `best_of_n` has a live public run, a committed-boundary CLI resume without redispatch and a completed resume, with the two defects round 1 found repaired before round 2 |
 | The search controller | The MLEvolve-inspired controller makes the decisions of its Python reference, in the same order, with the same budget spent, and returns the same result. Its form is the compact one, with one helper for both branches | Spike: met on 72 pairs of leaf scenario and budget (gate report, §2, criterion 2). Public: the same 72 pairs at 2.35 in [`tests/test_workflow_evaluated_programs.py`](../../tests/test_workflow_evaluated_programs.py) (Task 13C) |
 | Growth | Doubling the fields of the controller's state and the number of its branches leaves it running. No limit depends on the size of an expression | Public: met at 2.35, state fields 14→28 and source `if`s 27→54 with every arm witnessed, [`tests/test_workflow_evaluated_programs.py`](../../tests/test_workflow_evaluated_programs.py) (Task 13C) |
@@ -3074,7 +3102,7 @@ retains exact tested revisions and qualified evidence.
 | Non-finite numbers cannot reach an input digest | The numeric surface's boundary rule, implemented at target 2.34 | Owned by the [numeric surface](workflow_lisp_numeric_surface.md) |
 | A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Public: met, [`tests/test_workflow_evaluated_input_documents.py`](../../tests/test_workflow_evaluated_input_documents.py) (Task 12) |
 | The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Implemented: checker/artifact read-back reject those tamperings, including public CLI artifacts; `tests/test_workflow_lisp_closed_program_artifact.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
-| Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Bounded compiler evidence: canonical keys distinguish selected targets/bindings and retain lexical creation bindings in the tested routes. Public formatting/relocation builds preserve keys/digests in `tests/test_workflow_lisp_closed_program_compile_cli.py`; runtime once-only evaluation through public run/resume in [`tests/test_workflow_evaluated_call_captures.py`](../../tests/test_workflow_evaluated_call_captures.py) and [`tests/test_workflow_evaluated_calls.py`](../../tests/test_workflow_evaluated_calls.py) (Task 13B). The [pilot capture correction and qualification](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#w3-specimen-and-qualification-status) add effectful lexical-capture/resume evidence; the known pure-inline shadow witness still returns 101 rather than lexical 8. Complete lexical retention remains an obligation, not a passing universal claim |
+| Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Bounded compiler evidence: canonical keys distinguish selected targets/bindings and retain lexical creation bindings in the tested routes. Public formatting/relocation builds preserve keys/digests in `tests/test_workflow_lisp_closed_program_compile_cli.py`; runtime once-only evaluation through public run/resume in [`tests/test_workflow_evaluated_call_captures.py`](../../tests/test_workflow_evaluated_call_captures.py) and [`tests/test_workflow_evaluated_calls.py`](../../tests/test_workflow_evaluated_calls.py) (Task 13B). The [pilot capture correction and qualification](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#w3-specimen-and-qualification-status) add effectful lexical-capture/resume evidence; that pilot's pure-inline shadow witness returned 101 rather than lexical 8. The [subsequent uncommitted correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) demonstrates lexical 8 under bounded checks; complete lexical retention remains an obligation, not a passing universal claim |
 | Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical at identical identity inputs (§13); an old entry calling a new-target module is refused | Implemented public compile: the evaluated entry skips flat lowering across selected imported typed bodies; old entries retain their route and refuse evaluated dependencies. `tests/test_workflow_lisp_closed_program_compile_cli.py` and `tests/test_workflow_lisp_target_evaluated_execution.py` |
 | Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Implemented: local callable identities, private nominal descriptors and finalized run-reference signatures omit paths/positions while preserving owners; public relocation/read-back coverage is in `tests/test_workflow_lisp_closed_program_effects.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
 | Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Implemented declaration/build checks for both kinds, unused configuration identity, and public CLI carriage; `tests/test_workflow_lisp_command_boundary_closure.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py`. Compile reads no closure bytes. Filesystem/content-hash/recovery checks through public entries in [`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py), [`tests/test_workflow_evaluated_closure_evidence.py`](../../tests/test_workflow_evaluated_closure_evidence.py) and [`tests/test_workflow_evaluated_command_origin.py`](../../tests/test_workflow_evaluated_command_origin.py) |

@@ -267,11 +267,14 @@ Required fields:
   `test_fixture`, `compiler_test`, `migration_target`, or
   `migration_evidence`.
 - `route_label`: one of `wcc_default`, `legacy_schema1_compat`,
-  `historical_negative`, `migration_candidate`, or `stale_needs_update`.
-- `lowering_route`: a value from `LoweringRoute` when the surface compiles or
-  is expected to compile; omitted only for `historical_negative` fixtures that
-  are intentionally parse/type/lint failures.
-- `lowering_schema_version`: required whenever `lowering_route` is present.
+  `historical_negative`, `migration_candidate`, `stale_needs_update`, or
+  `evaluated_execution`.
+- `lowering_route`: a value from `LoweringRoute` for flat-route evidence;
+  omitted for intentionally parse/type/lint-failing `historical_negative`
+  fixtures, and required to be unset for `evaluated_execution`.
+- `lowering_schema_version`: required whenever `lowering_route` is present;
+  required to be unset for `evaluated_execution`. Either populated flat field
+  on an evaluated row refuses `route_readiness_schema_mismatch`.
 - `readiness_label`: required for migration targets and migration candidates;
   allowed values are the target-design readiness states:
   `leaf_compile_candidate`, `leaf_runtime_candidate`,
@@ -290,6 +293,16 @@ Recommended fields:
 - `replacement_or_retirement_path` for stale or compatibility-only surfaces.
 
 ### Label Semantics
+
+`evaluated_execution` classifies a checked closed program selected by a
+registered evaluated entry target. Evidence is the existing public compile/run
+harness checking the actual source and closed artifact, not metadata validity
+alone. Keep registry schema v1 and its shared path, uniqueness, coverage,
+readiness, stale-ownership and proving-evidence validation. It certifies neither
+copy safety, family promotion nor evaluated LSP F2 parity. Do not add an
+evaluated `LoweringRoute`, runtime route adapter or serialized profile field.
+`compile_registered_route_case` remains a flat-route test helper; its missing
+route/schema check rejects evaluated rows before invoking the compiler.
 
 `wcc_default` means the surface is expected to compile or run under the current
 default route (`LoweringRoute.WCC_M4`, schema 2) and is copy-safe current

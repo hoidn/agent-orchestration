@@ -88,8 +88,9 @@ composition by owner selection on 2026-09-28.
 
 The separate [evaluated-execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 owns runtime delivery: Phase 2 closed program → Phase 3 executable core →
-Phase 6a pilot, with Phase 4 additions including W3 and independent Phase 5
-parallel map → Phase 6b maintained-consumer migration → Phase 7 retirement.
+Phase 6a pilot → pure lexical-capture correction → Phase 4c/W3 → Phase 5
+parallel map → Phase 6b maintained-consumer migration → Phase 7 retirement,
+per owner selection on 2026-10-07. Other Phase 4 additions remain independent.
 Portable context is a named later delivery, not silently included in the
 first-release provider subset. Composition, macro provenance, typed prompt
 and result contracts, and artifact production/consumption/lineage are
@@ -638,10 +639,16 @@ and any necessary allocation.
 
 ## W3 — Local Hooks With Inferred Context
 
-**Status:** pending Phase 4c authoring improvement in the
+**Status:** implemented at 2.36, in the
 [evaluated-execution delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities),
-integrated by owner clarification on 2026-10-01. Implementation and target
-selection remain pending. This is W3 of the existing
+integrated by owner clarification on 2026-10-01. Owner selection on 2026-10-07
+assigns target 2.36 and one `std/improve` API per source import graph, with old
+source callers migrated when retargeting. Bounded Tasks 4/6/11–13/14A/14B and
+F-CODE-1 are accepted. Exact compatibility03 old-artifact/resume controls are
+accepted for the final frozen package. The [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
+owns final Task F qualification, original RED campaigns, bounded causal
+dispositions, reviews and delivery.
+This is W3 of the existing
 [write-once design](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context),
 not a new research unit or runtime-closure feature.
 
@@ -650,10 +657,18 @@ owns Task 4 qualification and Tasks 11–14 delivery: multiple local bindings,
 inferred lexical captures, signatures from the expected `ProcRef`, then
 removal of `inputs I` and context-only records from `improve` callers.
 
-Qualify W3 independently of W0/W1/W2/W4. Resolve the surface grammar,
-cross-hook type inference and stdlib target/module migration before
-implementation. Preserve definition-site values, once-only captured effects,
-public fresh-run/resume behavior and older-target compatibility. Existing
+Qualify W3 independently of unselected W0/W1/W2/W4. The accepted bounded
+contract in write-once §§6/9 uses one authored direct consumer site for
+incomplete local signatures, readiness within that call and target-local
+capture canonicalization; full signatures retain reuse. The
+[Phase 4c execution plan](2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+records accepted bounded qualification, graph/snapshot/package source
+selection and compatibility03 exact old-artifact/retained-run controls; the
+[closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns
+final F verification, review and delivery.
+Source graph selection preserves old-target module bytes/path, complete
+snapshot authority and existing overlap refusal. Preserve definition-site
+values, once-only captured effects, public fresh-run/resume behavior and older-target compatibility. Existing
 `bind-proc` remains the option for reusable top-level hooks.
 
 Judge the change by concrete deletions, clearer callers and the locality of
@@ -662,8 +677,9 @@ a fixed percentage is not an adoption gate. Reuse the shipped proposal
 example and `reviewed_change.orc` comparison; this needs no new live study.
 
 The parent sequence owns its placement: Phase 3 supplies the runtime;
-Task 4 qualification and Phase 6a assess the caller improvement; Phase 4c
-delivers Tasks 11–14; Phase 6b migrates the maintained consumer inventory.
+Task 4 qualification and Phase 6a assess the caller improvement; complete
+the separate pure-capture correction, then Phase 4c delivers Tasks 11–14 before
+Phase 5; Phase 6b migrates the maintained consumer inventory.
 Qualification preparation can overlap Phase 3. W3 syntax is not a condition
 for running the early pilot, and its delivery does not wait for unrelated
 Phase 4 effect ports. The component's Phase E is this same Phase 4c work,
@@ -755,8 +771,10 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 - [W3](#w3--local-hooks-with-inferred-context) is integrated into runtime
   delivery as Phase 4c. The repetition-reduction planset owns its technical
   tasks: Task 4 qualification with Phase 6a, then Tasks 11–14, followed by
-  Phase 6b consumer migration. Target and compatibility decisions remain open;
-  it adds no prerequisite to Phases 2–3.
+  Phase 6b consumer migration. Target 2.36 and one source-graph API are selected;
+  implementation is present at 2.36, exact compatibility03
+  controls are accepted; the closeout owns final F gate status. Pure correction precedes W3,
+  then Phase 5; it adds no prerequisite to Phases 2–3.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:
@@ -820,10 +838,17 @@ row, ready-to-run implementation plan, or live workflow selection is added.
 
 The 2026-10-01 W3 incorporation makes the already proposed local-hook work
 discoverable here and expands its existing plan tasks. The five research
-units and the plan's 15 task numbers remain unchanged (Tasks 1–14 pending,
-Task 15 deferred). No machine-selected next item changes. W3's next planning
-step is Task 4 qualification for Phase 6a and Phase 4c delivery, not automatic
-implementation or a separate delivery track.
+units and the plan's 15 task numbers remain unchanged. The historical planning
+cut had Tasks 1–14 pending and Task 15 deferred. The current selected W3 cut
+has bounded Task 4 qualification and Tasks 6/11–13/14A/14B accepted; complete
+Task 14 and final F qualification are recorded in the closeout; exact bounded
+compatibility03 controls are accepted.
+Other component tasks retain their unselected status and Task 15 stays deferred.
+No machine-selected next item changes or separate delivery track is created. The 2026-10-07 owner selection
+now chooses W3 at 2.36, after pure-capture correction and before Phase 5, under
+the bounded Phase 4c execution plan and its uncompleted evidence gates. The
+15 component task numbers and research allocations remain unchanged; no live
+machine selector or manifest is changed.
 
 `workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
 is a legacy review example with historical context, not a live stage selector

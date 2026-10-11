@@ -218,8 +218,7 @@ CASES = {
         "on_exhausted_pure_proc", {}, _both(Refused("loop_recur_contract_invalid", 19, 21, "typecheck")),
     ),
     "shadowed_name": ("shadowed_name", {}, _both(Runs({"__result__": 15}, ("bump 1", "bump 10")))),
-    # The value of a known defect: lexical scope gives 7; the later binder of `b` is read.
-    "bind_proc_capture": ("bind_proc_capture", {}, _both(Runs({"__result__": 13}))),
+    "bind_proc_capture": ("bind_proc_capture", {}, _both(Runs({"__result__": 7}))),
     "bind_proc_renamed": ("bind_proc_renamed", {}, _both(Runs({"__result__": 7}))),
 }
 

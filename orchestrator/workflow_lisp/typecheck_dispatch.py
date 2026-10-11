@@ -432,7 +432,7 @@ def _typecheck(
         )
     if isinstance(expr, NameExpr):
         try:
-            type_ref = value_env[expr.name]
+            type_ref = expr.capture_origin[1] if expr.capture_origin is not None else value_env[expr.name]
         except KeyError:
             _raise_error(
                 f"unknown name `{expr.name}`",
@@ -542,7 +542,9 @@ def _typecheck(
                     expansion_stack=binding.keyword_expansion_stack,
                 )
             seen_bindings.add(binding.name)
-            typed_binding = recurse(binding.value_expr)
+            from .expression_traversal import stamp_capture_origin
+            captured_expr = stamp_capture_origin(binding.value_expr, binding_env=binding_env, value_env=value_env)
+            typed_binding = recurse(captured_expr)
             if typed_binding.type_ref != expected_type:
                 _raise_error(
                     f"`bind-proc` argument `:{binding.name}` expected `{_type_label(expected_type)}`"
@@ -916,10 +918,11 @@ def _typecheck(
                 if index < len(expr.binding_capture_sources) else None
             )
             rhs_expr, rhs_env, rhs_binding_env = binding_expr, local_env, local_binding_env
-            if compiler_session.closed_program and capture_source is not None:
+            if capture_source is not None:
                 source_identity, source_type = capture_source
                 rhs_expr = NameExpr(name=source_identity.name, span=binding_expr.span,
-                    form_path=binding_expr.form_path, expansion_stack=binding_expr.expansion_stack)
+                    form_path=binding_expr.form_path, expansion_stack=binding_expr.expansion_stack,
+                    capture_origin=(source_identity, source_type))
                 rhs_env = {**local_env, source_identity.name: source_type}
                 rhs_binding_env = {**local_binding_env, source_identity.name: source_identity}
             typed_binding = recurse(
@@ -950,7 +953,7 @@ def _typecheck(
             rewritten_bindings.append((name, typed_binding.expr))
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
                 resolved_binding = resolve_proc_ref_value(
-                    typed_binding.expr if compiler_session.closed_program else binding_expr,
+                    typed_binding.expr,
                     procedure_catalog=procedure_catalog,
                     proc_ref_env=local_proc_ref_env,
                     resolution_context=proc_ref_resolution_context,

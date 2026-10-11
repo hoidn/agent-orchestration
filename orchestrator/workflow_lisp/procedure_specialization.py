@@ -11,11 +11,12 @@ from typing import Any
 from .contracts import derive_workflow_boundary_fields, is_transportable_result_type
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY
-from .expression_traversal import iter_child_exprs
+from .expression_traversal import _rebuild_with_replacements, iter_child_exprs
 from .expressions import (
     CallExpr,
     CommandResultExpr,
     FieldAccessExpr,
+    ExprNode,
     EnumMemberExpr,
     FinalizeSelectedItemExpr,
     IfExpr,
@@ -49,7 +50,7 @@ from .procedures import (
     procedure_type_env_for,
 )
 from .result_guidance import validate_result_guidance_example
-from .syntax import target_dsl_supports_generic_unions, target_dsl_supports_provider_context_values
+from .syntax import target_dsl_supports_generic_unions, target_dsl_supports_provider_context_values, target_dsl_supports_local_hook_inference
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -967,6 +968,54 @@ def _inline_outputs_are_step_backed(
     return True
 
 
+def _substitute_capture_origin_types(
+    expr: ExprNode,
+    type_bindings: Mapping[str, TypeRef],
+) -> ExprNode:
+    """Specialize retained creator types without changing their lexical owners."""
+
+    if not type_bindings:
+        return expr
+
+    bindings = dict(type_bindings)
+    rewritten_by_id: dict[int, ExprNode] = {}
+
+    def origin_type(origin):
+        if origin is None:
+            return None
+        identity, original_type = origin
+        substituted = substitute_type_params(original_type, bindings)
+        return origin if substituted == original_type else (identity, substituted)
+
+    def rewrite(node: ExprNode) -> ExprNode:
+        known = rewritten_by_id.get(id(node))
+        if known is not None:
+            return known
+        # Field bases are leaves for ordinary traversal, but carry retained
+        # creator facts just like standalone lexical references.
+        children = (node.base,) if isinstance(node, FieldAccessExpr) else iter_child_exprs(node)
+        if isinstance(node, LetStarExpr) and node.condition_normalization_input is not None:
+            children = (*children, node.condition_normalization_input)
+        replacements = {id(child): rewrite(child) for child in children}
+        rewritten = (
+            _rebuild_with_replacements(node, replacements)
+            if any(replacements[id(child)] is not child for child in children)
+            else node
+        )
+        if isinstance(rewritten, NameExpr):
+            origin = origin_type(rewritten.capture_origin)
+            if origin is not rewritten.capture_origin:
+                rewritten = replace(rewritten, capture_origin=origin)
+        elif isinstance(rewritten, LetStarExpr):
+            sources = tuple(origin_type(source) for source in rewritten.binding_capture_sources)
+            if any(new is not old for new, old in zip(sources, rewritten.binding_capture_sources, strict=True)):
+                rewritten = replace(rewritten, binding_capture_sources=sources)
+        rewritten_by_id[id(node)] = rewritten
+        return rewritten
+
+    return rewrite(expr)
+
+
 def specialize_typed_procedure(
     procedure: TypedProcedureDef,
     *,
@@ -984,6 +1033,7 @@ def specialize_typed_procedure(
     origin_span=None,
     origin_form_path: tuple[str, ...] | None = None,
     defer_lowering_resolution: bool = False,
+    preserve_inherited_bound_params: bool = False,
 ) -> TypedProcedureDef:
     existing_specialization = getattr(procedure, "specialization", None)
     merged_type_bindings = {
@@ -1032,6 +1082,13 @@ def specialize_typed_procedure(
             or name in request.value_bindings
         )
     }
+    if preserve_inherited_bound_params or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):
+        # A residual-reference specialization retains the static creator facts
+        # of its already-bound parent row, whose params no longer list them.
+        bound_param_types = {
+            **dict(getattr(existing_specialization, "bound_param_types", {})),
+            **bound_param_types,
+        }
     bound_names = set(bound_param_types)
     if request.specialized_name is None:
         specialized_name = (
@@ -1103,7 +1160,12 @@ def specialize_typed_procedure(
             type_params=(),
             where_clauses=(),
         ),
-        typed_body=request.procedure.typed_body,
+        typed_body=replace(
+            request.procedure.typed_body,
+            expr=_substitute_capture_origin_types(
+                request.procedure.typed_body.expr, request.type_bindings,
+            ),
+        ),
         # Deferred objects are compiler-owned re-typecheck targets, not
         # completed specializations. Non-deferred specializations are still
         # consumed on the lowering compatibility path, so preserve their
@@ -1300,8 +1362,13 @@ def discover_proc_ref_specializations(
                         typed_workflows_by_name={row.definition.name: row for row in typed_workflows},
                     )
                 )
-            else:
-                signature = procedure_catalog.signatures_by_name.get(node.callee_name)
+            if bound_proc_ref is None or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):
+                # A bound consumer can still receive reference-valued residual
+                # arguments. Its static row is discovered above; once settled,
+                # use that same ordinary specialization path for the actuals.
+                callee_name = (bound_proc_ref.call_target_name
+                               if bound_proc_ref is not None else node.callee_name)
+                signature = procedure_catalog.signatures_by_name.get(callee_name)
                 if signature is not None:
                     if len(node.args) != len(signature.params):
                         for arg in node.args:
@@ -1320,7 +1387,7 @@ def discover_proc_ref_specializations(
                         if resolved_binding is not None:
                             proc_ref_bindings[param_name] = resolved_binding
                     if proc_ref_bindings:
-                        base_procedure = typed_procedures_by_name.get(signature.name)
+                        base_procedure = typed_procedures_by_name.get(callee_name)
                         if base_procedure is not None:
                             record_specialization(
                                 specialize_typed_procedure(
@@ -1349,6 +1416,8 @@ def discover_proc_ref_specializations(
                                     # product, continues the fixed point, and
                                     # re-typechecks it before lowering.
                                     defer_lowering_resolution=True,
+                                    preserve_inherited_bound_params=(bound_proc_ref is not None
+                                        and target_dsl_supports_local_hook_inference(type_env.target_dsl_version)),
                                 )
                             )
             for arg in node.args:

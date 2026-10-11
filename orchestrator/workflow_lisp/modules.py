@@ -315,11 +315,18 @@ def resolve_module_graph(
     modules_by_name: dict[str, ResolvedModuleSource] = {}
     visiting: list[str] = []
     topological: list[str] = []
+    builtin_root = Path(__file__).resolve().parent / "stdlib_modules"
+    selected_improve_root = None
 
     def load_module(module_path: Path, *, is_entry: bool = False) -> ResolvedModuleSource:
+        nonlocal selected_improve_root
         syntax_module = build_syntax_module(
             read_sexpr_file(module_path, source_read_trace=source_read_trace)
         )
+        if is_entry:
+            from .syntax import target_dsl_supports_local_hook_inference
+            if target_dsl_supports_local_hook_inference(syntax_module.target_dsl_version):
+                selected_improve_root = builtin_root / "w3"
         standalone_entry = False
         if syntax_module.module_name is None:
             if is_entry and standalone_entry_namespace is not None:
@@ -344,7 +351,9 @@ def resolve_module_graph(
                         ),
                     )
                 )
-        source_root = _resolve_source_root(module_path, source_roots=resolved_roots)
+        source_root = (selected_improve_root
+            if selected_improve_root is not None and module_path == selected_improve_root / "std/improve.orc"
+            else _resolve_source_root(module_path, source_roots=resolved_roots))
         expected_path = source_root / Path(*syntax_module.module_name.split("/"))
         expected_path = expected_path.with_suffix(".orc")
         module_path_matches = expected_path == module_path or (
@@ -407,7 +416,9 @@ def resolve_module_graph(
         visiting.append(resolved.module_name)
         modules_by_name[resolved.module_name] = resolved
         for imported_module_name in resolved.imports:
-            visit_module_path(_resolve_import_path(imported_module_name, source_roots=resolved_roots))
+            import_roots = (tuple(selected_improve_root if root == builtin_root else root for root in resolved_roots)
+                if imported_module_name == "std/improve" and selected_improve_root is not None else resolved_roots)
+            visit_module_path(_resolve_import_path(imported_module_name, source_roots=import_roots))
         visiting.pop()
         topological.append(resolved.module_name)
 

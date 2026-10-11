@@ -9,7 +9,7 @@
     are never removed.
 
 - State file schema (authoritative record for targets through 2.34; a
-  target-2.35 evaluated run publishes a derived view instead, see
+  target-2.35/2.36 evaluated run publishes a derived view instead, see
   [Evaluated Execution Persistence Profile](#evaluated-execution-persistence-profile-target-235))
   - `schema_version: "2.1"`
   - `run_id`, `workflow_file`, `workflow_checksum`
@@ -263,6 +263,10 @@ fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_run_ref_settlement.py` and
 `tests/test_workflow_evaluated_invalidate.py`.
 
+Targets 2.35 and 2.36 use this same persistence contract. The
+[W3 target contract](versioning.md) changes authoring and graph-selected
+helper source, without changing this profile, journal or resume guards.
+
 ### Authority and run root
 
 Under exact `result_persistence_profile: "evaluated_execution.v1"` with
@@ -272,12 +276,21 @@ Under exact `result_persistence_profile: "evaluated_execution.v1"` with
 | Entry | Role |
 | --- | --- |
 | `run.json` | Immutable run header (below): authority for identity, bound inputs, interpreter pins, rebuild recipe and roots |
-| `closed_program.json` | The checked closed program (`schema: workflow-lisp/closed-program/1`, `representation: table/1`, `target: 2.35`): authority for the program. Its provenance-free digest equals the header `program_digest`; its byte content equals the canonical artifact serialization |
+| `closed_program.json` | The checked closed program (`schema: workflow-lisp/closed-program/1`, `representation: table/1`, `target` equal to the entry source target): authority for the program. Its provenance-free digest equals the header `program_digest`; its byte content equals the canonical artifact serialization |
 | `memo.jsonl` | Append-only effect journal: the only authority for results |
 | `run.lock` | The run writer lock (`flock`); empty, and never authority |
 | `effects/<digest>/attempt-N/` | Per-attempt evidence directories (below) |
 | `run-ref-attempts.jsonl` | The run-reference coordinator ledger, present only once a run reference has allocated a child attempt ([Target 2.24](#target-224-run-ref-state-settlement-and-resume)) |
 | `state.json` | Derived view (below), absent until the first journal record; never authority |
+
+The artifact's top-level `target` must be a string registered for the evaluated
+route, currently `"2.35"` or `"2.36"`; it is not the representation version.
+The separate internal run-reference target remains `2.35`. Schema, profile,
+representation and read-back equality are unchanged. Retargeting current source
+from 2.35 to 2.36 changes the fresh program digest when the rebuild is valid
+after required source-caller migration, so retained-run resume refuses
+`resume_program_changed`. An invalid rebuild preserves the earlier compile
+refusal instead. Both refuse before evidence writes without converting authority.
 
 `run.json`, the program artifact and the empty journal are published, each
 synchronized, before the first record; no attempt is allocated or dispatched
@@ -1402,7 +1415,7 @@ orchestrate resume <run_id> --repair
 orchestrate clean --older-than 7d
 ```
 
-An evaluated run (target 2.35) recovers from its memo alone: `resume` replays
+An evaluated run (target 2.35 or 2.36) recovers from its memo alone: `resume` replays
 the committed prefix and retries the first uncommitted effect, `--force-restart`
 is refused and `--repair`, `--backup-state` and the checksum/projection
 guards above do not apply. See the

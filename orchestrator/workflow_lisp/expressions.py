@@ -93,6 +93,8 @@ class NameExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    capture_origin: tuple[object, TypeRef] | None = field(default=None, compare=False, hash=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(frozen=True)
@@ -750,7 +752,7 @@ class LetProcBinding:
 
     local_name: str
     params: tuple[ProcedureParam, ...]
-    return_type_name: str
+    return_type_name: str | None
     capture_names: tuple[str, ...]
     local_body: "ExprNode"
     span: SourceSpan
@@ -767,6 +769,11 @@ class LetProcExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    additional_bindings: tuple[LetProcBinding, ...] = field(default=(), metadata={"json_omit_if_empty": True})
+
+    @property
+    def bindings(self):
+        return (self.binding, *self.additional_bindings)
 
 
 @dataclass(frozen=True)
@@ -1297,6 +1304,7 @@ def elaborate_expression(
     target_dsl_version: str | None = None,
     prompt_catalog: PromptCatalog | None = None,
     session_state: ElaborationSessionState | None = None,
+    extern_names: frozenset[str] = frozenset(),
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
@@ -1306,6 +1314,7 @@ def elaborate_expression(
         function_name_resolver=session_state.function_name_resolver,
         workflow_name_resolver=session_state.workflow_name_resolver,
         function_names=session_state.function_names,
+        extern_names=session_state.extern_names,
         local_proc_names=session_state.local_proc_names,
         loop_body_depth=session_state.loop_body_depth,
         let_proc_depth=session_state.let_proc_depth,
@@ -1315,6 +1324,7 @@ def elaborate_expression(
     )
     session_state.function_name_resolver = function_name_resolver
     session_state.function_names = function_names
+    session_state.extern_names = extern_names
     session_state.procedure_name_resolver = procedure_name_resolver
     session_state.workflow_name_resolver = workflow_name_resolver
     session_state.local_proc_names = frozenset()
@@ -1335,6 +1345,7 @@ def elaborate_expression(
         session_state.function_name_resolver = previous_state.function_name_resolver
         session_state.workflow_name_resolver = previous_state.workflow_name_resolver
         session_state.function_names = previous_state.function_names
+        session_state.extern_names = previous_state.extern_names
         session_state.local_proc_names = previous_state.local_proc_names
         session_state.loop_body_depth = previous_state.loop_body_depth
         session_state.let_proc_depth = previous_state.let_proc_depth
@@ -1393,7 +1404,9 @@ def _elaborate(
             expansion_stack=datum.expansion_stack,
         )
     if isinstance(datum, SyntaxIdentifier):
-        return _elaborate_symbol(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_symbol(
+            datum, form_path=form_path, bound_names=bound_names | session_state.extern_names
+        )
     if isinstance(datum, SyntaxList):
         return _elaborate_list(
             datum,
@@ -1456,6 +1469,7 @@ def _elaborate_list(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> ExprNode:
+    available_names = bound_names | session_state.extern_names
     if not datum.items:
         _raise_error(
             "expression forms must be non-empty lists",
@@ -1484,7 +1498,7 @@ def _elaborate_list(
         and (
             head.resolved_name in session_state.function_names
             or head.resolved_name in procedure_names
-            or head.resolved_name in bound_names
+            or head.resolved_name in available_names
         )
     ):
         form_spec = None
@@ -1497,7 +1511,7 @@ def _elaborate_list(
         and (
             head.resolved_name in session_state.function_names
             or head.resolved_name in procedure_names
-            or head.resolved_name in bound_names
+            or head.resolved_name in available_names
         )
     ):
         form_spec = None
@@ -1506,7 +1520,7 @@ def _elaborate_list(
         and head.resolved_name in {"run-ref", "trial"}
         and head.resolved_name not in session_state.function_names
         and head.resolved_name not in procedure_names
-        and head.resolved_name not in bound_names
+        and head.resolved_name not in available_names
     ):
         route = _route_run_ref if head.resolved_name == "run-ref" else _route_trial
         return route(
@@ -1566,7 +1580,7 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=head.expansion_stack,
         )
-    if head.resolved_name in bound_names:
+    if head.resolved_name in available_names:
         return _elaborate_procedure_call(
             datum,
             form_path=form_path,
@@ -2225,6 +2239,7 @@ def _parse_run_ref_syntax_list(
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
                 guidance_example=guidance_example,
+                extern_names=session_state.extern_names if session_state is not None else frozenset(),
                 target_dsl_version=target_dsl_version,
                 prompt_catalog=prompt_catalog,
                 session_state=session_state,
@@ -3382,7 +3397,7 @@ def _elaborate_list_map(
     if (
         binder is None
         or binder.resolved_name.startswith("__")
-        or binder.resolved_name in bound_names
+        or binder.resolved_name in (bound_names | session_state.extern_names)
     ):
         _raise_error(
             "`list/map` binder name is invalid, reserved, or already bound",
@@ -3474,7 +3489,7 @@ def _elaborate_list_map_effect(
     if (
         binder is None
         or binder.resolved_name.startswith("__")
-        or binder.resolved_name in bound_names
+        or binder.resolved_name in (bound_names | session_state.extern_names)
     ):
         _raise_error(
             "`list/map-effect` binder name is invalid, reserved, or already bound",
@@ -4459,7 +4474,7 @@ def _elaborate_call(
     return CallExpr(
         callee_name=(
             callee_identifier.resolved_name
-            if callee_identifier.resolved_name in bound_names
+            if callee_identifier.resolved_name in (bound_names | session_state.extern_names)
             else callee_identifier.resolved_name
             if session_state.workflow_name_resolver is None
             else session_state.workflow_name_resolver(
@@ -4526,7 +4541,7 @@ def _elaborate_procedure_call(
     callee_identifier = syntax_identifier(datum.items[0])
     assert callee_identifier is not None
     callee_name = callee_identifier.resolved_name
-    if callee_name not in bound_names:
+    if callee_name not in (bound_names | session_state.extern_names):
         callee_name = (
             session_state.procedure_name_resolver(
                 callee_name,
@@ -5059,6 +5074,11 @@ def _elaborate_let_proc(
     session_state: ElaborationSessionState,
 ) -> LetProcExpr:
 
+    from .syntax import target_dsl_supports_local_hook_inference
+    if target_dsl_supports_local_hook_inference(session_state.target_dsl_version or ""):
+        return _elaborate_local_hooks(datum, form_path=form_path, bound_names=bound_names,
+            procedure_names=procedure_names, session_state=session_state)
+
     if len(datum.items) != 3:
         _raise_error(
             "`let-proc` requires exactly one binding and one body",
@@ -5233,6 +5253,78 @@ def _elaborate_let_proc(
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
     )
+
+
+def _elaborate_local_hooks(datum, *, form_path, bound_names, procedure_names, session_state):
+    def fail(node, message, code="let_proc_syntax_invalid"):
+        _raise_error(message, code=code, span=node.span, form_path=form_path, expansion_stack=node.expansion_stack)
+    if len(datum.items) != 3 or not isinstance(datum.items[1], SyntaxList):
+        fail(datum, "let-proc requires local bindings and one consumer")
+    container = datum.items[1]
+    nodes = container.items if container.items and isinstance(container.items[0], SyntaxList) else (container,)
+    if not nodes:
+        fail(container, "let-proc requires at least one local")
+    names = []
+    for node in nodes:
+        name = syntax_identifier(node.items[0]) if isinstance(node, SyntaxList) and node.items else None
+        if name is None or name.resolved_name in names or name.resolved_name in (bound_names | session_state.extern_names) or name.resolved_name in procedure_names:
+            fail(node, "invalid, duplicate or colliding local procedure name")
+        names.append(name.resolved_name)
+    previous_names, previous_depth = session_state.local_proc_names, session_state.let_proc_depth
+    session_state.local_proc_names |= frozenset(names)
+    session_state.let_proc_depth += 1
+    bindings = []
+    try:
+        for name, node in zip(names, nodes, strict=True):
+            if len(node.items) < 3 or not isinstance(node.items[1], SyntaxList):
+                fail(node, "local binding requires parameters and body")
+            params = []
+            for param in node.items[1].items:
+                bare = syntax_identifier(param)
+                params.append(ProcedureParam(name=bare.resolved_name, type_name=None, span=param.span,
+                    form_path=form_path, expansion_stack=param.expansion_stack) if bare is not None else _elaborate_let_proc_param(param, form_path))
+            if len({param.name for param in params}) != len(params):
+                fail(node, "duplicate local procedure parameter")
+            index, return_name, explicit_captures = 2, None, None
+            if index < len(node.items)-1 and getattr(syntax_identifier(node.items[index]), "resolved_name", None) == "->":
+                result = syntax_identifier(node.items[index+1])
+                if result is None: fail(node, "local return type must be a type name")
+                return_name, index = result.resolved_name, index+2
+            if index < len(node.items)-1 and isinstance(node.items[index], SyntaxKeyword) and node.items[index].value == ":captures":
+                captures = node.items[index+1]
+                if not isinstance(captures, SyntaxList): fail(node, "captures must be a list")
+                capture_names = []
+                for item in captures.items:
+                    identifier = syntax_identifier(item)
+                    if identifier is None or "." in identifier.resolved_name:
+                        fail(item, "captures must be plain identifiers", "let_proc_capture_not_identifier")
+                    capture_name = identifier.resolved_name
+                    if capture_name not in bound_names:
+                        fail(item, "unknown local procedure capture", "let_proc_capture_unknown")
+                    if capture_name in capture_names:
+                        fail(item, "duplicate local procedure capture", "let_proc_capture_duplicate")
+                    capture_names.append(capture_name)
+                explicit_captures = tuple(capture_names)
+                index += 2
+            if index != len(node.items)-1: fail(node, "invalid local binding clauses")
+            local_body = _elaborate(node.items[index], form_path=form_path,
+                bound_names=bound_names | frozenset(param.name for param in params),
+                procedure_names=procedure_names, session_state=session_state)
+            from .expression_traversal import free_expr_names
+            used = free_expr_names(
+                local_body, bound=frozenset(param.name for param in params),
+                include_callees=True,
+            ) & bound_names
+            if explicit_captures is not None and not used <= set(explicit_captures):
+                fail(node, "explicit captures omit a used lexical name", "let_proc_capture_missing")
+            bindings.append(LetProcBinding(local_name=name, params=tuple(params), return_type_name=return_name,
+                capture_names=tuple(sorted(used)), local_body=local_body, span=node.span, form_path=form_path, expansion_stack=node.expansion_stack))
+        body = _elaborate(datum.items[2], form_path=form_path, bound_names=bound_names,
+            procedure_names=procedure_names, session_state=session_state)
+    finally:
+        session_state.local_proc_names, session_state.let_proc_depth = previous_names, previous_depth
+    return LetProcExpr(binding=bindings[0], additional_bindings=tuple(bindings[1:]), body=body,
+        span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
 
 
 def _elaborate_let_proc_param(raw_param: object, form_path: tuple[str, ...]) -> ProcedureParam:
@@ -5447,7 +5539,7 @@ def _elaborate_provider_result(
     prompt_identifier = syntax_identifier(prompt_node)
     if (
         prompt_identifier is not None
-        and prompt_identifier.resolved_name not in bound_names
+        and prompt_identifier.resolved_name not in (bound_names | session_state.extern_names)
         and session_state.prompt_catalog is not None
         and session_state.prompt_catalog.resolve(
             prompt_identifier.resolved_name

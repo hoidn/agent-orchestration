@@ -11,7 +11,7 @@ from orchestrator.workflow.statements import (
     COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS,
 )
 
-from ..conditionals import PureExprCondition, classify_condition_expr, render_condition_predicate
+from ..conditionals import LiteralBoolCondition, PureExprCondition, classify_condition_expr, render_condition_predicate
 from ..contracts import derive_union_workflow_output_metadata, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, records_defect_provenance
 from ..expressions import (
@@ -56,6 +56,8 @@ from ..type_env import (
 )
 from ..typecheck import TypedExpr
 from .context import (
+    _consume_capture_expr,
+    _capture_private_reserved,
     _compile_error,
     _context_with_local_type_binding,
     _copy_context_with_composition_scope,
@@ -329,6 +331,7 @@ def _emit_repeat_until_from_loop_recur_expr(
         ),
         context=context,
         local_values=local_values,
+        loop_binding_identity=expr.binding_identity,
     )
 
 
@@ -337,6 +340,7 @@ def _emit_repeat_until_from_emitter_input(
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
+    loop_binding_identity: object | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     from .control_match import (
         _binding_terminal_for_inline_match,
@@ -439,6 +443,13 @@ def _emit_repeat_until_from_emitter_input(
         plan.state_projection,
         current_state_terminal.output_refs,
     )
+    loop_origins = dict(loop_body_context.capture_original_values)
+    if loop_binding_identity is not None:
+        loop_origins[loop_binding_identity] = (loop_local_values[expr.binding_name], state_type)
+    loop_body_context = replace(loop_body_context,
+        capture_original_values=loop_origins,
+        capture_visible_bindings={**loop_body_context.capture_visible_bindings,
+            expr.binding_name: loop_binding_identity})
     body_steps, body_terminal = _lower_loop_body_expr(
         expr.body_expr,
         loop_binding_name=expr.binding_name,
@@ -1250,10 +1261,23 @@ def _lower_loop_body_expr(
 
     if isinstance(expr, LetStarExpr):
         binding_name, binding_expr = expr.bindings[0]
+        capture_source = expr.binding_capture_sources[0] if expr.binding_capture_sources else None
+        if capture_source is not None:
+            if not isinstance(binding_expr, NameExpr):
+                raise ValueError("loop capture row RHS is not a retained name read")
+            private_values, private_types = dict(local_values), {}
+            binding_expr = _consume_capture_expr(replace(binding_expr, capture_origin=capture_source),
+                context=context, private_values=private_values, private_types=private_types,
+                reserved=_capture_private_reserved(expr, context, local_values))
+            local_values = private_values
+            context = replace(context,
+                local_type_bindings={**context.local_type_bindings, **private_types})
         body_expr: Any = expr.body
         if len(expr.bindings) > 1:
             body_expr = LetStarExpr(
                 bindings=expr.bindings[1:],
+                binding_identities=expr.binding_identities[1:],
+                binding_capture_sources=expr.binding_capture_sources[1:],
                 body=expr.body,
                 span=expr.span,
                 form_path=expr.form_path,
@@ -1285,6 +1309,14 @@ def _lower_loop_body_expr(
                 if normalized_binding.terminal is not None
                 else normalized_binding.local_value
             )
+        binding_identity = expr.binding_identities[0] if expr.binding_identities else None
+        let_origins = dict(context.capture_original_values)
+        if binding_identity is not None and binding_name in loop_local_values:
+            let_origins[binding_identity] = (loop_local_values[binding_name], normalized_binding.binding_type)
+        let_context = replace(_context_with_local_type_binding(context,
+            binding_name=binding_name, binding_type=normalized_binding.binding_type),
+            capture_original_values=let_origins,
+            capture_visible_bindings={**context.capture_visible_bindings, binding_name: binding_identity})
         body_steps, body_terminal = _lower_loop_body_expr(
             body_expr,
             loop_binding_name=loop_binding_name,
@@ -1292,11 +1324,7 @@ def _lower_loop_body_expr(
             result_projection=result_projection,
             result_type=result_type,
             on_exhausted_result_expr=on_exhausted_result_expr,
-            context=_context_with_local_type_binding(
-                context,
-                binding_name=binding_name,
-                binding_type=normalized_binding.binding_type,
-            ),
+            context=let_context,
             local_values=loop_local_values,
             binding_terminal=binding_terminal,
             body_step_name=body_step_name,
@@ -1361,6 +1389,10 @@ def _lower_loop_body_expr(
                 binding_terminal=match_terminal,
                 binding_type=arm_binding_type,
             )
+            arm_origins = {identity: (_loop_parent_scope_value(value), type_ref)
+                for identity, (value, type_ref) in context.capture_original_values.items()}
+            if arm.binding_identity is not None and arm_binding_type is not None:
+                arm_origins[arm.binding_identity] = (arm_local_values[arm.binding_name], arm_binding_type)
             next_loop_binding_name = arm.binding_name if expr.subject.name == loop_binding_name else loop_binding_name
             arm_context = _copy_context_with_composition_scope(
                 context,
@@ -1375,6 +1407,9 @@ def _lower_loop_body_expr(
                     binding_name=arm.binding_name,
                     binding_type=arm_binding_type,
                 )
+            arm_context = replace(arm_context, capture_original_values=arm_origins,
+                capture_visible_bindings={**context.capture_visible_bindings,
+                    arm.binding_name: arm.binding_identity})
             arm_steps, arm_terminal = _lower_loop_body_expr(
                 arm.body,
                 loop_binding_name=next_loop_binding_name,
@@ -1630,6 +1665,13 @@ def _lower_loop_body_expr(
             name: _loop_parent_scope_value(value)
             for name, value in local_values.items()
         }
+        branch_origins = {identity: (_loop_parent_scope_value(value), type_ref)
+            for identity, (value, type_ref) in context.capture_original_values.items()}
+        capture_literal = condition_shape.value if isinstance(condition_shape, LiteralBoolCondition) else None
+        then_context = replace(context, capture_original_values=branch_origins,
+            capture_consumption_enabled=context.capture_consumption_enabled and capture_literal is not False)
+        else_context = replace(context, capture_original_values=branch_origins,
+            capture_consumption_enabled=context.capture_consumption_enabled and capture_literal is not True)
         then_steps, then_terminal = _lower_loop_body_expr(
             expr.then_expr,
             loop_binding_name=loop_binding_name,
@@ -1637,7 +1679,7 @@ def _lower_loop_body_expr(
             result_projection=result_projection,
             result_type=result_type,
             on_exhausted_result_expr=on_exhausted_result_expr,
-            context=context,
+            context=then_context,
             local_values=branch_local_values,
             binding_terminal=binding_terminal,
             body_step_name=f"{body_step_name}__then",
@@ -1651,7 +1693,7 @@ def _lower_loop_body_expr(
             result_projection=result_projection,
             result_type=result_type,
             on_exhausted_result_expr=on_exhausted_result_expr,
-            context=context,
+            context=else_context,
             local_values=branch_local_values,
             binding_terminal=binding_terminal,
             body_step_name=f"{body_step_name}__else",

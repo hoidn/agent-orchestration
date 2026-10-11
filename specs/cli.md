@@ -251,6 +251,11 @@ bound to the persisted run. Trial has no dry-run mode.
 
 ### Evaluated execution (target 2.35)
 
+This contract applies to both registered evaluated entry targets, 2.35 and
+2.36. W3 changes local-hook authoring and selected helper source, not command/
+provider IO or the public lifecycle. See [versioning](versioning.md) for the
+target-2.36 contract.
+
 An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`
 builds the checked closed program, binds inputs and evaluates it on a
 memo-backed run (`result_persistence_profile: evaluated_execution.v1`, state
@@ -454,7 +459,7 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
 | `resume_request_missing` | `resume` | 2 | None |
-| `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run, and every flat-route build or run of a 2.35 entry: `resume` of a schema-2.1 run whose source targets 2.35; `run` whose compiled snapshot targets 2.35 after the early target read; `explain` and `trial` on a 2.35 entry; a target ≤2.34 parent whose path child targets 2.35 (reason `flat_execution_unavailable`; the parent run fails) | 2 | None on the evaluated route; a legacy parent records its failed state |
+| `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run, and every flat-route build or run of a registered evaluated entry (2.35/2.36): `resume` of a schema-2.1 run whose source targets 2.35/2.36; `run` whose compiled snapshot targets 2.35/2.36 after the early target read; `explain` and `trial` on a 2.35/2.36 entry; a target ≤2.34 parent whose path child targets 2.35/2.36 (reason `flat_execution_unavailable`; the parent run fails) | 2 | None on the evaluated route; a legacy parent records its failed state |
 | `resume_run_ref_root_changed`, `resume_result_root_changed` | `resume` header/option preflight | 2 | None |
 | `resume_program_changed`, `resume_inputs_changed` | `resume` fresh build and inputs | 2 | None |
 | `resume_interpreter_missing` | `resume` stored authority | 2 | None |

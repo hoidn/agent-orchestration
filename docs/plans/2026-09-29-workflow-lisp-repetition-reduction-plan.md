@@ -31,9 +31,14 @@ command-backed deterministic procedures and stand-in providers.
 
 ## Status, Authorities, And Scope
 
-Status: draft; implementation is not selected. The W3 planning revision is
-recorded below. Qualification supplies evidence for the open decisions;
-implementation starts only after the applicable decisions are resolved.
+Status: W3 is implemented at 2.36; qualification is recorded in the closeout. Task 4 scratch qualification, Task 6, Tasks
+11–13 and bounded Task14A/14B/F-CODE-1 have coordinator acceptance. Authentic
+old-artifact/resume/replay and migrated-source refusal have bounded
+compatibility03 acceptance for the final frozen package. The closeout owns final
+Task F qualification, original RED campaigns and retained causal dispositions.
+W0/W1/W2/W4 remain unselected and W5 deferred.
+The bounded [Phase 4c execution plan](2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+owns W3 execution and evidence under the parent delivery sequence.
 
 ### W3 Planning Amendment
 
@@ -41,36 +46,43 @@ Owner request, 2026-10-01: make the before/after local-hook proposal concrete
 in the roadmap and this planset. W3 covers multiple local bindings, inferred
 lexical captures, expected `ProcRef` signatures, and removal of `inputs I`
 from `improve`. This selects the planning revision, not implementation of
-W0–W5 or a new language target. All implementation tasks remain pending.
+W0–W5 or a new language target. At that planning cut all implementation tasks remained pending; the current
+recovery status above supersedes only the selected W3 task statuses.
 
 Delivery integration, 2026-10-01: W3 is a component of evaluated-execution
 delivery, not a separately scheduled feature. The
 [parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 owns scheduling: Phase 3 provides the runtime; Task 4 qualification feeds
-the Phase 6a pilot; Phase 4c delivers Tasks 11–14 after the open decisions
+the Phase 6a pilot; Phase 4c delivers Tasks 11–14 after qualification
 and Task 6 target registration; Phase 6b owns broader consumer migration.
 Phase E below is the component's work breakdown for Phase 4c, not another
 top-level phase. Qualification preparation can overlap Phase 3; W3 does not
 gate that phase or require its new syntax in the pilot. W0/W1/W2/W4 remain
 independent. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
-owns the proposed behavior and illustrative before/after.
+owns the target contract and illustrative before/after; the
+[closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
+owns current bounded evidence and final gate status.
 
-Target-selection update (2026-10-01): the original recommendation of 2.34
-predated its delivered numeric surface; 2.35 is now selected for evaluated
-execution. Neither delivery selects this proposal. Decision 2 must be
-resolved against those allocations before target registration or tests are
-written; this update chooses no replacement target.
+Owner selection, 2026-10-07: complete the separate pure lexical-capture
+correction, then W3 before Phase 5. W3 uses target 2.36 and one `std/improve`
+API per source import graph; old source callers migrate when their graph is
+retargeted. The accepted bounded contract is recorded in
+[design §§6/9](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
+and the Phase 4c plan. Existing targets, complete compiled snapshot authority,
+conflict refusal and truthful-pin/resume rules remain preserved obligations.
+Selection alone establishes neither executable feasibility nor delivery; the
+current status records subsequent bounded implementation evidence.
 
-Decisions needed before execution:
+Decisions and remaining scope:
 
 | # | Decision | Recommendation |
 | --- | --- | --- |
-| 1 | Which of the rules W0 to W5 are accepted | W3 is a named authoring candidate, qualified by Task 4 independently of W0/W1/W2/W4. Their proposed scope remains unchanged; W5 stays deferred |
-| 2 | The target for each selected language change | W3 uses the evaluated route as Phase 4c; its language target remains unresolved against existing 2.34 numeric and selected 2.35 evaluated execution. Other repetition rules retain their own target decisions |
+| 1 | Which of the rules W0 to W5 are accepted | W3 is selected, qualified by Task 4 independently of unselected W0/W1/W2/W4; W5 stays deferred |
+| 2 | The target for each selected language change | W3 uses target 2.36 on the evaluated route as Phase 4c. Other repetition rules retain their own unselected target decisions |
 | 3 | The module that owns declarations shared by a workflow family and unused by the standard library | One module per family under `workflows/library/`, named for the family |
 | 4 | The adoption bar for W3 | Preserve behavior while removing the context-only record/constructor, forwarding parameter and restated hook signatures. Review actual callers and edit locality; line counts are supporting evidence, not a percentage gate |
 | 5 | Where provider defaults are written | The provider externs file |
-| 6 | How the context-free `improve` signature replaces the current API | Inventory maintained callers, fixtures and imports; settle target/module compatibility before editing the shared stdlib. Preserve older-target builds and checkpoint identity; do not assume the shipped example is the only consumer |
+| 6 | How the context-free `improve` signature replaces the current API | Select one builtin source API by graph entry target: old entries preserve the old module bytes/path; 2.36 graphs use the no-context variant and migrate old source calls. Preserve complete snapshot authority, conflict checks and old-target build/resume evidence; inventory indirect consumers too |
 | 7 | Who implements Phase B | The runtime owner, because the change is in provider configuration and shared validation |
 
 Depends on: the
@@ -89,7 +101,9 @@ Delta family.
 - Older targets accept and lower exactly what they do at the commit each
   phase starts from. Evidence is byte identity of every build artifact at one
   fixed path with `PYTHONHASHSEED=0`, with the orchestrator package at one
-  fixed path as well.
+  fixed path as well. Preserve truthful package/command-closure pins; report
+  genuine pin changes separately from fixed-identity equality, as the evaluated
+  design §13 requires. Safe refusal does not prove successful retained-run resume.
 - A program using no new authoring form preserves its values, effects and
   resume behavior. Compare canonical output within the selected route;
   do not require flat and evaluated routes to serialize identically.
@@ -200,7 +214,7 @@ codes and how `--dry-run` prints them.
 
 - [ ] Complete
 
-Bounded qualification update, 2026-10-07: the [Phase 6a pilot assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#w3-specimen-and-qualification-status) records current-syntax explicit/bound callers, public parity/capture/resume and review-only locality evidence, proposed-only W3 counts and a bounded caller inventory. All 21 pilot cases pass in its full campaign, which remains RED overall; that report owns closeout status. No overall size reduction or W3 feasibility is established. This task stays open for grammar/expected-signature inference, target, standard-module/checkpoint compatibility and migration decisions; Phase 4c consumes the decision table. The known pure-inline shadow defect remains a compiler follow-up.
+Bounded qualification update, 2026-10-07: the [Phase 6a pilot assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#w3-specimen-and-qualification-status) records current-syntax explicit/bound callers, public parity/capture/resume and review-only locality evidence, proposed-only W3 counts and a bounded caller inventory. All 21 pilot cases pass in its full campaign, which remains RED overall; that report owns closeout status. No overall size reduction or W3 feasibility is established. The owner subsequently selected W3 at 2.36 and graph migration as recorded above. That historical cut established no W3 feasibility. Recovered Task 4 now has accepted bounded scratch proof, followed by accepted Tasks 6/11–13 and bounded 14A/14B/F-CODE-1. The subsequent exact final-package compatibility03 controls are accepted; the Phase 4c closeout owns qualification and delivery; the pure prerequisite is freshly revalidated within its exact exception and shared final gate status is recorded there.
 
 **Read/trace:** `experiments/orc_repetition_census/variants/`, the
 `let-proc` and `bind-proc` contracts, design §6,
@@ -219,18 +233,24 @@ stored as `.orc.txt`; an addendum to the census report.
    diagnostic.
 3. Count lines with `count_lines.py`, in the census's categories.
 4. Write a second variant as design §6.3 would allow it, and count it.
-   Mark proposed syntax as non-runnable. Settle the multiple-binding grammar,
-   how a directly supplied local `proc-ref` obtains its expected signature,
-   and diagnostics for missing or incompatible expectations. Neither hook
+   Mark proposed syntax as non-runnable. Qualify the selected multiple-binding
+   grammar, how a directly supplied local `proc-ref` obtains its expected
+   signature, and diagnostics for missing or incompatible expectations. Neither hook
    may refer to itself or a sibling; general inference remains out of scope.
+   Use the selected grammar in design §6.3. An incomplete signature requires
+   exactly one authored direct consumer call, checked before inference across
+   the whole consumer. Record the `need`/`seed` counterexample: both call orders
+   refuse shared incomplete `h(x)=x`; full `(Int)->Int` annotations permit reuse.
+   Several arguments of one call share a site; repeated activations are legal.
 5. Report both counts against the hand-written variant (92 lines at the
    census baseline). Assess the actual record/constructor/parameter deletions
    and the change needed when only one hook needs another enclosing value.
    Preserve domain records that have uses beyond context forwarding. Use
    decision 4, not the former 10 % threshold, for the adoption recommendation.
-6. Record the target, stdlib migration and older-target compatibility decision
-   from the caller inventory. A local scratch helper is feasibility evidence,
-   not a second production API. Resolve execution-route gaps before claiming
+6. Apply the recorded 2.36/one-API-per-source-graph selection to the caller
+   inventory; qualify old-target artifacts, retained-run resume and snapshot
+   authority without changing truthful pins or conflict guards. A local scratch
+   helper is feasibility evidence, not a second production API. Resolve execution-route gaps before claiming
    public run/resume proof; a compiler-only spike is insufficient.
 
 ## B. Provider Options Bound Once
@@ -270,13 +290,16 @@ diagnostic `provider_parameters_missing`, `specs/providers.md`.
 
 ### Task 6: Register The New Target
 
-- [ ] Complete
+- [x] Complete for selected W3 scope — bounded coordinator acceptance in the Phase 4c plan; no selection of other repetition rules.
 
 **Read/trace:** how target 2.33 was registered: `specs/versioning.md`,
 `orchestrator/workflow_lisp/syntax.py`,
 `orchestrator/workflow/validation.py`, `tests/test_workflow_lisp_target_233.py`.
 **Update:** those owners.
-**Tests:** choose the target test module after decision 2. The existing
+For selected W3, register only 2.36 through the bounded Phase 4c plan;
+this does not select W1 or the other repetition rules.
+**Tests:** `tests/test_workflow_lisp_w3_target.py` for W3; choose separate
+owners after selection for other rules. The existing
 `tests/test_workflow_lisp_target_234.py` owns numeric-target evidence and must
 not be replaced or presented as repetition-reduction delivery.
 
@@ -387,7 +410,7 @@ is not a prerequisite. Public run/resume acceptance uses Phase 3's evaluator.
 
 ### Task 11: Several Bindings In One `let-proc`
 
-- [ ] Complete
+- [x] Complete for selected W3 scope — bounded coordinator acceptance in the Phase 4c plan; no selection of other repetition rules.
 
 **Read/trace:** `docs/design/workflow_lisp_let_proc_local_proc_refs.md`
 (sections 9, 10, 12 and 13), the `let-proc` elaboration and its generated
@@ -400,12 +423,14 @@ procedures.
    procedure that names another of the same form, or itself, is rejected with
    a located diagnostic. Older targets retain their single-binding syntax;
    scope escape and nested local-procedure definitions remain refused.
-2. Implement. The generated procedures and their step identities for a form
-   with one binding are what they are today.
+2. Extend the existing binding representation and all structural users,
+   including both closed local key/DId walkers. Preserve existing-target
+   single-binding generated procedures and identities; Task 12's selected
+   2.36 capture canonicalization governs new-target output.
 
 ### Task 12: Captures Inferred
 
-- [ ] Complete
+- [x] Complete for selected W3 scope — bounded coordinator acceptance in the Phase 4c plan; no selection of other repetition rules.
 
 **Update:** the `let-proc` owners.
 **Create:** tests in `tests/test_workflow_lisp_let_proc_bindings.py`.
@@ -417,13 +442,16 @@ procedures.
    call-site binder cannot change a captured value. Capturing a committed
    effect result does not dispatch it again, either fresh or on resume.
 2. Implement through the existing capture/specialization owners. Record a
-   deterministic capture ordering and compare with the equivalent explicit
-   list on that route. Do not serialize runtime procedure/closure values or
-   add another evaluator or capture store.
+   deterministic resolved-name ordering of used captures at 2.36 for both
+   spellings, dropping allowed unused entries after validation. Compare omitted,
+   reordered and superset explicit lists; retain old-target authored order.
+   Include field roots and lexical ProcRef callees, excluding nonlexical names.
+   Do not serialize runtime procedure/closure values or add another evaluator
+   or capture store.
 
 ### Task 13: A Local Procedure Takes Its Signature From The Expected Type
 
-- [ ] Complete
+- [x] Complete for selected W3 scope — bounded coordinator acceptance in the Phase 4c plan; no selection of other repetition rules.
 
 **Read/trace:** `_infer_parametric_type_bindings` and
 `_typecheck_parametric_procedure_call` in `procedure_typecheck.py`.
@@ -438,8 +466,19 @@ procedures.
    feedback/blocker types used by the revise signature. An unresolved or
    conflicting expectation gets a located diagnostic requesting explicit
    types, rather than a guess or source-order-dependent result.
-2. Implement the bounded inference order settled in Task 4 through existing
-   typechecking/specialization. Compare inferred and fully annotated forms;
+2. Before consumer typechecking, count direct sites by structural occurrence
+   path and lexical local binding, not name/span/object identity; refuse zero,
+   multiple or indirect sites for an incomplete signature. Fully annotated
+   signatures retain reuse and forwarding. Test both `need`/`seed` orders,
+   both annotated counterparts, disjoint same-name locals, repeated same-call
+   arguments with agreeing/conflicting expectations and repeated activations.
+3. At the one call, type ordinary/full arguments and group all pending local
+   occurrences; reuse the existing unifier. Check a body once when all residual
+   parameters are concrete, unify its return, then advance newly ready hooks.
+   Reverse declaration/argument order; reject stuck/conflicting expectations.
+   Keep temporary state scoped and feed complete signatures to existing
+   generated-procedure/ProcRef specialization before closed construction.
+   Compare inferred and fully annotated forms;
    effect declarations keep their current rules unless W2 is separately
    selected and delivered.
 
@@ -447,17 +486,34 @@ procedures.
 
 - [ ] Complete
 
-**Update:** `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`,
-`workflows/examples/improve_experiment_proposal.orc` and its tests,
+Bounded Task14A/14B and F-CODE-1 are accepted: representative public consumers,
+pilots, graph/snapshot/package source selection and usefulness are demonstrated.
+Exact old-artifact/resume/replay and migrated-source refusal have subsequent
+bounded acceptance. The
+[closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
+records the 30-row Phase 6b handoff and exact retained limits.
+
+**Preserve:** legacy `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`
+bytes/path. **Create:** alternate `stdlib_modules/w3/std/improve.orc` with
+header 2.33 and correct source root. **Update:** builtin candidate selection
+in existing compiler/module owners, `workflows/examples/improve_experiment_proposal.orc`
+and its tests,
 `docs/design/workflow_lisp_composition_first.md`, the drafting guide's
 section on `improve`.
 **Create:** the measured helper variant of `reviewed_change.orc` as a test
 program.
 
-1. Apply the compatibility decision from Task 4, then replace the signature
-   as design §6.4 gives it: remove `I`, `inputs`, and forwarding at both hook
-   calls. Inventory every affected maintained caller and fixture; retain
-   historical measurement copies as evidence.
+1. Apply design §9's selected graph rule, then change only the new helper's
+   signature as §6.4 gives it: remove `I`, `inputs`, and hook forwarding.
+   Old entries retain the old source; every source importer in a 2.36 graph
+   sees the new API. Preserve per-defining-module syntax admission, user-root
+   ambiguity and actual source/root provenance across public compiler/LSP
+   entries and package installation. Old five-argument source calls require
+   a located migration diagnostic; old type-only/compatible imports remain legal.
+   Complete snapshots retain producer authority and sole-old admission;
+   differing canonical overlap still refuses, without reopening sources.
+   Inventory every affected maintained caller and fixture; retain historical
+   measurement copies as evidence.
 2. Rewrite the example and measured helper variant with local hooks; remove
    only context-only records/constructors. Retain reusable top-level hooks
    through existing `bind-proc` where that is clearer. Leave one public
@@ -465,10 +521,14 @@ program.
    These are Phase 4c's representative migrations; hand the remaining
    maintained-consumer inventory and migration recipe to parent Phase 6b.
 3. Prove APPROVED, BLOCKED and EXHAUSTED results, final candidate and feedback,
-   bounded review/revise ordering, distinct captures for two helper calls,
+   bounded review/revise ordering, distinct captures for two helper calls
+   using distinct inferred locals or fully annotated reused locals,
    lexical shadowing and committed-boundary resume through public entries
    with deterministic fixture providers. Check effect invocation counts and
-   older-target build/checkpoint compatibility; no live study is required.
+   raw older-target artifact identity at fixed identity inputs and actual
+   compatible retained-run resume. Report authentic changed-pin/source refusals
+   separately; never rewrite pins/digests or count refusal as successful resume.
+   No live study is required.
 4. Report the before/after callers, deleted declarations and forwarding, and
    line counts against decision 4. Update the local-procedure baseline,
    composition-first contract, drafting guide, capability/design indexes and

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -141,6 +141,8 @@ class CallableRequest:
     io_reader: tuple | None = None
     io_references: Mapping | None = None
     retained_capture_bindings: frozenset[object] = frozenset()
+    capture_source_bindings: tuple = field(default=(), compare=False, hash=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(eq=False)
@@ -2737,7 +2739,8 @@ class Builder:
             "command_params": prepared["command_params"], "command_fact_demand": prepared["fact_demand"],
             "command_lookup_demand": prepared["lookup_demand"], "command_bearing": prepared["bearing"],
             "projection_type_obligations": prepared["projection_type_obligations"],
-            "retained_capture_bindings": prepared["retained_capture_bindings"]}
+            "retained_capture_bindings": prepared["retained_capture_bindings"],
+            "capture_source_bindings": prepared["capture_source_bindings"]}
 
     def _preparation_inputs(self, procedure, source, captures, facts, actual_values, context):
         from .names import _key_type_ref, _source_expression_identity
@@ -3005,12 +3008,15 @@ class Builder:
         type_env = source_program.procedure_type_env(procedure)
         value_env, root_names, index_name, root_candidates = self._command_root_bindings(
             procedure, captures, command_context, inline, source_program)
+        capture_sources = self._command_capture_source_bindings(
+            procedure, source_program, call, captures, command_context, d)
         local = self._command_procedure_context(procedure, source_program, type_env,
             captures, binding_facts)
         body, children = self._prepare_command_owner(procedure, source_program, local,
             type_env=type_env, value_env=value_env,
             compile_time_bindings=self._procedure_compile_time_bindings(procedure, captures),
-            local_values=values, command_root_names=root_names, command_index_name=index_name)
+            local_values=values, command_root_names=root_names, command_index_name=index_name,
+            capture_source_bindings=capture_sources)
         resolver = lambda node: self._command_declaration_identity(node, source_program, procedure.definition.name)
         demands = {selector: child.command_fact_demand for selector, child in children.items()}
         demand = command_fact_demand(body, child_demands=demands, call_declaration_identity=resolver)
@@ -3026,7 +3032,8 @@ class Builder:
                 body, children = self._prepare_command_owner(procedure, source_program, local,
                     type_env=type_env, value_env=value_env,
                     compile_time_bindings=self._procedure_compile_time_bindings(procedure, captures),
-                    local_values=values, command_root_names=root_names, command_index_name=index_name)
+                    local_values=values, command_root_names=root_names, command_index_name=index_name,
+            capture_source_bindings=capture_sources)
             binding_facts["static_projections"], obligations = self._static_projection_facts(
                 procedure, actual_values, source_program, indices=indices)
         child_interfaces = {selector: child.command_interface for selector, child in children.items()}
@@ -3041,7 +3048,8 @@ class Builder:
             "interface": interface, "command_params": command_params,
             "fact_demand": inline and demand, "lookup_demand": inline and lookup_demand,
             "bearing": bearing, "projection_type_obligations": obligations,
-            "retained_capture_bindings": local.capture_binding_identities}
+            "retained_capture_bindings": local.capture_binding_identities,
+            "capture_source_bindings": capture_sources}
 
     def _command_procedure_context(self, procedure, source_program, type_env, captures, binding_facts):
         local = self.definition_context(canonical=procedure.definition.name,
@@ -3069,6 +3077,44 @@ class Builder:
         if route[0] == "command-input":
             return f"\0command-input:{route[1]}"
         return "\0command-loop-index"
+
+    def _command_capture_source_bindings(self, procedure, source_program, call, captures, context, d):
+        """Retain whole-name creator origins on the existing capture slots."""
+        references = dict(getattr(procedure.specialization, "proc_ref_bindings", {}) or {})
+        callee = context.values.get(call.callee_name)
+        if not hasattr(callee, "bound_args"):
+            callee = (d.procedure_refs or {}).get(call.callee_name)
+        result = []
+        for index, capture in enumerate(captures):
+            for route in capture.routes:
+                current, terminal = callee, route
+                if route[0] == "reference":
+                    path = route[1]
+                    if not path or path[0] not in references:
+                        raise ValueError("capture source reference route has no resolved owner")
+                    current = references[path[0]]
+                    for formal in path[1:]:
+                        selected = self._selected_ref_procedure(current, source_program)
+                        nested = getattr(getattr(selected, "specialization", None), "proc_ref_bindings", {})
+                        current = nested.get(formal)
+                        if current is None:
+                            raise ValueError("capture source nested reference route has no resolved owner")
+                    terminal = route[2]
+                if terminal[0] not in {"parameter", "local"} or current is None:
+                    continue
+                formal = terminal[1] if terminal[0] == "parameter" else self._local_capture_name(current, source_program, terminal[1])
+                argument = next((arg for arg in current.bound_args if arg.name == formal), None)
+                if argument is None or argument.source_binding_identity is None:
+                    continue
+                # This metadata owns the whole captured binding, even when
+                # historical substitution replaced its NameExpr with the RHS.
+                # Never derive an origin from free leaves of that RHS.
+                if argument.type_ref != capture.type_ref:
+                    raise ValueError("capture source route type contradicts its slot")
+                association = (self._capture_source(index), argument.source_binding_identity, argument.type_ref)
+                if association not in result:
+                    result.append(association)
+        return tuple(result)
 
     def _command_root_bindings(self, procedure, captures, context, inline, source_program):
         value_env = dict(_procedure_signature_local_type_bindings(procedure))
@@ -3752,6 +3798,17 @@ class Builder:
                             context.command_roots[route[1]] = {"k": "name", "n": wire}
                         else:
                             context.command_index = {"k": "name", "n": wire}
+            if request is not None:
+                aliases = dict(context.binding_aliases or {})
+                slots = {self._capture_source(index): capture for index, capture in enumerate(capture_slots)}
+                for source_name, identity, type_ref in request.capture_source_bindings:
+                    capture = slots.get(source_name)
+                    if identity is None or capture is None or capture.type_ref != type_ref:
+                        raise ValueError("retained capture alias has no exact typed slot")
+                    if identity in aliases and aliases[identity] != source_name:
+                        raise ValueError("retained capture origin has incompatible slots")
+                    aliases[identity] = source_name
+                context.binding_aliases = aliases
             run_ref_names = dict(context.run_ref_names or {})
             if request is not None:
                 run_ref_names.update(request.argument_run_ref_producers or {})
@@ -4569,7 +4626,7 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
     tree = {
         "schema": SCHEMA,
         "representation": REPRESENTATION,
-        "target": EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+        "target": typed.target,
         "entry": entry_name,
         "params": params,
         "defaults": defaults,

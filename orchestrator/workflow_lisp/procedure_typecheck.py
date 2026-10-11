@@ -41,7 +41,7 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
-from .expression_traversal import walk_expr
+from .expression_traversal import iter_child_exprs, walk_expr
 from .procedures import (
     GeneratedLocalProcedure,
     ProcedureCatalog,
@@ -74,6 +74,7 @@ from .type_env import (
     substitute_type_params,
     type_refs_compatible,
 )
+from .syntax import target_dsl_supports_local_hook_inference
 from .typecheck_context import raise_error as _raise_error
 from .typecheck_proofs import BindingIdentity, _allocate_binding_identity
 
@@ -221,25 +222,26 @@ def typecheck_procedure_definitions(
             shared_union_field_capabilities = tuple(
                 getattr(specialization, "shared_union_field_capabilities", ())
             ) or shared_union_field_capabilities
+        extern_names = frozenset(externs.bindings_by_name)
+        lexical_names = frozenset(value_env) - extern_names
+        w3 = target_dsl_supports_local_hook_inference(current_type_env.target_dsl_version)
         for extern_name, binding in externs.bindings_by_name.items():
-            if isinstance(binding, ProviderExtern):
-                value_env[extern_name] = current_type_env.resolve_type(
-                    "Provider",
-                    span=procedure_def.span,
-                    form_path=procedure_def.form_path,
-                )
+            extern_type = current_type_env.resolve_type(
+                "Provider" if isinstance(binding, ProviderExtern) else "Prompt",
+                span=procedure_def.span,
+                form_path=procedure_def.form_path,
+            )
+            if w3 and procedure_def.generated_local_procedure is not None:
+                value_env.setdefault(extern_name, extern_type)
             else:
-                value_env[extern_name] = current_type_env.resolve_type(
-                    "Prompt",
-                    span=procedure_def.span,
-                    form_path=procedure_def.form_path,
-                )
+                value_env[extern_name] = extern_type
         if isinstance(procedure_target, TypedProcedureDef):
             body_expr = procedure_target.typed_body.expr
         elif isinstance(procedure_def.body, SyntaxNode):
             body_expr = elaborate_expression(
                 procedure_def.body,
-                bound_names=frozenset(value_env),
+                bound_names=lexical_names if w3 else frozenset(value_env),
+                extern_names=extern_names if w3 else frozenset(),
                 procedure_names=frozenset(procedure_catalog.signatures_by_name),
                 function_names=(
                     frozenset()
@@ -506,6 +508,11 @@ def typecheck_procedure_call_expr(
     raise_error: Callable[..., None],
     type_label: Callable[[TypeRef], str],
 ) -> object:
+    preparer = context.session_state.pending_local_hook_preparer
+    if preparer is not None:
+        prepared = preparer(expr, context=context, recurse=recurse)
+        if prepared is not None:
+            return prepared
     if context.procedure_catalog is None:
         raise TypeError("procedure_catalog is required for ProcedureCallExpr typechecking")
     bound_proc_ref = context.active_proc_ref_value_env.get(expr.callee_name)
@@ -687,8 +694,22 @@ def _typecheck_parametric_procedure_call(
     type_label: Callable[[TypeRef], str],
     ) -> object:
     if len(expr.args) != len(signature.params):
+        message = (
+            f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments "
+            f"but got {len(expr.args)}"
+        )
+        if (
+            signature.name == "std/improve::improve"
+            and tuple(name for name, _type_ref in signature.params)
+            == ("initial", "review", "revise", "limit")
+            and len(expr.args) == 5
+        ):
+            message += (
+                "; migrate this call by removing the `inputs` argument and capturing it "
+                "in the local `review` and `revise` hooks"
+            )
         raise_error(
-            f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
+            message,
             code="procedure_arity_mismatch",
             span=expr.span,
             form_path=expr.form_path,
@@ -720,6 +741,12 @@ def _typecheck_parametric_procedure_call(
 
     if context.compiler_session.closed_program:
         expr = replace(expr, args=tuple(argument.expr for argument in typed_args))
+    else:
+        expr = replace(expr, args=tuple(
+            _retain_capture_metadata(original, argument.expr,
+                procedure_catalog=context.procedure_catalog)
+            for original, argument in zip(expr.args, typed_args, strict=True)
+        ))
 
     concrete_bindings = all(not _type_ref_contains_type_param(bound_type) for bound_type in type_bindings.values())
 
@@ -1163,7 +1190,18 @@ def _typecheck_let_proc_expr_impl(
     prompt_catalog: object | None,
     session_state: TypecheckSessionState,
     compiler_session: CompilerSession,
+    _prepared_local_body=None,
+    _register_only=False,
 ) -> TypedExpr:
+
+    if not _register_only and (expr.additional_bindings or expr.binding.return_type_name is None or any(param.type_name is None for param in expr.binding.params)):
+        return _typecheck_local_hook_group(expr, type_env=type_env, value_env=value_env,
+            binding_env=binding_env, proof_scope=proof_scope, workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog, extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment, active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name, workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context, prompt_catalog=prompt_catalog,
+            session_state=session_state, compiler_session=compiler_session)
 
     if procedure_catalog is None:
         raise TypeError("procedure_catalog is required for let-proc expressions")
@@ -1239,7 +1277,8 @@ def _typecheck_let_proc_expr_impl(
                 form_path=expr.binding.form_path,
                 expansion_stack=expr.binding.expansion_stack,
             )
-        bound_capture_value = capture_value_expr
+        from .expression_traversal import stamp_capture_origin
+        bound_capture_value = stamp_capture_origin(capture_value_expr, binding_env=binding_env, value_env=value_env)
         capture_identity = binding_env.get(capture_name)
         capture_bindings.append((capture_name, bound_capture_value))
         capture_binding_identities.append(capture_identity)
@@ -1349,17 +1388,18 @@ def _typecheck_let_proc_expr_impl(
         expr.body,
         local_bindings={expr.binding.local_name: rewrite_binding},
     )
-    session_state.let_proc_rewrite_results[id(expr)] = outer_body_expr
     generated_catalog = _temporary_procedure_catalog(
         procedure_catalog,
         definition=generated_definition,
         signature=generated_signature,
     )
-    if _expr_returns_local_proc_value(
+    if not _register_only and _expr_returns_local_proc_value(
         outer_body_expr,
         generated_name,
         procedure_catalog=generated_catalog,
         target_dsl_version=type_env.target_dsl_version,
+        proc_ref_env=(session_state.proc_ref_value_env
+            if target_dsl_supports_local_hook_inference(type_env.target_dsl_version) else None),
         compiler_session=compiler_session,
     ):
         _raise_error(
@@ -1370,7 +1410,16 @@ def _typecheck_let_proc_expr_impl(
             expansion_stack=expr.body.expansion_stack,
         )
 
-    local_value_env = {name: type_ref for name, type_ref in capture_signature_params}
+    local_value_env = {}
+    if target_dsl_supports_local_hook_inference(type_env.target_dsl_version):
+        from .workflows import ProviderExtern
+
+        for name, binding in getattr(extern_environment, "bindings_by_name", {}).items():
+            local_value_env[name] = type_env.resolve_type(
+                "Provider" if isinstance(binding, ProviderExtern) else "Prompt",
+                span=expr.binding.span, form_path=expr.binding.form_path,
+            )
+    local_value_env.update(dict(capture_signature_params))
     local_value_env.update(dict(residual_signature_params))
     local_binding_env = dict(binding_env)
     for name, _type_ref in residual_signature_params:
@@ -1398,24 +1447,26 @@ def _typecheck_let_proc_expr_impl(
         else None
     )
     try:
-        typed_local_body = _typecheck_owner(
-            local_body_expr,
-            type_env=type_env,
-            value_env=local_value_env,
-            binding_env=local_binding_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=generated_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            prompt_catalog=prompt_catalog,
-            session_state=session_state,
-            compiler_session=compiler_session,
-        )
+        typed_local_body = _prepared_local_body
+        if typed_local_body is None:
+            typed_local_body = _typecheck_owner(
+                local_body_expr,
+                type_env=type_env,
+                value_env=local_value_env,
+                binding_env=local_binding_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=generated_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
+                session_state=session_state,
+                compiler_session=compiler_session,
+            )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
         session_state.workflow_signature = previous_workflow_signature
@@ -1449,6 +1500,9 @@ def _typecheck_let_proc_expr_impl(
         ),
         bound_args=tuple(bound_capture_args),
     )
+    if _register_only:
+        return generated_catalog, rewrite_binding, bound_local_proc
+
     outer_proc_ref_env = dict(session_state.proc_ref_value_env)
     outer_proc_ref_env[expr.binding.local_name] = bound_local_proc
     previous_proc_ref_env = session_state.proc_ref_value_env
@@ -1474,7 +1528,357 @@ def _typecheck_let_proc_expr_impl(
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
-    return replace(typed_outer_body, expr=outer_body_expr)
+    retained_outer_body = (
+        typed_outer_body.expr
+        if compiler_session.closed_program
+        and target_dsl_supports_local_hook_inference(type_env.target_dsl_version)
+        else _retain_capture_metadata(
+            outer_body_expr, typed_outer_body.expr, procedure_catalog=generated_catalog,
+        )
+    )
+    session_state.let_proc_rewrite_results[id(expr)] = retained_outer_body
+    return replace(typed_outer_body, expr=retained_outer_body)
+
+
+
+def _local_hook_is_complete(binding):
+    return binding.return_type_name is not None and all(
+        param.type_name is not None for param in binding.params
+    )
+
+
+def _validate_local_hook_sites(consumer, bindings):
+    """Count executable authored call paths within this lexical owner."""
+    incomplete = {binding.local_name: binding for binding in bindings
+                  if not _local_hook_is_complete(binding)}
+    sites = {name: {} for name in incomplete}
+    indirect = []
+
+    def visit(node, path, direct_call=None):
+        if isinstance(node, LetProcExpr):
+            # This declaration/consumer has its own scoped local bindings.
+            return
+        if isinstance(node, ProcRefLiteralExpr):
+            binding = incomplete.get(node.target_name)
+            if binding is not None:
+                if direct_call is None:
+                    indirect.append((binding, node))
+                else:
+                    call_path, call = direct_call
+                    sites[binding.local_name].setdefault(call_path, call)
+            return
+        if isinstance(node, ProcedureCallExpr):
+            for index, arg in enumerate(node.args):
+                visit(arg, path + (index,), (path, node))
+            return
+        for index, child in enumerate(iter_child_exprs(node)):
+            visit(child, path + (index,))
+
+    visit(consumer, ())
+    if indirect:
+        binding, use = indirect[0]
+        _raise_error(
+            "an incomplete local needs a direct ProcRef argument; annotate it for forwarding",
+            code="let_proc_indirect_reference_unsupported", span=use.span,
+            form_path=use.form_path, expansion_stack=use.expansion_stack,
+            notes=(f"local `{binding.local_name}` declared at {binding.span.start.path}:{binding.span.start.line}",),
+        )
+    for name, binding in incomplete.items():
+        if len(sites[name]) != 1:
+            _raise_error(
+                "an incomplete local requires exactly one authored consumer call; add explicit annotations",
+                code="let_proc_consumer_site_invalid", span=binding.span,
+                form_path=binding.form_path, expansion_stack=binding.expansion_stack,
+                notes=tuple(f"consumer call at {call.span.start.path}:{call.span.start.line}"
+                            for call in sites[name].values()),
+            )
+    return sites
+
+
+def _prepare_local_hook_call(call, bindings, *, creator, signature, recurse):
+    """Complete pending signatures at their one actual consumer call."""
+    if signature is None:
+        _raise_error("local hook consumer requires a resolved call signature",
+            code="let_proc_expected_signature_missing", span=call.span, form_path=call.form_path)
+    if len(call.args) != len(signature.params):
+        _raise_error("local hook consumer arity differs from its signature",
+            code="procedure_arity_mismatch", span=call.span, form_path=call.form_path)
+    local_by_name = {binding.local_name: binding for binding in bindings}
+    positions = {name: [] for name in local_by_name}
+    type_bindings = {}
+    for index, (arg, (_, expected)) in enumerate(zip(call.args, signature.params, strict=True)):
+        if isinstance(arg, ProcRefLiteralExpr) and arg.target_name in local_by_name:
+            if not isinstance(expected, ProcRefTypeRef):
+                _raise_error("local hook requires ProcRef expectation",
+                    code="let_proc_expected_signature_missing", span=arg.span, form_path=arg.form_path)
+            positions[arg.target_name].append((index, expected))
+        else:
+            typed = recurse(arg)
+            _infer_parametric_type_bindings(expected, typed.type_ref, bindings=type_bindings,
+                raise_error=_raise_error, span=arg.span, form_path=arg.form_path)
+    pending, completed = dict(local_by_name), {}
+    while pending:
+        # Gather every existing expected/authored constraint before asking which
+        # bodies are ready. Later parameters and return annotations can ground
+        # a variable used by an earlier omitted parameter.
+        for binding in pending.values():
+            occurrences = positions[binding.local_name]
+            if not occurrences:
+                _raise_error("incomplete local hook needs a direct consumer position",
+                    code="let_proc_expected_signature_missing", span=binding.span, form_path=binding.form_path)
+            if any(len(expected.param_type_refs) != len(binding.params) for _, expected in occurrences):
+                _raise_error("local hook arity differs from expectation",
+                    code="proc_ref_signature_invalid", span=binding.span, form_path=binding.form_path)
+        previous_bindings = None
+        while previous_bindings != type_bindings:
+            previous_bindings = dict(type_bindings)
+            for binding in pending.values():
+                expectations = [expected for _, expected in positions[binding.local_name]]
+                positions_to_unify = [
+                    ([expected.param_type_refs[index] for expected in expectations],
+                     param.type_name, param.span, param.form_path)
+                    for index, param in enumerate(binding.params)
+                ]
+                positions_to_unify.append(([expected.return_type_ref for expected in expectations],
+                    binding.return_type_name, binding.span, binding.form_path))
+                for expected_positions, authored_name, span, form_path in positions_to_unify:
+                    candidates = [substitute_type_params(item, type_bindings) for item in expected_positions]
+                    if authored_name is not None:
+                        candidates.append(creator["type_env"].resolve_type(
+                            authored_name, span=span, form_path=form_path))
+                    concrete = next((item for item in candidates if not _type_ref_contains_type_param(item)), None)
+                    if concrete is not None:
+                        for candidate in candidates:
+                            _infer_parametric_type_bindings(candidate, concrete, bindings=type_bindings,
+                                raise_error=_raise_error, span=span, form_path=form_path)
+        progress = False
+        for name, binding in tuple(pending.items()):
+            occurrences = positions[name]
+            expectations = [substitute_type_params(expected, type_bindings) for _, expected in occurrences]
+            params = list(expectations[0].param_type_refs)
+            if any(_type_ref_contains_type_param(item) for item in params):
+                continue
+            returns = [expected.return_type_ref for expected in expectations]
+            authored_return = None
+            if binding.return_type_name is not None:
+                authored_return = creator["type_env"].resolve_type(
+                    binding.return_type_name, span=binding.span, form_path=binding.form_path)
+                returns.append(authored_return)
+            expected_return = next((item for item in returns if not _type_ref_contains_type_param(item)), None)
+            local_env = {capture: creator["value_env"][capture] for capture in binding.capture_names}
+            local_env.update({param.name: typ for param, typ in zip(binding.params, params, strict=True)})
+            local_ids = dict(creator["binding_env"])
+            for param in binding.params:
+                local_ids[param.name] = _allocate_binding_identity(
+                    local_ids, form_path=binding.form_path, kind="param", name=param.name)
+            session = creator["session_state"]
+            previous = (session.workflow_signature, session.procedure_hidden_context_signature,
+                        session.proc_ref_value_env, session.value_expr_env, session.pending_local_hook_preparer)
+            local_signature = ProcedureSignature(name=name, params=tuple(local_env.items()),
+                return_type_ref=expected_return or returns[0], declared_effects=frozenset(),
+                requested_lowering_mode=ProcedureLoweringMode.AUTO,
+                span=binding.span, form_path=binding.form_path, type_params=(), where_clauses=())
+            session.workflow_signature = None
+            session.procedure_hidden_context_signature = (
+                local_signature if eligible_private_context_source_param_names(local_signature) else None)
+            session.proc_ref_value_env = {capture: creator["creator_proc_refs"][capture]
+                for capture in binding.capture_names if capture in creator["creator_proc_refs"]}
+            session.value_expr_env = creator["creator_values"]
+            session.pending_local_hook_preparer = None
+            try:
+                options = {key: value for key, value in creator.items()
+                           if key not in {"creator_proc_refs", "creator_values"}}
+                from .workflows import ProviderExtern
+
+                body_env = {
+                    extern_name: creator["type_env"].resolve_type(
+                        "Provider" if isinstance(extern_binding, ProviderExtern) else "Prompt",
+                        span=binding.span, form_path=binding.form_path,
+                    )
+                    for extern_name, extern_binding in getattr(
+                        creator["extern_environment"], "bindings_by_name", {}
+                    ).items()
+                }
+                body_env.update(local_env)
+                options.update(value_env=body_env, binding_env=local_ids)
+                if expected_return is not None:
+                    options["expected_type"] = expected_return
+                typed_body = _typecheck_owner(binding.local_body, **options)
+            finally:
+                (session.workflow_signature, session.procedure_hidden_context_signature,
+                 session.proc_ref_value_env, session.value_expr_env, session.pending_local_hook_preparer) = previous
+            if authored_return is not None and not type_refs_compatible(
+                substitute_type_params(authored_return, type_bindings), typed_body.type_ref
+            ):
+                _raise_error("local body conflicts with its authored return type",
+                    code="let_proc_return_type_invalid", span=binding.local_body.span,
+                    form_path=binding.local_body.form_path, expansion_stack=binding.local_body.expansion_stack)
+            actual = ProcRefTypeRef(name="ProcRef", param_type_refs=tuple(params), return_type_ref=typed_body.type_ref)
+            for _, expected in occurrences:
+                _infer_parametric_type_bindings(expected, actual, bindings=type_bindings,
+                    raise_error=_raise_error, span=binding.span, form_path=binding.form_path)
+            resolved = replace(binding,
+                params=tuple(replace(param, type_name=typ.name) for param, typ in zip(binding.params, params, strict=True)),
+                return_type_name=(substitute_type_params(authored_return, type_bindings).name
+                                  if authored_return is not None else typed_body.type_ref.name))
+            completed[name] = (resolved, typed_body)
+            del pending[name]
+            progress = True
+        if not progress:
+            binding = next(iter(pending.values()))
+            _raise_error("local hook parameters are unresolved; add explicit annotations",
+                code="let_proc_expected_signature_missing", span=binding.span, form_path=binding.form_path)
+    return completed
+
+
+def _typecheck_local_hook_group(expr, **creator):
+    _validate_local_hook_sites(expr.body, expr.bindings)
+    session = creator["session_state"]
+    creator = dict(creator, value_env=dict(creator["value_env"]), binding_env=dict(creator["binding_env"]))
+    creator_proc_refs, creator_values = dict(session.proc_ref_value_env), dict(session.value_expr_env)
+    catalog = creator["procedure_catalog"]
+    rewrites, resolved_refs, completed = {}, {}, set()
+
+    def register(binding, typed_body):
+        nonlocal catalog
+        previous = session.proc_ref_value_env, session.value_expr_env, session.pending_local_hook_preparer
+        session.proc_ref_value_env, session.value_expr_env = creator_proc_refs, creator_values
+        session.pending_local_hook_preparer = None
+        try:
+            single = replace(expr, binding=binding, additional_bindings=())
+            catalog, rewrite, resolved = _typecheck_let_proc_expr_impl(single,
+                **dict(creator, procedure_catalog=catalog),
+                _prepared_local_body=typed_body, _register_only=True)
+        finally:
+            session.proc_ref_value_env, session.value_expr_env, session.pending_local_hook_preparer = previous
+        rewrites[binding.local_name] = rewrite
+        resolved_refs[binding.local_name] = resolved
+        completed.add(binding.local_name)
+
+    for binding in expr.bindings:
+        if _local_hook_is_complete(binding):
+            register(binding, None)
+    outer_body = _rewrite_local_proc_references(expr.body, local_bindings=rewrites)
+    incomplete = {binding.local_name: binding for binding in expr.bindings if not _local_hook_is_complete(binding)}
+
+    def prepare(call, *, context, recurse):
+        names = {arg.target_name for arg in call.args
+                 if isinstance(arg, ProcRefLiteralExpr) and arg.target_name in incomplete}
+        if not names:
+            return None
+        pending = tuple(binding for binding in expr.bindings
+                        if binding.local_name in names and binding.local_name not in completed)
+        if pending:
+            bound = context.active_proc_ref_value_env.get(call.callee_name)
+            lexical_type = context.value_env.get(call.callee_name)
+            signature = context.procedure_catalog.signatures_by_name.get(call.callee_name)
+            if bound is not None or isinstance(lexical_type, ProcRefTypeRef):
+                signature = ProcedureSignature(name=call.callee_name,
+                    params=(bound.residual_params if bound is not None else tuple(
+                        (str(index), typ) for index, typ in enumerate(lexical_type.param_type_refs))),
+                    return_type_ref=(bound.return_type_ref if bound is not None else lexical_type.return_type_ref),
+                    declared_effects=frozenset(), requested_lowering_mode=ProcedureLoweringMode.AUTO,
+                    span=call.span, form_path=call.form_path, type_params=(), where_clauses=())
+            prepared = _prepare_local_hook_call(call, pending,
+                creator=dict(creator, creator_proc_refs=creator_proc_refs, creator_values=creator_values),
+                signature=signature, recurse=recurse)
+            for binding in pending:
+                ready, body = prepared[binding.local_name]
+                register(ready, body)
+        rewritten = _rewrite_local_proc_references(call, local_bindings=rewrites)
+        return recurse(rewritten, procedure_catalog=catalog,
+                       proc_ref_value_env={**session.proc_ref_value_env, **resolved_refs})
+
+    previous = session.proc_ref_value_env, session.pending_local_hook_preparer
+    session.proc_ref_value_env = {**previous[0], **resolved_refs}
+    session.pending_local_hook_preparer = prepare if incomplete else previous[1]
+    try:
+        typed = _typecheck_owner(outer_body, **dict(creator, procedure_catalog=catalog))
+    finally:
+        session.proc_ref_value_env, session.pending_local_hook_preparer = previous
+    if incomplete.keys() - completed:
+        binding = incomplete[next(iter(incomplete.keys() - completed))]
+        _raise_error("local hook signature was not completed", code="let_proc_expected_signature_missing",
+            span=binding.span, form_path=binding.form_path)
+    final_body = _rewrite_local_proc_references(expr.body, local_bindings=rewrites)
+    for rewrite in rewrites.values():
+        if _expr_returns_local_proc_value(final_body, rewrite.generated_name,
+            procedure_catalog=catalog, target_dsl_version=creator["type_env"].target_dsl_version,
+            proc_ref_env=creator_proc_refs,
+            compiler_session=creator["compiler_session"]):
+            _raise_error("local procedure escaped its lexical scope", code="let_proc_scope_escape",
+                span=expr.body.span, form_path=expr.body.form_path)
+    retained = typed.expr if creator["compiler_session"].closed_program else _retain_capture_metadata(
+        outer_body, typed.expr, procedure_catalog=catalog)
+    session.let_proc_rewrite_results[id(expr)] = retained
+    return replace(typed, expr=retained)
+
+
+def _retain_capture_metadata(source, typed, *, procedure_catalog):
+    """Keep the historical source tree, carrying only lexical capture facts."""
+    metadata_fields = {
+        "capture_origin", "binding_identity", "binding_identities",
+        "binding_capture_sources", "source_binding_identity",
+    }
+
+    def retain(original, checked):
+        if isinstance(original, TypeRef):
+            return original
+        if isinstance(original, tuple):
+            if not isinstance(checked, tuple) or len(original) != len(checked):
+                raise ValueError("capture metadata correspondence changed tuple topology")
+            return tuple(retain(a, b) for a, b in zip(original, checked, strict=True))
+        if not is_dataclass(original) or type(original).__module__ != NameExpr.__module__:
+            return original
+        if type(original) is not type(checked):
+            raise ValueError("capture metadata correspondence changed expression kind")
+        updates = {}
+        if isinstance(original, NameExpr) and original.name != checked.name:
+            raise ValueError("capture metadata correspondence changed value name")
+        for field in fields(original):
+            name = field.name
+            if name in metadata_fields:
+                updates[name] = getattr(checked, name)
+                continue
+            if isinstance(original, ProcedureCallExpr) and name == "args":
+                checked_args = checked.args
+                if len(original.args) != len(checked_args):
+                    signature = procedure_catalog.signatures_by_name.get(original.callee_name)
+                    if signature is None or len(signature.params) != len(original.args):
+                        raise ValueError("capture metadata lacks authored procedure parameter slots")
+                    retained = dict(checked.retained_reference_actuals)
+                    prior_retained = dict(original.retained_reference_actuals)
+                    new_retained = {k: v for k, v in retained.items() if k not in prior_retained}
+                    parameter_names = {name for name, _ in signature.params}
+                    if not set(new_retained).issubset(parameter_names):
+                        raise ValueError("capture metadata retained reference has no authored slot")
+                    residual = iter(checked_args)
+                    aligned = []
+                    for parameter_name, _ in signature.params:
+                        if parameter_name in new_retained:
+                            aligned.append(new_retained[parameter_name])
+                        else:
+                            try:
+                                aligned.append(next(residual))
+                            except StopIteration as error:
+                                raise ValueError("capture metadata is missing a residual argument") from error
+                    if next(residual, None) is not None:
+                        raise ValueError("capture metadata has an unmatched residual argument")
+                    checked_args = tuple(aligned)
+                updates[name] = retain(original.args, checked_args)
+                continue
+            if name == "retained_reference_actuals":
+                continue
+            original_value = getattr(original, name)
+            checked_value = getattr(checked, name)
+            if isinstance(original_value, tuple) or (
+                is_dataclass(original_value)
+                and type(original_value).__module__ == NameExpr.__module__
+            ):
+                updates[name] = retain(original_value, checked_value)
+        return replace(original, **updates)
+
+    return retain(source, typed)
 
 
 def _rewrite_local_proc_references(
@@ -1634,6 +2038,7 @@ def _expr_returns_local_proc_value(
         )
     if isinstance(expr, LetStarExpr):
         local_bindings = dict(bindings)
+        local_proc_ref_env = dict(active_proc_ref_env)
         for binding_name, binding_expr in expr.bindings:
             local_bindings[binding_name] = _expr_returns_local_proc_value(
                 binding_expr,
@@ -1641,17 +2046,24 @@ def _expr_returns_local_proc_value(
                 target_dsl_version=target_dsl_version,
                 value_bindings=local_bindings,
                 procedure_catalog=procedure_catalog,
-                proc_ref_env=active_proc_ref_env,
+                proc_ref_env=local_proc_ref_env,
                 visited_calls=visited_calls,
                 compiler_session=compiler_session,
             )
+            if target_dsl_supports_local_hook_inference(target_dsl_version) and procedure_catalog is not None:
+                resolved = resolve_proc_ref_value(binding_expr,
+                    procedure_catalog=procedure_catalog, proc_ref_env=local_proc_ref_env)
+                if resolved is None:
+                    local_proc_ref_env.pop(binding_name, None)
+                else:
+                    local_proc_ref_env[binding_name] = resolved
         return _expr_returns_local_proc_value(
             expr.body,
             generated_name,
             target_dsl_version=target_dsl_version,
             value_bindings=local_bindings,
             procedure_catalog=procedure_catalog,
-            proc_ref_env=active_proc_ref_env,
+            proc_ref_env=local_proc_ref_env,
             visited_calls=visited_calls,
             compiler_session=compiler_session,
         )
@@ -1807,6 +2219,8 @@ def _procedure_call_returns_local_proc_value(
     callee_value = proc_ref_env.get(expr.callee_name)
     if callee_value is not None:
         definition = procedure_catalog.definitions_by_name.get(callee_value.procedure_name)
+        if definition is None and target_dsl_supports_local_hook_inference(target_dsl_version):
+            return False
         signature_params = callee_value.signature_params
         bound_args = callee_value.bound_args
     else:

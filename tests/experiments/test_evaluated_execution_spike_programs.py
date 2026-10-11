@@ -29,6 +29,7 @@ from tests.experiments.test_evaluated_execution_spike import in_cwd, outputs, re
 from tests.test_workflow_lisp_generic_union_provider_results import _Provider
 from tests.test_workflow_lisp_generic_unions_runtime import _log
 from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
+from tests.workflow_lisp_improve_example_sources import EXAMPLE, LEGACY_COMMANDS
 
 REPO = Path(__file__).resolve().parents[2]
 CONTROLLER = "mlevolve_pair/search_compact"
@@ -139,7 +140,7 @@ def _install_real(root: Path, name: str) -> tuple[Path, dict, dict, dict]:
     source, _, inputs_dir, _, _ = REAL[name]
     entry = root / Path(source).name
     root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(REPO / source, entry)
+    shutil.copy2(EXAMPLE if name == "improve-example" else REPO / source, entry)
     if inputs_dir is None:
         providers = json.loads((REPO / source.replace(".orc", ".providers.json")).read_text(encoding="utf-8"))
         return entry, providers, {}, {}
@@ -147,7 +148,8 @@ def _install_real(root: Path, name: str) -> tuple[Path, dict, dict, dict]:
     (root / "scripts").mkdir(exist_ok=True)
     (root / "scripts" / "launch_experiment.py").write_text(LAUNCHER, encoding="utf-8")
     load = lambda file: json.loads((REPO / inputs_dir / file).read_text(encoding="utf-8"))  # noqa: E731
-    return entry, load("providers.json"), load("prompts.json"), load("commands.json")
+    commands = json.loads(LEGACY_COMMANDS.read_text(encoding="utf-8")) if name == "improve-example" else load("commands.json")
+    return entry, load("providers.json"), load("prompts.json"), commands
 
 
 def _flat_real(root: Path, name: str, monkeypatch: pytest.MonkeyPatch):

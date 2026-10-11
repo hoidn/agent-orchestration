@@ -47,6 +47,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.33",
         "2.34",
         "2.35",
+        "2.36",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -1132,3 +1133,7 @@ def _raise_error(message: str, *, span: SourceSpan, code: str = "frontend_parse_
             ),
         )
     )
+
+
+def target_dsl_supports_local_hook_inference(target_dsl_version: str) -> bool:
+    return target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS and tuple(map(int, target_dsl_version.split("."))) >= (2, 36)

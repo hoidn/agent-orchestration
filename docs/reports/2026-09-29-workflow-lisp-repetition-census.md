@@ -9,6 +9,14 @@
   [shared defect repairs plan](../plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md).
 - **Scripts and measured programs:** `experiments/orc_repetition_census/`.
 
+Subsequent bounded update: the [uncommitted pure-capture correction](2026-10-07-workflow-lisp-pure-capture-correction.md)
+demonstrates lexical 8 instead of the historical 101 and coupled effect-once
+behavior, with historical final code/spec PASS and bounded acceptance in the
+original worktree before interruption. Recovery verification is owned by the
+correction report; main integration/full freeze remain pending. The census and pilot
+addendum below retain their original measured revisions and open decisions;
+current W3 selection/qualification is owned by the Phase 4c plan, not this record.
+
 ## 1. Questions
 
 1. Does the helper `std/improve`, with its generic union types, make a real

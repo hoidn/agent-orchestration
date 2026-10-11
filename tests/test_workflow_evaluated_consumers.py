@@ -17,11 +17,14 @@ import re
 import pytest
 
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
+from orchestrator.workflow_lisp.route_readiness import load_route_readiness_registry, registry_entry_for_path
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_lisp_improve_example_e2e import APPROVED_LAUNCH, EXHAUSTED_LAUNCH, QUESTION, _params
 from tests.workflow_evaluated_consumer_sources import (
     BUGGY, CANDIDATES, PROGRAMS, SITE, assert_request_lineage, checked_run, compile_current, executions, flat_outputs,
-    git, install, install_shims, jsonl, lineage, missing_edges, old_route, request_view, requests,
+    current_route, git, install, install_shims, jsonl, lineage, missing_edges, old_route, request_view, requests, ROOT,
     resume_to_completion, routes, sha256, stop_after,
 )
 
@@ -117,6 +120,50 @@ def test_public_improve_launcher_consumes_the_returned_proposal(tmp_path, monkey
 
 # Reviewed change -------------------------------------------------------------------
 
+
+def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
+    install_shims(root.parent / "bin", monkeypatch, plan)
+    program = PROGRAMS[name]
+    frontend = install(root, program, inputs, current=False)
+    assert entry_target_dsl_version(root / program.source) == "2.36"
+    route = current_route(root, frontend, marker)
+    summary = json.loads((root / "compile.stdout").read_text())
+    build = Path(summary["build_root"])
+    restored = ClosedProgram.from_artifact((build / "closed_program.json").read_text())
+    manifest = json.loads((build / "manifest.json").read_text())
+    assert restored.tree["target"] == manifest["target"] == "2.36"
+    assert restored.digest == summary["program_digest"]
+    assert restored.tree["entry"] == f"workflow:{program.entry}"
+    header = json.loads((route.authority.run_root / "run.json").read_text())
+    assert header["result_persistence_profile"] == "evaluated_execution.v1"
+    assert set(route.started().values()) == {1}
+    assert_request_lineage(route)
+    return route
+
+
+@pytest.mark.parametrize("verdicts,status,launch", [
+    (("REVISE", "APPROVE"), "launched", APPROVED_LAUNCH),
+    (("REVISE", "BLOCKED"), "held", BLOCKED_LAUNCH),
+    (("REVISE",) * 3, "held", EXHAUSTED_LAUNCH),
+])
+def test_public_w3_improve_launcher_consumes_returned_proposal(tmp_path, monkeypatch, verdicts, status, launch):
+    source = ROOT / "workflows/examples/improve_experiment_proposal.orc"
+    assert entry_target_dsl_version(source) == "2.36"
+    registry = load_route_readiness_registry(ROOT / "docs/workflow_lisp_route_readiness_registry.json")
+    entry = registry_entry_for_path(registry, source.relative_to(ROOT).as_posix())
+    assert entry.route_label == "evaluated_execution"
+    assert entry.lowering_route is entry.lowering_schema_version is None
+    route = _w3_consumer(tmp_path / "w3", monkeypatch, "w3_improve", _improve_plan(*verdicts),
+                         {"question": QUESTION}, "review-proposal")
+    assert route.value == {"status": status}
+    assert len(route.paused) == 1
+    assert len(route.requests) == 2 * len(verdicts) - (verdicts[-1] != "REVISE")
+    assert jsonl(route.root / "scripts/launch_experiment.log") == [launch]
+    assert ["revise-proposal" in data["identity"] for data in route.commits[:-1]] == [
+        index % 2 == 1 for index in range(len(route.requests))]
+    assert missing_edges(route, _improve_required(route)) == [[]] * len(route.commits)
+
+
 FIXED = "def add(a, b):\n    return a + b\n"
 CHANGE = {"result": {"summary": "Fix add.", "account": "add subtracted; it now adds."},
           "files": {"repo/calc.py": FIXED}}
@@ -151,6 +198,31 @@ REVIEWED = [
                  {"variant": "UNRESOLVED", "reason": "round 3: no test", "rounds": 3},
                  id="unresolved-after-three-rounds"),
 ]
+
+
+@pytest.mark.parametrize("plan,value", [
+    *[pytest.param(case.values[0], case.values[3], id=case.id) for case in REVIEWED],
+    pytest.param({"claude": [CHANGE], "codex": [_review("APPROVE", 1, notes=["fine"])]},
+                 {"variant": "READY", "report": "artifacts/review/round-1.md", "rounds": 1}, id="approve-first"),
+    pytest.param({"claude": [CHANGE, REDO, REDO],
+                  "codex": [_review("WRONG_APPROACH", index, reason="change the approach") for index in (1, 2, 3)]},
+                 {"variant": "UNRESOLVED", "reason": "change the approach", "rounds": 3}, id="final-wrong-approach"),
+])
+def test_public_w3_reviewed_change_preserves_outcomes_and_round_guards(tmp_path, monkeypatch, plan, value):
+    inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
+              "intent": "add returns a + b", "repo": "repo"}
+    new = _w3_consumer(tmp_path / "w3", monkeypatch, "w3_reviewed_change", plan, inputs, " / change")
+    old = old_route(tmp_path / "old", install(tmp_path / "old", PROGRAMS["reviewed_change"], inputs, current=False))
+    assert new.value == value
+    assert old.value == flat_outputs(new.value)
+    assert request_view(new) == request_view(old)
+    calls = len(plan["claude"]) + len(plan["codex"])
+    assert len(new.paused) == 1
+    assert len(new.requests) == calls
+    assert [request["tool"] for request in new.requests] == ["claude", "codex"] * (calls // 2)
+    assert missing_edges(new, _predecessors(calls)) == [[]] * calls
+    assert _files(new.root, "artifacts", "repo") == _files(old.root, "artifacts", "repo")
+    assert value.get("report") is None or (new.root / value["report"]).is_file()
 
 
 @pytest.mark.parametrize("plan,marker,paused,value", REVIEWED)

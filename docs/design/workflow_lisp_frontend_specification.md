@@ -56,10 +56,10 @@ library module (§87.1).
 
 Target 2.34 adds the implemented [numeric surface](workflow_lisp_numeric_surface.md).
 The pipeline described here remains the runnable route through 2.34.
-Target 2.35 selects [evaluated execution](workflow_lisp_evaluated_execution.md):
-its internal compiler is partially integrated, but public CLI compilation
-and execution remain unavailable. Follow the [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
-for compiler delivery and the parent plan for later runtime delivery.
+Targets 2.35 and 2.36 select [evaluated execution](workflow_lisp_evaluated_execution.md)
+through public `compile`, `run`, `resume` and `invalidate`. The admitted
+first-release classes at 2.35 are delivered. The target-2.36 W3 additions are
+implemented at 2.36; the [Phase 4c closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded public consumer and qualification evidence.
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -1061,11 +1061,17 @@ The accepted model is:
 Detailed contract:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
-Bounded V1 `let-proc` adds one local typed procedure with explicit identifier
+Through target 2.35, bounded V1 `let-proc` adds one local typed procedure with explicit identifier
 captures and `(proc-ref local-name)` references. It specializes a private
 generated procedure through ordinary `defproc` lowering; nested or recursive
 local procedures and escaping procedure references remain rejected. See the
 [implemented local-binding contract](workflow_lisp_let_proc_local_proc_refs.md).
+At 2.36, the [W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+adds several local bindings, inferred lexical captures and expected signatures
+from exactly one authored direct consumer call site when incomplete; complete
+signatures retain reuse. It uses existing generated procedures and the evaluated
+route. Declared externs stay available without becoming captures. W3 is
+implemented at 2.36.
 
 ### 7.9 Type Parameters And Structural Constraints
 
@@ -4756,6 +4762,16 @@ incremental compilation. L1 authored symbols and callable signatures are now
 implemented without changing the L0 boundary. L2 recovery-safe static
 completion is also implemented without changing definition/document-symbol
 freshness or any P1–P5 boundary.
+
+Evaluated-entry availability is narrower than the legacy LSP surface. For
+the demonstrated W3 sources, CLI and LSP select the same source graph and
+builtin helper, but the LSP still terminates with
+`evaluated_execution_unavailable` after graph
+compilation. Selection/root/hash/read-trace parity does not establish a
+successful evaluated snapshot, semantic navigation or terminal diagnostic
+parity. Evaluated F2 remains **OPEN_NOT_WAIVED**; the existing F2 acceptance
+contract and legacy checks remain unchanged. L2 may supply its existing frozen
+static-form recovery response, never stale callables.
 
 ### Accepted L1 Authored Symbol And Completion Compatibility
 

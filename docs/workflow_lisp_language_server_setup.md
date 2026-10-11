@@ -171,6 +171,16 @@ unlatch it; restart the language server.
 
 ## Current Limits
 
+Evaluated-entry availability is narrower than the legacy LSP surface. For
+the demonstrated W3 sources, CLI and LSP select the same source graph and
+builtin helper, but the LSP still terminates with
+`evaluated_execution_unavailable` after graph
+compilation. Selection/root/hash/read-trace parity does not establish a
+successful evaluated snapshot, semantic navigation or terminal diagnostic
+parity. Evaluated F2 remains **OPEN_NOT_WAIVED**; the existing F2 acceptance
+contract and legacy checks remain unchanged. L2 may supply its existing frozen
+static-form recovery response, never stale callables.
+
 The implemented v1/L0/L1/L2/L3/L4/L5 surface intentionally has no unsaved-buffer
 analysis. It has no multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code

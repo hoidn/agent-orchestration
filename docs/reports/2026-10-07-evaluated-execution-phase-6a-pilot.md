@@ -2,6 +2,17 @@
 
 Status: Tasks 1–3 have independent bounded PASS reviews. The final full campaign at pilot candidate `688695e3` (production `b11e678`) passes all 21 pilot cases, but the full suite is RED: 425 failed, 23079 passed, 36 skipped and 178 xfailed, exit 1. Failure disposition is recorded below; independent final phase/documentation review is PASS and the bounded pilot was delivered to `main` and `origin/main` at `0aaddf5f`. Global Phase 6a and W3 Task 4 remain open for grammar/inference, target, standard-module, checkpoint and migration decisions; the W3 specimen is proposed-only.
 
+Subsequent bounded update: the [pure-capture correction](2026-10-07-workflow-lisp-pure-capture-correction.md)
+applied uncommitted after this pilot demonstrates lexical 8 instead of 101 and
+coupled effect-once behavior. Its material raw-gate amendment, positive resume
+controls and bounded legacy refusal have historical evidence; final code/spec
+reviews passed and the bounded prerequisite was accepted in the original
+worktree before interruption. The correction report owns recovery verification;
+main integration and the Phase 4c full freeze remain pending. The pilot's statements below retain
+their historical revision/limitations; they do not describe that later cut.
+W3 target/source-graph selection lives in its Phase 4c plan, with executable
+qualification and delivery still pending.
+
 ## Entry and baseline
 
 This pilot starts from delivered Phase 3 commit `06130a53193e42dc1fdc2e9aa4575220bb43d707`, recorded by the coordinator after verifying the Task 17 delivery report and fast-forward/push. Phase 3 verification remains attached to its original source hashes. The final pilot campaign below refreshes the full suite and public watchdog/recovery owners at `688695e3`; unchanged live-provider evidence retains its original Phase 3 scope, with no new live-provider utility claim.

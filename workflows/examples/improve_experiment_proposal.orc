@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.36")
   (defmodule improve_experiment_proposal)
   (import std/improve :only (Decision improve))
   (export run-experiment)
@@ -33,26 +33,6 @@
       :hypothesis brief.question
       :parameters (list (record Parameter :name "seed" :value 0))))
 
-  (defproc review-proposal
-    ((proposal ExperimentProposal) (brief ExperimentBrief))
-    -> Decision[ReviewNotes ReviewBlocker]
-    :effects ((uses-provider providers.proposal.review))
-    :lowering inline
-    (provider-result providers.proposal.review
-      :prompt prompts.proposal.review
-      :inputs (brief.question proposal.hypothesis proposal.parameters)
-      :returns Decision[ReviewNotes ReviewBlocker]))
-
-  (defproc revise-proposal
-    ((proposal ExperimentProposal) (brief ExperimentBrief) (review ReviewNotes))
-    -> ExperimentProposal
-    :effects ((uses-provider providers.proposal.revise))
-    :lowering inline
-    (provider-result providers.proposal.revise
-      :prompt prompts.proposal.revise
-      :inputs (brief.question proposal.hypothesis proposal.parameters review.notes)
-      :returns ExperimentProposal))
-
   ;; The workspace's launcher runs an approved proposal and records any other.
   (defproc execute
     ((proposal ExperimentProposal) (outcome String) (note String))
@@ -69,11 +49,25 @@
 
   (defworkflow run-experiment ((question String)) -> ExperimentRun
     (let* ((brief (record ExperimentBrief :question question))
-           (result (improve (propose brief) brief
-                            (proc-ref review-proposal)
-                            (proc-ref revise-proposal)
-                            3)))
-      (match result
-        ((APPROVED approved) (execute approved.value "approved" approved.evidence.notes))
-        ((BLOCKED blocked) (execute blocked.value "blocked" blocked.reason.issue))
-        ((EXHAUSTED exhausted) (execute exhausted.value "exhausted" ""))))))
+           (initial (propose brief)))
+      (let-proc
+        ((review-proposal
+          (proposal)
+          (provider-result providers.proposal.review
+            :prompt prompts.proposal.review
+            :inputs (brief.question proposal.hypothesis proposal.parameters)
+            :returns Decision[ReviewNotes ReviewBlocker]))
+         (revise-proposal
+          (proposal review)
+          (provider-result providers.proposal.revise
+            :prompt prompts.proposal.revise
+            :inputs (brief.question proposal.hypothesis proposal.parameters review.notes)
+            :returns ExperimentProposal)))
+        (let* ((result (improve initial
+                                (proc-ref review-proposal)
+                                (proc-ref revise-proposal)
+                                3)))
+          (match result
+            ((APPROVED approved) (execute approved.value "approved" approved.evidence.notes))
+            ((BLOCKED blocked) (execute blocked.value "blocked" blocked.reason.issue))
+            ((EXHAUSTED exhausted) (execute exhausted.value "exhausted" ""))))))))

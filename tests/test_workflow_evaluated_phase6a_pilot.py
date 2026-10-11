@@ -421,3 +421,97 @@ def _assert_reviewed_artifacts(old: Route, new: Route, plan: dict) -> None:
     assert _consumer_files(new.root, "artifacts") == reports
     assert _consumer_files(old.root / "repo", ".") == repo_files
     assert _consumer_files(new.root / "repo", ".") == repo_files
+
+
+def test_w3_creator_capture_survives_later_call_site_shadow_and_resume(tmp_path, monkeypatch):
+    captured, poison = "creator-question:alpha", "later-shadow:poison"
+    plan = _improve_plan("REVISE", "APPROVE")
+    install_shims(tmp_path / "bin", monkeypatch, plan)
+    program, root = PROGRAMS["w3_improve"], tmp_path / "new"
+    frontend = install(root, program, {"question": captured}, current=False)
+    source_path = root / program.source
+    source = _replace_source_once(
+        source_path.read_text(encoding="utf-8"),
+        "        (let* ((result (improve initial",
+        f'        (let* ((brief (record ExperimentBrief :question "{poison}"))\n'
+        "               (result (improve initial",
+    )
+    source_path.write_text(source, encoding="utf-8")
+    route = _run_variant(root, frontend, captured, REVIEW)
+
+    assert route.value == {"status": "launched"}
+    assert len(route.paused) == 1
+    assert len(route.requests) == 3
+    assert all(captured in request["prompt"] for request in route.requests)
+    assert all(poison not in request["prompt"] for request in route.requests)
+    assert jsonl(root / "scripts/launch_experiment.log") == [APPROVED_LAUNCH]
+    assert sum(route.started().values()) == 4
+    assert set(route.started().values()) == {1}
+    assert_request_lineage(route)
+
+
+def test_w3_two_creator_capture_environments_remain_distinct_in_one_run(tmp_path, monkeypatch):
+    plan = _improve_plan("REVISE", "APPROVE")
+    install_shims(tmp_path / "bin", monkeypatch, {"codex": plan["codex"] * 2})
+    program, root = PROGRAMS["w3_improve"], tmp_path / "new"
+    frontend = install(root, program, {"question": QUESTION}, current=False)
+    source_path = root / program.source
+    source = source_path.read_text(encoding="utf-8")
+    header = "  (defworkflow run-experiment ((question String)) -> ExperimentRun\n"
+    assert source.count(header) == 1
+    prefix, body = source.split(header)
+    body = body.rstrip()
+    assert body.endswith("))")
+    body = body[:-2]
+    bodies = [
+        _replace_source_once(body, ":question question",
+                             f':question (string/concat question "\\n" "{focus}")')
+        for focus in FOCI
+    ]
+    source_path.write_text(prefix + header + f"    (let* ((first {bodies[0]})\n"
+                           f"           (second {bodies[1]}))\n      second)))\n", encoding="utf-8")
+    route = _run_variant(root, frontend, FOCI[0], REVIEW)
+
+    assert route.value == {"status": "launched"}
+    assert len(route.paused) == 1
+    assert len(route.requests) == 6
+    for index, focus in enumerate(FOCI):
+        context_requests = route.requests[3 * index:3 * (index + 1)]
+        assert all(focus in request["prompt"] for request in context_requests)
+        assert all(FOCI[1 - index] not in request["prompt"] for request in context_requests)
+    assert [_request_without_focus(request, FOCI[0]) for request in route.requests[:3]] == [
+        _request_without_focus(request, FOCI[1]) for request in route.requests[3:]
+    ]
+    provider_commits = [entry for entry in route.commits if entry["effect_class"] == "provider"]
+    assert ["revise-proposal" in entry["identity"] for entry in provider_commits] == [False, True, False] * 2
+    assert jsonl(root / "scripts/launch_experiment.log") == [APPROVED_LAUNCH] * 2
+    assert sum(route.started().values()) == 8
+    assert set(route.started().values()) == {1}
+    assert_request_lineage(route)
+
+
+@pytest.mark.parametrize("focus", FOCI)
+def test_w3_one_hook_extra_capture_changes_only_review_dataflow(tmp_path, monkeypatch, focus):
+    install_shims(tmp_path / "bin", monkeypatch, _improve_plan("REVISE", "APPROVE"))
+    program, root = PROGRAMS["w3_improve"], tmp_path / "new"
+    frontend = install(root, program, {"question": QUESTION, "review_focus": focus}, current=False)
+    source_path = root / program.source
+    source = _replace_source_once(source_path.read_text(encoding="utf-8"),
+                                  "run-experiment ((question String))",
+                                  "run-experiment ((question String) (review_focus String))")
+    source = _replace_source_once(source,
+                                  ":inputs (brief.question proposal.hypothesis proposal.parameters)",
+                                  ":inputs (review_focus brief.question proposal.hypothesis proposal.parameters)")
+    source_path.write_text(source, encoding="utf-8")
+    route = _run_variant(root, frontend, focus, REVIEW)
+
+    assert route.value == {"status": "launched"}
+    assert len(route.paused) == 1
+    assert len(route.requests) == 3
+    assert all(focus in request["prompt"] for request in route.requests[::2])
+    assert all(focus not in request["prompt"] for request in route.requests[1::2])
+    assert all(FOCI[1 - FOCI.index(focus)] not in request["prompt"] for request in route.requests)
+    assert jsonl(root / "scripts/launch_experiment.log") == [APPROVED_LAUNCH]
+    assert sum(route.started().values()) == 4
+    assert set(route.started().values()) == {1}
+    assert_request_lineage(route)

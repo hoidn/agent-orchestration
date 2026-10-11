@@ -29,7 +29,7 @@
       the credential-minimized projection; OMP journals remain separate
       observations as defined in `state.md`.
   - Deterministic artifact contracts:
-    - Target 2.35 command boundary manifests accept `closure`, an array of
+    - Evaluated target 2.35/2.36 command boundary manifests accept `closure`, an array of
       literal file or directory paths for both `external_tool` and
       `certified_adapter`. C1 requires it on every supplied declaration
       (including unused rows) and every used compiler-injected binding;
@@ -313,6 +313,11 @@
 
 ## Evaluated Command And Provider IO (target 2.35)
 
+This contract applies to both registered evaluated entry targets, 2.35 and
+2.36. W3 changes local-hook authoring and selected helper source, not command/
+provider IO or the public lifecycle. See [versioning](versioning.md) for the
+target-2.36 contract.
+
 This section owns the request a target-2.35 command or provider receives,
 the evidence the run binds for it and the files each attempt leaves. The
 effect identity, the memo records and the attempt directory layout are owned
@@ -416,7 +421,7 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     `--max-retries` and `--retry-delay` are not read.
 - Typed command input documents (external tools)
   - `:argv` plus `:inputs ((field expression) ...)` is admitted only at
-    target 2.35 and only for `external_tool` bindings; `certified_adapter`
+    target 2.35 or 2.36 and only for `external_tool` bindings; `certified_adapter`
     keeps its signature-ordered inline JSON document and empty authored argv;
     `:argv`-only forms of either kind are unchanged. Omitting `:inputs` sends
     no document and no token; `:inputs ()` sends `{}`.

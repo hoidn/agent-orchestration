@@ -79,17 +79,23 @@ def _compile_closed(prepared: Prepared):
 
 
 def _pair(workflow: Workflow, scratch: Path):
-    prepared = prepare(workflow, scratch)
-    original = workflow.source.read_text(encoding="utf-8")
+    source = workflow.source
+    fixture = None
+    if workflow.module == "improve_experiment_proposal":
+        fixture = REPO_ROOT / "tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc"
+        source = fixture
+    prepared = prepare(workflow, scratch, source_fixture=fixture,
+                       command_manifest=fixture.with_name("commands.json") if fixture else None)
+    original = source.read_text(encoding="utf-8")
     assert prepared.entry.read_text(encoding="utf-8") == entry_with_target(
-        workflow.source,
+        source,
         syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
     )
     prepared.entry.write_text(original, encoding="utf-8")
     flat = _compile_flat(prepared)
     prepared.entry.write_text(
         entry_with_target(
-            workflow.source,
+            source,
             syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
         ),
         encoding="utf-8",

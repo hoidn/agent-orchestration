@@ -31,6 +31,46 @@ from tests.workflow_lisp_closed_program_corpus import (
 TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 
 
+@pytest.mark.parametrize("target", ["2.35", "2.36"])
+def test_corpus_preserves_authored_evaluated_target(tmp_path, target):
+    from tests.workflow_lisp_closed_program_corpus import Workflow, prepare
+    root = tmp_path / "src"
+    root.mkdir()
+    source = root / "consumer.orc"
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+      (defmodule consumer) (export run) (defworkflow run () -> Int 7))''')
+    prepared = prepare(Workflow(source, root, "consumer", "run"), tmp_path / "prepared")
+    assert target_dsl_version(prepared.entry) == target
+
+
+def test_corpus_materializes_declared_workspace_launcher_without_changing_closure(tmp_path):
+    from tests.workflow_lisp_closed_program_corpus import prepare
+    from tests.workflow_lisp_improve_example_sources import LAUNCH_PROBE
+
+    workflow = next(row for row in corpus() if row.module == "improve_experiment_proposal")
+    prepared = prepare(workflow, tmp_path / "prepared")
+    binding = prepared.commands["launch_experiment"]
+    assert binding.stable_command == ("python", "scripts/launch_experiment.py")
+    assert binding.closure == ("scripts/launch_experiment.py",)
+    assert (prepared.workspace_root / binding.closure[0]).read_text() == LAUNCH_PROBE
+    assert "command:launch_experiment:compile-only-script-stand-in" in prepared.synthetic
+    assert target_dsl_version(prepared.entry) == "2.36"
+
+
+def test_corpus_workspace_launcher_does_not_admit_unknown_extra_closure(tmp_path):
+    from tests.workflow_lisp_closed_program_corpus import NotSynthesizableError, prepare
+
+    workflow = next(row for row in corpus() if row.module == "improve_experiment_proposal")
+    manifest = tmp_path / "commands.json"
+    manifest.write_text(json.dumps({"launch_experiment": {
+        "kind": "external_tool", "stable_command": ["python", "scripts/launch_experiment.py"],
+        "closure": ["scripts/launch_experiment.py", "unowned-helper.py"],
+    }}))
+    with pytest.raises(NotSynthesizableError) as exc:
+        prepare(workflow, tmp_path / "prepared", command_manifest=manifest)
+    assert "unowned-helper.py" in str(exc.value)
+
+
 EXPECTED = {
     "experiments/mlevolve_pair/probes/malformed_result.orc::run": Built(1),
     "experiments/mlevolve_pair/probes/missing_bundle.orc::run": Built(1),
