@@ -73,6 +73,18 @@ def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_pat
     assert tree(tmp_path) == before
 
 
+@pytest.mark.parametrize("target", ["2.34", "2.35", "2.36", "2.37"])
+def test_explain_flat_views_refuse_without_build_or_export_writes(tmp_path, target):
+    source = tmp_path / "retired.orc"
+    source.write_text(PROGRAM.format(target=target))
+    before = tree(tmp_path)
+    result = cli(tmp_path, "explain", str(source), "--emit-executable-ir", "export.json")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "workflow_explain_retired" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert tree(tmp_path) == before
+
+
 def test_frontend_publication_checks_the_compiled_source_target(tmp_path, monkeypatch):
     from orchestrator.workflow_lisp import build
     from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError

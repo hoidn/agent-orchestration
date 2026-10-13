@@ -26,7 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def explain_workflow(args: Namespace) -> int:
-    """Explain typed/lowered/source-trace surfaces for one `.orc` form."""
+    """Refuse the retired flat-compilation views."""
+
+    logger.error(
+        "[workflow_explain_retired] flat compilation views are retired; "
+        "use a separately retained complete release/environment for those views, "
+        "or compile --diagnostics-json to check a current workflow"
+    )
+    return 2
 
     workflow_path = Path(args.workflow).resolve()
     if workflow_path.suffix != ".orc":
