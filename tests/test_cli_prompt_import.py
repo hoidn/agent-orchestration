@@ -16,6 +16,7 @@ from orchestrator.prompt_session import (
 from tests.test_cli_prompt import TASK_TEXT, fake_runtime
 from tests.test_prompt_session import (
     PRIMARY,
+    _real_private_resolved,
     SESSION_ID,
     _canonical,
     _journal,
@@ -47,93 +48,6 @@ def _resolved(tmp_path: Path, prompt: str = "imported prompt") -> ResolvedPrimar
     )
 
 
-def _real_private_resolved(
-    tmp_path: Path,
-    *,
-    provider: str = "omp",
-) -> tuple[ResolvedPrimary, Path]:
-    import json
-    from orchestrator.prompt_contract import default_semantic_contract, semantic_contract_sha256
-    from orchestrator.prompt_scaffold import ScaffoldInputs, generate_scaffold
-    from orchestrator.prompt_session import with_private_execution_authority
-    from orchestrator.providers.omp_pin import OMP_BINARY_PIN
-
-    prompt = b"imported prompt"
-    inputs = ScaffoldInputs(
-        prompt_sha256=hashlib.sha256(prompt).hexdigest(),
-        contract=default_semantic_contract(),
-        provider=provider,
-        model="gpt-5.6-sol",
-        conf_manifest=None,
-        slug="task",
-        pin=OMP_BINARY_PIN,
-    )
-    generated = tmp_path / "generated"
-    generated.mkdir()
-    scaffold = generate_scaffold(
-        generated_root=generated,
-        inputs=inputs,
-        prompt_bytes=prompt,
-        authoring={"mode": "exact"},
-    )
-    run = tmp_path / "runs" / "run-1"
-    private = run / "prompt-inputs"
-    private.mkdir(parents=True)
-    verification = with_private_execution_authority(scaffold.verification)
-    for relative, data in verification.files.items():
-        target = private / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        target.chmod(0o400)
-    document = _link(
-        provider={
-            "name": verification.provider,
-            "model": verification.model,
-            "lane": "no-tools" if provider == "omp_no_tools" else "ambient",
-        },
-        paths={
-            **_link()["paths"],
-            "conf": (
-                "provider_sessions/task__v1.conf"
-                if provider == "omp_no_tools"
-                else None
-            ),
-        },
-        scaffold_identity=verification.identity,
-        digests={
-            **_link()["digests"],
-            "scaffold_manifest_sha256": hashlib.sha256(
-                verification.manifest_bytes
-            ).hexdigest(),
-            "authored_prompt_sha256": hashlib.sha256(prompt).hexdigest(),
-            "source_sha256": hashlib.sha256(
-                verification.files["run.orc"]
-            ).hexdigest(),
-            "semantic_contract_sha256": semantic_contract_sha256(
-                verification.semantic_contract
-            ),
-            "conf_manifest_sha256": (
-                inputs.conf_manifest_sha256
-                if provider == "omp_no_tools"
-                else None
-            ),
-            "composed_prompt_sha256": hashlib.sha256(prompt).hexdigest(),
-        },
-    )
-    raw = _canonical(document)
-    stat = run.stat()
-    resolved = ResolvedPrimary(
-        "run-1",
-        "task__v1",
-        SESSION_ID,
-        PRIMARY,
-        SessionLink(document, raw),
-        run,
-        (stat.st_dev, stat.st_ino),
-        _journal(_user(prompt.decode())),
-        hashlib.sha256(_journal(_user(prompt.decode()))).hexdigest(),
-    )
-    return resolved, private
 
 
 @pytest.mark.parametrize(

@@ -267,15 +267,69 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
     assert tree(tmp_path) == before
 
 
+@pytest.mark.parametrize("provider", ["omp", "omp_unrestricted_workspace", "omp_no_tools", "omp_conf"])
+def test_native_historical_fixture_setup_lookup_and_verifiers_under_blocker(tmp_path, provider):
+    from tests.test_workflow_closed_program_isolation import BLOCK_COMPILER
+    script = BLOCK_COMPILER + '''
+class RetiredNativeOwnerBlocker(CompilerImportBlocker):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in {"orchestrator.workflow.executor", "orchestrator.workflow.pure_result_replay",
+                "orchestrator.workflow.lowering"}:
+            raise ModuleNotFoundError("retired native dependency blocked: " + fullname)
+        return super().find_spec(fullname, path, target)
+sys.meta_path.insert(0, RetiredNativeOwnerBlocker())
+for name in ("orchestrator.workflow.executor", "orchestrator.workflow.pure_result_replay",
+        "orchestrator.workflow.lowering"):
+    try:
+        importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        assert "retired native dependency blocked" in str(exc)
+    else:
+        raise AssertionError("native blocker missed " + name)
+from pathlib import Path
+import os
+from tests.test_prompt_resume import _resume_setup
+from orchestrator.prompt_session import resolve_prompt_session
+from orchestrator.prompt_session_scaffold import verify_private_scaffold, verify_captured_occupant
+manager, setup = _resume_setup(Path(sys.argv[1]), provider=sys.argv[2])
+resolved = resolve_prompt_session(manager.run_root.parent, "run-1")
+assert resolved.link.document["provider"]["name"] == sys.argv[2]
+private = os.open(manager.run_root / "prompt-inputs", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+public = os.open(setup[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    verification = verify_private_scaffold(private, resolved.link)
+    verify_captured_occupant(private, verification, private=True)
+    verify_captured_occupant(public, verification, private=False)
+finally:
+    os.close(private)
+    os.close(public)
+assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.modules)
+assert not any(name in sys.modules for name in ("orchestrator.workflow.executor",
+    "orchestrator.workflow.pure_result_replay", "orchestrator.workflow.lowering"))
+'''
+    result = subprocess.run([sys.executable, "-B", "-c", script, str(tmp_path), provider], cwd=REPO,
+        env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"},
+        text=True, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.parametrize("in_place", [False, True], ids=["fork", "in-place"])
 def test_native_prompt_resume_real_cli_dispatch_under_compiler_blocker(tmp_path, in_place):
     import select
     from tests.test_workflow_closed_program_isolation import BLOCK_COMPILER
-    from tests.test_prompt_resume import _bridge_env, _records, _resume_setup
+    from tests.test_prompt_resume import _bridge_env, _records
+    from types import SimpleNamespace
     from tests.test_prompt_resume_child import PRIMARY, _launcher
 
-    # Setup still uses the historical scaffold producer; the fresh CLI may not.
-    manager, _ = _resume_setup(tmp_path)
+    prepare = subprocess.run([sys.executable, "-B", "-c", BLOCK_COMPILER +
+        "\nfrom pathlib import Path\nfrom tests.test_prompt_resume import _resume_setup\n_resume_setup(Path(sys.argv[1]))\n"
+        "assert not any(name.startswith('orchestrator.workflow_lisp') for name in sys.modules)\n"
+        "assert 'orchestrator.workflow.executor' not in sys.modules\n", str(tmp_path)], cwd=REPO,
+        env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"},
+        text=True, capture_output=True, timeout=60)
+    assert prepare.returncode == 0, prepare.stdout + prepare.stderr
+    manager = SimpleNamespace(workspace=tmp_path / "workspace",
+        run_root=tmp_path / "workspace" / ".orchestrate" / "runs" / "run-1")
     live = manager.run_root / "provider_sessions" / "task__v1"
     source = (live / PRIMARY).read_bytes()
     fake = tmp_path / "fake-omp"

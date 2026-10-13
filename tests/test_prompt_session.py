@@ -10,10 +10,8 @@ from orchestrator.prompt_session import (
     PromptSessionError,
     extract_prompt_bytes,
     parse_session_link_bytes,
-    publish_prompt_run_link,
     resolve_prompt_session,
     validate_continuation_chain,
-    with_private_execution_authority,
 )
 from orchestrator.providers.omp_session import parse_journal_bytes
 
@@ -230,6 +228,100 @@ def test_extract_uses_first_pre_assistant_user_when_branch_has_two() -> None:
         relpath=PRIMARY,
     )
     assert extract_prompt_bytes(parsed) == b"first"
+
+
+HISTORY = Path(__file__).parent / "fixtures" / "omp" / "history"
+
+
+def _copy_historical_tree(source: Path, target: Path, *, mode: int = 0o644) -> None:
+    for path in source.rglob("*"):
+        if path.is_file():
+            destination = target / path.relative_to(source)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(path.read_bytes())
+            destination.chmod(mode)
+
+
+def _historical_run(tmp_path: Path, *, provider: str = "omp", plant: str | None = None):
+    """Relocate explicit path/inode fields; scaffold and original journal bytes stay frozen."""
+    from types import SimpleNamespace
+    from orchestrator.prompt_session_scaffold import verify_private_scaffold
+    from orchestrator.providers.omp_launch_contract import (
+        build_fresh_adapter_argv, resolved_adapter_command,
+    )
+    from orchestrator.providers.omp_session_manifest import build_session_manifest
+
+    fixture = HISTORY / "native" / provider
+    workspace = tmp_path / "workspace"
+    run = workspace / ".orchestrate" / "runs" / "run-1"
+    private = run / "prompt-inputs"
+    sessions = run / "provider_sessions"
+    live = sessions / "task__v1"
+    snapshot = sessions / "task__v1.snapshot"
+    link = json.loads((fixture / "link.json").read_bytes())
+    metadata = json.loads((fixture / "metadata.json").read_bytes())
+    frame = metadata["parser_summary"]["launch_frame"]
+    scaffold = workspace / link["scaffold_relpath"]
+    source = HISTORY / "scaffolds" / (fixture / "scaffold.txt").read_text().strip()
+    _copy_historical_tree(source, scaffold)
+    _copy_historical_tree(source, private, mode=0o400)
+    for tree in (live, snapshot):
+        tree.mkdir(parents=True)
+        (tree / PRIMARY).write_bytes((fixture / "journal.jsonl").read_bytes())
+    (run / "state.json").write_bytes((fixture / "state.json").read_bytes())
+    conf_root = None
+    frozen = None
+    if link["paths"]["conf"] is not None:
+        _copy_historical_tree(fixture / "conf", run / link["paths"]["conf"])
+        conf_root = private / (".omp-conf" if provider == "omp_no_tools" else "conf")
+        if provider == "omp_no_tools":
+            _copy_historical_tree(fixture / "conf", conf_root, mode=0o400)
+            st = conf_root.stat()
+            frozen = (st.st_dev, st.st_ino, link["digests"]["conf_manifest_sha256"])
+    argv = list(build_fresh_adapter_argv(provider, link["provider"]["model"],
+        session_dir=str(live), conf_root=None if conf_root is None else str(conf_root),
+        frozen_conf=frozen))
+    frame["child"]["argv"] = argv
+    frame["child"]["cwd"] = str(workspace if conf_root is None else
+        workspace / ("omp-empty-" + "1" * 16 + "-" + "2" * 16))
+    metadata["resolved_command"] = resolved_adapter_command(argv)
+    link["workflow_workspace"] = str(workspace)
+    link["launch"]["argv"] = argv
+    if plant is not None:
+        stem = PRIMARY[:-len(".jsonl")]
+        names = ["__advisor.jsonl"]
+        if plant == "advised-fanout":
+            names += ["alpha.jsonl", "beta.jsonl"]
+        for name in names:
+            for tree in (live, snapshot):
+                artifact = tree / stem / name
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_bytes((HISTORY.parent / "sessions" / name).read_bytes())
+        frame["observed"] = {"advisor_relpaths": [f"{stem}/__advisor.jsonl"],
+            "child_relpaths": [f"{stem}/{name}" for name in names[1:]]}
+        for key, tree in (("live_manifest_sha256", live), ("snapshot_manifest_sha256", snapshot)):
+            descriptor = os.open(tree, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                link["digests"][key] = build_session_manifest(descriptor).manifest_sha256
+            finally:
+                os.close(descriptor)
+    (sessions / "task__v1.json").write_bytes(_canonical(metadata))
+    (sessions / "task__v1.session-link.json").write_bytes(_canonical(link))
+    descriptor = os.open(private, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        verification = verify_private_scaffold(descriptor, parse_session_link_bytes(_canonical(link)))
+    finally:
+        os.close(descriptor)
+    st = run.stat()
+    manager = SimpleNamespace(workspace=workspace, run_root=run)
+    return manager, scaffold, verification, frame, metadata, (st.st_dev, st.st_ino)
+
+
+def _real_private_resolved(tmp_path: Path, *, provider: str = "omp"):
+    setup = _historical_run(tmp_path, provider=provider)
+    manager = setup[0]
+    return (resolve_prompt_session(manager.run_root.parent, "run-1"),
+        manager.run_root / "prompt-inputs")
 
 
 def _write_index_run(

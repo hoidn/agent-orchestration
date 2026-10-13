@@ -29,7 +29,7 @@ Concurrent dirty main changes remain outside W and are preserved.
 | 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
 | 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
-| 3 cutoff / gate R | In progress | Public cutoff candidate verified; native fixture preparation, typed imports/LSP separation and final R qualification remain |
+| 3 cutoff / gate R | In progress | Public cutoff candidate and native fixture separation verified; typed imports/LSP separation and final R qualification remain |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
 
@@ -331,3 +331,38 @@ change and 2.15 watchdog captures, with writes blocked and trees unchanged.
 Neither receipt establishes universal old-run recovery or final deleted-tree
 import isolation. Backend removal, normative reconciliation and gate R remain
 pending; the cutoff candidate is not the retirement delivery.
+
+## Native Session Fixtures Without The Old Compiler
+
+Native lookup, scaffold verification and resume tests now prepare finite frozen
+fixtures instead of generating, compiling and publishing old workflows. Twelve
+scaffolds and four linked-session templates retain captured bytes; setup relocates
+explicit workspace/launch/conf inode fields using existing codecs. Record and
+inferred-contract witnesses also verify without compilation. Only tests of retired
+creation/publication contracts were removed from the mixed owners.
+
+`E/native-history-fixtures-implementation.md` and
+`E/native-history-test-dispositions.json` record the exact scope.
+`E/native-history-capture-provenance.json` records 163 source observations for
+96 captured files; four additional files select their scaffolds. These are
+synthetic historical test witnesses, not evidence of real session recovery.
+
+Fresh receipts: `native-fixtures-narrow-retry` **25 passed**;
+`native-fixtures-collect` **170 collected**; `native-fixtures-affected`
+**258 passed**, 31.57 s, under the required parallel pytest command in tmux.
+The affected campaign includes all cutoff cases, four compiler-blocked fixture
+lanes, real public CLI fork/in-place, and native child/continuation/security
+checks. Contract and quality reviews are recorded in
+`E/native-fixtures-{contract,quality}-review.md`. Production code is unchanged;
+typed Stage 3 separation and physical deletion remain pending.
+
+## Historical Cutoff Capture Checks
+
+`E/retirement-cutoff-historical-captures.json` checks the exact retained
+reviewed-change 2.28 and watchdog 2.15 workspaces against the cutoff candidate.
+For each, public resume, force-restart and invalidate refuse with
+`workflow_execution_profile_retired` (exit 2), and JSON report succeeds (exit 0).
+An audit hook blocks writes and subprocesses; full path/mode/mtime/content
+inventories remain unchanged (130 and 105 entries). These completed captures
+prove refusal and readability, not interrupted recovery. Final deleted-tree
+import checks and gate R remain separate.

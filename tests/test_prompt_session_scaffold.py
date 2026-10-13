@@ -7,7 +7,7 @@ import pytest
 
 from orchestrator.prompt_session import PromptSessionError
 from orchestrator.prompt_session_scaffold import verify_private_scaffold
-from tests.test_cli_prompt_import import _real_private_resolved
+from tests.test_prompt_session import _real_private_resolved
 
 
 def test_private_verifier_rejects_same_identity_manifest_swap(

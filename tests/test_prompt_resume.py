@@ -34,8 +34,8 @@ from tests.test_prompt_session import (
     _canonical,
     _journal,
     _user,
+    _historical_run,
 )
-from tests.test_prompt_session_publication import _publish, _setup_publication
 
 FAKE_INTERACTIVE = Path(__file__).parent / "fixtures" / "omp" / "fake_omp_interactive.py"
 MODEL = "gpt-5.6-sol"
@@ -79,8 +79,7 @@ def _bridge_env(tmp_path: Path, *, marker: str | None = None) -> dict[str, str]:
 
 
 def _resume_setup(tmp_path: Path, *, provider: str = "omp"):
-    setup = _setup_publication(tmp_path, provider=provider)
-    _publish(setup)
+    setup = _historical_run(tmp_path, provider=provider)
     manager = setup[0]
     return manager, setup
 
@@ -268,8 +267,7 @@ def test_resume_live_digest_drift_publishes_nothing(tmp_path, pty_fds) -> None:
 
 
 def test_resume_scaffold_drift_publishes_nothing(tmp_path, pty_fds) -> None:
-    setup = _setup_publication(tmp_path)
-    _publish(setup)
+    setup = _historical_run(tmp_path)
     manager = setup[0]
     scaffold = setup[1]
     (scaffold / "scaffold.json").write_bytes(

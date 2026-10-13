@@ -4,7 +4,7 @@ import pytest
 
 from orchestrator.cli.main import main
 from tests.test_cli_prompt import fake_runtime
-from tests.test_cli_prompt_import import _real_private_resolved
+from tests.test_prompt_session import _real_private_resolved
 
 
 def test_private_reuse_preplanted_snapshot_exits_one_without_traceback(
