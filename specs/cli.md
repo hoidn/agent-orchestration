@@ -289,7 +289,7 @@ orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--ou
 orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
 ```
 
-- `repl` loads a module, launches its entry through public `run`, attaches
+- `repl` loads and inspects module declarations/types, launches its entry through public `run`, attaches
   read-only to an evaluated run and evaluates pure expressions over captured
   bindings; see [REPL commands and diagnostics](#workflow-lisp-repl-targets-235-and-236).
 - `compile` writes `.orchestrate/build/<build key>/closed_program.json` and
@@ -496,14 +496,18 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 
 ### Workflow Lisp REPL (targets 2.35 and 2.36)
 
-`repl` loads an evaluated Workflow Lisp module, attaches to a checked run and
-accepts pure expressions in the captured lexical environment. It uses the
+`repl` loads an evaluated Workflow Lisp module, inspects its declarations and
+expression types, attaches to a checked run and accepts pure expressions in
+the captured lexical environment. It uses the
 ordinary frontend and closed evaluator; it adds no source definitions,
 operator semantics or persistence format. Owners are
-`orchestrator/cli/commands/repl.py`, `orchestrator/workflow_lisp/repl_expr.py`
+`orchestrator/cli/commands/repl.py`, `orchestrator/workflow_lisp/repl_expr.py`,
+`orchestrator/workflow_lisp/repl_inspect.py`
 and `orchestrator/workflow/evaluated/capture.py`; behavioral integration coverage
-is `tests/test_workflow_evaluated_repl.py`. See the
-[proposed design](../docs/design/workflow_lisp_repl.md) and
+is `tests/test_workflow_evaluated_repl.py` and
+`tests/test_workflow_evaluated_repl_introspection.py`. See the
+[REPL design](../docs/design/workflow_lisp_repl.md),
+[introspection design](../docs/design/workflow_lisp_repl_introspection.md) and
 [author recipe](../docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl).
 
 ```text
@@ -517,6 +521,10 @@ orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
 :bindings
 :result
 :where [NAME]
+:browse
+:info NAME
+:source NAME
+:type EXPR
 :help
 :quit
 ```
@@ -547,6 +555,70 @@ changed fresh program reports `resume_program_changed`. Fresh input files are
 not rebound for inspection. A matching explicitly loaded module allows reading
 a historical run without a recipe. Ordinary checked-authority, memo and compile
 errors retain their codes.
+
+The four module inspection commands require a loaded or recipe-reconstructed
+module, and work without running it or attaching a run:
+
+| Command | Output and scope |
+| --- | --- |
+| `:browse` | Module name, target, selected entry, loaded/reconstructed source label and per-file snapshot revisions, imports/aliases, then visible names grouped by kind. |
+| `:info NAME` | Every matching declaration's kind, accepted spellings, declaring module and source location, followed by its known contract. |
+| `:source NAME` | Every matching exact authored declaration form, labelled with kind, module, path/location and loaded/reconstructed snapshot revision. |
+| `:type EXPR` | Exactly `type: <rendered type>` and `effects: <rendered effect set>` on two stdout lines. Ordinary frontend analysis only; no lowering or evaluation. |
+
+Coverage is named types, functions, procedures, workflows, prompts and externs.
+`:info` shows record fields; union type parameters and variants/fields; enum
+members; path kind, `under` constraint and existence requirement; builtin type identity; callable
+parameter/return types and available inferred effects; and prompt slots in
+declaration order with kind, refinement, output role and return type. Externs
+show declared provider/prompt kind and unavailable contract facts; no manifest
+payload, provider arguments, credentials or external prompt-file contents are
+displayed. `:source` on a `defprompt` includes its authored template, rather
+than a rendered invocation.
+
+Kinds/names sort deterministically; contract fields, variants, parameters and
+slots keep declaration order. Aliases of one canonical identity share a row
+or section. A spelling present in distinct compiler namespaces returns every
+match labelled by kind; same-namespace ambiguity retains the compiler refusal.
+Imports and aliases follow the entry module's actual compiler resolution,
+including qualified spellings available beyond an unqualified `:only`
+selection. This is neither project-wide discovery nor implicit module loading.
+Help and browse state the exclusions: macros, schemas, resources, transitions,
+operator documentation, applied generic type syntax as `NAME`, generated local
+definitions and specializations. Builtin named types are inspectable; missing
+facts are explicitly unavailable.
+
+`:info` and `:source` query module declarations independently of captured
+values. A run-local value belongs in `:bindings` or `:type EXPR`. Type queries
+use supported captured lexical type refs when attached, with ordinary shadowing;
+without attachment, run-local names retain `name_unknown`. Effectful type
+queries report inferred effects without provider dispatch or run creation.
+Ordinary target-dependent frontend diagnostics still apply, including constant
+division-by-zero diagnostics; a runtime-only failure is never evaluated by
+`:type`. Synthesized runtime variant-case values supply no additional proof.
+
+`:browse` takes no arguments. `:info`/`:source` require exactly one
+S-expression reader symbol, rejecting strings, lists and additional datums
+with `repl_command_invalid`. `:type` sends the untouched command remainder to
+the ordinary reader, preserving Lisp strings, escapes and spaces; zero or
+multiple expressions report `repl_expression_arity`, and malformed syntax keeps
+the ordinary reader diagnostic. `:load`/`:run` retain shell-style parsing.
+
+Source comes from the accepted compiler read snapshot, with CRLF/CR normalized
+to LF as the reader does. It includes the full declaration and its internal
+comments; surrounding comments outside the form are excluded. Inspection
+performs no fresh source or extern-payload reads. Editing/deleting files after
+load leaves the retained source unchanged; successful load replaces source and
+context together, and failed load preserves the previous module/snapshot and
+compatible attachment. Builtins, externs or definitions without provable exact
+authored spans refuse `repl_source_unavailable`; there is no filesystem fallback.
+All source matches are validated before output: any unavailable match refuses
+with all unavailable matches named and no partial source.
+
+Explicit load labels source `loaded snapshot`; recipe-only attachment labels it
+`reconstructed module source`. A matching program digest proves semantic
+compatibility, and does not prove that reconstructed comments/formatting are
+the historical text of the run. There is no persistent source archive.
 
 Expressions are one datum per input line and require attachment. Lexical
 shadowing chooses the innermost binding; compiler names beginning with `%`
@@ -581,7 +653,7 @@ EOF and `:quit` exit `0`. A startup load/attach refusal exits `2`; an unexpected
 failure exits `1`. Expected command/expression errors keep the session usable
 and eventual normal EOF/quit still exits `0`. Failed ordinary commands retain
 compatible session state; digest mismatch leaves it detached. Read-only startup,
-attachment, bindings, result and pure/refused expressions leave run authority,
+attachment, module inspection/type queries, bindings, result and pure/refused expressions leave run authority,
 memo, views and attempt evidence byte-identical; `:load` can publish only build
 artifacts. `:run` remains the explicit exception using public execution.
 
@@ -591,11 +663,14 @@ artifacts. `:run` remains the explicit exception using public execution.
 | `repl_run_not_found` | Requested run root does not exist | Session continues; startup exits 2 | None |
 | `repl_profile_unsupported` | Requested run uses the flat profile | Session continues; startup exits 2 | None |
 | `repl_not_attached` | Expression, `:bindings`, `:result` or `:where` without an attached run | Session continues | None |
-| `repl_module_required` | `:run` without a loaded module | Session continues | None |
-| `repl_expression_arity` | Expression line does not contain exactly one datum | Session continues | None |
+| `repl_module_required` | `:run`, `:browse`, `:info`, `:source` or `:type` without a loaded module | Session continues | None |
+| `repl_command_invalid` | Invalid command arguments; module-name queries require exactly one reader symbol | Session continues | None |
+| `repl_expression_arity` | Expression line or `:type` remainder does not contain exactly one datum | Session continues | None |
+| `repl_name_unknown` | No matching supported module declaration; directs values to `:type`/`:bindings` | Session continues | None |
+| `repl_source_unavailable` | Any source match lacks a validated exact authored snapshot/span | Session continues; no partial source | None |
 | `repl_no_result` | Attached replay has no halted entry result | Session continues | None |
 | `repl_no_result_file` | `:where` names a computed binding or an entry result that no effect produced | Session continues | None |
-| `repl_module_context_missing` | Module call needs unavailable transient compiler context | Session continues | None |
+| `repl_module_context_missing` | Module call or inspection needs unavailable transient compiler facts | Session continues | None |
 
 Reused `name_unknown`, `resume_program_changed`, `resume_request_missing`,
 `memo_inconsistent` and ordinary frontend/value diagnostics retain their

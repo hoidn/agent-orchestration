@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
+from typing import Literal
 
 from orchestrator.workflow.evaluated.capture import CapturedRun, visible_bindings
 from orchestrator.workflow.evaluated.machine import _Machine
@@ -43,6 +45,9 @@ class LoadedModule:
     build: ClosedProgramBuildResult
     source_path: Path
     frontend_argv: tuple[str, ...] = ()
+    source_snapshots: Mapping[Path, bytes] = field(default_factory=dict, compare=False, repr=False)
+    source_revisions: tuple[tuple[Path, str], ...] = field(default=(), compare=False, repr=False)
+    source_origin: Literal["loaded", "reconstructed"] = field(default="loaded", compare=False)
     typed_program: TypedProgram = field(init=False, repr=False)
     stage3: Stage3CompileResult = field(init=False, repr=False)
     builder: Builder = field(init=False, repr=False)
@@ -50,6 +55,8 @@ class LoadedModule:
     _binding_refs: dict[bytes, TypeRef] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        self.source_snapshots = MappingProxyType(dict(self.source_snapshots))
+        self.source_revisions = tuple(self.source_revisions)
         built = self.build
         if built.typed_program is None or built.stage3 is None or built.builder is None:
             raise ReplRefusal(
@@ -159,16 +166,19 @@ def _require_pure_lowered(value, definitions):
             pending.extend(_ast_nodes(definition["body"]))
 
 
-def evaluate_repl_expression(
-    line: str, module: LoadedModule, captured: CapturedRun
-) -> tuple[EvaluatedValue, TypedExpr]:
+def typecheck_repl_expression(
+    line: str, module: LoadedModule, captured: CapturedRun | None = None
+) -> tuple[TypedExpr, dict[str, TypeRef], dict[str, TypeRef]]:
+    """Parse, elaborate, normalize, and typecheck one expression without lowering it."""
+
     parsed = read_sexpr_text(line, source_path="<repl>")
     if len(parsed.items) != 1:
         raise ReplRefusal("repl_expression_arity", "enter exactly one expression")
     datum = parsed.items[0]
     node = syntax.SyntaxNode(datum, datum.span, "<repl>", ("repl",))
     stage3, context = module.stage3, module.stage3.expression_context
-    captured_types = binding_type_refs(module, visible_bindings(captured))
+    visible = visible_bindings(captured) if captured is not None else {}
+    captured_types = binding_type_refs(module, visible)
     values = dict(captured_types)
     externs = stage3.extern_environment.bindings_by_name
     lexical_names = frozenset(values) - frozenset(externs)
@@ -220,6 +230,14 @@ def evaluate_repl_expression(
                                   for name, workflow in module.typed_program.workflows.items()},
         compiler_session=session,
     )
+
+    return typed, captured_types, values
+
+
+def evaluate_repl_expression(
+    line: str, module: LoadedModule, captured: CapturedRun
+) -> tuple[EvaluatedValue, TypedExpr]:
+    typed, captured_types, values = typecheck_repl_expression(line, module, captured)
     if typed.effect_summary.transitive_effects:
         raise ReplRefusal("repl_effect_refused", "REPL expressions must be pure")
     entry, builder = module.typed_program.entry, module.builder
