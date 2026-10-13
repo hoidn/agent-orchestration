@@ -180,6 +180,7 @@ from .model import (
     WccProviderSupervisionMember,
     WccProduceOneOfPayload,
     WccRecJoin,
+    WccParallelMap,
     WccRecordAtom,
     WccSelect,
     WccSelectArm,
@@ -2779,6 +2780,9 @@ def _wcc_body_nodes(body: WccBody):
     elif isinstance(body, WccJoin):
         yield from _wcc_body_nodes(body.body)
         yield from _wcc_body_nodes(body.continuation)
+    elif isinstance(body, WccParallelMap):
+        yield from _wcc_body_nodes(body.workspace_body)
+        yield from _wcc_body_nodes(body.body)
     elif isinstance(body, WccRecJoin):
         yield from _wcc_body_nodes(body.body)
         if body.exhaustion is not None:

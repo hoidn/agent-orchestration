@@ -31,6 +31,7 @@ from .model import (
     WccProviderSupervision,
     WccPureOp,
     WccRecJoin,
+    WccParallelMap,
     WccRecordAtom,
     WccSelect,
     WccValue,
@@ -186,6 +187,10 @@ def _normalize_body(body: WccBody) -> WccBody:
                 normalized_arg = _generated_name_atom(normalized_arg.metadata, purpose=f"jump:{index}")
             args.append(normalized_arg)
         return _wrap_pending_lets(tuple(pending), replace(body, args=tuple(args)))
+    if isinstance(body, WccParallelMap):
+        prefix, source = _normalize_value(body.source)
+        return _wrap_pending_lets(prefix, replace(body, source=source,
+            workspace_body=_normalize_body(body.workspace_body), body=_normalize_body(body.body)))
     if isinstance(body, WccRecJoin):
         pending: list[_PendingLet] = []
         budget_prefix, budget = _normalize_value(body.budget)

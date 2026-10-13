@@ -4,7 +4,8 @@ Status: **implementation in progress**. Task 0 is prepared and bounded Task 1A
 frontend is accepted after independent contract/quality reviews and coordinator
 acceptance.
 The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) still
-owns pending WCC/checked-program and runtime/public qualification. Task 1 overall
+owns pending checked-program and runtime/public qualification. The WCC cut below
+passed independent contract/quality reviews and coordinator acceptance. Task 1 overall
 and parallel-map delivery are not complete.
 
 ## Decisions And Current Baseline
@@ -112,3 +113,44 @@ modules are 104/284 physical lines. The modified existing
 `_check_map_effect_body` is CC 11, previously 8. These checks do not prove the
 pending WCC representation, checked read-back, artifact/site agreement, runtime
 admission or concurrent lifecycle; Task 1's overall checkboxes remain open.
+
+## Task 1B — Bounded WCC Retention
+
+The cut retains one `WccParallelMap` through elaboration and ANF. Its source
+stays outside the item binder; its pure workspace region and item body bind the
+item. Existing joins retain the outer continuation without redirecting item
+halts. Hygiene, capture propagation, use-site renaming, analysis and shared
+command-demand traversal recognize both regions. The workspace region will use
+the existing pure-block representation in the next closed-construction cut.
+No flat lowering or concurrent runtime is added.
+
+The ten product/test owners are pinned by
+`E/phase5-wcc-product-hashes.json`, SHA-256
+`19879b30a15d74390bf171b16f60f86292fba95b6706ee5767d0ccd4520e7f4c`,
+against worktree HEAD `147e7cc0`. The additional required owners
+`wcc/use_site_scope.py` and `lowering/command_transport_decisions.py` were
+identified and accepted before their edits.
+
+| Evidence under E | Result and scope |
+| --- | --- |
+| `phase5-wcc-red.*`, `phase5-wcc-use-site-red.*` | Genuine missing-retention and binder-renaming failures, retained before fixes |
+| `phase5-wcc-narrow.*` | 60 passed, exit 0, 2.09s: 11 WCC cases and 49 frontend controls |
+| `phase5-wcc-collect.*` | 11 new WCC cases collected, exit 0 |
+| `phase5-wcc-controls.*` | RED: 5 failed, 421 passed, 2 xfailed, exit 1; canonical Python 3.13, `-n 16 --dist=worksteal` in tmux |
+| `phase5-wcc-controls-baseline-comparison.json` | All five characterization failures match exact node IDs and messages in both `baseline-retest.xml` and `after-full.xml`; no golden was changed |
+| `phase5-wcc-cli.*` | Public imported-asset run/completed-resume regression: 1 passed, exit 0, 7.62s |
+| `phase5-wcc-contract-probes.json`, `phase5-wcc-contract-review-verification.json` | Independent contract review PASS, seven valid preparation probes; ten hashes and receipt counts independently verified |
+
+Expanded RED receipts also contain two invalid source fixtures; they are not
+product counterexamples. `E/phase5-wcc-complexity.json` records new production
+helper CC 4, new test maximum CC 11 with assertions, and a 178-line new test
+module. The coordinator independently checked the diff, unchanged hashes,
+public CLI result and both baseline comparisons. Independent code-quality review
+also passed without findings, including a real-preparation probe with a serial
+map followed by a parallel map reusing the item name. The coordinator accepted
+this bounded cut; no product bytes changed after qualification.
+
+This cut does not qualify closed emission, preparation comparison, command-scope
+projection, source-free read-back/sites or parallel runtime. The full suite was
+not repeated for this intermediate cut; its Phase 5 campaign remains required.
+Task 1 overall and parallel public availability remain pending.

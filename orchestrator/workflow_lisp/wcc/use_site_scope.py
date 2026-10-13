@@ -30,6 +30,7 @@ from .model import (
     WccProviderPeerGroup,
     WccProviderSupervision,
     WccRecJoin,
+    WccParallelMap,
     WccSelectArm,
 )
 
@@ -37,7 +38,7 @@ from .model import (
 # Binding values whose free names lowering resolves where they are bound (effects,
 # whose results are step outputs); it may resolve any other value where it is used.
 _EFFECTS = (WccPerform, WccCall, WccProviderSupervision, WccProviderPeerGroup)
-_RENAMED_BINDERS = (WccLet, WccCaseArm, WccJoin, WccRecJoin)
+_RENAMED_BINDERS = (WccLet, WccCaseArm, WccJoin, WccRecJoin, WccParallelMap)
 
 
 def names_read_where_used(values: Iterable[object], environment: Mapping[str, object]) -> frozenset[str]:
@@ -147,7 +148,7 @@ def _live_in(node: object, field_name: str, live: frozenset[str]) -> frozenset[s
     return live
 
 
-def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin, names: Mapping[str, str]) -> object:
+def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin | WccParallelMap, names: Mapping[str, str]) -> object:
     """`node` with its binders in `names` renamed, and their references in the fields they scope."""
 
     if not names:
@@ -157,6 +158,8 @@ def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin, names: Mapping[st
         changes["bound_name"] = names[node.bound_name]
     elif isinstance(node, WccCaseArm):
         changes["binding_name"] = names[node.binding_name]
+    elif isinstance(node, WccParallelMap):
+        changes["binder_name"] = names[node.binder_name]
     else:
         changes["params"] = tuple(replace(param, name=names.get(param.name, param.name)) for param in node.params)
     return replace(node, **changes)

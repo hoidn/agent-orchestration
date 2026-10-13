@@ -13,7 +13,7 @@ from ..expressions import (
 )
 from ..wcc.model import (
     WccBody, WccCase, WccHalt, WccIf, WccJoin, WccJump, WccLet,
-    WccLoopContinue, WccLoopDone, WccNameAtom, WccPerform, WccRecJoin,
+    WccLoopContinue, WccLoopDone, WccNameAtom, WccPerform, WccRecJoin, WccParallelMap,
 )
 from .pure_projection import is_pure_projection_expr
 
@@ -186,7 +186,7 @@ def _wcc_continuation_binding_demands(
     ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
         if isinstance(value, WccPerform):
             return perform_demand(value)
-        if isinstance(value, (WccLet, WccCase, WccIf, WccJoin, WccRecJoin, WccHalt, WccJump, WccLoopContinue, WccLoopDone)):
+        if isinstance(value, (WccLet, WccCase, WccIf, WccJoin, WccRecJoin, WccParallelMap, WccHalt, WccJump, WccLoopContinue, WccLoopDone)):
             return body_demand(value)
         if isinstance(value, Mapping):
             return merge(*(value_demand(item) for item in value.values()))
@@ -228,6 +228,9 @@ def _wcc_continuation_binding_demands(
             )
         elif isinstance(body, WccJoin):
             demand = merge(body_demand(body.body), body_demand(body.continuation))
+        elif isinstance(body, WccParallelMap):
+            demand = merge(value_demand(body.source),
+                body_demand(body.workspace_body), body_demand(body.body))
         elif isinstance(body, WccRecJoin):
             demand = merge(
                 value_demand(body.budget),

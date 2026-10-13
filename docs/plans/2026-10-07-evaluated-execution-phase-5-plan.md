@@ -148,9 +148,13 @@ Bounded Task 1A frontend is accepted after independent contract and quality
 reviews (no findings) and coordinator acceptance.
 The [execution record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut)
 retains initial/direction/pure-inline RED, revised 49-case PASS, 437 control PASS,
-collection, corrected pure 2.37 CLI and size/complexity receipts. WCC, checked
-construction/read-back/sites and runtime admission remain pending; these scoped
-frontend results do not close any Task 1 checkbox.
+collection, corrected pure 2.37 CLI and size/complexity receipts. Bounded
+[Task 1B WCC retention](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1b--bounded-wcc-retention)
+also passed independent contract/quality reviews and coordinator acceptance:
+60 narrow PASS, 11 collected, public CLI regression PASS, and bounded controls
+with 421 PASS, 2 XFAIL and five exact inherited characterization failures.
+Checked construction/read-back/sites and runtime admission remain pending;
+these scoped cuts do not close any Task 1 checkbox.
 
 - [ ] Add failing compiler cases for four String items, a same-module helper and an imported helper; positive bounds, empty list, wrong source/workspace type, impure source/workspace, missing workspace, malformed/duplicate keywords, unsupported target and target-crossing imports. Expected initial failure: no admitted parallel form.
 - [ ] Extend the existing map expression with optional parallel fields whose absence does not serialize new defaults into old artifacts. Preserve the new variant after typing instead of building the serial synthetic loop. Add one WCC control node and one closed `par-map` node; do not lower it to fake command steps or a provider peer group.

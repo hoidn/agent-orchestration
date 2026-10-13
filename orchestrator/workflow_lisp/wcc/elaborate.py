@@ -31,6 +31,7 @@ from ..expressions import (
     LetStarExpr,
     ListExpr,
     ListMapExpr,
+    ListMapEffectExpr,
     LiteralExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -149,6 +150,7 @@ from .model import (
     WccPureOp,
     WccProduceOneOfPayload,
     WccRecJoin,
+    WccParallelMap,
     WccRecordAtom,
     WccSelect,
     WccSelectArm,
@@ -672,6 +674,10 @@ def _close_provider_groups_in_body(
                 context=context,
             ),
         )
+    if isinstance(body, WccParallelMap):
+        return replace(body,
+            workspace_body=_close_provider_groups_in_body(body.workspace_body, context=context),
+            body=_close_provider_groups_in_body(body.body, context=context))
     if isinstance(body, WccRecJoin):
         return replace(
             body,
@@ -1254,7 +1260,7 @@ def _rewrite_specialization_value_captures(
                 bindings=tuple(rewritten_bindings),
                 body=rewritten_body,
             )
-        if isinstance(node, ListMapExpr):
+        if isinstance(node, (ListMapExpr, ListMapEffectExpr)):
             rewritten_source = rewrite(
                 node.source_expr,
                 shadowed=shadowed,
@@ -1263,16 +1269,14 @@ def _rewrite_specialization_value_captures(
                 node.body_expr,
                 shadowed=shadowed | {node.binder_name},
             )
-            if (
-                rewritten_source is node.source_expr
-                and rewritten_body is node.body_expr
-            ):
-                return node
-            return replace(
-                node,
-                source_expr=rewritten_source,
-                body_expr=rewritten_body,
-            )
+            changes = {}
+            if isinstance(node, ListMapEffectExpr) and node.workspace_expr is not None:
+                workspace = rewrite(node.workspace_expr, shadowed=shadowed | {node.binder_name})
+                if workspace is not node.workspace_expr:
+                    changes["workspace_expr"] = workspace
+            if rewritten_source is not node.source_expr or rewritten_body is not node.body_expr:
+                changes.update(source_expr=rewritten_source, body_expr=rewritten_body)
+            return replace(node, **changes) if changes else node
         if isinstance(node, tuple):
             rewritten_items = tuple(
                 rewrite(item, shadowed=shadowed)
@@ -1842,6 +1846,14 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+    if isinstance(expr, ListMapEffectExpr):
+        return _elaborate_parallel_map_to_body(
+            expr, scope=scope, type_env=type_env, value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings, active_phase_scope=active_phase_scope,
+        )
     if isinstance(expr, LoopRecurExpr):
         if scope.closed_program:
             bound_operands = _bind_effectful_loop_operands(
@@ -2236,6 +2248,49 @@ def binding_type_for_elaboration(
         workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
         closed_program=closed_program,
     )
+
+
+def _elaborate_parallel_map_to_body(
+    expr: ListMapEffectExpr, *, scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment, value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef], procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary, procedure_edges_by_site, compile_time_bindings,
+    active_phase_scope: WccPhaseScope | None = None,
+) -> WccBody:
+    if expr.parallel_count is None or expr.workspace_expr is None or expr.source_item_type_ref is None:
+        raise TypeError("parallel map requires its typed workspace, bound and item type")
+    inputs = dict(type_env=type_env, workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site, active_phase_scope=active_phase_scope)
+    source_scope = scope.child_scope("parallel-source")
+    prefix, source = _elaborate_expr_to_value(expr.source_expr, scope=source_scope,
+        value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs)
+    prefix, source = hoist_without_capture(prefix, source,
+        over=((expr.workspace_expr, frozenset({expr.binder_name})),
+              (expr.body_expr, frozenset({expr.binder_name}))),
+        scope=source_scope, value_env=value_env, compile_time_bindings=compile_time_bindings)
+    item_scope = scope.child_scope("parallel-item", authored_binding_name=expr.binder_name)
+    item_env = {**value_env, expr.binder_name: expr.source_item_type_ref}
+    item_bindings = dict(compile_time_bindings)
+    item_bindings.pop(expr.binder_name, None)
+    workspace = _elaborate_expr_to_body(expr.workspace_expr,
+        scope=item_scope.child_scope("workspace"), value_env=item_env,
+        compile_time_bindings=item_bindings, **{**inputs, "effect_summary": EMPTY_EFFECT_SUMMARY})
+    body = _elaborate_expr_to_body(expr.body_expr,
+        scope=item_scope.child_scope("body"), value_env=item_env,
+        compile_time_bindings=item_bindings, **inputs)
+    control = WccParallelMap(
+        metadata=scope.body_metadata(role="parallel-map", type_ref=_infer_expr_type(expr,
+            type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, closed_program=scope.closed_program),
+            source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+            effect_summary=effect_summary, phase_scope=active_phase_scope),
+        source=source, binder_name=expr.binder_name, binder_type_ref=expr.source_item_type_ref,
+        workspace_body=workspace, body=body, max_count=expr.max_iterations,
+        parallel_count=expr.parallel_count, binding_label=expr.binding_label,
+        binding_identity=expr.binding_identity,
+    )
+    return _wrap_prefix_lets(prefix, control)
 
 
 def _elaborate_let_star(
@@ -2890,8 +2945,10 @@ def _bind_proc_runtime_capture_sites(
                     shadowed=shadowed | {arm.binding_name},
                 )
             return
-        if isinstance(node, ListMapExpr):
+        if isinstance(node, (ListMapExpr, ListMapEffectExpr)):
             visit(node.source_expr, shadowed=shadowed)
+            if isinstance(node, ListMapEffectExpr) and node.workspace_expr is not None:
+                visit(node.workspace_expr, shadowed=shadowed | {node.binder_name})
             visit(
                 node.body_expr,
                 shadowed=shadowed | {node.binder_name},
@@ -4921,7 +4978,7 @@ def _replace_halts_with_jump(
                 scope=scope.child_scope("join-cont", authored_binding_name=body.join_name),
             ),
         )
-    if isinstance(body, WccRecJoin):
+    if isinstance(body, (WccRecJoin, WccParallelMap)):
         return body
     if isinstance(body, WccHalt):
         return WccJump(
@@ -6938,7 +6995,7 @@ def _infer_expr_type(
             name=f"List[{expr.element_type_ref.name}]",
             item_type_ref=expr.element_type_ref,
         )
-    if isinstance(expr, ListMapExpr):
+    if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
         if expr.result_item_type_ref is None:
             raise TypeError("typed list/map expression is missing its result element type")
         return ListTypeRef(

@@ -848,6 +848,24 @@ class WccRecJoin:
 
 
 @dataclass(frozen=True)
+class WccParallelMap:
+    """A terminal collection control; workspace and body bind one item."""
+
+    metadata: WccNodeMetadata
+    source: WccValue
+    binder_name: str
+    binder_type_ref: TypeRef
+    workspace_body: "WccBody"
+    body: "WccBody"
+    max_count: int
+    parallel_count: int
+    binding_label: str | None = field(default=None, compare=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    binding_identity: object | None = field(default=None, compare=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
+
+
+@dataclass(frozen=True)
 class WccHalt:
     metadata: WccNodeMetadata
     result: WccValue
@@ -862,5 +880,5 @@ class WccLet:
     body: "WccBody"
 
 
-WccBody = WccLet | WccCase | WccIf | WccJoin | WccJump | WccLoopContinue | WccLoopDone | WccRecJoin | WccHalt
+WccBody = WccLet | WccCase | WccIf | WccJoin | WccJump | WccLoopContinue | WccLoopDone | WccRecJoin | WccParallelMap | WccHalt
 WccProgram = WccBody

@@ -37,6 +37,7 @@ from .model import (
     WccProviderPeerGroupMember,
     WccPureOp,
     WccRecJoin,
+    WccParallelMap,
     WccRecordAtom,
     WccSelect,
     WccSelectArm,
@@ -113,6 +114,10 @@ def analyze_wcc_body(body: WccBody) -> WccScopeAnalysis:
             return
         if isinstance(node, WccJump):
             jump_args_by_join[node.join_name].append(tuple(node.args))
+            return
+        if isinstance(node, WccParallelMap):
+            walk(node.workspace_body)
+            walk(node.body)
             return
         if isinstance(node, WccRecJoin):
             loop_sites.append(
@@ -722,6 +727,11 @@ def _free_wcc_names_in_body(
             for name in _referenced_wcc_names(arg)
             if name not in bound_names
         }
+    if isinstance(body, WccParallelMap):
+        item_names = bound_names | {body.binder_name}
+        return (_referenced_wcc_names(body.source) - bound_names
+            | _free_wcc_names_in_body(body.workspace_body, bound_names=item_names)
+            | _free_wcc_names_in_body(body.body, bound_names=item_names))
     if isinstance(body, WccRecJoin):
         names = _referenced_wcc_names(body.budget) - bound_names
         if body.initial_state is not None:
@@ -791,6 +801,8 @@ def _referenced_wcc_names_in_payload(value: object) -> set[str]:
 
 
 def _disqualifying_member_control_metadata(value: object):
+    if isinstance(value, WccParallelMap):
+        return value.metadata
     if (
         isinstance(value, WccOpaqueFrontendValue)
         and isinstance(value.expr, IfExpr)
@@ -995,6 +1007,10 @@ def _proof_scopes(body: WccBody) -> tuple[object, ...]:
         if isinstance(node, WccIf):
             walk(node.then_body)
             walk(node.else_body)
+            return
+        if isinstance(node, WccParallelMap):
+            walk(node.workspace_body)
+            walk(node.body)
             return
         if isinstance(node, WccRecJoin):
             walk(node.body)
