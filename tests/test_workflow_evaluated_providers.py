@@ -40,6 +40,7 @@ with Path("requests.jsonl").open("a", encoding="utf-8") as out:
         "prompt": prompt.decode("utf-8"), "env": {key: os.environ.get(key)
         for key in ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY")}}) + "\n")
 mode = os.environ.get("PROVIDER_SHIM_MODE", "success")
+if mode == "silent": sys.exit(0)
 if mode != "empty":
     sys.stdout.buffer.write(b"complete stdout\n"); sys.stdout.buffer.flush()
     sys.stderr.buffer.write(b"complete stderr\n"); sys.stderr.buffer.flush()
@@ -284,6 +285,38 @@ def test_public_provider_failure_keeps_one_attempt_and_complete_streams(tmp_path
     assert len(_requests(tmp_path)) == 1
     run_root, snapshot = _public_snapshot(tmp_path, fixture)
     _assert_failed_attempt(run_root, snapshot, mode)
+
+
+@pytest.mark.parametrize("mode", ["stdout-only", "silent"])
+def test_public_missing_result_names_the_reply_head_and_resume_retries(tmp_path, mode):
+    """Design scenario 2: the reply is diagnostic text only; nothing commits and resume dispatches attempt 2."""
+    from tests.test_workflow_evaluated_resume_kills import _cli as _env_cli, _env
+
+    fixture = _fixture(tmp_path)
+    reply = json.dumps("Here is the move:\n\n   " + "e2e4 " * 80)
+    assert _cli(tmp_path, fixture, mode=mode, payload=reply).returncode == 1
+    run_root, snapshot = _public_snapshot(tmp_path, fixture)
+    started, failed, terminal = [entry.data for entry in snapshot.entries]
+    result_path = os.path.relpath(run_root / started["result_path"], tmp_path)
+    assert failed["code"] == terminal["code"] == "provider_result_missing"
+    assert failed["exit_info"] == {} and not snapshot.active_commits
+    if mode == "silent":
+        assert terminal["message"] == f"provider did not create {result_path}"
+    else:
+        head = " ".join(f"complete stdout\n{reply}".split())[:240]
+        assert terminal["message"] == f"provider did not create {result_path}; reply began: {head}"
+        report = _env_cli(tmp_path, ["report", "--run-id", run_root.name, "--runs-root",
+            str(run_root.parent), "--format", "json"], _env(tmp_path))
+        assert report.returncode == 0, report.stderr
+        assert head in json.loads(report.stdout)["run"]["error"]["message"]
+
+    resumed = _env_cli(tmp_path, ["resume", run_root.name], _env(tmp_path, provider=True))
+
+    assert resumed.returncode == 0, resumed.stderr
+    after = _public_snapshot(tmp_path, fixture)[1]
+    assert [entry.data["attempt"] for entry in after.entries if entry.data["record"] == "started"] == [1, 2]
+    assert [commit.data["attempt"] for commit in after.active_commits.values()] == [2]
+    assert len(_requests(tmp_path)) == 2
 
 
 def test_public_provider_empty_streams_are_exclusive_attempt_evidence(tmp_path):

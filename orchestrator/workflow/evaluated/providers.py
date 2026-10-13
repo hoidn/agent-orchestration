@@ -282,12 +282,22 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
     )
 
 
+def _reply_excerpt(attempt_files):
+    """`; reply began: <head>` from the attempt's stdout for operators; empty when stdout is empty or unreadable."""
+    try:
+        reply = attempt_files.read("stdout.txt").decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return ""
+    head = " ".join(reply.split())[:240]
+    return f"; reply began: {head}" if head else ""
+
+
 def provider_result(node, resolved, attempt_files, workspace_files, result_path):
     try:
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:
         raise ProviderPerformerError(
-            "provider_result_missing", f"provider did not create {result_path}"
+            "provider_result_missing", f"provider did not create {result_path}{_reply_excerpt(attempt_files)}"
         ) from exc
     except (OSError, ValueError) as exc:
         raise ProviderPerformerError("provider_result_unreadable", str(exc)) from exc
