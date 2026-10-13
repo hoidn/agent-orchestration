@@ -282,6 +282,55 @@ def _append_schema_fields(
         _append_schema_spec(lines, field, indent=indent + 4, render_nominal_names=render_nominal_names)
 
 
+_LEGACY_DELIVERY = (
+    "Produce {subject} exactly as specified. If ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to "
+    "that runtime-owned authoritative target. Otherwise, do not create or modify the listed path; emit the "
+    "{noun} as final assistant text only so the runtime can materialize it."
+)
+_LEGACY_BUNDLE_DELIVERY = _LEGACY_DELIVERY.format(subject="the following JSON bundle", noun="JSON object")
+_LEGACY_VALUE_DELIVERY = _LEGACY_DELIVERY.format(subject="one JSON value", noun="JSON value")
+
+
+def _schema_mentions_relpath(spec: Any) -> bool:
+    """Whether a field spec, walked as `_append_schema_spec` walks it, contains a `relpath` type."""
+    if not isinstance(spec, Mapping):
+        return False
+    if spec.get("type") == "relpath":
+        return True
+    children = [spec.get(key) for key in ("item", "items", "keys", "values")]
+    children.extend(spec.get("fields") or ())
+    variants = spec.get("variants")
+    if isinstance(variants, Mapping):
+        for variant in variants.values():
+            if isinstance(variant, Mapping):
+                children.extend(variant.get("fields") or ())
+    return any(_schema_mentions_relpath(child) for child in children)
+
+
+def _delivery_lines(
+    delivery: str, *, legacy: str, noun: str, path: str, schema_specs: Sequence[Any],
+) -> List[str]:
+    """Render the opening lines that say how the structured result reaches the runtime.
+
+    `legacy` reproduces the text composed before delivery was selected, with
+    unconditional relpath guidance; `file` states the file action and the
+    attempt path first, and renders relpath guidance only for a path type.
+    """
+    if delivery == "legacy":
+        return [legacy, _RELPATH_GUIDANCE]
+    if delivery != "file":
+        raise ValueError(f"unknown output contract delivery: {delivery!r}")
+    lines = [
+        f"Write the {noun} specified below to {path} with a file-writing or "
+        "shell tool before you finish. The environment variable "
+        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the "
+        "value in your reply does not deliver it."
+    ]
+    if any(_schema_mentions_relpath(spec) for spec in schema_specs):
+        lines.append(_RELPATH_GUIDANCE)
+    return lines
+
+
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
     """Render a stable prompt suffix describing required one-file-per-value artifacts."""
     lines: List[str] = [
@@ -301,25 +350,21 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
 
 
 def render_output_bundle_contract_block(
-    output_bundle: Dict[str, Any], *, render_nominal_names: bool = False,
+    output_bundle: Dict[str, Any], *, render_nominal_names: bool = False, delivery: str = "legacy",
 ) -> str:
     """Render a stable prompt suffix describing a required JSON output bundle."""
     fields = output_bundle.get("fields", [])
     if len(fields) == 1 and fields[0].get("json_pointer") == "":
         return _render_root_output_bundle_contract_block(
-            output_bundle, fields[0], render_nominal_names=render_nominal_names,
+            output_bundle, fields[0], render_nominal_names=render_nominal_names, delivery=delivery,
         )
 
     lines: List[str] = [
         "## Output Contract",
-        (
-            "Produce the following JSON bundle exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
-            "runtime-owned authoritative target. Otherwise, do not create or "
-            "modify the listed path; emit the JSON object as final assistant "
-            "text only so the runtime can materialize it."
+        *_delivery_lines(
+            delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object",
+            path=output_bundle["path"], schema_specs=fields,
         ),
-        _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
     ]
@@ -340,6 +385,7 @@ def render_output_bundle_contract_block(
 
 def _render_root_output_bundle_contract_block(
     output_bundle: Dict[str, Any], field: Dict[str, Any], *, render_nominal_names: bool = False,
+    delivery: str = "legacy",
 ) -> str:
     """Render a stable prompt suffix for a single direct-JSON-root output bundle.
 
@@ -351,14 +397,10 @@ def _render_root_output_bundle_contract_block(
     """
     lines: List[str] = [
         "## Output Contract",
-        (
-            "Produce one JSON value exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
-            "runtime-owned authoritative target. Otherwise, do not create or "
-            "modify the listed path; emit the JSON value as final assistant "
-            "text only so the runtime can materialize it."
+        *_delivery_lines(
+            delivery, legacy=_LEGACY_VALUE_DELIVERY, noun="JSON value",
+            path=output_bundle["path"], schema_specs=(field,),
         ),
-        _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
         "  format: JSON value",
     ]
@@ -370,19 +412,23 @@ def _render_root_output_bundle_contract_block(
     return "\n".join(lines) + "\n"
 
 
-def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
+def render_variant_output_contract_block(
+    variant_output: Dict[str, Any], *, delivery: str = "legacy",
+) -> str:
     """Render a stable prompt suffix describing a tagged-union JSON output bundle."""
     discriminant = variant_output["discriminant"]
+    variant_fields = [
+        spec
+        for variant_spec in variant_output.get("variants", {}).values()
+        for spec in variant_spec.get("fields", [])
+    ]
     lines: List[str] = [
         "## Variant Output Contract",
-        (
-            "Produce the following JSON bundle exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
-            "runtime-owned authoritative target. Otherwise, do not create or "
-            "modify the listed path; emit the JSON object as final assistant "
-            "text only so the runtime can materialize it."
+        *_delivery_lines(
+            delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object",
+            path=variant_output["path"],
+            schema_specs=(*variant_output.get("shared_fields", []), *variant_fields),
         ),
-        _RELPATH_GUIDANCE,
         f"- path: {variant_output['path']}",
         "  format: JSON object",
     ]

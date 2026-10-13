@@ -134,6 +134,7 @@ def _output_contract_prompt(
     fills: Sequence[Mapping[str, Any]],
     fill_values: Sequence[Any],
     result_path: str,
+    delivery: str = "legacy",
 ) -> str:
     expected_outputs = provider_expected_outputs(fills, fill_values)
     contributions: list[tuple[str, str]] = []
@@ -148,9 +149,9 @@ def _output_contract_prompt(
             raise ValueError("checked provider result contract is invalid")
         contract_payload = {**payload, "path": result_path}
         if contract.get("kind") == "output_bundle":
-            block = render_output_bundle_contract_block(contract_payload)
+            block = render_output_bundle_contract_block(contract_payload, delivery=delivery)
         elif contract.get("kind") == "variant_output":
-            block = render_variant_output_contract_block(contract_payload)
+            block = render_variant_output_contract_block(contract_payload, delivery=delivery)
         else:
             raise ValueError("checked provider result contract kind is invalid")
         contributions.append(("structured_result", block))
@@ -170,8 +171,12 @@ def assemble_provider_prompt(
     dependency_snapshot: DependencyContentSnapshot | None,
     result_path: str,
     logical_workspace: bool = False,
+    delivery: str = "legacy",
 ) -> str:
-    """Assemble a prompt from one checked provider operation and captured inputs."""
+    """Assemble a prompt from one checked provider operation and captured inputs.
+
+    `delivery` selects the structured-result contract rendering (`legacy` or `file`).
+    """
 
     if checked_node.get("class") != "provider":
         raise TypeError("checked provider effect node required")
@@ -222,4 +227,5 @@ def assemble_provider_prompt(
         fill_rows,
         fill_values,
         result_path,
+        delivery,
     )

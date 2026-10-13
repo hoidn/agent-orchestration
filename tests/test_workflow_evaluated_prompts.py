@@ -152,6 +152,7 @@ def _evaluate(
             source_text=source_text,
             dependency_snapshot=dependency_snapshot,
             result_path=result_path,
+            delivery="legacy",
         )
         return coerce_evaluated_value(True, node["result"])
 
@@ -188,6 +189,7 @@ def test_external_prompt_order_and_source_kind_match_flat_executor(
     source_kind: str,
     position: str,
 ) -> None:
+    """Evaluated composition forces the `legacy` delivery rendering, the one the flat route composes."""
     flat_source = f'''(workflow-lisp
   (:language "0.1")
   (:target-dsl "2.34")
@@ -278,6 +280,7 @@ def test_external_prompt_order_and_source_kind_match_flat_executor(
 def test_external_prompt_without_dependencies_matches_flat_executor(
     tmp_path: Path,
 ) -> None:
+    """Evaluated composition forces the `legacy` delivery rendering, the one the flat route composes."""
     flat_source = '''(workflow-lisp
   (:language "0.1")
   (:target-dsl "2.34")
@@ -387,6 +390,7 @@ def test_evaluated_provider_labels_reserve_authored_suffixes(
 def test_defprompt_docs_and_output_positions_match_flat_executor(
     tmp_path: Path,
 ) -> None:
+    """Evaluated composition forces the `legacy` delivery rendering, the one the flat route composes."""
     flat_source = '''(workflow-lisp
   (:language "0.1")
   (:target-dsl "2.34")
