@@ -203,9 +203,13 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path):
 def perform_provider(
     node, resolved, identity, *, executor: ProviderExecutor,
     attempt_files: WorkspaceFiles, workspace_files: WorkspaceFiles,
-    result_path: str,
+    result_path: str, stream_output: bool = False,
 ):
-    """Prepare once, dispatch at most once, and keep exclusive attempt evidence."""
+    """Prepare once, dispatch at most once, and keep exclusive attempt evidence.
+
+    `stream_output` tees the provider's stdout/stderr to this process's streams
+    while it runs; the captured bytes written to the attempt files are the same.
+    """
     attempt_files.create("prompt.txt", resolved.prompt.encode("utf-8"), exclusive=True)
     stdout, stderr = b"", b""
     try:
@@ -217,7 +221,7 @@ def perform_provider(
                 exit_info={"error": error},
             )
         execution = executor.execute(
-            invocation, cwd=workspace_files.workspace, stream_output=False,
+            invocation, cwd=workspace_files.workspace, stream_output=stream_output,
             session_runtime=None, execution_env_overlay={
                 "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY": (
                     "sha256:" + sha256(identity.encode("utf-8")).hexdigest()

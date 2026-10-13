@@ -86,6 +86,7 @@ EXPECTED = {
     "workflows/examples/effectful_match_arm_normalization.orc::run-effectful-match-arm-normalization": Built(3),
     "workflows/examples/improve_experiment_proposal.orc::run-experiment": Built(5),
     "workflows/examples/kiss_backlog_item.orc::run-backlog-item": Built(12),
+    "workflows/examples/plan_review_execute.orc::run": Built(4),
     "workflows/examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
     "workflows/examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel": Built(2),
     "workflows/examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
@@ -127,7 +128,7 @@ EXPECTED = {
 }
 
 EXPECTED_PARTITION = {
-    "Built": 37,
+    "Built": 38,
     "Gap": 10,
     "Refused": 4,
     "NotSynthesizable": 1,
@@ -897,7 +898,7 @@ def test_contracts_and_prompt_inputs_equal_the_flat_routes_for_the_real_programs
 def test_corpus_keys_and_pinned_partition_are_exact() -> None:
     workflows = corpus()
     keys = [workflow.key for workflow in workflows]
-    assert len(workflows) == 52
+    assert len(workflows) == 53
     assert len(set(keys)) == len(keys)
     assert set(keys) == set(EXPECTED)
 
@@ -905,7 +906,7 @@ def test_corpus_keys_and_pinned_partition_are_exact() -> None:
 def test_pinned_corpus_partition_is_exact() -> None:
     counts = Counter(type(outcome).__name__ for outcome in EXPECTED.values())
     assert counts == EXPECTED_PARTITION
-    assert sum(counts.values()) == 52
+    assert sum(counts.values()) == 53
 
 
 @pytest.mark.parametrize(

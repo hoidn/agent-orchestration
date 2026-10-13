@@ -693,7 +693,7 @@ def _resume_workflow_with_writer_lock_held(
             assert state is not None
 
 
-def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None, run_files=None) -> int | None:
+def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None, run_files=None, stream_output: bool = True) -> int | None:
     """Select immutable authority under the writer locks, before legacy state."""
     from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, RunAuthorityError, _read_header_json
     from orchestrator.cli.commands.evaluated import resume_evaluated_workflow
@@ -707,7 +707,7 @@ def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: b
         profile = header.get("result_persistence_profile")
         schema = header.get("schema_version")
         if profile == PROFILE and schema == SCHEMA_VERSION:
-            return resume_evaluated_workflow(run_root, workspace=workspace, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files)
+            return resume_evaluated_workflow(run_root, workspace=workspace, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=stream_output)
         if schema == "2.1" and profile in (None, DERIVED_PURE_REPLAY_PROFILE):
             return None
         raise RunAuthorityError("unsupported run authority profile or schema")
@@ -783,7 +783,7 @@ def resume_workflow(
             run_fd = writer_locks.enter_context(run_writer_lock(run_root))
             run_files = WorkspaceFiles(run_root, root_fd=run_fd)
             writer_locks.callback(run_files.close)
-            evaluated_exit = _evaluated_resume_route(run_root, workspace_dir, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files)
+            evaluated_exit = _evaluated_resume_route(run_root, workspace_dir, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=not kwargs.get("quiet", False))
             if evaluated_exit is not None:
                 return evaluated_exit
             return _resume_workflow_with_writer_lock_held(

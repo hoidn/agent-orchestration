@@ -308,10 +308,15 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   binding error, or `1` for a missing `--input-file`. `--state-dir DIR` places
   the run at `DIR/RUN_ID` and records its relationship to the workspace as the
   header `result_root`; `--run-ref-root DIR`, or its default, is recorded as
-  `run_ref_root`. The route does not read `--on-error`, `--max-retries`,
-  `--retry-delay`, `--stream-output`, `--step-summaries`, the `--summary-*` and
+  `run_ref_root`. Provider stdout and stderr are streamed to the process's
+  own stdout and stderr while each provider runs, by default; `--quiet`
+  suppresses that stream (for `run` and `resume`), and `--stream-output` is
+  accepted without changing anything. Streaming does not change the bytes
+  captured in the attempt's `stdout.txt` and `stderr.txt`, nor the result
+  file transport. The route does not read `--on-error`, `--max-retries`,
+  `--retry-delay`, `--step-summaries`, the `--summary-*` and
   `--live-agent-*` flags, `--clean-processed` or `--archive-processed`;
-  `--backup-state` has no effect, and `--debug`, `--quiet`, `--verbose` and
+  `--backup-state` has no effect, and `--debug`, `--verbose` and
   `--log-level` affect logging only. The run's workflow
   outputs are the terminal value, as `{"__result__": value}` for a non-object
   value.
