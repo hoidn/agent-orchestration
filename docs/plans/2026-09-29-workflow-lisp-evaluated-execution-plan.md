@@ -689,6 +689,12 @@ performers. Until then, old runs keep their documented resume route. Two
 runtimes are a migration cost, not the intended permanent architecture;
 retirement is a delivery milestone, not indefinite optional cleanup.
 
+The [consolidation design](../design/workflow_lisp_consolidation.md) and its
+[draft plan](2026-10-12-workflow-lisp-consolidation-plan.md) propose a bounded
+contract extraction and consumer-led implementation of this retirement.
+They are unselected: publication does not change the Phase 4/5 capability
+decisions, Phase 6b entry conditions, decision 8, or the current delivery order.
+
 ---
 
 ## Closeout, Per Phase
