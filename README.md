@@ -17,25 +17,25 @@ deterministic side of the system should own every correctness obligation it
 can carry, and the agent should be asked only for the part that needs
 judgement.
 
-## Why: correctness obligations should not live in prose
+## Why: static types and runtime checks, not prose
 
-When you compile a C program you do not assign addresses to variables, invent
-a calling convention per function, or parse the bytes a callee leaves behind.
-The toolchain does that. Agent pipelines today have no such toolchain, so each
-one hand-rolls the same machinery: file paths for intermediate state threaded
-through prompts and glue, output formats described in prose, results parsed
-with regex, "looks done" decided by inspection, and reruns from scratch after
-a failure halfway through.
+Most agent frameworks check one call at a time. A schema validates what a
+single model call returns, and the host language carries the result to the
+next call. What is not checked is the pipeline: that a later prompt is filled
+only from fields an earlier step is guaranteed to produce, that every outcome
+is handled, that every loop ends, what each step may touch, and what can be
+reused when a run dies halfway. Those obligations live in glue code and
+prompts, and they surface at run time, one failure at a time.
 
-| A CPU toolchain gives you | Hand-rolled in agent pipelines | Owned by the compiler and runtime here |
-| --- | --- | --- |
-| Storage layout | Invented file paths for every intermediate artifact | Runtime-allocated state layout, private by default, provenance-tracked |
-| Calling conventions | Output format restated in prose in every prompt | The declared result type is rendered into the prompt as an output contract and enforced on the result |
-| Type checking | Stringly-typed status fields compared by convention | Records, tagged unions, enums, and path contracts checked before execution |
-| Defined failure semantics | Partial junk left on disk when a step half-finishes | Fail-closed validation; nothing becomes canonical state until it passes |
-| Compiled control flow | Routing by parsing model output | Branches and bounded loops over typed outcomes, compiled to a resumable program |
-| Debugger and symbols | Scrolling transcripts | Source maps from every effect back to the authored form, plus inspectable run state |
-| Crash recovery | Rerun and pray | `resume <run_id>` replays committed effects from a memo and continues |
+Here the pipeline is the program, and the program is checked as a whole
+before it runs. Each step declares the type of its result. The compiler checks
+that every prompt is filled only with values that exist and have the right
+shape, that every outcome is routed somewhere, that every loop ends, and what
+each step may touch. During the run, what the agent actually returns is
+validated against the same type before any later step can read it; a result
+that fails is never committed, and a run that stops can resume from its last
+committed result. The program carries the correctness obligations. The
+prompts carry only the task.
 
 ## Sixty seconds of Workflow Lisp
 
@@ -111,9 +111,9 @@ helper packages that review-and-revise loop; see
 | Routing on an outcome | Tagged unions; exhaustive `match`; variant fields unreachable without proof | compile time, with a runtime guard in the lowered program |
 | What a procedure may do | Declared or inferred effects: providers used, commands run, paths written; imported procedures carry theirs | compile time |
 | What a shell command may run and read | A command boundary manifest with a closure declaration; nothing undeclared runs | compile time, enforced at run time from target 2.35 |
-| Where artifacts may live | Path types with a root and an existence requirement | compile time and on every write |
+| Where artifacts may live | Path types with a root and an existence requirement | compile time, and at run time when a result carrying the path is validated |
 | Termination | Bounded loops with a typed exhaustion outcome; no recursion; no first-class procedures | compile time |
-| Pure computation | A closed, total operator set; compile-time folding must agree with the runtime evaluator on shared golden vectors | both |
+| Pure computation | A closed operator set whose failures are refusals rather than exceptions; compile-time folding must agree with the runtime evaluator on shared golden vectors | both |
 | "Done" means done | Validate, write to a temporary location, atomic rename; nothing else becomes canonical state | run time |
 | Resume | Every effect has a semantic identity; a committed result is taken from the memo rather than rerun | run time |
 
@@ -135,8 +135,9 @@ Nothing routes on them.
 
 - **The middle end is a small core calculus in ANF**, roughly ten constructs:
   atoms, `let`, effect performs, variant inject and case, join points, bounded
-  recursion, calls, halt. Programs that typecheck lower; there is no
-  "well-typed but dies after lowering" class of failure on the admitted subset.
+  recursion, calls, halt. The form-by-form lowerers it replaced rejected
+  well-typed programs after validation; the calculus exists so that the
+  typechecker and the lowerer agree on the language boundary.
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
@@ -147,9 +148,10 @@ Nothing routes on them.
   Resume evaluates the program again from its entry and takes each committed
   result from the memo. What a reader sees as "steps" is a view derived from
   the memo and the program.
-- **Identity is semantic and versioned.** It derives from module, role, call
-  frame, and loop scope plus a lowering schema version, never from source
-  spans. Resume fails closed across schema boundaries instead of replaying
+- **Identity is semantic and versioned.** It derives from the effect's site
+  and the activations that reached it, loop ordinals included, under the run's
+  schema version; never from source spans, file paths, or formatting. Resume
+  fails closed on a run whose schema it does not know instead of replaying
   into a program with a different meaning.
 - **Two authority lanes.** A semantic IR records what a workflow means: types,
   effects, provenance. An executable IR is what runs. Reports and debug
@@ -167,9 +169,9 @@ The repository records negative results next to positive ones.
 
 | Study | What was measured | Outcome |
 | --- | --- | --- |
-| [Workflows versus a single agent call](docs/reports/2026-09-28-orc-versus-single-call.md) | A real compiler defect, six runs per configuration, two blind model judges per batch, 8-point rubric | Generate-four-select-one with a stronger judge from another model family: +0.83 and +1.02 over the candidate-group mean. Review-and-revise with the author's own model as reviewer: between -0.5 and +0.44, no reliable gain |
+| [Workflows versus a single agent call](docs/reports/2026-09-28-orc-versus-single-call.md) | A real compiler defect, six runs per configuration, two blind model judges per batch, 8-point rubric | Generate-four-select-one with a stronger judge from another model family: +0.83 and +1.02 over the candidate-group mean. With the author's own model as reviewer or selector: between -0.5 and +0.44. Review-and-revise with a stronger reviewer from another family: +0.58 |
 | [Earlier pilot](docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md) | A PyTorch port task, direct call versus coordinator versus workflow | The direct call won all three blocks; the workflow was viable in one of three. Recorded as such |
-| [Language limitations found in use](docs/reports/2026-09-29-orc-language-limitations-and-solutions.md) | A search controller written five ways against the flat step runtime | Three refusals, one 361-node expression against a 256-node bound. This motivated evaluated execution, which now runs the same program |
+| [Language limitations found in use](docs/reports/2026-09-29-orc-language-limitations-and-solutions.md) | A search controller written five ways against the flat step runtime | Three refusals, one 361-node expression against a 256-node bound. This motivated evaluated execution, which now runs that controller with its source unchanged |
 | [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Independent candidates plus a judge with different knowledge than the author were the only measured sources of gain |
 
 The conclusion the evidence supports is narrow: a workflow beats a single call
@@ -184,7 +186,7 @@ cheap to run and its evidence is complete.
 | First commit | 2025-09-14 |
 | Commits on `main` | about 2,900 |
 | Python in `orchestrator/` | about 350k lines |
-| Tests collected | 23,988 |
+| Tests collected | about 24,300 |
 | Core contract versions | DSL v1.1 through v2.36, each with a normative spec and migration rules |
 | Agent CLIs driven | Codex, Claude Code, Gemini CLI, oh-my-pi |
 | Runtime dependencies | `jsonschema`, `PyYAML`; Python 3.11+ and `bash` |
@@ -208,12 +210,14 @@ Statuses follow the
   ordinary runtime evaluates it. A rejected program returns located
   diagnostics that feed a normal repair loop. See
   [the design](docs/design/workflow_lisp_checked_program_evaluation.md).
-- **Provider isolation** (versioned contract; runtime integration pending).
-  Agents launch under `bubblewrap` from a sealed, digest-verified root
-  filesystem snapshot, with the runtime's own state masked and every mismatch
-  failing closed. See [`specs/providers.md`](specs/providers.md).
+- **Provider isolation** (versioned contract; run integration pending). The
+  contract launches agents under `bubblewrap` from a sealed, digest-verified
+  root filesystem snapshot, with the runtime's own state masked and every
+  mismatch failing closed. The backend exists; `run` and `resume` do not use
+  it yet. See [`specs/providers.md`](specs/providers.md).
 - **Human in the loop** (implemented, target 2.32). `request-input` suspends a
-  run on a typed question; resume validates and consumes the exact reply.
+  run on a text question; resume validates the reply and consumes it as a
+  typed `HumanReply`.
 - **Editor support** (implemented). A read-only language server over the
   production compiler: diagnostics, definitions, symbols. Install with the
   `[lsp]` extra and run `python -m orchestrator.lsp`.
@@ -264,8 +268,8 @@ Inspect a run:
 
 | Question | Where |
 | --- | --- |
-| What did each step produce, and what failed? | `.orchestrate/runs/<run_id>/state.json` |
-| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/logs/<Step>.prompt.txt` |
+| What did each step produce, and what failed? | `.orchestrate/runs/<run_id>/state.json`; for evaluated targets, the effect memo `memo.jsonl` beside it, or `orchestrator repl --run-id <run_id>` |
+| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/prompt.txt` for evaluated targets; `logs/<Step>.prompt.txt` for earlier targets |
 | Readable report | `python -m orchestrator report --run-id <run_id> --format md` |
 | Local read-only dashboard | `python -m orchestrator dashboard --workspace "$(pwd)"` |
 | Headless email alerts on completion, failure, or stall | `python -m orchestrator monitor`; see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md) |
@@ -290,10 +294,10 @@ contracts before changing prompts.
 
 | Path | Purpose |
 | --- | --- |
-| [`orchestrator/`](orchestrator/) | Workflow Lisp frontend and compiler, validator, evaluator, providers, CLI, dashboard, language server |
+| [`orchestrator/`](orchestrator/) | Workflow Lisp frontend and compiler, the `std/` library modules, validator, evaluator, providers, CLI, dashboard, language server |
 | [`specs/`](specs/) | Normative DSL, CLI, state, provider, IO, security, and versioning contracts |
 | [`docs/`](docs/) | Guides, design docs, plans, and reports, including negative results |
-| [`workflows/`](workflows/) | Runnable examples, the standard library's reusable procedures, and prompt assets |
+| [`workflows/`](workflows/) | Runnable examples, library workflows, templates, and prompt assets |
 | [`experiments/`](experiments/) | Material of the studies cited above: workflows, rubrics, ratings, harnesses |
 | [`tests/`](tests/) | Unit, compiler, runtime, workflow, and fixture tests |
 
