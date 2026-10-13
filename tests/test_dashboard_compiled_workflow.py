@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,21 +18,24 @@ from orchestrator.dashboard.compiled_workflow import (
     load_persisted_compiled_workflow_surface,
     traverse_persisted_compiled_workflow_call_frames,
 )
-from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.persisted_surface import (
     canonical_persisted_surface_bytes,
     decode_persisted_workflow_surface_graph,
     persisted_surface_sha256,
 )
-from orchestrator.workflow.surface_ast import SurfaceStepKind
-from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
+from tests.test_persisted_workflow_surface import (
+    _bundle,
+    _call,
+    _canonical_payload,
+)
 
 
 FINGERPRINT = "0123456789abcdef"
 ENTRY_WORKFLOW = "dashboard_fixture::entry"
-CHILD_WORKFLOW = "dashboard_fixture::child"
-REPO_ROOT = Path(__file__).resolve().parent.parent
-LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
+IMPORTED_ENTRY_WORKFLOW = "neurips/entry::orchestrate"
+IMPORTED_PROVIDER_WORKFLOW = "neurips/helper::provider-attempt"
+IMPORTED_SELECTOR_WORKFLOW = "imported_selector::selector-run"
 
 
 @pytest.mark.parametrize(
@@ -75,41 +79,112 @@ def _write_real_imported_bundle_mix_run(
     *,
     run_id: str = "run1",
 ):
-    fixture_root = workspace / "tests" / "fixtures" / "workflow_lisp"
-    source_root = fixture_root / "modules" / "valid" / "imported_bundle_mix"
-    cli_root = fixture_root / "cli"
-    shutil.copytree(
-        LISP_FIXTURES / "modules" / "valid" / "imported_bundle_mix",
-        source_root,
+    provider = _bundle(
+        IMPORTED_PROVIDER_WORKFLOW,
+        steps=(
+            SurfaceStep(
+                name="ProviderAttempt",
+                step_id="provider_attempt",
+                kind=SurfaceStepKind.PROVIDER,
+                provider="provider",
+            ),
+        ),
     )
-    shutil.copytree(LISP_FIXTURES / "cli", cli_root)
-    prompt = fixture_root / "valid" / "prompts" / "implementation" / "execute.md"
-    prompt.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        LISP_FIXTURES / "valid" / "prompts" / "implementation" / "execute.md",
-        prompt,
+    selector = _bundle(
+        IMPORTED_SELECTOR_WORKFLOW,
+        steps=(
+            SurfaceStep(
+                name="SelectorReturn",
+                step_id="selector_return",
+                kind=SurfaceStepKind.MATERIALIZE_ARTIFACTS,
+            ),
+        ),
     )
-    source_path = source_root / "neurips" / "entry.orc"
-    result = build_frontend_bundle(
-        FrontendBuildRequest(
-            source_path=source_path,
-            source_roots=(source_root,),
-            entry_workflow="orchestrate",
-            provider_externs_path=cli_root / "providers.json",
-            prompt_externs_path=cli_root / "prompts.json",
-            imported_workflow_bundles_path=cli_root
-            / "imported_workflow_bundles.json",
-            command_boundaries_path=cli_root / "commands.json",
-            workspace_root=workspace,
+    entry = _bundle(
+        IMPORTED_ENTRY_WORKFLOW,
+        steps=(
+            _call(
+                "neurips/helper::provider-attempt__result",
+                IMPORTED_PROVIDER_WORKFLOW,
+            ),
+            _call("imported_selector::selector-run__return", "selector-run"),
+        ),
+        imports={
+            IMPORTED_PROVIDER_WORKFLOW: provider,
+            "selector-run": selector,
+        },
+    )
+    surface, _payload = _canonical_payload(entry)
+    for workflow_name, workflow_path in {
+        IMPORTED_ENTRY_WORKFLOW: (
+            "tests/fixtures/workflow_lisp/modules/valid/imported_bundle_mix/"
+            "neurips/entry.orc"
+        ),
+        IMPORTED_PROVIDER_WORKFLOW: "workflows/neurips/helper/provider-attempt.orc",
+        IMPORTED_SELECTOR_WORKFLOW: "workflows/imported_selector/selector-run.orc",
+    }.items():
+        surface["nodes"][workflow_name]["version"] = "2.14"
+        surface["nodes"][workflow_name]["workflow_path"] = workflow_path
+    payload = canonical_persisted_surface_bytes(surface)
+    source_path = (
+        workspace
+        / "tests"
+        / "fixtures"
+        / "workflow_lisp"
+        / "modules"
+        / "valid"
+        / "imported_bundle_mix"
+        / "neurips"
+        / "entry.orc"
+    )
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_bytes = b"historical reader fixture source placeholder\n"
+    source_path.write_bytes(source_bytes)
+
+    build_root = workspace / ".orchestrate" / "build" / FINGERPRINT
+    build_root.mkdir(parents=True, exist_ok=True)
+    surface_path = build_root / "persisted_workflow_surface.json"
+    surface_path.write_bytes(payload)
+    surface_digest = persisted_surface_sha256(payload)
+    source_digest = hashlib.sha256(source_bytes).hexdigest()
+    manifest_path = build_root / "manifest.json"
+    anchor = {
+        "schema_version": surface["schema_version"],
+        "path": f"build/{FINGERPRINT}/persisted_workflow_surface.json",
+        "entry_workflow": IMPORTED_ENTRY_WORKFLOW,
+        "sha256": surface_digest,
+    }
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_build.v2",
+                "fingerprint": FINGERPRINT,
+                "entry_workflow": IMPORTED_ENTRY_WORKFLOW,
+                "source_path": source_path.relative_to(workspace).as_posix(),
+                "source_sha256": source_digest,
+                "shared_validation_status": "validated",
+                "persisted_workflow_surface": anchor,
+            },
+            indent=2,
+            sort_keys=True,
         )
+        + "\n",
+        encoding="utf-8",
     )
     state: dict[str, object] = {
         "run_id": run_id,
         "status": "completed",
         "workflow_file": str(source_path.relative_to(workspace)),
-        "workflow_checksum": f"sha256:{result.manifest.source_sha256}",
+        "workflow_checksum": f"sha256:{source_digest}",
+        "runtime_observability": {
+            "compiled_frontend": {
+                "frontend_kind": "workflow_lisp",
+                "frontend_build_root": f".orchestrate/build/{FINGERPRINT}/",
+                "frontend_entry_workflow": IMPORTED_ENTRY_WORKFLOW,
+                "persisted_workflow_surface": anchor.copy(),
+            }
+        },
     }
-    record_compiled_frontend_provenance(state, result.validated_bundle.provenance)
     run_root = workspace / ".orchestrate" / "runs" / run_id
     summaries = run_root / "summaries"
     summaries.mkdir(parents=True, exist_ok=True)
@@ -120,6 +195,11 @@ def _write_real_imported_bundle_mix_run(
     (run_root / "state.json").write_text(
         json.dumps(state, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+    result = SimpleNamespace(
+        build_root=build_root,
+        manifest_path=manifest_path,
+        artifact_paths={"persisted_workflow_surface": surface_path},
     )
     return result, source_path, state
 
@@ -211,99 +291,8 @@ def _write_compiled_run(
 ) -> tuple[Path, dict[str, object]]:
     source_path = workspace / "workflows" / "dashboard_fixture.orc"
     source_path.parent.mkdir(parents=True, exist_ok=True)
-    source_path.write_text("(module dashboard_fixture)\n", encoding="utf-8")
-
+    source_path.write_bytes(b"historical reader fixture source placeholder\n")
     build_root = workspace / ".orchestrate" / "build" / FINGERPRINT
-    build_root.mkdir(parents=True, exist_ok=True)
-    source_map_path = build_root / "source_map.json"
-    source_map_path.write_text("{}\n", encoding="utf-8")
-    lowered_path = build_root / "lowered_workflows.json"
-    lowered_path.write_text(
-        json.dumps(
-            {
-                "modules": {
-                    "dashboard_fixture": {
-                        "workflows": [
-                            {
-                                "workflow_name": ENTRY_WORKFLOW,
-                                "display_name": "entry",
-                                "step_ids": ["visit_items", "call_child"],
-                                "authored_mapping": {
-                                    "version": "2.14",
-                                    "name": ENTRY_WORKFLOW,
-                                    "steps": [
-                                        {
-                                            "name": "VisitItems",
-                                            "id": "visit_items",
-                                            "for_each": {
-                                                "items": ["one"],
-                                                "as": "item",
-                                                "steps": [
-                                                    {
-                                                        "name": "ReviewItem",
-                                                        "provider": "reviewer",
-                                                    }
-                                                ],
-                                            },
-                                        },
-                                        {
-                                            "name": "CallChild",
-                                            "id": "call_child",
-                                            "call": CHILD_WORKFLOW,
-                                        },
-                                    ],
-                                },
-                            },
-                            {
-                                "workflow_name": CHILD_WORKFLOW,
-                                "display_name": "child",
-                                "step_ids": ["child_command"],
-                                "authored_mapping": {
-                                    "version": "2.14",
-                                    "name": CHILD_WORKFLOW,
-                                    "steps": [
-                                        {
-                                            "name": "ChildCommand",
-                                            "id": "child_command",
-                                            "command": ["python", "child.py"],
-                                        }
-                                    ],
-                                },
-                            },
-                        ]
-                    }
-                }
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    manifest = {
-        "schema_version": "workflow_lisp_build.v1",
-        "fingerprint": FINGERPRINT,
-        "source_path": str(source_path.resolve()),
-        "entry_workflow": ENTRY_WORKFLOW,
-        "entry_module": "dashboard_fixture",
-        "compiled_module_names": ["dashboard_fixture"],
-        "validated_bundle_names": [CHILD_WORKFLOW, ENTRY_WORKFLOW],
-        "artifact_paths": {
-            "lowered_workflows": f"build/{FINGERPRINT}/lowered_workflows.json",
-            "source_map": f"build/{FINGERPRINT}/source_map.json",
-        },
-        "artifact_status": {
-            "lowered_workflows": "emitted",
-            "source_map": "emitted",
-        },
-        "diagnostic_count": 0,
-        "shared_validation_status": "validated",
-        "source_map_schema_version": "workflow_lisp_source_map.v1",
-    }
-    (build_root / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
     state = {
         "run_id": run_id,
         "status": "completed",
@@ -311,10 +300,8 @@ def _write_compiled_run(
         "runtime_observability": {
             "compiled_frontend": {
                 "frontend_kind": "workflow_lisp",
-                "frontend_build_root": f"{build_root.resolve().as_posix()}/",
-                "frontend_source_trace_path": str(source_map_path.resolve()),
+                "frontend_build_root": f".orchestrate/build/{FINGERPRINT}/",
                 "frontend_entry_workflow": ENTRY_WORKFLOW,
-                "source_map_schema_version": "workflow_lisp_source_map.v1",
             }
         },
     }
@@ -656,7 +643,7 @@ def test_projector_decodes_orc_persisted_typed_surface_graph(tmp_path: Path):
         is SurfaceStepKind.MATERIALIZE_ARTIFACTS
 
 
-def test_projector_deduplicates_identical_linker_workflow_closures(tmp_path: Path):
+def test_projector_preserves_three_node_persisted_import_closure(tmp_path: Path):
     _write_real_imported_bundle_mix_run(tmp_path)
 
     detail = RunProjector().project_detail(_scan_one(tmp_path))
