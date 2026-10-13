@@ -10,7 +10,7 @@
 
 ## Status, entry and decisions
 
-**Implementation in progress; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. Task 1 compilation/read-back and Task 2 read-only replay passed independent contract/quality reviews and coordinator acceptance; live runtime/public qualification remain pending.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; Task 1 compiler implementation now has bounded receipts below; runtime cuts and public qualification remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
+**Implementation in progress; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. Task 1 compilation/read-back and Task 2 read-only replay passed independent contract/quality reviews and coordinator acceptance. Task 4 workers are accepted after independent contract/quality PASS; integration into main and full public qualification remain pending.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; Task 1 compiler implementation and Task 4 workers have bounded receipts below; later runtime/public gates remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
 
 Authorities: [parent Phase 5 and closeout](2026-09-29-workflow-lisp-evaluated-execution-plan.md#phase-5-parallel-map), [evaluated design §§6–8, 11 and 13](../design/workflow_lisp_evaluated_execution.md#11-parallel-effects), [list traversal](../design/workflow_lisp_pure_list_traversal.md), [frontend](../design/workflow_lisp_frontend_specification.md), and normative [versioning](../../specs/versioning.md), [state](../../specs/state.md), [IO](../../specs/io.md) and [CLI](../../specs/cli.md). Availability comes from the [capability matrix](../capability_status_matrix.md). The [delivered pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md) owns later production/evidence limits; it does not establish parallel execution or discharge this plan's future qualification gates.
 
@@ -206,17 +206,17 @@ This qualifies read-only replay/preflight, not live parallel execution.
 
 **Owners:** lifecycle/performance row above and the new public parallel test module.
 
-Execution staging: first qualify the extracted lifecycle and item-cwd seams
-directly, with existing serial public CLI regressions. The authored parallel
-CLI checks below require Task 4's workers and remain pending until that
-integration; do not introduce a temporary sequential parallel executor to run
-them early. Acceptance of this bounded extraction does not close Task 3's
+Execution staging first qualified the extracted lifecycle and item-cwd seams
+directly, with existing serial public CLI regressions. Task 4 now supplies live
+workers and bounded authored parallel CLI evidence; full qualification below
+remains pending. Acceptance of this bounded extraction does not close Task 3's
 public qualification gate.
 
 The [bounded Task 3 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-3--attempt-lifecycle-and-item-cwd-seams)
 records independent contract/quality PASS, 81 focused and 568 broader passing
 cases, 38 collected new tests and the retained initial failures/corrections.
-Actual parallel CLI qualification below remains pending with Task 4.
+Task 4 now adds six bounded public CLI cases; the two public checkboxes below
+remain pending because those cases do not discharge every D2 clause.
 
 - [x] Preserve the current serial lifecycle in a direct prepare → perform → finish path. Retain old behavior except D2's explicitly reserved environment-key clearing; distinguish package evidence drift from request-protocol parity. Keep durable hooks interceptable; update any moved test import by caller, never bypass a crash hook.
 - [ ] Implement the exact D2 clauses above. In public CLI fixtures place different same-name scripts/data in outer and item directories: literal relative argv launches and binds the item script, a homonym operand is never rewritten, an authored absolute outer script launches unchanged, and explicit closures still bind their declared root. Exercise prior disappearance, new homonym appearance, symlink/`..` component order, outside-workspace cwd/absolute positional keys, local destination overlap and C4 mutation. No closure check runs in an unchosen branch.
@@ -227,11 +227,17 @@ Actual parallel CLI qualification below remains pending with Task 4.
 
 **Owners:** evaluated `parallel.py`, `machine.py`, `runtime.py`, `effect_execution.py`, `effect_inputs.py`, `run_ref.py`; shared `workflow/run_ref/runtime.py` for existing driver/preparation seams; new parallel tests/helpers and existing run-reference launch/ledger controls. Shared E1 validation semantics remain unchanged.
 
-- [ ] Add the four-item/two-active fixture with explicit barriers, allowing later items to finish first. Assert actual overlap, peak active count <=2, each body's sequential order, input-ordered output, index-based identity and the exact dependency relation. Avoid timing-only ordering assertions.
-- [ ] Implement the coordinator request queue and bounded item workers. Allow pending sibling evidence only for checked identities owned by the active batch; never remove `_ensure_effect_can_start` globally or infer authority solely from a string containing `par-map`. No worker can start another attempt or publish a parent row directly.
-- [ ] Test an empty batch, concurrency one, cap overflow before dispatch, canonical duplicate cwd aliases before any started row, ordinary item failure while running/queued siblings succeed, pure failure after a committed effect, nested map liveness, and shutdown on publication failure. Eight barrier-released items must yield eight distinct commits, no torn row, and one parent publication thread for started/committed/failed/settled records and views.
-- [ ] Exercise two run-reference items sharing the parent ledger, including nested maps: only one E1 lifecycle advances, allocation is fresh on grant, and an active command/provider sibling still progresses through both parent and child launch checks. Assert coordinator ownership of E1 writes, safe release after ordinary failure, exceptional release of all waiters after publication failure, and retained descriptors until workers drain. Preserve existing launch/ledger/settlement refusal controls.
-- [ ] Run `pytest --collect-only -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_resume.py`, then `pytest -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_resume.py tests/test_workflow_evaluated_memo.py tests/test_workflow_evaluated_view_publication.py tests/test_workflow_evaluated_view_publication_faults.py`. Review coordinator ownership and every exception path; retain raw logs and static size/CC results.
+The [bounded Task 4 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator)
+owns the final freeze, 494-case owner PASS, independent contract/quality PASS,
+coordinator acceptance and retained RED/intermediate receipts. Integration into
+main remains pending; the five bounded obligations below are accepted. Task 3's
+full public qualification and Tasks 5–7 remain separate gates.
+
+- [x] Add the four-item/two-active fixture with explicit barriers, allowing later items to finish first. Assert actual overlap, peak active count <=2, each body's sequential order, input-ordered output, index-based identity and the exact dependency relation. Avoid timing-only ordering assertions.
+- [x] Implement the coordinator request queue and bounded item workers. Allow pending sibling evidence only for checked identities owned by the active batch; never remove `_ensure_effect_can_start` globally or infer authority solely from a string containing `par-map`. No worker can start another attempt or publish a parent row directly.
+- [x] Test an empty batch, concurrency one, cap overflow before dispatch, canonical duplicate cwd aliases before any started row, ordinary item failure while running/queued siblings succeed, pure failure after a committed effect, nested map liveness, and shutdown on publication failure. Eight barrier-released items must yield eight distinct commits, no torn row, and one parent publication thread for started/committed/failed/settled records and views.
+- [x] Exercise two run-reference items sharing the parent ledger, including nested maps: only one E1 lifecycle advances, allocation is fresh on grant, and an active command/provider sibling still progresses through both parent and child launch checks. Assert coordinator ownership of E1 writes, safe release after ordinary failure, exceptional release of all waiters after publication failure, and retained descriptors until workers drain. Preserve existing launch/ledger/settlement refusal controls.
+- [x] Run `pytest --collect-only -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_resume.py`, then `pytest -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_resume.py tests/test_workflow_evaluated_memo.py tests/test_workflow_evaluated_view_publication.py tests/test_workflow_evaluated_view_publication_faults.py`. Review coordinator ownership and every exception path; retain raw logs and static size/CC results.
 
 ## Task 5 — Prove public interruption, resume and invalidation
 

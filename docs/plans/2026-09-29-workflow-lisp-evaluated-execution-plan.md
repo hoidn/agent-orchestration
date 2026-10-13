@@ -57,7 +57,7 @@ refreshed old-target audit and qualified real-provider smoke are recorded;
 independent final code/evidence and documentation/spec reviews are PASS. The [Phase 3 closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
 records exact tested revisions, receipts and the downstream handoff. The reviewed
 [early Phase 6a pilot plan](2026-10-07-evaluated-execution-phase-6a-pilot-plan.md)
-records executed Tasks 1–3 and the [caller assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md): all 21 pilot cases pass in the final `688695e3` campaign, while the full suite remains RED; the report owns closeout status. Global Phase 6a remains open; the Phase 4c closeout owns subsequent bounded W3 compatibility evidence. Phases 4–7 remain pending delivery. The subsequent 2026-10-07 owner selection assigns W3 to 2.36 after pure-capture correction and before Phase 5; no capability or retirement selection is inferred from Phase 3 closure.
+records executed Tasks 1–3 and the [caller assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md): all 21 pilot cases pass in the final `688695e3` campaign, while the full suite remains RED; the report owns closeout status. Global Phase 6a remains open; the Phase 4c closeout owns subsequent bounded W3 compatibility evidence. W3 Phase 4c is delivered at 2.36 under the [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md); other Phase 4 additions remain consumer-conditioned. Phase 5 is in progress; its full delivery and Phases 6b–7 remain pending. The subsequent 2026-10-07 owner selection assigns W3 to 2.36 after pure-capture correction and before Phase 5; no capability or retirement selection is inferred from Phase 3 closure.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
@@ -577,8 +577,8 @@ ledger. Authoring changes reuse existing effect and execution owners.
   W3 source handoff. Exact old-run compatibility controls are subsequently accepted; the closeout
   owns final F qualification; W3 qualification selects no broader Phase 6b rollout.
   The owner separately selected Phase 5 D1 target 2.37 on 2026-10-12; target
-  registration and [checked compilation/read-back](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back) are qualified. Parallel
-  runtime/public qualification remain pending.
+  registration and [checked compilation/read-back](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back) are qualified. Bounded workers also have independent reviews; full public qualification and
+  phase delivery remain pending under the Phase 5 plan.
 
 An unneeded class may remain deferred or be retired with its consumers by
 explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
@@ -618,7 +618,7 @@ written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 
-The [Phase 5 execution plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the owner's explicit **D1 selection of target 2.37 on 2026-10-12** for parallel map. W3 retains 2.36. Target 2.37 registration and checked compilation/read-back are qualified; the [execution record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back) owns the bounded acceptance. Runtime admission and public parallel-execution qualification remain pending under that plan's gates.
+The [Phase 5 execution plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the owner's explicit **D1 selection of target 2.37 on 2026-10-12** for parallel map. W3 retains 2.36. Target 2.37 registration and checked compilation/read-back are qualified; the [execution record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back) owns the bounded acceptance. [Bounded workers](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator) are implemented and independently reviewed. Full public parallel-execution qualification and phase delivery remain pending under that plan's gates.
 
 Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
 single-call comparison is one: its four implementers run in sequence.
@@ -704,8 +704,8 @@ supported behavior and APIs remain preserved. Retained-run scope covers this
 repository, including nested experiment/project roots; the initial inventory
 covers `.orchestrate/runs` and `.orchestrate/archive` only. Original run data
 remains untouched. The owner separately selected Phase 5 D1 target 2.37 on
-2026-10-12; its checked parallel compilation/read-back is qualified, while
-parallel runtime/public qualification remain pending. Consolidation grants
+2026-10-12; its checked parallel compilation/read-back is qualified and bounded workers
+are independently reviewed; full public qualification and phase delivery remain pending. Consolidation grants
 no retirement cutoff.
 
 ---

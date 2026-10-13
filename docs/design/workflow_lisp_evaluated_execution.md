@@ -2832,9 +2832,11 @@ report, §6); V3 is the last review's rule.
 The owner selected target **2.37** for Phase 5 parallel map on 2026-10-12.
 Target 2.37 registration and checked `par-map` construction/read-back are
 qualified ([bounded record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)).
-Parallel runtime admission remains pending; the [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md)
-owns those cuts and public qualification before runnable availability. Its rules
-are fixed here so that identity and the memo need no change when it enters.
+Bounded parallel workers are implemented and independently reviewed
+([Task 4 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator)).
+The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md)
+owns the remaining public qualification and delivery gates; this is not yet a
+copy-safe authoring surface. Its rules preserve the existing identity and memo.
 The accepted D2/D3 [concrete refinements](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#contract-delta-to-review-before-implementation)
 own the proposed 2.37 activation's cwd/IO and independent-prefix replay rules;
 current first-release 2.35 behavior remains as implemented.

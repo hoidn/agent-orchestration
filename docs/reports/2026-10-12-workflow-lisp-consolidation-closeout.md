@@ -26,6 +26,25 @@ retains baseline, implementation/admission and public qualification gates.
 Old-target retirement and retention cutoff remain unselected. Extraction
 preserves currently supported behavior and APIs.
 
+## Size Measurement And Deletion Status
+
+No old executor or flat lowering has been deleted. Extraction changes ownership;
+consumer migration and the retirement gates still precede their removal.
+
+Committed physical-line counts from `git diff --numstat`, restricted to
+`orchestrator/`, are:
+
+| Comparison | Added | Removed | Net |
+| --- | ---: | ---: | ---: |
+| Original baseline `fb90b036` → extraction `f724b2b7` | 2,682 | 2,545 | +137 |
+| Original baseline `fb90b036` → Task 3 cut `3e07b8cd` | 4,849 | 2,863 | +1,986 |
+
+These include comments and blank lines, exclude tests and uncommitted work, and
+are observations at the named revisions. The second comparison includes intervening
+work and is not a measurement of extraction alone. Neither is comparable to a
+comment/docstring-excluding production census or evidence of the planned deletion
+savings. `E/loc-at-3e07b8cd.json` retains the second comparison's raw numstat.
+
 ## Task 0 Inventory
 
 The bounded qualification set is W3 proposal (2.36), README

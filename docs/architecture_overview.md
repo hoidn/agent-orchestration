@@ -82,9 +82,10 @@ IR, source maps, and the existing runtime.
 
 That is the runnable route through target 2.34. The accepted
 [evaluated-execution design](design/workflow_lisp_evaluated_execution.md) instead
-compiles a closed program for evaluation; its target-2.35 compiler is partially
-integrated, with public compilation and execution still unavailable. Check the
-[capability matrix](capability_status_matrix.md) before choosing a target.
+compiles a closed program for evaluation. Public compilation and execution are
+available at targets 2.35/2.36 for their admitted classes; target 2.37 parallel
+execution has bounded qualification. The [capability matrix](capability_status_matrix.md)
+owns current availability, copy-safety and remaining gates for each surface.
 
 Workflow Lisp is the only fresh authoring frontend. If the required form is not
 implemented, record a capability gap rather than creating a lower-level or YAML

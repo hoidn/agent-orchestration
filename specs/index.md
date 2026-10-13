@@ -48,6 +48,11 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     [version contract](versioning.md#versioning-and-migration-normative) and
     [W3 contract](../docs/design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
     own the rules.
+  - Target 2.37 parallel-map compilation and bounded execution have scoped
+    acceptance; full public qualification and phase delivery remain pending.
+    Follow [versioning](versioning.md#version-gating-summary) and the
+    [Phase 5 status](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
+    for its limits; it is not yet a copy-safe authoring surface.
   - State schema: `schema_version: "2.1"` for targets through 2.34; a
     target-2.35/2.36 evaluated run publishes `"3.0"` (see [state](state.md)).
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.

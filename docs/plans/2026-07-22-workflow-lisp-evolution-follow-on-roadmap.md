@@ -775,16 +775,18 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   implementation is present at 2.36, exact compatibility03
   controls are accepted; the closeout owns final F gate status. Pure correction precedes W3,
   then Phase 5; it adds no prerequisite to Phases 2–3.
-- Candidate work recorded by the owner on 2026-09-28 from the
-  [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
-  in this order, each unselected until planned:
+- Historical candidate order recorded by the owner on 2026-09-28 from the
+  [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings).
+  Each candidate was then unselected until planned:
   1. provider result delivery defects: the result path in
      `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` is relative to the run workspace;
      materialization of the result from the agent's final text does not
      happen. Closed on 2026-09-29: a result file left by an earlier call is
      removed before the next call; provider `codex` defaults to `gpt-5.5` and
      passes the effort as `model_reasoning_effort`;
-  2. parallel execution of `list/map-effect` bodies, which run in sequence;
+  2. parallel execution of `list/map-effect` bodies, which then ran in sequence;
+     the [Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
+     now owns selected implementation and qualification;
   3. a comparison of workflows with a single call on a large task.
 - Follow-up work recorded on 2026-09-28 from the final review of CF-1b, each
   unselected until planned:
@@ -809,15 +811,14 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   workspace, and lexical scope for hoisted and pure bindings at every target.
   The known defects that remain, cases d and f of the brief among them, are
   listed in [composition-first §11](../design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233).
-- **Selected runtime work:** the feasibility spike is complete; gate G1
-  selected evaluated execution on 2026-09-29. The
-  [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
-  owns the selected closed-program compiler at target 2.35 (owner decision,
-  2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-  owns the 2026-10-01 amendment: runnable core, early consumer pilot,
-  selective effect/context additions and independent parallel map, migration,
-  then retirement. Downstream implementation remains pending; this does not
-  select a new research study or alter the running Phase 2 task order.
+- **Selected runtime work:** gate G1 selected evaluated execution on
+  2026-09-29. The [parent plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md#status-authorities-and-scope)
+  owns current delivery status and the [preserved delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities).
+  Phase 2 compilation and Phase 3 runtime are delivered at 2.35; W3 is delivered
+  at 2.36 under its [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md).
+  [Phase 5](2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
+  is in progress at 2.37, with bounded Task 4 accepted and full public gates
+  pending. This delivery does not select a new research study or retirement.
 
 ## Routing And Historical Records
 

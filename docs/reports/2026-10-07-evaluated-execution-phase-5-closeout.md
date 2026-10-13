@@ -4,7 +4,8 @@ Status: **implementation in progress**. Task 0 is prepared; Task 1 compilation
 and checked read-back and Task 2 read-only replay are accepted after independent
 contract/quality reviews and coordinator acceptance.
 Task 3's lifecycle/item-cwd seams have bounded acceptance; its authored parallel
-CLI checks await Task 4's workers.
+CLI qualification remains partial. Task 4's bounded workers are accepted after
+independent contract/quality PASS; integration into main remains pending.
 The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) owns
 pending runtime/public qualification. Parallel-map delivery is not complete.
 
@@ -28,8 +29,9 @@ is introduced. `E/phase5-runref-coordinator-seam-review.md`,
 `E/phase5-runref-scheduling-design.md` (SHA-256
 `235aedb0d1466f4a18bf352788db3913577ffe3e06472c1374ffc1ca4483d071`)
 and `E/phase5-runref-scheduling-design-review.md` retain the source findings,
-R1 correction and independent design PASS. Implementation and its focused
-concurrency/recovery checks remain pending in Tasks 4/5.
+R1 correction and independent design PASS. The [Task 4 cut](#task-4--bounded-workers-and-coordinator)
+records implementation and focused concurrency/recovery evidence; Task 5's
+public interruption/invalidation campaign remains pending.
 
 At Task 0 entry on 2026-10-13, worktree
 `.worktrees/orc-consolidation-20261012` (W) was at documentation closure `2feb6db7`, with product/test bytes qualified at
@@ -298,9 +300,79 @@ and E1 clone/proof/settlement under outer parent authority. Inline certified
 transport uses an explicit custom binding; the existing builtin review adapter
 is qualified through its carrier argv, without changing its manifest.
 
-This is bounded seam qualification, not full Task 3 public acceptance. Live
-`par-map` still refuses; Task 4 must supply workers, coordinator-owned E1 driver
-events and the authored parallel CLI checks, including nested child activation.
+This is bounded seam qualification, not full Task 3 public acceptance. At this
+Task 3 cut live `par-map` still refused; [Task 4](#task-4--bounded-workers-and-coordinator)
+subsequently supplies workers, coordinator-owned E1 driver events and six
+bounded public CLI cases. Those cases do not discharge all D2 clauses in the plan.
 The original pinned-controller compatibility campaign and full suite remain
 Task 7. Changed package bytes retain truthful pin refusals; current-package
 serial tests do not establish universal old-run compatibility.
+
+## Task 4 — Bounded Workers And Coordinator
+
+**Accepted bounded Task 4 cut after independent contract and quality PASS.
+Integration into main remains pending.** This cut executes checked target-2.37
+parallel maps; it does not close Task 3's full public gate or Phase 5.
+The 12-path product/test freeze `E/phase5-parallel-source-freeze.json` has SHA-256
+`fc4c61b46ab2dd631323f261e5bbf92e95443312c9f27540c48c162018dbffe7`;
+the final handoff `E/phase5-parallel-workers-handoff.md` has SHA-256
+`cd5ceea4f96902756ce5b427e3905b0686e00a2eab3b48b9fbf1221d01e828d6`.
+Independent contract review `E/phase5-workers-contract-review.md` has SHA-256
+`a3ec5c9cc728d77c322f0616e319f001846741058216c0d6495a11963045a7f0`;
+distinct quality review `E/phase5-workers-quality-review.md` has SHA-256
+`1086882de546328777c22a769fc226ebec8dd43e1f118f3bcf6c94633b2f07ad`.
+The coordinator accepted this cut after rechecking the freeze hash, all 12
+product/test hashes, both review hashes, raw exit-zero receipt and final XML
+(494 cases, no failures/errors/skips), the production delta and clean diff check.
+No executor cutover or retirement is claimed.
+
+Each live map uses its own bounded stdlib pool and the parent's single
+publication coordinator; nested maps share that coordinator. Source, cap and
+all item cwd checks precede that batch's reservations. Bodies remain sequential,
+results retain input order, and bounds are per map. E1 is serialized from
+preparation through settlement per parent ledger, while command/provider siblings
+can progress. Ordinary body/external failures drain queued and running siblings;
+publication/acknowledgement/authority failures stop new reservations and parent
+writes, release waiters and retain descriptors until external work drains.
+The existing serial path, APIs, schemas, identities and admitted effect classes
+are preserved.
+
+| Evidence under E | Result and limit |
+| --- | --- |
+| `phase5-parallel-initial-affected-run.*` | 487 cases: 486 PASS / 1 old replay-expectation FAIL, 117.34 s. Updated for Task 4's ordinary body-failure drain; sibling validation and orphan refusal retained. |
+| `phase5-parallel-8d-qualified-affected-final-run.*` | Intermediate freeze: 492 PASS, 118.05 s; the later failed-fsync gap was not covered. |
+| `phase5-parallel-failed-sync-red-readable.*` | Real RED: 1 FAIL, 2.07 s. A complete readable `failed` row after failed fsync incorrectly permitted another E1 start. The preceding `failed-sync-red` receipt was a fixture failure, kept separately. |
+| `phase5-parallel-failed-sync-green.*` | Corrected fatal publication classification: 15 PASS, 15.34 s; no new grants/writes after failed fsync, with ordinary failure controls retained. |
+| `phase5-parallel-affected-fsync-final-collect.*` | Historical cf71 freeze: 493 collected, exit 0, 3.20 s; collection is not execution. |
+| `phase5-parallel-cf-qualified-affected-fsync-final-run.*` | Historical cf71 freeze: 493 PASS, exit 0, 77.75 s across 23 owner modules; the later deferred-reuse recursion gap was not covered. |
+| `phase5-parallel-deferred-fifo-red.*` | P5Q-1 RED: 1 FAIL, exit 1, 1.34 s; immediate E1 reuses beyond the recursion limit exhausted the recursive deferred drain. |
+| `phase5-parallel-deferred-fifo-green.*` | Iterative, reentry-guarded FIFO drain: 10 PASS, exit 0, 3.79 s, including the new regression. |
+| `phase5-parallel-affected-fifo-final-collect.*` | Final fc4 freeze: 494 collected, exit 0, 3.09 s; collection is not execution. |
+| `phase5-parallel-affected-fifo-final-run.*` | Final fc4 freeze: 494 PASS, exit 0, 71.77 s across the same 23 owner modules; real command/provider/child subprocess cases supply bounded integration/smoke evidence. |
+
+Original failed receipts and intermediate freezes remain separate. The cf71
+contract PASS and quality REQUEST_CHANGES remain preserved in
+`E/phase5-workers-cf-contract-review.md` and
+`E/phase5-workers-quality-review-cf-request-changes.md`; their verdicts do not
+qualify the corrected bytes. P5Q-1 changes only the deferred drain and its
+regression test; the reviews reuse unchanged evidence and check the new delta.
+The final static census (`E/phase5-parallel-static.json`) records 177 new functions/closures,
+maximum Radon CC 11 including assertions, and new modules of at most 499 physical
+lines. Historical shared-owner complexity remains identified.
+
+Six public cwd CLI cases cover literal/absolute argv, explicit outer closures,
+external cwd/documents/results, builtin argv carrier, custom certified inline
+binding and relative provider artifacts. The builtin input signature does not
+declare the `schema_version` field its implementation expects; builtin inline
+qualification is not claimed. Remaining Task 3 public variants include prior
+disappearance/new homonyms, symlink/component order, C4/destination overlap,
+package shadow/unsafe paths, relocation and poisoned nested orchestrator/child
+environments; the retained direct witnesses still need mapping or public evidence.
+
+Tasks 5–7 remain pending: external process-group SIGKILL/recovery and public C8
+invalidation, best-of-N including the configured-provider smoke, and old pinned
+controllers/full-suite compatibility. Crash hooks must be checked by caller:
+parallel external work uses `effect_execution.perform_external`, while the serial
+path uses the imported runtime alias; W9 follows append plus view. This cut
+establishes neither general availability nor consumer adoption, Phase 5 closure,
+a retirement cutoff or deletion authority.

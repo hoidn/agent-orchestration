@@ -1,8 +1,8 @@
 # Workflow Lisp Frontend Specification and Design
 
 Status: accepted baseline / umbrella frontend contract
-Target substrate: Workflow Core Calculus (WCC) schema 2 lowering into the
-v2.14+ core workflow AST and semantic IR
+Target substrate: WCC preparation; targets through 2.34 use flat lowering,
+while evaluated targets use the checked closed program described below
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -60,6 +60,10 @@ Targets 2.35 and 2.36 select [evaluated execution](workflow_lisp_evaluated_execu
 through public `compile`, `run`, `resume` and `invalidate`. The admitted
 first-release classes at 2.35 are delivered. The target-2.36 W3 additions are
 implemented at 2.36; the [Phase 4c closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded public consumer and qualification evidence.
+Target 2.37 parallel-map compilation and bounded workers have scoped acceptance;
+full public qualification and phase delivery remain pending. See the
+[Phase 5 status](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
+before using that surface; it is not yet a copy-safe authoring target.
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -83,7 +87,9 @@ The compact operating rule is:
 
 This document assumes the Lisp frontend is not a YAML generator and not merely
 a macro veneer. It is a typed procedural authoring language that lowers through
-the accepted WCC middle-end into the existing validated workflow pipeline:
+the accepted WCC middle-end. The following flat pipeline and diagram apply to
+targets through 2.34; evaluated targets instead use the linked closed-program
+contract:
 
 ```text
 Lisp source
