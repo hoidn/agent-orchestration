@@ -175,7 +175,7 @@ def test_local_hooks_exclude_declared_externs_but_type_their_bodies(
     assert {argument.name for argument in captured} == {"offset"}
     assert all(argument.source_binding_identity is not None for argument in captured)
     from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
     closed = build_closed_program(typed)
     bodies = [closed.tree["body"], *[definition["body"] for definition in closed.tree["definitions"].values()]]
     assert any(node.get("k") == "perform" and node.get("class") == "provider"
@@ -635,7 +635,7 @@ def test_invalid_sites_refuse_before_any_local_body_check(tmp_path, monkeypatch,
 @pytest.mark.parametrize("consumer_loop", [False, True], ids=["helper-activation", "consumer-loop-site"])
 def test_repeated_activation_uses_creator_capture_at_one_authored_site(tmp_path, consumer_loop):
     from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
     from tests.test_workflow_evaluated_control import _machine_api, INT
     from orchestrator.workflow.evaluated.values import EvaluatedValue
     consumer = "(let* ((offset 100)) (repeat-hook count (proc-ref h)))"
@@ -756,7 +756,7 @@ def test_resolved_lexical_consumer_supplies_the_direct_expected_signature(tmp_pa
     typed = _compile_evaluated(tmp_path, body, declarations=declarations)
     _assert_inferred_local(typed, "h", params=(("x", "Int"),), result="Int")
     from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
     from tests.test_workflow_evaluated_control import _machine_api
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
     assert _machine_api().evaluate_closed_program(program, {}).value == (7 if "bind-proc" in consumer else 2)
@@ -787,7 +787,7 @@ def test_w3_bound_lexical_consumer_keeps_static_facts_from_older_module(tmp_path
     body = '(let* ((consumer (bind-proc (proc-ref old.consume) :offset 5))) (let-proc ((h (x) (+ x 1))) (consumer (proc-ref h))))'
     typed = _compile_evaluated(tmp_path, body, declarations=declarations, imports="(import compat/consumer :as old)")
     from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
     from tests.test_workflow_evaluated_control import _machine_api
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
     assert _machine_api().evaluate_closed_program(program, {}).value == 7
@@ -854,7 +854,7 @@ def test_consumer_shadow_and_forwarded_alias_use_the_inner_resolved_fact(tmp_pat
           (forwarded (proc-ref h)))))"""
     typed = _compile_evaluated(tmp_path, body, declarations=declarations)
     from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
     from tests.test_workflow_evaluated_control import _machine_api
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
     assert _machine_api().evaluate_closed_program(program, {}).value == 2

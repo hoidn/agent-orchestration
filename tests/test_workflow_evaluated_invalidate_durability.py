@@ -21,10 +21,10 @@ from orchestrator.workflow.evaluated.memo import (
     memo_writer_lock,
 )
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
-from orchestrator.workflow_lisp.closed.sites import assign_sites
+from orchestrator.contracts.closed_program.sites import assign_sites
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.run_ref.config import encode_run_ref_static_config
-from orchestrator.workflow_lisp.closed.names import canonical_run_ref_signature
+from orchestrator.contracts.closed_program.names import canonical_run_ref_signature
 from tests.test_workflow_evaluated_invalidate import (
     _cli,
     _completed_run,
@@ -43,7 +43,7 @@ from tests.test_workflow_lisp_closed_program_check import (
     _register_nominal_types,
     _run_ref_tree,
 )
-from orchestrator.workflow_lisp.closed.check import validate
+from orchestrator.contracts.closed_program.check import validate
 
 
 def _command_then_coordinator_program(root: Path):

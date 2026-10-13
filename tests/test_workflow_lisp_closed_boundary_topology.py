@@ -6,7 +6,7 @@ import json
 import pytest
 
 from orchestrator.workflow.type_descriptor import compiled_boundary_rows
-from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid
+from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
 from tests.test_workflow_lisp_closed_program_check import INT, _boundary_tree, _record
 
 

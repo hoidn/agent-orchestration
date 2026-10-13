@@ -9,8 +9,8 @@ from orchestrator.workflow.evaluated.machine import site_nodes
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode
 from tests.test_workflow_evaluated_run_ref import _public_fixture

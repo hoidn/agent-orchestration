@@ -9,8 +9,8 @@ import re
 import pytest
 
 from orchestrator.workflow_lisp import syntax
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes, assign_sites
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes, assign_sites
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.test_workflow_lisp_closed_program_corpus import _control_sources

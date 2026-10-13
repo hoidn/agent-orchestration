@@ -17,7 +17,7 @@ from orchestrator.workflow.evaluated.authority import RunAuthorityError, load_ru
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from tests.test_workflow_evaluated_authority import _publish
 
 

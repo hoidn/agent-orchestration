@@ -6,17 +6,16 @@ import json
 
 import pytest
 
-from orchestrator.workflow_lisp.closed.program import (
+from orchestrator.contracts.closed_program.program import (
     ClosedProgram,
     ClosedProgramInvalid,
-    canonical_configuration,
     canonical_digest,
-    logical_asset_base_for_module,
     program_digest,
     strip_provenance,
 )
-from orchestrator.workflow_lisp.closed.check import validate
-from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key
+from orchestrator.workflow_lisp.closed.program import canonical_configuration, logical_asset_base_for_module
+from orchestrator.contracts.closed_program.check import validate
+from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
 from tests.test_workflow_lisp_closed_program_check import (
     BOOL,
     INT,
@@ -743,7 +742,7 @@ def test_readback_rejects_non_operator_type_tampering(builder, mutation, rule) -
 @pytest.mark.parametrize("tamper", ["forwarded-input", "direct-pair"])
 def test_source_free_readback_rejects_forged_command_capture_routes(tmp_path, tamper):
     from orchestrator.workflow_lisp.closed.build import Builder, build_closed_program
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
     from tests.test_workflow_lisp_closed_command_transport import _command, _commands, _compile
 
     declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) '
@@ -778,7 +777,7 @@ def test_source_free_readback_rejects_forged_command_capture_routes(tmp_path, ta
 
 def test_source_free_readback_rejects_command_index_without_its_loop_body(tmp_path):
     from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
     from tests.test_workflow_lisp_closed_command_transport import _command, _commands, _compile
 
     source = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
@@ -816,7 +815,7 @@ def _projected_k6_negative_target(tree):
 
 
 def _refresh_projected_k6_negative_name_and_sites(tree, old_name, definition):
-    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from orchestrator.contracts.closed_program.sites import assign_sites
     from tests.test_workflow_lisp_closed_program_build import _walk_dataclasses
 
     key = definition["key"]

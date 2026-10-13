@@ -68,10 +68,7 @@ from orchestrator.workflow_lisp.type_env import (
     type_refs_compatible,
 )
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
-from orchestrator.workflow_lisp.typed_prompt_inputs import (
-    normalize_typed_prompt_input_entry,
-    render_typed_prompt_inputs,
-)
+from orchestrator.workflow.typed_prompt_inputs import normalize_typed_prompt_input_entry, render_typed_prompt_inputs
 from orchestrator.workflow_lisp.workflows import (
     ExternEnvironment,
     PromptExtern,

@@ -8,12 +8,12 @@ import json
 import pytest
 
 from orchestrator.workflow_lisp.closed import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
-from orchestrator.workflow_lisp.closed.check import CheckedFormError, validate
-from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key
-from orchestrator.workflow_lisp.closed.names import canonical_run_ref_signature
-from orchestrator.workflow_lisp.closed.names import key_type_descriptor
-from orchestrator.workflow_lisp.closed.names import run_ref_type_dependencies
-from orchestrator.workflow_lisp.closed.sites import assign_sites
+from orchestrator.contracts.closed_program.check import CheckedFormError, validate
+from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
+from orchestrator.contracts.closed_program.names import canonical_run_ref_signature
+from orchestrator.contracts.closed_program.names import key_type_descriptor
+from orchestrator.contracts.closed_program.names import run_ref_type_dependencies
+from orchestrator.contracts.closed_program.sites import assign_sites
 from orchestrator.workflow.type_descriptor import compiled_boundary_rows
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 from orchestrator.workflow.run_ref.config import (

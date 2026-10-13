@@ -13,8 +13,8 @@ from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed import build as closed_build
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes, _value_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes, _value_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
@@ -1304,7 +1304,7 @@ def test_retained_nested_match_cannot_read_same_typed_outer_binder(tmp_path, mon
 def test_source_owned_command_rows_preserve_native_projection_and_dynamic_suffix(
     tmp_path, formal, type_name, declaration, wire, suffix, active, inactive,
 ):
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _commands
 
     expression = 'inputs.' + wire + ''.join('.' + part for part in suffix)

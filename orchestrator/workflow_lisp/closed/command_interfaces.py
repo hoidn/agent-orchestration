@@ -6,7 +6,7 @@ from ..wcc import model as w
 from .command_templates import (
     _CALL_CHILD_FIELDS, _call_coordinate, command_call_occurrences, command_loop_index_name,
 )
-from .program import _canonical_json
+from orchestrator.contracts.closed_program.program import _canonical_json
 
 
 def command_interface_digest(interface):

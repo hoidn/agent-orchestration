@@ -30,10 +30,8 @@ from orchestrator.workflow.view_renderer import (
     resolve_default_view_renderer,
     resolve_view_renderer,
 )
-from orchestrator.workflow_lisp.typed_prompt_inputs import (
-    normalize_typed_prompt_input_entry,
-    select_prompt_fragment_renderer,
-)
+from orchestrator.workflow.typed_prompt_inputs import normalize_typed_prompt_input_entry
+from orchestrator.workflow_lisp.typed_prompt_inputs import select_prompt_fragment_renderer
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic

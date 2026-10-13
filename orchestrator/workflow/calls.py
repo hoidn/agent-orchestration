@@ -32,7 +32,7 @@ from .loaded_bundle import (
 from .predicates import PredicateEvaluationError
 from .pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
 from .references import ReferenceResolutionError
-from ..workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
+from orchestrator.contracts.closed_program.targets import target_dsl_refuses_non_finite_floats
 from .resume_projection_integrity import (
     CallFrameRetryLineage,
     CallFrameRetryLineageError,

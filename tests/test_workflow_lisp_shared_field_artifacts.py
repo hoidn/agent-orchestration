@@ -3,9 +3,10 @@ import json
 
 import pytest
 
-from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key, _normalize_closed_value
-from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
-from orchestrator.workflow_lisp.closed.sites import assign_sites
+from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
+from orchestrator.workflow_lisp.closed.names import _normalize_closed_value
+from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+from orchestrator.contracts.closed_program.sites import assign_sites
 from tests.test_workflow_lisp_closed_program_check import _tree, _halt, _lit
 from tests.test_workflow_lisp_shared_field_relation import INT, STRING, checker, record, union, case, path
 

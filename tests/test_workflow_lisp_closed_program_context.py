@@ -7,7 +7,7 @@ import pytest
 
 from orchestrator.workflow_lisp.closed.build import Builder, build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.names import CanonicalNameError, canonical_type_descriptor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -376,7 +376,7 @@ def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_pa
     consumer_path.unlink()
 
     closed = build_closed_program(typed)
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
 
     restored = ClosedProgram.from_artifact(closed.artifact())
     assert (restored.tree, restored.sites, restored.digest) == (

@@ -49,10 +49,10 @@ from orchestrator.workflow.view_renderer import (
     resolve_view_renderer,
 )
 
-from ..type_env import _named_type_basename
-from ..syntax import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution
+from orchestrator.workflow.type_descriptor import _named_type_basename
+from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution
 
-from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from .targets import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .names import (
     _parse_identity,
     _render_key_identity,

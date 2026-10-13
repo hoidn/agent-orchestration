@@ -16,7 +16,7 @@ from orchestrator.workflow.pure_expr import PureExprEvaluationError
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.syntax import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 

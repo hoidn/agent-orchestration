@@ -31,67 +31,29 @@ from orchestrator.workflow_lisp.normalized_type_descriptor import (
 )
 from orchestrator.workflow_lisp.workflows import TypedWorkflowDef
 from orchestrator.workflow_lisp.syntax import (
-    target_dsl_supports_nested_structural_transport,
     target_dsl_uses_evaluated_execution,
 )
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 from .config import (
     PathProgram,
-    RunRefInput,
     validate_run_ref_static_config_authority,
 )
 from .contracts import canonical_json_bytes, canonical_sha256, compute_compiler_runtime_identity
-from .result_contract import is_transportable_type_descriptor
+from .path_contracts import (
+    PATH_COMPILE_EVIDENCE_SCHEMA,
+    RunRefPathCompileRefusal,
+    _recorded_path_compile_evidence,
+    _refuse,
+    _signature_mismatch_causes,
+)
 from .source import MaterializedSource, canonical_source_request
 
 
-PATH_COMPILE_EVIDENCE_SCHEMA = "run_ref_path_compile_evidence.v1"
 _EFFECT_DIAGNOSTIC_CODES = frozenset(
     {"provider_result_provider_invalid", "command_adapter_missing_contract"}
 )
-_VALUE_DESCRIPTOR = {"kind": "primitive", "name": "Value"}
 _CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
-
-
-class RunRefPathCompileRefusal(ValueError):
-    """One closed structural refusal from full compile or admission."""
-
-    def __init__(
-        self,
-        code: str,
-        rejected_value: object,
-        *,
-        secondary_causes: tuple[str, ...] = (),
-        compile_diagnostics_document: Mapping[str, object] | None = None,
-    ) -> None:
-        super().__init__(code)
-        self.code = code
-        self._rejected_value_json = canonical_json_bytes(rejected_value)
-        self.secondary_causes = tuple(secondary_causes)
-        self._compile_diagnostics_json = (
-            None
-            if compile_diagnostics_document is None
-            else canonical_json_bytes(compile_diagnostics_document)
-        )
-
-    @property
-    def rejected_value(self) -> object:
-        return json.loads(self._rejected_value_json)
-
-    @property
-    def compile_diagnostics_document(self) -> dict[str, object] | None:
-        if self._compile_diagnostics_json is None:
-            return None
-        return json.loads(self._compile_diagnostics_json)
-
-    @property
-    def record(self) -> dict[str, object]:
-        return {
-            "code": self.code,
-            "rejected_value": self.rejected_value,
-            "secondary_causes": list(self.secondary_causes),
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,21 +86,6 @@ class AdmittedPathProgram:
     @property
     def evidence(self) -> dict[str, object]:
         return json.loads(self._evidence_json)
-
-
-def _refuse(
-    code: str,
-    rejected_value: object,
-    *,
-    secondary_causes: tuple[str, ...] = (),
-    diagnostics: Mapping[str, object] | None = None,
-) -> RunRefPathCompileRefusal:
-    return RunRefPathCompileRefusal(
-        code,
-        rejected_value,
-        secondary_causes=secondary_causes,
-        compile_diagnostics_document=diagnostics,
-    )
 
 
 def _require_program_file(workspace: Path, program: PathProgram) -> Path:
@@ -298,54 +245,6 @@ def _admission_signature(
     }
 
 
-def _signature_mismatch_causes(
-    signature: Mapping[str, object],
-    configured_inputs: tuple[RunRefInput, ...],
-    program: PathProgram,
-    *,
-    target_dsl_version: str = "2.24",
-) -> tuple[str, ...]:
-    allow_nested_structures = target_dsl_supports_nested_structural_transport(
-        target_dsl_version
-    )
-    expected_rows = signature["inputs"]
-    if not isinstance(expected_rows, list):
-        return ("signature_inputs_malformed",)
-    expected_by_name = {
-        str(row["name"]): row for row in expected_rows if isinstance(row, Mapping)
-    }
-    configured_by_name = {row.name: row for row in configured_inputs}
-    causes: list[str] = []
-    for name, row in expected_by_name.items():
-        descriptor = row.get("type")
-        if not isinstance(descriptor, Mapping) or not is_transportable_type_descriptor(
-            descriptor,
-            allow_nested_structures=allow_nested_structures,
-        ):
-            causes.append(f"input_nontransportable:{name}")
-        configured = configured_by_name.get(name)
-        if configured is None:
-            if row.get("required") is True:
-                causes.append(f"missing_input:{name}")
-        elif configured.type_descriptor != descriptor:
-            causes.append(f"input_type_mismatch:{name}")
-    for name in sorted(
-        set(configured_by_name).difference(expected_by_name),
-        key=lambda value: value.encode("utf-8"),
-    ):
-        causes.append(f"extra_input:{name}")
-    return_descriptor = signature.get("return")
-    if not isinstance(return_descriptor, Mapping) or not is_transportable_type_descriptor(
-        return_descriptor,
-        allow_nested_structures=allow_nested_structures,
-    ):
-        causes.append("return_nontransportable")
-    return_claim = program.return_refinement or _VALUE_DESCRIPTOR
-    if return_descriptor != return_claim:
-        causes.append("return_type_mismatch")
-    return tuple(causes)
-
-
 def _canonical_field_value(value: object) -> object:
     if value is None or isinstance(value, (str, int, bool)):
         return value
@@ -472,33 +371,6 @@ def _path_compile_evidence(materialized_source, step_config, local_compiler_iden
         program_identity, signature, effect_facts, diagnostics,
         repository_revision_digest=materialized_source.repository_revision_id.digest,
         verified_git_tree=materialized_source.verified_git_tree.value)
-
-
-def _recorded_path_compile_evidence(step_config, local_compiler_identity,
-                                  program_identity, signature, effect_facts, diagnostics,
-                                  *, repository_revision_digest, verified_git_tree):
-    program = step_config.run_ref.program
-    input_facts = signature["inputs"]
-    return_fact = signature["return"]
-    evidence_components = {
-        "schema_version": PATH_COMPILE_EVIDENCE_SCHEMA,
-        "repository_revision_digest": repository_revision_digest,
-        "verified_git_tree": verified_git_tree,
-        "step_config_digest": step_config.step_config_digest,
-        "compiler_runtime_identity_digest": local_compiler_identity,
-        "program_identity_digest": program_identity["digest"],
-        "signature_digest": canonical_sha256(signature),
-        "input_digest": canonical_sha256(input_facts),
-        "return_digest": canonical_sha256(return_fact),
-        "effect_digest": canonical_sha256(effect_facts),
-        "diagnostics_digest": canonical_sha256(diagnostics),
-        "environment": program.environment,
-    }
-    evidence = {
-        **evidence_components,
-        "digest": canonical_sha256(evidence_components),
-    }
-    return evidence
 
 
 def compile_and_admit_path_program(

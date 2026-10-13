@@ -1152,7 +1152,7 @@ class PromptComposer:
 
         if not typed_prompt_inputs:
             return prompt, []
-        from ..workflow_lisp.typed_prompt_inputs import render_typed_prompt_inputs
+        from orchestrator.workflow.typed_prompt_inputs import render_typed_prompt_inputs
 
         rendered_block, evidence = render_typed_prompt_inputs(
             typed_prompt_inputs,

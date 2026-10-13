@@ -10,7 +10,7 @@ from pathlib import Path
 
 import orchestrator
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow_lisp import syntax
 import pytest
@@ -961,7 +961,7 @@ def test_fourth_manifest_build_keeps_old_and_evaluated_producer_bodies(
 
 
 def _closed_ast_nodes(value):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     return tuple(_ast_nodes(value))
 

@@ -43,8 +43,8 @@ from orchestrator.workflow.semantic_ir import (
     validate_workflow_semantic_ir,
     workflow_semantic_ir_to_json,
 )
-from orchestrator.workflow_lisp.wcc.route import LOWERING_SCHEMA_WCC
-from orchestrator.workflow_lisp.syntax import (
+from orchestrator.contracts.closed_program.targets import LOWERING_SCHEMA_WCC
+from orchestrator.contracts.closed_program.targets import (
     target_dsl_supports_nested_structural_transport,
 )
 

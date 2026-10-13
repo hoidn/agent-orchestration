@@ -359,7 +359,7 @@ def _paused_phase_provider_value(root, files, input_file, monkeypatch):
 
 def _source_free_result(root, authority):
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
 
     for source in root.rglob("*.orc"):
         source.unlink()

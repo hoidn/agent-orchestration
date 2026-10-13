@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.workflow_lisp.closed.sites import assign_sites
-from orchestrator.workflow_lisp.closed.sites import SiteAssignmentError
+from orchestrator.contracts.closed_program.sites import assign_sites
+from orchestrator.contracts.closed_program.sites import SiteAssignmentError
 
 
 def _let(name, value, body, *, label=None):

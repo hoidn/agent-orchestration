@@ -30,7 +30,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
-from orchestrator.workflow_lisp.closed.frontend import ProviderIOContext
+from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 from .providers import perform_provider
 from .run_ref import (
     prepare_evaluated_run_ref,

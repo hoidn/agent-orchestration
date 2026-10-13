@@ -11,8 +11,8 @@ from orchestrator.workflow.run_ref.capsule_build import _build_closure, _closed_
 from orchestrator.workflow.run_ref.capsule_stage import stage_bundle_capsule
 from orchestrator.workflow_lisp.closed.build import Builder, _build_with_builder
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 
 
@@ -374,7 +374,7 @@ def test_bound_workflow_resolved_signature_requires_catalog_match(tmp_path, monk
 
 
 def test_bound_workflow_wire_requires_native_signature(tmp_path):
-    from orchestrator.workflow_lisp.closed.check import CheckedFormError, validate
+    from orchestrator.contracts.closed_program.check import CheckedFormError, validate
 
     checked, _ = _checked(_bound_typed(tmp_path))
     tree = deepcopy(checked.tree)

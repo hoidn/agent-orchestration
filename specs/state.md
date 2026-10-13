@@ -254,7 +254,7 @@ records availability and evidence scope. This section states the integrated
 capability and its proved scope. The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
 (§§7–10) owns the model; this section owns the durable wire. Owners:
 `orchestrator/workflow/evaluated/{authority,memo,attempts,views,interpreters,run_ref}.py`
-and `orchestrator/workflow_lisp/closed/program.py`. Evidence: the public
+and `orchestrator/contracts/closed_program/program.py`. Evidence: the public
 fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_readers.py`,
 `tests/test_workflow_evaluated_views.py`,

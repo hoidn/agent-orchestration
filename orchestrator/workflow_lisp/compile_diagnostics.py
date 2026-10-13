@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from orchestrator.contracts.program_identity import build_normalized_program_identity
 from orchestrator.workflow.run_ref.contracts import (
     canonical_sha256,
     compute_compiler_runtime_identity,
@@ -16,7 +17,6 @@ from .compiler import WorkflowBoundaryAdmissionProfile
 from .diagnostics import (
     LispFrontendDiagnostic,
     build_compile_diagnostics_document,
-    build_normalized_program_identity,
 )
 
 

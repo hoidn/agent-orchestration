@@ -36,9 +36,7 @@ from orchestrator.workflow.state_projection import (
     WorkflowStateProjection,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.typed_prompt_inputs import (
-    typed_prompt_input_value_digest,
-)
+from orchestrator.workflow.typed_prompt_inputs import typed_prompt_input_value_digest
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 

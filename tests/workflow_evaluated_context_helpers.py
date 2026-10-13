@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from tests.test_workflow_evaluated_providers import _orchestrate_snapshot
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.workflow_evaluated_totality_helpers import (

@@ -16,12 +16,8 @@ from orchestrator.workflow_lisp.command_boundaries import (
     CertifiedAdapterInputField,
     ExternalToolBinding,
 )
-from orchestrator.workflow_lisp.closed.program import (
-    canonical_command_configuration,
-    canonical_configuration,
-    canonical_digest,
-    logical_asset_base_for_module,
-)
+from orchestrator.contracts.closed_program.program import canonical_digest
+from orchestrator.workflow_lisp.closed.program import canonical_command_configuration, canonical_configuration, logical_asset_base_for_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program

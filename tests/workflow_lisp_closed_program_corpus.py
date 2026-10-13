@@ -21,7 +21,7 @@ from orchestrator.workflow_lisp.command_boundaries import (
 )
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram, _sites_from_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram, _sites_from_nodes
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr

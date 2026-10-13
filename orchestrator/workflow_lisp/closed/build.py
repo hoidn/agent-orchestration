@@ -55,27 +55,26 @@ from orchestrator.workflow_lisp.wcc.model import (
 from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .context import phase_context_value, run_context_value
 from .effects import require_command_closures, translate_perform
+from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
 from .names import (
     Renamer,
     _loop_carrier_metadata,
     _run_ref_signatures,
     canonical_callee_name,
-    canonical_callee_name_from_key,
     canonical_definition_key,
     canonical_type_identity,
     canonical_type_descriptor,
 )
-from .program import (
+from orchestrator.contracts.closed_program.program import (
     REPRESENTATION,
     SCHEMA,
     ClosedProgram,
     _canonical_json,
-    canonical_configuration,
-    logical_asset_base_for_module,
     program_digest,
 )
-from .sites import assign_sites
-from .check import validate
+from .program import canonical_configuration, logical_asset_base_for_module
+from orchestrator.contracts.closed_program.sites import assign_sites
+from orchestrator.contracts.closed_program.check import validate
 
 
 class ClosedProgramGap(Exception):
@@ -617,7 +616,8 @@ class Builder:
         self.io_calls.append((d.canonical, node, request.io_reader, request.io_references or {}))
 
     def _bind_provider_io(self, program):
-        from .frontend import ProviderIOActivation, ProviderIOCall, ProviderIOContext, WorkflowIOReader
+        from orchestrator.workflow.evaluated.provider_io import ProviderIOActivation, ProviderIOCall, ProviderIOContext
+        from .frontend import _workflow_io_reader_from_program
 
         calls = {}
         for owner, node, reader, references in self.io_calls:
@@ -628,7 +628,7 @@ class Builder:
                 raise ValueError("workflow IO emission repeats a checked call coordinate")
             calls[coordinate] = ProviderIOCall(node["callee"], reader, references)
         entry = ProviderIOActivation(program.tree["entry"],
-            WorkflowIOReader.from_program(self.typed, self.typed.entry_module))
+            _workflow_io_reader_from_program(self.typed, self.typed.entry_module))
         self.provider_io = ProviderIOContext(entry, calls, frozenset(program.sites), program.digest).bind(program)
 
     def _install_prepared_requests(self, body, d, children):
@@ -4401,7 +4401,7 @@ class Builder:
         root = self.configuration_rows.get((id(self.typed), self.typed.entry_module))
         if root is not None and _canonical_json(row) == _canonical_json(root):
             return None
-        from .program import canonical_digest
+        from orchestrator.contracts.closed_program.program import canonical_digest
 
         digest = canonical_digest(row)
         self.configuration_imports[digest] = row

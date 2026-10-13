@@ -13,8 +13,8 @@ from orchestrator.workflow.assets import WorkflowAssetResolver
 from orchestrator.workflow.view_renderer import resolve_view_renderer
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
@@ -30,7 +30,7 @@ from orchestrator.workflow_lisp.expressions import (
     PromptApplicationExpr,
     ProviderResultExpr,
 )
-from orchestrator.workflow_lisp.typed_prompt_inputs import normalize_typed_prompt_input_entry
+from orchestrator.workflow.typed_prompt_inputs import normalize_typed_prompt_input_entry
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.normalized_type_descriptor import (
     compiler_normalized_type_descriptor,

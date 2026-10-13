@@ -101,8 +101,8 @@ def test_case_subject_command_does_not_count_pure_arms_in_interface_inventory(tm
 
 
 def test_closed_loop_binds_its_demanded_index_only_in_its_body(tmp_path):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.program import ClosedProgram
 
     body = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
     body += '(let* ((result ' + _command('"${loop.index}"') + ')) (done result))))'
@@ -116,9 +116,9 @@ def test_closed_loop_binds_its_demanded_index_only_in_its_body(tmp_path):
 
 def test_checked_loop_relation_counts_owner_before_nested_budget_operand(tmp_path):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.command_check import checked_command_interfaces
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
-    from orchestrator.workflow_lisp.closed.names import key_type_descriptor
+    from orchestrator.contracts.closed_program.command_check import checked_command_interfaces
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.names import key_type_descriptor
 
     source = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
     source += '(let* ((result ' + _command('"${loop.index}"') + ')) (done result))))'
@@ -134,8 +134,8 @@ def test_checked_loop_relation_counts_owner_before_nested_budget_operand(tmp_pat
 
 
 def test_actual_selected_arm_emits_ordered_roots_and_resets_loop_index(tmp_path):
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     match = '(match choice ((A a) (if flag '
     match += _command('"${inputs.a__i}" a.i "${loop.index}"') + ' 1)) ((B b) 2))'
@@ -157,7 +157,7 @@ def test_actual_selected_arm_emits_ordered_roots_and_resets_loop_index(tmp_path)
 
 def _field_certificate_tree(tmp_path):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     match = '(match choice ((A a) (if flag '
     match += _command('"${inputs.r__i}" r.i') + ' 1)) ((B b) 2))'
@@ -179,8 +179,8 @@ def _field_certificate_tree(tmp_path):
 
 @pytest.mark.parametrize('move_provenance', [False, True])
 def test_checked_field_certificate_preserves_origin_without_provenance_authority(tmp_path, move_provenance):
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, program_digest
-    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from orchestrator.contracts.closed_program.program import ClosedProgram, program_digest
+    from orchestrator.contracts.closed_program.sites import assign_sites
 
     tree, _, field = _field_certificate_tree(tmp_path)
     if move_provenance:
@@ -192,8 +192,8 @@ def test_checked_field_certificate_preserves_origin_without_provenance_authority
 
 
 def test_checked_field_certificate_cannot_follow_rebinding_of_its_base(tmp_path):
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
-    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.sites import assign_sites
 
     tree, arm, field = _field_certificate_tree(tmp_path)
     wire = field['base']['n']
@@ -211,8 +211,8 @@ def test_checked_field_certificate_cannot_follow_rebinding_of_its_base(tmp_path)
 @pytest.mark.parametrize('root_kind', ['block', 'data'])
 def test_checked_root_origin_handles_local_binders_and_literal_data(tmp_path, root_kind):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
-    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.sites import assign_sites
 
     tree, arm, field = _field_certificate_tree(tmp_path)
     root = {'k': 'block', 'body': {'k': 'let', 'name': '%inside', 'value': field,
@@ -237,8 +237,8 @@ def test_checked_root_origin_handles_local_binders_and_literal_data(tmp_path, ro
 @pytest.mark.parametrize("control", ["join", "loop"])
 def test_pure_root_control_target_homonym_preserves_external_value_origin(tmp_path, control):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes, assign_sites
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.sites import _ast_nodes, assign_sites
 
     tree, arm, field = _field_certificate_tree(tmp_path / 'command')
     source = '(loop/recur :max 1 :state 0 :on-exhausted r.i (fn (state) (done r.i)))'
@@ -284,9 +284,9 @@ def test_actual_private_workflow_command_child_is_prepared_before_its_key(tmp_pa
 
 def test_source_free_checker_rederives_command_decisions_after_consistent_renaming(tmp_path):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes, assign_sites
+    from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.sites import _ast_nodes, assign_sites
 
     declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) '
     declaration += ':lowering inline ' + _command('flag') + ')'
@@ -309,8 +309,8 @@ def test_source_free_checker_rederives_command_decisions_after_consistent_renami
 @pytest.mark.parametrize('shadow', ['literal', 'computed'])
 def test_native_root_certificate_cannot_follow_a_same_typed_rebinding(tmp_path, shadow):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes, assign_sites
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.sites import _ast_nodes, assign_sites
 
     source = '(let* ((computed (+ n 1))) ' + _command('"${inputs.n}"') + ')'
     closed = build_closed_program(_compile(tmp_path, source, params='(n Int)'))
@@ -328,8 +328,8 @@ def test_native_root_certificate_cannot_follow_a_same_typed_rebinding(tmp_path, 
 
 def test_native_root_alias_frozen_before_rebinding_remains_available(tmp_path):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, program_digest
-    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from orchestrator.contracts.closed_program.program import ClosedProgram, program_digest
+    from orchestrator.contracts.closed_program.sites import assign_sites
 
     closed = build_closed_program(_compile(tmp_path, _command('"${inputs.n}"'), params='(n Int)'))
     tree = deepcopy(closed.tree)
@@ -344,10 +344,10 @@ def test_native_root_alias_frozen_before_rebinding_remains_available(tmp_path):
 
 
 def test_provider_relations_visit_actual_fills_before_policy_operands(tmp_path):
-    from orchestrator.workflow_lisp.closed.check import _Checker
-    from orchestrator.workflow_lisp.closed.command_check import _effect_children
+    from orchestrator.contracts.closed_program.check import _Checker
+    from orchestrator.contracts.closed_program.command_check import _effect_children
     from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes, _effect_value_children
+    from orchestrator.contracts.closed_program.sites import _ast_nodes, _effect_value_children
     from tests.workflow_lisp_closed_program_helpers import install
 
     source = '(workflow-lisp (:language "0.1") (:target-dsl "TARGET") '
@@ -369,7 +369,7 @@ def test_provider_relations_visit_actual_fills_before_policy_operands(tmp_path):
 
 
 def _assert_native_literal_arguments(closed, type_name, keys):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     assert len(keys) == 1
     assert keys[0][6] == []
@@ -421,8 +421,8 @@ def _workflow_diamond_declarations(depth):
 def test_workflow_diamond_prepares_each_owner_once_and_retains_each_edge(tmp_path, monkeypatch, depth):
     from collections import Counter
     from orchestrator.workflow_lisp.closed.build import Builder
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     declarations = _workflow_diamond_declarations(depth)
     prepared = Counter()

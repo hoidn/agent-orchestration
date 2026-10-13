@@ -2026,7 +2026,7 @@ def _build_child_request(
             "inputs": dict(resolved_inputs),
             "test_control": test_control,
         }
-    from .child import materialized_source_record
+    from .wire import materialized_source_record
 
     parent_authority = _request_parent_authority(request)
     return "path", {
@@ -2077,7 +2077,7 @@ def _child_result_document(
                 canonical=True,
                 label="child_diagnostic",
             )
-            from .child import validate_child_diagnostic_document
+            from .wire import validate_child_diagnostic_document
 
             diagnostic = validate_child_diagnostic_document(
                 decoded_diagnostic

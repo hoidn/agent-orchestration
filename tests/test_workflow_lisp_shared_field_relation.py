@@ -2,8 +2,9 @@ from copy import deepcopy
 
 import pytest
 
-from orchestrator.workflow_lisp.closed.check import _Checker, CheckedFormError
-from orchestrator.workflow_lisp.closed.names import key_type_descriptor, _normalize_closed_value
+from orchestrator.contracts.closed_program.check import _Checker, CheckedFormError
+from orchestrator.contracts.closed_program.names import key_type_descriptor
+from orchestrator.workflow_lisp.closed.names import _normalize_closed_value
 from tests.test_workflow_lisp_closed_program_check import _tree
 
 

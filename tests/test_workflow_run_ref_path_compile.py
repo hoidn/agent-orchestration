@@ -14,6 +14,7 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+from orchestrator.workflow.run_ref import path_contracts as path_contracts_module
 from orchestrator.workflow.run_ref import path_compile as path_compile_module
 from orchestrator.workflow.run_ref.config import (
     PathProgram,
@@ -640,7 +641,7 @@ def test_exact_union_optional_and_map_signature_descriptors_are_admissible(
         "return": descriptor,
     }
 
-    assert path_compile_module._signature_mismatch_causes(
+    assert path_contracts_module._signature_mismatch_causes(
         signature,
         (configured_input,),
         PathProgram(
@@ -676,12 +677,12 @@ def test_nested_structural_signature_admission_is_explicitly_target_gated(
         allow_nested_structures=True,
     )
 
-    assert path_compile_module._signature_mismatch_causes(
+    assert path_contracts_module._signature_mismatch_causes(
         signature,
         (configured_input,),
         program,
     ) == ("input_nontransportable:payload", "return_nontransportable")
-    assert path_compile_module._signature_mismatch_causes(
+    assert path_contracts_module._signature_mismatch_causes(
         signature,
         (configured_input,),
         program,

@@ -286,7 +286,7 @@ def test_same_key_changed_local_computed_creation_recipe_fails_before_emission(t
 def test_diamond_preparation_and_emission_share_each_completed_input_once(tmp_path, monkeypatch, depth):
     from collections import Counter
     from orchestrator.workflow_lisp.closed.build import _build_with_builder
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
 
     declarations = '(defproc level0 ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
     declarations += _command('"${inputs.n}"') + ')'

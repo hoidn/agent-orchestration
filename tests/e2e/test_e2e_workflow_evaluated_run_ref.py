@@ -12,7 +12,7 @@ from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from orchestrator.workflow.run_ref.source import canonical_source_request
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from tests.e2e.test_e2e_workflow_lisp_run_ref import (
     _assert_complete_evidence_manifest,
     _git,

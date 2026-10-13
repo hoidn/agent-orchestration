@@ -428,7 +428,7 @@ def test_absolute_prefix_uses_lexical_workspace_root_but_targets_resolved_root(
 def test_frontend_artifact_readback_feeds_command_evidence(tmp_path: Path) -> None:
     from orchestrator.workflow_lisp.build import FrontendBuildRequest
     from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
+    from orchestrator.contracts.closed_program.program import ClosedProgram
 
     source_root = tmp_path / "src"
     source = source_root / "example" / "entry.orc"

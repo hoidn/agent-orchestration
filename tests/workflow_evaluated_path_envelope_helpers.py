@@ -17,7 +17,7 @@ from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from orchestrator.workflow.run_ref.runtime import (
     declared_artifacts_from_value, flatten_run_ref_result_artifacts,
 )
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from tests.e2e.test_e2e_workflow_lisp_run_ref import _assert_complete_evidence_manifest, _git
 from tests.test_workflow_evaluated_command_lifecycle import _InterruptedRun
 from tests.test_workflow_evaluated_run_ref import _authority, _public_fixture

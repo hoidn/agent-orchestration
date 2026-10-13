@@ -10,7 +10,7 @@ import sys
 import pytest
 
 from orchestrator.workflow.evaluated.views import load_evaluated_view
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from tests.test_workflow_evaluated_providers import _orchestrate_snapshot
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.test_workflow_lisp_closed_program_compile_cli import _compile

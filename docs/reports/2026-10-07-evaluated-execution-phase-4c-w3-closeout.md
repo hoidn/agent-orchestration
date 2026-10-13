@@ -1,5 +1,11 @@
 # Evaluated execution Phase 4c / W3: closeout
 
+Current-routing note, 2026-10-12: the owner subsequently selected **2.37** for
+Phase 5 parallel map. The [Phase 5 D1 decision](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
+supersedes this report's historical OPEN target status; implementation/admission
+and public qualification remain pending. The delivery-cut evidence below is
+preserved with its original scope.
+
 Status at the 2026-10-11 delivery cut: **Phase 4c / W3 closed within the documented scope and delivered locally to main at 2.36**. The [final independent code/evidence review](/home/ollie/Documents/agent-orchestration/.superpowers/sdd/2026-10-07-evaluated-execution-phase-4c-w3-plan/recovery-20261010/task-f-code-review-final.md) and [coordinator acceptance](/home/ollie/Documents/agent-orchestration/.superpowers/sdd/2026-10-07-evaluated-execution-phase-4c-w3-plan/recovery-20261010/task-f-verification-coordinator-acceptance.json) bind final tree031818 and all 98 frozen owners without drift. Full02 remains RED. The final gate table below owns the distinct document-review and delivery fields. No compiler, CLI, provider or tests ran to author this report.
 
 ## Scope and retained contract

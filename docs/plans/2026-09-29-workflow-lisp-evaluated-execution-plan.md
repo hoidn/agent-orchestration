@@ -575,7 +575,9 @@ ledger. Authoring changes reuse existing effect and execution owners.
   Current bounded 14A/14B acceptance includes nine public lifecycle cases, four
   capture pilots, a 232 → 220 selected helper-plus-callers census and a 30-row
   W3 source handoff. Exact old-run compatibility controls are subsequently accepted; the closeout
-  owns final F qualification; no broader Phase 6b rollout or Phase 5 target is selected.
+  owns final F qualification; W3 qualification selects no broader Phase 6b rollout.
+  The owner separately selected Phase 5 D1 target 2.37 on 2026-10-12; its
+  implementation and public qualification remain pending.
 
 An unneeded class may remain deferred or be retired with its consumers by
 explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
@@ -615,7 +617,7 @@ written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 
-The [prepared Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the remaining **D1 owner target decision**. No target, implementation or public parallel-execution evidence is selected or established by publishing it.
+The [prepared Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the owner's explicit **D1 selection of target 2.37 on 2026-10-12** for parallel map. W3 retains 2.36. This selects the Phase 5 target; implementation, admission and public parallel-execution qualification remain pending under that plan's refreshed-baseline and verification gates.
 
 Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
 single-call comparison is one: its four implementers run in sequence.
@@ -689,11 +691,20 @@ performers. Until then, old runs keep their documented resume route. Two
 runtimes are a migration cost, not the intended permanent architecture;
 retirement is a delivery milestone, not indefinite optional cleanup.
 
-The [consolidation design](../design/workflow_lisp_consolidation.md) and its
-[draft plan](2026-10-12-workflow-lisp-consolidation-plan.md) propose a bounded
-contract extraction and consumer-led implementation of this retirement.
-They are unselected: publication does not change the Phase 4/5 capability
-decisions, Phase 6b entry conditions, decision 8, or the current delivery order.
+The owner requested execution of the
+[consolidation plan](2026-10-12-workflow-lisp-consolidation-plan.md) on
+2026-10-12, under the [consolidation design](../design/workflow_lisp_consolidation.md).
+Current execution covers bounded extraction/qualification Tasks 0–4 in an
+isolated worktree; the
+[closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md) owns
+receipts and open gates. Tasks 5–7 retain Phase 4/5 capability decisions,
+Phase 6b entry conditions, decision 8 and the current delivery order. Existing
+supported behavior and APIs remain preserved. Retained-run scope covers this
+repository, including nested experiment/project roots; the initial inventory
+covers `.orchestrate/runs` and `.orchestrate/archive` only. Original run data
+remains untouched. The owner separately selected Phase 5 D1 target 2.37 on
+2026-10-12; its implementation/qualification gates remain. Consolidation grants
+no retirement cutoff.
 
 ---
 

@@ -27,12 +27,8 @@ from orchestrator.workflow.loaded_bundle import workflow_boundary_projection
 from orchestrator.workflow_lisp.closed.frontend import TypedProgram, compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.artifact import _load_closed_imports
-from orchestrator.workflow_lisp.closed.program import (
-    ClosedProgram,
-    ClosedProgramInvalid,
-    _sites_from_nodes,
-)
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, _sites_from_nodes
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import EnumMemberExpr, GeneratedRelpathSeedExpr
 from orchestrator.workflow_lisp.type_env import PathTypeRef, PrimitiveTypeRef

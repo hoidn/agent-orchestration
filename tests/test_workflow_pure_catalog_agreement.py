@@ -400,11 +400,9 @@ def test_catalog_coerces_closed_transport_shapes(
 def test_readback_refuses_key_operator_payload_invalid_containers(kind, malformed) -> None:
     from copy import deepcopy
 
-    from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key
-    from orchestrator.workflow_lisp.closed.program import (
-        ClosedProgram, ClosedProgramInvalid, program_digest,
-    )
-    from orchestrator.workflow_lisp.closed.sites import assign_sites
+    from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.sites import assign_sites
     from tests.test_workflow_lisp_closed_program_check import _halt, _lit, _tree
 
     INT = {"kind": "primitive", "name": "Int"}

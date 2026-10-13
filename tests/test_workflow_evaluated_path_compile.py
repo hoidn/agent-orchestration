@@ -184,7 +184,7 @@ def test_closed_signature_retains_nominal_identity(tmp_path, monkeypatch, capsys
 def test_closed_facts_validator_uses_recorded_authority_without_source_io(tmp_path, monkeypatch, capsys):
     from pathlib import Path
     from orchestrator.workflow.run_ref import path_compile
-    from orchestrator.workflow.run_ref.closed_path import validate_closed_path_facts
+    from orchestrator.workflow.run_ref.path_contracts import validate_closed_path_facts
 
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, document, owner):
@@ -202,7 +202,7 @@ def test_closed_facts_validator_uses_recorded_authority_without_source_io(tmp_pa
 
 
 def test_closed_facts_do_not_equate_bool_and_int(tmp_path, monkeypatch, capsys):
-    from orchestrator.workflow.run_ref.closed_path import validate_closed_path_facts
+    from orchestrator.workflow.run_ref.path_contracts import validate_closed_path_facts
     from orchestrator.workflow.run_ref.path_compile import RunRefPathCompileRefusal
 
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))

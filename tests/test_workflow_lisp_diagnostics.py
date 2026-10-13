@@ -212,10 +212,9 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
         diagnostics_module,
         "build_compile_diagnostics_document",
     )
-    build_identity = getattr(
-        diagnostics_module,
-        "build_normalized_program_identity",
-    )
+    build_identity = importlib.import_module(
+        "orchestrator.contracts.program_identity"
+    ).build_normalized_program_identity
     span = SourceSpan(
         start=SourcePosition(path="candidate.orc", line=4, column=2, offset=10),
         end=SourcePosition(path="candidate.orc", line=4, column=8, offset=16),
@@ -412,13 +411,9 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
 
 
 def test_normalized_program_identity_canonicalizes_and_rejects_duplicate_vectors() -> None:
-    diagnostics_module = importlib.import_module(
-        "orchestrator.workflow_lisp.diagnostics"
-    )
-    build_identity = getattr(
-        diagnostics_module,
-        "build_normalized_program_identity",
-    )
+    build_identity = importlib.import_module(
+        "orchestrator.contracts.program_identity"
+    ).build_normalized_program_identity
     selected_entry = {
         "selected_name": "run",
         "canonical_name": "candidate::run",
@@ -517,7 +512,9 @@ def test_candidate_boundary_program_identity_v2_is_closed_and_tamper_checked() -
     diagnostics_module = importlib.import_module(
         "orchestrator.workflow_lisp.diagnostics"
     )
-    build_identity = diagnostics_module.build_normalized_program_identity
+    build_identity = importlib.import_module(
+        "orchestrator.contracts.program_identity"
+    ).build_normalized_program_identity
     build_document = diagnostics_module.build_compile_diagnostics_document
     selected_entry = {
         "selected_name": "run",

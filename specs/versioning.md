@@ -1072,6 +1072,11 @@ Planned acceptance:
 
 ## Version Gating Summary
 
+The owner selected **2.37** for evaluated-execution Phase 5 parallel map on
+2026-10-12 ([Phase 5 D1](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)).
+This is a reserved delivery target, not current admission or implementation;
+the admitted evaluated targets remain 2.35 and 2.36 until its gates pass.
+
 | DSL version | Key features enabled | Notes |
 | --- | --- | --- |
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |

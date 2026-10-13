@@ -32,8 +32,9 @@ from ..reader import SourceReadTrace
 from .target import entry_target_dsl_version
 from .build import Builder, build_closed_program
 from .effects import require_command_closures
-from .frontend import ProviderIOContext, TypedProgram, compile_typed_program
-from .program import ClosedProgram, REPRESENTATION, SCHEMA
+from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
+from .frontend import TypedProgram, compile_typed_program
+from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION, SCHEMA
 
 
 @dataclass(frozen=True)

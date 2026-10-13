@@ -343,7 +343,7 @@ def _validate_normalized_refinement(
 ) -> None:
     if not isinstance(value, Mapping):
         raise _role_invalid(f"{context} is invalid")
-    from orchestrator.workflow_lisp.lowering.pure_projection import (
+    from orchestrator.workflow.type_descriptor import (
         validate_compiler_normalized_type_descriptor,
     )
 

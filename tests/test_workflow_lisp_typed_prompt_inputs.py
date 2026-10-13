@@ -12,6 +12,7 @@ import pytest
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import SurfaceStepKind
+from orchestrator.workflow.typed_prompt_inputs import render_typed_prompt_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.providers.executor import ProviderExecutor
@@ -331,7 +332,7 @@ def test_union_prompt_inputs_preserve_active_payload(
         target_dsl_version="2.27",
     ) is None
 
-    prompt_block, evidence = module.render_typed_prompt_inputs(
+    prompt_block, evidence = render_typed_prompt_inputs(
         [
             {
                 "schema_version": "workflow_lisp_typed_prompt_input.v1",
@@ -785,7 +786,7 @@ def _provider_step(bundle):
 
 
 def test_normalize_typed_prompt_input_entry_canonicalizes_metadata() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     normalized = module.normalize_typed_prompt_input_entry(
         {
             "schema_version": "workflow_lisp_typed_prompt_input.v1",
@@ -810,7 +811,7 @@ def test_normalize_typed_prompt_input_entry_canonicalizes_metadata() -> None:
 
 
 def test_normalize_typed_prompt_input_entry_allows_generic_source_map_without_profile_rows() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
 
     normalized = module.normalize_typed_prompt_input_entry(
         {
@@ -837,7 +838,7 @@ def test_normalize_typed_prompt_input_entry_allows_generic_source_map_without_pr
 
 
 def test_normalize_typed_prompt_input_entry_rejects_partial_profile_lineage() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
 
     with pytest.raises(ValueError, match="u0_row_id.*c0_row_id|c0_row_id.*u0_row_id"):
         module.normalize_typed_prompt_input_entry(
@@ -862,7 +863,7 @@ def test_normalize_typed_prompt_input_entry_rejects_partial_profile_lineage() ->
 
 
 def test_normalize_typed_prompt_input_entry_preserves_request_field_authority() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     normalized = module.normalize_typed_prompt_input_entry(
         {
             "schema_version": "workflow_lisp_typed_prompt_input.v1",
@@ -910,7 +911,7 @@ def test_normalize_typed_prompt_input_entry_preserves_request_field_authority() 
 
 
 def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     prompt_block, evidence = module.render_typed_prompt_inputs(
         [
             module.normalize_typed_prompt_input_entry(
@@ -951,7 +952,7 @@ def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
 def test_target_2_22_fragment_trace_reuse_preserves_typed_evidence_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
     from tests.test_workflow_lisp_prompt_identity_render_trace import (
         _plan,
         _render_target_2_22,
@@ -1149,7 +1150,7 @@ def test_shared_attempt_composer_keeps_single_legacy_block_for_plain_inputs(
 
 
 def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     entries = [
         {
             "schema_version": "workflow_lisp_typed_prompt_input.v1",
@@ -1213,7 +1214,7 @@ def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -
 
 
 def test_render_typed_prompt_inputs_rejects_duplicate_binding_or_injection_order() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     entry = {
         "schema_version": "workflow_lisp_typed_prompt_input.v1",
         "binding_name": "allowed_value",
@@ -1258,7 +1259,7 @@ def test_render_typed_prompt_inputs_rejects_duplicate_binding_or_injection_order
 
 
 def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     prompt_block, evidence = module.render_typed_prompt_inputs(
         [
             module.normalize_typed_prompt_input_entry(
@@ -1323,7 +1324,7 @@ def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> Non
 
 
 def test_normalize_typed_prompt_input_entry_rejects_missing_lineage() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     with pytest.raises(ValueError, match="c0_row_id|u0_row_id|source_map_origin_key"):
         module.normalize_typed_prompt_input_entry(
             {
@@ -1342,7 +1343,7 @@ def test_normalize_typed_prompt_input_entry_rejects_missing_lineage() -> None:
 
 
 def test_render_typed_prompt_inputs_rejects_unknown_renderer() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     with pytest.raises(ValueError, match="typed_prompt_input_renderer_unknown"):
         module.render_typed_prompt_inputs(
             [
@@ -1369,7 +1370,7 @@ def test_render_typed_prompt_inputs_rejects_unknown_renderer() -> None:
 
 
 def test_render_typed_prompt_inputs_rejects_shape_mismatch() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     with pytest.raises(ValueError, match="typed_prompt_input_renderer_shape_mismatch"):
         module.render_typed_prompt_inputs(
             [
@@ -1396,7 +1397,7 @@ def test_render_typed_prompt_inputs_rejects_shape_mismatch() -> None:
 
 
 def test_render_typed_prompt_inputs_rejects_non_json_like_value() -> None:
-    module = _typed_prompt_inputs_module()
+    module = importlib.import_module("orchestrator.workflow.typed_prompt_inputs")
     with pytest.raises(ValueError, match="typed_prompt_input_value_unavailable|typed_prompt_input_renderer_shape_mismatch"):
         module.render_typed_prompt_inputs(
             [

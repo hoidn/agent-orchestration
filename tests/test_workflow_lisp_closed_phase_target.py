@@ -9,8 +9,8 @@ import pytest
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 from orchestrator.workflow.evaluated.values import EvaluatedValueError
 from orchestrator.workflow.pure_expr import PureExprEvaluationError
-from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key
-from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid
+from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
+from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
 from tests.test_workflow_lisp_closed_program_check import INT, _halt, _tree
 from tests.test_workflow_lisp_closed_program_elaboration import _GENERIC_PHASE_TARGET_SOURCE
 from tests.workflow_lisp_closed_program_helpers import build

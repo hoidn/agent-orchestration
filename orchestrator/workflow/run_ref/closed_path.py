@@ -7,17 +7,20 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed import artifact
 from orchestrator.workflow_lisp.closed.artifact import ClosedProgramBuildResult
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, serialize_diagnostics
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.syntax import target_dsl_uses_evaluated_execution
 
-from .contracts import canonical_json_bytes, canonical_sha256
+from .contracts import canonical_json_bytes
+from .path_contracts import (
+    _closed_identity,
+    _require_closed_signature,
+    _refuse,
+)
 from .path_compile import (
     _compile_refusal, _effect_summary_facts, _path_compile_evidence,
-    _recorded_path_compile_evidence, _refuse, _require_program_file,
-    _signature_mismatch_causes, _validate_path_compile_authority,
+    _require_program_file, _validate_path_compile_authority,
 )
 
 
@@ -30,27 +33,6 @@ class AdmittedClosedPathProgram:
     @property
     def path_compile(self):
         return json.loads(self._facts_json)
-
-
-def closed_program_signature(program):
-    defaults = program.tree.get("defaults", {})
-    return {"inputs": [{"name": name, "required": name not in defaults, "type": descriptor}
-                       for name, descriptor in program.tree["params"]],
-            "return": program.tree["result"]}
-
-
-def _require_closed_signature(program, step_config):
-    signature = closed_program_signature(program)
-    causes = _signature_mismatch_causes(signature, step_config.run_ref.inputs,
-                                       step_config.run_ref.program,
-                                       target_dsl_version=program.tree["target"])
-    if causes:
-        raise _refuse("trial_program_signature_mismatch",
-                      {"program": step_config.run_ref.program.record, "signature": signature,
-                       "provided_inputs": [{"name": row.name, "type": row.type_descriptor}
-                                           for row in step_config.run_ref.inputs]},
-                      secondary_causes=causes)
-    return signature
 
 
 def _require_closed_effects(built, step_config):
@@ -68,7 +50,7 @@ def _require_closed_effects(built, step_config):
 
 
 def _closed_diagnostics(built):
-    from .child import _validate_compile_diagnostic_row
+    from .wire import _validate_compile_diagnostic_row
 
     if not isinstance(built.compile_diagnostics, tuple):
         raise _refuse("trial_program_compile_rejected", {"entry": built.program.tree["entry"]},
@@ -104,48 +86,3 @@ def compile_closed_path_if_evaluated(*, materialized_source, step_config):
 
     checksum = "sha256:" + sha256(trace.raw_bytes_by_path[source]).hexdigest()
     return AdmittedClosedPathProgram(built, checksum, canonical_json_bytes(facts))
-
-
-def _closed_identity(program, compiler_identity):
-    components = {"schema_version": "run_ref_closed_program_identity.v1",
-                  "compiler_runtime_identity": compiler_identity, "program_digest": program.digest}
-    return {**components, "digest": canonical_sha256(components)}
-
-
-def validate_closed_path_facts(facts, *, program, materialized_source, step_config):
-    """Project live preparation authority to the same recorded facts validator."""
-    return validate_recorded_closed_path_facts(facts, program=program, step_config=step_config,
-        repository_revision_digest=materialized_source.repository_revision_id.digest,
-        verified_git_tree=materialized_source.verified_git_tree.value)
-
-
-def validate_recorded_closed_path_facts(facts, *, program, step_config,
-                                        repository_revision_digest, verified_git_tree):
-    """Validate exact v2 facts against checked artifact and recorded static authority."""
-    from .child import _validate_compile_diagnostic_row
-
-    try:
-        if type(program) is not ClosedProgram or not target_dsl_uses_evaluated_execution(program.tree["target"]):
-            raise ValueError("closed artifact required")
-        if not isinstance(facts, dict) or set(facts) != {"diagnostics", "program_identity", "signature", "effect_facts", "evidence"}:
-            raise ValueError("closed path facts shape is invalid")
-        diagnostics = facts["diagnostics"]
-        if not isinstance(diagnostics, list):
-            raise ValueError("closed diagnostics must be rows")
-        for row in diagnostics:
-            _validate_compile_diagnostic_row(row)
-        signature = _require_closed_signature(program, step_config)
-        effects = {"direct": [], "transitive": []}
-        if site_classes(program):
-            raise ValueError("closed child effects are not empty")
-        compiler = step_config.run_ref.compiler_runtime_identity_digest
-        identity = _closed_identity(program, compiler)
-        evidence = _recorded_path_compile_evidence(step_config, compiler, identity, signature, effects, diagnostics,
-            repository_revision_digest=repository_revision_digest, verified_git_tree=verified_git_tree)
-        expected = {"diagnostics": diagnostics, "program_identity": identity, "signature": signature,
-                    "effect_facts": effects, "evidence": evidence}
-        if canonical_json_bytes(facts) != canonical_json_bytes(expected):
-            raise ValueError("closed path facts disagree with checked authority")
-    except (KeyError, TypeError, ValueError) as exc:
-        raise _refuse("trial_program_compile_rejected", {"path_compile": facts},
-                      secondary_causes=("closed_path_facts_invalid",)) from exc

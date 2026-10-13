@@ -454,7 +454,7 @@ def test_public_nested_provider_smoke_keeps_source_kind_and_document_evidence(tm
 
 
 def _assert_public_nested_labels(program, request, commit):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     (call,) = [node for node in _ast_nodes(program.tree["body"]) if node.get("k") == "call"]
     body = program.tree["definitions"][call["callee"]]["body"]

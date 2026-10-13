@@ -15,6 +15,8 @@ from typing import Any
 
 import pytest
 
+from orchestrator.workflow.run_ref import wire
+
 from orchestrator.providers.executor import (
     ProviderExecutionResult,
     ProviderExecutor,
@@ -386,7 +388,6 @@ def _build_path_fixture(
 
 
 def _path_request(fixture: _PathFixture) -> dict[str, object]:
-    child = _child_module()
     static_config_bytes = encode_run_ref_static_config(
         fixture.step_config.run_ref
     )
@@ -395,7 +396,7 @@ def _path_request(fixture: _PathFixture) -> dict[str, object]:
         "clone_root": fixture.materialized_source.workspace_path.as_posix(),
         "child_state_dir": fixture.state_dir.as_posix(),
         "child_run_id": fixture.child_run_id,
-        "materialized_source": child.materialized_source_record(
+        "materialized_source": wire.materialized_source_record(
             fixture.materialized_source
         ),
         "run_ref_static_config_base64": base64.b64encode(
@@ -590,7 +591,7 @@ def test_mode1_child_refuses_evaluated_target_bundle_before_dispatch(
     assert row["path"].endswith("entry.orc")
     assert (row["line"], row["column"], row["phase"]) == (1, 1, "lowering")
     with pytest.raises(ValueError):
-        _child_module().validate_child_diagnostic_document(
+        wire.validate_child_diagnostic_document(
             {**diagnostic, "unexpected": "open-authority"}
         )
     assert not (state_dir / payload["child_run_id"]).exists()
@@ -1127,7 +1128,6 @@ def test_mode2_malformed_structural_failure_authority_fails_closed(
 
 
 def test_child_diagnostic_validator_is_pure_and_rejects_open_runtime_details() -> None:
-    child = _child_module()
     source = {
         "schema_version": "run_ref_child_diagnostic.v1",
         "status": "rejected",
@@ -1135,7 +1135,7 @@ def test_child_diagnostic_validator_is_pure_and_rejects_open_runtime_details() -
         "reason": "request_invalid",
     }
 
-    validated = child.validate_child_diagnostic_document(source)
+    validated = wire.validate_child_diagnostic_document(source)
     source["code"] = "changed-after-validation"
 
     assert validated == {
@@ -1145,7 +1145,7 @@ def test_child_diagnostic_validator_is_pure_and_rejects_open_runtime_details() -
         "reason": "request_invalid",
     }
     with pytest.raises(ValueError, match="runtime child diagnostic authority"):
-        child.validate_child_diagnostic_document(
+        wire.validate_child_diagnostic_document(
             {**validated, "unexpected": "open-machine-authority"}
         )
 

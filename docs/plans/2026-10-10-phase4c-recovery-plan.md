@@ -45,4 +45,4 @@ implemented at 2.36; the closeout owns qualification and delivery.
 
 The [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns the authoritative qualification and delivery fields. It preserves original RED campaigns alongside final package-bound compatibility, affected/full evidence, complete golden comparisons, lean-environment causal checks, the capture-specialization correction and distinct independent reviews. Preparation or exit 0 alone does not close a gate.
 
-Historical missing artifacts remain missing. Original RED 425, exact Task12/13 OPEN composition limits and evaluated-F2 **OPEN_NOT_WAIVED** remain. Phase 5 D1 target is OPEN; the owner's pending target question has no answer. W0/W1/W2/W4 and EL/AA/CE remain unselected.
+Historical missing artifacts remain missing. Original RED 425, exact Task12/13 OPEN composition limits and evaluated-F2 **OPEN_NOT_WAIVED** remain. The owner separately selected Phase 5 D1 target **2.37** on 2026-10-12; implementation/admission and public qualification remain pending under the [Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md). W0/W1/W2/W4 and EL/AA/CE remain unselected.

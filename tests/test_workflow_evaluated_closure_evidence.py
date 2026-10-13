@@ -122,7 +122,7 @@ def test_package_evidence_survives_relocation_and_binds_helper_and_link_target(
 def test_directory_rows_bind_nested_empty_symlink_targets_without_ordinary_dirs(
     tmp_path: Path,
 ) -> None:
-    from orchestrator.workflow_lisp.closed.program import canonical_digest
+    from orchestrator.contracts.closed_program.program import canonical_digest
 
     module = _closure_module()
     workspace = tmp_path / "workspace"

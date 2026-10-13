@@ -10,9 +10,9 @@ from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
-from orchestrator.workflow_lisp.closed.names import canonical_run_ref_signature
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
+from orchestrator.contracts.closed_program.names import canonical_run_ref_signature
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow.assets import WorkflowAssetResolver
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -638,7 +638,7 @@ def test_provider_input_name_collisions_keep_each_ordered_value(
         if location == "original":
             from copy import deepcopy
 
-            from orchestrator.workflow_lisp.closed.check import CheckedFormError, validate
+            from orchestrator.contracts.closed_program.check import CheckedFormError, validate
 
             tampered = deepcopy(closed.tree)
             (tampered_provider,) = _provider_nodes(tampered["body"])
@@ -1235,7 +1235,7 @@ def _assert_projected_tag_current_producer(closed, enum):
 
 def _reject_forged_projected_run_ref_tag(closed, mutation):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgramInvalid
+    from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
     from tests.test_workflow_lisp_closed_program_artifact import _closed, _refresh_projected_k6_negative_name_and_sites
 
     tree = deepcopy(closed.tree)
@@ -1259,7 +1259,7 @@ def test_public_run_ref_artifact_rejects_full_digest_and_reserved_type_tampering
     import json
     from copy import deepcopy
 
-    from orchestrator.workflow_lisp.closed.program import ClosedProgramInvalid
+    from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
 
     root = tmp_path / "public-run-ref-tamper"
     path = install(root, _CARRIER_RUN_REF_SOURCE)
@@ -1798,8 +1798,8 @@ def test_preparation_run_ref_generated_names_preserve_actual_producer_wiring(tmp
 
 
 def test_repeated_mixed_reference_calls_keep_both_original_materialized_bindings(tmp_path):
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command
 
     declarations = '(defrecord Box (n Int)) (defworkflow child ((input Box)) -> Box '
@@ -1842,7 +1842,7 @@ def _forge_finalized_run_ref_tag(tree):
 
 
 def _assert_repeated_mixed_reference_bindings(closed):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     (invoke,) = [row for row in closed.tree['definitions'].values() if row['key'][2] == 'invoke']
     assert [row[0] for row in invoke['key'][4]] == ['map']

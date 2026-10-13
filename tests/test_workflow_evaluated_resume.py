@@ -178,7 +178,7 @@ def test_fresh_preparation_uses_stored_instance_and_rebound_carrier(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     seen = []
     bindings = []
-    from orchestrator.workflow_lisp.closed.frontend import ProviderIOContext
+    from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
     original_bind = ProviderIOContext.bind
     def bind(carrier, program):
         bindings.append(program)

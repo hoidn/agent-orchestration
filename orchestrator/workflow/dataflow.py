@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Mapping, Optional
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
-from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
+from orchestrator.contracts.closed_program.targets import target_dsl_refuses_non_finite_floats
 
 from .executor_runtime import RuntimeStepInput
 from .workspace_files import WorkspaceFiles

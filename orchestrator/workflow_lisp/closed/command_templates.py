@@ -14,7 +14,7 @@ from ..wcc.anf import normalize_wcc_body_to_anf
 from ..wcc import model as w
 from ..wcc.model import WccCase, WccJoin, WccLet, WccNameAtom
 from .names import canonical_type_descriptor
-from .program import _canonical_json
+from orchestrator.contracts.closed_program.program import _canonical_json
 
 
 _CALL_CHILD_FIELDS = {

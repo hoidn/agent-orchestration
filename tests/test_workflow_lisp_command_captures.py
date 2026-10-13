@@ -446,7 +446,7 @@ def test_promoted_parent_reuses_runtime_child_shape_with_final_residual_operands
     closed = build_closed_program(program)
     helper = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "helper")
     runtime = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "runtime")
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
     (call,) = [node for node in _ast_nodes(helper["body"]) if node.get("k") == "call"]
     _assert_promoted_child_shape(helper, runtime, call)
 

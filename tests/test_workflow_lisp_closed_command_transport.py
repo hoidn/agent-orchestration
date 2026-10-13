@@ -7,7 +7,7 @@ import pytest
 from orchestrator.workflow_lisp.closed.build import Builder, build_closed_program
 from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, workflow_catalog_for
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
 from orchestrator.workflow_lisp.procedures import ProcedureCatalog
@@ -197,8 +197,8 @@ def test_input_union_slot_keeps_whole_root_without_universal_field(tmp_path):
 
 def test_command_relations_visit_argv_then_slots_then_external_document(tmp_path):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.check import _Checker
-    from orchestrator.workflow_lisp.closed.sites import _effect_value_children
+    from orchestrator.contracts.closed_program.check import _Checker
+    from orchestrator.contracts.closed_program.sites import _effect_value_children
 
     program = _compile(tmp_path, _command('"${inputs.n}"'), params="(n Int)")
     closed = build_closed_program(program)
@@ -217,7 +217,7 @@ def test_command_relations_visit_argv_then_slots_then_external_document(tmp_path
     "wrong-root-descriptor", "extra-annotation", "hidden-effect"])
 def test_source_free_command_readback_rejects_whole_root_and_projection_tampering(tmp_path, tamper):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, ClosedProgramInvalid, program_digest
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
 
     program = _compile(tmp_path, _command('"${inputs.choice__i}"'),
         params="(choice Choice) (other Choice) (leaf Int)",
@@ -421,7 +421,7 @@ def test_call_coordinates_cover_if_loop_and_argument_join_owners(tmp_path):
 def test_command_interface_projects_checked_native_and_missing_lookup_choices(tmp_path):
     from orchestrator.workflow_lisp.closed.command_interfaces import command_interface, command_interface_digest
     from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
-    from orchestrator.workflow_lisp.closed.program import _canonical_json
+    from orchestrator.contracts.closed_program.program import _canonical_json
     import hashlib
 
     program = _compile(tmp_path, _command('"${inputs.n} ${inputs.absent}"'), params="(n Int)")

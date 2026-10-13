@@ -11,8 +11,9 @@ from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.contracts.closed_program.names import key_type_descriptor
 from orchestrator.workflow_lisp.closed.names import (
     Renamer,
     _normalize_closed_value,
@@ -20,7 +21,6 @@ from orchestrator.workflow_lisp.closed.names import (
     canonical_definition_key,
     canonical_type_descriptor,
     canonical_type_identity,
-    key_type_descriptor,
 )
 
 
@@ -723,7 +723,7 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
     procedure_refs = {name: value for name, value in persisted[4]}
     assert {tuple(decision[1]) for decision in decisions} == {
         tuple(reference['target'][:3]) for reference in procedure_refs.values()}
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
     (definition,) = [row for row in restored.tree['definitions'].values() if row['key'] == persisted]
     calls = [node for node in _ast_nodes(definition['body']) if node['k'] == 'call']
     assert len(decisions) == len(calls)

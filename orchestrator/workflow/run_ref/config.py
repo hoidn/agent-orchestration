@@ -43,7 +43,7 @@ _REFERENCE_RE = re.compile(
 def _supports_nested_structural_transport(target_dsl_version: str) -> bool:
     """Return whether one validated target admits nested record/union transport."""
 
-    from orchestrator.workflow_lisp.syntax import (
+    from orchestrator.contracts.closed_program.targets import (
         target_dsl_supports_nested_structural_transport,
     )
 

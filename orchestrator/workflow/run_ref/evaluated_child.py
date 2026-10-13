@@ -12,7 +12,7 @@ from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.type_descriptor import validate_transport_value
 
-from .closed_path import validate_recorded_closed_path_facts
+from .path_contracts import validate_recorded_closed_path_facts
 from .contracts import canonical_json_bytes, canonical_sha256
 
 
@@ -85,7 +85,7 @@ def _validate_child_result(authority, child_result, step_config, child_run_id):
 
 
 def _validate_recorded_source(child_request, repository_revision_digest, verified_git_tree):
-    from .child import _repository_revision_from_payload
+    from .wire import _repository_revision_from_payload
 
     materialized = child_request["materialized_source"]
     revision = _repository_revision_from_payload(materialized["repository_revision"])

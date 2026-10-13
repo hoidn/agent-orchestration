@@ -351,7 +351,7 @@ def test_target_2_22_fragment_typed_evidence_reuses_trace_without_rendering(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from orchestrator.workflow import prompting
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
 
     actual_render_view = prompting.render_view
     calls: list[str] = []
@@ -425,7 +425,7 @@ def test_target_2_22_fragment_typed_evidence_reuses_trace_without_rendering(
 def test_target_2_22_fragment_trace_tampering_fails_before_evidence(
     mutation: str,
 ) -> None:
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
 
     result = _render_target_2_22()
     rows = list(result.trace)
@@ -501,7 +501,7 @@ def test_target_2_22_fragment_trace_tampering_fails_before_evidence(
 
 
 def test_target_2_22_wrong_slot_kind_fails_trace_carrier_correspondence() -> None:
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
 
     result = _render_target_2_22()
     plan = _plan()
@@ -555,7 +555,7 @@ def test_target_2_22_wrong_slot_kind_fails_trace_carrier_correspondence() -> Non
 def test_target_2_22_typed_evidence_tampering_fails_both_direction_check(
     mutation: str,
 ) -> None:
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
 
     result = _render_target_2_22()
     kwargs = {
@@ -612,7 +612,7 @@ def test_target_2_22_typed_evidence_tampering_fails_both_direction_check(
 
 
 def test_target_2_22_trace_and_evidence_presence_must_match() -> None:
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
 
     result = _render_target_2_22()
     values = {

@@ -2,8 +2,8 @@
 
 import pytest
 
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from tests.workflow_lisp_closed_program_helpers import build
 
 

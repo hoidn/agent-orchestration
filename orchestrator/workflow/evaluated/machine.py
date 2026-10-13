@@ -8,13 +8,9 @@ import re
 from typing import Any
 
 from orchestrator.workflow.pure_expr import coerce_pure_value
-from orchestrator.workflow_lisp.closed.frontend import (
-    ProviderIOActivation,
-    ProviderIOContext,
-    WorkflowIOReader,
-)
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes, _effect_value_children
+from orchestrator.workflow.evaluated.provider_io import ProviderIOActivation, ProviderIOContext, WorkflowIOReader
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes, _effect_value_children
 
 from .calls import call_environment, call_result
 from .values import (

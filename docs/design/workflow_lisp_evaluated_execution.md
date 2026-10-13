@@ -1223,7 +1223,7 @@ undo P6's formatting invariance.
 
 Runtime evidence is an ordinary map, `{}` when empty, with no wrapper or
 version. Each key is the canonical JSON string of `[base, path, position]`
-(the serialization used by `closed/program.py::canonical_digest`),
+(the serialization used by `contracts/closed_program/program.py::canonical_digest`),
 where base is `workspace`, `absolute` or `package:orchestrator`, path follows
 the normalized declaration rules above (relative for workspace/package,
 absolute for absolute), and position is `null` for a declaration or a
@@ -1246,7 +1246,7 @@ targets together preserves these logical spellings. Changing link text or
 an intermediate link without changing the final target or bytes does not
 alone require divergence.
 
-A directory's digest uses `closed/program.py::canonical_digest` on one flat
+A directory's digest uses `contracts/closed_program/program.py::canonical_digest` on one flat
 list of the following exact rows, sorted uniquely by normalized relative
 POSIX `path` within that directory:
 
@@ -2535,8 +2535,8 @@ The command child relation is all argv values, all slot values in argv/part
 order, and all document values. A case arm additionally has its certificate
 root values, checked in the arm binder scope before the body. Each occurrence
 is traversed once. Document presence never hides argv. Implement this relation
-in `closed/sites._effect_value_children`/`_ast_nodes` and independently in
-`closed/check._effect_children` plus its case-arm walks; include it in
+in `contracts/closed_program/sites.py::_effect_value_children`/`_ast_nodes` and independently in
+`contracts/closed_program/check.py::_effect_children` plus its case-arm walks; include it in
 run-reference finalization, source-owner/demand/type/key walks and provenance
 stripping. Generic JSON hashing does not replace AST traversal.
 
@@ -2829,8 +2829,13 @@ report, §6); V3 is the last review's rule.
 
 ## 11. Parallel Effects
 
-`par-map` is a later release (plan, Phase 5). Its rules are fixed here so
-that identity and the memo need no change when it enters.
+The owner selected target **2.37** for Phase 5 parallel map on 2026-10-12.
+`par-map` remains unimplemented; the [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md)
+owns baseline, admission and public qualification before availability. Its rules
+are fixed here so that identity and the memo need no change when it enters.
+The accepted D2/D3 [concrete refinements](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#contract-delta-to-review-before-implementation)
+own the proposed 2.37 activation's cwd/IO and independent-prefix replay rules;
+current first-release 2.35 behavior remains as implemented.
 
 `par-map` evaluates a body once per item of a list, with at most `n` items in
 evaluation at a time.
@@ -2842,10 +2847,13 @@ evaluation at a time.
 - One writer appends to the memo (M1). Evaluations send it records; they
   never write.
 - When an item fails, the others run to completion and their results are
-  committed. The map then fails. Resume runs only the items without a
-  commit.
-- Every effect of an item runs in a working directory given by the map as an
-  expression over the item. Before launch the runtime checks that no two
+  committed. The map then fails. Resume reuses each item's committed prefix
+  and executes only missing effects. D3 admits interleaved independent prefixes
+  while keeping per-item order and C7 input validation in journal-offset order.
+- Direct command/provider effects use the item's working directory, given by
+  the map as an expression over the item. A path run reference retains outer
+  parent authority and executes its child in the existing clone workspace.
+  Before launch the runtime checks that no two
   items resolve to the same directory, and refuses with
   `parallel_workspace_shared` if they do.
 
@@ -2864,8 +2872,8 @@ Limits, stated so that the form is not taken for more than it is:
   the map returns when every item has settled. A policy that chooses its next
   candidate after seeing each result is a different policy; running it in
   parallel changes what it decides. This form does not express it.
-- A budget counted in effects is charged per item, before the item starts. An
-  item that would exceed the budget does not start.
+- `:max` caps the fixed item list, checked before any item starts. It is not
+  an effect budget; Phase 5 adds no new effect-budget system.
 - There is no cancellation in this version. A running item is not stopped
   when another fails.
 - It is adopted when a workflow needs it. It does not repair any failure of

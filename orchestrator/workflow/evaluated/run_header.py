@@ -14,7 +14,7 @@ from orchestrator.workflow.evaluated.interpreters import (
     validate_command_interpreter_pin_shape,
 )
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
-from orchestrator.workflow_lisp.closed.program import REPRESENTATION
+from orchestrator.contracts.closed_program.program import REPRESENTATION
 
 PROFILE = "evaluated_execution.v1"
 

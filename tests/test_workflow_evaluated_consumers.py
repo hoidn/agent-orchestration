@@ -17,7 +17,7 @@ import re
 import pytest
 
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
-from orchestrator.workflow_lisp.closed.program import ClosedProgram
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow_lisp.route_readiness import load_route_readiness_registry, registry_entry_for_path
 from tests.test_workflow_evaluated_cli import _run_cli

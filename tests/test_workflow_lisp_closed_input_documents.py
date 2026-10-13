@@ -4,8 +4,8 @@ from copy import deepcopy
 
 import pytest
 
-from orchestrator.workflow_lisp.closed.program import ClosedProgram, canonical_digest
-from orchestrator.workflow_lisp.closed.program import ClosedProgramInvalid
+from orchestrator.contracts.closed_program.program import ClosedProgram, canonical_digest
+from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
 from tests.test_workflow_lisp_closed_command_transport import _commands
 from tests.test_workflow_lisp_closed_program_check import _command_result_tree, _document_command_tree, _lit
 from tests.test_workflow_lisp_closed_program_compile_cli import _build_state, _write_workspace
@@ -233,7 +233,7 @@ def test_document_only_imported_effect_call_retains_sites_and_owner(tmp_path, ce
 
 
 def _assert_imported_effect_sites(program):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     assert {row["boundary"] for row in _commands(program.tree)} == {"inc", "emit"}
     calls = [node for node in _ast_nodes(program.tree["body"]) if node.get("k") == "call"]
@@ -247,7 +247,7 @@ def test_document_only_local_capture_keeps_original_wire_after_shadowing(tmp_pat
     from dataclasses import replace
     from tests.test_workflow_lisp_command_input_documents import _commands as bindings_for
     from tests.workflow_lisp_closed_program_helpers import build
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     commands = {name: replace(binding, closure=()) for name, binding in bindings_for(tmp_path, ("emit", "inc")).items()}
     program = build(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
@@ -272,7 +272,7 @@ def test_document_only_local_capture_keeps_original_wire_after_shadowing(tmp_pat
 
 
 def _capture_origin_wire(call, body):
-    from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
 
     aliases = {node["name"]: node["value"] for node in _ast_nodes(body)
                if node.get("k") == "let" and node["value"].get("k") == "name"}

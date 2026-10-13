@@ -305,7 +305,7 @@ def test_document_command_rejects_closure_overlap_before_started(tmp_path, caplo
 @pytest.mark.parametrize("explicit_null", [False, True])
 def test_checked_local_definition_null_configuration_uses_root_document_binding(tmp_path, explicit_null):
     from copy import deepcopy
-    from orchestrator.workflow_lisp.closed.program import ClosedProgram, canonical_digest
+    from orchestrator.contracts.closed_program.program import ClosedProgram, canonical_digest
 
     (tmp_path / "consumer.py").write_text('import json, os, sys\nfrom pathlib import Path\n'
         'value=json.loads(Path(sys.argv[-1]).read_bytes())\nPath("observed.json").write_text(json.dumps(value))\n'

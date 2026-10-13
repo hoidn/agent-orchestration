@@ -3,7 +3,7 @@
 import pytest
 
 from orchestrator.workflow_lisp.closed.build import build_closed_program
-from orchestrator.workflow_lisp.closed.program import strip_provenance
+from orchestrator.contracts.closed_program.program import strip_provenance
 from orchestrator.workflow_lisp.expressions import BindProcExpr, LetStarExpr
 from tests.test_workflow_lisp_command_scopes import _walk
 

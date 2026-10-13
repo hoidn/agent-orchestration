@@ -14,7 +14,7 @@ from orchestrator._common.safe_tree import (
     hash_regular_file,
     open_directory,
 )
-from orchestrator.workflow_lisp.closed.program import canonical_digest
+from orchestrator.contracts.closed_program.program import canonical_digest
 from orchestrator.workflow.evaluated.closure_evidence import (
     command_evidence_key,
     parse_command_evidence_key,

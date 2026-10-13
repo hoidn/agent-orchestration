@@ -2,13 +2,14 @@
 
 ## Metadata
 
-- **Status:** draft; proposed amendment, not selected implementation work.
+- **Status:** plan execution authorized; bounded extraction is in progress. Task 1/Gate B feasibility is accepted; Tasks 2–3 reuse its delivered seams and Task 4 qualification remains open. Migration, cutover and deletion (Tasks 5–7) remain conditional on the parent gates.
 - **Kind:** architecture and migration.
 - **Owner:** Workflow Lisp frontend and runtime maintainers; repository owner selects retirement policy.
 - **Reviewers:** independent design and implementation reviewers.
 - **Created / last material update:** 2026-10-12.
 - **Implementation target:** none assigned. Existing targets 2.35 and 2.36 retain their contracts.
 - **Companion plan:** [consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md).
+- **Execution evidence:** [consolidation closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md); this is an in-progress record, not acceptance evidence.
 
 ## Summary And Decision
 
@@ -41,9 +42,12 @@ design owns effects, identities, memo replay and coordinator settlement.
 The [existing delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 owns ordering: Phase 4 supplies consumer-required capabilities, Phase 5 owns
 parallel map, Phase 6b migrates maintained consumers and Phase 7 retires routes
-under decision 8. This proposal adds extraction and deletion criteria within
-that sequence; it neither selects Phase 5's target nor assigns target 2.37.
-Acceptance would amend those owners, not establish a competing roadmap.
+under decision 8. The owner requested execution of the plan on 2026-10-12;
+current execution covers Tasks 0–4 in an isolated worktree. Tasks 5–7 retain
+that sequence and its capability, consumer and
+cutoff gates. The owner separately selected Phase 5 D1 target 2.37 on
+2026-10-12; parallel-map implementation and qualification remain pending. Preserve
+currently supported behavior and APIs throughout extraction.
 
 Excluded: Rust, licensing or packaging-product changes, a Python frontend,
 checked-evaluation expansion, new language features, a general scheduler and
@@ -51,8 +55,8 @@ redesign of already shared provider, command, resource or run-reference services
 
 ## Problem And Alternatives
 
-The evaluated route already has the desired execution model, but its runtime
-imports `workflow_lisp.closed` and compiler-owned prompt utilities. Meanwhile,
+Before extraction, the evaluated route already had the desired execution model,
+but its runtime imported `workflow_lisp.closed` and compiler-owned prompt utilities. Meanwhile,
 older targets retain flat lowering, replay and state translation. Renaming
 directories alone removes neither dependency nor execution path; immediately
 deleting old code would remove supported capabilities and recovery.
@@ -88,24 +92,26 @@ The explicit run-reference child compile entry remains compiler-owning at its
 existing process boundary; this adds no service or protocol. Source rebuild
 remains required, and serialized programs do not contain physical IO roots.
 
-| Responsibility | Existing owner | Proposed owner / disposition |
+| Responsibility | Pre-extraction owner | Extracted owner / disposition |
 | --- | --- | --- |
 | Strict artifact loading, canonical serialization, semantic digest | `workflow_lisp/closed/program.py` | `contracts/closed_program/program.py`; move existing implementation |
 | Source-free semantic checker and its wire-only helpers | `closed/check.py`, `command_check.py`, parts of `names.py` and `sites.py` | Small `contracts/closed_program/` package; compiler and runtime use the same implementation |
-| Shared target admission facts | `workflow_lisp/syntax.py`, `closed/__init__.py` | Shared facts in `contracts/closed_program/`; syntax consumes them, without a second target registry |
+| Shared target admission facts | `workflow_lisp/syntax.py`, `closed/__init__.py` | `contracts/closed_program/targets.py`; syntax consumes the same facts, without a second target registry |
 | Source reading, types, specialization, WCC, artifact construction | `workflow_lisp/`, including mixed helpers in `closed/program.py` and `names.py` | Stay compiler-owned; keep typed configuration projection out of the contract package |
 | Provider IO carriers and checked binding | `closed/frontend.py` | `workflow/evaluated/provider_io.py`; retain owner/frame/site/digest and reference-slot validation |
 | Provider IO selection from typed programs or imported bundles | `closed/frontend.py`, `closed/build.py`, `closed/artifact.py` | Compiler preparation; construct runtime carriers before crossing the boundary |
-| Typed prompt rendering used by both routes | `workflow_lisp/typed_prompt_inputs.py` | Rendering subset under `workflow/`; keep compiler report/bundle traversal in the compiler |
+| Typed prompt rendering used by both routes | `workflow_lisp/typed_prompt_inputs.py` | `workflow/typed_prompt_inputs.py`; keep compiler report/bundle traversal in the compiler |
 | Evaluation, memo, views and authority loading | `workflow/evaluated/` | Keep existing owners; replace compiler imports with the extracted contracts |
 | Compile/rebuild/bind/publish | `cli/commands/{compile,run,resume,evaluated}.py` | Keep orchestration and compiler access here |
 | Command/provider execution and child settlement | Existing performers, `providers/`, `workflow/run_ref/` | Reuse and preserve; consolidate caller adapters only after parity |
-| Shared run-reference wire validation | Helpers/constants in `run_ref/child.py` and `evaluated_child.py` used by parent runtime | Source-free `workflow/run_ref/` contract owners; executable child entry consumes them too |
+| Shared run-reference wire validation | Helpers/constants in `run_ref/child.py`, `closed_path.py` and `path_compile.py` used by parent runtime | `workflow/run_ref/wire.py` and `path_contracts.py`; executable child/compiler entries consume them too; public refusal class import remains a re-export |
+| Normalized program identity | `workflow_lisp/diagnostics.py::build_normalized_program_identity` | `contracts/program_identity.py`; one implementation used by existing consumers. Package hashing and `compute_compiler_runtime_identity` remain in `workflow/run_ref/contracts.py` |
 
-Audit lazy paths as well as module imports: `run_ref/runtime.py` imports child
-request/result/diagnostic helpers, and `evaluated_child.py` reaches back into
-`child.py` for revision validation. Extract shared wire checks/constants from
-executable child modules; do not whitelist hidden compiler imports in the parent.
+The extraction includes lazy paths formerly reaching child executable helpers:
+`run_ref/runtime.py` now uses `wire.py` for request/result/diagnostic checks,
+and `evaluated_child.py` uses source-free revision/path-fact owners. Keep these
+checks shared with executable children; do not whitelist hidden compiler imports
+in the parent.
 `RunRefStepConfig` and `StepCommonConfig` from `workflow/executable_ir.py` remain
 shared dependencies of evaluated run references. Retain them until their
 contracts and callers have moved; retiring flat execution cannot delete that
@@ -118,10 +124,11 @@ checker-used type-name rule to the existing shared descriptor owner. Do not
 relocate all of `closed/`, export compiler factories from the new package, or
 leave forwarding modules after their supported callers have migrated.
 
-`WorkflowIOReader.from_program` recursively resolves imported selections;
-`from_bundle` and `select` also consume bundle provenance. Split those factories
-from runtime selection. Preparation supplies readers containing resolved source
-owners and imported readers; runtime selection needs no compiler bundle.
+Compiler preparation in `closed/frontend.py` uses
+`_workflow_io_reader_from_program` and `_workflow_io_reader_from_bundle` to
+resolve recursive imported selections and bundle provenance. It supplies
+`workflow/evaluated/provider_io.py::WorkflowIOReader` with resolved source
+owners and imported readers; runtime `select` needs no compiler bundle.
 `ProviderIOContext.bind` still checks the complete call mapping, reference slots,
 sites, entry and program digest. Missing or mismatched bindings fail closed.
 Asset prompts retain their selected source owner's root; input-file prompts and
@@ -172,8 +179,12 @@ user-facing execution selector is introduced.
 ## Migration And Deletion Contract
 
 Inventory the maintained workflows, library APIs, CLI/Python callers, fixtures,
-readers and supported run families in the companion plan. Use repository-owned
-consumers and owner-supplied run locations; do not scan unrelated user storage.
+readers and supported run families in the companion plan. The owner bounded
+retained-run inventory to this repository, including nested experiment/project
+run roots. The initial inventory covers `.orchestrate/runs` and
+`.orchestrate/archive` only; it does not complete that repository scope.
+Preserve original data. Generated pre-change compatibility fixtures are separate
+evidence, not an inventory of existing runs.
 Each feature needs a named maintained consumer or an explicit retirement
 decision. Historical features need not all be ported to complete consolidation.
 
@@ -203,12 +214,14 @@ without the retained release/environment and its required inputs.
 
 ## Evidence, Acceptance And Stop Criteria
 
-The extraction is not yet proved compiler-independent. Before a broad move,
-demonstrate artifact load/check/evaluation and parent coordinator validation/
-recovery in a fresh process with compiler imports blocked, exercising deferred
-paths. Separately prove public preparation and child compilation at their
-existing boundaries. This is a feasibility prerequisite, not a claim established
-by this draft.
+Task 1 now proves the bounded compiler-independent load/check/evaluation and
+parent validation/settle/reconcile boundary with fresh compiler-blocked processes,
+including lazy/failure paths. Real public preparation and child compilation run
+outside the blocker. Independent inspection accepted Gate B; the closeout records
+the nine-case coverage across three executions and its limits. Reuse these
+production seams in Tasks 2–3; wider lifecycle, retained-run, affected/full and
+real-pin qualification remain open under Task 4. Selection alone establishes
+none of those later gates.
 
 | Scenario through the public boundary | Required result and evidence |
 | --- | --- |
@@ -249,8 +262,12 @@ affected normative owners, drafting and lifecycle guides, capability matrix,
 design index, examples and existing delivery plan. Keep historical evidence
 linked with its original scope. The companion plan owns task order and receipts.
 
-Material decisions remain explicit: the repository owner selects the maintained
-consumer set, supported old-run families, recovery retention/cutoff and any
-new-run target retirement. Frontend/runtime owners qualify the dependency split
-and any separately needed format migration. These block affected implementation
-or deletion; this draft selects none and grants no waiver of existing contracts.
+Material decisions remain explicit: the plan selects an extraction inventory
+that preserves all currently supported contracts/APIs, with a bounded
+qualification set. Broader migration coverage, supported old-run family
+dispositions, recovery retention/cutoff and new-run target retirement remain
+Tasks 5–6 gates. The
+repository-only inventory selects no retirement policy. Frontend/runtime owners
+qualify the dependency split and any separately needed format migration. Open
+decisions block their affected migration or deletion; extraction selection grants
+no waiver of existing contracts.
