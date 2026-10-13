@@ -5,18 +5,18 @@
 it, and Codex executed it in the worktree on branch `feature/orc-repl`. The
 brief is `inputs.json`; the provider bindings are `providers.json`.
 
-The workflow that ran was an earlier shape of
-[`workflows/examples/design_review_execute.orc`](../../workflows/examples/design_review_execute.orc),
-which flattened the plan into JSON lists of strings. That shape is retired:
-the reference example now keeps the design as a markdown file and passes its
-typed path. To run the same brief today:
+`repl_feature.orc` is the variation of
+[`workflows/examples/design_review_execute.orc`](../../workflows/examples/design_review_execute.orc)
+whose prompts name the documents, code and contracts this feature touches. It
+compiles with the command in its header and runs with:
 
 ```bash
-python -m orchestrator run workflows/examples/design_review_execute.orc \
-  --provider-externs-file workflows/examples/inputs/design_review_execute/providers.json \
+python -m orchestrator run experiments/orc_repl_feature/repl_feature.orc \
+  --provider-externs-file experiments/orc_repl_feature/providers.json \
   --input-file experiments/orc_repl_feature/inputs.json
 ```
 
 The runs `20261013T012339Z-9azbib` and `20261013T014512Z-5875dy` in the
-`feature/orc-repl` worktree were built from the retired sources at commit
-`8a03c635`; attaching the REPL to them needs that revision checked out.
+`feature/orc-repl` worktree were built from an earlier shape of this file that
+flattened the plan into JSON lists (commit `8a03c635`); attaching the REPL to
+them needs that revision checked out.

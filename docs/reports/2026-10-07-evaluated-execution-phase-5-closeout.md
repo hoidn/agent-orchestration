@@ -5,7 +5,7 @@ and checked read-back and Task 2 read-only replay are accepted after independent
 contract/quality reviews and coordinator acceptance.
 Task 3's lifecycle/item-cwd seams have bounded acceptance; its authored parallel
 CLI qualification remains partial. Task 4's bounded workers are accepted after
-independent contract/quality PASS; integration into main remains pending.
+independent contract/quality PASS; full Phase 5 delivery remains pending.
 The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) owns
 pending runtime/public qualification. Parallel-map delivery is not complete.
 
@@ -311,7 +311,7 @@ serial tests do not establish universal old-run compatibility.
 ## Task 4 — Bounded Workers And Coordinator
 
 **Accepted bounded Task 4 cut after independent contract and quality PASS.
-Integration into main remains pending.** This cut executes checked target-2.37
+Full Phase 5 delivery remains pending.** This cut executes checked target-2.37
 parallel maps; it does not close Task 3's full public gate or Phase 5.
 The 12-path product/test freeze `E/phase5-parallel-source-freeze.json` has SHA-256
 `fc4c61b46ab2dd631323f261e5bbf92e95443312c9f27540c48c162018dbffe7`;
@@ -376,3 +376,29 @@ parallel external work uses `effect_execution.perform_external`, while the seria
 path uses the imported runtime alias; W9 follows append plus view. This cut
 establishes neither general availability nor consumer adoption, Phase 5 closure,
 a retirement cutoff or deletion authority.
+
+## Consistency And REPL Integration Check — 2026-10-13
+
+The consistency pass followed the documentation hub through the capability
+matrix, architecture, frontend and evaluated/consolidation designs, versioning,
+parent/Phase 5 plans, roadmap, guides and workflow catalog. It corrected stale
+availability and review status, retained historical receipts, and left consumer
+selection and retirement gates unchanged. The consolidation report now records
+revision-bound physical-line counts separately from future executor deletion.
+Independent documentation review found no remaining contradiction in this scope.
+
+The integration candidate combines Task 4 code `46d3d3c0` and the documentation
+pass with main's REPL introspection/restored workflow at `845b4152`. The existing
+contract imports and target-direction checks coexist with the REPL's linked
+module context and source snapshots. Fresh verification in W:
+
+- Three narrow public CLI/isolation checks passed (`E/consistency-merge-narrow.*`).
+- All 628 cases collected and passed across the 30-module affected union,
+  including the 23 Task 4 owners and seven REPL/compiler/isolation owners
+  (`E/consistency-merge-{collect,union}.*`); execution took 85.13 seconds.
+- Public compile of `experiments/orc_repl_feature/repl_feature.orc` with its
+  provider extern manifest reported `accepted`
+  (`E/consistency-repl-example-compile.json`); no provider was launched.
+
+This is integration evidence for the bounded cut. It does not replace Task 7's
+full-suite/pinned-controller campaign or close Task 3's public gaps and Tasks 5–7.

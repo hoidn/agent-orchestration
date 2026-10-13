@@ -10,7 +10,7 @@
 
 ## Status, entry and decisions
 
-**Implementation in progress; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. Task 1 compilation/read-back and Task 2 read-only replay passed independent contract/quality reviews and coordinator acceptance. Task 4 workers are accepted after independent contract/quality PASS; integration into main and full public qualification remain pending.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; Task 1 compiler implementation and Task 4 workers have bounded receipts below; later runtime/public gates remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
+**Implementation in progress; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. Task 1 compilation/read-back and Task 2 read-only replay passed independent contract/quality reviews and coordinator acceptance. Task 4 workers are accepted after independent contract/quality PASS; full public qualification remain pending.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; Task 1 compiler implementation and Task 4 workers have bounded receipts below; later runtime/public gates remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
 
 Authorities: [parent Phase 5 and closeout](2026-09-29-workflow-lisp-evaluated-execution-plan.md#phase-5-parallel-map), [evaluated design §§6–8, 11 and 13](../design/workflow_lisp_evaluated_execution.md#11-parallel-effects), [list traversal](../design/workflow_lisp_pure_list_traversal.md), [frontend](../design/workflow_lisp_frontend_specification.md), and normative [versioning](../../specs/versioning.md), [state](../../specs/state.md), [IO](../../specs/io.md) and [CLI](../../specs/cli.md). Availability comes from the [capability matrix](../capability_status_matrix.md). The [delivered pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md) owns later production/evidence limits; it does not establish parallel execution or discharge this plan's future qualification gates.
 
@@ -178,8 +178,9 @@ with 421 PASS, 2 XFAIL and five exact inherited characterization failures.
 [Task 1C checked compilation/read-back](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)
 also passed independent contract/quality reviews and coordinator acceptance:
 120 narrow and 1,025 control tests pass; all 53 original corpus outcomes and
-38 Built artifacts remain unchanged. This closes Task 1 compilation/read-back;
-runtime admission and parallel public availability remain pending.
+38 Built artifacts remain unchanged. This closes Task 1 compilation/read-back.
+Runtime admission was pending at that cut; Task 4 below owns later worker
+acceptance, while full public qualification remains pending.
 
 - [x] Add failing compiler cases for four String items, a same-module helper and an imported helper; positive bounds, empty list, wrong source/workspace type, impure source/workspace, missing workspace, malformed/duplicate keywords, unsupported target and target-crossing imports. Expected initial failure: no admitted parallel form.
 - [x] Extend the existing map expression with optional parallel fields whose absence does not serialize new defaults into old artifacts. Preserve the new variant after typing instead of building the serial synthetic loop. Add one WCC control node and one closed `par-map` node; do not lower it to fake command steps or a provider peer group.
@@ -229,8 +230,7 @@ remain pending because those cases do not discharge every D2 clause.
 
 The [bounded Task 4 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator)
 owns the final freeze, 494-case owner PASS, independent contract/quality PASS,
-coordinator acceptance and retained RED/intermediate receipts. Integration into
-main remains pending; the five bounded obligations below are accepted. Task 3's
+coordinator acceptance and retained RED/intermediate receipts. Full Phase 5 delivery remains pending; the five bounded obligations below are accepted. Task 3's
 full public qualification and Tasks 5–7 remain separate gates.
 
 - [x] Add the four-item/two-active fixture with explicit barriers, allowing later items to finish first. Assert actual overlap, peak active count <=2, each body's sequential order, input-ordered output, index-based identity and the exact dependency relation. Avoid timing-only ordering assertions.
