@@ -447,7 +447,7 @@
       "evidence": [
         "tests/test_workflow_lisp_design_review_execute_example.py::test_documented_command_compiles_the_example_to_a_closed_program"
       ],
-      "notes": "File-based variant of the README example: the planner writes the design as a markdown file under docs/ and returns its typed path, the reviewer reads the file through a :doc fill, the planner revises it in place, and the reviewer's model executes it, at target 2.35. Compile and dry-run evidence only; no live provider run is recorded.",
+      "notes": "File-based variant of the README example: the planner drafts artifacts/design/<slug>.md and returns its typed path, the reviewer reads the draft through a :doc fill, the planner writes the final docs/design/<slug>.md as a new file so the review's input never changes and resume can retry any step, and the reviewer's model executes the final document, at target 2.35. Compile and dry-run evidence only; no live provider run is recorded.",
       "path": "workflows/examples/design_review_execute.orc",
       "readiness_label": "leaf_compile_candidate",
       "route_label": "evaluated_execution",
