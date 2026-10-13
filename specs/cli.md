@@ -516,6 +516,7 @@ orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
 :attach RUN_ID
 :bindings
 :result
+:where [NAME]
 :help
 :quit
 ```
@@ -565,7 +566,11 @@ module editing, completion/history or flat-profile attachment through 2.34.
 and run identity. `:result` prints the completed entry result with the entry's
 return type, including completion through a loop's `done`, or `repl_no_result`
 when stopped or failed. Its value is the ordinary evaluator's final return,
-not an incidental operand or loop-seed completion. Expression and result
+not an incidental operand or loop-seed completion. `:where NAME` prints one
+stdout line: the absolute path of the result file the named binding was read
+from, under the attached run root; `:where` alone does the same for the entry
+result. A binding that was computed rather than performed reports
+`repl_no_result_file`; an unknown name reports `name_unknown`. Expression and result
 values use two stdout lines: canonical UTF-8 compact sorted-key JSON, then
 exactly `: <rendered type>`. REPL and runtime errors print `[code] detail`
 on stderr. Frontend errors retain ordinary localized `render_diagnostic`
@@ -585,10 +590,11 @@ artifacts. `:run` remains the explicit exception using public execution.
 | `repl_effect_refused` | Entered expression or called procedure has effects, or a lowered/evaluated `perform` is reached | Session continues | None |
 | `repl_run_not_found` | Requested run root does not exist | Session continues; startup exits 2 | None |
 | `repl_profile_unsupported` | Requested run uses the flat profile | Session continues; startup exits 2 | None |
-| `repl_not_attached` | Expression, `:bindings` or `:result` without an attached run | Session continues | None |
+| `repl_not_attached` | Expression, `:bindings`, `:result` or `:where` without an attached run | Session continues | None |
 | `repl_module_required` | `:run` without a loaded module | Session continues | None |
 | `repl_expression_arity` | Expression line does not contain exactly one datum | Session continues | None |
 | `repl_no_result` | Attached replay has no halted entry result | Session continues | None |
+| `repl_no_result_file` | `:where` names a computed binding or an entry result that no effect produced | Session continues | None |
 | `repl_module_context_missing` | Module call needs unavailable transient compiler context | Session continues | None |
 
 Reused `name_unknown`, `resume_program_changed`, `resume_request_missing`,

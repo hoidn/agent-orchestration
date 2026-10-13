@@ -96,6 +96,7 @@ orchestrator repl [WORKFLOW] [frontend flags] [--run-id RUN_ID] [--state-dir DIR
 :attach RUN_ID
 :bindings
 :result
+:where [NAME]
 :help
 :quit
 ```
@@ -265,7 +266,10 @@ This adds a CLI command and transient compiler/runtime helpers; existing run,
 compile, resume and report contracts retain their behavior. An expression or
 `:result` prints canonical UTF-8, compact, sorted-key JSON on one line followed by a second line exactly
 `: <rendered type>` on stdout. `:result` returns only the halted entry value
-and entry return type; otherwise it fails `repl_no_result`.
+and entry return type; otherwise it fails `repl_no_result`. `:where NAME`
+prints the absolute result-file path of a performed binding under the attached
+run root, `:where` alone that of the entry result; a computed value fails
+`repl_no_result_file`.
 
 REPL/runtime errors print `[code] detail` to stderr. Frontend errors keep
 ordinary localized `render_diagnostic` output with `kind`/`form` context.

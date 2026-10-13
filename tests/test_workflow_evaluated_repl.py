@@ -393,3 +393,19 @@ def test_completed_root_loop_captures_done_result_not_seed_halt(tmp_path, seed_b
     assert "state" in _binding_names(repl.stdout)
     if seed_block:
         assert "a" not in _binding_names(repl.stdout)
+
+
+def test_where_prints_the_result_file_of_performed_bindings_only(tmp_path):
+    fixture = _fixture(tmp_path)
+    assert _run(tmp_path, fixture, "task=x", "scale=1.5").returncode == 0
+    run_root = _run_root(tmp_path)
+    repl = _repl(
+        tmp_path, [":where draft", ":where", ":where task", ":where nobody", ":quit"],
+        run_id=run_root.name,
+    )
+    assert repl.returncode == 0, repl.stderr
+    draft_file, result_file = (Path(line) for line in repl.stdout.splitlines())
+    assert [json.loads(path.read_text()) for path in (draft_file, result_file)] == [PLAN, FEEDBACK]
+    assert {path.parent.parent.parent for path in (draft_file, result_file)} == {run_root / "effects"}
+    assert "[repl_no_result_file]" in repl.stderr
+    assert "[name_unknown]" in repl.stderr

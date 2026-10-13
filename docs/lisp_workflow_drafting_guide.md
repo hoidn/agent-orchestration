@@ -624,6 +624,7 @@ feedback.findings
 (list/length revised.steps)
 (list/empty? feedback.findings)
 :result
+:where revised
 :quit
 ```
 
@@ -631,7 +632,10 @@ feedback.findings
 `:bindings`, expressions and `:result` then inspect the checked captured frame.
 Values print as compact sorted JSON on one line and `: <type>` on the next.
 `:result` returns the entry result; a stopped/failed run instead reports
-`repl_no_result`. REPL/runtime errors print `[code] detail`; frontend errors
+`repl_no_result`. `:where revised` prints the path of the `result.json` that
+binding was read from (its directory also holds `prompt.txt`, `stdout.txt`
+and `stderr.txt`); `:where` alone does the same for the entry result, and a
+computed binding reports `repl_no_result_file`. REPL/runtime errors print `[code] detail`; frontend errors
 retain localized compiler diagnostics with `kind`/`form` context. Expected
 session errors leave the session available for the next line. `list/empty?`
 tests list emptiness; `=` / `!=` keep the ordinary supported-scalar/same-enum

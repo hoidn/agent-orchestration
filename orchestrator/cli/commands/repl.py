@@ -216,6 +216,28 @@ def _binding_lines(captured: CapturedRun, module: LoadedModule) -> list[str]:
     return lines
 
 
+def _result_file(captured: CapturedRun, name: str | None) -> Path:
+    """The result file a performed binding, or the entry result, was read from."""
+    if name is None:
+        if captured.result is None:
+            raise ReplRefusal(
+                "repl_no_result", f"entry has no completed result at position {captured.position}"
+            )
+        value, label = captured.result, "the entry result"
+    else:
+        visible = visible_bindings(captured)
+        if name not in visible:
+            raise ReplRefusal("name_unknown", f"`{name}` is not a captured binding")
+        value, label = visible[name], f"`{name}`"
+    locator = value.committed_result_path
+    root = captured.authority.header.get("result_root")
+    if locator is None or root is None or not locator.startswith(f"{root}/"):
+        raise ReplRefusal(
+            "repl_no_result_file", f"{label} was computed, not performed; it has no result file"
+        )
+    return captured.authority.run_root / locator[len(root) + 1:]
+
+
 def _parse_command(parser: argparse.ArgumentParser, argv: list[str]) -> Any | None:
     stdout, stderr = StringIO(), StringIO()
     try:
@@ -288,6 +310,7 @@ def _dispatch(session: ReplSession, line: str) -> bool:
             ":attach RUN_ID               attach to a checked evaluated run\n"
             ":bindings                    list captured lexical bindings and types\n"
             ":result                      show the completed entry result\n"
+            ":where [NAME]                result file of a performed binding, or of the entry result\n"
             ":help                        show this help\n"
             ":quit                        exit the REPL\n"
             "Any other nonempty line is one pure Workflow Lisp expression."
@@ -325,6 +348,13 @@ def _dispatch(session: ReplSession, line: str) -> bool:
             )
         signature = session.module.typed_program.entry.signature
         _print_value(session.captured.result, signature.return_type_ref)
+        return True
+    if command == ":where":
+        if len(words) > 1:
+            raise ReplRefusal("repl_command_invalid", ":where takes at most one binding name")
+        if session.captured is None or session.module is None:
+            raise ReplRefusal("repl_not_attached", "attach to an evaluated run first")
+        print(_result_file(session.captured, words[0] if words else None))
         return True
     raise ReplRefusal("repl_command_unknown", f"unknown command {command}")
 
