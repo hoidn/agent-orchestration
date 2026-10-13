@@ -63,7 +63,7 @@ def test_input_get_prints_the_pending_record_without_mutation(
     assert manager.state_file.read_bytes() == before
 
 
-def test_input_answer_accepts_empty_text_without_resuming(
+def test_input_answer_is_retired_without_mutating_the_request(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -74,16 +74,16 @@ def test_input_answer_accepts_empty_text_without_resuming(
 
     assert main(
         ["input", "answer", "human", pending["request_id"], "--text", ""]
-    ) == 0
+    ) == 2
 
-    answered = json.loads(capsys.readouterr().out)
-    assert answered["status"] == "answered"
-    assert answered["reply"] == {"variant": "ANSWERED", "text": ""}
-    assert get_human_input(manager.run_root) == answered
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "workflow_execution_profile_retired" in output.err
+    assert get_human_input(manager.run_root) == pending
     assert manager.load().status == "suspended"
 
 
-def test_input_cancel_uses_a_custom_state_root(
+def test_input_cancel_is_retired_for_a_custom_state_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -102,14 +102,16 @@ def test_input_cancel_uses_a_custom_state_root(
             "--state-dir",
             str(state_dir),
         ]
-    ) == 0
+    ) == 2
 
-    cancelled = json.loads(capsys.readouterr().out)
-    assert cancelled["reply"] == {"variant": "CANCELLED"}
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "workflow_execution_profile_retired" in output.err
+    assert get_human_input(manager.run_root) == pending
     assert manager.load().status == "suspended"
 
 
-def test_input_rejects_stale_and_conflicting_answers_without_mutation(
+def test_input_answer_and_cancel_are_retired_without_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -128,17 +130,24 @@ def test_input_rejects_stale_and_conflicting_answers_without_mutation(
             "--text",
             "no",
         ]
-    ) != 0
-    assert capsys.readouterr().out == ""
+    ) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "workflow_execution_profile_retired" in output.err
     assert manager.state_file.read_bytes() == before
 
     assert main(
         ["input", "answer", "human", pending["request_id"], "--text", "yes"]
-    ) == 0
-    answered = json.loads(capsys.readouterr().out)
-    assert main(["input", "cancel", "human", pending["request_id"]]) != 0
-    assert capsys.readouterr().out == ""
-    assert get_human_input(manager.run_root) == answered
+    ) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "workflow_execution_profile_retired" in output.err
+    assert main(["input", "cancel", "human", pending["request_id"]]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "workflow_execution_profile_retired" in output.err
+    assert manager.state_file.read_bytes() == before
+    assert get_human_input(manager.run_root) == pending
 
 
 def test_input_writer_lock_denial_does_not_mutate_the_request(
@@ -154,7 +163,9 @@ def test_input_writer_lock_denial_does_not_mutate_the_request(
     with run_writer_lock(manager.run_root):
         assert main(
             ["input", "answer", "human", pending["request_id"], "--text", "yes"]
-        ) != 0
+        ) == 2
 
-    assert capsys.readouterr().out == ""
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "workflow_execution_profile_retired" in output.err
     assert manager.state_file.read_bytes() == before

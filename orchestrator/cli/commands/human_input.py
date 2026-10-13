@@ -7,8 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from orchestrator.run_lock import RunAlreadyActiveError
-from orchestrator.workflow.human_input import get_human_input, submit_human_input
+from orchestrator.workflow.human_input import get_human_input
 
 
 def _run_root(run_id: str, state_dir: str | None) -> Path:
@@ -22,7 +21,15 @@ def _run_root(run_id: str, state_dir: str | None) -> Path:
 
 
 def human_input_command(args: Any) -> int:
-    """Query or settle one durable request without resuming execution."""
+    """Read a durable request; historical workflow input settlement is retired."""
+
+    if args.input_command in {"answer", "cancel"}:
+        print(
+            "[workflow_execution_profile_retired] historical workflow execution is retired; "
+            "use a separately retained complete release/environment qualified for this run",
+            file=sys.stderr,
+        )
+        return 2
 
     run_root = _run_root(args.run_id, args.state_dir)
     try:
@@ -30,18 +37,6 @@ def human_input_command(args: Any) -> int:
             record = get_human_input(run_root)
             if record is None:
                 raise ValueError("no human input request is recorded")
-        elif args.input_command == "answer":
-            record = submit_human_input(
-                run_root,
-                args.request_id,
-                {"variant": "ANSWERED", "text": args.text},
-            )
-        elif args.input_command == "cancel":
-            record = submit_human_input(
-                run_root,
-                args.request_id,
-                {"variant": "CANCELLED"},
-            )
         else:
             raise ValueError("human input command is invalid")
     except (
@@ -49,7 +44,6 @@ def human_input_command(args: Any) -> int:
         OSError,
         ValueError,
         json.JSONDecodeError,
-        RunAlreadyActiveError,
     ) as exc:
         print(f"input: {exc}", file=sys.stderr)
         return 2

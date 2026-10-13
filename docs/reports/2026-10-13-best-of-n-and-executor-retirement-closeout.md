@@ -29,7 +29,7 @@ Concurrent dirty main changes remain outside W and are preserved.
 | 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
 | 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
-| 3 cutoff / gate R | In progress | Public cutoff, native fixtures and typed imports/LSP separation verified; drain terminal coverage, human-input mutation cutoff, normative reconciliation and final R qualification remain |
+| 3 cutoff / gate R | In progress | Public cutoff, native fixtures, typed imports/LSP separation, drain terminal coverage and human-input mutation cutoff verified; current-only consumer oracles, normative reconciliation and final R qualification remain |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
 
@@ -402,3 +402,33 @@ equal identity, configuration, closed tree and digest for an evaluated standalon
 producer through the retained wrapper and new loader in the candidate tree.
 This is bounded analysis/import evidence; gate R, physical deletion and the final
 full campaign remain pending.
+
+## Drain Terminal Outcomes And Historical Human Input
+
+The canonical evaluated drain now has public CLI evidence for BLOCKED_ON_USER,
+the two-iteration stall window, and exhaustion at its unchanged literal limit of
+40 iterations. Each case checks ordered requests, Prepare's captured ledger
+prefix and dependencies, previous check logs, exact artifact inventory, terminal
+value, report and two completed resumes without changed bytes or redispatch.
+Exhaustion retains the existing distinction: the public result is `STALLED`,
+while all 40 Record rows and the summary remain `CONTINUE`. This change does
+not alter that workflow behavior.
+
+`input answer` and `input cancel` now refuse with
+`workflow_execution_profile_retired` before resolving the historical run or
+acquiring a lock; `input get` remains read-only. The initial public tests
+confirmed both commands previously changed a pending record. The corrected
+tests compare the entire retained tree, including modes and bytes.
+
+`E/retirement-terminal-checks-implementation.md` records source hashes and
+receipts: **3 terminal cases passed**, **7 human-input checks passed**,
+**67 collected**, and **101 affected cases passed** with `-n 16
+--dist=worksteal` in tmux. Independent contract and quality reviews are PASS in
+`E/retirement-terminal-{contract,quality}-review.md`. The coordinator inspected
+the diff and verified source hashes and XML counts before committing.
+
+The history and exact lineage oracles now live in the evaluated test owner.
+The remaining flat fixture fails during its already-retired executable
+preparation at `dab2cdd1`; it is scheduled for deletion, not classified as a
+baseline failure or retained regression. These receipts close this bounded
+batch, not Gate R or physical deletion.

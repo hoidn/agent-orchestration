@@ -113,6 +113,54 @@ def test_old_profile_refuses_before_any_lock_or_write(tmp_path, header, command)
     assert tree(tmp_path) == before
 
 
+@pytest.mark.parametrize(
+    "command,arguments",
+    [
+        ("answer", ["00000000-0000-4000-8000-000000000001", "--text", "yes"]),
+        ("cancel", ["00000000-0000-4000-8000-000000000001"]),
+    ],
+    ids=["answer", "cancel"],
+)
+def test_historical_human_input_settlement_refuses_before_lock_or_write(tmp_path, command, arguments):
+    run = tmp_path / ".orchestrate" / "runs" / "historical"
+    run.mkdir(parents=True)
+    record = {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "resume_scope": {"root_workflow_file": "retired.yaml", "call_frame_ids": []},
+        "runtime_step_id": "request",
+        "enclosing_step": {"step_name": "request", "step_id": "request", "visit_count": 1},
+        "loop_iteration": None,
+        "question": "Continue?",
+        "status": "pending",
+    }
+    state = {
+        "schema_version": "2.1",
+        "run_id": "historical",
+        "workflow_file": "retired.yaml",
+        "workflow_checksum": "0" * 64,
+        "started_at": "2026-10-01T00:00:00+00:00",
+        "updated_at": "2026-10-01T00:00:00+00:00",
+        "status": "suspended",
+        "human_input": record,
+    }
+    state_file = run / "state.json"
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    state_file.chmod(0o640)
+
+    before = tree(tmp_path)
+    queried = cli(tmp_path, "input", "get", "historical")
+    assert queried.returncode == 0, queried.stderr
+    assert json.loads(queried.stdout) == record
+    assert tree(tmp_path) == before
+
+    result = cli(tmp_path, "input", command, "historical", *arguments)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert "workflow_execution_profile_retired" in result.stderr
+    assert "separately retained complete release/environment" in result.stderr
+    assert tree(tmp_path) == before
+
+
 @pytest.mark.parametrize("replacement, code", [
     ('{"schema_version":"2.1"}', "workflow_execution_profile_retired"),
     ('{"schema_version":"2.1","result_persistence_profile":"derived_pure_replay.v1"}', "workflow_execution_profile_retired"),

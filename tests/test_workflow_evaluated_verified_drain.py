@@ -19,7 +19,6 @@ from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
 from tests.test_workflow_evaluated_providers import workspace_relative
 from tests.test_workflow_evaluated_resume import _resume_cli
-from tests.test_workflow_lisp_verified_iteration_drain import FORMER_LINEAGE_PATHS, _assert_two_captured_histories
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,8 +35,30 @@ ASSETS = (
 MANIFESTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 ENTRY = "verified_iteration_drain/drain::drain"
 WORK = "artifacts/work/verified"
+HISTORY_ROOT = f"{WORK}/ledger-inputs"
 TARGET = "docs/design/verified-target.md"
 EXTERNAL_EDIT = b"EXTERNAL LEDGER EDIT\n"
+FORMER_LINEAGE_PATHS = (
+    "state/verified/iterations/0/work-order.json",
+    "state/verified/iterations/0/checks-result.json",
+    "state/verified/iterations/0/checks-log.txt",
+    "state/verified/iterations/0/review-package.md",
+    "state/verified/iterations/0/worker-verdict.txt",
+    "state/verified/iterations/0/worker-note.txt",
+    "state/verified/iterations/0/review-decision.txt",
+    "state/verified/iterations/0/drain-status.txt",
+    "state/verified/iterations/1/work-order.json",
+    "state/verified/iterations/1/checks-result.json",
+    "state/verified/iterations/1/checks-log.txt",
+    "state/verified/iterations/1/review-package.md",
+    "state/verified/iterations/1/worker-verdict.txt",
+    "state/verified/iterations/1/worker-note.txt",
+    "state/verified/iterations/1/done-review-decision.txt",
+    "state/verified/iterations/1/drain-status.txt",
+    "state/verified/statuses.txt",
+    f"{WORK}/ledger.md",
+    f"{WORK}/drain-summary.json",
+)
 INPUTS = (
     "--input", f"target_design_path={TARGET}",
     "--input", "check_commands_path=workflows/checks.json",
@@ -71,6 +92,10 @@ if failing:
 if role == "worker":
     Path(order["worker_verdict_path"]).write_text(decision + "\n")
     Path(order["worker_note_path"]).write_text(f"worker iteration {order['iteration']}\n")
+    if decision == "BLOCKED_ON_USER":
+        blocked = Path(order["blocked_notes_dir"])
+        blocked.mkdir(parents=True, exist_ok=True)
+        (blocked / f"BLOCKED-{order['iteration']}.md").write_text("User input required.\n")
     if int(order["iteration"]) in plan.get("commit", []):
         progress = f"docs/design/progress-{order['iteration']}.txt"
         Path(progress).write_text("progress\n")
@@ -174,6 +199,16 @@ def _history_reads(root: Path, run_root: Path, snapshot) -> list[tuple[str, byte
     return reads
 
 
+def _assert_two_captured_histories(workspace: Path, reads: list) -> list[str]:
+    first, reviewed, second, done = reads
+    assert (reviewed, done) == (first, None) and first != second and second[1].startswith(first[1])
+    ledger = (workspace / f"{WORK}/ledger.md").read_bytes()
+    for path, raw in (first, second):
+        assert path == f"{HISTORY_ROOT}/{_sha(raw)}.md"
+        assert (workspace / path).read_bytes() == raw and ledger.startswith(raw)
+    return [first[0], second[0]]
+
+
 def _assert_completed_resume_is_readonly(root: Path, run_root: Path) -> None:
     before = _tree_bytes(root)
     for _ in range(2):
@@ -202,6 +237,106 @@ def test_public_drain_continue_then_done_reads_two_captured_histories(tmp_path, 
         ["iter 0", "ACCEPTED"], ["iter 1", "DONE"]]
     assert _lineage(tmp_path) == sorted({*FORMER_LINEAGE_PATHS, *histories})
     assert len(_lineage(tmp_path)) == 21
+    report = _cli(tmp_path, "report", "--run-id", run_root.name, "--runs-root", str(run_root.parent), "--format", "json")
+    assert report.returncode == 0, report.stderr
+    assert json.loads(report.stdout)["run"]["workflow_outputs"] == snapshot.terminal.data["value"]
+    _assert_completed_resume_is_readonly(tmp_path, run_root)
+
+
+@pytest.mark.parametrize(
+    "plan,extra_inputs,iterations,terminal,summary_status,statuses,iteration_statuses,blocked_names,lineage_count",
+    [
+        (
+            {"worker": ["BLOCKED_ON_USER"]}, (), 1, "BLOCKED_ON_USER",
+            "BLOCKED_ON_USER", ["BLOCKED_ON_USER"], ["BLOCKED_ON_USER"], ["BLOCKED-0.md"], 12,
+        ),
+        (
+            {"worker": ["CONTINUE", "CONTINUE"]}, ("--input", "stall_limit=2"), 2,
+            "STALLED", "STALLED", ["NO_CHANGE", "NO_CHANGE"], ["CONTINUE", "STALLED"], [], 19,
+        ),
+        (
+            {"worker": ["CONTINUE"] * 40}, ("--input", "stall_limit=41"), 40,
+            "STALLED", "CONTINUE", ["NO_CHANGE"] * 40, ["CONTINUE"] * 40, [], 323,
+        ),
+    ],
+    ids=["blocked", "stall-window", "max-iterations-exhausted"],
+)
+def test_public_drain_terminal_outcomes_preserve_iteration_lineage_and_resume_readonly(
+    tmp_path, monkeypatch, plan, extra_inputs, iterations, terminal, summary_status,
+    statuses, iteration_statuses, blocked_names, lineage_count,
+):
+    frontend = _fixture(tmp_path, monkeypatch, plan)
+    result = _run_cli(tmp_path, *frontend, *INPUTS, *extra_inputs)
+    assert result.returncode == 0, result.stderr
+
+    run_root, _rows, snapshot = _memo(tmp_path)
+    assert snapshot.terminal.data == {
+        "record": "terminal",
+        "outcome": "completed",
+        "value": {"drain_status": terminal, "drain_summary_path": f"{WORK}/drain-summary.json"},
+    }
+    assert not snapshot.pending_starts and not snapshot.unsettled_coordinators
+
+    requests = _requests(tmp_path)
+    assert [(row["role"], row["iteration"], row["decision"]) for row in requests] == [
+        ("worker", str(index), plan["worker"][index]) for index in range(iterations)
+    ]
+    reads = _history_reads(tmp_path, run_root, snapshot)
+    assert len(reads) == iterations and all(read is not None for read in reads)
+    ledger = (tmp_path / f"{WORK}/ledger.md").read_bytes()
+    iteration_starts = [ledger.index(f"iter {index} |".encode()) for index in range(iterations)]
+    assert [raw for _path, raw in reads] == [ledger[:start] for start in iteration_starts]
+    assert len({path for path, _raw in reads}) == iterations
+
+    expected_files = {
+        "state/verified/statuses.txt",
+        f"{WORK}/ledger.md",
+        f"{WORK}/drain-summary.json",
+    }
+    iteration_files = (
+        "work-order.json", "checks-result.json", "checks-log.txt", "review-package.md",
+        "worker-verdict.txt", "worker-note.txt", "drain-status.txt",
+    )
+    for index, row in enumerate(requests):
+        iteration_root = f"state/verified/iterations/{index}"
+        expected_files.update(f"{iteration_root}/{name}" for name in iteration_files)
+        expected_files.add(reads[index][0])
+        order = json.loads((tmp_path / f"{iteration_root}/work-order.json").read_text(encoding="utf-8"))
+        assert order["iteration"] == str(index)
+        assert order["ledger_input_path"] == reads[index][0]
+        assert order["previous_checks_log_path"] == (
+            f"state/verified/iterations/{index - 1}/checks-log.txt" if index else ""
+        )
+    expected_files.update(f"{WORK}/blocked/{name}" for name in blocked_names)
+    if blocked_names:
+        assert (tmp_path / f"{WORK}/blocked/BLOCKED-0.md").read_text(encoding="utf-8") == "User input required.\n"
+    assert _lineage(tmp_path) == sorted(expected_files)
+    assert len(expected_files) == lineage_count
+
+    assert (tmp_path / "state/verified/statuses.txt").read_text(encoding="utf-8").splitlines() == statuses
+    ledger_rows = [line.split(" | ") for line in ledger.decode().splitlines() if line.startswith("iter ")]
+    assert [row[:2] for row in ledger_rows] == [
+        [f"iter {index}", status] for index, status in enumerate(statuses)
+    ]
+    assert [
+        (tmp_path / f"state/verified/iterations/{index}/drain-status.txt").read_text(encoding="utf-8").strip()
+        for index in range(iterations)
+    ] == iteration_statuses
+
+    summary = json.loads((tmp_path / f"{WORK}/drain-summary.json").read_text(encoding="utf-8"))
+    assert summary == {
+        "schema": "verified_iteration_drain_summary/v1",
+        "drain_status": summary_status,
+        "iterations": iterations,
+        "statuses": statuses,
+        "accepted_count": 0,
+        "blocked_notes": blocked_names,
+        "last_note": f"worker iteration {iterations - 1}",
+    }
+    assert subprocess.run(["git", "rev-list", "--count", "HEAD"], cwd=tmp_path,
+        capture_output=True, text=True, check=True).stdout.strip() == "1"
+    assert not list(tmp_path.glob("docs/design/progress-*.txt"))
+
     report = _cli(tmp_path, "report", "--run-id", run_root.name, "--runs-root", str(run_root.parent), "--format", "json")
     assert report.returncode == 0, report.stderr
     assert json.loads(report.stdout)["run"]["workflow_outputs"] == snapshot.terminal.data["value"]

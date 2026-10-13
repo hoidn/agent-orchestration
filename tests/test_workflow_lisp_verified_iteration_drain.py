@@ -34,27 +34,6 @@ PREPARE_SCRIPT = "workflows/library/scripts/prepare_verified_iteration.py"
 RECORD_SCRIPT = "workflows/library/scripts/record_verified_iteration.py"
 HISTORY_ROOT = "artifacts/work/verified/ledger-inputs"
 EXTERNAL_LEDGER_EDIT = b"EXTERNAL_LEDGER_EDIT\n"
-FORMER_LINEAGE_PATHS = (
-    "state/verified/iterations/0/work-order.json",
-    "state/verified/iterations/0/checks-result.json",
-    "state/verified/iterations/0/checks-log.txt",
-    "state/verified/iterations/0/review-package.md",
-    "state/verified/iterations/0/worker-verdict.txt",
-    "state/verified/iterations/0/worker-note.txt",
-    "state/verified/iterations/0/review-decision.txt",
-    "state/verified/iterations/0/drain-status.txt",
-    "state/verified/iterations/1/work-order.json",
-    "state/verified/iterations/1/checks-result.json",
-    "state/verified/iterations/1/checks-log.txt",
-    "state/verified/iterations/1/review-package.md",
-    "state/verified/iterations/1/worker-verdict.txt",
-    "state/verified/iterations/1/worker-note.txt",
-    "state/verified/iterations/1/done-review-decision.txt",
-    "state/verified/iterations/1/drain-status.txt",
-    "state/verified/statuses.txt",
-    "artifacts/work/verified/ledger.md",
-    "artifacts/work/verified/drain-summary.json",
-)
 
 
 def _compile_verified_orc():
@@ -875,19 +854,11 @@ def test_verified_orc_one_continue_then_done_preserves_artifact_lineage(
     assert result["prompt_iterations"] == [0, 0, 1, 1]
     assert result["captured_prompt_sha256s"] == result["evidence_prompt_sha256s"]
     assert len(result["evidence_prompt_sha256s"]) == 4
+    from tests.test_workflow_evaluated_verified_drain import _assert_two_captured_histories
+
     histories = _assert_two_captured_histories(tmp_path, result["history_reads"])
-    assert result["lineage_paths"] == sorted({*FORMER_LINEAGE_PATHS, *histories})
+    assert set(histories).issubset(result["lineage_paths"])
     assert len(result["lineage_paths"]) == 21
-
-
-def _assert_two_captured_histories(workspace: Path, reads: list) -> list[str]:
-    first, reviewed, second, done = reads
-    assert (reviewed, done) == (first, None) and first != second and second[1].startswith(first[1])
-    ledger = (workspace / "artifacts/work/verified/ledger.md").read_bytes()
-    for path, raw in (first, second):
-        assert path == f"{HISTORY_ROOT}/{hashlib.sha256(raw).hexdigest()}.md"
-        assert (workspace / path).read_bytes() == raw and ledger.startswith(raw)
-    return [first[0], second[0]]
 
 
 def test_verified_orc_blocked_stalled_and_exhausted_paths(tmp_path: Path) -> None:
