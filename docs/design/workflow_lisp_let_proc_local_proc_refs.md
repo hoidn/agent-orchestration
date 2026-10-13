@@ -1,6 +1,6 @@
 # Workflow Lisp Local ProcRef Bindings Delta
 
-Status: implemented bounded V1 design delta
+Status: accepted bounded V1 and target-2.36 W3 contract
 Extends: `workflow_lisp_proc_refs_partial_application.md`
 Parent contract: `workflow_lisp_frontend_specification.md`
 Primary feature: `let-proc` local compile-time procedure bindings
@@ -10,9 +10,15 @@ The accepted ProcRef / `bind-proc` delta remains the semantic base: `ProcRef[...
 
 Current evidence lives in `tests/test_workflow_lisp_procedures.py` and
 `tests/fixtures/workflow_lisp/valid/let_proc_proc_ref_forwarding.orc`, including
-shared validation through the ordinary lowering routes. The V1 exclusions
-below remain in force; this status does not implement runtime closures or
-broader local-procedure syntax.
+shared validation through the ordinary lowering routes. Sections below describe
+the V1 contract through target 2.35, including its one-binding, explicit-capture
+and complete-signature restrictions. At 2.36 the
+[W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+extends both spellings with several bindings, inferred lexical captures and
+bounded expected signatures. Incomplete signatures require one authored direct
+consumer site; full signatures retain reuse. Nested definitions, sibling/self
+calls, recursion and runtime closures remain outside W3. Existing nonescape
+checks still apply.
 
 It also keeps the parent frontend constraints intact: Workflow Lisp lowers through Core AST, shared validation, Semantic IR, and executable IR; it is not a runtime replacement, not a YAML text generator, and frontend forms are implementation-ready only when they can lower into the shared contracts. The effect and source-map constraints are likewise inherited: abstractions must not hide provider/command/state/artifact effects, and generated Core/Semantic/Executable nodes must remain source-mapped and diagnosable.
 
@@ -1215,13 +1221,12 @@ Future nested local procedures require explicit rules for:
 
 ### 27.4 Capture Inference
 
-Future capture inference may allow:
-
-```lisp
-:captures infer
-```
-
-or omitted captures. That is deferred until source maps, effect summaries, and explain output are strong enough to make inferred captures auditable.
+Target 2.36 supports omitted `:captures` under the
+[W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc).
+An explicit list is a checked upper bound; only used captures survive, ordered
+by resolved name. Older targets keep authored order. `:captures infer` is not
+admitted syntax. Runtime closures and capture aliases remain separate future
+surfaces.
 
 ## 28. Open Questions
 

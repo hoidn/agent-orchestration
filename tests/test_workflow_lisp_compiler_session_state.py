@@ -267,6 +267,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     state.function_name_resolver = cast("NameResolver", object())
     state.workflow_name_resolver = cast("NameResolver", object())
     state.function_names = frozenset({"outer"})
+    state.extern_names = frozenset({"baseline.extern"})
     state.local_proc_names = frozenset({"local"})
     state.loop_body_depth = 4
     state.let_proc_depth = 2
@@ -289,6 +290,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "function_name_resolver": outer_function_resolver,
         "workflow_name_resolver": outer_workflow_resolver,
         "function_names": frozenset({"outer-call"}),
+        "extern_names": frozenset({"outer.extern"}),
         "local_proc_names": frozenset(),
         "loop_body_depth": 4,
         "let_proc_depth": 0,
@@ -301,6 +303,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "function_name_resolver": inner_function_resolver,
         "workflow_name_resolver": inner_workflow_resolver,
         "function_names": frozenset({"inner-call"}),
+        "extern_names": frozenset({"inner.extern"}),
         "local_proc_names": frozenset(),
         "loop_body_depth": 4,
         "let_proc_depth": 0,
@@ -323,6 +326,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
                     return expressions.elaborate_expression(
                         syntax(source),
                         bound_names=frozenset(),
+                        extern_names=frozenset({"inner.extern"}),
                         procedure_names=frozenset({"inner-proc"}),
                         function_names=frozenset({"inner-call"}),
                         function_name_resolver=inner_function_resolver,
@@ -347,6 +351,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     expressions.elaborate_expression(
         syntax('"ok"'),
         bound_names=frozenset(),
+        extern_names=frozenset({"outer.extern"}),
         procedure_names=frozenset({"outer-proc"}),
         function_names=frozenset({"outer-call"}),
         function_name_resolver=outer_function_resolver,
@@ -368,6 +373,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         expressions.elaborate_expression(
             syntax("(unknown-form)"),
             bound_names=frozenset(),
+            extern_names=frozenset({"outer.extern"}),
             procedure_names=frozenset({"outer-proc"}),
             function_names=frozenset({"outer-call"}),
             function_name_resolver=outer_function_resolver,
@@ -384,6 +390,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "function_name_resolver": None,
         "workflow_name_resolver": None,
         "function_names": frozenset(),
+        "extern_names": frozenset(),
         "local_proc_names": frozenset(),
         "loop_body_depth": 0,
         "let_proc_depth": 0,
@@ -419,6 +426,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "outer": cast("TypedProcedureDef", object())
     }
     state.let_proc_rewrite_results = {1: cast("ExprNode", object())}
+    state.pending_local_hook_preparer = lambda *args, **kwargs: None
     state.workflow_signature = cast("WorkflowSignature", object())
     state.procedure_hidden_context_signature = cast(
         "ProcedureSignature", object()
@@ -457,6 +465,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
             "loop_context": list(state.loop_context),
             "generated_local_procedures": dict(state.generated_local_procedures),
             "let_proc_rewrite_results": dict(state.let_proc_rewrite_results),
+            "pending_local_hook_preparer": state.pending_local_hook_preparer,
             "workflow_signature": state.workflow_signature,
             "procedure_hidden_context_signature": (
                 state.procedure_hidden_context_signature
@@ -571,6 +580,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "loop_context": [],
         "generated_local_procedures": {},
         "let_proc_rewrite_results": {},
+        "pending_local_hook_preparer": None,
         "workflow_signature": None,
         "procedure_hidden_context_signature": None,
         "reusable_state_producer_context": None,
@@ -1829,3 +1839,32 @@ def test_application_selection_reentrancy_does_not_bleed_into_library_build(
     assert application_after_library.selected_workflow_name == (
         "multi_export::selected"
     )
+
+
+def test_run_ref_reentry_preserves_extern_scope_and_default_entry_isolated():
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+    from orchestrator.workflow_lisp.expressions import NameExpr, EnumMemberExpr, elaborate_expression
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+    from orchestrator.workflow_lisp.syntax import SyntaxNode
+
+    def syntax(source):
+        [datum] = read_sexpr_text(source, source_path="session.orc").items
+        return SyntaxNode(datum=datum, span=datum.span, module_path="session.orc", form_path=("session",))
+
+    state = CompilerSession().elaboration
+    state.extern_names = frozenset({"baseline.extern"})
+    source = '''(run-ref :source (:repo "file:///workspace"
+      :commit "0123456789abcdef0123456789abcdef01234567")
+      :program (:bundle child) :inputs (:value providers.reviewer)
+      :policy (:setup ()))'''
+    expr = elaborate_expression(syntax(source), bound_names=frozenset(),
+                                extern_names=frozenset({"providers.reviewer"}),
+                                target_dsl_version="2.36", session_state=state)
+    assert isinstance(expr.inputs[0][1], NameExpr)
+    assert expr.inputs[0][1].name == "providers.reviewer"
+    assert state.extern_names == frozenset({"baseline.extern"})
+    for guidance in (False, True):
+        isolated = elaborate_expression(syntax("baseline.extern"), bound_names=frozenset(),
+                                        guidance_example=guidance, target_dsl_version="2.36", session_state=state)
+        assert isinstance(isolated, EnumMemberExpr)
+        assert state.extern_names == frozenset({"baseline.extern"})

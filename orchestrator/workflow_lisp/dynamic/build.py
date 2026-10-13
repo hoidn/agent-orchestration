@@ -1,7 +1,7 @@
 """Checked dynamic source builds using the established frontend request owners."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from collections.abc import Mapping
 from types import MappingProxyType
@@ -32,6 +32,7 @@ class DynamicProgramBuildResult:
     source_paths: Mapping[str, Path]
     source_read_trace: FrontendSourceReadTraceSnapshot
     configuration_trace: FrontendConfigurationTraceSnapshot
+    lowerer: object | None = field(default=None, compare=False, repr=False)
 
 
 def prepare_dynamic_program_bundle(request: FrontendBuildRequest, *, source_read_trace=None) -> DynamicProgramBuildResult:
@@ -72,7 +73,7 @@ def prepare_dynamic_program_bundle(request: FrontendBuildRequest, *, source_read
     return DynamicProgramBuildResult(read_back, build_key, root, artifact, manifest, read_back.entry,
                                      MappingProxyType(dict(compiled.source_paths)),
                                      FrontendSourceReadTraceSnapshot(trace.records, trace.revision_vector, trace.raw_bytes_by_path),
-                                     FrontendConfigurationTraceSnapshot(configuration.records, configuration.revision_vector))
+                                     FrontendConfigurationTraceSnapshot(configuration.records, configuration.revision_vector), compiled.lowerer)
 
 
 def build_dynamic_program_bundle(request: FrontendBuildRequest, *, source_read_trace=None) -> DynamicProgramBuildResult:

@@ -4,7 +4,11 @@
 
 - **Status:** accepted for the first release at gate G1 on 2026-09-29;
   Closed-program compilation and bounded pure, command and portable
-  composed-provider execution are implemented at target 2.35.
+  composed-provider execution use the current typed evaluated targets 2.35 and
+  2.36. Target 2.36 adds W3 under the
+  [versioning contract](../../specs/versioning.md) and
+  [local-hook owner](workflow_lisp_write_once.md#63-language-changes-to-let-proc);
+  it retains the evaluated representation and persistence profile.
   `orchestrator compile` writes the checked artifact; `run --dry-run` validates
   inputs, and `run` publishes durable authority, terminal results and effect
   attempt evidence. Ordinary typed public resume and suffix invalidation are
@@ -2839,9 +2843,14 @@ versioned program/profile contract, with explicit owner amendments. Shared memo,
 performer or request-parity evidence does not permit reinterpreting saved typed
 programs or runs as dynamic environments.
 
-- Evaluated execution applies from target 2.35 (plan decision 6, selected
-  by the owner on 2026-09-30). Programs at that target use the evaluator;
-  compilation alone does not establish runtime availability or recovery evidence.
+- The current typed evaluated route admits exactly targets 2.35 and 2.36.
+  The first-release target 2.35 remains plan decision 6, selected by the owner
+  on 2026-09-30; 2.36 adds the
+  [W3 contract](../../specs/versioning.md) on the same representation/profile.
+  Compilation alone does not establish runtime availability or recovery evidence.
+  The [branch-qualified native 3.0 profile](../../specs/versioning.md#branch-qualified-target-30)
+  is separate; the typed target range does not admit its dynamic representation
+  or reinterpret typed artifacts/runs.
 - Until explicitly retired under plan decision 8, programs at older targets
   compile and run as they do. Require raw byte-identical artifacts for
   identical identity inputs. The existing compiler/runtime identity hashes

@@ -52,8 +52,9 @@ def test_target_235_is_registered(registry) -> None:
     assert TARGET in registry
 
 
-def test_shared_validation_orders_235_last() -> None:
-    assert validation.DEFAULT_VERSION_ORDER[-2:] == ("2.34", TARGET)
+def test_shared_validation_keeps_235_adjacent_to_234() -> None:
+    order = validation.DEFAULT_VERSION_ORDER
+    assert order[order.index("2.34") + 1] == TARGET
 
 
 def test_evaluated_execution_gate_starts_at_235() -> None:
@@ -66,18 +67,19 @@ def test_evaluated_route_excludes_unknown_and_dynamic_targets() -> None:
     predicate = syntax.target_dsl_uses_evaluated_execution
 
     assert predicate(TARGET)
+    assert predicate("2.36")
     assert all(
         not predicate(target)
         for target in syntax.SUPPORTED_TARGET_DSL_VERSIONS
-        if target != TARGET
+        if target not in {TARGET, "2.36"}
     )
     assert not any(
         predicate(target)
-        for target in ("2.36", "3.0", "3.1", "invalid", None)
+        for target in ("2.37", "3.0", "3.1", "invalid", None)
     )
 
 
-@pytest.mark.parametrize("target", ["2.36", "3.1"])
+@pytest.mark.parametrize("target", ["2.37", "3.1"])
 def test_unknown_target_public_compile_and_run_refuse_before_creation(
     target: str,
     tmp_path: Path,
@@ -143,6 +145,7 @@ def test_every_prior_gate_holds_at_235(gate: str) -> None:
     predicate = (GATE_PREDICATES | GATES_FROM_234)[gate]
 
     assert predicate(TARGET)
+    assert predicate("2.36")
 
 
 def test_new_gate_is_in_target_gate_completeness_audit() -> None:

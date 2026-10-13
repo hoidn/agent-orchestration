@@ -46,7 +46,15 @@ contracts, including the [branch-qualified profile](../../specs/versioning.md#br
 The [guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
 provides complete examples; full readiness/adoption remain separate.
 
-**Implemented-W3 reevaluation, 2026-10-12:** owner execute selects the
+**Current branch routing, 2026-10-12:** the selected [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+imports W3/2.36 (upstream `8e6e06b2`) and the upstream bound-capture correction
+as prerequisites for preserving typed 2.35/2.36 while adapting the REPL
+to native 3.0. The port plan owns fresh combined-code verification. This does
+not close a whole delivery phase, promote maintained examples or route-readiness,
+or select adoption, DC-P, Phase 6b migration or Phase 7 retirement. Earlier
+comparison pins/results remain frozen and do not qualify the combined port.
+
+**Historical implemented-W3 reevaluation, 2026-10-12, before the REPL port:** owner execute selects the
 [finite actual comparison](2026-10-12-dynamic-core-w3-reevaluation-plan.md),
 not adoption or migration. The [current packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
 records all 100 logical observations executed: 98 PASS and two genuine parity
@@ -140,7 +148,7 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest checkpoint, 2026-10-12: the [final comparison checkpoint](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
+Historical pre-port checkpoint, 2026-10-12: the [final comparison checkpoint](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
 records a successful fresh fetch with unchanged main `47e85a9c` and shared
 repairs `6846531c`; no relevant committed delta or comparison-pin change.
 
@@ -229,7 +237,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
 | DC-3 — production readiness | Reviewed Tasks 1–8 atomic cutover; branch-qualified target 3.0 / schema 3.1 public route, shared boundaries and complete consumers; Q1–Q5 code proof complete at `0bdb7460` | [Final documentation/handoff record](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md#completion-record); DC-P open, no adoption/default/migration |
-| Implemented-W3 reevaluation | All 100 logical observations executed; 98 PASS, two genuine parity FAIL; provenance guard PASS; refinements qualified; final code and document reviews approved | [Actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12); concrete DC-P choice prepared without owner adoption/migration disposition |
+| Implemented-W3 reevaluation (frozen pre-port packet) | All 100 logical observations executed; 98 PASS, two genuine parity FAIL; provenance guard PASS; refinements qualified; final code and document reviews approved | [Actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12); concrete DC-P choice prepared without owner adoption/migration disposition |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:

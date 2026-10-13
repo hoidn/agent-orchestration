@@ -1240,9 +1240,12 @@ def test_incomplete_transitive_program_snapshot_is_locally_refused(
     assert path == producer_path
 
 
+@pytest.mark.parametrize(
+    "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
+)
 @pytest.mark.parametrize("edit_source", [False, True])
 def test_imported_snapshot_must_match_an_overlapping_source_graph(
-    tmp_path: Path, edit_source: bool,
+    tmp_path: Path, edit_source: bool, consumer_target: str,
 ) -> None:
     producer_path = tmp_path / "cp" / "shared.orc"
     producer_path.parent.mkdir(parents=True)
@@ -1268,7 +1271,7 @@ def test_imported_snapshot_must_match_an_overlapping_source_graph(
     consumer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{TARGET}")
+  (:target-dsl "{consumer_target}")
   (defmodule cp/consumer)
   (import cp/shared :as source :only (get))
   (export run)
@@ -1300,6 +1303,208 @@ def test_imported_snapshot_must_match_an_overlapping_source_graph(
     )
 
     assert (code, path) == ("compiled_workflow_snapshot_conflict", producer_path)
+
+
+@pytest.mark.parametrize(
+    "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
+)
+def test_imported_snapshot_refuses_a_different_overlapping_definition(
+    tmp_path: Path, consumer_target: str,
+) -> None:
+    producer_path = tmp_path / "cp" / "shared.orc"
+    producer_path.parent.mkdir(parents=True)
+    producer_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule cp/shared)
+  (export get)
+  (defworkflow get ((value Int)) -> Int value))
+''',
+        encoding="utf-8",
+    )
+    snapshot = compile_typed_program(
+        producer_path,
+        entry_workflow="get",
+        source_roots=(tmp_path,),
+        command_boundaries={},
+    )
+    producer_path.write_text(
+        producer_path.read_text(encoding="utf-8").replace(
+            "-> Int value)", "-> Int (+ value 1))"
+        ),
+        encoding="utf-8",
+    )
+    consumer_path = tmp_path / "cp" / "consumer.orc"
+    consumer_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{consumer_target}")
+  (defmodule cp/consumer)
+  (import cp/shared :as source :only (get))
+  (export run)
+  (defworkflow run () -> Int (call dep :value 1)))
+''',
+        encoding="utf-8",
+    )
+
+    code, path, _line, _column = _error(
+        consumer_path,
+        lambda: compile_typed_program(
+            consumer_path,
+            entry_workflow="run",
+            source_roots=(tmp_path,),
+            command_boundaries={},
+            imported_programs={"dep": snapshot},
+        ),
+    )
+
+    assert (code, path) == ("compiled_workflow_snapshot_conflict", producer_path)
+
+
+def _old_std_improve_snapshot(tmp_path: Path):
+    producer_path = tmp_path / "legacy" / "old_improve.orc"
+    producer_path.parent.mkdir(parents=True)
+    producer_path.write_text(
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule legacy/old_improve)
+  (import std/improve :only (Decision Improvement improve))
+  (export run)
+  (defrecord State (value Int))
+  (defproc review ((state State) (inputs Int)) -> Decision[String String]
+    :effects () :lowering inline
+    (variant Decision[String String] APPROVE :evidence "ok"))
+  (defproc revise ((state State) (inputs Int) (feedback String)) -> State
+    :effects () :lowering inline state)
+  (defworkflow run () -> Int
+    (let* ((result
+             (improve (record State :value 0)
+                      1
+                      (proc-ref review)
+                      (proc-ref revise)
+                      1)))
+      42)))
+''',
+        encoding="utf-8",
+    )
+    trace = SourceReadTrace()
+    snapshot = compile_typed_program(
+        producer_path,
+        entry_workflow="run",
+        source_roots=(tmp_path,),
+        command_boundaries={},
+        workspace_root=tmp_path,
+        source_read_trace=trace,
+    )
+    old_builtin_path = (
+        compiler_module._builtin_stdlib_source_root() / "std" / "improve.orc"
+    ).resolve()
+    assert old_builtin_path in trace.raw_bytes_by_path
+    assert trace.raw_bytes_by_path[old_builtin_path] == old_builtin_path.read_bytes()
+    assert "std/improve" in snapshot.source_file_digests
+    return producer_path, snapshot, old_builtin_path
+
+
+def test_old_std_improve_snapshot_remains_sole_authority_after_source_deletion(
+    tmp_path: Path,
+) -> None:
+    producer_path, snapshot, old_builtin_path = _old_std_improve_snapshot(
+        tmp_path / "producer"
+    )
+    producer_path.unlink()
+    assert not producer_path.exists()
+
+    consumer_root = tmp_path / "consumer"
+    consumer_path = consumer_root / "consumer.orc"
+    consumer_path.parent.mkdir(parents=True)
+    consumer_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.36")
+  (defmodule consumer)
+  (export run)
+  (defworkflow run () -> Int (call dep)))
+''',
+        encoding="utf-8",
+    )
+    trace = SourceReadTrace()
+    consumer = compile_typed_program(
+        consumer_path,
+        entry_workflow="run",
+        source_roots=(consumer_root,),
+        command_boundaries={},
+        workspace_root=consumer_root,
+        imported_programs={"dep": snapshot},
+        source_read_trace=trace,
+    )
+
+    assert consumer.imported_programs["dep"] is snapshot
+    assert old_builtin_path not in trace.raw_bytes_by_path
+    assert not producer_path.exists()
+
+    built = build_closed_program(consumer)
+    restored = ClosedProgram.from_artifact(built.artifact())
+    assert (restored.tree, restored.sites, restored.digest) == (
+        built.tree,
+        built.sites,
+        built.digest,
+    )
+    assert any(
+        "legacy/old_improve::run" in key
+        for key in restored.tree["definitions"]
+    )
+    assert any(
+        "std/improve::improve" in key
+        for key in restored.tree["definitions"]
+    )
+
+
+def test_old_std_improve_snapshot_conflicts_with_selected_w3_source_authority(
+    tmp_path: Path,
+) -> None:
+    _producer_path, snapshot, _old_builtin_path = _old_std_improve_snapshot(
+        tmp_path / "producer"
+    )
+    consumer_root = tmp_path / "consumer"
+    consumer_path = consumer_root / "consumer.orc"
+    consumer_path.parent.mkdir(parents=True)
+    consumer_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.36")
+  (defmodule consumer)
+  (import std/improve :only (Decision))
+  (export run)
+  (defrecord Outcome (decision Decision[String String]))
+  (defworkflow run () -> Int (call dep)))
+''',
+        encoding="utf-8",
+    )
+    trace = SourceReadTrace()
+
+    code, path, _line, _column = _error(
+        consumer_path,
+        lambda: compile_typed_program(
+            consumer_path,
+            entry_workflow="run",
+            source_roots=(consumer_root,),
+            command_boundaries={},
+            workspace_root=consumer_root,
+            imported_programs={"dep": snapshot},
+            source_read_trace=trace,
+        ),
+    )
+
+    w3_source = (
+        compiler_module._builtin_stdlib_source_root()
+        / "w3"
+        / "std"
+        / "improve.orc"
+    ).resolve()
+    assert (code, path) == ("compiled_workflow_snapshot_conflict", w3_source)
+    assert w3_source in trace.raw_bytes_by_path
 
 
 def test_source_digests_use_consumed_import_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1702,7 +1907,12 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
     assert "cp/producer::private-inc" in consumer.procedures
 
 
-def test_evaluated_consumer_requires_a_matching_bundle_snapshot(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
+)
+def test_evaluated_consumer_requires_a_matching_bundle_snapshot(
+    tmp_path: Path, consumer_target: str,
+) -> None:
     producer_path = tmp_path / "cp" / "producer.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
@@ -1729,7 +1939,7 @@ def test_evaluated_consumer_requires_a_matching_bundle_snapshot(tmp_path: Path) 
     consumer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{TARGET}")
+  (:target-dsl "{consumer_target}")
   (defmodule cp/consumer)
   (export run)
   (defworkflow run ((n Int)) -> Int (call dep :n n)))

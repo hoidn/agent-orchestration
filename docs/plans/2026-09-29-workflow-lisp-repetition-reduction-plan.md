@@ -31,7 +31,15 @@ command-backed deterministic procedures and stand-in providers.
 
 ## Status, Authorities, And Scope
 
-Status on this candidate: local W3 delivery/import is unselected; other
+**Current branch routing, 2026-10-12:** the selected [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+imports W3/2.36 (upstream `8e6e06b2`) and the upstream bound-capture correction
+as prerequisites for preserving typed 2.35/2.36 while adapting the REPL
+to native 3.0. The port plan owns fresh combined-code verification. This does
+not close a whole delivery phase, promote maintained examples or route-readiness,
+or select adoption, DC-P, Phase 6b migration or Phase 7 retirement. Earlier
+comparison pins/results remain frozen and do not qualify the combined port.
+
+Historical pre-port status on this candidate: local W3 delivery/import was unselected; other
 repetition rules retain their independent scope. W3 is implemented upstream
 at target 2.36 on fixed `47e85a9c7e452bfd367275a15d5e97b928efa5ca`
 (implementation `8e6e06b2`, bounded closeout `d6f76950`). The
@@ -45,10 +53,15 @@ Frozen proposed-W3 controls remain historical evidence.
 
 ### W3 Planning Amendment
 
-Current upstream W3 is implemented at 2.36 and compared through the separate
+Current local W3 import/verification is owned by the
+[REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md); it preserves
+older typed targets and selects no maintained-example migration.
+
+Historical pre-port upstream W3 was implemented at 2.36 and compared through the separate
 pinned [reevaluation route](2026-10-12-dynamic-core-w3-reevaluation-plan.md).
 The dated amendment below preserves historical candidate sequencing and
-checkmarks; it does not reopen upstream delivery or select candidate import.
+checkmarks; local import is now separately selected by the REPL port plan.
+The earlier planning tasks do not become completed through that selection.
 
 Owner request, 2026-10-01: make the before/after local-hook proposal concrete
 in the roadmap and this planset. W3 covers multiple local bindings, inferred
@@ -93,7 +106,7 @@ execution. Neither delivery selects this proposal. Decision 2 must be
 resolved against those allocations before target registration or tests are
 written; this update chooses no replacement target.
 
-Decisions needed before execution:
+Historical decisions needed before the original component execution:
 
 | # | Decision | Recommendation |
 | --- | --- | --- |

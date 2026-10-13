@@ -2,7 +2,7 @@
 
 Status: accepted baseline / umbrella frontend contract
 Target substrates: typed WCC/schema-2 lowering through target 2.34; typed
-closed execution at 2.35; independent branch-qualified dynamic execution at 3.0
+closed execution at 2.35/2.36; independent branch-qualified dynamic execution at 3.0
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -56,7 +56,7 @@ library module (§87.1).
 
 Target 2.34 adds the implemented [numeric surface](workflow_lisp_numeric_surface.md).
 The pipeline described here remains the runnable route through 2.34.
-Target 2.35 selects [typed evaluated execution](workflow_lisp_evaluated_execution.md):
+Targets 2.35 and 2.36 select [typed evaluated execution](workflow_lisp_evaluated_execution.md):
 public closed-program compile/dry-run, bounded pure/command/portable-provider
 execution, memo-based resume/suffix invalidation, path children and checked
 readers are implemented. Its admitted effects and remaining phase-wide/live
@@ -1084,11 +1084,17 @@ The accepted model is:
 Detailed contract:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
-Bounded V1 `let-proc` adds one local typed procedure with explicit identifier
+Through target 2.35, bounded V1 `let-proc` adds one local typed procedure with explicit identifier
 captures and `(proc-ref local-name)` references. It specializes a private
 generated procedure through ordinary `defproc` lowering; nested or recursive
 local procedures and escaping procedure references remain rejected. See the
 [implemented local-binding contract](workflow_lisp_let_proc_local_proc_refs.md).
+At 2.36, the [W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+adds several local bindings, inferred lexical captures and expected signatures
+from exactly one authored direct consumer call site when incomplete; complete
+signatures retain reuse. It uses existing generated procedures and the evaluated
+route. Declared externs stay available without becoming captures. W3 is
+implemented at 2.36.
 
 ### 7.9 Type Parameters And Structural Constraints
 

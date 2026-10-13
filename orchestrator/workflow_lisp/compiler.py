@@ -222,6 +222,7 @@ from .workflows import (
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
     ExternalToolBinding,
+    ExpressionCompileContext,
     PromptExtern,
     Stage3CompileResult,
     TypedWorkflowDef,
@@ -2809,6 +2810,7 @@ def _run_stage3_validation_pipeline(
                     procedure,
                     typed_body=normalize_resolved_inline_procedure_calls(
                         procedure.typed_body,
+                        closed_program=compiler_session.closed_program,
                         typed_procedures_by_name=resolved_procedures_by_name,
                         target_dsl_version=module.target_dsl_version,
                         inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
@@ -2840,6 +2842,7 @@ def _run_stage3_validation_pipeline(
                     workflow,
                     typed_body=normalize_resolved_inline_procedure_calls(
                         workflow.typed_body,
+                        closed_program=compiler_session.closed_program,
                         typed_procedures_by_name=resolved_procedures_by_name,
                         target_dsl_version=module.target_dsl_version,
                         inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
@@ -3954,6 +3957,7 @@ def _compile_stage3_graph(
                 procedure,
                 typed_body=normalize_resolved_inline_procedure_calls(
                     procedure.typed_body,
+                    closed_program=compiler_session.closed_program,
                     typed_procedures_by_name=resolved_procedures_by_name,
                     target_dsl_version=definition_module.target_dsl_version,
                     inlined_constructor_type=inlined_constructor_type,
@@ -3988,6 +3992,7 @@ def _compile_stage3_graph(
                 workflow,
                 typed_body=normalize_resolved_inline_procedure_calls(
                     workflow.typed_body,
+                    closed_program=compiler_session.closed_program,
                     typed_procedures_by_name=resolved_procedures_by_name,
                     target_dsl_version=definition_module.target_dsl_version,
                     inlined_constructor_type=inlined_constructor_type,
@@ -4259,6 +4264,17 @@ def _compile_stage3_graph(
             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
             typed_program=typed_program_snapshot if module_name == graph.entry_module_name else None,
+            expression_context=(
+                ExpressionCompileContext(
+                    function_catalog=function_catalog,
+                    typed_functions_by_name=combined_typed_functions,
+                    function_name_resolver=local_function_resolver,
+                    procedure_name_resolver=local_procedure_resolver,
+                    workflow_name_resolver=local_workflow_resolver,
+                )
+                if module_name == graph.entry_module_name
+                else None
+            ),
         )
         compiled_results_by_name[module_name] = result
         aggregate_diagnostics.extend(result.diagnostics)

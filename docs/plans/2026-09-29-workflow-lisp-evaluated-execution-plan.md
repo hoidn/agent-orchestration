@@ -391,7 +391,15 @@ selected.
 
 ### Delivery Order And Preserved Capabilities
 
-**Current comparison amendment, 2026-10-12:** native runtime
+**Current branch routing, 2026-10-12:** the selected [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+imports W3/2.36 (upstream `8e6e06b2`) and the upstream bound-capture correction
+as prerequisites for preserving typed 2.35/2.36 while adapting the REPL
+to native 3.0. The port plan owns fresh combined-code verification. This does
+not close a whole delivery phase, promote maintained examples or route-readiness,
+or select adoption, DC-P, Phase 6b migration or Phase 7 retirement. Earlier
+comparison pins/results remain frozen and do not qualify the combined port.
+
+**Historical comparison amendment, 2026-10-12, before the REPL port:** native runtime
 `b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012` remains the qualified fresh-only
 target-3.0 candidate. W3/2.36 is implemented upstream at fixed
 `47e85a9c7e452bfd367275a15d5e97b928efa5ca` (implementation `8e6e06b2`,
@@ -451,7 +459,7 @@ work stays with its upstream owner; do not implement the same component here.
 | Phase 3 Tasks 6–8, 12–15 | Import necessary shared performers, request/input transport and validation; compare fresh restart/repeated work. Task 8 recovery is optional, not a candidate gate |
 | Phase 3 Tasks 9–11, 16–17 | Child runs when needed; readers/watchdog are readiness, not initial-spike prerequisites; honest availability and separate selected-profile closeout |
 | Phase 4a/4b and Phase 5 | Shared, consumer-driven work after applicable runtime contract proofs; typed Phase 3 completion alone never authorizes dynamic parallel effects |
-| Phase 4c W3 | Implemented upstream at 2.36, not imported here; the current reevaluation uses its clean pinned comparator and native 3.0 without selecting either migration. Historical future-delivery choices below predate upstream W3 implementation |
+| Phase 4c W3 | Imported as a necessary typed-2.36 dependency of the selected [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md); fresh combined verification is separate from the frozen paired comparison. No maintained-example migration, route-readiness promotion or whole Phase 4c closure is selected here. Historical future-delivery choices below retain their earlier scope |
 | Phase 6a / 6b / 7 | Pilot evidence feeds DC-U; migrate once after DC-P; retire only with explicit consumer and existing-run dispositions |
 
 W1/W5 are static-specific or deferred; EL-1 must reassess useful effect
@@ -472,7 +480,7 @@ Preserve useful boundary/domain contracts while evaluating internal typing.
 | Typed prompt and result contracts | Preserve prompt assembly, validation and typed value transport for admitted effects; the pilot exercises these through public entries |
 | Artifact production, publication, consumption, freshness and lineage | Preserve the existing contracts needed by each migrating consumer and demonstrate a producer-to-consumer handoff. Memoized values do not substitute for artifact tracking, nor do declared dependencies prove every file an agent actually read |
 | Explicit portable provider context | A named Phase 4 priority, with capture, transformation/forking and rebinding evidence; not part of the first-release portable provider subset |
-| Local hooks with inferred context (W3) | Historical Phase 6a/DC-U uses its frozen typed baseline and labeled proposed W1/W3 controls. Current paired reevaluation uses implemented upstream W3, credits inferred hooks and context-free `improve`, and prepares DC-P; Phase 6b migrates only the explicitly chosen destination |
+| Local hooks with inferred context (W3) | W3 is imported for typed 2.36 under the [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md). Historical Phase 6a/DC-U and the implemented-W3 paired reevaluation retain frozen controls/results; they do not qualify the combined port. Phase 6b migrates only an explicitly chosen destination |
 
 Historical delivery integration, 2026-10-01, conditioned by the 2026-10-02 amendment
 (superseded for upstream W3 availability by the current comparison amendment):
@@ -566,9 +574,11 @@ ledger. Authoring changes reuse existing effect and execution owners.
   run-reference modes. Name the consumer
   and the missing behavior before selecting a class. Path-mode run references
   already belong to Phases 2–3; they do not wait here.
-- **4c — W3 local hooks (implemented upstream typed comparator/fallback):**
-  W3/2.36 is available in the pinned comparator described by the current
-  comparison amendment; candidate import and migration remain unselected.
+- **4c — W3 local hooks (imported typed-2.36 dependency):**
+  The selected [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+  owns local W3 import and fresh compatibility verification. Maintained-consumer
+  migration and whole Phase 4c closure remain separate. The pinned comparator
+  in the historical comparison amendment preserves its original evidence.
   The following records the original delivery obligations, now closed upstream
   within its documented bounded scope. Historically, if that route was selected,
   deliver multiple `let-proc` bindings, inferred
@@ -663,9 +673,9 @@ as missing. The candidate's DC-F/DC-U/DC-P owner decisions govern further
 investment; evidence is limited to the capabilities exercised, and untested
 context or other capabilities neither prove benefit nor authorize expansion.
 
-The current [W3 reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+The historical pre-port [W3 reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md)
 uses implemented inferred hooks and context-free `improve` from the separate
-typed comparator; it records current execution rather than replacing DC-U's
+typed comparator; it records its pinned execution rather than replacing DC-U's
 frozen controls. The following preserves the historical pilot instructions.
 
 For that earlier W3 pilot, use the existing explicit-hook API for the baseline and perform

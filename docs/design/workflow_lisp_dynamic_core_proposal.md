@@ -6,15 +6,18 @@
 - **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.
 - **Plan:** the [dynamic-core evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) owns qualification, bounded experiments, decision gates and changes to prospective delivery. Selection for evaluation is not production adoption.
 
-**Current comparison, 2026-10-12:** the qualified native runtime remains
+**Current port and frozen comparison:** the earlier comparison used native
 `b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012`, target 3.0 and fresh-only.
-W3 is implemented upstream at target 2.36 on pinned
-`47e85a9c7e452bfd367275a15d5e97b928efa5ca` (implementation `8e6e06b2`,
-closeout `d6f76950`), available in the clean typed comparator and not imported
-into this candidate. The [reevaluation plan](../plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md)
-owns the authorized real paired comparison and concrete DC-P decision
-preparation. The [actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12) records all 100 logical observations executed, with two genuine parity FAIL; final code and document reviews are approved. Earlier W3 counterfactuals below
-retain their historical scope. No adoption or migration follows from execute.
+W3 at target 2.36 is now imported into this branch as a typed dependency of the
+[REPL port](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md), alongside
+preserved 2.35 and native 3.0. Its current contract is
+[write-once §6](workflow_lisp_write_once.md#6-w3-hooks-see-their-context).
+The earlier [paired comparison](../../experiments/dynamic_core_evaluation/README.md#implemented-w3-comparison-opt-in)
+remains frozen to native runtime `b0b05d50`, packet `d87334f0` and typed
+`47e85a9c`; its two parity failures and approved reviews do not qualify the
+combined runtime. The selected REPL extension does not select application
+adoption, migration or a default profile. Earlier W3 counterfactuals below
+retain their historical scope.
 
 ## 1. Recommendation
 
@@ -1327,7 +1330,12 @@ digests, bound inputs, budget, workspace/configuration and runtime/interpreter
 identity. These filenames reuse the public run-root convention, not the typed
 `RunAuthority` schema. The mutable **`state.json` is authoritative for fresh-run
 progress and terminal publication** in this profile; it is not a memo-derived
-cache. No memo, environment checkpoint, resume plan or replay is created.
+cache. No memo, environment checkpoint or resume plan is created. Ordinary
+report/status and operational readers remain source-independent and do not
+replay. The explicit REPL may reconstruct existing valid state read-only under
+[the inspection contract](../../specs/state.md#repl-read-only-reconstruction)
+and [accepted REPL design](workflow_lisp_repl.md#native-target-30-extension);
+this creates no persisted replay or recovery authority.
 
 | File | Exact fields and interpretation |
 | --- | --- |
@@ -1375,11 +1383,15 @@ inputs and budget and may repeat all earlier work. Command closure/disjointness,
 interpreter resolution and before/after execution checks reuse their shared
 owners; a fresh run cannot claim typed replay's file-change guarantees.
 
-Readers validate the exact profile, immutable pins and state/result shape, read
+Ordinary report/status and operational readers validate the exact profile,
+immutable pins and state/result shape, read
 an atomic state snapshot and inspect lock liveness. Stored running plus absent
 writer means `interrupted`; a valid completed/failed terminal remains terminal.
 Missing/corrupt state is `dynamic_state_invalid`, not reconstructible from logs,
-attempt bundles or re-evaluation. Readers neither write nor execute anything.
+attempt bundles or re-evaluation. These ordinary readers neither write nor
+execute anything. Explicit REPL reconstruction requires that same existing
+valid authority; it never repairs missing/corrupt state, dispatches effects,
+publishes results/views or creates recovery authority.
 Report/dashboard show ordered invocations, reached source location, result/error
 and captured files; no unevaluated future graph or legacy heartbeat is fabricated.
 Monitor/usage-limit readers recognize active/interrupted/terminal states and

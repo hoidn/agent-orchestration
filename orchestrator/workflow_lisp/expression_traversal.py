@@ -197,7 +197,7 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, BindProcExpr):
         return (expr.base_expr,) + tuple(binding.value_expr for binding in expr.bindings)
     if isinstance(expr, LetProcExpr):
-        return (expr.binding.local_body, expr.body)
+        return tuple(binding.local_body for binding in expr.bindings) + (expr.body,)
     if isinstance(expr, ProviderResultExpr):
         prompt_children = (
             [fill.value_expr for fill in expr.prompt.fills]
@@ -306,6 +306,7 @@ def map_expr(
     on_name: Callable[[NameExpr], ExprNode],
     *,
     bound: frozenset[str] = frozenset(),
+    on_free_callee: Callable[[str], None] | None = None,
 ) -> object:
     """Rebuild one expression, applying ``on_name`` to each free ``NameExpr``.
 
@@ -317,14 +318,20 @@ def map_expr(
     outer references independently.  Nested containers and dataclass fields
     are traversed structurally; the original node is returned unchanged
     whenever no child was rewritten.
+
+    ``on_free_callee`` optionally observes procedure-call names under those
+    same scopes without rewriting callable references.
     """
 
+    if isinstance(expr, ProcedureCallExpr) and on_free_callee is not None:
+        if expr.callee_name not in bound:
+            on_free_callee(expr.callee_name)
     if isinstance(expr, NameExpr):
         if expr.name in bound:
             return expr
         return on_name(expr)
     if isinstance(expr, FieldAccessExpr):
-        rewritten_base = map_expr(expr.base, on_name, bound=bound)
+        rewritten_base = map_expr(expr.base, on_name, bound=bound, on_free_callee=on_free_callee)
         if rewritten_base is expr.base:
             return expr
         if isinstance(rewritten_base, FieldAccessExpr):
@@ -348,7 +355,7 @@ def map_expr(
     if isinstance(expr, LetStarExpr):
         retained_input = expr.condition_normalization_input
         rewritten_retained_input = (
-            map_expr(retained_input, on_name, bound=bound)
+            map_expr(retained_input, on_name, bound=bound, on_free_callee=on_free_callee)
             if retained_input is not None
             else None
         )
@@ -360,6 +367,7 @@ def map_expr(
                 binding_expr,
                 on_name,
                 bound=frozenset(local_bound),
+                on_free_callee=on_free_callee,
             )
             rewritten_bindings.append((binding_name, cast(ExprNode, rewritten_binding)))
             changed = changed or rewritten_binding is not binding_expr
@@ -368,6 +376,7 @@ def map_expr(
             expr.body,
             on_name,
             bound=frozenset(local_bound),
+            on_free_callee=on_free_callee,
         )
         changed = changed or rewritten_body is not expr.body
         changed = changed or rewritten_retained_input is not retained_input
@@ -380,11 +389,12 @@ def map_expr(
             condition_normalization_input=rewritten_retained_input,
         )
     if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
-        rewritten_source = map_expr(expr.source_expr, on_name, bound=bound)
+        rewritten_source = map_expr(expr.source_expr, on_name, bound=bound, on_free_callee=on_free_callee)
         rewritten_body = map_expr(
             expr.body_expr,
             on_name,
             bound=bound | {expr.binder_name},
+            on_free_callee=on_free_callee,
         )
         if (
             rewritten_source is expr.source_expr
@@ -397,7 +407,7 @@ def map_expr(
             body_expr=rewritten_body,
         )
     if isinstance(expr, MatchExpr):
-        rewritten_subject = map_expr(expr.subject, on_name, bound=bound)
+        rewritten_subject = map_expr(expr.subject, on_name, bound=bound, on_free_callee=on_free_callee)
         changed = rewritten_subject is not expr.subject
         rewritten_arms: list[object] = []
         for arm in expr.arms:
@@ -405,6 +415,7 @@ def map_expr(
                 arm.body,
                 on_name,
                 bound=bound | {arm.binding_name},
+                on_free_callee=on_free_callee,
             )
             changed = changed or rewritten_arm_body is not arm.body
             if rewritten_arm_body is arm.body:
@@ -423,6 +434,7 @@ def map_expr(
             expr.body_expr,
             on_name,
             bound=bound | {expr.binding_name},
+            on_free_callee=on_free_callee,
         )
         if rewritten_body is expr.body_expr:
             return expr
@@ -432,6 +444,7 @@ def map_expr(
             expr.body_expr,
             on_name,
             bound=bound | {expr.binding_name},
+            on_free_callee=on_free_callee,
         )
         changed = rewritten_body is not expr.body_expr
         changed_updates: dict[str, object] = {}
@@ -439,13 +452,13 @@ def map_expr(
             changed_updates["body_expr"] = rewritten_body
         for field_name in ("max_iterations_expr", "initial_state_expr"):
             current = getattr(expr, field_name)
-            rewritten = map_expr(current, on_name, bound=bound)
+            rewritten = map_expr(current, on_name, bound=bound, on_free_callee=on_free_callee)
             changed = changed or rewritten is not current
             if rewritten is not current:
                 changed_updates[field_name] = rewritten
         if expr.on_exhausted_result_expr is not None:
             current = expr.on_exhausted_result_expr
-            rewritten = map_expr(current, on_name, bound=bound)
+            rewritten = map_expr(current, on_name, bound=bound, on_free_callee=on_free_callee)
             changed = changed or rewritten is not current
             if rewritten is not current:
                 changed_updates["on_exhausted_result_expr"] = rewritten
@@ -453,32 +466,15 @@ def map_expr(
             return expr
         return replace(expr, **changed_updates)
     if isinstance(expr, LetProcExpr):
-        proc_bound = bound | {expr.binding.local_name} | {
-            param.name for param in expr.binding.params
-        }
-        rewritten_local_body = map_expr(
-            expr.binding.local_body,
-            on_name,
-            bound=frozenset(proc_bound),
-        )
-        rewritten_body = map_expr(
-            expr.body,
-            on_name,
-            bound=bound | {expr.binding.local_name},
-        )
-        if (
-            rewritten_local_body is expr.binding.local_body
-            and rewritten_body is expr.body
-        ):
-            return expr
-        return replace(
-            expr,
-            binding=replace(expr.binding, local_body=rewritten_local_body),
-            body=rewritten_body,
-        )
+        local_names = {binding.local_name for binding in expr.bindings}
+        bindings = tuple(replace(binding, local_body=map_expr(binding.local_body, on_name,
+            bound=bound | local_names | {param.name for param in binding.params},
+            on_free_callee=on_free_callee)) for binding in expr.bindings)
+        body = map_expr(expr.body, on_name, bound=bound | local_names, on_free_callee=on_free_callee)
+        return replace(expr, binding=bindings[0], additional_bindings=bindings[1:], body=body)
     if isinstance(expr, tuple):
         rewritten_items = tuple(
-            map_expr(item, on_name, bound=bound) for item in expr
+            map_expr(item, on_name, bound=bound, on_free_callee=on_free_callee) for item in expr
         )
         if all(
             rewritten is original
@@ -492,7 +488,7 @@ def map_expr(
         return rewritten_items
     if isinstance(expr, list):
         rewritten_items = [
-            map_expr(item, on_name, bound=bound) for item in expr
+            map_expr(item, on_name, bound=bound, on_free_callee=on_free_callee) for item in expr
         ]
         if all(
             rewritten is original
@@ -506,7 +502,7 @@ def map_expr(
         return rewritten_items
     if isinstance(expr, Mapping):
         rewritten_items = {
-            key: map_expr(item, on_name, bound=bound)
+            key: map_expr(item, on_name, bound=bound, on_free_callee=on_free_callee)
             for key, item in expr.items()
         }
         if all(
@@ -521,7 +517,7 @@ def map_expr(
             if not field.init or field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                 continue
             current = getattr(expr, field.name)
-            rewritten = map_expr(current, on_name, bound=bound)
+            rewritten = map_expr(current, on_name, bound=bound, on_free_callee=on_free_callee)
             if rewritten is not current:
                 changed_updates[field.name] = rewritten
         if changed_updates:
@@ -534,6 +530,7 @@ def free_expr_names(
     expr: object,
     *,
     bound: frozenset[str] = frozenset(),
+    include_callees: bool = False,
 ) -> set[str]:
     """Return the free ``NameExpr`` names referenced by one expression."""
 
@@ -543,5 +540,17 @@ def free_expr_names(
         names.add(node.name)
         return node
 
-    map_expr(expr, collect, bound=bound)
+    map_expr(
+        expr, collect, bound=bound,
+        on_free_callee=names.add if include_callees else None,
+    )
     return names
+
+
+def stamp_capture_origin(expr, *, binding_env, value_env):
+    """Retain creation provenance on free captured reads only."""
+    def stamp(node):
+        if node.capture_origin is not None or node.name not in binding_env:
+            return node
+        return replace(node, capture_origin=(binding_env[node.name], value_env[node.name]))
+    return map_expr(expr, stamp)

@@ -281,6 +281,74 @@ def test_shared_projection_survives_forwarding_and_bound_reference(tmp_path):
     assert evaluate_closed_program(restored, {"flag": False}, effect_handler=command).value == {"n": 9}
 
 
+@pytest.mark.parametrize("creator", ["value", "(if true value value)"])
+def test_generic_bound_projection_retains_alias_and_computed_creator(tmp_path, creator):
+    from tests.workflow_lisp_closed_program_helpers import build
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from orchestrator.workflow.evaluated.values import coerce_evaluated_value
+
+    source = BOUND_SOURCE.replace(
+        '(let* ((runner (bind-proc (proc-ref deliver) :fixed value.n))) (runner))',
+        f'(let* ((saved {creator}) (runner (bind-proc (proc-ref deliver) :fixed saved.n))) (runner))')
+    closed = build(tmp_path, source, boundaries={"probe": ExternalToolBinding(
+        name="probe", stable_command=("python", "probe.py"), closure=("probe.py",))})
+    restored = ClosedProgram.from_artifact(closed.artifact())
+    observed = []
+
+    def command(node, args, site, _owner, _reader):
+        observed.append(args[-1].value)
+        return coerce_evaluated_value({"n": args[-1].value}, node["result"])
+
+    for flag, expected in ((True, 7), (False, 9)):
+        assert evaluate_closed_program(restored, {"flag": flag}, effect_handler=command).value == {"n": expected}
+    assert observed == [7, 9]
+
+
+def test_generic_bound_projection_survives_retained_condition_input(tmp_path):
+    from orchestrator.workflow_lisp.expression_traversal import walk_expr
+    from orchestrator.workflow_lisp.expressions import LetStarExpr
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from orchestrator.workflow.evaluated.values import coerce_evaluated_value
+
+    source = BOUND_SOURCE.replace('(defproc forward',
+        '(defproc accepts ((fixed Int)) -> Bool :effects () :lowering inline (= fixed 7))\n  (defproc forward')
+    source = source.replace(
+        '(let* ((runner (bind-proc (proc-ref deliver) :fixed value.n))) (runner))',
+        '(if (let* ((predicate (bind-proc (proc-ref accepts) :fixed value.n))) (predicate)) '
+        '(deliver value.n) (deliver (+ value.n 1)))')
+    path = install(tmp_path, source)
+    typed = compile_typed_program(path, entry_workflow=None, source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={"probe": ExternalToolBinding(
+            name="probe", stable_command=("python", "probe.py"), closure=("probe.py",))})
+    from orchestrator.workflow_lisp.expressions import FieldAccessExpr
+    from orchestrator.workflow_lisp.typecheck import typecheck_expression
+
+    procedure, retained = next((procedure, node.condition_normalization_input)
+        for procedure in typed.procedures.values() if procedure.specialization is not None
+        for node in walk_expr(procedure.typed_body.expr)
+        if isinstance(node, LetStarExpr) and node.condition_normalization_input is not None)
+    projection = next(node for node in walk_expr(retained.condition_expr) if isinstance(node, FieldAccessExpr))
+    generic = next(item for item in typed.procedures.values() if item.signature.type_params)
+    original = next(node.condition_normalization_input for node in walk_expr(generic.typed_body.expr)
+        if isinstance(node, LetStarExpr) and node.condition_normalization_input is not None)
+    original_projection = next(node for node in walk_expr(original.condition_expr) if isinstance(node, FieldAccessExpr))
+    assert projection.base.capture_origin[0] == original_projection.base.capture_origin[0]
+    retyped = typecheck_expression(projection, type_env=typed.type_env,
+        value_env=dict(procedure.signature.params),
+        shared_union_field_capabilities=procedure.specialization.shared_union_field_capabilities)
+    assert retyped.type_ref.name == "Int"
+    restored = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
+    observed = []
+
+    def command(node, args, site, _owner, _reader):
+        observed.append(args[-1].value)
+        return coerce_evaluated_value({"n": args[-1].value}, node["result"])
+
+    for flag, expected in ((True, 7), (False, 10)):
+        assert evaluate_closed_program(restored, {"flag": flag}, effect_handler=command).value == {"n": expected}
+    assert observed == [7, 10]
+
+
 def test_older_helper_nested_enum_union_and_containers_preserve_source_owners(tmp_path):
     from tests.workflow_lisp_closed_program_helpers import build
     declarations = '''(defenum Status A B)

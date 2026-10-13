@@ -47,6 +47,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.33",
         "2.34",
         "2.35",
+        "2.36",
         "3.0",
     }
 )
@@ -186,7 +187,7 @@ def target_dsl_refuses_non_finite_floats(target_dsl_version: str) -> bool:
 
 def target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool:
     """Return whether a target routes execution through the evaluated runtime."""
-    return target_dsl_version == EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+    return target_dsl_version in {"2.35", "2.36"}
 
 
 def target_dsl_is_2_33_or_newer(target_dsl_version: str) -> bool:
@@ -1134,3 +1135,7 @@ def _raise_error(message: str, *, span: SourceSpan, code: str = "frontend_parse_
             ),
         )
     )
+
+
+def target_dsl_supports_local_hook_inference(target_dsl_version: str) -> bool:
+    return target_dsl_version == "2.36"

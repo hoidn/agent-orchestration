@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 from pathlib import Path
@@ -62,6 +62,7 @@ def _binders(nodes):
 class DynamicSourceCompilation:
     program: DynamicProgram
     source_paths: Mapping[str, Path]
+    lowerer: object | None = field(default=None, compare=False, repr=False)
 
 
 class _Lowerer:
@@ -129,7 +130,7 @@ class _Lowerer:
 
     def located(self, value, node, module, form_path=None):
         path = tuple(form_path or getattr(node, "form_path", ("workflow-lisp", "expression")))
-        self.locations[id(value)] = (node.span, module, (*path, *self.expression_paths.get(id(node), ())))
+        self.locations[id(value)] = (node.span, getattr(self, "emitted_module", module), (*path, *self.expression_paths.get(id(node), ())))
         return value
 
     def type(self, name, node, module):
@@ -200,13 +201,14 @@ class _Lowerer:
         if head == "fn":
             _items(node, 3)
             params = _binders(_items(row[1]))
-            code = f"{module}::{owner}$fn/" + "/".join(self.expression_paths[id(node)])
+            emitted = getattr(self, "emitted_module", module)
+            code = f"{emitted}::{owner}$fn/" + "/".join(self.expression_paths[id(node)])
             if code in self.members or code in self.definitions:
                 raise _invalid(node, "lexical closure identifier conflicts with a declared helper")
             body, free = self.lower(row[2], scope | set(params), module, owner)
             captures = sorted(free - set(params))
-            self.definitions[code] = {"params": params, "captures": captures, "body": body, "owner": self.owner(module), "boundary": None}
-            self.definition_locations[code] = (node.span, module, (*node.form_path, *self.expression_paths[id(node)]))
+            self.definitions[code] = {"params": params, "captures": captures, "body": body, "owner": self.owner(emitted), "boundary": None}
+            self.definition_locations[code] = (node.span, emitted, (*node.form_path, *self.expression_paths[id(node)]))
             values = [self.located({"k": "name", "n": name}, node, module) for name in captures]
             return result({"k": "fn", "code": code, "captures": values}, captures)
         if head == "let*":
@@ -521,6 +523,10 @@ class _Lowerer:
         for module, source in self.graph.modules_by_name.items():
             relative = source.path.relative_to(source.source_root).as_posix()
             sources[module] = {"root_role": "source", "relative_path": relative, "source_sha256": "sha256:" + hashlib.sha256(self.trace.raw_bytes_by_path[source.path.resolve()]).hexdigest()}
+        return self.assemble(entry, sources)
+
+    def assemble(self, entry, sources):
+        """Admit ordinary definitions and source locations as one checked program."""
         entries = {}
         def locate(pointer, location):
             span, module, path = location
@@ -555,9 +561,9 @@ class _Lowerer:
             pointer = getattr(exc, "location", None)
             nearest = max((key for key in entries if pointer and (pointer == key or pointer.startswith(key + "/"))), key=len, default=_pointer("/definitions", entry))
             location = entries[nearest]
-            source = self.graph.modules_by_name[location["source"]]
+            source = self.graph.modules_by_name.get(location["source"])
             from ..spans import SourcePosition, SourceSpan
-            span = SourceSpan(*(SourcePosition(str(source.path), **{key: value for key, value in location["span"][side].items() if key != "path"}) for side in ("start", "end")))
+            span = SourceSpan(*(SourcePosition(str(source.path) if source is not None else "<repl>", **{key: value for key, value in location["span"][side].items() if key != "path"}) for side in ("start", "end")))
             raise LispFrontendCompileError((LispFrontendDiagnostic(code="dynamic_source_invalid", message=str(exc), span=span, form_path=tuple(location["form_path"])),)) from exc
 
 
@@ -594,4 +600,4 @@ def compile_source(path: Path, *, source_roots=(), entry_workflow=None, command_
         program = lowerer.compile(entry)
     except RecursionError as exc:
         raise _invalid(source.syntax_module, "source nesting exceeds the bounded frontend") from exc
-    return DynamicSourceCompilation(program, {module: source.path for module, source in graph.modules_by_name.items()})
+    return DynamicSourceCompilation(program, {module: source.path for module, source in graph.modules_by_name.items()}, lowerer)

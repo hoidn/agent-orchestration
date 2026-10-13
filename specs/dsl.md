@@ -20,7 +20,11 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (admitted revisions extend through `"2.35"`; target 2.35 selects evaluated execution with implemented closed-program compilation, bounded public run/resume, path children and profile readers; external command input documents are delivered, while full Phase 3 qualification remains open (see `versioning.md`, v2.35 additions). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (admitted revisions extend through `"2.36"`; target 2.35 selects evaluated execution with implemented closed-program compilation, bounded public run/resume, path children and profile readers; external command input documents are delivered, while full Phase 3 qualification remains open (see `versioning.md`, v2.35 additions). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+    Target 2.36 uses that existing typed evaluated route with the W3 local-hook
+    and graph-selected helper additions owned by [versioning](versioning.md)
+    and the [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
+    This Core revision range does not admit the separate native 3.0 representation.
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).

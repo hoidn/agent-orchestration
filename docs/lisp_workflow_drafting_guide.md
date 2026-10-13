@@ -617,7 +617,7 @@ The commands are `probe.py`: `bump n` returns `{n: n+1}`, `fetch n` returns
 | 15 | A `let*` binding whose value is an `if` over two records, in a procedure called in a loop | compiles; exit 1, `pure_expr_payload_invalid` | Defect (run time) | bind the choice through a `defun` |
 | 16 | An effectful call as the argument of another | exit 2, `compiler_defect` | Defect (elaboration) | bind the inner call with `let*` first |
 | 17 | A name bound inside an expression that shadows an outer name | runs, with the value of lexical scope | - | - |
-| 18 | A `bind-proc` value used under a later binder of a name it reads | runs, but reads the later binder's value: 13 where lexical scope gives 7 | Defect (wrong value) | rename the later binding |
+| 18 | A `bind-proc` value used under a later binder of a name it reads | runs with its creator-scope value: 7 | - | - |
 
 At target **2.35**, public `compile` builds `closed_program.json` and
 `manifest.json`; it validates typed values/control, callee bodies,
@@ -1091,9 +1091,11 @@ It returns `{n: 27}` after `bump 26`, `fetch 27`.
 ### Shadowed names (rows 17 and 18)
 
 A name bound inside an expression no longer captures a reference to an outer
-binding of the same name, at every target. It can still capture in two forms:
-a `bind-proc` value and a `let-proc` value, each used under a later binder of
-a name it reads ([versioning, "Exceptions to target stability"](../specs/versioning.md)).
+binding of the same name, at every target. `bind-proc` values and `let-proc`
+captures likewise retain their creator-scope values across later binders.
+These are corrections of wrong lexical values, not new target-specific syntax;
+see [versioning, "Exceptions to target stability"](../specs/versioning.md) and
+[public scope checks](../tests/test_workflow_lisp_use_site_scope.py).
 
 ```lisp
 ;; tests/fixtures/workflow_lisp/guide_shapes/shadowed_name.orc
@@ -1112,9 +1114,9 @@ It returns 15, the value of lexical scope, after `bump 1`, `bump 10`.
         (hook 5)))))
 ```
 
-It returns 13, not 7: the value bound to `hook` reads the later `b`, a defect.
-Do not rebind a name that a `bind-proc` value reads between the binding and
-the call; rename the later binding:
+It returns 7: `hook` retains `(+ b 1)` from its creator scope, where `b` is 1;
+the later `b` is 7 without changing that bound value. The earlier result 13
+was a corrected lexical-scope defect. Renaming the later binder is optional:
 
 ```lisp
 ;; tests/fixtures/workflow_lisp/guide_shapes/bind_proc_renamed.orc
@@ -1276,6 +1278,106 @@ state.json under the new run root; no memo exists. See
 [CLI](../specs/cli.md#dynamic-execution), [IO](../specs/io.md#dynamic-boundary-io),
 [Providers](../specs/providers.md#dynamic-composed-provider-boundary) and
 [State](../specs/state.md#dynamic-fresh-run-authority) for exact contracts.
+
+### Inspect a run with the Workflow Lisp REPL
+
+`python -m orchestrator repl` loads a module, explicitly runs its entry and
+inspects captured lexical bindings through one command surface, implemented
+on this branch for typed 2.35/2.36 and native 3.0. The
+[port plan](plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md) owns bounded
+public evidence, independent reviews and broad verification limits.
+
+For a pure typed example, save `scratch.orc` in a disposable workspace:
+
+```lisp
+(workflow-lisp
+  (:language "0.1") (:target-dsl "2.35")
+  (defmodule scratch) (export run)
+  (defun add-five ((x Int)) -> Int (+ x 5))
+  (defworkflow run ((n Int :default 7)) -> Int
+    (let* ((value (add-five n))) value)))
+```
+
+The same example supports target `2.36`; change only `:target-dsl`. From that
+workspace, start the session:
+
+```bash
+python -m orchestrator repl scratch.orc --entry-workflow scratch::run
+```
+
+```text
+:run
+:bindings
+(add-five n)
+:result
+:quit
+```
+
+The expression and result are `12`, each printed as canonical JSON followed by
+`: Int`. `:bindings` shows visible lexical names/types. Typed attachment can
+rebuild a saved recipe in memory: `python -m orchestrator repl --run-id RUN_ID`,
+or `:attach RUN_ID` after loading a matching module. A historical run without
+a recipe requires that explicit matching module.
+
+For native target `3.0`, use this pure module instead:
+
+```scheme
+(workflow-lisp
+  (:language "0.1") (:target-dsl "3.0") (:budget 100)
+  (defmodule scratch) (export run)
+  (defworkflow run ((n Int :default 7)) -> Int
+    (let* ((add (fn (x) (+ n x))))
+      (add 0))))
+```
+
+Start the same CLI, then enter `:run`, `:bindings`, `(add 5)` and `:result`.
+The expression is `12`; the saved entry result is `7`. Bindings include
+`n : Int` and `add : Function`. Native attachment always requires the same
+loaded module: `python -m orchestrator repl scratch.orc --run-id RUN_ID`, or
+`:load scratch.orc` then `:attach RUN_ID`. Its semantic digest must match the
+run. Native state does not contain source text or a rebuild recipe.
+
+Both profiles accept the ordinary source flags, including
+`--entry-workflow`, repeated `--source-root`, `--provider-externs-file`,
+`--prompt-externs-file`, `--command-boundaries-file` and the shared
+`--imported-workflow-bundles-file` option. Native compilation still refuses
+compiled imports. Supply each module's actual manifests; loading does not
+invent provider bindings. `:load PATH` accepts those same frontend flags.
+Use startup `--state-dir DIR` to locate custom roots; `:run` forwards it unless
+its own `--state-dir` overrides it. `:run --input n=9` and
+`:run --input-file inputs.json` use ordinary public input validation/precedence.
+Native public run option restrictions also apply to `:run`. Each native `:run`
+creates a fresh run and can repeat all prior external calls/writes; it neither
+resumes nor reuses earlier effect results.
+
+Only explicit `:run` invokes public execution, and it executes a loaded
+workflow's declared effects. Attachment, bindings, result and entered
+expressions leave run/source files unchanged and never dispatch effects.
+Typed entered expressions reject transitive procedure effects. Native directly
+entered effects and effects reached through helpers/closures refuse
+`repl_effect_refused` before dispatch; an untaken helper branch may contain an
+effect. This native guard does not promise static purity for every possible
+branch. Each expression gets a fresh finite native budget.
+
+Values print canonical JSON then their type/runtime kind. A native closure
+prints `<function>` and `: Function`; containers holding closures can be used
+internally but refuse `repl_value_not_printable` when printed. `:result`
+requires saved completed state, including a valid null result. Native `:result`
+prints the declared schema name when present, otherwise its canonical structural
+JSON descriptor on the second line; expression kinds are not boundary schemas.
+Stopped/failed
+runs and `halt-unpublished` report `repl_no_result`. Native reconstruction reads
+physical validated completed results and checks order, reachability and
+terminal/step consistency. Required path assets must still exist. Native state
+lacks historical result digests/operand fingerprints, so some schema-valid
+historical alterations remain undetectable.
+
+Input is one datum per line. Expected errors keep the session usable; EOF and
+`:quit` exit normally. There is no interactive resume, new definitions, editing,
+multiline input or flat-profile attachment through 2.34. The
+[CLI contract](../specs/cli.md#workflow-lisp-repl),
+[state contract](../specs/state.md#repl-read-only-reconstruction) and
+[accepted design](design/workflow_lisp_repl.md) own the detailed boundaries.
 
 ## 3. Semantic Authority Rules
 
@@ -3272,7 +3374,12 @@ backlog-drain authoring.
 
 ### 13.7 `improve`
 
-This is the retained typed five-argument API. For target 3.0, use the distinct
+Through target 2.35, this is the retained typed five-argument API. At typed
+2.36 the entry source graph selects `improve(initial, review, revise, limit)`;
+local hooks capture context under the [W3 contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
+Retargeting requires updating all five-argument source callers in that graph;
+existing examples below retain their 2.33 API and route readiness. For target
+3.0, use the distinct
 four-argument std/dynamic/improve [consumer and setup](#complete-imported-improvement-consumer);
 it reuses the domain declarations without substituting this typed helper body.
 

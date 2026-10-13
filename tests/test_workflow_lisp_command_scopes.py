@@ -272,17 +272,20 @@ def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path,
     if wrapped:
         source = f'(if flag {source} (record Result :i 0 :s "other"))'
     program, inputs, facts = _compile(tmp_path, source, params="(input Int) (flag Bool)")
-    if not wrapped:
-        from orchestrator.workflow_lisp.typecheck import typecheck_expression
-        from orchestrator.workflow_lisp.compiler_session import CompilerSession
-        from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-        with pytest.raises(LispFrontendCompileError) as caught:
-            typecheck_expression(program.entry.typed_body.expr, type_env=inputs["type_env"],
-                value_env=inputs["value_env"], workflow_catalog=facts["workflow_catalog"],
-                procedure_catalog=facts["procedure_catalog"], compiler_session=CompilerSession())
-        assert 'pure_expr_operand_type_mismatch' in {item.code for item in caught.value.diagnostics}
     captures = _capture_rows(program.entry.typed_body.expr)
     assert captures
+    from orchestrator.workflow_lisp.typecheck import typecheck_expression
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+    checked = typecheck_expression(program.entry.typed_body.expr, type_env=inputs["type_env"],
+        value_env=inputs["value_env"], workflow_catalog=facts["workflow_catalog"],
+        procedure_catalog=facts["procedure_catalog"], compiler_session=CompilerSession())
+    assert checked.type_ref == program.entry.typed_body.type_ref
+    checked_captures = _capture_rows(checked.expr)
+    assert [(index, source) for _, index, source in checked_captures] == [
+        (index, source) for _, index, source in captures
+    ]
+    assert all(source[1] == inputs["value_env"]["input"]
+        for _, _, source in checked_captures)
     def reject_legacy(*args, **kwargs):
         pytest.fail("closed capture reached legacy inference")
     monkeypatch.setattr(core, "_infer_inline_binding_type", reject_legacy)

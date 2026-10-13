@@ -652,7 +652,15 @@ and any necessary allocation.
 
 ## W3 — Local Hooks With Inferred Context
 
-**Current status, 2026-10-12:** W3 is implemented upstream at 2.36 on fixed
+**Current branch routing, 2026-10-12:** the selected [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+imports W3/2.36 (upstream `8e6e06b2`) and the upstream bound-capture correction
+as prerequisites for preserving typed 2.35/2.36 while adapting the REPL
+to native 3.0. The port plan owns fresh combined-code verification. This does
+not close a whole delivery phase, promote maintained examples or route-readiness,
+or select adoption, DC-P, Phase 6b migration or Phase 7 retirement. Earlier
+comparison pins/results remain frozen and do not qualify the combined port.
+
+**Historical pre-port status, 2026-10-12:** W3 was implemented upstream at 2.36 on fixed
 `47e85a9c7e452bfd367275a15d5e97b928efa5ca` (implementation `8e6e06b2`,
 bounded closeout `d6f76950`), available in the clean separate typed comparator
 and not imported into this candidate. The
@@ -677,7 +685,8 @@ removal of `inputs I` and context-only records from `improve` callers. Preserve
 useful domain records, definition-site values, once-only effects and old-target
 compatibility. Grammar, inference and stdlib target/module decisions were open
 at that historical branch cut; they are now resolved upstream within W3's
-bounded closeout, not imported locally.
+bounded closeout; the selected REPL port now imports the necessary W3 code
+without promoting the earlier task/checkmark history.
 
 Task 4 and Phase 6a supply the typed comparator for DC-U. Use the best executable
 incumbent and clearly labeled proposed W1/W3 variants; do not require building
@@ -835,12 +844,13 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   anchor. It owns the value-returning review helper and generic-union delta;
   `std/phase` remains available beside `std/improve` until CF-1c decides
   otherwise.
-- [W3](#w3--local-hooks-with-inferred-context) is implemented upstream at 2.36,
-  absent from this candidate and available as the clean pinned typed comparator.
-  The [current reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md)
-  compares it with qualified native 3.0 and prepares DC-P without adoption or
-  migration. Earlier Task 4/DC-U and future-delivery choices remain historical;
-  caller/compatibility duties and one selected Phase 6b migration remain.
+- [W3](#w3--local-hooks-with-inferred-context) is imported locally as a typed-2.36
+  dependency of the [REPL port plan](2026-10-12-workflow-lisp-dynamic-repl-port-plan.md),
+  preserving 2.35/2.36 without maintained-example migration or route promotion.
+  The [pre-port reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+  keeps its pinned results; it does not qualify the combined runtime. Earlier
+  Task 4/DC-U and future-delivery choices remain historical; DC-P adoption and
+  Phase 6b/7 remain unselected.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:

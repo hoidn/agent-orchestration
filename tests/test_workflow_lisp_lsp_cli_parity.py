@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, replace
+import hashlib
 import importlib
 from pathlib import Path
 import shutil
@@ -991,3 +992,179 @@ def test_lsp_translation_retains_exact_cli_diagnostic_identity(
     assert contribution.parity_identity == _diagnostic_identities(
         (diagnostic,)
     )[0]
+
+# Keep the selected helper API observable through the public compile and LSP paths.
+def _write_std_improve_parity_workspace(
+    root: Path,
+    *,
+    target: str = "2.36",
+    explicit_source_roots: bool = False,
+) -> tuple[Path, Path, tuple[Path, ...]]:
+    workspace = root.resolve()
+    source_root = workspace / "src" if explicit_source_roots else workspace
+    entry_path = source_root / "lsp_parity" / "entry.orc"
+    entry_path.parent.mkdir(parents=True)
+    if target == "2.35":
+        review = '''(defproc review
+  ((candidate Candidate) (context String)) -> Decision[Feedback Blocker]
+  :effects () :lowering inline
+  (variant Decision[Feedback Blocker] REVISE
+    :feedback (record Feedback :text context)))'''
+        revise = '''(defproc revise
+  ((candidate Candidate) (context String) (feedback Feedback)) -> Candidate
+  :effects () :lowering inline candidate)'''
+        improve_call = (
+            '(improve (record Candidate :value 1) "context" '
+            '(proc-ref review) (proc-ref revise) 1)'
+        )
+    else:
+        review = '''(defproc review
+  ((candidate Candidate)) -> Decision[Feedback Blocker]
+  :effects () :lowering inline
+  (variant Decision[Feedback Blocker] REVISE
+    :feedback (record Feedback :text "revise")))'''
+        revise = '''(defproc revise
+  ((candidate Candidate) (feedback Feedback)) -> Candidate
+  :effects () :lowering inline candidate)'''
+        improve_call = (
+            '(improve (record Candidate :value 1) '
+            '(proc-ref review) (proc-ref revise) 1)'
+        )
+    source = f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{target}")
+  (defmodule lsp_parity/entry)
+  (import std/improve :only (Decision improve))
+  (export run)
+  (defrecord Candidate (value Int))
+  (defrecord Feedback (text String))
+  (defrecord Blocker (reason String))
+  {review}
+  {revise}
+  (defworkflow run () -> Int
+    (let* ((result {improve_call}))
+      0)))
+'''
+    entry_path.write_text(source, encoding="utf-8")
+    caller_roots = (
+        (source_root.resolve(), workspace)
+        if explicit_source_roots
+        else ()
+    )
+    return workspace, entry_path.resolve(), caller_roots
+
+
+def _observe_std_improve_graphs(monkeypatch: pytest.MonkeyPatch):
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    production_resolver = compiler.resolve_module_graph
+    observations: list[tuple[Path, Path, str, tuple[Path, ...]]] = []
+
+    def observe_resolver(
+        path: Path,
+        *,
+        source_roots: tuple[Path, ...] | None = None,
+        source_read_trace: object = None,
+        standalone_entry_namespace: str | None = None,
+    ):
+        graph = production_resolver(
+            path,
+            source_roots=source_roots,
+            source_read_trace=source_read_trace,
+            standalone_entry_namespace=standalone_entry_namespace,
+        )
+        selected = graph.modules_by_name["std/improve"]
+        selected_path = selected.path.resolve()
+        trace_paths = tuple(
+            sorted(
+                record.canonical_path
+                for record in source_read_trace.records
+            )
+        )
+        raw = source_read_trace.raw_bytes_by_path[selected_path]
+        observations.append(
+            (
+                selected_path,
+                selected.source_root.resolve(),
+                hashlib.sha256(raw).hexdigest(),
+                trace_paths,
+            )
+        )
+        return graph
+
+    monkeypatch.setattr(compiler, "resolve_module_graph", observe_resolver)
+    return observations
+
+
+@pytest.mark.parametrize("target", ("2.35", "2.36"))
+@pytest.mark.parametrize("explicit_source_roots", (False, True))
+def test_real_cli_and_lsp_select_same_std_improve_graph_source_and_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    explicit_source_roots: bool,
+) -> None:
+    workspace, entry_path, caller_roots = _write_std_improve_parity_workspace(
+        tmp_path / "workspace",
+        target=target,
+        explicit_source_roots=explicit_source_roots,
+    )
+    observations = _observe_std_improve_graphs(monkeypatch)
+    cli_main = importlib.import_module("orchestrator.cli.main")
+    compile_command = importlib.import_module("orchestrator.cli.commands.compile")
+    monkeypatch.chdir(workspace)
+    argv = [
+        "compile",
+        str(entry_path),
+        "--entry-workflow",
+        "run",
+        "--diagnostics-json",
+    ]
+    for root in caller_roots:
+        argv.extend(("--source-root", str(root)))
+    args = cli_main.create_parser().parse_args(argv)
+
+    assert compile_command.compile_workflow(args) == 0
+
+    driver = compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {str(entry_path): "run"},
+                "source_roots": tuple(str(root) for root in caller_roots),
+            },
+        )
+    )
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=entry_path.read_text(encoding="utf-8"),
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    driver.drain()
+    [entry] = driver.state.entries
+
+    assert entry.compile_status == "language_error"
+    assert entry.accepted_snapshot is None
+    assert tuple(item.code for item in entry.diagnostic_contributions) == (
+        "evaluated_execution_unavailable",
+    )
+    # Both entry paths resolve this graph once.
+    assert len(observations) == 2
+
+    builtin_root = compile_driver.compiler._builtin_stdlib_source_root().resolve()
+    expected_path = (
+        builtin_root / "std" / "improve.orc"
+        if target == "2.35"
+        else builtin_root / "w3" / "std" / "improve.orc"
+    )
+    expected_root = builtin_root if target == "2.35" else builtin_root / "w3"
+    expected_path = expected_path.resolve()
+    assert observations[0][:2] == observations[1][:2] == (
+        expected_path,
+        expected_root.resolve(),
+    )
+    expected_digest = hashlib.sha256(expected_path.read_bytes()).hexdigest()
+    assert observations[0][2] == observations[1][2] == expected_digest
+    assert all(expected_path in observation[3] for observation in observations)

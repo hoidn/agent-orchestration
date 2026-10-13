@@ -23,7 +23,6 @@ Live providers are the stand-in runtime of the provider supervision end-to-end t
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 
 import pytest
@@ -76,17 +75,35 @@ MODULE = """(workflow-lisp
 """
 
 
-def _outcome(root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *, returns: str, target: str):
+def _outcome(
+    root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *,
+    returns: str, target: str, declarations: str = "",
+    workflow_params: str = "", inputs: dict[str, object] | None = None,
+):
     """Run `body` through `run_workflow`; return (exit code, outputs, tick log, choose log)."""
 
     root.mkdir(parents=True, exist_ok=True)
     probes = {name: _write_probe(root, name, text) for name, text in PROBES.items()}
     source = MODULE.replace("TARGET", target).replace("RETURNS", returns).replace("BODY", body)
+    if declarations:
+        source = source.replace("  (defworkflow run", declarations + "\n  (defworkflow run")
+    if workflow_params:
+        source = source.replace("  (defworkflow run () ->", f"  (defworkflow run {workflow_params} ->")
     for name, path in probes.items():
         source = source.replace(name.upper(), path.as_posix())
     _write_sources(root, {"grt/entry.orc": source})
     monkeypatch.chdir(root)
-    result = _public_run(_public_run_files(root, probes))
+    input_file = None
+    if inputs is not None:
+        input_file = root / "inputs.json"
+        input_file.write_text(json.dumps(inputs), encoding="utf-8")
+    files = _public_run_files(root, probes)
+    if target == "2.35":
+        commands = json.loads(files["commands"].read_text(encoding="utf-8"))
+        for name, path in probes.items():
+            commands[name]["closure"] = [path.name]
+        files["commands"].write_text(json.dumps(commands), encoding="utf-8")
+    result = _public_run(files, input_file=input_file)
     return result.exit_code, dict(result.workflow_outputs or {}), _log(probes["tick"]), _log(probes["choose"])
 
 
@@ -286,7 +303,7 @@ SPECIALIZATION_SHAPES = {
         "(let* ((b 1) (v (+ b 1))) (let-proc (f ((b Int)) -> Int :captures (v) v) (apply-int (proc-ref f) 5)))",
         2,
         [],
-        BELOW_230,
+        ALL,
     ),
     "captured-value-and-an-applying-procedure-parameter": (
         "(let* ((b 1) (v (+ b 1))) (let-proc (f ((x Int)) -> Int :captures (v) v) (apply-int-to-b (proc-ref f) 5)))",
@@ -315,26 +332,6 @@ def test_a_specialization_value_reads_the_scope_of_the_caller(
     assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": value}, ticks, [])
 
 
-@pytest.mark.parametrize("target", ["2.30", "2.33"])
-def test_targets_from_230_keep_refusing_a_capture_named_like_a_parameter(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, target: str
-) -> None:
-    body = SPECIALIZATION_SHAPES["captured-value-and-a-parameter"][0]
-
-    with caplog.at_level(logging.ERROR):
-        outcome = _outcome(tmp_path, monkeypatch, body, returns="Int", target=target)
-
-    assert (outcome, "[name_unknown]" in caplog.text) == ((2, {}, [], []), True)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "not repaired: a bind-proc bound value is a compile-time binding expanded where the "
-        "procedure is called, so a binder between the bind-proc and the call captures its "
-        "names (task-15 report, fix round 1)"
-    ),
-)
 @pytest.mark.parametrize("target", ALL)
 def test_a_bound_value_keeps_its_scope_across_a_later_binder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
@@ -344,13 +341,120 @@ def test_a_bound_value_keeps_its_scope_across_a_later_binder(
     assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": 7}, [], [])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "not repaired: from 2.30 a let-proc capture of an effect result copies the effect "
-        "into the call, so the command runs again (task-15 report, fix round 1)"
+PURE_CAPTURE_PROCS = """  (defproc add ((fixed Int) (n Int)) -> Int
+    :effects () :lowering inline (+ fixed n))"""
+
+
+def test_unused_letproc_does_not_steal_a_body_created_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = """(let-proc (local ((n Int)) -> Int :captures (a) (+ a n))
+      (let* ((b a) (hook (bind-proc (proc-ref add) :fixed b)))
+        (let* ((b 100)) (hook 1))))"""
+
+    assert _outcome(
+        tmp_path, monkeypatch, body, returns="Int", target="2.29",
+        declarations=PURE_CAPTURE_PROCS, workflow_params="((a Int))", inputs={"a": 7},
+    ) == (0, {"__result__": 8}, [], [])
+
+
+@pytest.mark.parametrize(
+    ("target", "call"),
+    (
+        ("2.30", "(invoke_first (bind-proc (proc-ref add) :fixed a) a)"),
+        ("2.30", "(invoke a (bind-proc (proc-ref add) :fixed a))"),
+        ("2.35", "(invoke_first (bind-proc (proc-ref add) :fixed a) a)"),
+        ("2.35", "(invoke a (bind-proc (proc-ref add) :fixed a))"),
+    ),
+    ids=(
+        "target-230-static-argument-first",
+        "target-230-static-argument-last",
+        "target-235-static-argument-first",
+        "target-235-static-argument-last",
     ),
 )
+def test_generic_letproc_static_argument_keeps_its_creation_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, call: str
+) -> None:
+    declarations = PURE_CAPTURE_PROCS + """
+  (defproc invoke :forall (T)
+    ((a T) (hook ProcRef[Int -> Int])) -> Int
+    :effects () :lowering inline (let* ((a 100)) (hook 1)))
+  (defproc invoke_first :forall (T)
+    ((hook ProcRef[Int -> Int]) (a T)) -> Int
+    :effects () :lowering inline (let* ((a 100)) (hook 1)) )"""
+    body = f"""(let-proc (local ((n Int)) -> Int :captures (a) (+ a n))
+      {call})"""
+
+    assert _outcome(
+        tmp_path, monkeypatch, body, returns="Int", target=target,
+        declarations=declarations, workflow_params="((a Int))", inputs={"a": 7},
+    ) == (0, {"__result__": 8}, [], [])
+
+
+def test_match_arm_bound_capture_survives_shadow_and_runs_scrutinee_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    declarations = PURE_CAPTURE_PROCS + "\n  (defrecord Payload (value Int))"
+    body = """(match (choose 100)
+      ((YES a)
+        (let* ((hook (bind-proc (proc-ref add) :fixed a.v)))
+          (let* ((a (record Payload :value 200)))
+            (hook 1))))
+      ((NO other) 42))"""
+
+    assert _outcome(
+        tmp_path, monkeypatch, body, returns="Int", target="2.35",
+        declarations=declarations, workflow_params="((a Int))", inputs={"a": 7},
+    ) == (0, {"__result__": 101}, [], ["100"])
+
+
+@pytest.mark.parametrize(
+    ("target", "body", "expected"),
+    (
+        (
+            "2.35",
+            """(let* ((state (record Payload :value a))
+                       (hook (bind-proc (proc-ref add) :fixed state.value)))
+                 (loop/recur :max 1 :state (loop-state (value Int 100))
+                   :on-exhausted 42 (fn (state) (done (hook 1)))))""",
+            8,
+        ),
+        (
+            "2.35",
+            """(loop/recur :max 2 :state (record Payload :value a) :on-exhausted 42
+                 (fn (state)
+                   (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
+                     (if (< state.value 10)
+                       (continue (record Payload :value 20))
+                       (let* ((state (record Payload :value 100))) (done (hook 1)))))))""",
+            21,
+        ),
+        (
+            "2.30",
+            """(loop/recur :max 1 :state (record Payload :value a) :on-exhausted 42
+                 (fn (state)
+                   (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
+                     (let* ((state (record Payload :value 200))) (done (hook 1))))))""",
+            8,
+        ),
+    ),
+    ids=(
+        "outer-capture-crosses-loop",
+        "capture-is-scoped-to-second-iteration",
+        "inner-loop-capture-uses-target-230-creation-state",
+    ),
+)
+def test_loop_capture_uses_the_intended_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, body: str, expected: int
+) -> None:
+    declarations = PURE_CAPTURE_PROCS + "\n  (defrecord Payload (value Int))"
+    assert _outcome(
+        tmp_path, monkeypatch, body, returns="Int", target=target,
+        declarations=declarations, workflow_params="((a Int))", inputs={"a": 7},
+    ) == (0, {"__result__": expected}, [], [])
+
+
 @pytest.mark.parametrize("target", ["2.30", "2.33"])
 def test_a_captured_effect_result_runs_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str) -> None:
     body = "(let* ((v (tick 1))) (let-proc (f ((x Int)) -> Int :captures (v) v) (apply-int (proc-ref f) 5)))"

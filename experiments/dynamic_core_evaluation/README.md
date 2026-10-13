@@ -184,7 +184,7 @@ pytest -q -n 16 --dist=worksteal \
 
 ## Implemented W3 Comparison (Opt-In)
 
-This separate current comparison executes real upstream W3/2.36 against
+This frozen comparison executes real upstream W3/2.36 against
 qualified native 3.0; the historical DC-2 instructions and pins above remain
 unchanged. Its [plan](../../docs/plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md)
 owns scope/setup, and the [single evaluation report's dated packet](../../docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
@@ -192,17 +192,25 @@ owns actual results: all 100 logical observations executed, 98 PASS and two
 genuine parity FAIL, plus a passing provenance guard. Final source refinements
 and affected checks are separately qualified there; final code and document reviews are approved; the original campaign stays RED.
 
-Run from the candidate repository root with the clean typed comparator at exact
+Reproduce from a clean isolated checkout of packet
+`d87334f0365f46bfeb56bf7a0f753d1490df85c5` (the original `611d9e25`
+snapshot has the same guarded code), with the clean typed comparator at exact
 `47e85a9c7e452bfd367275a15d5e97b928efa5ca`. Native runtime/reused helper and
 consumer bytes must equal `b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012`;
-authorized packet-only descendants do not advance that runtime pin. The module
-requires the external checkout explicitly and fails when it is unavailable,
-dirty, mismatched or not supplied. It stages workspaces outside both source
-trees, using real public compile/run/resume routes and deterministic local
-commands; no live/paid provider setup is required.
+packet-only descendants do not advance that runtime pin. The current combined
+W3/REPL port changes those bytes and is intentionally refused by the frozen
+guard. Do not run this packet against the current tree or advance its pins.
+
+The module requires the external typed checkout explicitly and fails when it
+is unavailable, dirty, mismatched or not supplied. It stages workspaces outside
+both source trees using public compile/run/resume and deterministic local
+commands; no live/paid provider setup is required. From this repository:
 
 ```bash
-export ORC_W3_REEVALUATION_TYPED_ROOT=/home/ollie/Documents/agent-orchestration/.worktrees/orc-w3-dynamic-comparator-20261012
+git worktree add --detach /var/tmp/orc-w3-frozen-packet d87334f0365f46bfeb56bf7a0f753d1490df85c5
+git worktree add --detach /var/tmp/orc-w3-frozen-typed 47e85a9c7e452bfd367275a15d5e97b928efa5ca
+cd /var/tmp/orc-w3-frozen-packet
+export ORC_W3_REEVALUATION_TYPED_ROOT=/var/tmp/orc-w3-frozen-typed
 python -m pytest --collect-only -q experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py
 python -m pytest -q experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py -k 'RW_I01 or RW_S02'
 ```
@@ -221,3 +229,12 @@ them. Raw observations and unique attempt directories are retained under
 `/tmp/orc-w3-dynamic-reevaluation-20261012/`. A nonzero comparison exit does not
 erase completed observations, and positive rows do not select adoption,
 migration, a default change or retirement.
+
+## Current combined port
+
+The [REPL port plan](../../docs/plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+owns fresh verification of imported W3, typed REPL and the native extension.
+The comparison above and original DC-2 prefix retain their frozen pins,
+observations and two parity failures. Neither the earlier fixed-consumer DC-P
+recommendation nor its reviews certify the combined code, authorize application
+migration or close the broader Scheme direction.

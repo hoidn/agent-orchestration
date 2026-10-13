@@ -1,4 +1,4 @@
-# Multi-Agent Orchestration — Master Spec (v1.1 through v2.35)
+# Multi-Agent Orchestration — Master Spec (v1.1 through v2.36)
 
 Status: Normative master. This index defines scope, versioning, conformance, and the module map with stable links to sub-specs. The DSL version and the state schema version are distinct by design.
 
@@ -44,6 +44,12 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     [public recovery smoke](../tests/test_workflow_evaluated_invalidate_smoke.py).
     The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
     owns the accepted model; [versioning](versioning.md) owns target admission.
+  - DSL v2.36 uses the existing typed evaluated route and adds W3 local hooks
+    and graph-selected four-argument `std/improve`. See
+    [versioning](versioning.md) and the
+    [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
+    Older typed targets retain their contracts; this does not change the default
+    or select native-profile adoption or application migration.
   - Legacy state schema: `schema_version: "2.1"`. The partial evaluated profile
     uses the versioned authority/view contract in the
     [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation); it does not reinterpret legacy state.

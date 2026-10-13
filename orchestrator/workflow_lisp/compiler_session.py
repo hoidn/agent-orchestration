@@ -47,6 +47,7 @@ class ElaborationSessionState:
     function_name_resolver: NameResolver | None = None
     workflow_name_resolver: NameResolver | None = None
     function_names: frozenset[str] = frozenset()
+    extern_names: frozenset[str] = frozenset()
     local_proc_names: frozenset[str] = frozenset()
     loop_body_depth: int = 0
     let_proc_depth: int = 0
@@ -69,6 +70,10 @@ class TypecheckSessionState:
         default_factory=dict
     )
     let_proc_rewrite_results: dict[int, ExprNode] = field(default_factory=dict)
+    pending_local_hook_preparer: Callable[..., object] | None = field(
+        default=None, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
     workflow_signature: WorkflowSignature | None = None
     procedure_hidden_context_signature: ProcedureSignature | None = None
     reusable_state_producer_context: Mapping[str, object] | None = None

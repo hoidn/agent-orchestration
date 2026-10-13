@@ -437,7 +437,7 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
     producer_lowering_schema, local_values=None, include_command_plans=False,
     source_program=None, command_bindings=None, command_roots=None,
     call_preparator=None, call_declaration_identity=None, command_root_names=None,
-    command_index_name=None, io_routes=None, io_bind=None, **elaboration_inputs):
+    command_index_name=None, io_routes=None, io_bind=None, capture_source_bindings=(), **elaboration_inputs):
     """Elaborate the exact same owner twice; only the second selects arm scopes."""
     from ..wcc.elaborate import elaborate_typed_workflow_body, prepare_elaboration_call_types
     from ..wcc.model import WccIdentityFactory
@@ -465,10 +465,16 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
         facts=facts, procedure_edges=edges, local_values=local_values)
     if command_root_names is not None:
         command_roots = tuple((formal, operands[name]) for formal, name in command_root_names.items())
+    retained = tuple((binding_demand_key(operand.metadata, ()), typed_body.binding_environment.get(name),
+        inputs["value_env"][name], values[name], operand) for name, operand in operands.items())
+    for name, identity, type_ref in capture_source_bindings:
+        if identity is None or name not in operands or inputs["value_env"].get(name) != type_ref:
+            raise ValueError("capture source frame seed has no exact typed slot")
+        operand = operands[name]
+        retained += ((binding_demand_key(operand.metadata, ()), identity,
+            type_ref, values[name], operand),)
     context = CommandScopeContext(facts, values, operands, continuation_binding_demands(neutral),
-        "surface" if producer_lowering_schema == 1 else "wcc",
-        tuple((binding_demand_key(operand.metadata, ()), typed_body.binding_environment.get(name),
-            inputs["value_env"][name], values[name], operand) for name, operand in operands.items()),
+        "surface" if producer_lowering_schema == 1 else "wcc", retained,
         include_command_plans=include_command_plans, source_program=source_program,
         command_bindings=command_bindings,
         command_roots=tuple(operands.items()) if command_roots is None else command_roots,

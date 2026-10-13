@@ -9,7 +9,7 @@
     are never removed.
 
 - Execution-profile routing
-  - Target 2.35 uses checked `run.json` / `closed_program.json` authority and
+  - Targets 2.35 and 2.36 use checked `run.json` / `closed_program.json` authority and
     `memo.jsonl`, with the exact schema/profile defined in
     [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
     Ordinary resume and suffix invalidation route through that profile before
@@ -28,6 +28,45 @@
     recovery use that retained root, with historical-root refusals defined by
     the linked evaluated contract.
 
+## REPL read-only reconstruction
+
+The [REPL](cli.md#workflow-lisp-repl) adds an explicit inspection consumer;
+it adds no persisted fields, checkpoints, value codec, recovery authority or
+state migration. Typed 2.35/2.36 attachment reads checked program/header and
+one memo prefix through the existing replay checks. Derived `state.json` is
+not authority. Without a loaded module, rebuild the saved typed recipe in
+memory; missing recipes refuse unless a matching module was explicitly loaded.
+
+Native 3.0 attachment requires a loaded module with the same semantic digest;
+state schema 3.1 has no source text or rebuild recipe. Read the checked native
+header/program and one atomic state snapshot through the existing run file
+owner. The ordinary evaluator reconstructs lexical scope using stored bound
+inputs and completed physical `result.json` files, with ordinary strict
+boundary/path validation and ordered reached-row identity checks. It never
+calls command/provider performers, publishes views, settles rows, repairs files
+or acquires a writer lock. Ordinary dynamic report/status readers remain
+nonreplaying and source-independent.
+
+Account for every recorded row. Running/failed rows and the first missing row
+stop at their reached effect caller scope. Completed terminal reconstruction
+must halt, consume every row and match the canonical result and exact
+`steps_used`. Reproduced pure failures and saved effect/pre-dispatch failures
+must agree in location, diagnostics and step counts, under the
+[accepted reconstruction contract](../docs/design/workflow_lisp_repl.md#checked-reconstruction-of-existing-native-state).
+A running snapshot's saved count describes its last recorded effect boundary
+(or zero with no rows), not later reconstructed pure progress. A consistent
+unpublished halt is inspectable as `halt-unpublished`, with no `:result`.
+Only saved completed state exposes a result, including a null entry value.
+
+Invalid/missing completed results, unreachable/reordered rows or contradictory
+terminal/progress evidence refuse `dynamic_state_invalid`. Required path assets
+remain subject to normal validation. Native state does not retain historical
+result digests or operand fingerprints; schema-valid historical changes cannot
+all be detected. Attachment is a checked prefix/snapshot, not a live
+subscription or atomic transaction with a concurrent writer. Inspection leaves
+all run and source bytes unchanged; only explicit `:run` performs ordinary
+public execution.
+
 ## Dynamic fresh-run authority
 
 The branch-qualified target-3.0 profile routes exactly by
@@ -35,7 +74,9 @@ The branch-qualified target-3.0 profile routes exactly by
 before typed memo or legacy loading. Its immutable `run.json` pins the checked
 `closed_program.json`; mutable `state.json` is fresh progress/terminal authority,
 not a memo-derived view. Unknown or mixed profiles refuse without fallback.
-There is no memo, captured-environment checkpoint, replay or resume plan.
+There is no memo, captured-environment checkpoint or resume plan. Ordinary
+dynamic readers do not replay. Explicit read-only REPL reconstruction is
+governed by [the separate inspection contract](#repl-read-only-reconstruction).
 
 | Record | Exact field set |
 | --- | --- |

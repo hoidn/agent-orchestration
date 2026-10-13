@@ -207,8 +207,8 @@ def test_program_targeting_234_imports_and_runs_std_improve_at_233(
     )
 
 
-def test_target_236_is_refused_as_unsupported(tmp_path: Path) -> None:
-    files = _write_program(tmp_path, "2.36")
+def test_target_237_is_refused_as_unsupported(tmp_path: Path) -> None:
+    files = _write_program(tmp_path, "2.37")
     line = next(n for n, text in enumerate(files["source"].read_text().splitlines(), 1) if ":target-dsl" in text)
 
     with pytest.raises(LispFrontendCompileError) as excinfo:

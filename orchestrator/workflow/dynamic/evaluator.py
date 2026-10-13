@@ -224,6 +224,14 @@ def _default_pointer(code: str, name: str) -> str:
     return _pointer(_pointer(_pointer(_pointer("/definitions", code), "boundary"), "defaults"), name)
 
 
+def _generated_effect_wrapper(program: DynamicProgram, node, pointer: str) -> bool:
+    """Generated operand lets share the effect's exact source provenance."""
+    if node["k"] != "let" or node["body"]["k"] != "perform":
+        return False
+    entries = program.source_map["entries"]
+    return entries[pointer] == entries[_pointer(pointer, "body")]
+
+
 def _pop_values(values: list[Any], count: int) -> list[Any]:
     if count == 0:
         return []
@@ -324,6 +332,7 @@ def evaluate(
     workspace_files: WorkspaceFiles | None = None,
     command_effect=None,
     provider_effect=None,
+    observer=None,
 ) -> EvaluationResult:
     """Evaluate one checked entry using the caller's optional workspace owner."""
 
@@ -336,24 +345,46 @@ def evaluate(
     boundary = entry["boundary"]
     environment = bind_inputs(program, inputs, workspace_files=workspace_files)
     result_pointer = _pointer(_pointer(_definition_pointer(program.entry), "boundary"), "result")
-    tasks: list[tuple[Any, ...]] = [
-        ("boundary_return", boundary["result"], result_pointer, None),
-        (
-            "enter",
-            entry["body"],
-            environment,
-            _pointer(_definition_pointer(program.entry), "body"),
-            program.entry,
-            None,
-        ),
-    ]
+    return _evaluate_body(
+        program, entry["body"], environment, code=program.entry,
+        pointer=_pointer(_definition_pointer(program.entry), "body"),
+        workspace_files=workspace_files, command_effect=command_effect,
+        provider_effect=provider_effect, observer=observer,
+        boundary_return=("boundary_return", boundary["result"], result_pointer, None),
+    )
+
+
+def _evaluate_body(
+    program: DynamicProgram, body, environment, *, code: str, pointer: str,
+    context=None, workspace_files=None, command_effect=None, provider_effect=None,
+    observer=None, boundary_return=None, refuse_effects=False,
+) -> EvaluationResult:
+    """Reduce checked internal code without introducing an input boundary."""
+    scope = (environment, code, pointer, context)
+    tasks = []
+
+    def push(task):
+        tasks.append((task, None if task[0] == "boundary_return" else scope))
+
+    if boundary_return is not None:
+        push(boundary_return)
+    push(("enter", body, environment, pointer, code, context))
     values: list[Any] = []
     steps = 0
     call_trace: list[_Frame] = []
 
     while tasks:
-        task = tasks.pop()
+        task, owner = tasks.pop()
+        if owner is not None:
+            scope = owner
         action = task[0]
+        if action == "enter":
+            _, _node, env, pointer, code, context = task
+            scope = (env, code, pointer, context)
+        if observer is not None:
+            observer(*scope, steps)
+        if action == "scope_return":
+            continue
 
         if action == "enter":
             _, node, env, pointer, code, context = task
@@ -368,6 +399,11 @@ def evaluate(
                 )
             steps += 1
             kind = node["k"]
+            # Lowered effects bind operands before perform; pure REPL calls refuse first.
+            if refuse_effects and _generated_effect_wrapper(program, node, pointer):
+                raise _error(program, "dynamic_effect_unsupported",
+                             "dynamic effect execution is not available",
+                             _pointer(pointer, "body"), context, steps)
             if kind == "lit":
                 value = node["v"]
                 if type(value) is int:
@@ -398,46 +434,46 @@ def evaluate(
             elif kind == "name":
                 values.append(env[node["n"]])
             elif kind == "let":
-                tasks.append(("let_next", node, 0, env, pointer, code, context))
+                push(("let_next", node, 0, env, pointer, code, context))
             elif kind == "fn":
                 captures = node["captures"]
-                tasks.append(("fn_done", node["code"], len(captures)))
+                push(("fn_done", node["code"], len(captures)))
                 for index in reversed(range(len(captures))):
-                    tasks.append(("enter", captures[index], env, _pointer(_pointer(pointer, "captures"), index), code, context))
+                    push(("enter", captures[index], env, _pointer(_pointer(pointer, "captures"), index), code, context))
             elif kind == "call":
                 args = node["args"]
-                tasks.append(("call_apply", len(args), pointer, code, context))
+                push(("call_apply", len(args), pointer, code, context))
                 for index in reversed(range(len(args))):
-                    tasks.append(("enter", args[index], env, _pointer(_pointer(pointer, "args"), index), code, context))
-                tasks.append(("enter", node["callee"], env, _pointer(pointer, "callee"), code, context))
+                    push(("enter", args[index], env, _pointer(_pointer(pointer, "args"), index), code, context))
+                push(("enter", node["callee"], env, _pointer(pointer, "callee"), code, context))
             elif kind == "if":
-                tasks.append(("if_done", node, env, pointer, code, context))
-                tasks.append(("enter", node["cond"], env, _pointer(pointer, "cond"), code, context))
+                push(("if_done", node, env, pointer, code, context))
+                push(("enter", node["cond"], env, _pointer(pointer, "cond"), code, context))
             elif kind == "record":
                 fields = node["fields"]
-                tasks.append(("record_done", tuple(row[0] for row in fields), len(fields)))
+                push(("record_done", tuple(row[0] for row in fields), len(fields)))
                 for index in reversed(range(len(fields))):
-                    tasks.append(("enter", fields[index][1], env, _pointer(_pointer(_pointer(pointer, "fields"), index), 1), code, context))
+                    push(("enter", fields[index][1], env, _pointer(_pointer(_pointer(pointer, "fields"), index), 1), code, context))
             elif kind == "field":
-                tasks.append(("field_done", node["name"], pointer, context))
-                tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
+                push(("field_done", node["name"], pointer, context))
+                push(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
             elif kind == "list":
                 items = node["items"]
-                tasks.append(("list_done", len(items)))
+                push(("list_done", len(items)))
                 for index in reversed(range(len(items))):
-                    tasks.append(("enter", items[index], env, _pointer(_pointer(pointer, "items"), index), code, context))
+                    push(("enter", items[index], env, _pointer(_pointer(pointer, "items"), index), code, context))
             elif kind == "at":
-                tasks.append(("at_done", pointer, context))
-                tasks.append(("enter", node["index"], env, _pointer(pointer, "index"), code, context))
-                tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
+                push(("at_done", pointer, context))
+                push(("enter", node["index"], env, _pointer(pointer, "index"), code, context))
+                push(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
             elif kind == "op":
                 args = node["args"]
-                tasks.append(("op_done", node["name"], len(args), pointer, context))
+                push(("op_done", node["name"], len(args), pointer, context))
                 for index in reversed(range(len(args))):
-                    tasks.append(("enter", args[index], env, _pointer(_pointer(pointer, "args"), index), code, context))
+                    push(("enter", args[index], env, _pointer(_pointer(pointer, "args"), index), code, context))
             elif kind == "record-update":
-                tasks.append(("record_update_base_done", node, env, pointer, code, context))
-                tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
+                push(("record_update_base_done", node, env, pointer, code, context))
+                push(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
             elif kind == "perform":
                 effect_callback = command_effect if node["class"] == "command" else provider_effect
                 if effect_callback is None:
@@ -450,10 +486,10 @@ def evaluate(
                         steps,
                     )
                 children = _node_children(node, pointer)
-                tasks.append(("perform_done", node, tuple(child_pointer for child_pointer, _ in children),
+                push(("perform_done", node, tuple(child_pointer for child_pointer, _ in children),
                               code, pointer, context))
                 for child_pointer, child in reversed(children):
-                    tasks.append(("enter", child, env, child_pointer, code, context))
+                    push(("enter", child, env, child_pointer, code, context))
             elif kind == "fail":
                 raise _error(
                     program,
@@ -471,19 +507,20 @@ def evaluate(
         if action == "let_next":
             _, node, index, env, pointer, code, context = task
             if index == len(node["bindings"]):
-                tasks.append(("enter", node["body"], env, _pointer(pointer, "body"), code, context))
+                push(("enter", node["body"], env, _pointer(pointer, "body"), code, context))
             else:
                 row = node["bindings"][index]
                 row_pointer = _pointer(_pointer(pointer, "bindings"), index)
-                tasks.append(("let_bind", node, index, env, row[0], pointer, code, context))
-                tasks.append(("enter", row[1], env, _pointer(row_pointer, 1), code, context))
+                push(("let_bind", node, index, env, row[0], pointer, code, context))
+                push(("enter", row[1], env, _pointer(row_pointer, 1), code, context))
             continue
 
         if action == "let_bind":
             _, node, index, env, binder, pointer, code, context = task
             updated = dict(env)
             updated[binder] = values.pop()
-            tasks.append(("let_next", node, index + 1, MappingProxyType(updated), pointer, code, context))
+            scope = (MappingProxyType(updated), code, pointer, context)
+            push(("let_next", node, index + 1, scope[0], pointer, code, context))
             continue
 
         if action == "fn_done":
@@ -549,10 +586,11 @@ def evaluate(
             call_trace.append(frame)
             bindings = dict(zip(definition["captures"], callee.captures))
             bindings.update(zip(parameters, bound_args))
+            push(("scope_return",))
             if boundary is not None:
                 result_pointer = _pointer(_pointer(_definition_pointer(callee.code), "boundary"), "result")
-                tasks.append(("boundary_return", boundary["result"], result_pointer, activation))
-            tasks.append(
+                push(("boundary_return", boundary["result"], result_pointer, activation))
+            push(
                 (
                     "enter",
                     definition["body"],
@@ -622,7 +660,7 @@ def evaluate(
                     observed_kind=_kind(condition),
                 )
             branch = "then" if condition else "else"
-            tasks.append(("enter", node[branch], env, _pointer(pointer, branch), code, context))
+            push(("enter", node[branch], env, _pointer(pointer, branch), code, context))
             continue
 
         if action == "record_done":
@@ -681,9 +719,9 @@ def evaluate(
                         field=field_name,
                     )
             fields = node["fields"]
-            tasks.append(("record_update_done", base, tuple(row[0] for row in fields), len(fields)))
+            push(("record_update_done", base, tuple(row[0] for row in fields), len(fields)))
             for index in reversed(range(len(fields))):
-                tasks.append(
+                push(
                     (
                         "enter",
                         fields[index][1],

@@ -450,6 +450,16 @@ def create_parser() -> argparse.ArgumentParser:
         help='Emit one versioned machine-readable compile diagnostics document'
     )
 
+    repl_parser = subparsers.add_parser(
+        'repl', help='Inspect Workflow Lisp expressions and evaluated runs'
+    )
+    repl_parser.add_argument(
+        'workflow', nargs='?', help='Optional Workflow Lisp .orc source file'
+    )
+    _add_frontend_flags(repl_parser)
+    repl_parser.add_argument('--run-id', help='Attach to an evaluated run at startup')
+    repl_parser.add_argument('--state-dir', help='Override the default runs directory')
+
     explain_parser = subparsers.add_parser('explain', help='Explain a compiled Workflow Lisp form')
     explain_parser.add_argument(
         'workflow',
@@ -750,6 +760,9 @@ def main(args: Optional[list] = None) -> int:
 
     if parsed_args.command == 'run':
         return run_workflow(parsed_args).exit_code
+    elif parsed_args.command == 'repl':
+        from .commands import repl_workflow
+        return repl_workflow(parsed_args)
     elif parsed_args.command == 'prompt':
         from .commands import prompt_workflow
         return prompt_workflow(parsed_args)

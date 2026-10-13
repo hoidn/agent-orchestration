@@ -47,6 +47,154 @@ A run that supervises another run therefore uses its own workspace: it reads
 the other run's workspace by path and starts `resume` or `run` for it with that
 workspace as the working directory.
 
+## Workflow Lisp REPL
+
+The shared session supports typed evaluated targets 2.35/2.36 and the
+branch-qualified native 3.0 contract. The accepted
+[REPL design](../docs/design/workflow_lisp_repl.md) owns capture and expression
+semantics; the [port plan](../docs/plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
+owns implementation status and verification, independently of this contract.
+
+```text
+orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
+  [--provider-externs-file JSON] [--prompt-externs-file JSON]
+  [--imported-workflow-bundles-file JSON] [--command-boundaries-file JSON]
+  [--run-id RUN_ID] [--state-dir DIR]
+:load PATH [the same frontend flags]
+:run [--input NAME=VALUE ...] [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR]
+:attach RUN_ID
+:bindings
+:result
+:help
+:quit
+```
+
+The frontend flags have the same meanings as `compile` and `run`. Startup
+loads `WORKFLOW` before attaching `--run-id`. For typed modules, `:load`
+publishes the ordinary closed-program build bundle; native loading retains ordinary compiler context
+without publishing extra files. Failed compilation reports ordinary rendered
+diagnostics and retains the previous module. `:run` requires a loaded module,
+uses public run option/input parsing and `run_workflow`, and forwards the
+session state directory unless the command overrides it. It attaches the
+returned run root after public execution releases its writer locks. This
+explicit command has ordinary run effects, lock ownership and evidence writes.
+
+For typed 2.35/2.36, `:attach` resolves `RUN_ID` under `.orchestrate/runs`,
+or the session's `--state-dir`, and reads checked `run.json`, `closed_program.json` and one
+`memo.jsonl` prefix through `WorkspaceFiles`. It uses stored bound inputs and
+ordinary memo reduction, replay commit checks and completed-terminal validation.
+It takes no writer lock, launches no effects and neither repairs/appends the
+memo nor publishes a derived view. `state.json` is not authority. Attachment
+captures a prefix, not a live subscription to a running writer.
+
+A loaded module's program digest must match the run. A mismatch reports
+`resume_program_changed` and clears attachment. Without a loaded module,
+attachment rebuilds the durable `resume_request` in memory using the ordinary
+resume build request and `prepare_closed_program_bundle`; no build artifact
+or cache is published. Missing recipe reports `resume_request_missing`, and
+changed fresh program reports `resume_program_changed`. Fresh input files are
+not rebound for inspection. A matching explicitly loaded module allows reading
+a historical run without a recipe. Ordinary checked-authority, memo and compile
+errors retain their codes.
+
+Typed expressions are one datum per input line and require attachment. Lexical
+shadowing chooses the innermost binding; compiler names beginning with `%`
+are hidden. Ordinary field/list operations and pure module `defun`/`defproc`
+calls are admitted. Equality `=` / `!=` retains the
+[ordinary frontend §10.2](../docs/design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)
+contract for supported scalars and same-type enums; lists do not gain deep
+equality semantics. Use the ordinary `list/empty?` operator to test list
+emptiness. The frontend rejects transitive effects; a recursive
+lowered-body guard and the evaluator with no effect callback also refuse
+`perform`. Synthesized runtime variant-case bindings may be displayed but do
+not supply frontend proof for expression evaluation. The session accepts no
+multiline expressions, definitions, interactive effects, resume command,
+module editing, completion/history or flat-profile attachment through 2.34.
+
+`:bindings` shows visible names/types in outer-frame order, capture position
+and run identity. `:result` prints the completed entry result with the entry's
+return type, including completion through a loop's `done`, or `repl_no_result`
+when stopped or failed. Its value is the ordinary evaluator's final return,
+not an incidental operand or loop-seed completion. Expression and result
+values use two stdout lines: canonical UTF-8 compact sorted-key JSON, then
+exactly `: <rendered type>`. REPL and runtime errors print `[code] detail`
+on stderr. Frontend errors retain ordinary localized `render_diagnostic`
+output, including diagnostic code and `kind`/`form` context. A prompt and
+readline are enabled only for a TTY; piped input receives no prompt.
+
+EOF and `:quit` exit `0`. A startup load/attach refusal exits `2`; an unexpected
+failure exits `1`. Expected command/expression errors keep the session usable
+and eventual normal EOF/quit still exits `0`. Failed ordinary commands retain
+compatible session state; digest mismatch leaves it detached. Read-only startup,
+attachment, bindings, result and pure/refused expressions leave run authority,
+memo, views and attempt evidence byte-identical; `:load` can publish only build
+artifacts. `:run` remains the explicit exception using public execution.
+
+| Diagnostic | Condition | Session/startup behavior | Run evidence |
+| --- | --- | --- | --- |
+| `repl_effect_refused` | Entered expression or called procedure has effects, or a lowered/evaluated `perform` is reached | Session continues | None |
+| `repl_run_not_found` | Requested run root does not exist | Session continues; startup exits 2 | None |
+| `repl_profile_unsupported` | Requested run uses the flat profile | Session continues; startup exits 2 | None |
+| `repl_not_attached` | Expression, `:bindings` or `:result` without an attached run | Session continues | None |
+| `repl_module_required` | `:run` without a loaded module | Session continues | None |
+| `repl_expression_arity` | Expression line does not contain exactly one datum | Session continues | None |
+| `repl_no_result` | Attached replay has no halted entry result | Session continues | None |
+| `repl_module_context_missing` | Module call needs unavailable transient compiler context | Session continues | None |
+
+Reused `name_unknown`, `resume_program_changed`, `resume_request_missing`,
+`memo_inconsistent` and ordinary frontend/value diagnostics retain their
+codes and the appropriate rendering above; session errors continue, startup
+errors exit `2`, with no inspection evidence writes. A public `:run` failure retains ordinary run
+behavior and any evidence that public execution legitimately wrote.
+
+### Native target 3.0 inspection
+
+Native attachment requires a loaded native module and the exact routing pair
+`3.1` / `dynamic_execution.v1`. No loaded context reports
+`repl_module_required`; there is no durable native rebuild recipe or recoverable
+source text in state. Require the loaded semantic program digest to equal the
+saved digest; a mismatch reports `resume_program_changed` and detaches.
+Unknown/mixed profiles refuse without typed fallback. `:run` still uses the
+public run parser/service, including native option restrictions. Each native
+`:run` creates a fresh root and may repeat all prior external calls/writes;
+there is no effect-result reuse or session resume.
+
+Attachment validates the pinned program/header and one atomic state snapshot,
+then reconstructs lexical scope with the ordinary native evaluator. Reached
+completed effects consume their prescribed physical, boundary-validated
+`result.json` in saved order; no performer is installed. Running/failed/missing
+effect rows stop at the actual caller scope. Pure failures, effect-boundary
+counts, row reachability and completed terminal values/step counts must agree
+with the saved state, or attachment refuses `dynamic_state_invalid`.
+A running snapshot may reconstruct an unpublished pure halt, exposed as
+`halt-unpublished`; `:result` still reports `repl_no_result`. This explicit REPL
+consumer does not alter ordinary source-independent, nonreplaying dynamic
+report/status readers. See [state reconstruction](state.md#repl-read-only-reconstruction).
+
+Native expressions use the ordinary reader/lowerer and evaluator with one
+finite budget afresh per expression. Direct effects in entered expressions or
+new inline functions refuse `repl_effect_refused`. Reaching an effect through
+an existing helper/closure refuses before its operands or dispatch, with no
+effect callback. An untaken branch may mention an existing effectful function;
+this is an execution guard, not global static effect inference. Imported/local
+functions, captured closures and ordinary field/list operations retain native
+semantics. Evaluation leaves the captured environment unchanged.
+
+`:bindings` shows runtime kinds, including `Function`, rather than inferred
+typed signatures. Native data prints canonical JSON then `: <runtime kind>`.
+A bare closure prints `<function>` then `: Function`; containers containing
+closures refuse `repl_value_not_printable` when printed, but remain usable
+internally for selection and calls. Native `:result` requires saved completion
+and matching reconstruction, and prints the declared result schema and entry
+value, including null. The schema prints its declared name when present;
+otherwise it prints the canonical structural JSON descriptor, without source
+provenance. Stopped, failed and unpublished halts have no result.
+Inspection never changes state, run/program/source files, manifests, views or
+attempt evidence; it acquires no writer lock and performs no repair or resume.
+Required path assets must still exist. Native state has no historical result
+digests/operand fingerprints, so schema-valid historical tampering is not
+universally detectable; typed memo integrity guarantees do not transfer.
+
 ## Dynamic execution
 
 On the qualified branch, an explicit `(:target-dsl "3.0")` selects the
@@ -91,7 +239,7 @@ below remain scoped to their retained profiles. See
     - `--dry-run` validates the workflow and may emit advisory warnings that do not change the exit code. A pure-result replay-index failure is an error only when the compiled structure guarantees that the call is reached; failures along a path under a branch, match arm, or loop body are warnings. Conditions are not evaluated, and a real run is refused if it reaches the call.
   - `orchestrate resume <run_id>`
     - Dynamic schema-3.1 runs refuse with `dynamic_resume_unsupported`; see [dynamic execution](#dynamic-execution).
-    - Target-2.35 evaluated runs select their persisted authority profile before
+    - Target-2.35/2.36 evaluated runs select their persisted authority profile before
       legacy state loading. Resume rebuilds the saved request in memory, compares
       the semantic program then bound inputs, and checks the active committed
       prefix before mutable continuation. Committed results are reused without
@@ -124,7 +272,7 @@ below remain scoped to their retained profiles. See
       fails closed. Resume never creates a replacement question automatically.
   - `orchestrate invalidate <run_id> <identity> [--state-dir <runs-root>]`
     - Dynamic schema-3.1 runs refuse with `dynamic_invalidation_unsupported` without mutation; see [dynamic execution](#dynamic-execution).
-    - Target-2.35 evaluated authority supports one append-only invalidation range
+    - Target-2.35/2.36 evaluated authority supports one append-only invalidation range
       from the full active committed identity through the active suffix. It uses
       checked stored authority and the run writer lock, without reading current
       sources, rebuilding or dispatching. The next ordinary resume reruns that
