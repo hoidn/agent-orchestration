@@ -51,6 +51,28 @@ All sibling items settle even when one fails; pending siblings still get their b
 
 Nested batches share the same parent memo coordinator, not nested writers. A nested batch may own its own bounded executor; do not submit child items to a saturated pool whose parent workers wait for those same slots. The bound is per authored map, as §11 states, not a new global resource budget. This deliberately leaves global concurrency limits and adaptive scheduling harder to add; neither is needed for the fixed best-of-N batch.
 
+Path run references remain admitted, but one lifecycle at a time owns the
+parent's E1 ledger, from incomplete-attempt cleanup/allocation through memo
+settlement. Nested maps share this ownership. The coordinator parks later E1
+requests and continues servicing command/provider work; it never waits for a
+worker whose acknowledgement it must supply. Use the existing driver and
+persist/acknowledge functions, with coordinator-owned writes and fresh allocation
+on grant. This preserves E1's global adjacency and launch-authority checks;
+overlapping child run references would require a separate authority change.
+Publication or acknowledgement failure stops further grants and releases all
+waiters exceptionally. An ordinary pre-commit failure releases ownership only
+after a fresh read confirms its durable failure and no pending/committed result.
+
+Before parallel recovery writes anything, inventory every committed/unsettled
+E1 obligation after complete prefix validation. An existing E1 committed row
+must pass the ordinary exact adjacent-pair check, even if it is historical.
+An obligation lacking that row must have its exact pending row at the global
+ledger head; at most one obligation may require that append. Refuse an invalid
+set before reconciliation, tail repair or view replacement. Reconcile the valid
+set before starting workers or new reservations, so a full pool cannot wait on
+an unsettled item that has not been scheduled. These are Task 4 refinements,
+accepted after independent design review; runnable evidence remains required.
+
 ### Cwd and logical workspace — concrete D2 replacement
 
 These clauses replace the failed cwd-relative R2 proposal. They apply only to a checked parallel activation at D1's selected target, including concurrency one and sequential calls inside an item. Outside that activation retain the existing protocol, subject only to the reserved-environment clearing exception below. Keep `run_root`, header/rebuild inputs, configuration/source roots, typed path interpretation, artifact validation and stored result locators rooted in the outer run workspace. The item cwd is process launch context, never a replacement `RunAuthority` or `parent_workspace`.
@@ -184,6 +206,13 @@ This qualifies read-only replay/preflight, not live parallel execution.
 
 **Owners:** lifecycle/performance row above and the new public parallel test module.
 
+Execution staging: first qualify the extracted lifecycle and item-cwd seams
+directly, with existing serial public CLI regressions. The authored parallel
+CLI checks below require Task 4's workers and remain pending until that
+integration; do not introduce a temporary sequential parallel executor to run
+them early. Acceptance of this bounded extraction does not close Task 3's
+public qualification gate.
+
 - [ ] Preserve the current serial lifecycle in a direct prepare → perform → finish path. Retain old behavior except D2's explicitly reserved environment-key clearing; distinguish package evidence drift from request-protocol parity. Keep durable hooks interceptable; update any moved test import by caller, never bypass a crash hook.
 - [ ] Implement the exact D2 clauses above. In public CLI fixtures place different same-name scripts/data in outer and item directories: literal relative argv launches and binds the item script, a homonym operand is never rewritten, an authored absolute outer script launches unchanged, and explicit closures still bind their declared root. Exercise prior disappearance, new homonym appearance, symlink/`..` component order, outside-workspace cwd/absolute positional keys, local destination overlap and C4 mutation. No closure check runs in an unchosen branch.
 - [ ] Reuse the admitted `validate_review_findings_v1` fixtures in `tests/test_workflow_evaluated_command_templates.py` and `tests/test_workflow_evaluated_resume_retry.py`, with distinct outer/item sentinel findings. Cover argv carrier and certified inline inputs, external typed documents, absolute R2, returned refined paths, package shadow at actual cwd, unsafe authored absolute/`..`/escaping symlink refusal, external state-dir and workspace relocation. Provider artifacts must land under the logical root with unchanged relative returned values and no injected absolute-root prompt text. Test poisoned ambient/authored reserved env through command/provider launch, inactive 2.35, a nested orchestrator and run-reference child; default launchers remove it and active ones derive their own root. Test child proof/settlement in its clone with outer parent authority. A failed qualification returns to Design; do not silently narrow class admission.
@@ -191,11 +220,12 @@ This qualifies read-only replay/preflight, not live parallel execution.
 
 ## Task 4 — Execute the fixed batch with one memo writer
 
-**Owners:** `parallel.py`, `machine.py`, `runtime.py`, `effect_execution.py`, `effect_inputs.py`; new parallel tests/helpers.
+**Owners:** evaluated `parallel.py`, `machine.py`, `runtime.py`, `effect_execution.py`, `effect_inputs.py`, `run_ref.py`; shared `workflow/run_ref/runtime.py` for existing driver/preparation seams; new parallel tests/helpers and existing run-reference launch/ledger controls. Shared E1 validation semantics remain unchanged.
 
 - [ ] Add the four-item/two-active fixture with explicit barriers, allowing later items to finish first. Assert actual overlap, peak active count <=2, each body's sequential order, input-ordered output, index-based identity and the exact dependency relation. Avoid timing-only ordering assertions.
 - [ ] Implement the coordinator request queue and bounded item workers. Allow pending sibling evidence only for checked identities owned by the active batch; never remove `_ensure_effect_can_start` globally or infer authority solely from a string containing `par-map`. No worker can start another attempt or publish a parent row directly.
 - [ ] Test an empty batch, concurrency one, cap overflow before dispatch, canonical duplicate cwd aliases before any started row, ordinary item failure while running/queued siblings succeed, pure failure after a committed effect, nested map liveness, and shutdown on publication failure. Eight barrier-released items must yield eight distinct commits, no torn row, and one parent publication thread for started/committed/failed/settled records and views.
+- [ ] Exercise two run-reference items sharing the parent ledger, including nested maps: only one E1 lifecycle advances, allocation is fresh on grant, and an active command/provider sibling still progresses through both parent and child launch checks. Assert coordinator ownership of E1 writes, safe release after ordinary failure, exceptional release of all waiters after publication failure, and retained descriptors until workers drain. Preserve existing launch/ledger/settlement refusal controls.
 - [ ] Run `pytest --collect-only -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_resume.py`, then `pytest -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_resume.py tests/test_workflow_evaluated_memo.py tests/test_workflow_evaluated_view_publication.py tests/test_workflow_evaluated_view_publication_faults.py`. Review coordinator ownership and every exception path; retain raw logs and static size/CC results.
 
 ## Task 5 — Prove public interruption, resume and invalidation
@@ -204,6 +234,7 @@ This qualifies read-only replay/preflight, not live parallel execution.
 
 - [ ] Use the public CLI and existing external process-group kill hooks to stop a four-item batch after exactly two durable commits while other items are pending. Resume must dispatch only missing effects and return all four results in input order. Include an item with two sequential effects, so partial-item resume cannot accidentally mean rerunning the whole body.
 - [ ] Exercise representative new concurrency windows at start reservation, output-before-commit, commit-before-view and coordinator commit-before-settle; one retryable and one `must_not_repeat` pending command. Test later sibling divergence before any reconcile/tail repair/view write, missing result bytes, whole-workspace relocation with relative item cwd, and two completed resumes with exact evidence-byte comparisons. Reuse unchanged Phase 3 windows; enumerate which changed durable hooks require rerunning existing controls.
+- [ ] Put an unsettled run reference behind enough missing earlier items to fill the pool: resume must reconcile before workers without another child launch. Refuse a malformed obligation set whose missing E1 final row cannot follow its exact pending row, with byte-stable memo/ledger/views and zero launch. Retain positive pending-head reconciliation and historical adjacent committed-pair reuse without requiring those pairs to be the global head.
 - [ ] Public `invalidate` keeps its whole-offset-suffix behavior with interleaved commits and still refuses a committed run-reference suffix. Assert both identities retained before the offset and all identities invalidated after it; do not replace C8 with per-item invalidation.
 - [ ] Run the new resume module narrowly; then the coordinator runs the affected existing recovery/view/settlement selectors once in the exclusive window. Preserve any failed attempt and its cause. No new scheduling/crash-test framework or duplicated 434-cell campaign is required merely to restate old evidence; a changed hook or unresolved failure can justify the corresponding rerun.
 

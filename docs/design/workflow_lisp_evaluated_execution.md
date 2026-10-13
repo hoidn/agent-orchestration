@@ -2876,6 +2876,11 @@ Limits, stated so that the form is not taken for more than it is:
   parallel changes what it decides. This form does not express it.
 - `:max` caps the fixed item list, checked before any item starts. It is not
   an effect budget; Phase 5 adds no new effect-budget system.
+- Path run references sharing a parent ledger run one child lifecycle at a
+  time, including across nested maps. The coordinator continues to serve
+  command/provider work while later child requests wait. This preserves the
+  existing E1 acknowledgement, launch and settlement authorities; the Phase 5
+  plan owns recovery preconditions and qualification of this scheduling limit.
 - There is no cancellation in this version. A running item is not stopped
   when another fails.
 - It is adopted when a workflow needs it. It does not repair any failure of

@@ -15,6 +15,20 @@ original independent design acceptance at prepared-plan SHA-256
 The plan's contract delta owns the exact proposal and diagnostics; acceptance
 does not establish implementation, read-back compatibility or runtime behavior.
 
+Task 4 scheduling refinement (2026-10-13): path run references share one
+exclusive E1 lifecycle per parent ledger; other effect classes may progress.
+The existing globally adjacent acknowledgements, launch head and settlement
+pair require this restriction. Independent design review accepted the bounded
+refinement after adding a complete read-only recovery-obligation check before
+any reconciliation write. Existing historical committed pairs remain valid
+without being the global head. No new owner decision, schema or class refusal
+is introduced. `E/phase5-runref-coordinator-seam-review.md`,
+`E/phase5-runref-scheduling-design.md` (SHA-256
+`235aedb0d1466f4a18bf352788db3913577ffe3e06472c1374ffc1ca4483d071`)
+and `E/phase5-runref-scheduling-design-review.md` retain the source findings,
+R1 correction and independent design PASS. Implementation and its focused
+concurrency/recovery checks remain pending in Tasks 4/5.
+
 At Task 0 entry on 2026-10-13, worktree
 `.worktrees/orc-consolidation-20261012` (W) was at documentation closure `2feb6db7`, with product/test bytes qualified at
 `bfd0f32411cec03241a9b2f54a6fcae118c75bd5`. The
