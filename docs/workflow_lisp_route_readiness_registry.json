@@ -431,6 +431,18 @@
       "surface_kind": "workflow_example"
     },
     {
+      "copy_safety": "preferred_current_guidance",
+      "evidence": [
+        "tests/test_workflow_lisp_plan_review_execute_example.py::test_documented_command_compiles_the_example_to_a_closed_program"
+      ],
+      "notes": "README example: a planner drafts, a reviewer from another model family gives feedback, the planner revises, and the reviewer's model executes the revised plan, as one typed sequence at target 2.35. Compile and dry-run evidence only; no live provider run is recorded.",
+      "path": "workflows/examples/plan_review_execute.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "evaluated_execution",
+      "surface_id": "workflows.examples.plan_review_execute",
+      "surface_kind": "workflow_example"
+    },
+    {
       "copy_safety": "legacy_compatibility_only",
       "evidence": [
         "tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack"
@@ -841,5 +853,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-07-31"
+  "updated": "2026-10-12"
 }

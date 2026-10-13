@@ -90,6 +90,11 @@ python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
 
 Fresh preferred starting points:
 
+- For the smallest two-model sequence at target 2.35, read
+  `workflows/examples/plan_review_execute.orc`: one planner drafts, a reviewer
+  from another model family gives feedback, the planner revises, and the
+  reviewer's model executes the revised plan. It is the README example and
+  compiles with the command in its header.
 - For a review loop, start with
   `workflows/examples/improve_experiment_proposal.orc`, which calls
   `std/improve`. For generate-and-select, or a review loop written by hand,

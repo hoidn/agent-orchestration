@@ -1,304 +1,234 @@
 # Agent Orchestration
 
-A compiler and runtime for LLM-agent workflows. A workflow is a typed
-program whose steps run coding agents and shell commands. The compiler and
-runtime own the bookkeeping that agent pipelines normally hand-roll: where
-intermediate files live, what each step must produce, whether it actually
-did, and how a run resumes after failure. Every run leaves its state,
-prompts, and logs on disk under `.orchestrate/runs/<run_id>/`.
+A compiler and runtime that turns LLM-agent workflows into typed, checked,
+replayable programs.
 
-## The Missing Toolchain
+A workflow is a program in Workflow Lisp (`.orc`). Its steps invoke coding
+agents and shell commands. The compiler checks, before anything runs, what
+each step must produce, what it may touch, and how its outcome routes the
+rest of the program. The runtime enforces those contracts on what the agents
+actually produce, commits nothing that fails them, and can resume any run
+from its last committed effect. There is no service: a run is a directory
+under `.orchestrate/runs/<run_id>/` holding state, composed prompts, logs,
+and the source map back to the authored program.
 
-When you compile a C program, you do not assign addresses to your variables,
-invent a calling convention per function, or parse the bytes a callee leaves
-behind. The toolchain does that. It is so transparent that it takes effort to
-remember it is happening.
+The stance is that an LLM agent is an unreliable, effectful coprocessor. The
+deterministic side of the system should own every correctness obligation it
+can carry, and the agent should be asked only for the part that needs
+judgement.
 
-Programming with LLM agents today has no equivalent toolchain, so every
-pipeline hand-rolls the same machinery at the level of assembly-era
-programming: invent file paths for intermediate state and thread them through
-prompts and glue scripts; describe the expected output format in prose inside
-each prompt; parse what the model produces with regex or JSON-fishing; decide
-"looks done" by inspection; rerun from scratch when something breaks halfway.
+## Why: correctness obligations should not live in prose
 
-This project's thesis is that those are compiler and runtime responsibilities,
-and that workflow authoring should look like typed programming against an
-unreliable, effectful coprocessor:
+When you compile a C program you do not assign addresses to variables, invent
+a calling convention per function, or parse the bytes a callee leaves behind.
+The toolchain does that. Agent pipelines today have no such toolchain, so each
+one hand-rolls the same machinery: file paths for intermediate state threaded
+through prompts and glue, output formats described in prose, results parsed
+with regex, "looks done" decided by inspection, and reruns from scratch after
+a failure halfway through.
 
-| A CPU toolchain gives you | Hand-rolled in agent pipelines today | Owned by the compiler and runtime here |
+| A CPU toolchain gives you | Hand-rolled in agent pipelines | Owned by the compiler and runtime here |
 | --- | --- | --- |
-| Storage layout: the compiler assigns addresses, you name variables | Inventing file paths for every intermediate artifact and threading them everywhere | Generated state layout: state bundles, snapshots, result bundles, and write roots are allocated by the runtime (`StateLayout`/`PathAllocator`), private by default, provenance-tracked; authored code references typed values |
-| Calling conventions: types define the ABI | Output formats described in prose, differently in every prompt | The declared result type is rendered into the prompt as a deterministic output-contract block, and the output location is a managed binding the agent receives — not a path the author invents |
-| Type checking | Stringly-typed everything; status fields compared by convention | Records, tagged unions, enums, and path contracts checked before execution; outcome-dependent fields are unreachable without `match` proof, at compile time and behind runtime guards |
-| Defined failure semantics | "Looks done" means done; partial junk left on disk | Fail-closed validation: agent output is parsed and verified by the runtime against the declared contract, and nothing becomes canonical state until it passes (validate, write temp, atomic rename) |
-| Compiled control flow | Routing by parsing model output | Branches and bounded loops over typed outcomes compile to a guarded, resumable step graph |
-| Debugger and symbols | Scrolling transcripts | Source maps from every runtime step back to the authored form, plus inspectable run state, composed prompts, and logs on the filesystem |
-| Crash recovery | Rerun and pray | `resume <run_id>` continues from validated state |
+| Storage layout | Invented file paths for every intermediate artifact | Runtime-allocated state layout, private by default, provenance-tracked |
+| Calling conventions | Output format restated in prose in every prompt | The declared result type is rendered into the prompt as an output contract and enforced on the result |
+| Type checking | Stringly-typed status fields compared by convention | Records, tagged unions, enums, and path contracts checked before execution |
+| Defined failure semantics | Partial junk left on disk when a step half-finishes | Fail-closed validation; nothing becomes canonical state until it passes |
+| Compiled control flow | Routing by parsing model output | Branches and bounded loops over typed outcomes, compiled to a resumable program |
+| Debugger and symbols | Scrolling transcripts | Source maps from every effect back to the authored form, plus inspectable run state |
+| Crash recovery | Rerun and pray | `resume <run_id>` replays committed effects from a memo and continues |
 
-## What That Looks Like
+## Sixty seconds of Workflow Lisp
 
-In Workflow Lisp (`.orc`), the typed frontend, an implementation phase is a
-typed expression over an agent step:
+Claude drafts a plan. Codex reviews it. Claude revises the plan with that
+feedback. Codex executes the revised plan. This is
+[`workflows/examples/plan_review_execute.orc`](workflows/examples/plan_review_execute.orc),
+and it compiles with the command in its header.
 
 ```lisp
-(defunion ImplementationAttempt          ; the outcome contract: a tagged union
-  (COMPLETED
-    (execution-report Path.execution-report))  ; path type: verified to exist
-  (BLOCKED                               ; different outcome, different evidence
-    (progress-report Path.progress-report)
-    (blocker-class BlockerClass)         ; an enum, not free text
-    (blocker-reason String)))
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule plan_review_execute)
+  (export run)
 
-(let* ((attempt                          ; attempt : ImplementationAttempt
-         (provider-result providers.execute       ; the agent role to invoke
-           :prompt prompts.implementation.execute ; compile-time prompt source
-           :inputs (inputs.design inputs.plan)    ; the prompt's typed inputs
-           :returns ImplementationAttempt)))      ; injected into the prompt as
-                                                  ; the output contract, enforced
-                                                  ; on the result, fail-closed
-  (match attempt
-    ((COMPLETED c)             ; proof: c's fields exist only in this arm
-      (review-completed-implementation c.execution-report))
-    ((BLOCKED b)               ; typed blocker routes onward; nothing parsed
-      (escalate-blocker b.blocker-class b.blocker-reason))))
+  (defrecord Plan (steps List[String]))
+  (defrecord Feedback (findings List[String]))
+  (defrecord Execution (summary String))
+
+  (defprompt draft-plan (:fills (task :text)) -> Plan
+    "Plan this task as ordered steps, naming the files each step touches. Change no files.\n\nTask: {task}")
+  (defprompt review-plan (:fills (task :text) (steps :value List[String])) -> Feedback
+    "Review this plan: what would make it fail or leave the task's scope? Change nothing.\n\nTask: {task}\nPlan: {steps}")
+  (defprompt revise-plan (:fills (task :text) (steps :value List[String]) (findings :value List[String])) -> Plan
+    "Revise the plan so that every finding is addressed. Change no files.\n\nTask: {task}\nPlan: {steps}\nFindings: {findings}")
+  (defprompt execute-plan (:fills (task :text) (steps :value List[String])) -> Execution
+    "Execute this plan in the current repository.\n\nTask: {task}\nPlan: {steps}")
+
+  (defworkflow run ((task String)) -> Execution
+    (let* ((draft (provider-result providers.claude :model "claude-fable-5-1" :effort "high"
+                    :prompt (draft-plan :task task)))
+           (feedback (provider-result providers.codex
+                       :prompt (review-plan :task task :steps draft.steps)))
+           (revised (provider-result providers.claude :model "claude-fable-5-1" :effort "high"
+                      :prompt (revise-plan :task task :steps draft.steps :findings feedback.findings))))
+      (provider-result providers.codex
+        :prompt (execute-plan :task task :steps revised.steps))))
+)
 ```
 
-Hand-rolled against the same CLI agent, with the same guarantees attempted,
-the equivalent step is mostly bookkeeping:
+The prompts say what to do. They do not describe JSON. `-> Plan` and
+`-> Feedback` fix the contracts: the runtime appends the required fields,
+their types and the result location to the composed prompt, parses what the
+agent writes, and validates it before the next call can use it. A field
+access such as `feedback.findings` is checked at compile time against the
+declared record, so a prompt can only be filled with a value that exists and
+has the right type. Compiling this module yields a closed program with exactly
+four effect sites, known before anything runs. If the last call fails, resume
+takes the first three results from the memo and runs only the execution again.
+Provider names bind to agent CLIs in a small manifest outside the program, so
+the same source runs against different agents.
 
-```python
-MAX_RETRIES = 3
-BLOCKER_CLASSES = {"missing_resource", "unavailable_hardware", ...}
-report_dir = "state/impl"                        # storage layout, invented by hand
-state_path = f"{report_dir}/attempt.json"
+| Codex's answer to `review-plan` | Result |
+| --- | --- |
+| `{"findings":["Step 2 edits a file that does not exist"]}` | Claude's revise prompt is filled with a list of strings |
+| `{"findings":"add tests"}` | a string is not a list of strings; rejected |
+| `{"findings":["add tests", 7]}` | wrong element type; rejected |
+| `{}` | required field missing; rejected |
 
-def run_implementation(design_path, plan_path):
-    if os.path.exists(state_path):               # hand-rolled resume
-        prior = json.load(open(state_path))
-        if looks_valid(prior):                   # re-validate: trust nothing
-            return prior
+Branching and loops are typed the same way: a reviewer that may approve or
+request changes returns a tagged union, `match` must cover every variant, and
+a loop is bounded with a typed exhaustion outcome. The bundled `std/improve`
+helper packages that review-and-revise loop; see
+[`workflows/examples/improve_experiment_proposal.orc`](workflows/examples/improve_experiment_proposal.orc).
 
-    prompt = f"""Implement the plan.
-Design: {design_path}
-Plan: {plan_path}
+## What is checked, and where
 
-When finished, write JSON to {report_dir}/result.json shaped like
-  {{"status": "COMPLETED", "execution_report": "<path>"}}
-or
-  {{"status": "BLOCKED", "blocker_class": "...", "blocker_reason": "..."}}
-"""                                              # the contract, restated as prose in every prompt
+| Obligation | Discharged by | When |
+| --- | --- | --- |
+| The shape of an agent's result | Declared record or union type, rendered as the output contract and validated on return | compile time for the declaration; run time, before any consumer sees the value |
+| Routing on an outcome | Tagged unions; exhaustive `match`; variant fields unreachable without proof | compile time, with a runtime guard in the lowered program |
+| What a procedure may do | Declared or inferred effects: providers used, commands run, paths written; imported procedures carry theirs | compile time |
+| What a shell command may run and read | A command boundary manifest with a closure declaration; nothing undeclared runs | compile time, enforced at run time from target 2.35 |
+| Where artifacts may live | Path types with a root and an existence requirement | compile time and on every write |
+| Termination | Bounded loops with a typed exhaustion outcome; no recursion; no first-class procedures | compile time |
+| Pure computation | A closed, total operator set; compile-time folding must agree with the runtime evaluator on shared golden vectors | both |
+| "Done" means done | Validate, write to a temporary location, atomic rename; nothing else becomes canonical state | run time |
+| Resume | Every effect has a semantic identity; a committed result is taken from the memo rather than rerun | run time |
 
-    for _ in range(MAX_RETRIES):                 # malformed output happens; retry by hand
-        subprocess.run(["codex", "exec", prompt], capture_output=True, text=True)
-        try:
-            result = json.load(open(f"{report_dir}/result.json"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            continue                             # wrote nothing, or not JSON
+Reports, logs, dashboards, and the agent's own prose summaries are views.
+Nothing routes on them.
 
-        if result.get("status") == "COMPLETED":
-            report = result.get("execution_report")
-            if not report or not os.path.exists(report):
-                continue                         # claimed a report it never wrote
-            if not report.startswith("artifacts/work/"):
-                continue                         # or wrote it somewhere it shouldn't
-        elif result.get("status") == "BLOCKED":
-            if result.get("blocker_class") not in BLOCKER_CLASSES:
-                continue                         # free text where an enum should be
-        else:
-            continue                             # unknown status string
-
-        tmp = state_path + ".tmp"                # atomic-ish commit, by hand
-        json.dump(result, open(tmp, "w"))
-        os.replace(tmp, state_path)
-        return result
-
-    raise RuntimeError("implementation failed")  # nothing recorded what or why
-
-# ...and the same again for every step, minus what never gets written:
-# step-level resume identity, provenance, effect visibility, and any way
-# to map a failure back to the line that caused it.
-```
-
-And this is one step, abridged — the stringly-typed routing on
-`result["status"]` still happens at every consumer. The `.orc` step carries
-no bookkeeping: the enclosing module adds only typed declarations, and the
-next step costs one more declaration, not another copy of this.
-
-What the typed declarations buy:
-
-- The `ImplementationAttempt` union becomes the agent's output contract: a
-  deterministic contract block is appended to the composed prompt, and the
-  structured result is written to a runtime-managed location.
-- The returned bundle is validated against the type before anything
-  downstream can see it. There is no parsing code to write, and a
-  wrong-shape or wrong-path result fails closed instead of flowing onward.
-- `match` establishes the variant proof needed to reach `c.execution-report`
-  or `b.blocker-class`. Touching a variant field without proof is a compile
-  error; the lowered graph keeps a runtime guard. Target 2.26 also supports
-  proof from typed discriminant comparisons in conditionals.
-- The bookkeeping — phase state bundles, snapshots, candidate and result
-  paths — never appears in the source. It is allocated, tracked, and kept
-  private by the runtime; the agent's human-readable report is a view, not
-  the state.
-- Every generated step maps back to this source form, and the whole run is
-  resumable from its last validated state.
-
-The lower-level Core contract still contains surfaces such as
-`variant_output`, `match`, and injected output contracts. They are compiler
-targets and runtime semantics, not a second authored frontend.
-
-## Guarantees The System Enforces
-
-- Structured state is semantic authority; reports, logs, pointer files, and
-  rendered summaries are views. Nothing routes on parsed prose.
-- Validation precedes canonical state. Contracts may narrow downstream,
-  never weaken.
-- Effects are visible: provider use, command execution, writes, state
-  updates, and queue/ledger movement are declared or inferred — semantics
-  hidden inside inline shell or Python glue is treated as migration debt,
-  with certified command adapters as the sanctioned FFI for genuine
-  external tools.
-- Pure computation (comparison, counting, defaults, message construction)
-  is a closed, total, deterministic in-language operator surface — not a
-  helper script.
-- Runs are deterministic where the workflow is, sequential by default, and
-  leave complete local evidence. There is no service dependency.
-
-## Workflow Source And Core Contract
-
-- **Workflow Lisp** (`.orc`) — the only fresh workflow frontend. It
-  compiles through a
-  real middle-end (typed elaboration, ANF normalization,
-  defunctionalization) into the validated runtime.
-- **Core workflow contract** (`specs/dsl.md`) — the normalized mapping produced
-  by the compiler and consumed by shared validation/runtime code. The former
-  authored YAML/YML frontend and its production parser are retired.
-
-Fresh `run` accepts only a path whose suffix compares case-insensitively as
-`.orc`; every other source path fails with `.orc required` before run state is
-created. Reports and dashboards may render persisted legacy state without
-parsing its source. Resume rejects every recorded non-`.orc` source with
-`.orc required`, regardless of run terminality or force-restart selection.
-
-Use [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) to
-check whether a given surface is implemented, partial, designed, or legacy
-before copying it.
-
-## Architecture
-
-The `.orc` frontend lowers into one validated substrate:
+## Execution model
 
 ```text
 .orc source
   -> frontend AST
-  -> macro/import expansion and compile-time procedure specialization
+  -> macro and import expansion, compile-time procedure specialization
   -> typecheck
   -> core-calculus elaboration (ANF)
-  -> scope/effect/proof analysis
-  -> defunctionalization
-  -> flat Core workflow AST
-  -> shared validation
-  -> Semantic IR (semantic authority)
-     + Executable IR (executable authority)
-  -> flat, resumable runtime
+  -> scope, effect, and proof analysis
+  -> closed program
+  -> evaluation with an effect memo, on disk, resumable
 ```
 
-The choices that carry the design:
-
-- **The target is deliberately flat.** The runtime is a durable step
-  machine: every effect is an addressable, individually resumable step,
-  validated before its results become canonical. The compiler's job is the
-  same transformation family that gives `async/await` its state machines —
-  nested, typed control flow in; flat, durable steps out. Concentrating
-  the cleverness at compile time means it can be checked there, including
-  by dual-compiling against the legacy lowering and diffing.
-- **The middle end is a small core calculus in ANF** — roughly ten
-  constructs (atoms, `let`, effect performs, variant inject/case, join
-  points, bounded recursion, calls, halt), with an elaboration-totality
-  contract on the migrated subset: programs that typecheck lower, so there
-  is no "well-typed but dies after lowering" class of failure.
-- **ANF rather than SSA or CPS** because it makes the runtime's
-  obligations syntactic: the `let` spine totally orders effects, which is
-  exactly what a durable step list needs; join points map one-to-one onto
-  steps and routing, so there is no out-of-SSA reconstruction; dominance
-  is lexical nesting; and continuations are second-class by scoping, so
-  there are no runtime closures and defunctionalization is total.
-- **Identity is semantic and versioned.** Step and generated-path identity
-  derive from semantic ownership — module, role, call frame, loop scope —
-  plus a lowering schema version, never from source spans. Resume fails
-  closed across schema boundaries instead of replaying into a graph with
-  different meaning.
-- **Two IR authority lanes.** Semantic IR records what a workflow means
-  (types, effects, provenance — what review and migration parity consume);
-  Executable IR is what runs. `expanded.debug.yaml` is an intentionally
-  historical filename for a JSON-rendered debug projection, never authored
-  source or authority.
-- **Pure computation has one semantics.** The runtime evaluator owns the
-  closed operator surface; compile-time constant folding must agree with
-  it (shared golden vectors). Maximal pure regions fold into single
-  visible projection steps with private managed results.
+- **The middle end is a small core calculus in ANF**, roughly ten constructs:
+  atoms, `let`, effect performs, variant inject and case, join points, bounded
+  recursion, calls, halt. Programs that typecheck lower; there is no
+  "well-typed but dies after lowering" class of failure on the admitted subset.
+- **The compiled artifact is a closed program.** Loops are bounded, there are
+  no runtime closures, and the effect vocabulary is fixed, so every effect site
+  and its contract is known before a run starts.
+- **Evaluated execution** (targets 2.35 and 2.36): values are computed in a
+  lexical environment and have no stored copy. An effect is identified by its
+  site and the path of activations that reached it, and nothing else. An
+  effect runs only when the memo holds no committed result for that identity.
+  Resume evaluates the program again from its entry and takes each committed
+  result from the memo. What a reader sees as "steps" is a view derived from
+  the memo and the program.
+- **Identity is semantic and versioned.** It derives from module, role, call
+  frame, and loop scope plus a lowering schema version, never from source
+  spans. Resume fails closed across schema boundaries instead of replaying
+  into a program with a different meaning.
+- **Two authority lanes.** A semantic IR records what a workflow means: types,
+  effects, provenance. An executable IR is what runs. Reports and debug
+  projections are derived from them and are never parsed as authority.
 
 Deeper reading:
-[`docs/design/workflow_lisp_core_calculus_middle_end.md`](docs/design/workflow_lisp_core_calculus_middle_end.md)
-(calculus and middle-end),
-[`docs/design/workflow_lisp_runtime_migration_foundation.md`](docs/design/workflow_lisp_runtime_migration_foundation.md)
-(structured output, private value transport, path allocation),
-[`docs/design/workflow_lisp_frontend_specification.md`](docs/design/workflow_lisp_frontend_specification.md)
-(language baseline).
+[core calculus and middle end](docs/design/workflow_lisp_core_calculus_middle_end.md),
+[evaluated execution](docs/design/workflow_lisp_evaluated_execution.md),
+[frontend specification](docs/design/workflow_lisp_frontend_specification.md),
+and the normative [spec index](specs/index.md).
 
-## Start Here
+## Evidence rather than claims
 
-| Goal | Read or run |
+The repository records negative results next to positive ones.
+
+| Study | What was measured | Outcome |
+| --- | --- | --- |
+| [Workflows versus a single agent call](docs/reports/2026-09-28-orc-versus-single-call.md) | A real compiler defect, six runs per configuration, two blind model judges per batch, 8-point rubric | Generate-four-select-one with a stronger judge from another model family: +0.83 and +1.02 over the candidate-group mean. Review-and-revise with the author's own model as reviewer: between -0.5 and +0.44, no reliable gain |
+| [Earlier pilot](docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md) | A PyTorch port task, direct call versus coordinator versus workflow | The direct call won all three blocks; the workflow was viable in one of three. Recorded as such |
+| [Language limitations found in use](docs/reports/2026-09-29-orc-language-limitations-and-solutions.md) | A search controller written five ways against the flat step runtime | Three refusals, one 361-node expression against a 256-node bound. This motivated evaluated execution, which now runs the same program |
+| [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Independent candidates plus a judge with different knowledge than the author were the only measured sources of gain |
+
+The conclusion the evidence supports is narrow: a workflow beats a single call
+when it supplies something the agent lacks, and the cost of finding out is one
+disciplined experiment. The runtime's value is that the experiment is
+cheap to run and its evidence is complete.
+
+## Scale and provenance
+
+| | |
 | --- | --- |
-| Understand the repo map | [`docs/index.md`](docs/index.md) |
-| Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
-| Choose a copy-safe Workflow Lisp example | [`Which Example Should I Copy?`](workflows/README.md#which-example-should-i-copy) |
-| Author Workflow Lisp `.orc` | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
-| Translate or audit historical YAML | [Historical YAML reference](docs/workflow_drafting_guide.md) |
-| Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
-| Find runnable examples | [`workflows/README.md`](workflows/README.md) |
-| Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
-| Author or run a target-2.25 trial | [Pinned child runs and trials](docs/lisp_workflow_drafting_guide.md#pinned-child-runs-and-trials); [CLI contract](specs/cli.md#workflow-lisp-trials-target-225) |
+| First commit | 2025-09-14 |
+| Commits on `main` | about 2,900 |
+| Python in `orchestrator/` | about 350k lines |
+| Tests collected | 23,988 |
+| Core contract versions | DSL v1.1 through v2.36, each with a normative spec and migration rules |
+| Agent CLIs driven | Codex, Claude Code, Gemini CLI, oh-my-pi |
+| Runtime dependencies | `jsonschema`, `PyYAML`; Python 3.11+ and `bash` |
 
-If you are new to the repo, use the workflow catalog to choose a current
-copy-safe example. The compile-only check below uses a targeted review/fix
-reference; use the catalog for current copy guidance and the compile check
-only to validate source.
+Much of the compiler and runtime was built by agent runs driven by this
+runtime: design, plan, implement, and review loops whose plans, reviews, and
+closeout evidence are checked in under `docs/plans/` and `docs/reports/`.
+The same runtime has driven autonomous design-to-review tranches on physics
+codebases outside this repository, among them ptychographic reconstruction and
+EPR spectroscopy simulation; those runs used an earlier YAML frontend that has
+since been retired in favor of `.orc`.
 
-## Install
+## Where this points
 
-Requirements:
+Statuses follow the
+[capability status matrix](docs/capability_status_matrix.md).
 
-- Python 3.11+
-- `bash`
-- a checkout of this repository
+- **Checked program evaluation** (proposed). An agent produces source text; the
+  ordinary compiler checks it against input and result types, permitted
+  imports, an effect bound, and a budget fixed by the parent program; the
+  ordinary runtime evaluates it. A rejected program returns located
+  diagnostics that feed a normal repair loop. See
+  [the design](docs/design/workflow_lisp_checked_program_evaluation.md).
+- **Provider isolation** (versioned contract; runtime integration pending).
+  Agents launch under `bubblewrap` from a sealed, digest-verified root
+  filesystem snapshot, with the runtime's own state masked and every mismatch
+  failing closed. See [`specs/providers.md`](specs/providers.md).
+- **Human in the loop** (implemented, target 2.32). `request-input` suspends a
+  run on a typed question; resume validates and consumes the exact reply.
+- **Editor support** (implemented). A read-only language server over the
+  production compiler: diagnostics, definitions, symbols. Install with the
+  `[lsp]` extra and run `python -m orchestrator.lsp`.
 
-Optional for real provider execution:
-
-- the `codex` CLI available in your shell;
-- whatever authentication your `codex exec` setup requires.
+## Try it
 
 ```bash
-git clone <repo-url> agent-orchestration
+git clone git@github.com:hoidn/agent-orchestration.git
 cd agent-orchestration
-
-python3.11 -m venv .venv
-source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-```
-
-Sanity check:
-
-```bash
 python -m orchestrator --help
 ```
 
-The CLI program name is `orchestrate`, but the examples use
-`python -m orchestrator` so they work directly from a checkout.
+### First compile check
 
-## First Compile Check
-
-Run the compile-only source check for the targeted review/fix reference:
+Compile a workflow without running any provider:
 
 ```bash
 python -m orchestrator compile \
@@ -307,120 +237,65 @@ python -m orchestrator compile \
   --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json
 ```
 
-This compile-only command deliberately omits `--entry-workflow` and runs no
-provider. It is a source-check reference, not copy-safety or explicit-entry
-evidence. Supplying
-`--entry-workflow review_revise_design_docs::review-revise-design-docs` to the
-run/dry-run route currently fails with `workflow_signature_mismatch`
-(`entry_bootstrap_name_gate_denied`). Choose a new starting point from the
-[workflow catalog](workflows/README.md#which-example-should-i-copy).
-
-## Run For Real
-
-Only run provider workflows after compile and dry-run checks succeed and your
-provider CLI works in the same shell. Supply the selected `.orc` entrypoint's
-declared typed inputs and extern files; the
-[workflow catalog](workflows/README.md) records runnable and input-required
-routes.
+Dry-run the example above with its provider bindings and a task:
 
 ```bash
-python -m orchestrator run \
-  <workflow.orc> --entry-workflow <module::entry> \
-  --provider-externs-file <providers.json> \
-  --prompt-externs-file <prompts.json> \
-  --input-file <inputs.json> \
-  --stream-output
+python -m orchestrator run workflows/examples/plan_review_execute.orc \
+  --entry-workflow plan_review_execute::run \
+  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json \
+  --input-file workflows/examples/inputs/plan_review_execute/inputs.json \
+  --dry-run
 ```
 
-If the run stops partway through, resume it:
+Run for real once your agent CLI works in the same shell, and resume if it
+stops partway:
 
 ```bash
+python -m orchestrator run <workflow.orc> --entry-workflow <module::entry> \
+  --provider-externs-file <providers.json> --prompt-externs-file <prompts.json> \
+  --input-file <inputs.json> --stream-output
+
 python -m orchestrator resume <run_id> --stream-output
 ```
 
-## Observability
+Inspect a run:
 
-The first places to inspect after a run:
+| Question | Where |
+| --- | --- |
+| What did each step produce, and what failed? | `.orchestrate/runs/<run_id>/state.json` |
+| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/logs/<Step>.prompt.txt` |
+| Readable report | `python -m orchestrator report --run-id <run_id> --format md` |
+| Local read-only dashboard | `python -m orchestrator dashboard --workspace "$(pwd)"` |
+| Headless email alerts on completion, failure, or stall | `python -m orchestrator monitor`; see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md) |
 
-- `.orchestrate/runs/<run_id>/state.json` — step status, artifacts, errors;
-- `.orchestrate/runs/<run_id>/logs/<Step>.prompt.txt` — the composed
-  provider prompt, including the injected output-contract block;
-- `.orchestrate/runs/<run_id>/logs/<Step>.stdout` / `.stderr` — execution
-  traces.
+If agent behavior looks wrong, read the composed prompt before changing
+workflow logic. If routing looks wrong, read `state.json` and the declared
+contracts before changing prompts.
 
-Generate a readable run report:
+## Reading paths
 
-```bash
-python -m orchestrator report --run-id <run_id> --format md
-```
+| Goal | Read |
+| --- | --- |
+| Map of the documentation | [`docs/index.md`](docs/index.md) |
+| Whether a surface is implemented, partial, designed, or legacy | [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) |
+| The execution model in prose | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
+| Author a `.orc` workflow | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
+| Which example to copy | [`workflows/README.md`](workflows/README.md#which-example-should-i-copy) |
+| Normative contracts | [`specs/index.md`](specs/index.md) |
+| Design principles behind the language | [`docs/design/workflow_language_design_principles.md`](docs/design/workflow_language_design_principles.md) |
 
-Serve the local read-only dashboard:
-
-```bash
-python -m orchestrator dashboard --workspace "$(pwd)"
-```
-
-For long workflows, optional step summaries make run review easier
-(`--step-summaries --summary-profile phase-performance`). Summary files are
-observability artifacts only; they must not drive workflow routing or
-recovery decisions. For headless email alerts across workspaces, see
-[`docs/workflow_monitoring.md`](docs/workflow_monitoring.md).
-
-## What The Repo Contains
+## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| [`orchestrator/`](orchestrator/) | Workflow Lisp frontend/compiler, validator, executor, CLI, dashboard, and observability. |
-| [`specs/`](specs/) | Normative DSL, CLI, state, provider, observability, and acceptance contracts. |
-| [`docs/`](docs/) | Informative guides, design docs, runbooks, and implementation plans. |
-| [`workflows/examples/`](workflows/examples/) | Runnable examples and validation fixtures. |
-| [`workflows/library/`](workflows/library/) | Reusable imported subworkflows and bundled prompt assets. |
-| [`prompts/`](prompts/) | Shared prompt catalog. |
-| [`tests/`](tests/) | Unit, frontend, runtime, workflow, and fixture tests. |
-
-## Common Commands
-
-```bash
-# Resume an existing run
-python -m orchestrator resume <run_id> --stream-output
-
-# Render the latest run report
-python -m orchestrator report --format md
-
-# Serve the dashboard
-python -m orchestrator dashboard --workspace "$(pwd)"
-
-# Inspect the target-2.25 terminal trial entry
-python -m orchestrator trial --help
-
-# Run the broad non-e2e test loop from a tmux session
-pytest -q -n 16 --dist=worksteal -m "not e2e"
-```
-
-## Versioning
-
-The Core/runtime contract spans multiple DSL versions, including the older
-`1.x` semantics and newer `2.x` structured-control, reusable-call,
-provider-session, managed-job, materialization/variant, and the
-target-2.24 `run-ref` / target-2.25 `trial` surfaces. Fresh
-authored source is `.orc`; authoritative versioning details live in
-[`specs/index.md`](specs/index.md) and
-[`specs/versioning.md`](specs/versioning.md).
-
-## Debugging Rule Of Thumb
-
-If agent behavior looks wrong, inspect the composed provider prompt before
-changing workflow logic:
-
-```bash
-less .orchestrate/runs/<run_id>/logs/<Step>.prompt.txt
-```
-
-If routing or artifact lineage looks wrong, inspect `state.json` and the
-workflow's declared `outputs`, `publishes`, `consumes`, `expected_outputs`,
-and `output_bundle` contracts before changing prompts.
+| [`orchestrator/`](orchestrator/) | Workflow Lisp frontend and compiler, validator, evaluator, providers, CLI, dashboard, language server |
+| [`specs/`](specs/) | Normative DSL, CLI, state, provider, IO, security, and versioning contracts |
+| [`docs/`](docs/) | Guides, design docs, plans, and reports, including negative results |
+| [`workflows/`](workflows/) | Runnable examples, the standard library's reusable procedures, and prompt assets |
+| [`experiments/`](experiments/) | Material of the studies cited above: workflows, rubrics, ratings, harnesses |
+| [`tests/`](tests/) | Unit, compiler, runtime, workflow, and fixture tests |
 
 ## License
 
-This project is licensed under the Functional Source License, Version 1.1,
-MIT Future License (`FSL-1.1-MIT`). See [`LICENSE.md`](LICENSE.md).
+Functional Source License, Version 1.1, MIT Future License
+(`FSL-1.1-MIT`). See [`LICENSE.md`](LICENSE.md).
