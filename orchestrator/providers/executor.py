@@ -1193,6 +1193,7 @@ class ProviderExecutor:
         *,
         observation_handle: Optional[ProviderObservationHandle] = None,
         execution_env_overlay: Optional[Dict[str, str]] = None,
+        logical_workspace_root: Optional[Path] = None,
     ) -> ProviderExecutionResult:
         """Execute while keeping optional observation outside result semantics."""
         pre_execution_failure = (
@@ -1217,6 +1218,7 @@ class ProviderExecutor:
                 control=control,
                 observation_handle=active_observation,
                 execution_env_overlay=execution_env_overlay,
+                logical_workspace_root=logical_workspace_root,
             )
         finally:
             self._finalize_observation(
@@ -1277,6 +1279,7 @@ class ProviderExecutor:
         *,
         observation_handle: Optional[ProviderObservationHandle] = None,
         execution_env_overlay: Optional[Dict[str, str]] = None,
+        logical_workspace_root: Optional[Path] = None,
     ) -> ProviderExecutionResult:
         """
         Execute a prepared provider invocation.
@@ -1294,6 +1297,7 @@ class ProviderExecutor:
         process_env = self._build_process_environment(
             invocation,
             execution_env_overlay,
+            logical_workspace_root,
         )
 
         if (
@@ -1528,6 +1532,7 @@ class ProviderExecutor:
     def _build_process_environment(
         invocation: ProviderInvocation,
         execution_env_overlay: Optional[Dict[str, str]],
+        logical_workspace_root: Optional[Path] = None,
     ) -> Dict[str, str]:
         """Build process env without mutating the prepared invocation."""
 
@@ -1566,6 +1571,24 @@ class ProviderExecutor:
             process_env.update(invocation.env)
         if execution_env_overlay:
             process_env.update(execution_env_overlay)
+        process_env.pop("ORCHESTRATOR_WORKSPACE_ROOT", None)
+        if logical_workspace_root is not None:
+            if (
+                not isinstance(logical_workspace_root, Path)
+                or not logical_workspace_root.is_absolute()
+            ):
+                raise ValueError("logical_workspace_root must be an absolute directory")
+            try:
+                logical_workspace_root = logical_workspace_root.resolve(strict=True)
+            except (OSError, RuntimeError, ValueError) as error:
+                raise ValueError(
+                    "logical_workspace_root must be an absolute directory"
+                ) from error
+            if not logical_workspace_root.is_dir():
+                raise ValueError("logical_workspace_root must be an absolute directory")
+            process_env["ORCHESTRATOR_WORKSPACE_ROOT"] = (
+                logical_workspace_root.as_posix()
+            )
         return process_env
 
     def _execute_observed_nonstream_invocation(

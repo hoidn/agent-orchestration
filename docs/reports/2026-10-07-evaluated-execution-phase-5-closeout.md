@@ -3,6 +3,8 @@
 Status: **implementation in progress**. Task 0 is prepared; Task 1 compilation
 and checked read-back and Task 2 read-only replay are accepted after independent
 contract/quality reviews and coordinator acceptance.
+Task 3's lifecycle/item-cwd seams have bounded acceptance; its authored parallel
+CLI checks await Task 4's workers.
 The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) owns
 pending runtime/public qualification. Parallel-map delivery is not complete.
 
@@ -257,3 +259,48 @@ These receipts qualify read-only replay and preflight over checked parallel
 artifacts. Actual item cwd binding, concurrent execution, public interruption and
 consumer qualification remain Tasks 3–6. The final full-suite campaign remains
 Task 7; its existing RED baseline is not converted to PASS by these controls.
+
+## Task 3 — Attempt Lifecycle And Item Cwd Seams
+
+Serial execution now uses the extracted prepare → external performance → finish
+path. Finish owns typed-result validation, C4 rehash, commit and E1 result
+projection/settlement. Durable allocation/publication hooks remain actual hooks;
+moved launch hooks and their tests were updated together. Pure item-workspace
+values and dependencies reach C7/C9 without filesystem access in view replay.
+Commands/providers retain outer path authority while using the item's launch
+directory, with D2's absolute runtime IO coordinates and reserved environment
+handling. Command closure selection remains local to the reached command.
+
+| Evidence under E | Result and scope |
+| --- | --- |
+| `phase5-attempt-cwd-red-valid.*` | Four intended missing lifecycle/cwd failures before implementation |
+| `phase5-logical-launchers-red.*` | Retrospective differential check: five failures/eight passes against the old shared launchers; exact modified bytes restored |
+| `phase5-attempt-broad.*` | Initial 568-case union: 560 passed/eight failed; six pending-frontier failures from an undefined variable, two strict old-provider-call parity failures |
+| `phase5-attempt-final-narrow.*` | Corrected final bytes: 81 passed, including all 38 new cases, 41 parallel-replay cases and two strict provider parity controls |
+| `phase5-attempt-collect-final.*` | 38 new cases collected in three modules |
+| `phase5-attempt-broad-final.*` | Same 568-case union passed with canonical Python in tmux, `-n 16 --dist=worksteal`; includes public serial run/resume, process-kill recovery, imported assets and unchosen-command closure checks |
+
+Independent contract and distinct code-quality review passed without open
+findings; the coordinator inspected the diff, raw receipts and all 27 final
+hashes. `E/phase5-attempt-source-freeze.json` has SHA-256
+`b7e1b6029982526f3185267d33a43bdcada15f4923145d33e29cb1c2faeac1a8`;
+the original failing snapshot remains separate. The static inventory records
+58 new functions/closures, maximum CC 11 including assertions; the four new
+modules contain 83/377/229/294 physical lines. The handoff
+`E/phase5-attempt-cwd-handoff.md`, receipt ledger
+`E/phase5-attempt-receipts.json` and contract/quality review files preserve exact
+scope, cases, hashes and the corrections, including preliminary fixture errors.
+
+Real subprocess witnesses cover item/outer homonyms, closure mutation and retry,
+workspace relocation, absolute document/result paths with external state roots,
+adapter containment, provider artifacts, nested serial CLI environment clearing,
+and E1 clone/proof/settlement under outer parent authority. Inline certified
+transport uses an explicit custom binding; the existing builtin review adapter
+is qualified through its carrier argv, without changing its manifest.
+
+This is bounded seam qualification, not full Task 3 public acceptance. Live
+`par-map` still refuses; Task 4 must supply workers, coordinator-owned E1 driver
+events and the authored parallel CLI checks, including nested child activation.
+The original pinned-controller compatibility campaign and full suite remain
+Task 7. Changed package bytes retain truthful pin refusals; current-package
+serial tests do not establish universal old-run compatibility.

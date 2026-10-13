@@ -16,8 +16,7 @@ from orchestrator.workflow.evaluated.closure import (
 )
 from orchestrator.workflow.evaluated.commands import (
     CommandPerformerError,
-    perform_command,
-    workspace_relative_path,
+    command_result,
 )
 from orchestrator.workflow.evaluated.memo import (
     MemoError,
@@ -32,9 +31,11 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .providers import perform_provider
+from .providers import provider_result
+from . import effect_execution
+from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
 from .run_ref import (
-    prepare_evaluated_run_ref,
+    project_evaluated_run_ref,
     settle_evaluated_run_ref, validate_evaluated_run_ref, reconcile_evaluated_run_ref,
     validate_evaluated_run_ref_start,
 )
@@ -74,7 +75,7 @@ def execute_pure_run(
 
         provider_executor = None
 
-        def handle(node, operands, identity, owner, reader):
+        def handle(node, operands, identity, owner, reader, *, launch_workspace=None):
             nonlocal provider_executor
             if node.get("class") not in {"command", "provider", "run_ref"}:
                 raise RuntimeError("unsupported evaluated effect class")
@@ -95,6 +96,7 @@ def execute_pure_run(
                 reader=reader,
                 provider_executor=provider_executor,
                 stream_output=stream_output,
+                launch_workspace=launch_workspace,
             )
 
         try:
@@ -175,11 +177,12 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
     for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
-            reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner)
+            reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
+            launch_workspace=reached.launch_workspace)
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)
     for reached in prefix.frontiers:
         effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,
-            reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers)
+            reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers, launch_workspace=reached.launch_workspace)
     if prefix.fault is not None:
         raise prefix.fault
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
@@ -251,7 +254,14 @@ def _append_failed_terminal_if_clear(
     )
 
 
-def _execute_effect(
+def _execute_effect(authority, node, operands, identity, **kwargs):
+    attempt = prepare_effect(authority, node, operands, identity, **kwargs)
+    if isinstance(attempt, EvaluatedValue):
+        return attempt
+    return _start_and_perform_effect(attempt)
+
+
+def prepare_effect(
     authority: RunAuthority,
     node: Mapping[str, Any],
     operands: Sequence[EvaluatedValue],
@@ -265,22 +275,25 @@ def _execute_effect(
     reader,
     provider_executor: ProviderExecutor | None,
     stream_output: bool = False,
-) -> EvaluatedValue:
+    launch_workspace: EvaluatedValue | None = None,
+) -> PreparedAttempt | EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
     if commit is None:
         effect_inputs._ensure_effect_can_start(snapshot, identity)
     baseline = None if commit is not None else effect_inputs._retry_baseline(
         snapshot, identity, snapshot.latest_starts.get(identity))
+    launch_cwd = effect_inputs.resolve_launch_cwd(workspace, launch_workspace,
+        identity=identity, previous=commit or baseline)
     ordinal, attempt_directory, result_path = (
         attempt_paths(snapshot, identity) if commit is None
         else (None, None, commit.data["result_path"]))
     resolved, parts, implementation_files = effect_inputs._resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
-        commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files,
+        commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files, launch_cwd=launch_cwd,
     )
     input_digest = canonical_sha256(parts)
-    dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
+    dependencies = effect_inputs.effect_dependencies(operands, launch_workspace)
     if commit is not None:
         return _reuse_reached_commit(authority, node, identity, parts, input_digest,
             dependencies, resolved, workspace, commit, snapshot, site_classes)
@@ -290,9 +303,16 @@ def _execute_effect(
     assert ordinal is not None and attempt_directory is not None
     if baseline is not None:
         logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
-    return _start_and_perform_effect(authority, node, identity, ordinal, result_path,
-        input_digest, parts, implementation_files, dependencies, resolved, workspace,
-        run_files, workspace_files, site_classes, provider_executor, stream_output)
+    if node['class'] == 'run_ref':
+        validate_evaluated_run_ref_start(authority, resolved, identity, ordinal, workspace)
+    started = dict(record='started', identity=identity, attempt=ordinal,
+        input_digest=input_digest, input_parts=parts, implementation_files=implementation_files,
+        result_path=result_path, time=time.time())
+    _require_retained_root(run_files)
+    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority)
+    return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
+        parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
+        site_classes, provider_executor, attempt_files, launch_cwd, stream_output)
 
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
@@ -306,124 +326,71 @@ def _reuse_reached_commit(authority, node, identity, parts, input_digest, depend
     return result
 
 
-def _start_and_perform_effect(
-    authority,
-    node,
-    identity,
-    ordinal,
-    result_path,
-    input_digest,
-    parts,
-    implementation_files,
-    dependencies,
-    resolved_request,
-    workspace,
-    run_files,
-    workspace_files,
-    site_classes,
-    provider_executor,
-    stream_output=False,
-):
-    if node["class"] == "run_ref":
-        validate_evaluated_run_ref_start(authority, resolved_request, identity, ordinal, workspace)
-    started = {
-        "record": "started",
-        "identity": identity,
-        "attempt": ordinal,
-        "input_digest": input_digest,
-        "input_parts": parts,
-        "implementation_files": implementation_files,
-        "result_path": result_path,
-        "time": time.time(),
-    }
-    _require_retained_root(run_files)
-    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority)
+def _start_and_perform_effect(attempt):
     try:
-        _require_retained_root(run_files)
-        proof = None
-        prepared = None
-        if node["class"] == "command":
-            result, result_digest = _dispatch_command(
-                authority, node, resolved_request, attempt_files, workspace_files)
-            after_files = _rehash_command_implementation(node, workspace, implementation_files)
-        elif node["class"] == "run_ref":
-            result, result_digest, proof, prepared = prepare_evaluated_run_ref(
-                authority, node, resolved_request, identity, ordinal, workspace, attempt_files)
-            after_files = {}
-        else:
-            result, result_digest = perform_provider(node, resolved_request, identity,
-                executor=provider_executor, attempt_files=attempt_files,
-                workspace_files=workspace_files, result_path=workspace_relative_path(
-                    workspace, authority.run_root / result_path),
-                stream_output=stream_output)
-            after_files = {}
-        value = result.json_value()
-        _require_retained_root(run_files)
-        committed_record = {
-                "record": "committed",
-                "identity": identity,
-                "attempt": ordinal,
-                "input_digest": input_digest,
-                "input_parts": parts,
-                "value": value,
-                "result_path": result_path,
-                "result_digest": result_digest,
-                "implementation_files": after_files,
-                "depends_on": dependencies,
-                "effect_class": node["class"],
-                "time": time.time(),
-                **({"proof": proof} if proof is not None else {}),
-            }
-        append_record(authority.memo_path, committed_record, run_files=run_files, checked_authority=authority)
+        _require_retained_root(attempt.authority.run_files)
+        outcome = perform_external(attempt)
+    except Exception as exc:
+        return finish_effect(attempt, error=exc)
+    except BaseException:
+        attempt.attempt_files.close()
+        raise
+    return finish_effect(attempt, outcome)
+
+
+def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = None,
+                  *, error: Exception | None = None) -> EvaluatedValue:
+    """Validate, rehash, publish and settle on the run's coordinator."""
+    authority, node = attempt.authority, attempt.node
+    try:
+        if error is not None:
+            raise error
+        result, digest, proof, prepared = _validate_attempt_outcome(attempt, outcome)
+        implementation = (_rehash_command_implementation(node, attempt.workspace,
+            attempt.implementation_files, attempt.launch_cwd) if node['class'] == 'command' else {})
+        _require_retained_root(authority.run_files)
+        committed = dict(record='committed', identity=attempt.identity, attempt=attempt.ordinal,
+            input_digest=attempt.input_digest, input_parts=attempt.parts, value=result.json_value(),
+            result_path=attempt.result_path, result_digest=digest, implementation_files=implementation,
+            depends_on=list(attempt.dependencies), effect_class=node['class'], time=time.time())
+        if proof is not None:
+            committed['proof'] = proof
+        append_record(authority.memo_path, committed, run_files=authority.run_files, checked_authority=authority)
         if prepared is not None:
-            settle_evaluated_run_ref(authority, resolved_request, identity, ordinal,
-                workspace, site_classes, prepared, committed_record)
-        return EvaluatedValue(
-            result.value,
-            result.descriptor,
-            dependencies=(*dependencies, identity),
-            committed_result_path=workspace_result_locator(authority.header, result_path),
-        )
+            settle_evaluated_run_ref(authority, attempt.resolved, attempt.identity, attempt.ordinal,
+                attempt.workspace, attempt.site_classes, prepared, committed)
+        return EvaluatedValue(result.value, result.descriptor,
+            dependencies=(*attempt.dependencies, attempt.identity),
+            committed_result_path=workspace_result_locator(authority.header, attempt.result_path))
     except ViewPublicationError:
         raise
     except Exception as exc:
-        _fail_started_effect(authority, identity, ordinal, site_classes, exc)
+        _fail_started_effect(authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
         raise
     finally:
-        attempt_files.close()
+        attempt.attempt_files.close()
 
 
-def _dispatch_command(authority, node, resolved_request, attempt_files, workspace_files):
-    resolved_argv, document = resolved_request
-    launch_argv = list(resolved_argv)
-    if document is not None:
-        launch_argv.append(workspace_relative_path(workspace_files.workspace,
-            attempt_files.workspace / "inputs.json"))
-    interpreter = node["command"][0]
-    if "/" not in interpreter:
-        pin = authority.header["interpreters"].get(interpreter)
-        if not isinstance(pin, Mapping) or not isinstance(pin.get("path"), str):
-            raise CommandPerformerError(
-                "command_interpreter_missing",
-                f"run authority has no interpreter pin for {interpreter!r}",
-            )
-        launch_argv[0] = pin["path"]
-    return perform_command(
-        node,
-        launch_argv,
-        attempt_files=attempt_files,
-        workspace_files=workspace_files,
-        input_document=document,
-    )
+def _validate_attempt_outcome(attempt, outcome):
+    if attempt.node['class'] == 'run_ref':
+        return project_evaluated_run_ref(attempt.node, outcome.run_ref, attempt.attempt_files)
+    if attempt.node['class'] == 'command':
+        result, digest = command_result(attempt.node, attempt_files=attempt.attempt_files,
+            workspace_files=attempt.workspace_files, result_path=outcome.result_path)
+    else:
+        result, digest = provider_result(attempt.node, attempt.resolved, attempt.attempt_files,
+            attempt.workspace_files, outcome.result_path)
+    return result, digest, None, None
 
 
-def _rehash_command_implementation(node, workspace, implementation_files):
+def _rehash_command_implementation(node, workspace, implementation_files, launch_cwd=None):
     try:
         after_files = resolve_command_evidence(
             node["command"],
             node["closure"],
             workspace_root=workspace,
             prior=implementation_files,
+            launch_cwd=launch_cwd,
         )
     except ClosureEvidenceError as exc:
         raise CommandPerformerError(

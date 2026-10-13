@@ -116,13 +116,13 @@ def reference(scenario: dict | None, budget: int) -> tuple[dict, list[dict]]:
 def observe_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """Record each effective argv handed to the real command performer, then delegate."""
     calls = []
-    real = runtime.perform_command
+    real = runtime.effect_execution.launch_command
 
     def perform(node, argv, **kwargs):
         calls.append({"outer_operation": argv[-2], "command": node["boundary"], "inputs": json.loads(argv[-1])})
         return real(node, argv, **kwargs)
 
-    monkeypatch.setattr(runtime, "perform_command", perform)
+    monkeypatch.setattr(runtime.effect_execution, "launch_command", perform)
     return calls
 
 

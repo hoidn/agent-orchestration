@@ -169,6 +169,7 @@ def assemble_provider_prompt(
     source_text: str | None,
     dependency_snapshot: DependencyContentSnapshot | None,
     result_path: str,
+    logical_workspace: bool = False,
 ) -> str:
     """Assemble a prompt from one checked provider operation and captured inputs."""
 
@@ -209,6 +210,12 @@ def assemble_provider_prompt(
     )
     if "template" not in prompt_data:
         prompt = append_prompt_block(prompt, typed_block)
+    if logical_workspace:
+        prompt = append_prompt_block(prompt,
+            "Resolve typed workspace-relative input paths and declared relative output/artifact paths "
+            "against the directory in ORCHESTRATOR_WORKSPACE_ROOT, not the process cwd. "
+            "Keep those paths workspace-relative in returned values. "
+            "Write the structured result to ORCHESTRATOR_OUTPUT_BUNDLE_PATH.")
     return _output_contract_prompt(
         prompt,
         checked_node,

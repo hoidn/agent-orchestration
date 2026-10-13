@@ -61,8 +61,8 @@ def _program(
 
 
 @contextmanager
-def _publish(root: Path, program):
-    run_root = root / ".state" / "runs" / "run-1"
+def _publish(root: Path, program, *, inputs=None, run_ref_root=None, run_root=None):
+    run_root = run_root or root / ".state" / "runs" / "run-1"
     with publish_run_authority(
         run_root,
         program,
@@ -73,7 +73,8 @@ def _publish(root: Path, program):
             "provider_externs_path": None, "prompt_externs_path": None,
             "imported_workflow_bundles_path": None, "command_boundaries_path": None,
             "input_file": None, "input_overrides": {}},
-        bound_inputs={},
+        bound_inputs={} if inputs is None else inputs,
+        run_ref_root=run_ref_root,
     ) as authority:
         yield authority
 

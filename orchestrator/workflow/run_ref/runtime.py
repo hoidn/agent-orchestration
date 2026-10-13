@@ -543,6 +543,7 @@ def _default_child_launcher(launch: RunRefChildLaunch) -> RunRefChildProcessResu
     selector = "--request" if launch.mode == "bundle" else "--path-request"
     process_env = dict(os.environ)
     process_env.pop("PYTHONPATH", None)
+    process_env.pop("ORCHESTRATOR_WORKSPACE_ROOT", None)
     controller_root = Path(__file__).resolve(strict=True).parents[3]
     package_root = controller_root / "orchestrator"
     if not package_root.is_dir():

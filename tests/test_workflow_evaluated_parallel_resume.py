@@ -77,7 +77,7 @@ def test_input_divergence_uses_journal_order_after_all_sibling_discovery(tmp_pat
         write_rows(authority, completed_rows(authority))
         checked = []
 
-        def diverge(*args):
+        def diverge(*args, **kwargs):
             checked.append(args[3])
             raise effect_inputs._EffectInputDiverged(args[3], 'changed')
 
@@ -95,9 +95,9 @@ def test_pending_must_not_repeat_frontier_cannot_hide_committed_sibling(tmp_path
         checked = []
         original = effect_inputs._replay_committed_effect
 
-        def validate(*args):
+        def validate(*args, **kwargs):
             checked.append(args[3])
-            return original(*args)
+            return original(*args, **kwargs)
 
         monkeypatch.setattr(effect_inputs, '_replay_committed_effect', validate)
         with pytest.raises(effect_inputs._PreflightRefusal, match='must not be repeated'):
@@ -145,9 +145,9 @@ def test_pure_fault_in_one_item_does_not_hide_sibling_or_orphan_evidence(tmp_pat
         checked = []
         original = effect_inputs._replay_committed_effect
 
-        def validate(*args):
+        def validate(*args, **kwargs):
             checked.append(args[3])
-            return original(*args)
+            return original(*args, **kwargs)
 
         monkeypatch.setattr(effect_inputs, '_replay_committed_effect', validate)
         with pytest.raises(ValueError, match='divisor is zero'):
@@ -269,7 +269,7 @@ def test_unsettled_coordinator_does_not_hide_later_sibling_divergence(tmp_path, 
         write_rows(authority, [*coordinator_rows(authority), *command_rows(authority, 1, site=1)])
         checked = []
 
-        def validate(*args):
+        def validate(*args, **kwargs):
             checked.append(args[3])
             if args[1]['class'] == 'command':
                 raise effect_inputs._EffectInputDiverged(args[3], 'later sibling changed')

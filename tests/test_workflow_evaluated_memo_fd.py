@@ -224,7 +224,7 @@ def test_failed_publication_stops_on_borrowed_root(tmp_path, monkeypatch, caplog
     _, checked = _program(tmp_path,
         '(command-result emit :argv ("python" "probe.py") :returns Int)',
         bindings={"emit": "probe.py"})
-    real_perform = runtime.perform_command
+    real_perform = runtime.effect_execution.launch_command
     attempt_owners = []
     with _publish(tmp_path, checked) as authority:
         root = authority.run_root
@@ -239,7 +239,7 @@ def test_failed_publication_stops_on_borrowed_root(tmp_path, monkeypatch, caplog
             (root / "memo.jsonl").touch()
             return result
 
-        monkeypatch.setattr(runtime, "perform_command", perform_then_swap)
+        monkeypatch.setattr(runtime.effect_execution, "launch_command", perform_then_swap)
         assert runtime.execute_pure_run(authority, {}, run_id=root.name, workspace=tmp_path) == (1, None)
         snapshot = read_memo(authority.memo_path, site_classes(checked), run_files=authority.run_files)
         _assert_failed_publication_stops_without_terminal(snapshot, caplog)

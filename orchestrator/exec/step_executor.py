@@ -83,6 +83,7 @@ class StepExecutor:
         output_file: Optional[Path] = None,
         allow_parse_error: bool = False,
         workspace_files: Any | None = None,
+        logical_workspace_root: Path | None = None,
     ) -> ExecutionResult:
         """
         Execute a command step with output capture.
@@ -106,6 +107,20 @@ class StepExecutor:
 
         # Setup working directory
         working_dir = cwd or self.workspace
+        if logical_workspace_root is not None:
+            if (
+                not isinstance(logical_workspace_root, Path)
+                or not logical_workspace_root.is_absolute()
+            ):
+                raise ValueError("logical_workspace_root must be an absolute directory")
+            try:
+                logical_workspace_root = logical_workspace_root.resolve(strict=True)
+            except (OSError, RuntimeError, ValueError) as error:
+                raise ValueError(
+                    "logical_workspace_root must be an absolute directory"
+                ) from error
+            if not logical_workspace_root.is_dir():
+                raise ValueError("logical_workspace_root must be an absolute directory")
 
         # Resolve secrets and setup environment (AT-41,42,54,55)
         secrets_context = self.secrets_manager.resolve_secrets(
@@ -138,6 +153,11 @@ class StepExecutor:
 
         # Use the composed environment from secrets resolution
         process_env = secrets_context.child_env
+        process_env.pop("ORCHESTRATOR_WORKSPACE_ROOT", None)
+        if logical_workspace_root is not None:
+            process_env["ORCHESTRATOR_WORKSPACE_ROOT"] = (
+                logical_workspace_root.as_posix()
+            )
 
         # Record start time
         start_time = time.time()

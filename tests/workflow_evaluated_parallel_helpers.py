@@ -30,6 +30,10 @@ def worker(body, *, result='Int'):
 def replay_case(root, body=None, *, declarations='', result='List[Int]', boundaries=BOUNDARIES):
     root.mkdir(parents=True, exist_ok=True)
     (root / 'probe.py').write_text('# immutable implementation\n')
+    for item in 'abcd':
+        directory = root / item / 'work'
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / 'probe.py').write_text('# immutable implementation\n')
     text = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
         (defmodule parallel) (export run) {declarations}
         (defworkflow run () -> {result} {body or mapped()}))'''
@@ -65,6 +69,8 @@ def command_rows(authority, index, *, site=0, value=None, operand=None, attempt=
         authority, node, operands, identity, authority.run_root.parents[2], None,
         None, None, None, result_path, owner=authority.program.tree['entry'],
         check_command_destinations=False,
+        launch_cwd=(authority.run_root.parents[2] / (operand or 'abcd'[index]) / 'work')
+            if 'par-map:' in identity else None,
     )
     common = dict(identity=identity, attempt=attempt, input_parts=parts,
                   input_digest=canonical_sha256(parts), implementation_files=implementation,

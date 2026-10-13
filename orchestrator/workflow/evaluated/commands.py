@@ -147,7 +147,17 @@ def _undefined_command_lookup(expression: str, detail: str | None = None) -> Com
     return CommandTemplateError(message)
 
 
-def perform_command(
+def perform_command(node, argv, *, attempt_files, workspace_files, input_document=None,
+                    timeout_sec=None, launch_cwd=None, logical_workspace_root=None):
+    """Launch and validate one command for direct callers."""
+    result_path = launch_command(node, argv, attempt_files=attempt_files,
+        workspace_files=workspace_files, input_document=input_document, timeout_sec=timeout_sec,
+        launch_cwd=launch_cwd, logical_workspace_root=logical_workspace_root)
+    return command_result(node, attempt_files=attempt_files, workspace_files=workspace_files,
+        result_path=result_path)
+
+
+def launch_command(
     node: Mapping[str, Any],
     argv: Sequence[str],
     *,
@@ -155,16 +165,17 @@ def perform_command(
     workspace_files: WorkspaceFiles,
     input_document: bytes | None = None,
     timeout_sec: float | None = None,
-) -> tuple[EvaluatedValue, str]:
-    """Launch one already-resolved command and validate its attempt-owned result."""
+    launch_cwd: Path | None = None,
+    logical_workspace_root: Path | None = None,
+) -> str:
+    """Dispatch once and capture only attempt-owned evidence."""
     launch_argv = list(argv)
     if not launch_argv or any(not isinstance(token, str) for token in launch_argv):
         raise ValueError("final command argv must contain string tokens")
 
-    result_path = workspace_relative_path(
-        workspace_files.workspace,
-        attempt_files.workspace / "result.json",
-    )
+    cwd = launch_cwd or workspace_files.workspace
+    result_path = (str(attempt_files.workspace / "result.json") if logical_workspace_root is not None
+        else workspace_relative_path(workspace_files.workspace, attempt_files.workspace / "result.json"))
     launch_env = {
         "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": result_path,
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -174,7 +185,7 @@ def perform_command(
             raise TypeError("input_document must be canonical bytes")
         attempt_files.create("inputs.json", input_document, exclusive=True, mode=0o600)
 
-    _check_package_module_origin(node, launch_argv, launch_env, workspace_files.workspace)
+    _check_package_module_origin(node, launch_argv, launch_env, cwd)
 
     execution = StepExecutor(
         workspace_files.workspace,
@@ -182,24 +193,28 @@ def perform_command(
     ).execute_command(
         "evaluated-command",
         launch_argv,
-        cwd=workspace_files.workspace,
+        cwd=cwd,
         env=launch_env,
         timeout_sec=timeout_sec,
         output_capture=CaptureMode.TEXT,
+        **({"logical_workspace_root": logical_workspace_root} if logical_workspace_root is not None else {}),
     )
     if execution.exit_code != 0:
-        error_type = (execution.error or {}).get("type")
-        code = "command_timeout" if error_type == "timeout" else "command_exit_nonzero"
-        exit_info = {
-            "exit_code": execution.exit_code,
-            "error": execution.error,
-        }
-        raise CommandPerformerError(
-            code,
-            f"evaluated command failed with exit code {execution.exit_code}",
-            exit_info=exit_info,
-        )
+        raise _command_execution_failure(execution)
 
+    return result_path
+
+
+def _command_execution_failure(execution):
+    error_type = (execution.error or {}).get("type")
+    code = "command_timeout" if error_type == "timeout" else "command_exit_nonzero"
+    return CommandPerformerError(code,
+        f"evaluated command failed with exit code {execution.exit_code}",
+        exit_info={"exit_code": execution.exit_code, "error": execution.error})
+
+
+def command_result(node, *, attempt_files, workspace_files, result_path):
+    """Validate the pinned bytes on the coordinator after external dispatch."""
     try:
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:

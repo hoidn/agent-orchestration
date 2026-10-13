@@ -69,6 +69,16 @@ def _absolute_token_path(token: str, lexical_workspace_root: str) -> tuple[str, 
     return "workspace", "/".join(suffix) or "."
 
 
+def _token_path(token: str, lexical_workspace: str, launch_cwd: Path | None):
+    if launch_cwd is None or token.startswith("/"):
+        return _absolute_token_path(token, lexical_workspace)
+    spelling = os.path.join(str(launch_cwd), token)
+    logical = _absolute_token_path(spelling, lexical_workspace)
+    if logical is not None:
+        return logical
+    return "absolute", _lexical_workspace_root(spelling)
+
+
 def _lookup(base: str, path: str, *, workspace_root: Path, package_root: Path) -> str:
     if base == "workspace":
         return os.path.join(str(workspace_root), path)
@@ -271,6 +281,7 @@ def resolve_command_evidence(
     *,
     workspace_root: str | os.PathLike[str],
     prior: Mapping[str, Any] | None = None,
+    launch_cwd: Path | None = None,
     destinations: Sequence[str | os.PathLike[str]] = (),
 ) -> dict[str, dict[str, Any]]:
     """Resolve automatic command paths, declarations, and one supplied prior map."""
@@ -278,12 +289,12 @@ def resolve_command_evidence(
     lexical_workspace = _lexical_workspace_root(workspace_root)
     workspace = Path(workspace_root).resolve(strict=True)
     package = _package_root()
-    selected = _select_token_paths(stable_command, workspace, lexical_workspace)
+    selected = _select_token_paths(stable_command, workspace, lexical_workspace, launch_cwd)
     selected.update(_select_declared_paths(closure, workspace, package))
     if prior is not None:
         selected.update(
             _select_prior_paths(
-                prior, stable_command, workspace, lexical_workspace, package
+                prior, stable_command, workspace, lexical_workspace, package, launch_cwd
             )
         )
     coverage: list[tuple[Path, bool]] = []
@@ -302,7 +313,7 @@ def resolve_command_evidence(
 
 
 def _select_token_paths(
-    stable_command: Sequence[str], workspace: Path, lexical_workspace: str
+    stable_command: Sequence[str], workspace: Path, lexical_workspace: str, launch_cwd: Path | None = None
 ) -> dict[str, str]:
     selected: dict[str, str] = {}
     if isinstance(stable_command, (str, bytes)):
@@ -312,12 +323,12 @@ def _select_token_paths(
             raise ValueError("stable command tokens must be nonempty strings")
         if _skip_bare_argv0(position, token):
             continue
-        logical = _absolute_token_path(token, lexical_workspace)
+        logical = _token_path(token, lexical_workspace, launch_cwd)
         if logical is None:
             continue
         base, path = logical
         key = command_evidence_key(base, path, position)
-        lookup_path = token if token.startswith("/") else os.path.join(str(workspace), token)
+        lookup_path = token if token.startswith("/") else os.path.join(str(launch_cwd or workspace), token)
         required = _required_token(position, token)
         if _lstat(lookup_path, required=required):
             selected[key] = lookup_path
@@ -348,13 +359,14 @@ def _select_prior_paths(
     workspace: Path,
     lexical_workspace: str,
     package: Path,
+    launch_cwd: Path | None = None,
 ) -> dict[str, str]:
     selected: dict[str, str] = {}
     checked = _validate_implementation_evidence(dict(prior))
     for key in checked:
         base, path, position = parse_command_evidence_key(key)
         lookup_path = _prior_lookup(
-            base, path, position, stable_command, workspace, lexical_workspace, package
+            base, path, position, stable_command, workspace, lexical_workspace, package, launch_cwd
         )
         _lstat(lookup_path, required=True)
         selected[key] = lookup_path
@@ -369,19 +381,20 @@ def _prior_lookup(
     workspace: Path,
     lexical_workspace: str,
     package: Path,
+    launch_cwd: Path | None = None,
 ) -> str:
     if position is None:
         return _lookup(base, path, workspace_root=workspace, package_root=package)
-    if base != "workspace" or position >= len(stable_command):
+    if (base != "workspace" and not (launch_cwd is not None and base == "absolute")) or position >= len(stable_command):
         raise ValueError("prior token evidence has no stable command token")
     token = stable_command[position]
     if isinstance(token, str) and _skip_bare_argv0(position, token):
         raise ValueError("prior evidence cannot bind a bare argv[0] path")
-    if not isinstance(token, str) or _absolute_token_path(
-        token, lexical_workspace
+    if not isinstance(token, str) or _token_path(
+        token, lexical_workspace, launch_cwd
     ) != (base, path):
         raise ValueError("prior token evidence differs from stable command")
-    return token if token.startswith("/") else os.path.join(str(workspace), token)
+    return token if token.startswith("/") else os.path.join(str(launch_cwd or workspace), token)
 
 
 def _require_disjoint_destinations(

@@ -51,9 +51,11 @@ def _no_effects(*_args, **_kwargs):
 def _forbid_mutable_paths(monkeypatch):
     for name in ("_resolve_effect_input", "_check_resume_boundary", "validate_evaluated_run_ref"):
         monkeypatch.setattr(effect_inputs, name, _no_effects)
-    for name in ("_execute_effect", "_replay_resume_prefix", "prepare_evaluated_run_ref",
+    for name in ("_execute_effect", "prepare_effect", "finish_effect", "perform_external", "_replay_resume_prefix",
                  "validate_evaluated_run_ref"):
         monkeypatch.setattr(runtime, name, _no_effects)
+    for name in ("perform_evaluated_run_ref", "launch_command", "launch_provider"):
+        monkeypatch.setattr(runtime.effect_execution, name, _no_effects)
     for name in ("prepare_run_ref_settlement", "recover_run_ref_settlement",
                  "validate_completed_run_ref_authority"):
         monkeypatch.setattr(child_runtime, name, _no_effects)

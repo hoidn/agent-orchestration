@@ -39,13 +39,13 @@ class _EffectInputDiverged(_PreflightRefusal):
         )
 
 
-def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner):
+def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner, *, launch_workspace=None):
     resolved, parts, _implementation_files = _resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, None, None, commit.data["result_path"],
-        check_command_destinations=False, owner=owner,
+        check_command_destinations=False, owner=owner, launch_cwd=resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=commit),
     )
-    dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
+    dependencies = effect_dependencies(operands, launch_workspace)
     result = _reuse_effect_commit(
         authority, commit, node, identity, parts, canonical_sha256(parts), dependencies
     )
@@ -56,23 +56,27 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
 
 
 def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner,
-                           *, reached_frontiers=frozenset()) -> None:
+                           *, reached_frontiers=frozenset(), launch_workspace=None) -> None:
     _ensure_effect_can_start(snapshot, identity, allow_unsettled=True, reached_frontiers=reached_frontiers)
     if node["class"] == "run_ref":
         require_run_ref_root(authority)
     baseline = _retry_baseline(snapshot, identity, snapshot.latest_starts.get(identity))
+    launch_cwd = resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=baseline)
+    if launch_cwd is not None and baseline is not None:
+        _check_retry_cwd(identity, baseline, workspace, launch_cwd)
     if node["class"] == "command" and baseline is not None:
         _ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
             None, baseline, attempt_directory, result_path, owner=owner,
-            check_command_destinations=False,
+            check_command_destinations=False, launch_cwd=launch_cwd,
         )
     elif node["class"] == "provider" and identity in snapshot.pending_starts:
         _ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
             None, baseline, attempt_directory, result_path, owner=owner,
+            launch_cwd=launch_cwd,
         )
     if baseline is not None and node.get("repeat") == "never":
         raise _PreflightRefusal(
@@ -83,12 +87,14 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
 
 def _resolve_effect_input(
     authority, node, operands, identity, workspace, reader,
-    commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True,
+    commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True, launch_cwd=None,
 ):
     """Resolve only the reached effect; command closure checks stay local."""
+    if launch_cwd is not None and (commit is not None or baseline is not None):
+        _check_retry_cwd(identity, commit or baseline, workspace, launch_cwd)
     if node["class"] == "command":
-        return _resolve_command_input(authority, node, operands, identity, owner, workspace,
-            commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations)
+        resolved, parts, implementation_files = _resolve_command_input(authority, node, operands, identity, owner, workspace,
+            commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations, launch_cwd)
     elif node["class"] == "run_ref":
         require_run_ref_root(authority)
         resolved, parts = resolve_run_ref_input(node, operands)
@@ -96,14 +102,46 @@ def _resolve_effect_input(
     else:
         try:
             resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
-                result_path=workspace_relative_path(workspace, authority.run_root / result_path))
+                result_path=workspace_relative_path(workspace, authority.run_root / result_path),
+                logical_workspace=launch_cwd is not None)
         except Exception as exc:
             if commit is not None:
                 raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
             raise
         parts = dict(resolved.input_parts)
         implementation_files = {}
+    if launch_cwd is not None:
+        parts["launch_cwd"] = _cwd_digest(workspace, launch_cwd)
     return resolved, parts, implementation_files
+
+
+def resolve_launch_cwd(workspace, value, *, identity=None, previous=None):
+    if value is None:
+        return None
+    try:
+        cwd = (Path(workspace) / value.json_value()).resolve(strict=True)
+        if not cwd.is_dir():
+            raise ValueError("launch workspace is not a directory")
+        return cwd
+    except (OSError, RuntimeError, ValueError) as exc:
+        if previous is not None:
+            raise _EffectInputDiverged(identity, f"launch cwd could not be re-resolved: {exc}") from exc
+        raise
+
+
+def _cwd_digest(workspace, cwd):
+    locator = cwd.relative_to(workspace).as_posix() if cwd.is_relative_to(workspace) else str(cwd)
+    return canonical_sha256(locator)
+
+
+def _check_retry_cwd(identity, baseline, workspace, cwd):
+    if baseline.data['input_parts'].get('launch_cwd') != _cwd_digest(workspace, cwd):
+        raise _EffectInputDiverged(identity, 'launch_cwd changed')
+
+
+def effect_dependencies(operands, launch_workspace=None):
+    values = (*operands, launch_workspace) if launch_workspace is not None else operands
+    return sorted({dependency for value in values for dependency in value.dependencies})
 
 
 def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_unsettled=False,
@@ -123,7 +161,7 @@ def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_uns
 
 
 def _resolve_command_input(authority, node, operands, identity, owner, workspace,
-    commit, baseline, attempt_directory, result_path, workspace_files, check_destinations):
+    commit, baseline, attempt_directory, result_path, workspace_files, check_destinations, launch_cwd=None):
     previous = commit if commit is not None else baseline
     external = command_binding_kind(authority.program, owner, node["boundary"]) == "external_tool"
     with nullcontext(workspace_files) if workspace_files is not None else closing(WorkspaceFiles(workspace)) as files:
@@ -133,7 +171,7 @@ def _resolve_command_input(authority, node, operands, identity, owner, workspace
         include_input=external and document is not None)
         if commit is None and check_destinations else ())
     implementation_files = _resolve_command_implementation(node, workspace, identity,
-        None if previous is None else previous.data["implementation_files"], destinations)
+        None if previous is None else previous.data["implementation_files"], destinations, launch_cwd)
     _check_retry_implementation(identity, baseline, implementation_files)
     parts = _command_input_parts(node, argv, implementation_files, document)
     if external and document is not None:
@@ -161,7 +199,7 @@ def _render_resolved_argv(node, operands, commit, identity, *, external, workspa
     return argv, document, contract
 
 
-def _resolve_command_implementation(node, workspace, identity, previous, destinations):
+def _resolve_command_implementation(node, workspace, identity, previous, destinations, launch_cwd=None):
     try:
         return resolve_command_evidence(
             node["command"],
@@ -169,6 +207,7 @@ def _resolve_command_implementation(node, workspace, identity, previous, destina
             workspace_root=workspace,
             prior=previous,
             destinations=destinations,
+            launch_cwd=launch_cwd,
         )
     except ClosureEvidenceError as exc:
         if previous is not None and not _is_destination_overlap(exc):

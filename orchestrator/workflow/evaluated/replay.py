@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from orchestrator.workflow.pure_expr import PureExprEvaluationError
 
 from .authority import workspace_result_locator
+from .effect_inputs import effect_dependencies
 from .machine import evaluate_closed_program
 from .memo import JournalEntry, MemoError
 from .provider_io import WorkflowIOReader
@@ -28,6 +29,7 @@ class ReachedEffect:
     owner: str
     reader: WorkflowIOReader | None
     commit: JournalEntry | None = None
+    launch_workspace: EvaluatedValue | None = None
 
 
 @dataclass
@@ -63,16 +65,16 @@ class _Discovery:
                 target = self.starts if row['record'] == 'started' else self.settlements
                 target[key] = entry
 
-    def __call__(self, node, operands, identity, owner, reader):
+    def __call__(self, node, operands, identity, owner, reader, *, launch_workspace=None):
         if identity in self.consumed or identity in self.frontiers:
             raise MemoError('memo_inconsistent', 'effect identity is reached more than once')
         commit = self.snapshot.active_commits.get(identity)
-        reached = ReachedEffect(node, operands, identity, owner, reader, commit)
+        reached = ReachedEffect(node, operands, identity, owner, reader, commit, launch_workspace)
         if commit is None:
             self._frontier(reached)
             raise MissingCommit(identity)
         self._check_order(commit)
-        dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
+        dependencies = effect_dependencies(operands, launch_workspace)
         if dependencies != commit.data['depends_on']:
             raise MemoError('memo_inconsistent', 'committed dependencies differ from reached operands')
         self.consumed.add(identity)
@@ -145,7 +147,9 @@ class _Discovery:
         if 'index' in node:
             local = local.extend(node['index'], coerce_evaluated_value(index, {'kind': 'primitive', 'name': 'Int'}))
         workspace = machine._value(node['workspace'], local, owner, activation, loops)
-        result = machine._body(node['body'], local, owner, activation, (*loops, (node['label'], index)))
+        workspace = machine._add_dependencies(workspace, source.dependencies)
+        item_machine = replace(machine, launch_workspace=workspace)
+        result = item_machine._body(node['body'], local, owner, activation, (*loops, (node['label'], index)))
         result = machine._coerce_result(result, node['result']['item'], node)
         return machine._add_dependencies(result, workspace.dependencies | source.dependencies)
 

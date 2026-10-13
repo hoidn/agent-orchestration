@@ -6,7 +6,10 @@ import json
 import sys
 from pathlib import Path
 
-from .reusable_phase_state_common import emit_structured_result
+from .reusable_phase_state_common import (
+    emit_structured_result,
+    logical_workspace_root,
+)
 
 
 def _load_payload(argv: list[str]) -> dict[str, object]:
@@ -16,10 +19,13 @@ def _load_payload(argv: list[str]) -> dict[str, object]:
             "items_path": argv[2],
         }
     if len(argv) > 1:
-        candidate = Path(argv[1])
+        raw_candidate = argv[1]
+        candidate = Path(raw_candidate)
+        if not candidate.is_absolute():
+            candidate = logical_workspace_root() / candidate
         if candidate.is_file():
             return json.loads(candidate.read_text(encoding="utf-8"))
-        return json.loads(argv[1])
+        return json.loads(raw_candidate)
     raw = sys.stdin.read().strip()
     if not raw:
         return {}
@@ -46,7 +52,7 @@ def _is_within(path: Path, root: Path) -> bool:
 
 
 def _validated_findings_path(path: Path) -> Path:
-    workspace = Path.cwd().resolve()
+    workspace = logical_workspace_root()
     target = (workspace / path).resolve()
     artifacts_root = (workspace / "artifacts" / "work").resolve()
     if not _is_within(target, workspace) or not _is_within(artifacts_root, workspace):

@@ -102,7 +102,7 @@ def _observe_document_io(monkeypatch, workspace, generated_tokens):
 
     for name in ("read", "open_read", "create"):
         monkeypatch.setattr(WorkspaceFiles, name, wrap(getattr(WorkspaceFiles, name), name, selected=True))
-    monkeypatch.setattr(runtime, "perform_command", wrap(runtime.perform_command, "dispatch"))
+    monkeypatch.setattr(runtime.effect_execution, "launch_command", wrap(runtime.effect_execution.launch_command, "dispatch"))
     monkeypatch.setattr(runtime, "repair_torn_tail", wrap(runtime.repair_torn_tail, "repair"))
     return calls
 

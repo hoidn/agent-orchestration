@@ -259,22 +259,25 @@ def test_provider_publication_uses_the_same_synced_prefix(tmp_path, monkeypatch)
 @pytest.mark.parametrize("recovery", [False, True])
 def test_coordinator_sync_view_precedes_prepare_finalize_and_next_effect(tmp_path, monkeypatch, recovery):
     parent, source, refs = _public_fixture(tmp_path)
-    prepare, finalize = run_ref.prepare_evaluated_run_ref, run_ref.finalize_run_ref_parent_commit
+    prepare, finalize = runtime.effect_execution.perform_evaluated_run_ref, run_ref.finalize_run_ref_parent_commit
+    intercepted = {"prepare": 0, "finalize": 0}
     if recovery:
         authority, _before = _commit_gap(monkeypatch, parent, source, refs)
     events = _observe_publication_order(monkeypatch)
 
     def prepared(authority, *args, **kwargs):
+        intercepted["prepare"] += 1
         assert events[-1][:2] == ("view", authority.run_root)
         assert events[-1][2]["record"] == "started"
         return prepare(authority, *args, **kwargs)
 
     def finalized(request, *args, **kwargs):
+        intercepted["finalize"] += 1
         assert events[-1][:2] == ("view", request.parent_run_root)
         assert events[-1][2]["record"] == "committed"
         return finalize(request, *args, **kwargs)
 
-    monkeypatch.setattr(run_ref, "prepare_evaluated_run_ref", prepared)
+    monkeypatch.setattr(runtime.effect_execution, "perform_evaluated_run_ref", prepared)
     monkeypatch.setattr(run_ref, "finalize_run_ref_parent_commit", finalized)
     if recovery:
         assert _service_cli(monkeypatch, parent, ["resume", authority.run_root.name]) == 0
@@ -283,6 +286,7 @@ def test_coordinator_sync_view_precedes_prepare_finalize_and_next_effect(tmp_pat
         assert _service_run(monkeypatch, parent, source, refs).exit_code == 0
         authority, _after = _authority(parent)
         expected = ["started", "committed", "settled", "terminal"]
+    assert intercepted == {"prepare": int(not recovery), "finalize": int(not recovery)}
     _assert_publication_pairs(events, authority.run_root, expected)
 
 

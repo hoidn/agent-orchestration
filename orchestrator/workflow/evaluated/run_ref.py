@@ -67,9 +67,12 @@ def validate_evaluated_run_ref_start(authority, resolved, identity, attempt, wor
     _request(authority, resolved, identity, attempt, workspace)
 
 
-def prepare_evaluated_run_ref(authority, node, resolved, identity, attempt, workspace, attempt_files):
+def perform_evaluated_run_ref(authority, resolved, identity, attempt, workspace):
     request = _request(authority, resolved, identity, attempt, workspace)
-    prepared = prepare_run_ref_settlement(request)
+    return prepare_run_ref_settlement(request)
+
+
+def project_evaluated_run_ref(node, prepared, attempt_files):
     result = coerce_evaluated_value(prepared.envelope, node["result"], context="run-ref result")
     payload = canonical_json_bytes(result.json_value())
     attempt_files.write_atomic("result.json", payload)

@@ -87,6 +87,7 @@ class _Machine:
     provider_io: ProviderIOContext | None
     io_activation: ProviderIOActivation | None
     print_sink: Any = None
+    launch_workspace: EvaluatedValue | None = None
 
     def evaluate(self, inputs: Mapping[str, Any]) -> EvaluatedValue:
         entry = self.program.tree
@@ -345,7 +346,12 @@ class _Machine:
             if self.io_activation is None:
                 raise ValueError("workflow IO activation is unavailable for a checked effect")
             reader = self.provider_io.effect(owner, node["site"], self.io_activation)
-        result = self.effect_handler(node, operands, identity, owner, reader)
+        if self.launch_workspace is not None:
+            operands = tuple(self._add_dependencies(value, self.launch_workspace.dependencies) for value in operands)
+            result = self.effect_handler(node, operands, identity, owner, reader,
+                launch_workspace=self.launch_workspace)
+        else:
+            result = self.effect_handler(node, operands, identity, owner, reader)
         if not isinstance(result, EvaluatedValue):
             raise TypeError("effect handler must return an EvaluatedValue")
         return self._coerce_result(result, node["result"], node)

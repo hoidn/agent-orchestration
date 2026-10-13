@@ -192,7 +192,7 @@ def _observe_replay_io(monkeypatch):
     from orchestrator.workflow.workspace_files import WorkspaceFiles
 
     calls = []
-    repair, perform = runtime.repair_torn_tail, runtime.perform_command
+    repair, perform = runtime.repair_torn_tail, runtime.effect_execution.launch_command
     create, read = WorkspaceFiles.create, WorkspaceFiles.read
 
     def repaired(*args, **kwargs):
@@ -214,7 +214,7 @@ def _observe_replay_io(monkeypatch):
         return read(owner, path, *args, **kwargs)
 
     monkeypatch.setattr(runtime, "repair_torn_tail", repaired)
-    monkeypatch.setattr(runtime, "perform_command", performed)
+    monkeypatch.setattr(runtime.effect_execution, "launch_command", performed)
     monkeypatch.setattr(WorkspaceFiles, "create", created)
     monkeypatch.setattr(WorkspaceFiles, "read", read_document)
     return calls

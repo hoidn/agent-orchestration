@@ -161,7 +161,7 @@ def _snapshot_dependencies(node, values, workspace):
     )
 
 
-def resolve_provider_input(node, operands, *, workspace, reader, result_path):
+def resolve_provider_input(node, operands, *, workspace, reader, result_path, logical_workspace=False):
     """Capture a reached provider's request and all content-bound input parts."""
     reads = resolve_provider_io(node, operands, workspace=workspace, reader=reader)
     values = [value.json_value() for value in operands]
@@ -173,7 +173,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path):
     policy = dict(zip(node["policy"], policy_values, strict=True))
     prompt = assemble_provider_prompt(
         node, operands, source_text=reads.source_text,
-        dependency_snapshot=reads.dependency_snapshot, result_path=result_path,
+        dependency_snapshot=reads.dependency_snapshot, result_path=result_path, logical_workspace=logical_workspace,
     )
     dependency_rows = (
         [] if reads.dependency_snapshot is None
@@ -200,10 +200,10 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path):
     )
 
 
-def perform_provider(
+def launch_provider(
     node, resolved, identity, *, executor: ProviderExecutor,
     attempt_files: WorkspaceFiles, workspace_files: WorkspaceFiles,
-    result_path: str, stream_output: bool = False,
+    result_path: str, stream_output: bool = False, launch_cwd=None, logical_workspace_root=None,
 ):
     """Prepare once, dispatch at most once, and keep exclusive attempt evidence.
 
@@ -221,7 +221,8 @@ def perform_provider(
                 exit_info={"error": error},
             )
         execution = executor.execute(
-            invocation, cwd=workspace_files.workspace, stream_output=stream_output,
+            invocation, cwd=launch_cwd or workspace_files.workspace, stream_output=stream_output,
+            **({"logical_workspace_root": logical_workspace_root} if logical_workspace_root is not None else {}),
             session_runtime=None, execution_env_overlay={
                 "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY": (
                     "sha256:" + sha256(identity.encode("utf-8")).hexdigest()
@@ -231,18 +232,19 @@ def perform_provider(
         stdout = execution.raw_stdout if execution.raw_stdout is not None else execution.stdout
         stderr = execution.stderr
         if execution.exit_code != 0 or execution.error is not None:
-            code = (
-                "provider_timeout" if (execution.error or {}).get("type") == "timeout"
-                else "provider_exit_nonzero"
-            )
-            raise ProviderPerformerError(
-                code, f"evaluated provider failed: {execution.error or execution.exit_code}",
-                exit_info={"exit_code": execution.exit_code, "error": execution.error},
-            )
+            raise _provider_execution_failure(execution)
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
-    return _provider_result(node, resolved, attempt_files, workspace_files, result_path)
+    return result_path
+
+
+def _provider_execution_failure(execution):
+    code = ("provider_timeout" if (execution.error or {}).get("type") == "timeout"
+        else "provider_exit_nonzero")
+    return ProviderPerformerError(code,
+        f"evaluated provider failed: {execution.error or execution.exit_code}",
+        exit_info={"exit_code": execution.exit_code, "error": execution.error})
 
 
 def _prepare_provider_invocation(node, resolved, result_path, executor):
@@ -268,7 +270,7 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
     )
 
 
-def _provider_result(node, resolved, attempt_files, workspace_files, result_path):
+def provider_result(node, resolved, attempt_files, workspace_files, result_path):
     try:
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:
