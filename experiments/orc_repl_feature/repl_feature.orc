@@ -2,7 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.35")
   (defmodule repl_feature)
-  (export run)
+  (export run Plan Feedback Execution draft-plan review-plan revise-plan execute-plan)
 
   ;; A variation of workflows/examples/plan_review_execute.orc with prompts
   ;; detailed enough to design and build one repository feature: Claude plans,
@@ -47,14 +47,14 @@
   (defworkflow run ((task String)) -> Execution
     (let* ((draft (provider-result providers.claude :model "claude-fable-5-1" :effort "high" :timeout-sec 3600
                     :prompt (draft-plan :task task)))
-           (feedback (provider-result providers.codex :model "gpt-6-sol" :effort "high" :timeout-sec 3600
+           (feedback (provider-result providers.codex :model "gpt-6.1-sol" :effort "high" :timeout-sec 3600
                        :prompt (review-plan :task task :summary draft.summary :decisions draft.decisions
                                             :steps draft.steps :verification draft.verification)))
            (revised (provider-result providers.claude :model "claude-fable-5-1" :effort "high" :timeout-sec 3600
                       :prompt (revise-plan :task task :summary draft.summary :decisions draft.decisions
                                            :steps draft.steps :verification draft.verification
                                            :blocking feedback.blocking :notes feedback.notes))))
-      (provider-result providers.codex :model "gpt-5.6-luna" :effort "xhigh" :timeout-sec 14400
+      (provider-result providers.codex :model "gpt-6.1-sol" :effort "high" :timeout-sec 14400
         :prompt (execute-plan :task task :summary revised.summary :decisions revised.decisions
                               :steps revised.steps :verification revised.verification))))
 )
