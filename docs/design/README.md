@@ -14,7 +14,7 @@ page, not a replacement for the linked docs.
 | [workflow_language_design_principles.md](workflow_language_design_principles.md) | Cross-frontend semantic authority principles | Yes | Yes | Use for design judgment before changing DSL, Workflow Lisp, or workflow abstractions. |
 | [workflow_command_adapter_contract.md](workflow_command_adapter_contract.md) | Command adapter and inline glue policy | Partial; the command closure declaration (C1–C5) is enforced at run time at target 2.35 | Yes | Use when deciding whether command behavior is a certified adapter, legacy adapter, or runtime-native candidate, and for what a 2.35 command's `closure` promises. |
 | [workflow_lisp_frontend_specification.md](workflow_lisp_frontend_specification.md) | Accepted Workflow Lisp frontend baseline | Yes | Yes | Parent contract for `.orc` frontend work. |
-| [workflow_lisp_repl.md](workflow_lisp_repl.md) | Pure interactive inspection of evaluated 2.35/2.36 runs; design remains proposed | Yes | No | Checked read-only lexical replay and ordinary typed expressions; explicit `:run` delegates to public execution. [Bounded execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md) owns implementation and evidence. |
+| [workflow_lisp_repl.md](workflow_lisp_repl.md) | Pure interactive inspection of evaluated 2.35/2.36 runs | Yes | No | Checked read-only lexical replay and ordinary typed expressions; explicit `:run` delegates to public execution. [Bounded execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md) owns implementation and evidence. |
 | [../plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md](../plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md) | Workflow Lisp provider prompt dependencies | Implemented functional contract | Yes | Typed required/optional exact relpaths lower through a compiler side table into one immutable per-attempt snapshot. Current allocation state is counter-only and deterministic immutable files carry persisted inspection evidence; runtime plan remains topology-only and evidence remains non-authoritative. |
 | [workflow_lisp_procedure_first_reuse_contract.md](workflow_lisp_procedure_first_reuse_contract.md) | Procedure-first boundary roles, lowering identity, effects, and migration rules | Accepted contract / adoption gated | No | Focused decision and migration companion; the frontend specification remains durable semantic authority, and Stage 5 substrate plus pilot evidence gates migration guidance. |
 | [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Strict-default procedure-migration identity compatibility and bounded internal retirement | Accepted durable contract / historical generator and pilot evidence | No | The strict checksum/runtime contract remains current and the evidence-only exception remains narrow. The tracked-plan pilot completed at `0769e837`; M1 later retired its served-purpose record/scanner generator while preserving frozen evidence and Git history. This is not a current general retirement route. |
@@ -109,6 +109,16 @@ The ES implementation review chain remains discoverable at
 `artifacts/review/es-first-effectiveness-study-task5-review.md`.
 
 ## Runtime And Observability Direction
+
+The accepted [REPL introspection design](workflow_lisp_repl_introspection.md)
+owns implemented module-name discovery, definition/source inspection and
+static type/effect queries at evaluated targets 2.35/2.36. Source is a loaded
+or freshly reconstructed snapshot, with no historical archive. Public behavior
+is owned by [the CLI contract](../../specs/cli.md#workflow-lisp-repl-targets-235-and-236);
+the [recipe](../lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl)
+shows module-only and attached use, and the
+[implementation plan](../plans/2026-10-12-workflow-lisp-repl-introspection-plan.md)
+owns bounded verification evidence and campaign outcomes.
 
 Provider-phase information isolation is a partial, pre-integration runtime
 surface. Use the

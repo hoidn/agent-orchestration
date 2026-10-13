@@ -393,3 +393,48 @@ def test_completed_root_loop_captures_done_result_not_seed_halt(tmp_path, seed_b
     assert "state" in _binding_names(repl.stdout)
     if seed_block:
         assert "a" not in _binding_names(repl.stdout)
+
+
+def test_public_repl_introspection_smoke(tmp_path):
+    """Run the maintained authored specimen through deterministic provider shims."""
+    import hashlib
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+    from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
+
+    example = Path(__file__).parents[1] / "workflows/examples/plan_review_execute.orc"
+    fixture = _fixture(tmp_path, example.read_text(encoding="utf-8"))
+    source = tmp_path / example.name
+    fixture[0].rename(source)
+    providers, prompts = fixture[1:3]
+    shutil.copyfile(example.parent / "inputs/plan_review_execute/providers.json", providers)
+    prompts.write_text("{}", encoding="utf-8")
+    shutil.copy2(tmp_path / "bin/codex", tmp_path / "bin/claude")
+    fixture = (source, providers, prompts, None)
+    execution = {"summary": "fixture completed"}
+    replies = (PLAN, FEEDBACK, PLAN, execution)
+    run = _run(tmp_path, fixture, "task=fixture inspection smoke", results=replies)
+    assert run.returncode == 0, run.stderr
+    run_root = _run_root(tmp_path)
+    before = _snapshot(tmp_path / ".orchestrate")
+    requests = (tmp_path / "requests.jsonl").read_bytes()
+    with run_writer_lock(run_root):
+        repl = _repl(tmp_path, [":browse", ":info Plan", ":info revise-plan", ":source revise-plan",
+                              ":type revised.steps", ":bindings", ":result", ":quit"],
+                     fixture=fixture, run_id=run_root.name, results=replies)
+    assert repl.returncode == 0, repl.stderr
+    assert "steps: List[String]" in repl.stdout
+    assert "task: text" in repl.stdout and "findings: value" in repl.stdout
+    assert "type: List[String]\neffects: ()" in repl.stdout
+    assert "revised : Plan" in repl.stdout
+    assert _typed_values(repl.stdout) == [(execution, "Execution")]
+    parsed = read_sexpr_text(source.read_text(encoding="utf-8"), source_path=str(source))
+    declaration = next(form for form in parsed.items[0].items if isinstance(form, ListExpr)
+                       and len(form.items) > 1 and isinstance(form.items[0], SymbolAtom)
+                       and form.items[0].value == "defprompt" and isinstance(form.items[1], SymbolAtom)
+                       and form.items[1].value == "revise-plan")
+    expected = source.read_text(encoding="utf-8")[declaration.span.start.offset:declaration.span.end.offset]
+    assert expected in repl.stdout
+    assert f"loaded snapshot: sha256:{hashlib.sha256(source.read_bytes()).hexdigest()}" in repl.stdout
+    assert len(requests.splitlines()) == 4
+    assert _snapshot(tmp_path / ".orchestrate") == before
+    assert (tmp_path / "requests.jsonl").read_bytes() == requests

@@ -1231,22 +1231,51 @@ every effect of the three maintained programs are owned by
 
 ### Inspect a run with the Workflow Lisp REPL
 
-For evaluated targets 2.35/2.36, `orchestrator repl` lets you inspect captured
-lexical bindings and evaluate ordinary pure expressions. Use the maintained
+For evaluated targets 2.35/2.36, `orchestrator repl` lets you discover a loaded
+module's declarations, inspect their contracts/source, ask for expression types,
+and inspect captured run bindings. From the repository root, use the maintained
 [`plan_review_execute.orc`](../workflows/examples/plan_review_execute.orc) and
-its [provider manifest](../workflows/examples/inputs/plan_review_execute/providers.json)
-in a workspace intended for the workflow's execution:
+its required [provider extern manifest](../workflows/examples/inputs/plan_review_execute/providers.json).
+Loading and the first queries below
+compile the module and publish its ordinary build bundle; they do not run the
+providers. No prompt extern manifest is required for this module:
 
 ```bash
 python -m orchestrator repl workflows/examples/plan_review_execute.orc \
   --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
 ```
 
-Inside the session:
+Inside the session, before running or attaching anything:
 
 ```text
-:run --input task="Inspect this workspace and summarize the planned changes"
+:browse
+:info Plan
+:info revise-plan
+:source revise-plan
+:type (list/length (list "first step" "second step"))
+```
+
+`:browse` lists module/entry/target, imports and available names. `:info Plan`
+shows `steps: List[String]`; `:info revise-plan` shows the text slot `task`,
+value slots `steps` and `findings`, their refinements/output roles and return
+type `Plan`. `:source revise-plan` prints the complete authored prompt form
+with its loaded snapshot revision. The type query prints `type: Int` and
+`effects: ()` without evaluating the expression.
+
+Coverage is named types, functions, procedures, workflows, prompts and externs.
+Names use the compiler's accepted import/alias spellings; distinct namespace
+matches are labelled, and aliases share one declaration. Macros, schemas,
+resources, transitions, operator documentation, applied generic type syntax as
+a name, and generated local definitions/specializations are excluded. Extern
+inspection does not read external prompt files or display provider payloads.
+
+To inspect an existing run, replace `RUN_ID` below with its actual run ID:
+
+```text
+:attach RUN_ID
 :bindings
+:type revised.steps
+:type feedback.findings
 feedback.findings
 (list/length revised.steps)
 (list/empty? feedback.findings)
@@ -1254,8 +1283,9 @@ feedback.findings
 :quit
 ```
 
-`:run` uses the ordinary public run service and executes the declared providers;
-`:bindings`, expressions and `:result` then inspect the checked captured frame.
+For a completed run of this module, `revised.steps` and `feedback.findings` have
+type `List[String]`. `:bindings`, ordinary expressions and `:result` inspect
+the checked captured frame; `:info` and `:source` continue to query declarations.
 Values print as compact sorted JSON on one line and `: <type>` on the next.
 `:result` returns the entry result; a stopped/failed run instead reports
 `repl_no_result`. REPL/runtime errors print `[code] detail`; frontend errors
@@ -1265,19 +1295,30 @@ tests list emptiness; `=` / `!=` keep the ordinary supported-scalar/same-enum
 contract, without deep list equality. See
 [frontend §10.2](design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface).
 
-To inspect an existing run without starting another, add `--run-id RUN_ID`
-to the launch command, or use `:attach RUN_ID`; add `--state-dir DIR` for a
+You can also add `--run-id RUN_ID` to the launch command; add `--state-dir DIR` for a
 custom run root. Without a loaded workflow, `repl --run-id RUN_ID` rebuilds
-its persisted recipe in memory and requires the same program digest. No run
-files change during attachment or pure inspection. Effectful expressions,
+its persisted recipe in memory and requires the same program digest. Its source
+is labelled `reconstructed module source`: it may differ in comments/formatting
+from the historical run. Explicit loads say `loaded snapshot`; editing or
+deleting files after loading cannot change that snapshot, and a failed load
+keeps the previous one. No historical source archive is supplied.
+
+No run files change during attachment or inspection. `:type` also accepts
+effectful expressions as static analysis, preserving ordinary frontend errors
+without lowering or evaluation. Entered effectful expressions,
 including transitive procedure effects, refuse `repl_effect_refused`; only
-explicit `:run` executes effects. Input is one expression per line, with no
+explicit `:run` executes effects. To create a new run in a workspace intended
+for execution, use `:run --input task="Inspect this workspace and summarize the planned changes"`;
+this invokes the real providers selected by the manifest. Input is one expression per line, with no
 session resume, new definitions, editing or multiline support.
 
 The [CLI contract](../specs/cli.md#workflow-lisp-repl-targets-235-and-236)
-owns flags and diagnostics; the [proposed design](design/workflow_lisp_repl.md)
-owns the capture/expression boundary. Behavioral public integration coverage
-is [`tests/test_workflow_evaluated_repl.py`](../tests/test_workflow_evaluated_repl.py);
+owns flags and diagnostics; the [REPL design](design/workflow_lisp_repl.md)
+owns the capture/expression boundary, and the
+[introspection design](design/workflow_lisp_repl_introspection.md) owns module
+queries and source provenance. Behavioral public integration coverage is
+[`tests/test_workflow_evaluated_repl.py`](../tests/test_workflow_evaluated_repl.py)
+and [`tests/test_workflow_evaluated_repl_introspection.py`](../tests/test_workflow_evaluated_repl_introspection.py);
 provider stand-ins in tests prove integration rather than live provider quality.
 
 ## 3. Semantic Authority Rules

@@ -103,6 +103,7 @@ if TYPE_CHECKING:
     from .functions import FunctionCatalog, TypedFunctionDef
     from .lowering import LoweredWorkflow
     from .procedures import TypedProcedureDef
+    from .modules import LinkedModuleGraph, ModuleImportScope
 
 
 @dataclass(frozen=True)
@@ -434,6 +435,8 @@ class ExpressionCompileContext:
     function_name_resolver: Callable[..., str]
     procedure_name_resolver: Callable[..., str]
     workflow_name_resolver: Callable[..., str]
+    linked_module_graph: "LinkedModuleGraph | None" = field(default=None, compare=False, repr=False)
+    module_import_scope: "ModuleImportScope | None" = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)

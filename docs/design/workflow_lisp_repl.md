@@ -9,7 +9,7 @@
 - **Reviewers:** Independent code and design reviewers
 - **Created:** 2026-10-12
 - **Last material update:** 2026-10-12
-- **Related docs / issues / plans:** [Execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md), [evaluated execution](workflow_lisp_evaluated_execution.md), [frontend baseline](workflow_lisp_frontend_specification.md)
+- **Related docs / issues / plans:** [Execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md), [introspection design](workflow_lisp_repl_introspection.md), [introspection plan](../plans/2026-10-12-workflow-lisp-repl-introspection-plan.md), [evaluated execution](workflow_lisp_evaluated_execution.md), [frontend baseline](workflow_lisp_frontend_specification.md)
 - **Implementation target:** Evaluated entries at DSL 2.35 and 2.36
 
 ## Summary
@@ -20,6 +20,9 @@ bindings and result, and evaluate a pure expression against those bindings.
 Attachment reconstructs a checked memo prefix without launching effects or
 writing run evidence. Expression compilation and evaluation use the ordinary
 frontend and closed evaluator, including pure module functions and procedures.
+Module inspection adds `:browse`, `:info NAME`, `:source NAME` and `:type EXPR`
+without requiring attachment. The [introspection design](workflow_lisp_repl_introspection.md)
+owns their catalog, metadata, parsing and retained-source contracts.
 
 This is a new interactive CLI surface over existing compilation and run
 contracts. It creates no persistence profile, expression language, operator
@@ -30,7 +33,7 @@ implementation, or alternate execution authority.
 Read [the documentation hub](../index.md), [capability matrix](../capability_status_matrix.md)
 and [design routing](README.md) before selecting contracts. Normative CLI and
 persistence behavior remain owned by [CLI](../../specs/cli.md) and
-[State](../../specs/state.md). This proposal supplies their bounded REPL delta;
+[State](../../specs/state.md). This design supplies their bounded REPL delta;
 it does not supersede the existing run or resume entrypoints.
 
 The [evaluated-execution design](workflow_lisp_evaluated_execution.md) owns
@@ -96,6 +99,10 @@ orchestrator repl [WORKFLOW] [frontend flags] [--run-id RUN_ID] [--state-dir DIR
 :attach RUN_ID
 :bindings
 :result
+:browse
+:info NAME
+:source NAME
+:type EXPR
 :help
 :quit
 ```
@@ -111,6 +118,22 @@ only for a TTY; piped input receives no prompt. EOF and `:quit` exit 0.
 Compile diagnostics use `render_diagnostic`. Failed loads retain the previously
 loaded module. Failed ordinary commands retain compatible session state; a digest mismatch
 clears attachment so no incompatible module/frame pairing remains usable.
+
+Module queries need only the loaded/reconstructed module. `:browse` lists the
+compiler-visible declarations; `:info`/`:source` resolve module names even when
+a captured value has the same spelling. `:type` shares ordinary expression
+analysis with optional captured lexical type refs, and stops before purity,
+lowering and evaluation so effectful expressions can be analyzed. Help states
+the supported declaration families and exclusions. The
+[CLI contract](../../specs/cli.md#workflow-lisp-repl-targets-235-and-236) owns their
+exact output and diagnostics.
+
+Both load paths retain compiler read snapshots, graph and final entry import
+scope in memory. Source inspection uses validated authored spans in those
+snapshots, never a fresh file read. Explicit loads say `loaded snapshot`;
+recipe attachment says `reconstructed module source`, which does not recover
+historical text merely because the program digest matches. These facts are
+transient, excluded from artifacts and digests; no source archive is added.
 
 `:run` requires a loaded module. Parse its options using the public run CLI
 contract, pass the loaded module's frontend request to `run_workflow`, and
@@ -204,6 +227,8 @@ variant proof.
 
 Add frozen `ExpressionCompileContext` containing `function_catalog`,
 `typed_functions_by_name`, and the function/procedure/workflow name resolvers.
+Its optional/defaulted linked module graph and final entry import scope support
+compiler-derived introspection without a second visibility registry.
 Attach it to the entry module's `Stage3CompileResult` using the existing
 compiler locals. The additive `expression_context` field defaults to `None`,
 with `compare=False` and `repr=False`.
@@ -217,6 +242,7 @@ header and digests. Preserve existing callers and exports.
 
 ### Ordinary expression compilation and evaluation
 
+Share `typecheck_repl_expression` between type-only queries and evaluation.
 Read with `read_sexpr_text` and require exactly one datum, producing a
 `SyntaxNode`. Call `expressions.elaborate_expression` with captured type refs
 and the loaded module's extern/type/procedure/function/workflow catalogs and
@@ -225,6 +251,10 @@ resolvers. Preserve the ordinary target-2.36 inferred-hook branching. Apply
 then `typecheck_expression`. Ordinary unresolved names remain `name_unknown`.
 A missing context refuses module calls with `repl_module_context_missing`,
 rather than silently using reduced catalogs or another evaluator.
+Type-only queries stop here and preserve frontend diagnostics, including
+constant-expression errors; they do not evaluate runtime values, prepare a
+builder or mutate captured bindings. Ordinary evaluation continues through
+the existing three purity guards below.
 
 Keep the ordinary frontend §10.2 equality contract: `=` / `!=` accept supported
 scalars and same-type enums, with no added deep-list equality. `list/empty?`
@@ -275,12 +305,15 @@ Diagnostics include `repl_effect_refused`, `repl_run_not_found`,
 `repl_expression_arity`, `repl_no_result`, `repl_module_context_missing`,
 ordinary `name_unknown`, and the reused authority/compile/resume codes.
 `:bindings`, `:result` and expressions require attachment; `:run` requires a
-loaded module. `:help` describes these commands and the pure-expression limit.
+loaded module. The four module queries also require a loaded module and add
+`repl_name_unknown`, `repl_source_unavailable` and argument validation with
+`repl_command_invalid`. `:help` describes these commands, supported declaration
+families, exclusions and the pure-expression execution limit.
 
 ## Dependencies And Sequencing
 
 The evaluated 2.35/2.36 authority, public build/run services, closed evaluator
-and W3 compiler are prerequisites. This proposal does not select broader
+and W3 compiler are prerequisites. This design does not select broader
 runtime roadmap work. Implement the transient compile products before the
 expression bridge, and capture before CLI attachment. The bounded
 [execution checklist](../plans/2026-10-12-workflow-lisp-repl-plan.md) owns work
@@ -288,8 +321,8 @@ ordering and verification records; this durable design owns the contracts.
 
 ## Invariants And Failure Modes
 
-Run evidence is byte-identical before/after attach, bindings, result and any
-pure/refused/failed expression. `:load` writes only ordinary build artifacts;
+Run evidence is byte-identical before/after attach, module inspection/type
+queries, bindings, result and any pure/refused/failed expression. `:load` writes only ordinary build artifacts;
 `:run` writes only through public execution. No new memo records, schema,
 header keys, digest components or evaluator semantics are introduced.
 
@@ -389,8 +422,9 @@ new artifact/schema fields or a broad runtime/compiler refactor.
 Create this design and its execution plan; add routing in [design index](README.md).
 Implementation updates [CLI](../../specs/cli.md), [capability matrix](../capability_status_matrix.md),
 [documentation hub](../index.md) and [drafting guide](../lisp_workflow_drafting_guide.md).
-Persistence specs require no new wire contract. Preserve proposed status until
-independent acceptance evidence supports a deliberate status change.
+Persistence specs require no new wire contract. The introspection design and
+its execution plan own the bounded catalog/source/type-query addition;
+availability is recorded in the capability matrix and verification in plans.
 
 ## Implementation Handoff
 

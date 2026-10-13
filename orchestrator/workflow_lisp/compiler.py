@@ -3844,6 +3844,8 @@ def _compile_stage3_graph(
                     function_name_resolver=local_function_resolver,
                     procedure_name_resolver=local_procedure_resolver,
                     workflow_name_resolver=local_workflow_resolver,
+                    linked_module_graph=graph,
+                    module_import_scope=import_scope,
                 )
                 if module_name == graph.entry_module_name
                 else None
