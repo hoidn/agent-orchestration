@@ -1,0 +1,4 @@
+{
+  "prompts.white": {"asset_file": "white.md"},
+  "prompts.black": {"asset_file": "black.md"}
+}

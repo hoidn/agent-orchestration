@@ -1,0 +1,7 @@
+{
+  "write-board": {
+    "kind": "external_tool",
+    "stable_command": ["python", "experiments/agent_chess/write_board.py"],
+    "closure": ["experiments/agent_chess/write_board.py"]
+  }
+}

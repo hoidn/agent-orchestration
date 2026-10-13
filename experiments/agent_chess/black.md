@@ -1,0 +1,3 @@
+You are Black in a chess game. The supplied text is the complete shared position, move history, and public conversation, including White's latest result. Make one move for Black, then return the updated position with the full history and your public message as one text value. Keep earlier history and messages so White can continue from them.
+
+Use your file-writing or shell tool to write that text as a JSON string to the exact file named by the ORCHESTRATOR_OUTPUT_BUNDLE_PATH environment variable. Read the variable and write the file before finishing; printing JSON in your reply does not deliver the result. Change no other files.

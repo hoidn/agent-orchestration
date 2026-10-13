@@ -1,0 +1,4 @@
+{
+  "providers.white": "codex",
+  "providers.black": "claude_unrestricted_workspace"
+}
