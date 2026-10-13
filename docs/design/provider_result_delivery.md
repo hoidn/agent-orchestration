@@ -1,0 +1,447 @@
+# Provider Result Delivery: Render The Transport The Runtime Selected
+
+## Metadata
+
+- **Title:** Provider result delivery rendering, versioned replay, and a typed channel for inability
+- **Status:** draft
+- **Kind:** clarification and operational design
+- **Owner:** evaluated runtime and prompt-contract maintainers
+- **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
+- **Created:** 2026-10-13
+- **Last material update:** 2026-10-13
+- **Related docs / issues / plans:**
+  [missing-result-file report](../reports/2026-10-13-claude-missing-result-file.md),
+  [design principle 30](workflow_language_design_principles.md#30-provider-attention-is-a-bounded-resource-the-language-conserves),
+  [evaluated execution](workflow_lisp_evaluated_execution.md),
+  [prompt calculus](workflow_lisp_prompt_calculus.md),
+  [executor retirement](workflow_lisp_executor_retirement.md),
+  `specs/providers.md`, `specs/io.md`, `specs/state.md`;
+  plan: [provider result delivery plan](../plans/2026-10-13-provider-result-delivery-plan.md)
+- **Implementation target:** evaluated targets 2.35 and later; no new target. Targets through 2.34 keep their composed prompts byte for byte.
+
+## Summary
+
+Every provider call on the evaluated route delivers its result through one
+mechanism: a file at the attempt's `result.json`, named to the agent by the
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` environment variable and by the contract
+block's `- path:` line. The contract block the runtime appends to the prompt
+does not say so. It opens with "Produce one JSON value", then offers a
+conditional: write to the file if the variable is present, otherwise return
+the value as assistant text. The runtime never accepts the second branch on
+this route. Four of sixty-seven provider attempts observed on this machine
+ended in `provider_result_missing`; in three of them the agent returned the
+value, or a prose summary, in its reply.
+
+This design makes the runtime render the delivery instruction for the
+transport it selected, leading with the action and the real path; renders the
+relpath guidance only when the contract contains a path type; records which
+rendering a committed effect used, so that resume replays it without a false
+`effect_input_diverged`; surfaces the agent's reply in the missing-result
+diagnostic; and gives authors a typed way to say "I cannot" instead of
+withholding the file. Authored prompts stop carrying transport instructions.
+The flat route is untouched.
+
+## Context And Authority
+
+- `specs/providers.md` owns prompt delivery and the rule that the output
+  contract is appended exactly once and the validated bundle remains result
+  authority. `specs/io.md` ("Provider request and attempt files") states that
+  the contract's `- path:` line is the attempt's `result.json` and that the
+  evaluated route sets `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. Neither spec fixes
+  the block's wording.
+- `specs/state.md` (evaluated profile) lists the provider `input_parts`:
+  `declaration`, `values`, `policy`, `params`, `prompt`, `dependency_rows`,
+  plus source and dependency digests. `prompt` is the SHA-256 of the fully
+  assembled prompt, contract block included
+  (`orchestrator/workflow/evaluated/providers.py::resolve_provider_input`).
+  A committed result is reused on resume only when every recomputed part
+  equals the recorded one (`effect_inputs.py::_replay_committed_effect`);
+  a difference refuses with `effect_input_diverged` before any launch.
+- The renderers live in `orchestrator/contracts/prompt_contract.py`:
+  `render_output_bundle_contract_block` (records, delegating to
+  `_render_root_output_bundle_contract_block` for a non-record root),
+  and `render_variant_output_contract_block` (tagged unions). All three carry
+  the conditional sentence and the unconditional `_RELPATH_GUIDANCE` line.
+  Two callers share them: `orchestrator/workflow/evaluated/prompts.py`
+  (evaluated route) and `orchestrator/workflow/prompting.py` (flat route).
+- No test asserts the block's wording (repository rule: no tests of prompt
+  phrasing). `tests/test_prompt_contract.py` and
+  `tests/test_prompt_contract_injection.py` test structure and injection.
+- [Design principle 30](workflow_language_design_principles.md#30-provider-attention-is-a-bounded-resource-the-language-conserves):
+  an obligation the deterministic side can render must not be instructed in
+  prose, and each guidance line in a rendered block is tracked debt that
+  should name the missing mechanism.
+- The [executor retirement design](workflow_lisp_executor_retirement.md)
+  schedules the flat route for deletion. This design adds nothing to it.
+
+## Problem
+
+The observed failures, from local evaluated runs on 2026-10-13:
+
+| Run, site, model | Authored transport paragraph present | What the agent did |
+| --- | --- | --- |
+| chess `zk5mh3`, Black, claude-fable-5-1 | no | Returned a fenced JSON string in its reply; no file |
+| chess `1zoj84`, White, gpt-6.1-sol, early round | no | Printed a JSON object in its reply, also of the wrong shape (`{"position": ...}` for a `String` result); no file |
+| chess `1zoj84`, White, gpt-6.1-sol, later round | yes | Declined explicitly: it would not invent a move without `python-chess`; wrote nothing |
+| design smoke `p016fp`, `revised`, claude-sonnet-5-5 | no | Did the revision work and replied with a prose summary; no file |
+
+Three shapes, not one. The first two are delivery: the contract names the
+file but opens with the content and offers a reply as an alternative. The
+third is not delivery at all: the agent had a legitimate reason not to
+produce a `String`, and `:returns String` gave it no way to say so, so the
+only honest move was to withhold the file and let the runtime fail the
+attempt. The report's local fix, a paragraph in the authored prompt that
+repeats the environment variable's name, is misplaced load under principle 30,
+and it did not prevent the third case.
+
+Two further defects compound this. The relpath guidance line is rendered for
+every contract, including a bare `String`, where it is noise. And the
+`provider_result_missing` failure says only "provider did not create <path>",
+although the agent's reply is retained in the attempt's `stdout.txt`; the
+operator has to open the file to learn which of the three shapes occurred.
+
+Fixing the wording is not a local patch because the assembled prompt is
+effect-input identity. Changing the renderer changes the `prompt` part of
+every provider effect, so a run that committed effects under the old wording
+could not resume: a hundred-round chess game would have to start over.
+
+## Goals And Non-Goals
+
+Goals:
+
+1. On the evaluated route, the contract block states the selected delivery
+   mechanism first, with the real result path, and offers no alternative.
+2. Guidance prose that compensates for an absent mechanism is rendered only
+   when the mechanism's input is present (relpath guidance only with a path
+   type in the contract).
+3. A run that committed provider effects under an earlier rendering resumes
+   with those effects reused, never redispatched, and never refused for the
+   rendering difference alone.
+4. Targets through 2.34 compose byte-identical prompts before and after.
+5. A `provider_result_missing` failure names what the agent returned instead,
+   without materializing it as a result.
+6. Authors have a documented typed shape for a step that may be unable to
+   answer, and the chess example uses it.
+7. The effect of the rendering change is measured, not asserted.
+
+Non-goals:
+
+- Materializing a result from stdout or from assistant text. The file stays
+  the only result authority on this route (`specs/io.md`).
+- Changing the result contract, validation, the memo wire beyond one additive
+  provider input part, or the run header.
+- Rendering changes for the flat route or for `expected_outputs` output
+  positions; neither carries the conditional sentence's defect in the
+  observed failures, and the flat route is being retired.
+- A new provider transport, a prompt-position experiment beyond the measured
+  variant named in §Open Questions, or any retry policy change.
+
+## Decision
+
+Render the delivery instruction for the transport the runtime selected, and
+version that rendering per committed effect.
+
+- The three structured-result renderers take a `delivery` selector. `legacy`
+  reproduces today's text exactly and is the default, used by the flat route.
+  `file` renders the evaluated route's block: the write action and the path
+  first, the environment variable as the same target, the statement that a
+  reply does not deliver, then the schema. The relpath guidance is rendered
+  under `file` only when the contract's schema contains a `relpath` type.
+- The evaluated route records the rendering it used as a provider input part,
+  `delivery`, whose value is the canonical digest of the rendering name
+  (`"legacy"` or `"file/1"`). On replay of a committed effect the runtime reads
+  the committed row's `delivery` part, absent meaning `legacy`, and renders
+  with that selector before comparing parts. New attempts use the current
+  selector, `file/1`.
+- The `provider_result_missing` message carries a bounded excerpt of the
+  attempt's `stdout.txt` (first 240 characters, whitespace collapsed) after
+  the path. The memo row shape is unchanged: the excerpt is inside the
+  existing `exit_info.error` string.
+- Authors express inability with a tagged union result; the drafting guide
+  documents the shape and the chess workflow adopts it. Authored prompts drop
+  transport paragraphs.
+- A census script over memo files reports provider attempts by site and
+  outcome with the reply's head, so the rendering's effect can be compared
+  before and after on the same sites and models.
+
+Alternatives considered:
+
+| Alternative | Why not |
+| --- | --- |
+| Keep the authored transport paragraph as the fix | Misplaced load (principle 30); duplicates the runtime's block; did not prevent the explicit-refusal case; must be copied into every prompt |
+| Change the wording and accept one-time `effect_input_diverged` on in-flight runs | Breaks resume of every evaluated run with committed provider effects; contradicts the resume contract that a changed runtime must not force re-execution of committed work |
+| Pin the rendering version in the run header | Needs a header profile change (`specs/state.md` fixes exactly fourteen keys) and a schema bump for an additive fact that the memo row can carry |
+| Exclude the contract block from the `prompt` part | Also changes the recomputed digest of every existing row; the block's content (path, schema) is legitimately input |
+| Materialize assistant text as the result when the file is absent | Removes validation before commit and the file's authority; rejected by `specs/io.md` and by the evaluated design |
+| Add a new memo field for the stdout excerpt | Memo wire change for a diagnostic the attempt directory already retains; the error string suffices |
+
+Tradeoffs accepted: the `legacy` rendering stays in the codebase after the
+flat route is deleted, because evaluated runs committed before this change
+replay it; it is one string per renderer. The `file/1` wording is a new
+identity input for new runs, so a later wording change needs `file/2`.
+
+Left open: see §Open Questions (omp transport; the top-of-prompt delivery
+line as a measured variant).
+
+## Design Details
+
+### Rendering
+
+```text
+assemble_provider_prompt(node, operands, ..., result_path, delivery)
+  -> _output_contract_prompt(..., delivery)
+     -> render_output_bundle_contract_block(payload, delivery=...)
+        | render_variant_output_contract_block(payload, delivery=...)
+```
+
+`delivery="file"` block for a non-record root (illustrative; the exact text
+is owned by the renderer and is not a test oracle):
+
+```text
+## Output Contract
+Write one JSON value to this file, then stop:
+  .orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/result.json
+Create it with a file-writing or shell tool before you finish. The
+environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file.
+Returning the value in your reply does not deliver it.
+- format: JSON value
+  type: string
+```
+
+Records and tagged unions keep their field and discriminant sections; only
+the opening sentences change. The `- path:` line remains the attempt's
+workspace-relative `result.json` (R3). The relpath guidance line is appended
+only when the schema spec, walked recursively, contains a `relpath` type.
+
+`delivery="legacy"` returns today's text. The flat route caller
+(`orchestrator/workflow/prompting.py`) is not modified and therefore composes
+identical bytes.
+
+### Identity and replay
+
+`resolve_provider_input` gains a `delivery` argument and records
+`parts["delivery"] = canonical_sha256(delivery_name)`. `_resolve_effect_input`
+passes `commit.data["input_parts"].get("delivery")` when a commit is present,
+mapping the digest back to a known name through a two-entry table and
+treating absence as `legacy`; an unknown digest refuses with
+`effect_input_diverged` naming the part. Without a commit it passes the
+current name, `file/1`. The `started` row of a new attempt therefore carries
+the part, and a later runtime replays it by the same rule.
+
+The flat route records no `delivery` part; its replay is unchanged.
+
+### Diagnostics
+
+`provider_result` (evaluated `providers.py`) reads `stdout.txt` from the
+attempt directory on `FileNotFoundError` of `result.json` and appends the
+excerpt to the message. The excerpt is text for operators; nothing parses it.
+Views and `report` already surface `exit_info.error`.
+
+### Authoring
+
+Drafting guide recipe, with the chess workflow as the example:
+
+```lisp
+(defunion MoveOutcome
+  (Moved (position String))
+  (Blocked (reason String)))
+
+(provider-result providers.white :prompt prompts.white
+  :inputs (state.position) :returns MoveOutcome)
+```
+
+`match` routes `Blocked` to a typed outcome of the loop instead of leaving the
+runtime to fail the attempt. The chess example's `white.md` and `black.md`
+drop the transport paragraph.
+
+### Measurement
+
+`scripts/provider_delivery_census.py --state-dir DIR ...` reads each
+`memo.jsonl`, pairs `started` with `committed` or `failed` rows, and prints
+one row per provider attempt: run, site, attempt, outcome, `delivery` name,
+and the first 120 characters of `stdout.txt`, followed by counts by site and
+outcome. It reads nothing but memo rows and attempt files and writes nothing.
+
+## Contracts And Interfaces
+
+| Contract | Old | New | Compatibility |
+| --- | --- | --- | --- |
+| Rendered contract block, evaluated route | Content-first sentence with a conditional alternative; relpath guidance always | Delivery-first sentence for the file transport; relpath guidance only with a path type | New runs only; replay of committed rows renders what they recorded |
+| Rendered contract block, flat route | unchanged | unchanged | Byte-identical |
+| Provider `input_parts` (`specs/state.md`) | `declaration`, `values`, `policy`, `params`, `prompt`, `dependency_rows`, sources, dependencies | plus `delivery` | Additive; absence means `legacy` on replay |
+| `provider_result_missing` `exit_info.error` | `provider did not create <path>` | same, plus `; reply began: <excerpt>` when `stdout.txt` is non-empty | String content only; shape unchanged |
+| Renderer Python API | `render_*_contract_block(payload, *, render_nominal_names=False)` | plus keyword `delivery="legacy"` | Existing callers unchanged |
+| Authored prompt assets | May carry transport prose | Should not; the runtime renders delivery | Guidance, not enforcement |
+
+Validation is unchanged: missing file, invalid JSON, wrong type and
+must-exist checks keep their diagnostics.
+
+## Dependencies And Sequencing
+
+- No dependency on the retirement or consolidation work; the change is
+  confined to the evaluated route and the shared renderer's new keyword.
+- The spec amendments to `specs/providers.md` and `specs/state.md` land in
+  the same change as the code.
+- The authoring recipe and the chess example can land independently.
+- The omp transport question in §Open Questions must be answered before
+  `file/1` is rendered for an omp-backed provider; until then such providers
+  render `legacy` and record it.
+
+## Invariants And Failure Modes
+
+- The file at the attempt's result path is the only result authority; no
+  code path reads the result from stdout, stderr or assistant text.
+- The contract block is appended exactly once (`specs/providers.md`).
+- A committed effect is reused on resume if and only if its recorded input
+  parts equal the recomputed ones, with the recomputation using the recorded
+  `delivery`; a rendering change alone never diverges a committed effect.
+- Flat-route composed prompts are byte-identical before and after.
+- An unknown `delivery` digest in a committed row refuses with
+  `effect_input_diverged` and names the part; it never guesses a rendering.
+- The stdout excerpt is bounded and never parsed.
+- A `Blocked` variant is an ordinary committed result; it is never retried
+  by the runtime.
+
+## Security, Operations, And Performance
+
+The excerpt in `exit_info.error` repeats up to 240 characters of provider
+stdout into `memo.jsonl` and derived views, which already retain the full
+`stdout.txt`; no new data class is exposed. Rendering cost is unchanged. No
+deployment or credential impact.
+
+## Evidence And Implementation Boundaries
+
+- Default path: `assemble_provider_prompt` with `delivery="file/1"` for new
+  attempts, reached through public `run` and `resume`.
+- The flat route's `PromptComposer` path must not acquire the new rendering;
+  a test composes a flat-route step before and after and compares bytes.
+- Replay of rows without the part exercises `legacy`; a fixture run recorded
+  before the change, resumed after it, proves reuse through the public entry.
+- The census script is evidence tooling, not a source of truth.
+
+## Compatibility And Migration
+
+Runs started before this change resume unchanged: their committed provider
+rows carry no `delivery` part and replay with `legacy`. Their next new
+attempts render `file/1` and record it, so one run may hold both renderings;
+that is by design. No migration of existing memos or headers. Rollback is
+removing the selector; rows recorded with `file/1` would then diverge, so a
+rollback after any new run is a new rendering change, not a revert.
+
+## Verification Strategy
+
+- Renderer: for each of the three renderers and both selectors, the block
+  contains the attempt path line and the schema; under `file` the relpath
+  guidance is present if and only if the schema contains a `relpath`; under
+  `legacy` the output equals a stored pre-change rendering for the same
+  payload (structural and byte checks, no phrasing assertions).
+- Identity: a public evaluated run with two provider effects, interrupted after
+  the first commit under `legacy` rendering (fixture captured before the
+  change), resumed after the change: the first effect is reused with no
+  dispatch, the second runs with `file/1` and records the part; completed
+  resume twice yields identical memo bytes.
+- Divergence: a committed row with a fabricated unknown `delivery` digest
+  refuses with `effect_input_diverged` naming `delivery`, before any launch.
+- Flat route: composing the same step through `orchestrator/workflow/prompting.py`
+  before and after yields equal bytes.
+- Diagnostic: a provider that writes no file but prints text fails with
+  `provider_result_missing` whose error contains the excerpt; one that prints
+  nothing has no excerpt suffix.
+- Authoring: the chess workflow compiles with `MoveOutcome` and a deterministic
+  provider returning `Blocked` routes to the loop's typed outcome.
+- Smoke: one real-provider round of the chess workflow and one
+  `plan_review_execute` dry run after the change.
+- Measurement: the census over the four runs in §Problem reproduces 4 missing
+  of 67 before the change; after it, the same sites with the same models over
+  at least ten attempts each, reported by shape.
+
+## Declarative Acceptance / Integration Scenarios
+
+1. **Resume across the rendering change.** Given a run captured under the
+   pre-change package with provider effect A committed and B pending, resuming
+   with the post-change package through `orchestrator resume` reuses A without
+   dispatch, dispatches B with a prompt whose contract block leads with the
+   file action, records `delivery` on B's rows, and completes with the same
+   terminal value as an uninterrupted run. Real provider transport is a
+   deterministic fixture.
+2. **Missing file with a reply.** A fixture provider prints a JSON string and
+   exits 0 without writing the file: the attempt fails with
+   `provider_result_missing`, the memo error carries the reply's head, no
+   result is committed, and `resume` dispatches attempt 2.
+3. **Typed inability.** The chess workflow with a fixture White that returns
+   `Blocked` commits that result, routes through `match`, and ends the loop
+   with its typed outcome; no attempt is retried.
+
+## Success Criteria
+
+All verification items pass through public entries; `specs/providers.md`,
+`specs/state.md` and `specs/versioning.md` carry the amendments; the drafting
+guide has the inability recipe; the chess prompts carry no transport prose;
+the census script runs on the local runs; independent code and spec review
+pass; the coordinator inspects the diff and receipts.
+
+## Stop / Revise Criteria
+
+- Replay cannot select the rendering from the committed row without a header
+  change: return to design.
+- Any provider on the evaluated route delivers results other than through the
+  file (see the omp question): the selector gains a case or the design is
+  revised before `file/1` reaches that provider.
+- Measurement shows no reduction in the delivery shapes after at least ten
+  attempts per site: keep the rendering (it is still correct under principle
+  30) but revisit the top-of-prompt variant.
+
+## Documentation Impact
+
+- `specs/providers.md`: delivery instruction is rendered for the selected
+  transport; the evaluated route selects the file.
+- `specs/state.md`: provider `input_parts` gain `delivery`; replay rule.
+- `specs/versioning.md`: v2.35 additions bullet.
+- `docs/lisp_workflow_drafting_guide.md`: "A step that may be unable to
+  answer" recipe; note that prompts carry no transport instructions.
+- `docs/capability_status_matrix.md`: row for delivery rendering.
+- `docs/index.md`, `docs/design/README.md`: routing rows.
+- `docs/reports/2026-10-13-claude-missing-result-file.md`: pointer to this
+  design; its "general fix" is this document.
+- `experiments/agent_chess/{white,black}.md`, `chess.orc`, README.
+
+## Implementation Handoff
+
+Phases, in the order the plan executes them:
+
+1. Renderer selector and relpath predicate in
+   `orchestrator/contracts/prompt_contract.py`; evaluated composer threads
+   `delivery` in `orchestrator/workflow/evaluated/prompts.py`.
+2. Identity part and replay selection in
+   `orchestrator/workflow/evaluated/providers.py` and
+   `effect_inputs.py`; pre-change fixture capture before touching either.
+3. Diagnostic excerpt in `orchestrator/workflow/evaluated/providers.py`.
+4. Census script `scripts/provider_delivery_census.py`.
+5. Authoring recipe, chess example, prompt cleanup.
+6. Specs, guide, matrix, routing; smoke; reviews.
+
+Tricky areas: `tests/test_workflow_evaluated_prompts.py` compares evaluated
+composition with the flat executor's; after phase 1 the comparison must force
+`legacy` or compare everything but the structured-result block. The
+`file` rendering must keep the `- path:` line the specs cite. Capture the
+pre-change fixture run with the current package before any renderer edit, or
+the replay scenario cannot be proven.
+
+Safe first step: phase 1 with the selector defaulting to `legacy`, so that the
+whole suite is unchanged until the evaluated composer opts in.
+
+## Open Questions
+
+| Question | Owner | Blocking |
+| --- | --- | --- |
+| The omp launch strips `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` from the child environment (`orchestrator/providers/omp_launch.py`). How does an omp-backed provider deliver its result on the evaluated route, and should it render `file/1`? | providers maintainer | Blocks `file/1` for omp templates only; others proceed with omp on `legacy` |
+| Does a one-line delivery statement at the top of a long prompt (the 24 KB design case) reduce prose-only replies? | measured after phase 4, as `file/2` if adopted | No |
+| Should `report` render the excerpt distinctly from the error code? | views maintainer | No |
+
+## Appendix
+
+Local baseline on 2026-10-13, evaluated runs under the main checkout, the
+`-smoke`, `-rerun` and `-repl` worktrees and the chess live workspace:
+67 provider attempts, 63 committed, 4 `provider_result_missing`, by the sites
+and shapes in §Problem. Produced with the ad-hoc pairing the census script
+formalizes.
