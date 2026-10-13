@@ -10,7 +10,7 @@
 
 ## Status, entry and decisions
 
-**Prepared plan; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. No Phase 5 implementation or public qualification has run.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 must refresh the actual source/caller inventory and record the execution baseline before product edits. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
+**Prepared plan; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. No Phase 5 implementation or public qualification has run.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; product implementation and public qualification remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
 
 Authorities: [parent Phase 5 and closeout](2026-09-29-workflow-lisp-evaluated-execution-plan.md#phase-5-parallel-map), [evaluated design §§6–8, 11 and 13](../design/workflow_lisp_evaluated_execution.md#11-parallel-effects), [list traversal](../design/workflow_lisp_pure_list_traversal.md), [frontend](../design/workflow_lisp_frontend_specification.md), and normative [versioning](../../specs/versioning.md), [state](../../specs/state.md), [IO](../../specs/io.md) and [CLI](../../specs/cli.md). Availability comes from the [capability matrix](../capability_status_matrix.md). The [delivered pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md) owns later production/evidence limits; it does not establish parallel execution or discharge this plan's future qualification gates.
 
@@ -103,10 +103,31 @@ Each new module must remain **under 500 physical lines**, including tests/helper
 
 ## Task 0 — Resolve contracts and freeze the baseline
 
-- [ ] Record the delivered baseline and the selected D1 **2.37**, D2/D3 independent design dispositions and approved normative deltas in the execution decisions. Preserve C5's earlier preparation record; this plan owns the current D1 selection.
-- [ ] Read actual source again after integration. Record a small owner/caller inventory and hashes; the key constraints are serial `ListMapEffectExpr` rewriting, `_ensure_effect_can_start` rejecting other pending identities, runtime/view global-order replay, and current performer cwd/output-path behavior.
-- [ ] Freeze reuse claims from C3 and pilot receipts, if available. Record missing command/adapter/run-reference cwd feasibility, interleaved replay, nested map liveness and concurrent publication evidence explicitly. These must pass the cuts below before enabling the full construct, not be converted into blanket exceptions.
-- [ ] In the approved contract delta, state diagnostic codes/location/limits and old-target/module-import/read-back behavior. A 2.37 entry may call old admitted helpers; older entries must not acquire new parallel syntax or call a newer module. The explicit D1 owner approval selects 2.37; writing the plan alone did not select it.
+- [x] Record the delivered baseline and the selected D1 **2.37**, D2/D3 independent design dispositions and approved normative deltas in the execution decisions. Preserve C5's earlier preparation record; this plan owns the current D1 selection.
+- [x] Read actual source again after integration. Record a small owner/caller inventory and hashes; the key constraints are serial `ListMapEffectExpr` rewriting, `_ensure_effect_can_start` rejecting other pending identities, runtime/view global-order replay, and current performer cwd/output-path behavior.
+- [x] Freeze reuse claims from C3 and pilot receipts, if available. Record missing command/adapter/run-reference cwd feasibility, interleaved replay, nested map liveness and concurrent publication evidence explicitly. These must pass the cuts below before enabling the full construct, not be converted into blanket exceptions.
+- [x] In the approved contract delta, state diagnostic codes/location/limits and old-target/module-import/read-back behavior. A 2.37 entry may call old admitted helpers; older entries must not acquire new parallel syntax or call a newer module. The explicit D1 owner approval selects 2.37; writing the plan alone did not select it.
+
+Execution entry (2026-10-13): W is at documentation closure `2feb6db7`, with
+product/test bytes qualified at `bfd0f324`. D1=2.37 and the original D2/D3 design
+dispositions are recorded in the [Phase 5 execution record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md).
+`E/phase5-current-entry.md` freezes the current owner/caller inventory and hashes;
+its earlier consolidation-blocked wording is superseded by the accepted
+[bounded extraction closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md).
+This is implementation entry, not a parallel compiler/runtime PASS. Additional
+projection, target-registry and capture owners are recorded there before edits.
+
+Task 0 diagnostic contract reuses existing frontend `list_map_effect_max_invalid`
+and `list_map_effect_body_unsupported` where applicable, the existing
+`list_traversal_target_dsl_unsupported` form gate and `target_dsl_unsupported`
+header gate. Runtime cap refusal retains `list_map_effect_cap_exceeded` with
+actual length/limit; duplicate cwd refusal uses the accepted
+`parallel_workspace_shared` with item indices and source location. Report parse,
+type and target refusals at their existing source spans; preserve serial
+locations/limits. Implementation review must verify actual diagnostics, older
+entries refusing new syntax/newer imports, new entries admitting old helpers,
+unchanged old artifacts and old-reader refusal of `par-map`. No new diagnostic
+registry or proof of these future behaviors is introduced by this entry.
 
 Tasks 1–4 retain existing regression controls
 `tests/test_workflow_closed_program_isolation.py` and
