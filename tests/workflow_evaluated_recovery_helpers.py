@@ -220,8 +220,10 @@ def install_standins(bin_dir: Path, monkeypatch, answers: dict[str, dict], repos
 
 
 def current_source(name: str) -> bytes:
-    """The program's 2.35 copy: its repository source with only the target header changed."""
+    """The program's 2.35 copy, retargeted from its historical source when needed."""
     program = PROGRAMS[name]
+    if program.target == "2.35":
+        return (ROOT / program.source).read_bytes()
     header = f'(:target-dsl "{program.target}")'
     text = (ROOT / (program.source_fixture or program.source)).read_text(encoding="utf-8")
     assert text.count(header) == 1

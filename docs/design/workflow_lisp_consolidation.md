@@ -11,10 +11,11 @@
 - **Companion plan:** [consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md).
 - **Execution evidence:** [consolidation closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md); records bounded extraction acceptance, original RED receipts and remaining gates.
 
-Draft follow-on: [executor retirement](workflow_lisp_executor_retirement.md)
-proposes serial best-of-N migration independently of parallel-map delivery and a
-concrete removal boundary. It amends the migration/cutover policy only if selected;
-the extraction evidence and existing support contract below are unchanged.
+Selected follow-on (2026-10-13): [executor retirement](workflow_lisp_executor_retirement.md)
+migrates serial best of N independently of parallel-map delivery, then removes
+exclusive old routes once finite consumer/run dispositions satisfy gate R.
+Selection leaves the extraction evidence and effective runtime support unchanged
+until the qualified cutoff is delivered.
 
 ## Summary And Decision
 

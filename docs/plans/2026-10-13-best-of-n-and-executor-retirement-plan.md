@@ -1,8 +1,8 @@
 # Best Of N And Executor Retirement Implementation Plan
 
-> **For agentic workers:** Use `superpowers:subagent-driven-development`. The coordinator owns integration and final verification; use a reviewer distinct from the author. This is a draft, not an execution instruction.
+> **For agentic workers:** Use `superpowers:subagent-driven-development`. The coordinator owns integration and final verification; use a reviewer distinct from the author. The owner selected execution on 2026-10-13; respect the remaining consumer and recovery gates.
 
-**Status:** draft; all tasks unselected. **Date:** 2026-10-13.
+**Status:** execution selected; Task 0 inventory recorded; Task 1 bounded implementation accepted; Tasks 2–5 in progress or pending their dependencies. **Date:** 2026-10-13.
 **Goal:** migrate canonical serial best of N and remove old execution infrastructure after finite consumer/recovery dispositions.
 **Architecture:** preserve evaluated 2.35/2.36 and bounded 2.37 with their current limits and shared services; remove only retired flat execution and its callers.
 **Tech stack:** existing Python, Workflow Lisp, pytest and subprocess fixtures; no new dependency.
@@ -17,16 +17,17 @@ Read [the design](../design/workflow_lisp_executor_retirement.md),
 `specs/{cli,state,io,versioning}.md` before implementation. Paths are repository-root
 relative; abbreviated production owners in Tasks 3–4 are relative to `orchestrator/`.
 
-The proposed amendment lets serial best of N and other already-admitted
-consumers migrate without waiting for full Phase 5 parallel qualification.
-Retirement needs the selected maintained set and old-run dispositions, not all
-future effect classes. Until selected, the parent ordering and support remain
-in force. Parallel best of N stays with the Phase 5 plan, outside this plan.
+The owner selected this plan with “proceed” on 2026-10-13. Serial best of N
+and other already-admitted consumers migrate without waiting for full Phase 5
+parallel qualification. Parallel best of N stays with the Phase 5 plan.
+Retirement still requires the finite maintained set and old-run dispositions;
+selection alone does not satisfy R or change effective runtime support.
 
-Record an explicit owner selection for the order amendment, finite consumer
-set, and eventual cutoff/recovery policy. Drafting this plan selects none of
-them. When selected, amend parent/consolidation owners and their routing together;
-do not silently reinterpret their current Phase 5 dependency.
+The [execution closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+records exact selections, receipts and remaining questions. In particular,
+the owner also selected retirement of active ES/research consumers from the new
+package, with their prior code/environment preserved. Their capture and the
+remaining recovery/refusal checks precede removal. Preserve all original run data.
 
 ## Baseline And Evidence Location
 
@@ -81,13 +82,13 @@ or unresolved disposition bucket. The matrix records proposed choices until sele
 `tests/workflow_evaluated_consumer_sources.py`.
 **Preserve:** historical experiment results and machine-specific harness provenance.
 
-- [ ] Before changing the canonical source, retain old source/expected-result evidence separately. The current helper's `PROGRAMS["best_of_n"]` target 2.28 and `install(current=True)` header replacement must not become the final current-source test path.
-- [ ] Extend the existing public consumer tests to require the canonical evaluated target/artifact and load source without header rewriting. Run the new assertion against the old source to demonstrate the missing migration.
-- [ ] Change the canonical entry target to 2.35 and adapt only coupled tests/routing. Preserve serial mapping, bound 8, coder/judge model policy, prompts, repository order and typed selection/report contract.
-- [ ] Keep the two existing candidate-commit interruption cases and completed resume assertions. Add bounded coverage for the documented four-candidate usage and `select-only`, checking account/repository ordering, judge dependencies, output artifacts and no committed redispatch.
-- [ ] Update a runnable README recipe with existing provider bindings, typed input and prerequisites for independent candidate clones under a temporary working root. Do not revive `harness/run_best_of_n_trial.sh` or `run_single_call.sh` and their missing machine-specific variants.
-- [ ] Collect the changed test module, run its narrow best-of-N selectors, and run the canonical public compile/dry-run/run/resume/report recipe with deterministic transport. Keep provider requests and artifact hashes as evidence.
-- [ ] Reuse applicable historical live-provider qualification with limits; if this migration changes provider delivery/policy, qualify the changed boundary live before claiming parity. Do not turn this migration into a new quality benchmark.
+- [x] Before changing the canonical source, retain old source/expected-result evidence separately. The current helper's `PROGRAMS["best_of_n"]` target 2.28 and `install(current=True)` header replacement must not become the final current-source test path.
+- [x] Extend the existing public consumer tests to require the canonical evaluated target/artifact and load source without header rewriting. Run the new assertion against the old source to demonstrate the missing migration.
+- [x] Change the canonical entry target to 2.35 and adapt only coupled tests/routing. Preserve serial mapping, bound 8, coder/judge model policy, prompts, repository order and typed selection/report contract.
+- [x] Keep the two existing candidate-commit interruption cases and completed resume assertions. Add bounded coverage for the documented four-candidate usage and `select-only`, checking account/repository ordering, judge dependencies, output artifacts and no committed redispatch.
+- [x] Update a runnable README recipe with existing provider bindings, typed input and prerequisites for independent candidate clones under a temporary working root. Do not revive `harness/run_best_of_n_trial.sh` or `run_single_call.sh` and their missing machine-specific variants.
+- [x] Collect the changed test module, run its narrow best-of-N selectors, and run the canonical public compile/dry-run/run/resume/report recipe with deterministic transport. Keep provider requests and artifact hashes as evidence.
+- [x] Reuse applicable historical live-provider qualification with limits; if this migration changes provider delivery/policy, qualify the changed boundary live before claiming parity. Do not turn this migration into a new quality benchmark.
 
 **Done:** both canonical exported entries run through the evaluated route;
 four-candidate use and interrupted/completed resume have public evidence. Old

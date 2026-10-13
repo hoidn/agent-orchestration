@@ -1,0 +1,8 @@
+{
+  "winner": "candidates/beta",
+  "ranking": [
+    "candidates/beta: 2 2 2 2",
+    "candidates/alpha: 1 1 1 1"
+  ],
+  "report": "artifacts/review/selection.md"
+}

@@ -35,7 +35,7 @@ No fixed LOC reduction, number of files or calendar schedule is an acceptance ga
 The [in-progress closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md)
 owns execution receipts and open gates. Selection alone proves no gate.
 
-## Proposed Completion Amendment — 2026-10-13
+## Selected Completion Amendment — 2026-10-13
 
 The owner requested a [focused completion design](../design/workflow_lisp_executor_retirement.md)
 and [implementation plan](2026-10-13-best-of-n-and-executor-retirement-plan.md)
@@ -44,10 +44,12 @@ migration, already supported at 2.35, from optional Phase 5 parallel execution.
 It proposes concrete consumer/run dispositions and deletion of exclusive flat
 infrastructure. Watchdog migration is not a requested prerequisite.
 
-This is a draft amendment to Tasks 5–7 and the parent's delivery order, not an
-executed cutover or an accepted change to old-run support. Until selected, the
-gates below remain in force. The canonical best-of-N scheduling row below is a
-plan dependency, not a technical requirement for serial evaluated execution.
+The owner selected this amendment with “proceed” on 2026-10-13. It supersedes
+the canonical serial best-of-N scheduling dependency in Tasks 5–7; optional
+parallel migration still follows Phase 5. Effective cutoff and deletion remain
+conditional on the completion plan's gate R, including finite consumer/run
+dispositions. The [retirement closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+owns execution evidence; selection alone proves no gate.
 
 ## Inventory And Evidence Record
 

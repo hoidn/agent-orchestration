@@ -1,6 +1,6 @@
 # Best Of N Migration And Old Executor Retirement
 
-**Status:** draft proposal; no implementation, target retirement, or cutoff selected.
+**Status:** selected for execution by the owner on 2026-10-13. Serial migration and the ordering amendment are authorized; effective cutoff remains gated on finite consumer/run dispositions and verification (R).
 **Kind:** architecture and migration. **Date:** 2026-10-13.
 **Owner:** frontend/runtime maintainers; repository owner selects supported consumers and recovery policy.
 **Plan:** [bounded implementation plan](../plans/2026-10-13-best-of-n-and-executor-retirement-plan.md).
@@ -36,14 +36,15 @@ currently orders Phase 5 before Phase 6b and Phase 7, and the
 expressly sends canonical best of N through Phase 5. This proposal amends that
 dependency for consumers whose current contracts already run serially at 2.35:
 serial migration → finite consumer/run dispositions → executable cutoff and
-deletion. The owner must select this amendment before it becomes the roadmap.
+deletion. The owner selected this ordering amendment with “proceed” on
+2026-10-13; the [execution closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md) records progress and unresolved consumer dispositions.
 
 Preserve existing evaluated support at 2.35/2.36 and bounded 2.37, with its current
 admission and qualification limits. Retiring entries through 2.34 must not
 deregister 2.37 or remove its compiler/read-back, replay or workers. Full Phase 5
 and parallel best of N are not prerequisites for serial 2.35 migration.
-Retirement depends on selected consumer contracts; this draft changes no selector
-or phase status.
+Retirement depends on selected consumer contracts; selection alone closes no
+implementation or qualification gate.
 
 ## 3. Current Route And Feasibility
 
@@ -82,7 +83,7 @@ python -m orchestrator run experiments/orc_vs_single_call/workflows/best_of_n.or
   --provider-externs-file experiments/orc_vs_single_call/workflows/best_of_n.providers.json \
   --input-file /path/to/best-of-n-inputs.json
 python -m orchestrator resume RUN_ID
-python -m orchestrator report RUN_ID
+python -m orchestrator report --run-id RUN_ID --runs-root .orchestrate/runs --format json
 ```
 
 The input remains `{"task":"…","intent":"…","repos":["candidates/a","candidates/b"]}`;
