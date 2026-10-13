@@ -682,6 +682,15 @@ inventory to the context-free API and remove context-only forwarding.
 Consumers that do not need W3 can migrate earlier; old-target checkpoints
 retain their resolved module/runtime contract until their retirement decision.
 
+Proposed completion amendment, 2026-10-13: the owner requested a
+[focused design](../design/workflow_lisp_executor_retirement.md) and
+[plan](2026-10-13-best-of-n-and-executor-retirement-plan.md) for serial best-of-N
+migration and actual executor deletion. Serial execution at 2.35 is already
+qualified; the draft removes parallel delivery as its migration prerequisite
+and proposes an explicit old-consumer/run cutover. It does not select decision 8
+or declare global Phase 6b complete. The existing order remains effective until
+that amendment is accepted.
+
 ### Phase 7: Retirement
 
 Entry: completed Phase 6b and the owner's decision 8, including a disposition
