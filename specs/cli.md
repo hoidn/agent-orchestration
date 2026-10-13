@@ -311,7 +311,9 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `run_ref_root`. Provider stdout and stderr are streamed to the process's
   own stdout and stderr while each provider runs, by default; `--quiet`
   suppresses that stream (for `run` and `resume`), and `--stream-output` is
-  accepted without changing anything. Streaming does not change the bytes
+  accepted without changing anything. A `print` operator in the program
+  writes its JSON line to the same stdout during the attempt's own evaluation;
+  `--quiet` does not affect it, and readers never print. Streaming does not change the bytes
   captured in the attempt's `stdout.txt` and `stderr.txt`, nor the result
   file transport. The route does not read `--on-error`, `--max-retries`,
   `--retry-delay`, `--step-summaries`, the `--summary-*` and

@@ -6996,6 +6996,8 @@ def _infer_expr_type(
         catalog_type = catalog_operator_result_type(operator, arg_types)
         if catalog_type is not None:
             return catalog_type
+        if operator == "print":
+            return arg_types[0]
         if operator in {"=", "!=", "and", "or", "not", "some?"}:
             return PrimitiveTypeRef(name="Bool")
         if operator == "or-else":

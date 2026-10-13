@@ -1229,6 +1229,15 @@ every effect of the three maintained programs are owned by
 [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
 (Phase 3 Task 15, integrated).
 
+### Print a value during a run
+
+At target 2.35, `(print value)` writes the value's compact JSON line to the
+run's stdout and returns the value, so a `let*` binding such as
+`(shown (print feedback.findings))` shows a committed result while the run goes
+on. `print` is an operator, not an effect: it has no memo record, `resume`
+prints again what it re-evaluates, and readers that replay the program (views,
+`report`, the REPL) evaluate it as the identity.
+
 ### Inspect a run with the Workflow Lisp REPL
 
 For evaluated targets 2.35/2.36, `orchestrator repl` lets you inspect captured

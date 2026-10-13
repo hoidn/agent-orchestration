@@ -66,6 +66,8 @@ OPERAND_TYPES = {
 }
 # `record-update` is written as a record update, never as an operator application.
 OPERATORS = sorted(name for name in PURE_EXPR_OPERATOR_CATALOG if name != "record-update")
+# `print` accepts an operand of every type; only its arity refuses an application.
+TOTAL_OPERATORS = {"print"}
 MAX_GENERATED_ARITY = 3
 _POSITION = SourcePosition(path="agreement.orc", line=1, column=1, offset=0)
 _SPAN = SourceSpan(start=_POSITION, end=_POSITION)
@@ -306,7 +308,7 @@ def test_the_generated_set_holds_well_typed_and_ill_typed_applications_of_every_
 
     assert len(answers) == len(generated)
     assert {operator for (operator, _), answer in answers.items() if not answer.startswith("refused:")} == set(OPERATORS)
-    assert {operator for (operator, _), answer in answers.items() if answer.startswith("refused:")} == set(OPERATORS)
+    assert {operator for (operator, _), answer in answers.items() if answer.startswith("refused:")} == set(OPERATORS) - TOTAL_OPERATORS
 
 
 def test_catalog_rejects_wrong_boolean_integer_bindings_and_non_finite_results() -> None:

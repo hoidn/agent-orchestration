@@ -10,6 +10,7 @@ from typing import Any
 
 from orchestrator.workflow.pure_expr import (
     PureExprEvaluationError,
+    canonical_json_for_pure_value,
     coerce_pure_value,
     evaluate_pure_expr,
     evaluate_pure_path_join,
@@ -40,6 +41,7 @@ class LexicalEnvironment:
     bindings: Mapping[str, EvaluatedValue] = field(default_factory=dict)
     parent: LexicalEnvironment | None = None
     run_id: str | None = None
+    print_sink: Any = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
@@ -53,7 +55,7 @@ class LexicalEnvironment:
         raise KeyError(name)
 
     def extend(self, name: str, value: EvaluatedValue) -> LexicalEnvironment:
-        return LexicalEnvironment({name: value}, self, self.run_id)
+        return LexicalEnvironment({name: value}, self, self.run_id, self.print_sink)
 
 
 class EvaluatedValueError(PureExprEvaluationError):
@@ -280,12 +282,16 @@ def _evaluate_operator(
         result = evaluate_pure_expr(
             catalog_payload, resolved_bindings=resolved, max_nodes=None
         )
-        return coerce_evaluated_value(
+        evaluated = coerce_evaluated_value(
             result, payload["result_type"],
             dependencies=_dependencies(operands), context="operator result",
         )
     except PureExprEvaluationError as exc:
         raise _operator_error(exc, node, operands) from exc
+    if environment.print_sink is not None and payload["expr"].get("operator") == "print":
+        environment.print_sink.write(canonical_json_for_pure_value(evaluated.value) + "\n")
+        environment.print_sink.flush()
+    return evaluated
 
 
 def _evaluate_select(

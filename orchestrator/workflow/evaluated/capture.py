@@ -31,7 +31,7 @@ class _CaptureTrace:
 
 @dataclass(frozen=True)
 class _CaptureMachine(_Machine):
-    trace: _CaptureTrace = field(compare=False, repr=False)
+    trace: _CaptureTrace = field(default_factory=_CaptureTrace, compare=False, repr=False)
 
     def _halt(self, node, environment, owner, activation, loops):
         result = super()._halt(node, environment, owner, activation, loops)
@@ -94,7 +94,7 @@ def capture_run_environment(
 
     def evaluate(program, inputs, *, effect_handler: EffectHandler, run_id: str):
         result = _CaptureMachine(
-            program, effect_handler, run_id, None, None, trace
+            program, effect_handler, run_id, None, None, trace=trace
         ).evaluate(inputs)
         trace.result = result
         return result

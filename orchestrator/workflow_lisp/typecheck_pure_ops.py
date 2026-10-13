@@ -203,6 +203,13 @@ def typecheck_pure_expr(
                 effect=merge_effect_summaries(*summaries),
             )
 
+        if operator == "print":
+            return typed_factory(
+                expr=rewritten,
+                type_ref=arg_types[0],
+                effect=merge_effect_summaries(*summaries),
+            )
+
         if operator in {"and", "or"}:
             for arg_type in arg_types:
                 _require_primitive(

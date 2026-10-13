@@ -90,6 +90,7 @@ class _Machine:
     run_id: str | None
     provider_io: ProviderIOContext | None
     io_activation: ProviderIOActivation | None
+    print_sink: Any = None
 
     def evaluate(self, inputs: Mapping[str, Any]) -> EvaluatedValue:
         entry = self.program.tree
@@ -124,7 +125,7 @@ class _Machine:
             )
             for name, value in supplied.items()
         }
-        return LexicalEnvironment(values, run_id=self.run_id)
+        return LexicalEnvironment(values, run_id=self.run_id, print_sink=self.print_sink)
 
     def _body(
         self,
@@ -304,8 +305,9 @@ class _Machine:
             self._value(value, environment, owner, activation, loops)
             for value in node["args"]
         )
-        native_environment = call_environment(
-            node, definition, arguments, run_id=self.run_id
+        native_environment = replace(
+            call_environment(node, definition, arguments, run_id=self.run_id),
+            print_sink=self.print_sink,
         )
         frame = node.get("frame")
         call_activation = activation
@@ -438,8 +440,12 @@ def evaluate_closed_program(
     effect_handler: EffectHandler | None = None,
     provider_io: ProviderIOContext | None = None,
     run_id: str | None = None,
+    print_sink: Any = None,
 ) -> EvaluatedValue:
-    """Evaluate a validated closed artifact using one structured control machine."""
+    """Evaluate a validated closed artifact using one structured control machine.
+
+    `print_sink` receives one JSON line per evaluated `print`; readers pass none.
+    """
 
     if not isinstance(program, ClosedProgram):
         raise TypeError("program must be a validated ClosedProgram")
@@ -448,4 +454,4 @@ def evaluate_closed_program(
             raise TypeError("provider_io must be a checked ProviderIOContext")
         provider_io = provider_io.bind(program)
     activation = None if provider_io is None else provider_io.entry
-    return _Machine(program, effect_handler, run_id, provider_io, activation).evaluate(inputs)
+    return _Machine(program, effect_handler, run_id, provider_io, activation, print_sink).evaluate(inputs)
