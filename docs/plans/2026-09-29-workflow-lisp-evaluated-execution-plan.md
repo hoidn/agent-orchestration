@@ -694,8 +694,8 @@ retirement is a delivery milestone, not indefinite optional cleanup.
 The owner requested execution of the
 [consolidation plan](2026-10-12-workflow-lisp-consolidation-plan.md) on
 2026-10-12, under the [consolidation design](../design/workflow_lisp_consolidation.md).
-Current execution covers bounded extraction/qualification Tasks 0–4 in an
-isolated worktree; the
+Bounded extraction/qualification Tasks 0–4/Gates A–D are accepted at `bfd0f324`
+in an isolated worktree, with reviewed RED full-suite dispositions; the
 [closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md) owns
 receipts and open gates. Tasks 5–7 retain Phase 4/5 capability decisions,
 Phase 6b entry conditions, decision 8 and the current delivery order. Existing

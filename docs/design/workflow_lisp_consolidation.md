@@ -2,14 +2,14 @@
 
 ## Metadata
 
-- **Status:** plan execution authorized; bounded extraction is in progress. Task 1/Gate B feasibility is accepted; Tasks 2–3 reuse its delivered seams and Task 4 qualification remains open. Migration, cutover and deletion (Tasks 5–7) remain conditional on the parent gates.
+- **Status:** bounded extraction Tasks 0–4/Gates A–D accepted at `bfd0f324`, with reviewed RED full-suite dispositions. Migration, cutover and deletion (Tasks 5–7) remain conditional on the parent gates.
 - **Kind:** architecture and migration.
 - **Owner:** Workflow Lisp frontend and runtime maintainers; repository owner selects retirement policy.
 - **Reviewers:** independent design and implementation reviewers.
 - **Created / last material update:** 2026-10-12.
 - **Implementation target:** none assigned. Existing targets 2.35 and 2.36 retain their contracts.
 - **Companion plan:** [consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md).
-- **Execution evidence:** [consolidation closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md); this is an in-progress record, not acceptance evidence.
+- **Execution evidence:** [consolidation closeout](../reports/2026-10-12-workflow-lisp-consolidation-closeout.md); records bounded extraction acceptance, original RED receipts and remaining gates.
 
 ## Summary And Decision
 
@@ -43,7 +43,7 @@ The [existing delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-executi
 owns ordering: Phase 4 supplies consumer-required capabilities, Phase 5 owns
 parallel map, Phase 6b migrates maintained consumers and Phase 7 retires routes
 under decision 8. The owner requested execution of the plan on 2026-10-12;
-current execution covers Tasks 0–4 in an isolated worktree. Tasks 5–7 retain
+bounded extraction Tasks 0–4 are accepted in an isolated worktree. Tasks 5–7 retain
 that sequence and its capability, consumer and
 cutoff gates. The owner separately selected Phase 5 D1 target 2.37 on
 2026-10-12; parallel-map implementation and qualification remain pending. Preserve
@@ -217,11 +217,11 @@ without the retained release/environment and its required inputs.
 Task 1 now proves the bounded compiler-independent load/check/evaluation and
 parent validation/settle/reconcile boundary with fresh compiler-blocked processes,
 including lazy/failure paths. Real public preparation and child compilation run
-outside the blocker. Independent inspection accepted Gate B; the closeout records
-the nine-case coverage across three executions and its limits. Reuse these
-production seams in Tasks 2–3; wider lifecycle, retained-run, affected/full and
-real-pin qualification remain open under Task 4. Selection alone establishes
-none of those later gates.
+outside the blocker. Independent review and coordinator acceptance closed
+Tasks 0–4/Gates A–D at `bfd0f324`; the closeout records all nine isolation cases
+passing together, integrated lifecycle/retained-run/corpus evidence and reviewed
+RED full-suite dispositions. This bounded extraction acceptance leaves the
+migration, cutover and retirement gates unchanged.
 
 | Scenario through the public boundary | Required result and evidence |
 | --- | --- |

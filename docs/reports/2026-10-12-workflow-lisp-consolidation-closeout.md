@@ -1,10 +1,10 @@
 # Workflow Lisp Consolidation Execution Record
 
-Status: **in progress**. This report records the current execution of Tasks 0–4
-of the [consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md).
-Gates A–B are accepted for extraction preparation/feasibility. Tasks 2–3 reuse
-the delivered seams; Task 4 and later migration/recovery/retirement gates remain
-open.
+Status: **bounded extraction complete**. Tasks 0–4/Gates A–D of the
+[consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md) are
+accepted at integrated revision `bfd0f324`, after independent Astra review and
+coordinator acceptance. The full suite remains RED (275 failed), with reviewed
+dispositions below. Later migration/recovery/retirement gates remain open.
 
 ## Selection And Preserved Gates
 
@@ -261,24 +261,112 @@ by restoration of the stopped capture. Real-pin refusal remains intact.
 These generated representatives give bounded retained-run evidence, not
 universal old-run recovery or interrupted-flat-parent qualification. Existing
 repository runs/archive data remain untouched. The affected lifecycle cases
-above pass; final integrated Task 4/full qualification remains pending.
+above pass; the integrated checks below add fresh evidence, while final
+Task 4 acceptance is recorded below with the full RED dispositions.
+
+## Integrated Checkpoint Receipts
+
+Extraction checkpoint `f724b2b727c9a4cd01f85845c3fa70c80c3bb31d` merged exact main
+`705e033b65fa8f7994e004aea55de68ea2c24fdd` into W at
+`bfd0f32411cec03241a9b2f54a6fcae118c75bd5`. The checkpoint cleaned EOF whitespace
+in `contracts/program_identity.py` and `workflow/run_ref/wire.py`; the earlier
+`sha256:33f0ae…` package pin belongs to its historical retained-check receipt.
+`E/integration-selection.json` records the selected revisions. Independent Sol
+code review found no blockers in the overlapping extraction/REPL changes.
+
+| Integrated campaign | Fresh result | Receipt |
+| --- | --- | --- |
+| `integration-capture-collect` | Nine isolation cases collected, exit 0 | `E/integration-capture-collect.json`, `.log`, `.xml` |
+| `integration-capture-narrow` | Compiler-blocked real command performer/readers: 1 passed, exit 0, 5.71s pytest | `E/integration-capture-narrow.json`, `.log`, `.xml` |
+| `integration-focused` | Seven modules, 268 passed, exit 0, 42.25s pytest; `-n 16 --dist=worksteal` | `E/integration-focused.json`, `.log`, `.xml` |
+| `integration-retained` | Six retained families complete, exit 0, 41.11s receipt wall time | `E/integration-retained.json`, `.log`; `E/task4-retained-check-20261013T064657Z/summary.json` |
+
+The focused module list is `test_workflow_closed_program_isolation.py`,
+`test_workflow_evaluated_import_cli.py`, `test_workflow_evaluated_repl.py`,
+`test_workflow_lisp_print.py`, `test_workflow_lisp_closed_program_compile_cli.py`,
+`test_workflow_pure_catalog_agreement.py` and
+`test_workflow_lisp_design_review_execute_example.py`, all under `tests/`.
+Exact argv/cwd/exits are in the JSON receipts.
+
+`E/corpus-integrated/manifest.json` records 54 cases: 39 Built, 4 Refused,
+10 Gap and 1 NotSynthesizable. Its only added case is
+`workflows/examples/design_review_execute.orc::run`.
+`E/corpus-integrated/comparison-qualified.json` verifies unchanged outcomes for
+all 53 original cases and byte-identical artifacts for all 38 original Built
+cases; its exit is 0 and manifest SHA-256 is
+`bcf4587d4952a43f123f349ccf2201d31a4d649f1301039041dd9ddeb8edd5c6`.
+The original `E/integration-corpus.json`/`.log` retain exit 1: the harness compared
+a Python tuple with a JSON list in `NotSynthesizable.missing_facts`. Serialized
+manifest/artifact comparison passed without a product edit or corpus rerun.
+The original 53-case baseline remains unchanged.
+
+The integrated retained-check family results each have `errors: []`: five
+changed-package resumes accept; old child 2.24 refuses and recovers on the
+retained release, with originals restored. The current package identity is
+`sha256:55211db74ae121bb76b8edcf3a8d938955e4cb3507f0656c30d781df6328dba7`.
+This is bounded family evidence, not universal recovery. The integrated source
+snapshot `E/integration-snapshot.json` records 1,917 paths at `bfd0f324`, SHA-256
+`21729b7a9f6c91d0077dd44433838889d2f3360e01ce87f46913c74fd11c3a25`.
+The coordinator accepted Tasks 2–3/Gate C at `bfd0f324` after independent Astra
+final review of the 268-case PASS, all nine isolation cases, compiler-blocked
+command/readers evidence and six error-free retained families with restored
+originals. No other extraction contract gap remains. The full campaign is now
+complete as recorded below; Gate D acceptance includes its bounded failure
+qualification and does not assert overall GREEN.
+
+## Integrated Full Campaign And Failure Qualification
+
+At `bfd0f324`, `E/after-full.json`, `.log` and `.xml` record
+`python -m pytest -q -n 16 --dist=worksteal` with `/tmp/oc-f1`: 275 failed,
+23,511 passed, 36 skipped, 169 xfailed and 230 warnings; exit 1; 1,839.70s pytest
+(1,842.92s receipt wall time). The receipt confirms the integrated snapshot hash
+above unchanged. This full result remains RED.
+
+`E/after-full-cause-comparison.json` retains the rows compared with the separate
+short-path baseline. All 275 failures have bounded dispositions:
+
+| Count | Observed cause/disposition |
+| --- | --- |
+| 207 | Same node and exact failure message as the short-path baseline |
+| 4 | Same missing nanoBragg source cause; only the interpreter representation in argv differs |
+| 58 | ES canonical interpreter-path validation rejects the symlinked `python` invocation; independent Sol review traced every case to the same chain |
+| 5 | Timing/order failures not reproduced in the sequential bounded rerun; parallel-campaign behavior remains an evidence limit |
+| 1 | Known F50 watchdog variation; bounded rerun produces its existing XFAIL, with no product correction |
+
+The baseline `pytest` shebang used canonical
+`/home/ollie/miniconda3/bin/python3.13`; the post-change wrapper used symlinked
+`/home/ollie/miniconda3/bin/python`, which the ES `_canonical_absolute` trust
+boundary refuses. `E/after-full-canonical-retest.json`, `.log` and `.xml` record
+all 58 affected ES cases passing under `python3.13 -m pytest -q -n 16
+--dist=worksteal`, exit 0, 10.61s pytest. This validates the invocation cause
+without changing production code or validation.
+
+`E/after-full-bounded-retest.json`, `.log` and `.xml` record five passed and one
+XFAIL, exit 0, 64.74s pytest under canonical Python. The five passes cover both
+Q5 deadline cases, both controlled-stdin cancellation parameters and the trial
+sibling-failure case. Their sequential pass does not prove absence of a
+concurrency defect. The watchdog XFAIL remains the known F50 condition. No
+product or test bytes changed for these reruns; the original full RED is neither
+replaced nor combined into an aggregate GREEN. Independent Astra accepted Gate D
+for bounded extraction at `bfd0f324`, and the coordinator accepted that verdict.
+No contractual blocker remains to proceed with the separately selected Phase 5
+2.37 work; this report claims no Phase 5 implementation.
 
 ## Open Gates And Next Evidence
 
 The coordinator accepted Gate A for extraction after the scoped preservation
 inventory, baselines, retained captures and fixed-identity corpus. Task 1's
 accepted feasibility evidence and delivered core/wire patch now supply Gate B.
-Tasks 2–3 reuse them while remaining inventoried coverage is checked. The
-additional direct-import public CLI witness now passes, with bound-procedure
-coverage retained by its existing owners. Gates C–D remain open for final
-coordinator qualification and integrated campaigns. Task 4 has the bounded
+Tasks 2–3 are complete and Gate C is accepted after the integrated independent
+review above. The direct-import public CLI witness passes, with bound-procedure
+coverage retained by its existing owners. Gate D is accepted for bounded
+extraction with the completed RED failure qualification. Task 4 has the bounded
 retained-artifact/real-pin results and affected lifecycle passes above; the raw
-affected campaign remains RED. After the extraction checkpoint commit, the
-next integration target is exact main revision `705e033b`; its integration and
-full-suite comparison are pending. The original 53-case fixed-input corpus is
-unchanged; no refreshed main corpus result is claimed. Final acceptance belongs
-to the coordinator. Original baseline RED and the separate short-path rerun
-remain unchanged.
+affected campaign remains RED. Exact main `705e033b` is integrated at `bfd0f324`,
+with fresh focused, corpus, retained-run and full checks recorded above. The
+full campaign remains RED with the bounded dispositions above. Independent
+review and coordinator acceptance close Tasks 0–4/Gates A–D only. Original
+baseline RED and the separate short-path rerun remain unchanged.
 
 Tasks 5–7 additionally need consumer capabilities/qualification, explicit
 old-family and archive dispositions, and owner cutover/cutoff decisions.

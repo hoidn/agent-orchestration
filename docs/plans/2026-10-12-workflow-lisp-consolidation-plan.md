@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use `superpowers:subagent-driven-development`. Steps use checkboxes; the coordinator integrates and verifies, with independent review by someone other than the author.
 
-**Status:** the owner requested execution of the plan on 2026-10-12; current execution covers Tasks 0–4 in an isolated worktree. Tasks 0–1/Gates A–B are accepted; Tasks 2–3 reuse the delivered extraction, with wider qualification in progress and Task 4 pending. Tasks 5–7 remain conditional under evaluated-execution Phases 6b/7.
+**Status:** the owner requested execution of the plan on 2026-10-12; current execution covers Tasks 0–4 in an isolated worktree. Tasks 0–4/Gates A–D are complete and accepted for bounded extraction at integrated revision `bfd0f324`; the full campaign remains RED (275 failed), with reviewed failure dispositions. Tasks 5–7 remain conditional under evaluated-execution Phases 6b/7.
 **Goal:** share the existing checked-program contract, migrate maintained consumers, and delete execution infrastructure whose supported uses have ended.
 **Architecture:** extract the existing loader/checker; separate compiler IO preparation from runtime carriers. Keep the evaluated interpreter, performers, coordinator protocol and public CLI.
 **Tech stack:** existing Python packages, Workflow Lisp, pytest and subprocess CLI fixtures; no new dependency.
@@ -125,8 +125,9 @@ baseline remains RED; its short-path failed-case retest is separately RED
 (231 failed, 163 passed, zero errors). The 53-case fixed-identity corpus is
 retained, including 38 verified built-artifact hashes. The coordinator accepted
 Gate A for extraction and authorized the failing isolation test followed by the
-minimal core/wire moves. Gate B is now accepted under Task 1; Gates C–D remain
-open, and Tasks 5–7 keep their gates.
+minimal core/wire moves. Gate B is accepted under Task 1; Gate C is accepted
+after integrated independent review. Gate D is accepted for bounded extraction
+with the reviewed RED full-suite dispositions; Tasks 5–7 keep their gates.
 
 **Gate A:** selected inventory, baseline receipts and retained recovery inputs exist.
 Old-run policy can remain open during extraction, but blocks cutover/deletion.
@@ -176,12 +177,12 @@ qualification without repeating extraction or valid checks.
 `orchestrator/workflow_lisp/{syntax,type_env}.py`, `orchestrator/workflow/type_descriptor.py`,
 and inventoried imports. Keep `closed/preparation_check.py` compiler-owned.
 
-- [ ] Separate typed configuration projection in `closed/program.py` and compiler-dependent naming/site construction from source-free loading, canonicalization and checking. Move existing code rather than copy it.
-- [ ] Put checker-used type-name rules in the existing shared descriptor owner. Move target admission facts to the contract package and have syntax consume one registry; preserve all existing target admission.
-- [ ] Update compiler construction and runtime imports to use the one loader/checker. Avoid package initializers that re-import compiler factories.
-- [ ] Preserve `workflow-lisp/closed-program/1`, `table/1`, strict JSON, diagnostics, semantic digest and site/call validation. Keep source parsing, specialization and WCC in the compiler.
-- [ ] Compare canonical artifacts at fixed identity inputs, then record actual package-pin changes separately. Run existing compile recipe/package identity tests; never normalize genuine pin differences or bypass resume checks.
-- [ ] Remove displaced definitions and temporary import aliases once their inventoried supported callers migrate. Any public import compatibility exception needs a named owner/end condition.
+- [x] Separate typed configuration projection in `closed/program.py` and compiler-dependent naming/site construction from source-free loading, canonicalization and checking. Move existing code rather than copy it.
+- [x] Put checker-used type-name rules in the existing shared descriptor owner. Move target admission facts to the contract package and have syntax consume one registry; preserve all existing target admission.
+- [x] Update compiler construction and runtime imports to use the one loader/checker. Avoid package initializers that re-import compiler factories.
+- [x] Preserve `workflow-lisp/closed-program/1`, `table/1`, strict JSON, diagnostics, semantic digest and site/call validation. Keep source parsing, specialization and WCC in the compiler.
+- [x] Compare canonical artifacts at fixed identity inputs, then record actual package-pin changes separately. Run existing compile recipe/package identity tests; never normalize genuine pin differences or bypass resume checks.
+- [x] Remove displaced definitions and temporary import aliases once their inventoried supported callers migrate. Any public import compatibility exception needs a named owner/end condition.
 
 **Existing verification owners:** artifact/check/corpus above, plus
 `tests/test_workflow_lisp_closed_program_{names,sites,compile_cli,frontend}.py`,
@@ -202,14 +203,14 @@ and `orchestrator/workflow/typed_prompt_inputs.py` for the shared rendering subs
 the evaluated modules in the inventory, inventoried rendering callers, and
 `orchestrator/workflow/run_ref/{runtime,child,evaluated_child,contracts}.py`.
 
-- [ ] Move IO carriers, route selection and checked binding into `provider_io.py`; preserve complete call mapping, reference slots, entry, digest, owner/frame/site checks.
-- [ ] Keep `from_program`/`from_bundle` preparation compiler-owned. Resolve recursive imports and bundle provenance into runtime readers before binding; runtime `select` must never inspect a compiler bundle.
-- [ ] Move shared typed rendering without moving compiler report/bundle traversal. Preserve existing output validation and error behavior for both routes.
-- [ ] Add missing behavioral cases to `tests/test_workflow_evaluated_provider_io.py` and `tests/test_workflow_evaluated_prompt_files.py`: distinct imported asset roots, bound-procedure routing, workspace input files, wrong owner, missing slots and stale required content.
-- [ ] Keep prompt asset ownership distinct from workspace file/dependency ownership; assert selected bytes and read evidence through ordinary CLI preparation, not a mocked binding constructor alone.
-- [ ] Extract existing wire validators/constants used by the parent from child executable modules into source-free run-reference contracts. Preserve checks and schemas; do not add a child service or protocol. Trace further deferred imports while executing the boundary.
-- [ ] Extend Gate B coverage to all inventoried interpreter, authority/reader and parent validation/settle/reconcile paths, including lazy/failure paths. Rerun its proven checks only where changes, failures or unresolved concerns invalidate the receipts; importing `machine` alone does not establish isolation.
-- [ ] Keep public CLI rebuild/comparison and existing child subprocess compilation outside the parent import blocker. No parent-side whitelist may conceal a lazy compiler dependency. Preserve `RunRefStepConfig`/`StepCommonConfig` from `orchestrator/workflow/executable_ir.py` until their maintained callers and shared contracts are migrated.
+- [x] Move IO carriers, route selection and checked binding into `provider_io.py`; preserve complete call mapping, reference slots, entry, digest, owner/frame/site checks.
+- [x] Keep `from_program`/`from_bundle` preparation compiler-owned. Resolve recursive imports and bundle provenance into runtime readers before binding; runtime `select` must never inspect a compiler bundle.
+- [x] Move shared typed rendering without moving compiler report/bundle traversal. Preserve existing output validation and error behavior for both routes.
+- [x] Complete behavioral coverage using the existing provider-IO, activation and prompt-file owners plus `tests/test_workflow_evaluated_import_cli.py`: distinct imported asset roots, bound-procedure routing, workspace input files, wrong owner, missing slots and stale required content. Reuse valid existing cases rather than duplicate them.
+- [x] Keep prompt asset ownership distinct from workspace file/dependency ownership; assert selected bytes and read evidence through ordinary CLI preparation, not a mocked binding constructor alone.
+- [x] Extract existing wire validators/constants used by the parent from child executable modules into source-free run-reference contracts. Preserve checks and schemas; do not add a child service or protocol. Trace further deferred imports while executing the boundary.
+- [x] Extend Gate B coverage to all inventoried interpreter, authority/reader and parent validation/settle/reconcile paths, including lazy/failure paths. Rerun its proven checks only where changes, failures or unresolved concerns invalidate the receipts; importing `machine` alone does not establish isolation.
+- [x] Keep public CLI rebuild/comparison and existing child subprocess compilation outside the parent import blocker. No parent-side whitelist may conceal a lazy compiler dependency. Preserve `RunRefStepConfig`/`StepCommonConfig` from `orchestrator/workflow/executable_ir.py` until their maintained callers and shared contracts are migrated.
 
 **Existing tests:** provider IO/prompt files above, `tests/test_workflow_evaluated_{providers,prompts,provider_reads,artifact_freshness,readers}.py`,
 `tests/test_workflow_lisp_typed_prompt_inputs.py`, closed frontend tests.
@@ -224,19 +225,22 @@ selected bytes/evidence, distinct effect identities and completed resume without
 redispatch. Its final collection found one case and execution passed (9.99s);
 bound-procedure routing retains the existing `provider_io` and
 `provider_activation` test owners. This fixture changes no production code.
-Gate C remains subject to final coordinator qualification and campaign review.
+The coordinator accepted Tasks 2–3/Gate C at `bfd0f324` after independent Astra
+final review: 268 integrated cases passed, including all nine isolation cases
+and the blocked command/readers check; all six retained families have no errors
+and restored originals. No other contract gap remains in this extraction scope.
 
 ## Task 4 — Qualify Public Lifecycle And Retained Artifacts
 
 **Depends on:** C. **Files:** extend existing tests below; closeout report.
 **Existing owners:** `tests/test_workflow_evaluated_{cli,resume_kills,run_ref_kills,run_ref_settlement,readers,invalidate,invalidate_smoke,authority}.py`.
 
-- [ ] Reuse public subprocess fixtures to compile, dry-run, run, externally kill after command/provider commit, resume, report, invalidate a permitted suffix and resume again.
-- [ ] Assert terminal typed values, artifact hashes/lineage, prompt/input evidence and effect identities. Equal inputs at different sites/activations must remain distinct; committed uncancelled effects must not redispatch.
-- [ ] Exercise supported coordinator prepare/commit/settle interruption gaps with real child/ledger boundaries. Prove discard/retry before commit and reconcile after commit without duplicate committed children.
-- [ ] Exercise stale source/assets, tampered artifacts, incompatible authority, writer locks and journal refusal before effects; retain their existing diagnostics and suffix invalidation semantics.
+- [x] Reuse public subprocess fixtures to compile, dry-run, run, externally kill after command/provider commit, resume, report, invalidate a permitted suffix and resume again.
+- [x] Assert terminal typed values, artifact hashes/lineage, prompt/input evidence and effect identities. Equal inputs at different sites/activations must remain distinct; committed uncancelled effects must not redispatch.
+- [x] Exercise supported coordinator prepare/commit/settle interruption gaps with real child/ledger boundaries. Prove discard/retry before commit and reconcile after commit without duplicate committed children.
+- [x] Exercise stale source/assets, tampered artifacts, incompatible authority, writer locks and journal refusal before effects; retain their existing diagnostics and suffix invalidation semantics.
 - [x] Attempt public resume of the pre-created Task 0 artifacts/roots under the changed package. Record success or the exact expected pin refusal; prove recovery with the retained release when current-package resume is unsupported. Newly created runs alone are insufficient compatibility evidence.
-- [ ] Run the public recipe and orchestrator smoke below. Record any consumer-required live-provider qualification separately; deterministic transport establishes lifecycle behavior, not live-provider parity.
+- [x] Run the public recipe and orchestrator smoke below. Record any consumer-required live-provider qualification separately; deterministic transport establishes lifecycle behavior, not live-provider parity.
 
 The closeout records all six retained-family checks: five changed-package
 resumes accepted; old child 2.24 refused `resume_program_changed` with zero
@@ -244,8 +248,18 @@ material writes, then recovered on the retained release. Original captures were
 restored. The completed 126-module affected campaign also passed all nine
 isolation cases, 13 CLI cases, four run-reference kill cases and two resume-kill
 cases; it remains RED overall (20 failed, 4,079 passed, 1,768.46s). The closeout
-separately records failure dispositions and narrow corrections. Task 4 remains
-open for final integrated qualification/full comparison.
+separately records failure dispositions and narrow corrections. Task 4/Gate D
+is accepted for bounded extraction after independent Astra final review and
+coordinator acceptance. Extraction
+checkpoint `f724b2b7` integrated exact main `705e033b` at `bfd0f324`; fresh
+integration checks passed 268 focused cases and all six retained families.
+The integrated 54-case corpus preserves all original 53 outcomes and 38 Built
+artifact bytes, adding only `design_review_execute`. The closeout records the
+initial harness comparison failure separately. The full campaign completed RED:
+275 failed, 23,511 passed, 36 skipped and 169 xfailed, exit 1, 1,839.70s pytest.
+The closeout records all 275 failure dispositions, the canonical-interpreter
+58-case PASS and the separate five PASS/one XFAIL bounded rerun, without an
+aggregate GREEN. This acceptance closes no migration, cutover or retirement gate.
 
 **Gate D:** fresh public lifecycle/conformance and scoped old-artifact evidence;
 no changed representation or recovery promise concealed as a module move.
