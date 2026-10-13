@@ -25,7 +25,7 @@ from tests import test_workflow_evaluated_run_ref_caller as caller
 from tests import workflow_evaluated_totality_helpers as totality
 from tests.test_workflow_evaluated_cli import _build, _run_cli
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
-from tests.test_workflow_evaluated_providers import _orchestrate_snapshot, _requests
+from tests.test_workflow_evaluated_providers import _orchestrate_snapshot, _requests, workspace_relative
 from tests.test_workflow_evaluated_public_context import (
     PROVIDER_PATH_SOURCE, _assert_provider_commit, _provider_files,
 )
@@ -162,7 +162,8 @@ def _assert_nested_bundle(root, run_root):
     assert snapshot.terminal.data["value"] == {"bundle": bundle}
     assert bundle == _assert_provider_commit(root, authority, commit)
     assert bundle == os.path.relpath(run_root / commit.data["result_path"], root)
-    assert bundle == _requests(root)[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    env = _requests(root)[0]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+    assert os.path.isabs(env) and bundle == workspace_relative(env, root)
     assert "sha256:" + sha256((root / bundle).read_bytes()).hexdigest() == commit.data["result_digest"]
 
 
@@ -213,6 +214,25 @@ def test_whole_workspace_relocation_keeps_result_root(tmp_path, monkeypatch):
     assert resume_workflow(run_id) == 0
     assert _orchestrate_snapshot(moved) == before
     assert load_evaluated_view(moved_root)["workflow_outputs"]["bundle"] == bundle
+
+
+def test_paused_workspace_relocation_dispatches_under_the_moved_root(tmp_path, monkeypatch):
+    files, inputs = _x4_workspace(tmp_path / "ws", monkeypatch, source=TWO_PROVIDER_SOURCE)
+    pause_public(files, monkeypatch, inputs)
+    run_id = checked_run(tmp_path / "ws")[0].run_root.name
+    moved = tmp_path / "moved"
+    shutil.move(tmp_path / "ws", moved)
+    monkeypatch.chdir(moved)
+    monkeypatch.setenv("PATH", str(moved / "bin") + os.pathsep + os.environ["PATH"])
+    assert resume_workflow(run_id) == 0
+    _, snapshot = checked_run(moved)
+    second = max(snapshot.active_commits.values(), key=lambda entry: entry.offset).data
+    requests = _requests(moved)
+    assert len(requests) == 2
+    env, prompt = requests[1]["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], requests[1]["prompt"]
+    relative = f".orchestrate/runs/{run_id}/{second['result_path']}"
+    assert env == os.path.join(moved, relative)
+    assert relative in prompt and env not in prompt
 
 
 def _assert_failed_at_form(run_root, snapshot, joined):

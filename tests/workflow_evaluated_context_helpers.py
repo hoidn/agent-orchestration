@@ -190,12 +190,15 @@ def assert_public_producer_requests(root, authority, snapshot):
 
 def assert_selected_request(root, authority, entry, request, source_payload, operand, argv):
     import hashlib
-    from tests.test_workflow_evaluated_providers import _assert_attempt_evidence
+    import os
+    from tests.test_workflow_evaluated_providers import _assert_attempt_evidence, workspace_relative
 
     row = entry.data
+    bundle = request["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
     assert request["argv"] == argv
     assert request["cwd"] == str(root)
-    assert request["env"] == {
+    assert os.path.isabs(bundle)
+    assert {**request["env"], "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": workspace_relative(bundle, root)} == {
         "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": (authority.run_root / row["result_path"]).relative_to(root).as_posix(),
         "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY": "sha256:" + hashlib.sha256(row["identity"].encode()).hexdigest()}
     blocks = request["prompt"].split("\n\n")

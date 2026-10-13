@@ -155,16 +155,19 @@ def test_evidence_union_requires_prior_paths_but_omits_unselected_history(
     ) == fresh
 
 
-def test_directory_digest_includes_dotfiles_caches_and_file_overlap_only(
+def test_directory_digest_includes_dotfiles_and_file_overlap_but_not_bytecode(
     tmp_path: Path,
 ) -> None:
     module = _closure_module()
     workspace = tmp_path / "workspace"
     tree = workspace / "tree"
     (tree / "__pycache__").mkdir(parents=True)
+    (tree / "pkg" / "__pycache__").mkdir(parents=True)
     (tree / "code.py").write_bytes(b"code")
+    (tree / "__init__.py").write_bytes(b"init")
     (tree / ".hidden").write_bytes(b"hidden")
     (tree / "__pycache__" / "code.pyc").write_bytes(b"cache")
+    (tree / "pkg" / "__pycache__" / "code.pyc").write_bytes(b"cache")
     closure = [
         {"base": "workspace", "path": "tree"},
         {"base": "workspace", "path": "tree/code.py"},
@@ -193,10 +196,26 @@ def test_directory_digest_includes_dotfiles_caches_and_file_overlap_only(
         ["python"], alias_closure, workspace_root=workspace
     ) == alias_before_empty
     (tree / "ordinary-empty").rmdir()
+    explicit_cache = [{"base": "workspace", "path": "tree/__pycache__/code.pyc"}]
+    explicit_before = module.resolve_command_evidence(
+        ["python"], explicit_cache, workspace_root=workspace
+    )
     (tree / "__pycache__" / "code.pyc").write_bytes(b"changed cache")
     assert module.resolve_command_evidence(
         ["python"], closure, workspace_root=workspace
+    ) == before_empty
+    assert module.resolve_command_evidence(
+        ["python"], explicit_cache, workspace_root=workspace
+    ) != explicit_before
+    (tree / "pkg" / "__pycache__" / "code.pyc").write_bytes(b"changed nested cache")
+    assert module.resolve_command_evidence(
+        ["python"], closure, workspace_root=workspace
+    ) == before_empty
+    (tree / "__init__.py").write_bytes(b"changed init")
+    assert module.resolve_command_evidence(
+        ["python"], closure, workspace_root=workspace
     ) != before_empty
+    (tree / "__init__.py").write_bytes(b"init")
     (tree / "__pycache__" / "code.pyc").write_bytes(b"cache")
     (tree / ".hidden").write_bytes(b"changed dotfile")
     assert module.resolve_command_evidence(

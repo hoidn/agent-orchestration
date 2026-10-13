@@ -2419,3 +2419,70 @@ entry run-search, preserving commands_compact.json, complete policy and strict
 SearchResult contract; one bounded revise with named reevaluation; or stop and
 retain the typed fallback**. No choice is made by this packet. A generic continue
 or test count does not select adoption, a default target or Phase 7 retirement.
+
+
+## Upstream Sync Amendment — 2026-10-12
+
+This checkpoint updates shared delivery after historical DC-3 qualification at
+`c4389da0e466380aff253c49454e8d3190944f00`. The report's complete prior body and
+results are unchanged. Frozen typed comparator `4b69ee00`, runnable spike
+`3a7f8efd` and original test-byte pin `26bc796f` are not advanced. This is fresh
+shared-component compatibility evidence, not a rerun or replacement of DC-3.
+
+Checked committed heads: `origin/main`
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca` and
+`origin/feat/orc-shared-defect-repairs`
+`6846531c40f65fe379dffc4ab61a68a45678d4c2`; the repair head is already an ancestor
+of this branch. `origin/main` succeeds the earlier Phase 3 integration source.
+The dirty main checkout is excluded; all imported content comes from committed
+objects. The existing [evaluation plan's synchronization rule](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#upstream-phase-3-synchronization)
+continues to own cadence and selection.
+
+| Selected source | Exact import and exclusion |
+| --- | --- |
+| `2acd4b51bc23f33b78f1d575a7c5f9261453201d` | Full seven-file patch: shared recursive result-schema renderer/prompting, provider-context design, provider/versioning specs and recursive-schema/prompt-identity tests. Records/unions inside list/optional/map results expose their validation structure; portable nominal-name behavior and compile artifacts retain their contract. |
+| `fd885caa9e06249dac0ce9393f975a732ad2941b` | Provider performer and all existing test/helper changes in the eight-file patch, excluding absent `tests/test_workflow_evaluated_path_envelopes.py` and its typed-only campaign. No substitute envelope implementation is added. The shared performer supplies the exact absolute workspace-joined pinned result file to both typed 2.35 and dynamic 3.0; commands, prompts, logical paths, typed memo/X4 and input identities keep their relative spelling. |
+| `344a6fd348cb88aaef9beaf215765d3ebdfb8a67` | Applicable R2 design clarification in `docs/design/workflow_lisp_evaluated_execution.md`, preserving the local header/status and cache amendment. `specs/io.md` records the shared target-2.35/3.0 destination contract; the local dynamic provider regression proves a changed working directory still writes to the pinned result. |
+| `f57104af2a4513d70dbea38269e4f26deed0a257` | Full five-file patch: closure owner, existing/new bytecode tests, evaluated design and scoped Phase 3 plan correction. Directory traversal excludes entries named `__pycache__`; explicit file entries and sourceless `.pyc` outside that directory remain bound. |
+
+The rest of typed Phase 3 implementation/campaigns, W3/target 2.36, early pilot
+and unrelated main restructurings remain deferred; they are not prerequisites
+for this fresh-only dynamic compatibility correction. No bulk main merge,
+consumer migration, default-target change or retirement is selected.
+
+Upstream status is read from the
+[committed Phase 3 closeout](https://github.com/hoidn/agent-orchestration/blob/47e85a9c7e452bfd367275a15d5e97b928efa5ca/docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+and [committed W3 closeout](https://github.com/hoidn/agent-orchestration/blob/d6f7695017992793a27dcab4f703e040f4e85bc3/docs/reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md):
+Phase 3 Tasks 1–17 are closed and delivered at `06130a53`; bounded W3 is delivered
+locally to main at 2.36, recorded at `d6f76950`. Those closeouts retain RED full
+campaigns and their qualification limits. Their committed references/digests
+were inspected; original temporary raw receipts are unavailable and were not
+examined. None of those upstream approvals recertifies the older local typed
+runtime or closes this branch's paid/live provider, handoff/power-loss or direct
+dynamic OMP gaps.
+
+Fresh local evidence: the public dynamic provider changing directory first
+failed as expected (**1 failed in 1.54s**, `provider-red.log`), then the accepted
+provider change and narrow dynamic provider/command, recursive-schema and
+closure-bytecode checks passed **15 in 2.24s** (tool stdout only; no saved log).
+Receipt root: `/tmp/orc-dc3-upstream-20261012/`. Fresh `collect.log` and
+`verification.json` record **961 collected in 5.03s** (harness
+5.721s), **28 modules**: 674 dynamic and 287 shared/retained cases. `affected.log`
+records **961 PASS in 92.52s** (harness 92.746s), exit 0, using
+`pytest -q -n 16 --dist=worksteal -p no:cacheprovider`; the exact module list and
+commands are in `verification.json`. All **1973** source before/after hashes
+match (`source-before.json`, `source-after.json`, `source_changes: []`). This
+includes public dynamic command/provider/consumer processes and typed retained
+consumer run/resume checks. Independent Sol code conformity **PASS** then quality
+**APPROVED**: `code-review.md`, SHA256 `ab0eea15316071d739d2050b31d991f7b32d74edd4cea9a5cea2f2438a0cff9e`.
+Independent Astra document/spec conformity **PASS** then quality **APPROVED**:
+`design-review.md`, SHA256 `fbcc0d7c4aecb7a13abd421375af00b16b89948ced0d11d8faf2fe98ba69981b`.
+Both documentary clarifications are corrected; no findings remain pending.
+The six revised docs pass 147 local link/anchor checks with no errors; the
+original 180975-byte report prefix is unchanged. No full-repository PASS is
+claimed and overlapping selectors are not added together.
+
+DC-P remains unselected: this synchronization does not authorize the proposed
+`experiments/mlevolve_pair/search_compact.orc` migration, paid/live allocation,
+adoption, a default change or Phase 7 retirement. The original DC-3 evidence and
+accepted fresh-restart losses remain as recorded above.

@@ -26,6 +26,7 @@ from typing import Callable
 
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
+from tests.test_workflow_evaluated_providers import workspace_relative
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.test_workflow_evaluated_verified_drain import STOP_AFTER_COMMIT
 from tests.workflow_evaluated_totality_helpers import assert_commit_bytes, checked_run
@@ -240,6 +241,7 @@ def old_route(root: Path, frontend: list[str], *options: str) -> Route:
     assert result.returncode == 0, result.stderr
     (run_root,) = (root / ".orchestrate" / "runs").iterdir()
     state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
+    assert not any(os.path.isabs(request["env"][BUNDLE]) for request in requests(root))
     return Route(root, state["workflow_outputs"], requests(root))
 
 
@@ -293,10 +295,15 @@ def current_route(root: Path, frontend: list[str], marker: str) -> Route:
     return route
 
 
+def r2(request: dict) -> str:
+    """The request's R2 value in its command (workspace-relative) spelling."""
+    return workspace_relative(request["env"][BUNDLE], request["cwd"])
+
+
 def r3(request: dict) -> str:
     """The prompt with the request's own R2 path, which R3 places in it once, named."""
-    assert request["prompt"].count(request["env"][BUNDLE]) == 1
-    return request["prompt"].replace(request["env"][BUNDLE], "<R2>")
+    assert request["prompt"].count(r2(request)) == 1
+    return request["prompt"].replace(r2(request), "<R2>")
 
 
 def request_view(route: Route) -> list[tuple]:
@@ -313,12 +320,13 @@ def assert_request_lineage(route: Route) -> None:
     commits = {route.result(data): data for data in route.commits if data["effect_class"] == "provider"}
     effects = f".orchestrate/runs/{route.authority.run_root.name}/effects/"
     for request in route.requests:
-        bundle, site = request["env"][BUNDLE], request["env"][SITE]
+        assert os.path.isabs(request["env"][BUNDLE])
+        bundle, site = r2(request), request["env"][SITE]
         assert bundle.startswith(f"{effects}{site.removeprefix('sha256:')}/attempt-")
         if bundle in commits:
             assert (site, commits[bundle]["input_parts"]["prompt"]) == (
                 sha256(commits[bundle]["identity"]), sha256(request["prompt"]))
-    linked = [commits[request["env"][BUNDLE]] for request in route.requests if request["env"][BUNDLE] in commits]
+    linked = [commits[r2(request)] for request in route.requests if r2(request) in commits]
     assert linked == list(commits.values())
 
 

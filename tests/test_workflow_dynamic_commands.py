@@ -485,6 +485,38 @@ def test_public_command_rechecks_closure_before_success_publication(tmp_path, mo
     assert len((tmp_path / "command_events.jsonl").read_text().splitlines()) == 1
 
 
+def test_public_command_ignores_generated_bytecode_in_declared_closure_directory(tmp_path, monkeypatch):
+    path = write_source(tmp_path, "demo/main", f'''(export main)
+      (defworkflow main () -> Int
+        (command-result probe :argv ("python" "{PROBE}" "mutate") :returns Int))''')
+    closure = tmp_path / "closure"
+    closure.mkdir()
+    (closure / "cache_module.py").write_text("value = 42\n", encoding="utf-8")
+    manifest = _external_manifest(tmp_path / "commands.json", "probe", closure=("closure",))
+    _stage_probe(tmp_path)
+    probe = tmp_path / PROBE
+    text = probe.read_text(encoding="utf-8")
+    assert 'elif action == "mutate":' in text
+    probe.write_text(text.replace(
+        "import os\n", "import os\nimport py_compile\n",
+    ).replace(
+        'elif action == "mutate":',
+        'elif action == "mutate":\n    py_compile.compile("closure/cache_module.py", doraise=True)',
+    ), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    _forbid_workflow_executor(monkeypatch)
+
+    result = run_workflow(_args(path, manifest))
+
+    assert result.exit_code == 0 and result.workflow_outputs == 42
+    view = load_dynamic_view(result.run_root)
+    assert view["status"] == "completed" and view["effects"][0]["status"] == "completed"
+    bytecode = list((closure / "__pycache__").glob("*.pyc"))
+    assert len(bytecode) == 1 and bytecode[0].is_file()
+    event, = [json.loads(line) for line in (tmp_path / "command_events.jsonl").read_text().splitlines()]
+    assert event["action"] == "mutate"
+
+
 def test_public_command_closure_disjointness_precedes_effect_allocation(tmp_path, monkeypatch):
     path = write_source(tmp_path, "demo/main", f'''
       (export main)

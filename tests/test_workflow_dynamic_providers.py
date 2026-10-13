@@ -166,13 +166,40 @@ def test_public_provider_selects_closure_and_runs_later_command(tmp_path, monkey
         ("provider", "completed"), ("command", "completed"),
     ]
     provider_attempt = result.run_root / view["effects"][0]["result_path"].rsplit("/", 1)[0]
-    assert event["result_path"] == os.path.relpath(
-        result.run_root / view["effects"][0]["result_path"], tmp_path,
-    ).replace(os.sep, "/")
+    assert event["result_path"] == str(result.run_root / view["effects"][0]["result_path"])
     assert (provider_attempt / "prompt.txt").read_text(encoding="utf-8") == event["prompt"]
     assert (tmp_path / "reports/review.md").read_text(encoding="utf-8") == "provider report"
     commands_seen = [json.loads(line) for line in (tmp_path / "command_events.jsonl").read_text().splitlines()]
     assert [row["action"] for row in commands_seen] == ["finish"]
+
+
+def test_public_provider_result_path_survives_provider_chdir(tmp_path, monkeypatch):
+    path = _source(tmp_path)
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes/input.md").write_text("captured document", encoding="utf-8")
+    (tmp_path / "reports").mkdir()
+    providers, commands = _manifests(tmp_path)
+    _stage_tools(tmp_path, monkeypatch)
+    probe = tmp_path / "bin/codex"
+    text = probe.read_text(encoding="utf-8")
+    assert 'Path(event["result_path"]).write_text' in text
+    probe.write_text(text.replace(
+        'Path(event["result_path"]).write_text',
+        'os.chdir("provider-subdir")\nPath(event["result_path"]).write_text',
+    ), encoding="utf-8")
+    (tmp_path / "provider-subdir").mkdir()
+    _forbid_workflow_executor(monkeypatch)
+
+    result = run_workflow(_args(path, providers, commands, _values()))
+
+    view = load_dynamic_view(result.run_root)
+    event, = [json.loads(line) for line in (tmp_path / "provider_events.jsonl").read_text().splitlines()]
+    expected = result.run_root / view["effects"][0]["result_path"]
+    assert result.exit_code == 0, view["error"]
+    assert event["result_path"] == str(expected)
+    assert json.loads(expected.read_text(encoding="utf-8")) == {
+        "variant": "APPROVE", "ok": True, "score": 7,
+    }
 
 
 def test_public_provider_resnapshots_imported_document_on_fresh_run(tmp_path, monkeypatch):

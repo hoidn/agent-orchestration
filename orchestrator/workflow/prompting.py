@@ -859,22 +859,15 @@ class PromptComposer:
                 )
             )
         if isinstance(output_bundle, dict) and output_bundle:
-            if (
-                isinstance(step.get("provider_context"), Mapping)
-                and step["provider_context"].get("capture") == "portable"
-            ):
-                structured_result = render_output_bundle_contract_block(
-                    output_bundle,
-                    recursive_structures=True,
-                )
-            else:
-                structured_result = render_output_bundle_contract_block(
-                    output_bundle
-                )
+            provider_context = step.get("provider_context")
             contributions.append(
                 (
                     "structured_result",
-                    structured_result,
+                    render_output_bundle_contract_block(
+                        output_bundle,
+                        render_nominal_names=isinstance(provider_context, Mapping)
+                        and provider_context.get("capture") == "portable",
+                    ),
                 )
             )
         elif isinstance(variant_output, dict) and variant_output:

@@ -141,10 +141,12 @@ acceptance. [IO](io.md#dynamic-boundary-io) and
   - Provider aliases resolve in the active workflow provider namespace. Imported workflows do not inherit or merge caller provider templates; pass role choices through declared inputs and define supported aliases inside the callee.
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
   - In this tranche, `provider_session` steps require a static provider alias because frontend-build-time session-support validation must inspect the provider template.
-  - Except for `omp_json_stdout`, provider steps with `output_bundle.path` or
+  - Except for `omp_json_stdout`, flat-route provider steps with `output_bundle.path` or
     `variant_output.path` receive the runtime-owned
     `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for the resolved
-    workspace-relative bundle target. Provider-session command selection
+    workspace-relative bundle target. Evaluated target 2.35 and branch-qualified
+    3.0 use the absolute destination specified in
+    [IO](io.md#evaluated-result-file-destination). Provider-session command selection
     preserves that binding. OMP JSON-transport children never receive the
     binding. They emit one validated final assistant JSON value, and the parent
     materializes it only into an absent leaf using descriptor-relative
@@ -416,6 +418,13 @@ acceptance. [IO](io.md#dynamic-boundary-io) and
       never claims a JSON object for a scalar/enum/relpath/optional/list/map
       root result, and never names or requests the compiler-owned `__result__`
       field key.
+    - Nested record and union structure renders whether or not the step
+      captures provider context. A record or union inside a `list`,
+      `optional` or `map`, at any depth, in bundle fields, a direct root value
+      or variant fields, shows its `fields`, or its `discriminant` and
+      `variants` with their fields. The nominal `record_name` and `union_name`
+      render only with `provider_context.capture: portable`. Such schemas
+      exist only from target 2.25.
     - At v2.19, the same direct-root rendering applies to `type: value`
       regardless of whether the attempt returns `null`, a scalar, a list, or
       an object. The renderer does not infer or advertise a narrower schema

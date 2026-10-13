@@ -85,12 +85,12 @@ compatibility without rebuilding its checkpoint machinery for the candidate.
 ## Upstream Phase 3 Synchronization
 
 Shared Phase 3 components retain their upstream implementation owners. Track
-`feat/orc-phase3-r12-control` in `.worktrees/orc-phase3-r12-control` and the
-integration branch `feat/orc-phase3-execution` in `.worktrees/orc-phase3`.
-Prefer reviewed integrated commits with their dependencies; continue tracking
-the integration branch after an individual task branch stops advancing. Record
-any owner-designated successor here. These are moving sources, not a one-time
-baseline import.
+`origin/main`, the integrated successor of `feat/orc-phase3-execution` after
+Phase 3 delivery, and `origin/feat/orc-shared-defect-repairs` for shared fixes.
+The earlier `feat/orc-phase3-r12-control` and `feat/orc-phase3-execution`
+worktrees remain historical source checkpoints. Prefer reviewed integrated
+commits with their dependencies, recording any later successor here. These are
+moving sources, not a one-time baseline import.
 
 **Cadence:** check at every session start/resume, before selecting or delegating
 a shared-component task, before each DC tranche or decision gate, and before
@@ -124,6 +124,17 @@ Keep the moving integration head separate from frozen comparison controls.
 Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
+
+Latest checkpoint, 2026-10-12: checked `origin/main` at `47e85a9c` and shared
+repairs at `6846531c` (already integrated). Selectively import recursive result
+schema rendering `2acd4b51`, provider destination `fd885caa` with its R2 design
+`344a6fd3`, and command cache exclusion `f57104af`. The
+[sync amendment](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#upstream-sync-amendment--2026-10-12)
+records the exact included/excluded scope and fresh verification. Upstream
+Phase 3/W3 closeouts describe upstream delivery; the rest of typed Phase 3,
+W3 target 2.36 and pilot/restructuring work are not imported by this checkpoint.
+Historical DC-3 qualification at `c4389da0` and the frozen comparison controls
+remain unchanged. DC-P remains unselected.
 
 Earlier runtime import, 2026-10-04: reviewed Task 8 resume/preflight/replay and
 suffix invalidation through `e17bd61f` integrated at `d3b68c0a`. Ordinary typed
@@ -215,7 +226,10 @@ than new registries or scoring infrastructure.
   allocates fresh work; no open-ended revise-until-green loop.
 - **Stop:** retain the typed baseline, archive the candidate/evidence, remove
   candidate-only machinery when present, and return to pending typed Phase 3
-  Tasks 6–17, Phase 6a and qualified W3/Phase 4/5 work under their existing gates.
+  integration/qualification on this branch and Phase 6a/W3/Phase 4/5 work under
+  their existing gates. Upstream Phase 3 and bounded W3 delivery are already
+  recorded at the latest synchronization checkpoint; their status does not
+  establish local compatibility or select a migration here.
   Stop does not undo integrated Phase 2 or Phase 3 Tasks 1–5.
 
 A gate with no owner disposition is **pending** and blocks its successor. It

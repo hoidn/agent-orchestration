@@ -18,6 +18,28 @@
     Certified adapters retain signature-ordered inline JSON. The complete
     contract is [evaluated execution §9.1.1](../docs/design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents).
 
+## Evaluated result-file destination
+
+At target 2.35 and branch-qualified target 3.0, the shared provider performer
+sets `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` to the exact absolute, lexically normalized
+join of the execution workspace and the pinned attempt's workspace-relative
+`result.json` path. It derives this destination from the logical run root,
+never a process-descriptor alias, so changing the provider's working directory
+does not change the destination. The retained directory descriptor remains
+authority for allocation and result capture; a write elsewhere cannot satisfy
+the attempt's result contract.
+
+Commands keep the workspace-relative destination. Prompt contract path lines,
+logical result paths and persisted result paths keep their relative spelling;
+typed memo rows keep the run-relative `result_path`, and `provider-bundle-path` keeps its
+workspace-relative value. The provider environment's absolute spelling enters
+no runtime identity or persisted environment. Prompt guidance directs a provider
+to the environment destination when set. Whole-workspace relocation therefore
+preserves typed prompt/input identity while a new provider dispatch receives the
+destination under the moved workspace. Older flat-route provider and command
+environments retain their existing relative spelling. The complete request
+contract is [evaluated execution §9.4 R2–R3](../docs/design/workflow_lisp_evaluated_execution.md#94-the-request-contract).
+
 ## Dynamic boundary IO
 
 The branch-qualified target-3.0 profile uses the existing shared input/output
@@ -178,7 +200,7 @@ and [Providers](providers.md#dynamic-composed-provider-boundary).
       validated. Missing/invalid discriminants never authorize placeholders.
       Prior-target extraction and guard behavior remain unchanged.
   - Provider structured-bundle environment:
-    - For provider steps with `output_bundle.path` or `variant_output.path`, the
+    - For flat-route provider steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative logical bundle path before
       invocation and exposes that logical value as
       `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. An unrestricted invocation uses the
