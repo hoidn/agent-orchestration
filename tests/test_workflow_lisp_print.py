@@ -29,6 +29,18 @@ EARLY = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
   (defworkflow run ((task String)) -> String (print task)))'''
 BAD = '{"findings":"not a list"}'
 LINES = ['["one","two"]', '{"findings":[]}']
+PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule main) (export run)
+  (defrecord Plan (steps List[String]))
+  (defrecord Feedback (findings List[String]))
+  (defworkflow shown-steps ((plan Plan)) -> List[String] (print plan.steps))
+  (defworkflow run ((task String) (scale Float)) -> Feedback
+    (let* ((draft (provider-result providers.plan :prompt prompts.base
+                    :inputs (task) :model "chosen-model" :effort "low" :returns Plan))
+           (steps (call shown-steps :plan draft))
+           (echoed (list/map ((step steps)) (print step))))
+      (provider-result providers.review :prompt prompts.base
+        :inputs (task) :model "chosen-model" :effort "low" :returns Feedback))))'''
 
 
 def _printed(stdout: str) -> list[str]:
@@ -71,9 +83,20 @@ def test_readers_replay_the_program_without_printing(tmp_path):
     fixture = _fixture(tmp_path, SOURCE.format(target="2.35", body=BODY))
     assert _run(tmp_path, fixture, "task=x", "scale=1.5").returncode == 0
     run_id = _run_root(tmp_path).name
-    result = _repl(tmp_path, [":bindings", "(print feedback.findings)", ":quit"], run_id=run_id)
-    assert result.returncode == 0, result.stderr
-    assert _printed(result.stdout) == []
-    assert _typed_values(result.stdout) == [([], "List[String]")]
+    result = _repl(tmp_path, ["(print feedback.findings)", ":quit"], run_id=run_id)
+    assert (result.returncode, result.stdout.splitlines()) == (0, ["[]", ": List[String]"])
     completed = _resume(tmp_path, run_id, (PLAN, FEEDBACK))
     assert (completed.returncode, _printed(completed.stdout)) == (0, [])
+    report = subprocess.run(
+        [sys.executable, "-B", "-m", "orchestrator", "report", "--run-id", run_id,
+         "--runs-root", str(tmp_path / ".orchestrate" / "runs"), "--format", "md"],
+        cwd=tmp_path, env=_env(tmp_path), capture_output=True, text=True, check=False,
+    )
+    assert (report.returncode, _printed(report.stdout)) == (0, [])
+
+
+def test_the_sink_reaches_called_workflows_and_list_map_bodies(tmp_path):
+    result = _run(tmp_path, _fixture(tmp_path, PROPAGATION), "task=x", "scale=1.5")
+    assert result.returncode == 0, result.stderr
+    expected = ['["one","two"]', '"one"', '"two"']
+    assert [line for line in result.stdout.splitlines() if line in expected] == expected
