@@ -6,13 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from orchestrator.contracts.prompt_delivery import RELPATH_GUIDANCE as _RELPATH_GUIDANCE, delivery_opening
 
-_RELPATH_GUIDANCE = (
-    "# Relpath values are workspace-relative. Include the declared `under` "
-    "prefix in the value: for `under: artifacts/work`, write "
-    "`artifacts/work/...`; for `under: artifacts/review`, write "
-    "`artifacts/review/...`."
-)
 
 _CONTENT_ONLY_FOOTER = "Use these consumed artifacts as context for your work."
 _REFERENCE_ONLY_FOOTER = "These references preserve artifact lineage; open them only when needed."
@@ -282,54 +277,6 @@ def _append_schema_fields(
         _append_schema_spec(lines, field, indent=indent + 4, render_nominal_names=render_nominal_names)
 
 
-_LEGACY_DELIVERY = (
-    "Produce {subject} exactly as specified. If ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to "
-    "that runtime-owned authoritative target. Otherwise, do not create or modify the listed path; emit the "
-    "{noun} as final assistant text only so the runtime can materialize it."
-)
-_LEGACY_BUNDLE_DELIVERY = _LEGACY_DELIVERY.format(subject="the following JSON bundle", noun="JSON object")
-_LEGACY_VALUE_DELIVERY = _LEGACY_DELIVERY.format(subject="one JSON value", noun="JSON value")
-
-
-def _schema_mentions_relpath(spec: Any) -> bool:
-    """Whether a field spec, walked as `_append_schema_spec` walks it, contains a `relpath` type."""
-    if not isinstance(spec, Mapping):
-        return False
-    if spec.get("type") == "relpath":
-        return True
-    children = [spec.get(key) for key in ("item", "items", "keys", "values")]
-    children.extend(spec.get("fields") or ())
-    variants = spec.get("variants")
-    if isinstance(variants, Mapping):
-        for variant in variants.values():
-            if isinstance(variant, Mapping):
-                children.extend(variant.get("fields") or ())
-    return any(_schema_mentions_relpath(child) for child in children)
-
-
-def _delivery_lines(delivery: str, *, legacy: str, noun: str, schema_specs: Sequence[Any]) -> List[str]:
-    """Render the opening lines that say how the structured result reaches the runtime.
-
-    `legacy` reproduces the text composed before delivery was selected, with
-    unconditional relpath guidance; `file` states the file action first and
-    points at the `- path:` line, which stays the only place the attempt path
-    appears, and renders relpath guidance only for a path type.
-    """
-    if delivery == "legacy":
-        return [legacy, _RELPATH_GUIDANCE]
-    if delivery != "file":
-        raise ValueError(f"unknown output contract delivery: {delivery!r}")
-    lines = [
-        f"Write the {noun} specified below to the file on the `- path:` line, "
-        "with a file-writing or shell tool, before you finish. The environment "
-        "variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. "
-        "Returning the value in your reply does not deliver it."
-    ]
-    if any(_schema_mentions_relpath(spec) for spec in schema_specs):
-        lines.append(_RELPATH_GUIDANCE)
-    return lines
-
-
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
     """Render a stable prompt suffix describing required one-file-per-value artifacts."""
     lines: List[str] = [
@@ -360,7 +307,7 @@ def render_output_bundle_contract_block(
 
     lines: List[str] = [
         "## Output Contract",
-        *_delivery_lines(delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object", schema_specs=fields),
+        *delivery_opening("bundle", delivery, output_bundle),
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
     ]
@@ -393,7 +340,7 @@ def _render_root_output_bundle_contract_block(
     """
     lines: List[str] = [
         "## Output Contract",
-        *_delivery_lines(delivery, legacy=_LEGACY_VALUE_DELIVERY, noun="JSON value", schema_specs=(field,)),
+        *delivery_opening("value", delivery, output_bundle),
         f"- path: {output_bundle['path']}",
         "  format: JSON value",
     ]
@@ -410,17 +357,9 @@ def render_variant_output_contract_block(
 ) -> str:
     """Render a stable prompt suffix describing a tagged-union JSON output bundle."""
     discriminant = variant_output["discriminant"]
-    variant_fields = [
-        spec
-        for variant_spec in variant_output.get("variants", {}).values()
-        for spec in variant_spec.get("fields", [])
-    ]
     lines: List[str] = [
         "## Variant Output Contract",
-        *_delivery_lines(
-            delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object",
-            schema_specs=(*variant_output.get("shared_fields", []), *variant_fields),
-        ),
+        *delivery_opening("variant", delivery, variant_output),
         f"- path: {variant_output['path']}",
         "  format: JSON object",
     ]
