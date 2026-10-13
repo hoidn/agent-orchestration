@@ -1229,6 +1229,57 @@ every effect of the three maintained programs are owned by
 [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
 (Phase 3 Task 15, integrated).
 
+### Inspect a run with the Workflow Lisp REPL
+
+For evaluated targets 2.35/2.36, `orchestrator repl` lets you inspect captured
+lexical bindings and evaluate ordinary pure expressions. Use the maintained
+[`plan_review_execute.orc`](../workflows/examples/plan_review_execute.orc) and
+its [provider manifest](../workflows/examples/inputs/plan_review_execute/providers.json)
+in a workspace intended for the workflow's execution:
+
+```bash
+python -m orchestrator repl workflows/examples/plan_review_execute.orc \
+  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
+```
+
+Inside the session:
+
+```text
+:run --input task="Inspect this workspace and summarize the planned changes"
+:bindings
+feedback.findings
+(list/length revised.steps)
+(list/empty? feedback.findings)
+:result
+:quit
+```
+
+`:run` uses the ordinary public run service and executes the declared providers;
+`:bindings`, expressions and `:result` then inspect the checked captured frame.
+Values print as compact sorted JSON on one line and `: <type>` on the next.
+`:result` returns the entry result; a stopped/failed run instead reports
+`repl_no_result`. REPL/runtime errors print `[code] detail`; frontend errors
+retain localized compiler diagnostics with `kind`/`form` context. Expected
+session errors leave the session available for the next line. `list/empty?`
+tests list emptiness; `=` / `!=` keep the ordinary supported-scalar/same-enum
+contract, without deep list equality. See
+[frontend §10.2](design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface).
+
+To inspect an existing run without starting another, add `--run-id RUN_ID`
+to the launch command, or use `:attach RUN_ID`; add `--state-dir DIR` for a
+custom run root. Without a loaded workflow, `repl --run-id RUN_ID` rebuilds
+its persisted recipe in memory and requires the same program digest. No run
+files change during attachment or pure inspection. Effectful expressions,
+including transitive procedure effects, refuse `repl_effect_refused`; only
+explicit `:run` executes effects. Input is one expression per line, with no
+session resume, new definitions, editing or multiline support.
+
+The [CLI contract](../specs/cli.md#workflow-lisp-repl-targets-235-and-236)
+owns flags and diagnostics; the [proposed design](design/workflow_lisp_repl.md)
+owns the capture/expression boundary. Behavioral public integration coverage
+is [`tests/test_workflow_evaluated_repl.py`](../tests/test_workflow_evaluated_repl.py);
+provider stand-ins in tests prove integration rather than live provider quality.
+
 ## 3. Semantic Authority Rules
 
 These rules apply across `.orc`, generated Core AST, the JSON-rendered

@@ -151,14 +151,26 @@ Add `workflow/evaluated/capture.py` with a frozen `_CaptureMachine` subclass of
 `_Machine`. Its mutable trace object survives `dataclasses.replace` when calls
 construct callee machines. It adds observation only:
 
-- `_halt` calls `super()` first, then records environment and value. The last
-  entry halt wins, so successful operand block halts cannot hide the entry halt.
+- `_halt` calls `super()` first, then appends its environment and already
+  evaluated value to the shared `trace.completions`.
+- `_done` calls `super()._done` and observes the existing `_ControlTransfer`
+  after its operands have been evaluated. For `kind == "done"`, append the
+  environment and already evaluated transfer value, then rethrow the same
+  exception. Do not reevaluate operands or alter loop/control-transfer handling.
 - `_perform` calls the ordinary implementation and catches `views._MissingCommit`
   after operand evaluation, recording the first stopped environment and effect
-  identity. A stop overrides all successful operand block halts.
+  identity. A stop overrides incidental successful halt/done exits.
 - `_body` catches `EvaluatedValueError`, recording the first (innermost) failed
   lexical environment and position `failed:<code>`, then rethrows. A failure
-  overrides incidental successful nested halts.
+  also overrides incidental successful completions.
+
+For successful replay, the last halt/done event supplies the lexical exit
+frame. A root loop can complete through `done` without a halt event; an
+incidental seed-block halt of 3 must not replace the loop result 7. Capture the
+actual return of `_Machine.evaluate` separately in `trace.result`, after
+ordinary result coercion and dependency propagation, rather than using an
+observed completion value. Completed capture still has position `halt`, naming
+the terminal semantic outcome rather than requiring a particular body opcode.
 
 An uncommitted effect inside a callee captures the callee's lexical frame,
 not the caller's frame. The shared trace must retain that capture as exceptions
@@ -214,13 +226,24 @@ then `typecheck_expression`. Ordinary unresolved names remain `name_unknown`.
 A missing context refuses module calls with `repl_module_context_missing`,
 rather than silently using reduced catalogs or another evaluator.
 
+Keep the ordinary frontend §10.2 equality contract: `=` / `!=` accept supported
+scalars and same-type enums, with no added deep-list equality. `list/empty?`
+is the ordinary list-emptiness predicate. This feature does not broaden
+operators or their operand/result semantics.
+
 Enforce purity at three boundaries:
 
 1. Refuse a nonempty `typed.effect_summary.transitive_effects` with
    `repl_effect_refused`, including transitive procedure effects.
-2. Lower through `closed.values.frontend_value` using the retained builder's
-   `definition_context` and identity names. Recursively guard the lowered value,
-   block bodies and reachable callee call bodies against `perform`; allow pure
+2. Lower through the normal prepared-owner pipeline. Build an ephemeral
+   `TypedWorkflowDef` containing the actual `TypedExpr`, with a minimal signature
+   of the captured typed parameters and expression return type, retaining the
+   loaded entry's source owner. Create `builder.definition_context`, retain
+   identity names, call `_prepare_command_owner`, `_install_prepared_requests`,
+   the ordinary computed-capture preparation, then `builder.body` and the
+   installed request verifier. Direct `frontend_value` alone lacks prepared
+   call coordinates for closed-opaque pure calls. Recursively guard the lowered
+   value, block bodies and reachable callee bodies against `perform`; allow pure
    calls. Never determine purity from the entered head alone.
 3. Call `evaluate_closed_value` with ordinary `_Machine._body`/`_bound`
    callbacks and `effect_handler=None`, `provider_io=None`. Map an eventual
@@ -229,9 +252,11 @@ Enforce purity at three boundaries:
 Pure module `defun` and `defproc` calls use ordinary lowering and callee
 execution. Lowering may add previously unreachable pure procedure definitions
 into the retained builder. Evaluate such calls against an in-memory program
-view carrying the builder definitions; do not mutate `authority.program`, the
-published closed artifact or its digest. There is no Python evaluation or
-REPL-specific operator evaluator.
+view carrying the builder definitions and nominal types; do not mutate
+`authority.program`, the published closed artifact or its digest. The loaded
+build result's `.program` is a JSON-readback snapshot, not an alias of the
+retained builder, so this view requires no deep copy of the builder. There is
+no Python evaluation or REPL-specific operator evaluator.
 Entered expressions cannot mutate the captured lexical frame or run evidence.
 
 ## Contracts And Interfaces
@@ -242,8 +267,9 @@ compile, resume and report contracts retain their behavior. An expression or
 `: <rendered type>` on stdout. `:result` returns only the halted entry value
 and entry return type; otherwise it fails `repl_no_result`.
 
-Errors print `[code] detail` to stderr. Session commands fail without ending
-the input loop; startup failures exit 2 and unexpected failures exit 1.
+REPL/runtime errors print `[code] detail` to stderr. Frontend errors keep
+ordinary localized `render_diagnostic` output with `kind`/`form` context.
+Session commands fail without ending the input loop; startup failures exit 2 and unexpected failures exit 1.
 Diagnostics include `repl_effect_refused`, `repl_run_not_found`,
 `repl_profile_unsupported`, `repl_not_attached`, `repl_module_required`,
 `repl_expression_arity`, `repl_no_result`, `repl_module_context_missing`,
@@ -271,8 +297,9 @@ Loaded source/context must match the attached program. Failed loads and ordinary
 a digest-mismatched attach clears attachment and never retains an incompatible
 module/frame pairing. Checked replay errors cannot be masked by
 capture or replaced with a best-effort report. Stops/failures inside operand
-blocks must expose the correct lexical environment and never publish an
-incidental operand halt as the workflow result.
+blocks must expose the correct lexical environment. Completion through halt or
+loop done preserves the actual machine result, never an incidental seed or
+operand completion value.
 
 ## Security, Operations, And Performance
 
@@ -311,7 +338,9 @@ execution program authority; fresh module context must have the same digest.
 
 Add behavioral tests in `tests/test_workflow_evaluated_repl.py`, collecting
 that module before execution. Cover completed field/list expressions, pure
-module function/procedure calls and entry result; interrupted compound operands
+module function/procedure calls, including an unused helper and a nested
+`defun` → `defproc` call, and entry result; completed root loops with no halt
+event and an incidental seed halt 3 followed by done 7; interrupted compound operands
 and callee scope; transitive effect refusal with evidence hashes; digest mismatch;
 recipe-only attachment; pure failures before/after a committed effect; custom
 state-root forwarding through `:run`; and nested enum binding type recovery.
@@ -329,6 +358,8 @@ size. Tests assert behavior/dataflow, never literal prompt prose.
 | Initial state and public entry | Required observation and invariant | Dependencies |
 | --- | --- | --- |
 | A real 2.35/2.36 module/run has record/list bindings; pipe `repl WORKFLOW --run-id ID` with field/list expressions, pure `defun`/`defproc`, and `:result` | Ordinary typed JSON values and halted entry result; evidence hashes unchanged | Real frontend, run service, reader loaders and evaluator; deterministic provider shim where needed |
+| Complete a root loop through `done`, both without a halt event and with a seed-block halt of 3 before done 7; attach and use `:bindings` / `:result` | Capture the loop exit frame; position is `halt`, and result is the actual postcoercion/dependency-preserving machine return 7 rather than incidental 3 | Real closed evaluator, existing control transfer and checked replay |
+| Attach a module whose pure helper is unused by its workflow and whose pure function calls a pure procedure; enter those calls | Ordinary prepared-owner lowering resolves call coordinates and returns typed values; stored program, build artifact/digest and run evidence remain unchanged | Real frontend catalogs, prepared command owner and ephemeral program view |
 | Interrupt a run at the first uncommitted effect after a compound operand block or inside a callee; `:attach ID`, then inspect bindings | Correct stopped lexical scope, effect identity and shadowing; no operand halt published as result; no launches/writes | Real memo replay and captured machine; controlled provider interruption |
 | Attach a completed run and enter a directly/transitively effectful procedure expression | `repl_effect_refused`; memo/state/attempt files byte-identical | Real frontend type/effect analysis, lowered guard and evaluator |
 | Start recipe-only attachment, then attach with a semantically changed loaded module | First reconstructs only in memory; second refuses `resume_program_changed`; missing recipe without module refuses `resume_request_missing` | Real durable recipe, build request and digest checks |
@@ -367,7 +398,8 @@ Likely files: `workflow_lisp/workflows.py`, `compiler.py`,
 `closed/{frontend,artifact}.py` for transient context;
 `workflow/evaluated/{views,capture}.py` for visible bindings and capture;
 `workflow_lisp/repl_expr.py` for the ordinary expression bridge;
-`cli/commands/{repl,__init__}.py` and `cli/main.py` for registration/session;
+`cli/commands/{repl,__init__}.py`, `cli/main.py` and the installed CLI entry
+in `pyproject.toml` for registration/session;
 `tests/test_workflow_evaluated_repl.py` and the documentation surfaces above.
 
 The safe first step is the transient compile-result seam, checked against
