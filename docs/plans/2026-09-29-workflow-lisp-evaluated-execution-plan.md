@@ -576,8 +576,9 @@ ledger. Authoring changes reuse existing effect and execution owners.
   capture pilots, a 232 → 220 selected helper-plus-callers census and a 30-row
   W3 source handoff. Exact old-run compatibility controls are subsequently accepted; the closeout
   owns final F qualification; W3 qualification selects no broader Phase 6b rollout.
-  The owner separately selected Phase 5 D1 target 2.37 on 2026-10-12; its
-  implementation and public qualification remain pending.
+  The owner separately selected Phase 5 D1 target 2.37 on 2026-10-12; target
+  registration and the [frontend cut](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut) are qualified at `692eaf73`. Checked parallel
+  compilation/runtime/public qualification remain pending.
 
 An unneeded class may remain deferred or be retired with its consumers by
 explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
@@ -617,7 +618,7 @@ written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 
-The [prepared Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the owner's explicit **D1 selection of target 2.37 on 2026-10-12** for parallel map. W3 retains 2.36. This selects the Phase 5 target; implementation, admission and public parallel-execution qualification remain pending under that plan's refreshed-baseline and verification gates.
+The [Phase 5 execution plan](2026-10-07-evaluated-execution-phase-5-plan.md) records accepted D2/D3 design and the owner's explicit **D1 selection of target 2.37 on 2026-10-12** for parallel map. W3 retains 2.36. Target 2.37 registration and the parsed/typed frontend cut are qualified at `692eaf73`; the [execution record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut) owns the bounded acceptance. Checked parallel compilation, runtime admission and public parallel-execution qualification remain pending under that plan's gates.
 
 Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
 single-call comparison is one: its four implementers run in sequence.
@@ -703,7 +704,8 @@ supported behavior and APIs remain preserved. Retained-run scope covers this
 repository, including nested experiment/project roots; the initial inventory
 covers `.orchestrate/runs` and `.orchestrate/archive` only. Original run data
 remains untouched. The owner separately selected Phase 5 D1 target 2.37 on
-2026-10-12; its implementation/qualification gates remain. Consolidation grants
+2026-10-12; its registered/typed frontend cut is qualified at `692eaf73`, while
+checked parallel compilation/runtime/public qualification remain pending. Consolidation grants
 no retirement cutoff.
 
 ---

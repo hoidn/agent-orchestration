@@ -1081,8 +1081,11 @@ Planned acceptance:
 
 The owner selected **2.37** for evaluated-execution Phase 5 parallel map on
 2026-10-12 ([Phase 5 D1](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)).
-This is a reserved delivery target, not current admission or implementation;
-the admitted evaluated targets remain 2.35 and 2.36 until its gates pass.
+Target 2.37 is registered, and its parsed/typed parallel-map frontend cut is
+qualified at `692eaf73` ([bounded frontend record](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut)).
+Parallel checked-program compilation, runtime admission and public qualification
+remain pending; parallel source is not a runnable/copy-safe surface. Existing
+2.35/2.36 contracts remain unchanged.
 
 | DSL version | Key features enabled | Notes |
 | --- | --- | --- |

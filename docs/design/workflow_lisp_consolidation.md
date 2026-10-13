@@ -46,7 +46,8 @@ under decision 8. The owner requested execution of the plan on 2026-10-12;
 bounded extraction Tasks 0–4 are accepted in an isolated worktree. Tasks 5–7 retain
 that sequence and its capability, consumer and
 cutoff gates. The owner separately selected Phase 5 D1 target 2.37 on
-2026-10-12; parallel-map implementation and qualification remain pending. Preserve
+2026-10-12; the registered/typed [frontend cut](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut) is qualified at `692eaf73`, while checked
+parallel compilation/runtime/public qualification remain pending. Preserve
 currently supported behavior and APIs throughout extraction.
 
 Excluded: Rust, licensing or packaging-product changes, a Python frontend,
