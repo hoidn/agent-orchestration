@@ -161,6 +161,7 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo, invalidate_suffix
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume
 from orchestrator.workflow.evaluated.views import load_evaluated_view, report_snapshot
+from orchestrator.workflow.evaluated.capture import load_run_for_capture, capture_run_environment
 root = Path(sys.argv[1])
 run_root, = (root / ".orchestrate" / "runs").iterdir()
 stack, authority = retained_authority(run_root)
@@ -179,6 +180,13 @@ assert authority.memo_path.read_bytes() == stable
 view = load_evaluated_view(run_root)
 assert view["status"] == "completed"
 assert report_snapshot(view, run_root)
+inspection_bytes = {name: (run_root / name).read_bytes()
+    for name in ("run.json", "closed_program.json", "memo.jsonl", "state.json")}
+captured = capture_run_environment(*load_run_for_capture(run_root))
+assert captured.halted and captured.position == "halt"
+assert captured.result.json_value() == {"ok": True}
+assert {name: (run_root / name).read_bytes() for name in inspection_bytes} == inspection_bytes
+assert (root / "dispatches.txt").read_text().splitlines() == ["emit", "emit"]
 stack.close()
 assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.modules)
 ''', tmp_path)

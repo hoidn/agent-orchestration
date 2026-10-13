@@ -1201,20 +1201,20 @@ def test_build_key_uses_the_compiler_retained_source_snapshot(
     from orchestrator.workflow_lisp.closed import artifact as artifact_module
 
     files = _write_workspace(tmp_path)
-    original_compile = artifact_module.compile_typed_program
+    original_compile = artifact_module.compile_typed_program_with_result
     mutated = False
 
     def compile_then_edit(*args, **kwargs):
         nonlocal mutated
-        typed = original_compile(*args, **kwargs)
+        compiled = original_compile(*args, **kwargs)
         if not mutated:
             files["source"].write_bytes(files["source"].read_bytes() + b"\n; after compile\n")
             mutated = True
-        return typed
+        return compiled
 
-    monkeypatch.setattr(artifact_module, "compile_typed_program", compile_then_edit)
+    monkeypatch.setattr(artifact_module, "compile_typed_program_with_result", compile_then_edit)
     first = artifact_module.build_closed_program_bundle(_build_request(files))
-    monkeypatch.setattr(artifact_module, "compile_typed_program", original_compile)
+    monkeypatch.setattr(artifact_module, "compile_typed_program_with_result", original_compile)
     second = artifact_module.build_closed_program_bundle(_build_request(files))
 
     assert first.build_key != second.build_key

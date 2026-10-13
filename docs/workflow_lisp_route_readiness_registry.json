@@ -443,6 +443,18 @@
       "surface_kind": "workflow_example"
     },
     {
+      "copy_safety": "preferred_current_guidance",
+      "evidence": [
+        "tests/test_workflow_lisp_design_review_execute_example.py::test_documented_command_compiles_the_example_to_a_closed_program"
+      ],
+      "notes": "File-based variant of the README example: the planner drafts artifacts/design/<slug>.md and returns its typed path, the reviewer reads the draft through a :doc fill, the planner writes the final docs/design/<slug>.md as a new file so the review's input never changes and resume can retry any step, and the reviewer's model executes the final document, at target 2.35. Compile and dry-run evidence only; no live provider run is recorded.",
+      "path": "workflows/examples/design_review_execute.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "evaluated_execution",
+      "surface_id": "workflows.examples.design_review_execute",
+      "surface_kind": "workflow_example"
+    },
+    {
       "copy_safety": "legacy_compatibility_only",
       "evidence": [
         "tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack"

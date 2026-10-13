@@ -810,6 +810,13 @@
     have different digests.
 
 - v2.35 additions
+  - `print`: a one-operand pure-surface operator that writes the operand's
+    canonical JSON line to the process's stdout and returns the operand. It is
+    evaluation-time observation without effect identity or memo record: the
+    run's own evaluation writes, so `resume` prints what it re-evaluates, while
+    readers that replay the program (views, `report`, the REPL) do not print
+    ([frontend §10.2](../docs/design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)).
+    Evidence: `tests/test_workflow_lisp_print.py`.
   - Closed-program compilation is implemented: `orchestrator compile` writes
     `closed_program.json` (`workflow-lisp/closed-program/1`, `table/1`)
     and `manifest.json`, with canonical configuration, typed callee

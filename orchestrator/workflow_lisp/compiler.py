@@ -216,6 +216,7 @@ from .workflows import (
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
     ExternalToolBinding,
+    ExpressionCompileContext,
     PromptExtern,
     Stage3CompileResult,
     TypedWorkflowDef,
@@ -3836,6 +3837,17 @@ def _compile_stage3_graph(
             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
             typed_program=typed_program_snapshot if module_name == graph.entry_module_name else None,
+            expression_context=(
+                ExpressionCompileContext(
+                    function_catalog=function_catalog,
+                    typed_functions_by_name=combined_typed_functions,
+                    function_name_resolver=local_function_resolver,
+                    procedure_name_resolver=local_procedure_resolver,
+                    workflow_name_resolver=local_workflow_resolver,
+                )
+                if module_name == graph.entry_module_name
+                else None
+            ),
         )
         compiled_results_by_name[module_name] = result
         aggregate_diagnostics.extend(result.diagnostics)

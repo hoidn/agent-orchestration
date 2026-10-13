@@ -4,6 +4,7 @@ from .compile import compile_workflow
 from .explain import explain_workflow
 from .run import RunWorkflowResult
 from .run import run_workflow
+from .repl import repl_workflow
 from .prompt import prompt_workflow
 from .resume import resume_workflow
 from .report import report_workflow
@@ -28,6 +29,7 @@ __all__ = [
     'compile_workflow',
     'explain_workflow',
     'run_workflow',
+    'repl_workflow',
     'RunWorkflowResult',
     'prompt_workflow',
     'resume_workflow',

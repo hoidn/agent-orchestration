@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import logging
+import sys
 from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence
@@ -102,6 +103,7 @@ def execute_pure_run(
                 effect_handler=handle,
                 provider_io=provider_io,
                 run_id=run_id,
+                print_sink=sys.stdout,
             ).json_value()
         except Exception as exc:
             code = getattr(exc, "code", "evaluated_execution_failed")

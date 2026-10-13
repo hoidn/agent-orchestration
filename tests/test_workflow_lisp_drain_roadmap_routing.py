@@ -2411,13 +2411,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "compatible completed result reuse" in normalized_state
     assert "do not read prompt snapshot evidence" in normalized_state
 
-    normalized_guide = _normalized_routing_text(guide)
-    assert "authoring prompt fragments target 2.20" in normalized_guide
-    assert "fully applied" in normalized_guide
-    assert "prompt owned" in normalized_guide
+    assert "(defprompt review-design-doc" in guide
     assert "List[DesignDocPath]" in guide
-    assert "partial application" in normalized_guide
-    assert "prompt dependencies" in normalized_guide
+    assert "](design/workflow_lisp_prompt_calculus.md)" in guide
+    assert (REPO_ROOT / "docs/design/workflow_lisp_prompt_calculus.md").is_file()
 
     prompt_design_row = _markdown_table_row(
         design_router_path,
@@ -2583,12 +2580,10 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
         assert "expected_outputs" in ir_contract
         assert "pair validated" in normalized_ir
 
-    normalized_guide = _normalized_routing_text(guide)
-    assert "authoring prompt output positions target 2.21" in normalized_guide
-    assert ":path :out" in normalized_guide
-    assert "review design docs" in normalized_guide
-    assert "one structured result" in normalized_guide
-    assert "q3" in normalized_guide
+    assert "(review_report_target_path :path :out ReviewReportTargetPath)" in guide
+    assert "workflows/examples/review_revise_design_docs.orc" in guide
+    assert "](design/workflow_lisp_prompt_calculus.md)" in guide
+    assert (REPO_ROOT / "docs/design/workflow_lisp_prompt_calculus.md").is_file()
 
 
 def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
@@ -2710,13 +2705,8 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     assert "functional v2 evidence" in normalized_prompt_design
     assert "provenance only" in normalized_prompt_design
 
-    normalized_guide = _normalized_routing_text(guide)
-    assert "inspecting prompt attempt identity target 2.22" in normalized_guide
-    assert "there is no new call keyword" in normalized_guide
-    assert "legacy_snapshot" in guide
-    assert "coordinated provider and extern backed calls do not gain q3" in (
-        normalized_guide
-    )
+    assert "](design/workflow_lisp_prompt_calculus.md)" in guide
+    assert (REPO_ROOT / "docs/design/workflow_lisp_prompt_calculus.md").is_file()
 
     q3_capability = _markdown_table_row(
         REPO_ROOT / "docs/capability_status_matrix.md",

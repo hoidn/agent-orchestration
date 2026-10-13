@@ -95,6 +95,13 @@ Fresh preferred starting points:
   from another model family gives feedback, the planner revises, and the
   reviewer's model executes the revised plan. It is the README example and
   compiles with the command in its header.
+- For the same sequence with the design kept as a markdown file, read
+  `workflows/examples/design_review_execute.orc`: the planner drafts
+  `artifacts/design/<slug>.md`, the reviewer reads it through a `:doc` fill,
+  the planner writes the final `docs/design/<slug>.md`, and the executor
+  receives that file whole. The draft is never edited after the review reads
+  it, so `resume` can retry any step; the result JSON holds only typed
+  paths, findings and the execution receipt.
 - For a review loop, start with
   `workflows/examples/improve_experiment_proposal.orc`, which calls
   `std/improve`. For generate-and-select, or a review loop written by hand,

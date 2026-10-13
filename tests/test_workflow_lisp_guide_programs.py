@@ -1,22 +1,21 @@
-"""The programs of the drafting guide's section on program shapes, run through the public entry.
+"""Historical Workflow Lisp program-shape regression cases, run through the public entry.
 
-Guide: docs/lisp_workflow_drafting_guide.md, section "2A. Program Shapes: What Runs Today".
-Plan: docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md, Task 5.
+The original cases were introduced for the drafting guide's program-shapes section:
+`docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md`, Task 5. The fixtures remain
+useful historical coverage for target 2.29 and the 2.33/2.34 frontend, independent of current
+authoring guidance.
 
 Every program is a file of `tests/fixtures/workflow_lisp/guide_shapes/`. Each case runs one
-program at one target and asserts how it ends, as the guide states it:
+program at one target and asserts its recorded outcome:
 
 - `Runs`: exit 0, the workflow's value and the ordered command log;
 - `Refused`: exit 2 before any command ran, with the first diagnostic's code and location,
-  the stage that raised it (`STAGES`; the guide's label follows from it), and for the size
-  bound the node count and the limit that the diagnostic prints;
+  the stage that raised it (`STAGES`), and for the size bound the node count and the limit that
+  the diagnostic prints;
 - `FailsAtRunTime`: exit 1, the error code recorded in `state.json`, and the command log.
 
 A program is written at target 2.33; a case at another target rewrites that one header line.
 Commands are `probe.py`, which appends `<command> <n>` to `.orchestrate/guide-probe.log`.
-The guide quotes the programs; `test_every_quoted_program_is_part_of_its_fixture` finds every
-fenced block whose first line is a comment naming a fixture, requires the quote form, and
-checks that the block is lines of its fixture, so the quotes and the programs cannot drift.
 """
 
 from __future__ import annotations
@@ -35,7 +34,6 @@ from tests.test_workflow_lisp_totality_matrix import _record_diagnostic_origins
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = Path("tests/fixtures/workflow_lisp/guide_shapes")
-GUIDE = REPO / "docs" / "lisp_workflow_drafting_guide.md"
 HEADER = '(:target-dsl "2.33")'
 
 _DIAGNOSTIC = re.compile(r"\.orc:(\d+):(\d+): \[([a-z0-9_]+)\]")
@@ -294,7 +292,7 @@ EXIT_CODES = {Runs: 0, Refused: 2, FailsAtRunTime: 1}
     ("case", "target"),
     [pytest.param(case, target, id=f"{case}@{target}") for case, (_, _, by_target) in CASES.items() for target in by_target],
 )
-def test_guide_program_ends_as_the_guide_says(
+def test_historical_program_outcomes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, case: str, target: str
 ) -> None:
     program, inputs, by_target = CASES[case]
@@ -310,72 +308,3 @@ def test_every_fixture_program_has_a_case() -> None:
     programs = {path.stem for path in (REPO / SHAPES).glob("*.orc")}
 
     assert programs == {program for program, _, _ in CASES.values()}
-
-
-_OPENING = re.compile(r"\s*(```|~~~)")
-_NAMES_FIXTURE = re.compile(r"\s*(;+|#+|//+|--+).*guide_shapes/[\w.-]+\.orc")
-_QUOTE_HEADER = re.compile(r";; (tests/fixtures/workflow_lisp/guide_shapes/[a-z_]+\.orc)")
-
-
-def _fences(text: str) -> list[tuple[str, list[str]]]:
-    """Every fenced block of a Markdown text: its opening line and its lines."""
-
-    blocks, opening, body = [], None, []
-    for line in text.splitlines():
-        if opening is None:
-            if _OPENING.match(line):
-                opening, body = line, []
-        elif line.strip() and set(line.strip()) == {opening.strip()[0]} and len(line.strip()) >= 3:
-            blocks.append((opening, body))
-            opening = None
-        else:
-            body.append(line)
-    return blocks
-
-
-def _is_part_of(quote: list[str], program: str) -> bool:
-    """Each run of quoted lines between `...` lines is consecutive lines of the program, in order."""
-
-    lines = [line.strip() for line in program.splitlines()]
-    runs: list[list[str]] = [[]]
-    for line in quote:
-        if line.strip() == "...":
-            runs.append([])
-        else:
-            runs[-1].append(line.strip())
-    start = 0
-    for wanted in filter(None, runs):
-        found = next((i for i in range(start, len(lines) - len(wanted) + 1) if lines[i : i + len(wanted)] == wanted), None)
-        if found is None:
-            return False
-        start = found + len(wanted)
-    return True
-
-
-def _quote_faults(text: str) -> list[str]:
-    """The first line of each fence that names a fixture and is not a quote of its lines, in the quote form."""
-
-    faults = []
-    for opening, body in _fences(text):
-        if not body or not _NAMES_FIXTURE.match(body[0]):
-            continue
-        header = _QUOTE_HEADER.fullmatch(body[0])
-        fixture = REPO / header.group(1) if header else None
-        in_form = opening.strip() == "```lisp" and fixture is not None and fixture.is_file()
-        if not (in_form and _is_part_of(body[1:], fixture.read_text(encoding="utf-8"))):
-            faults.append(body[0])
-    return faults
-
-
-def test_every_quoted_program_is_part_of_its_fixture() -> None:
-    text = GUIDE.read_text(encoding="utf-8")
-
-    assert [body[0] for _, body in _fences(text) if body and _QUOTE_HEADER.fullmatch(body[0])], "no quote found"
-    assert _quote_faults(text) == []
-
-
-@pytest.mark.xfail(strict=True, reason="F43: fixture headers with invalid suffixes are silently skipped")
-@pytest.mark.parametrize("suffix", [".orx", ""])
-def test_fixture_quote_with_invalid_suffix_is_reported(suffix: str) -> None:
-    header = f";; tests/fixtures/workflow_lisp/guide_shapes/decimal_arithmetic{suffix}"
-    assert _quote_faults(f"```lisp\n{header}\n(not-a-fixture-line)\n```\n") == [header]

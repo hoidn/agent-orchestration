@@ -1629,6 +1629,7 @@ Supported operators are exact and closed:
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
 | List (target 2.18) | `list/empty?`, `list/head`, `list/rest`, `list/append`, `list/length` | eligible `List[T]`; `list/head` returns `Optional[T]` | All five operators are total; eligibility uses the shared whole-list transportability predicate. |
+| Observation (target 2.35) | `print` | one operand of any type `T` -> the same `T` | Writes the operand's canonical compact JSON and a newline to the process's stdout, then returns the operand unchanged. Never folded at compile time. Not an effect: it has no identity and no memo record. Only the run's own evaluation writes, so `resume` prints again what it re-evaluates; readers that replay the program (views, `report`, the REPL) evaluate `print` as the identity. |
 
 Deliberate exclusions stay enforced by typed diagnostics:
 
@@ -1636,7 +1637,7 @@ Deliberate exclusions stay enforced by typed diagnostics:
   target 2.34 only (numeric surface rule N1);
 - no path string concatenation;
 - no collection operators beyond the exact target-2.18 list surface;
-- no regex, time, IO, randomness, workflow calls, provider calls, or command execution;
+- no regex, time, randomness, workflow calls, provider calls, or command execution, and no IO beyond the stdout line `print` writes;
 - no proof creation from computed equality/comparison alone.
 
 ### 10.3 Target-2.18 Bounded List Traversal

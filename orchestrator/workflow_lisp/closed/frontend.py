@@ -24,6 +24,7 @@ from ..workflows import (
     ExternEnvironment,
     ProviderExtern,
     PromptExtern,
+    Stage3CompileResult,
     TypedWorkflowDef,
     WorkflowSignature,
 )
@@ -610,7 +611,7 @@ def typed_program_from_graph(
     )
 
 
-def compile_typed_program(
+def compile_typed_program_with_result(
     entry_path: Path,
     *,
     entry_workflow: str | None,
@@ -622,7 +623,7 @@ def compile_typed_program(
     imported_programs: Mapping[str, TypedProgram] | None = None,
     workspace_root: Path | None = None,
     source_read_trace: SourceReadTrace | None = None,
-) -> TypedProgram:
+) -> tuple[TypedProgram, Stage3CompileResult]:
     from .. import compiler
     from ..build import _select_entry_workflow_from_surface
     from ..build_artifacts import _source_file_digests_from_trace
@@ -713,12 +714,43 @@ def compile_typed_program(
         source_read_records=trace.records,
         source_revision_vector=trace.revision_vector,
     )
-    return replace(
+    typed_program = replace(
         program,
         entry=workflow,
         source_file_digests=digests,
         compile_diagnostics=result.diagnostics,
     )
+    return typed_program, result.entry_result
+
+
+def compile_typed_program(
+    entry_path: Path,
+    *,
+    entry_workflow: str | None,
+    source_roots: tuple[Path, ...],
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
+    provider_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None = None,
+    imported_workflow_bundles: Mapping[str, object] | None = None,
+    imported_programs: Mapping[str, TypedProgram] | None = None,
+    workspace_root: Path | None = None,
+    source_read_trace: SourceReadTrace | None = None,
+) -> TypedProgram:
+    """Compile an evaluated program, preserving the original public result."""
+
+    typed_program, _ = compile_typed_program_with_result(
+        entry_path,
+        entry_workflow=entry_workflow,
+        source_roots=source_roots,
+        command_boundaries=command_boundaries,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        imported_workflow_bundles=imported_workflow_bundles,
+        imported_programs=imported_programs,
+        workspace_root=workspace_root,
+        source_read_trace=source_read_trace,
+    )
+    return typed_program
 
 
 def _candidate_source_module(program, owned, candidate):

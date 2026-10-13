@@ -251,6 +251,13 @@ PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
             max_arity=1,
             min_schema_version=2,
         ),
+        "print": PureOperatorSpec(
+            name="print",
+            group="observation",
+            min_arity=1,
+            max_arity=1,
+            min_target_dsl_version="2.35",
+        ),
         "/": _numeric("/", lambda values: _nonzero_divisor(values)[0] / values[1], (_FLOAT_TO_FLOAT,)),
         "int/div": _numeric("int/div", lambda values: _nonzero_divisor(values)[0] // values[1], (_INT_TO_INT,)),
         "int/mod": _numeric("int/mod", lambda values: _nonzero_divisor(values)[0] % values[1], (_INT_TO_INT,)),
@@ -1665,6 +1672,9 @@ def _derive_static_operator_type(
     if spec is not None and spec.signatures:
         return _primitive_type(_require_signature(spec, arg_types).result)
 
+    if operator == "print":
+        return arg_types[0]
+
     if operator in {"=", "!="}:
         left_type, right_type = arg_types
         if _is_float_type(left_type) or _is_float_type(right_type):
@@ -2159,6 +2169,10 @@ def evaluate_pure_operator(
     if spec is not None and spec.signatures:
         signature = _require_signature(spec, arg_types)
         return _primitive_type(signature.result), _apply_operator(spec, arg_values)
+
+    if operator == "print":
+        # The value is the operand; the evaluated runtime's writer emits the line.
+        return arg_types[0], arg_values[0]
 
     if operator in {"=", "!="}:
         left_type, right_type = arg_types

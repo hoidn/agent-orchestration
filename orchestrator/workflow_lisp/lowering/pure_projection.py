@@ -1576,6 +1576,8 @@ def _infer_expr_type(
             return arg_types[0]
         if operator == "list/length":
             return PrimitiveTypeRef(name="Int")
+        if operator == "print":
+            return arg_types[0]
         raise TypeError(f"unsupported pure operator `{operator}`")
     if isinstance(expr, IfExpr):
         return _infer_expr_type(expr.then_expr, context=context, lexical_types=lexical_types)

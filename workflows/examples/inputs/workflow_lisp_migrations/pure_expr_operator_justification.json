@@ -134,5 +134,9 @@
   {
     "operator": "float/round",
     "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "print",
+    "fixture_path": "tests/test_workflow_lisp_print.py"
   }
 ]

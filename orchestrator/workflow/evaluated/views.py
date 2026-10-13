@@ -61,7 +61,7 @@ class _MissingCommit(Exception):
         self.identity = identity
 
 
-def _replay(authority, snapshot):
+def _replay(authority, snapshot, *, evaluate=evaluate_closed_program):
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     consumed = 0
 
@@ -78,7 +78,7 @@ def _replay(authority, snapshot):
         return _committed_value(authority, node, commit, identity)
 
     try:
-        value = evaluate_closed_program(
+        value = evaluate(
             authority.program, authority.header["bound_inputs"],
             effect_handler=handle, run_id=authority.header["run_id"],
         ).json_value()

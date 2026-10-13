@@ -286,8 +286,12 @@ orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
 orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
+orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
 ```
 
+- `repl` loads a module, launches its entry through public `run`, attaches
+  read-only to an evaluated run and evaluates pure expressions over captured
+  bindings; see [REPL commands and diagnostics](#workflow-lisp-repl-targets-235-and-236).
 - `compile` writes `.orchestrate/build/<build key>/closed_program.json` and
   `manifest.json` (`schema_version: closed-program-build/1`, with
   `build_key`, `program_digest`, `representation`, `target`, `entry_workflow`,
@@ -307,7 +311,9 @@ orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--ou
   `run_ref_root`. Provider stdout and stderr are streamed to the process's
   own stdout and stderr while each provider runs, by default; `--quiet`
   suppresses that stream (for `run` and `resume`), and `--stream-output` is
-  accepted without changing anything. Streaming does not change the bytes
+  accepted without changing anything. A `print` operator in the program
+  writes its JSON line to the same stdout during the attempt's own evaluation;
+  `--quiet` does not affect it, and readers never print. Streaming does not change the bytes
   captured in the attempt's `stdout.txt` and `stderr.txt`, nor the result
   file transport. The route does not read `--on-error`, `--max-retries`,
   `--retry-delay`, `--step-summaries`, the `--summary-*` and
@@ -487,6 +493,115 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
 | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals |
 | `parallel_workspace_shared` | a later release | — | Not raised |
+
+### Workflow Lisp REPL (targets 2.35 and 2.36)
+
+`repl` loads an evaluated Workflow Lisp module, attaches to a checked run and
+accepts pure expressions in the captured lexical environment. It uses the
+ordinary frontend and closed evaluator; it adds no source definitions,
+operator semantics or persistence format. Owners are
+`orchestrator/cli/commands/repl.py`, `orchestrator/workflow_lisp/repl_expr.py`
+and `orchestrator/workflow/evaluated/capture.py`; behavioral integration coverage
+is `tests/test_workflow_evaluated_repl.py`. See the
+[proposed design](../docs/design/workflow_lisp_repl.md) and
+[author recipe](../docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl).
+
+```text
+orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
+  [--provider-externs-file JSON] [--prompt-externs-file JSON]
+  [--imported-workflow-bundles-file JSON] [--command-boundaries-file JSON]
+  [--run-id RUN_ID] [--state-dir DIR]
+:load PATH [the same frontend flags]
+:run [--input NAME=VALUE ...] [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR]
+:attach RUN_ID
+:bindings
+:result
+:where [NAME]
+:help
+:quit
+```
+
+The frontend flags have the same meanings as `compile` and `run`. Startup
+loads `WORKFLOW` before attaching `--run-id`. `:load` publishes the ordinary
+closed-program build bundle; failed compilation reports ordinary rendered
+diagnostics and retains the previous module. `:run` requires a loaded module,
+uses public run option/input parsing and `run_workflow`, and forwards the
+session state directory unless the command overrides it. It attaches the
+returned run root after public execution releases its writer locks. This
+explicit command has ordinary run effects, lock ownership and evidence writes.
+
+`:attach` resolves `RUN_ID` under `.orchestrate/runs`, or the session's
+`--state-dir`, and reads checked `run.json`, `closed_program.json` and one
+`memo.jsonl` prefix through `WorkspaceFiles`. It uses stored bound inputs and
+ordinary memo reduction, replay commit checks and completed-terminal validation.
+It takes no writer lock, launches no effects and neither repairs/appends the
+memo nor publishes a derived view. `state.json` is not authority. Attachment
+captures a prefix, not a live subscription to a running writer.
+
+A loaded module's program digest must match the run. A mismatch reports
+`resume_program_changed` and clears attachment. Without a loaded module,
+attachment rebuilds the durable `resume_request` in memory using the ordinary
+resume build request and `prepare_closed_program_bundle`; no build artifact
+or cache is published. Missing recipe reports `resume_request_missing`, and
+changed fresh program reports `resume_program_changed`. Fresh input files are
+not rebound for inspection. A matching explicitly loaded module allows reading
+a historical run without a recipe. Ordinary checked-authority, memo and compile
+errors retain their codes.
+
+Expressions are one datum per input line and require attachment. Lexical
+shadowing chooses the innermost binding; compiler names beginning with `%`
+are hidden. Ordinary field/list operations and pure module `defun`/`defproc`
+calls are admitted. Equality `=` / `!=` retains the
+[ordinary frontend §10.2](../docs/design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)
+contract for supported scalars and same-type enums; lists do not gain deep
+equality semantics. Use the ordinary `list/empty?` operator to test list
+emptiness. The frontend rejects transitive effects; a recursive
+lowered-body guard and the evaluator with no effect callback also refuse
+`perform`. Synthesized runtime variant-case bindings may be displayed but do
+not supply frontend proof for expression evaluation. The session accepts no
+multiline expressions, definitions, interactive effects, resume command,
+module editing, completion/history or flat-profile attachment through 2.34.
+
+`:bindings` shows visible names/types in outer-frame order, capture position
+and run identity. `:result` prints the completed entry result with the entry's
+return type, including completion through a loop's `done`, or `repl_no_result`
+when stopped or failed. Its value is the ordinary evaluator's final return,
+not an incidental operand or loop-seed completion. `:where NAME` prints one
+stdout line: the absolute path of the result file the named binding was read
+from, under the attached run root; `:where` alone does the same for the entry
+result. A binding that was computed rather than performed reports
+`repl_no_result_file`; an unknown name reports `name_unknown`. Expression and result
+values use two stdout lines: canonical UTF-8 compact sorted-key JSON, then
+exactly `: <rendered type>`. REPL and runtime errors print `[code] detail`
+on stderr. Frontend errors retain ordinary localized `render_diagnostic`
+output, including diagnostic code and `kind`/`form` context. A prompt and
+readline are enabled only for a TTY; piped input receives no prompt.
+
+EOF and `:quit` exit `0`. A startup load/attach refusal exits `2`; an unexpected
+failure exits `1`. Expected command/expression errors keep the session usable
+and eventual normal EOF/quit still exits `0`. Failed ordinary commands retain
+compatible session state; digest mismatch leaves it detached. Read-only startup,
+attachment, bindings, result and pure/refused expressions leave run authority,
+memo, views and attempt evidence byte-identical; `:load` can publish only build
+artifacts. `:run` remains the explicit exception using public execution.
+
+| Diagnostic | Condition | Session/startup behavior | Run evidence |
+| --- | --- | --- | --- |
+| `repl_effect_refused` | Entered expression or called procedure has effects, or a lowered/evaluated `perform` is reached | Session continues | None |
+| `repl_run_not_found` | Requested run root does not exist | Session continues; startup exits 2 | None |
+| `repl_profile_unsupported` | Requested run uses the flat profile | Session continues; startup exits 2 | None |
+| `repl_not_attached` | Expression, `:bindings`, `:result` or `:where` without an attached run | Session continues | None |
+| `repl_module_required` | `:run` without a loaded module | Session continues | None |
+| `repl_expression_arity` | Expression line does not contain exactly one datum | Session continues | None |
+| `repl_no_result` | Attached replay has no halted entry result | Session continues | None |
+| `repl_no_result_file` | `:where` names a computed binding or an entry result that no effect produced | Session continues | None |
+| `repl_module_context_missing` | Module call needs unavailable transient compiler context | Session continues | None |
+
+Reused `name_unknown`, `resume_program_changed`, `resume_request_missing`,
+`memo_inconsistent` and ordinary frontend/value diagnostics retain their
+codes and the appropriate rendering above; session errors continue, startup
+errors exit `2`, with no inspection evidence writes. A public `:run` failure retains ordinary run
+behavior and any evidence that public execution legitimately wrote.
 
 ### Extended CLI Options
 

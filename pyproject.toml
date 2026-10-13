@@ -12,6 +12,9 @@ dependencies = [
     "PyYAML>=6.0.2,<7",
 ]
 
+[project.scripts]
+orchestrator = "orchestrator.cli.main:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
@@ -28,13 +28,18 @@ from .. import syntax
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EffectSummary
 from ..build import _iter_compiled_import_entries
+from ..workflows import Stage3CompileResult
 from ..reader import SourceReadTrace
 from .target import entry_target_dsl_version
 from .build import Builder, build_closed_program
 from .effects import require_command_closures
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .frontend import TypedProgram, compile_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION, SCHEMA
+from .frontend import (
+    TypedProgram,
+    compile_typed_program,
+    compile_typed_program_with_result,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,9 @@ class ClosedProgramBuildResult:
     provider_io: ProviderIOContext
     compile_diagnostics: tuple[LispFrontendDiagnostic, ...] | None
     entry_effect_summary: EffectSummary
+    typed_program: TypedProgram | None = field(default=None, compare=False, repr=False)
+    stage3: Stage3CompileResult | None = field(default=None, compare=False, repr=False)
+    builder: Builder | None = field(default=None, compare=False, repr=False)
 
 
 def closed_build_key(
@@ -117,7 +125,7 @@ def _prepare_closed_program_bundle(
         configuration_trace=configuration_trace,
     )
     trace = source_read_trace or SourceReadTrace()
-    typed = compile_typed_program(
+    typed, stage3 = compile_typed_program_with_result(
         resolved.source_path,
         entry_workflow=resolved.entry_workflow,
         source_roots=resolved.source_roots,
@@ -187,6 +195,9 @@ def _prepare_closed_program_bundle(
         provider_io=builder.provider_io.bind(read_back),
         compile_diagnostics=typed.compile_diagnostics,
         entry_effect_summary=typed.entry.effect_summary,
+        typed_program=typed,
+        stage3=stage3,
+        builder=builder,
     )
 
 
