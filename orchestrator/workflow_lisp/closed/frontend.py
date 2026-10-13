@@ -625,9 +625,6 @@ def compile_typed_program_with_result(
     source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[TypedProgram, Stage3CompileResult]:
     from .. import compiler
-    from ..build import _select_entry_workflow_from_surface
-    from ..build_artifacts import _source_file_digests_from_trace
-    from ..build_manifest_io import _cli_request_diagnostic
     from .target import _entry_target_header_from_tree
 
     trace = source_read_trace or SourceReadTrace()
@@ -664,63 +661,73 @@ def compile_typed_program_with_result(
         source_read_trace=trace,
         _standalone_entry_namespace=(None if source_syntax.module_name is not None else "entry"),
     )
-    entry_module_name = result.graph.entry_module_name
-    export_surface = result.graph.export_surfaces_by_name[entry_module_name]
-    entry_module = result.graph.modules_by_name[entry_module_name]
-    entry_workflow_names = {
-        workflow.definition.name for workflow in result.entry_result.typed_workflows
-    }
-    if source_syntax.module_name is None and entry_workflow is not None:
-        canonical_name = (
-            entry_workflow
-            if "::" in entry_workflow
-            else f"entry::{entry_workflow}"
-        )
-        if canonical_name not in entry_workflow_names:
-            raise LispFrontendCompileError(
-                (
-                    _cli_request_diagnostic(
-                        code="entry_workflow_unknown",
-                        message=f"entry workflow `{entry_workflow}` is not present in the typed program",
-                        path=entry_path,
-                    ),
-                )
-            )
-    else:
-        entry_selection = _select_entry_workflow_from_surface(
-            export_surface,
-            requested_name=entry_workflow,
-            available_names=entry_workflow_names,
-            source_path=entry_path,
-            entry_span=entry_module.syntax_module.span,
-        )
-        canonical_name = entry_selection.canonical_name
-    program = result.entry_result.typed_program
-    if not isinstance(program, TypedProgram):
-        raise RuntimeError("evaluated-entry compilation did not produce a TypedProgram")
-    workflow = program.workflows.get(canonical_name)
-    if workflow is None:
-        raise LispFrontendCompileError(
-            (
-                _cli_request_diagnostic(
-                    code="entry_workflow_unknown",
-                    message=f"entry workflow `{entry_workflow}` is not present in the typed program",
-                    path=entry_path,
-                ),
-            )
-        )
-    digests = _source_file_digests_from_trace(
-        compile_result=result,
-        source_read_records=trace.records,
-        source_revision_vector=trace.revision_vector,
-    )
-    typed_program = replace(
-        program,
-        entry=workflow,
-        source_file_digests=digests,
-        compile_diagnostics=result.diagnostics,
+    typed_program = _select_and_finalize_typed_program(
+        result.entry_result,
+        entry_path=entry_path,
+        entry_workflow=entry_workflow,
+        export_surface=result.graph.export_surfaces_by_name[result.graph.entry_module_name],
+        standalone_namespace=(None if source_syntax.module_name is not None else "entry"),
+        diagnostics=result.diagnostics,
     )
     return typed_program, result.entry_result
+
+
+def _select_and_finalize_typed_program(
+    result: Stage3CompileResult,
+    *,
+    entry_path: Path,
+    entry_workflow: str | None,
+    export_surface=None,
+    standalone_namespace: str | None = None,
+    diagnostics: tuple[LispFrontendDiagnostic, ...] | None = None,
+) -> TypedProgram:
+    """Select a typed workflow without admitting it as an executable entry."""
+
+    from ..build import _select_entry_workflow_from_surface
+    from ..build_manifest_io import _cli_request_diagnostic
+
+    available_names = {workflow.definition.name for workflow in result.typed_workflows}
+    if export_surface is not None and not (standalone_namespace and entry_workflow):
+        canonical_name = _select_entry_workflow_from_surface(
+            export_surface,
+            requested_name=entry_workflow,
+            available_names=available_names,
+            source_path=entry_path,
+            entry_span=result.module.span,
+        ).canonical_name
+    else:
+        local_names = {name.rsplit("::", 1)[-1]: name for name in available_names}
+        if standalone_namespace and entry_workflow:
+            canonical_name = (entry_workflow if "::" in entry_workflow
+                else f"{standalone_namespace}::{entry_workflow}")
+        elif entry_workflow:
+            canonical_name = local_names.get(entry_workflow, entry_workflow)
+        else:
+            exported = (local_names if result.module.module_name is None else
+                {name: local_names[name] for name in result.module.exports if name in local_names})
+            if len(exported) != 1:
+                raise LispFrontendCompileError((LispFrontendDiagnostic(
+                    code="entry_workflow_required",
+                    message="`--entry-workflow` is required when the entry module exports multiple workflows",
+                    span=result.module.span,
+                    form_path=("workflow-lisp",),
+                    phase="cli_request",
+                ),))
+            canonical_name = next(iter(exported.values()))
+    if canonical_name not in available_names:
+        raise LispFrontendCompileError((_cli_request_diagnostic(
+            code="entry_workflow_unknown",
+            message=f"entry workflow `{entry_workflow}` is not present in the typed program",
+            path=entry_path,
+        ),))
+    program = result.typed_program
+    if not isinstance(program, TypedProgram):
+        raise RuntimeError("typed compilation did not produce a TypedProgram")
+    return replace(
+        program,
+        entry=program.workflows[canonical_name],
+        compile_diagnostics=result.diagnostics if diagnostics is None else diagnostics,
+    )
 
 
 def compile_typed_program(

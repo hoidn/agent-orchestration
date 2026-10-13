@@ -759,11 +759,8 @@ def compile(prepared: Prepared):
             command_boundaries_path=commands_path,
             workspace_root=prepared.workspace_root,
         )
-        imported_bundles, imported_programs = _load_closed_imports(
+        imported_programs = _load_closed_imports(
             request,
-            provider_externs=prepared.providers,
-            prompt_externs=prepared.prompts,
-            command_boundaries=prepared.commands,
             configuration_trace=ConfigurationReadTrace(),
         )
     return compile_typed_program(

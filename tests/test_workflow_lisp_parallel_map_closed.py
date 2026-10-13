@@ -9,7 +9,9 @@ import pytest
 from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from tests.workflow_lisp_closed_program_helpers import build
-from tests.test_workflow_evaluated_provider_io import _stages, _typed, _checked, _calls
+from tests.test_workflow_evaluated_provider_io import CONFIG, PRODUCER, _checked, _calls
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from tests.test_workflow_lisp_parallel_map_wcc import MAP as WCC_MAP, COMMAND, source
 
 MAP = WCC_MAP.replace('(list "a" "b")', '(list "a" "b" "c" "d")')
@@ -135,7 +137,19 @@ def test_nested_map_and_loop_sites(tmp_path):
 
 
 def test_imported_provider_carrier_under_parallel_map(tmp_path):
-    _, imports = _stages(tmp_path)
+    original = tmp_path / "original" / "cp" / "producer.orc"
+    original.parent.mkdir(parents=True)
+    original.write_text(PRODUCER)
+    staged = compile_stage3_entrypoint(original, source_roots=(tmp_path / "original",),
+        workspace_root=tmp_path / "original", **CONFIG).entry_result.typed_program
+    staged = replace(staged, entry=staged.workflows["cp/producer::run"])
+    imports = {}
+    for side in ("left", "right"):
+        selected = tmp_path / side / "cp" / "producer.orc"
+        selected.parent.mkdir(parents=True)
+        selected.write_text(PRODUCER)
+        imports[side] = replace(staged, _io_source_paths={"cp/producer": selected})
+    original.unlink()
     text = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
       (defmodule main) (export run) (defrecord Box (n Int))
       (defworkflow worker ((input Box)) -> Box
@@ -143,7 +157,12 @@ def test_imported_provider_carrier_under_parallel_map(tmp_path):
       (defworkflow run ((input Box)) -> List[Box]
         (list/map-effect ((repo (list "a" "b"))) :max 4 :parallel 2 :workspace repo
           (call worker :input input))))'''
-    program, io = _checked(_typed(tmp_path, text, imports))
+    source_path = tmp_path / "main.orc"
+    source_path.write_text(text)
+    typed = compile_typed_program(source_path, entry_workflow="run",
+        source_roots=(tmp_path,), workspace_root=tmp_path,
+        imported_programs=imports, **CONFIG)
+    program, io = _checked(typed)
     outer, = _calls(program.tree['body'])
     assert 'par-map:repo[*]' in outer['frame']
     worker = io.call(program.tree['entry'], outer['frame'], io.entry)
@@ -151,7 +170,7 @@ def test_imported_provider_carrier_under_parallel_map(tmp_path):
     assert a['callee'] == b['callee']
     for call, side in ((a, 'left'), (b, 'right')):
         child = io.call(worker.owner, call['frame'], worker)
-        assert child.reader.workflow_path == imports[side].provenance.workflow_path
+        assert child.reader.workflow_path == imports[side]._io_source_paths["cp/producer"]
     with pytest.raises(ValueError, match='carrier does not match'):
         replace(io, calls={}).bind(program)
 

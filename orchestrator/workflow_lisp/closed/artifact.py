@@ -12,10 +12,9 @@ from orchestrator._common.io_atomic import atomic_write_text
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 
 from ..build import FrontendBuildRequest
-from ..build import _build_frontend_bundle_in_memory, _require_runnable_in_memory_build
+from ..build import _load_imported_workflow_bundle_manifest
 from ..build_manifest_io import (
     ConfigurationReadTrace,
-    _load_json_file,
     _json_data,
     _load_command_boundaries_manifest_payload,
     _load_prompt_extern_mapping,
@@ -24,20 +23,16 @@ from ..build_manifest_io import (
     _require_build_path_within_workspace,
     _resolve_request,
 )
-from .. import syntax
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EffectSummary
-from ..build import _iter_compiled_import_entries
 from ..workflows import Stage3CompileResult
 from ..reader import SourceReadTrace
-from .target import entry_target_dsl_version
 from .build import Builder, build_closed_program
 from .effects import require_command_closures
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION, SCHEMA
 from .frontend import (
     TypedProgram,
-    compile_typed_program,
     compile_typed_program_with_result,
 )
 
@@ -117,11 +112,8 @@ def _prepare_closed_program_bundle(
         command_boundaries,
         manifest_path=resolved.command_boundaries_path,
     )
-    bundles_by_binding, programs_by_binding = _load_closed_imports(
+    programs_by_binding = _load_closed_imports(
         resolved,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        command_boundaries=command_boundaries,
         configuration_trace=configuration_trace,
     )
     trace = source_read_trace or SourceReadTrace()
@@ -132,7 +124,6 @@ def _prepare_closed_program_bundle(
         command_boundaries=command_boundaries,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
-        imported_workflow_bundles=bundles_by_binding,
         imported_programs=programs_by_binding,
         workspace_root=resolved.workspace_root,
         source_read_trace=trace,
@@ -145,15 +136,7 @@ def _prepare_closed_program_bundle(
     program = build_closed_program(typed, builder=builder)
     entry_workflow = typed.entry.definition.name
     imported_contributions = {}
-    for binding_name in sorted(set(bundles_by_binding) | set(programs_by_binding)):
-        producer = programs_by_binding.get(binding_name)
-        if producer is None:
-            bundle = bundles_by_binding[binding_name]
-            producer = getattr(bundle, "typed_program", None)
-        if not isinstance(producer, TypedProgram):
-            raise RuntimeError(
-                f"compiled producer `{binding_name}` did not retain its typed source snapshot"
-            )
+    for binding_name, producer in sorted(programs_by_binding.items()):
         imported_contributions[binding_name] = _program_contribution(
             producer, builder=builder
         )
@@ -241,65 +224,20 @@ def build_closed_program_bundle(
 def _load_closed_imports(
     request: FrontendBuildRequest,
     *,
-    provider_externs: Mapping[str, str],
-    prompt_externs: Mapping[str, object],
-    command_boundaries: Mapping[str, object],
     configuration_trace: ConfigurationReadTrace,
-) -> tuple[dict[str, object], dict[str, TypedProgram]]:
-    manifest_path = request.imported_workflow_bundles_path
-    if manifest_path is None:
-        return {}, {}
-    payload = _load_json_file(
-        manifest_path,
-        label="imported workflow bundle manifest",
+) -> dict[str, TypedProgram]:
+    bindings = _load_imported_workflow_bundle_manifest(
+        request.imported_workflow_bundles_path,
+        workspace_root=request.workspace_root,
+        source_roots=request.source_roots,
+        provider_externs_path=request.provider_externs_path,
+        prompt_externs_path=request.prompt_externs_path,
+        command_boundaries_path=request.command_boundaries_path,
+        lowering_route=request.lowering_route,
+        source_read_trace=None,
         configuration_read_trace=configuration_trace,
     )
-    bundles: dict[str, object] = {}
-    programs: dict[str, TypedProgram] = {}
-    for binding_name, source_path, requested_entry in _iter_compiled_import_entries(
-        payload, manifest_path=manifest_path
-    ):
-        source_trace = SourceReadTrace()
-        try:
-            target = entry_target_dsl_version(
-                source_path, source_read_trace=source_trace
-            )
-        except (LispFrontendCompileError, OSError, UnicodeError):
-            target = None
-        if target is not None and syntax.target_dsl_uses_evaluated_execution(target):
-            program = compile_typed_program(
-                source_path,
-                entry_workflow=requested_entry,
-                source_roots=request.source_roots,
-                command_boundaries=command_boundaries,
-                provider_externs=provider_externs,
-                prompt_externs=prompt_externs,
-                workspace_root=request.workspace_root,
-                source_read_trace=source_trace,
-            )
-            programs[binding_name] = program
-            continue
-
-        producer_request = FrontendBuildRequest(
-            source_path=source_path,
-            source_roots=request.source_roots,
-            entry_workflow=requested_entry,
-            provider_externs_path=request.provider_externs_path,
-            prompt_externs_path=request.prompt_externs_path,
-            imported_workflow_bundles_path=None,
-            command_boundaries_path=request.command_boundaries_path,
-            workspace_root=request.workspace_root,
-            lint_profile=request.lint_profile,
-            lowering_route=request.lowering_route,
-        )
-        in_memory = _build_frontend_bundle_in_memory(
-            producer_request,
-            source_read_trace=source_trace,
-            configuration_read_trace=configuration_trace,
-        )
-        bundle, *_ = _require_runnable_in_memory_build(in_memory)
-        bundles[binding_name] = bundle
-    return bundles, programs
+    return {binding.canonical_key: binding.typed_program for binding in bindings}
 
 
 def _require_program_closures(

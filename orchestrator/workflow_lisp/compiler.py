@@ -785,13 +785,7 @@ def compile_stage3_entrypoint(
     compiler_session: CompilerSession | None = None,
     _standalone_entry_namespace: str | None = None,
 ) -> LinkedStage3CompileResult:
-    """Compile an entrypoint and imports through the executable frontend path.
-
-    The function resolves the module graph once, then runs macro expansion,
-    definition validation, procedure/workflow signature registration, expression
-    typechecking, effect inference, lowering to ordinary workflow dictionaries,
-    and optional shared validation for every reachable module.
-    """
+    """Compile an entrypoint and imports through typed frontend analysis."""
 
     compiler_session = compiler_session or CompilerSession()
     normalized_lowering_route = normalize_lowering_route(lowering_route)
@@ -865,44 +859,15 @@ def compile_stage3_entrypoint(
             source_read_records=source_read_trace.records,
             source_revision_vector=source_read_trace.revision_vector,
         )
-        typed_program = replace(
-            typed_program,
-            source_file_digests=source_file_digests,
-            _io_workflow_bundles=compile_result.validated_bundles_by_name,
-            _compiled_bundle_boundaries=_compiled_bundle_boundaries(
-                compile_result.validated_bundles_by_name
-            ),
-        )
-        frozen_bundles = _attach_typed_programs_to_source_bundles(
-            compile_result.validated_bundles_by_name,
-            typed_program,
-        )
+        typed_program = replace(typed_program, source_file_digests=source_file_digests)
         compiled_results_by_name = {
-            module_name: replace(
-                result,
-                typed_program=typed_program,
-                validated_bundles={
-                    name: frozen_bundles.get(name, bundle)
-                    for name, bundle in result.validated_bundles.items()
-                },
-            )
+            module_name: replace(result, typed_program=typed_program)
             for module_name, result in compile_result.compiled_results_by_name.items()
         }
-        entry_module_name = compile_result.graph.entry_module_name
-        entry_result = replace(
-            compile_result.entry_result,
-            typed_program=typed_program,
-            validated_bundles={
-                name: frozen_bundles.get(name, bundle)
-                for name, bundle in compile_result.entry_result.validated_bundles.items()
-            },
-        )
-        compiled_results_by_name[entry_module_name] = entry_result
         compile_result = replace(
             compile_result,
-            entry_result=entry_result,
+            entry_result=compiled_results_by_name[compile_result.graph.entry_module_name],
             compiled_results_by_name=compiled_results_by_name,
-            validated_bundles_by_name=frozen_bundles,
         )
     final_entry_result = replace(
         compile_result.entry_result,
@@ -938,7 +903,7 @@ def compile_stage3_module(
     source_read_trace: SourceReadTrace | None = None,
     compiler_session: CompilerSession | None = None,
 ) -> Stage3CompileResult:
-    """Compile one `.orc` file through the executable frontend pipeline."""
+    """Compile one `.orc` file through typed frontend analysis."""
 
     compiler_session = compiler_session or CompilerSession()
     normalized_lowering_route = normalize_lowering_route(lowering_route)
@@ -1189,20 +1154,8 @@ def compile_stage3_module(
                 source_read_records=source_read_trace.records,
                 source_revision_vector=source_read_trace.revision_vector,
             ),
-            _io_workflow_bundles=result.validated_bundles,
-            _compiled_bundle_boundaries=_compiled_bundle_boundaries(
-                result.validated_bundles
-            ),
         )
-        frozen_bundles = _attach_typed_programs_to_source_bundles(
-            result.validated_bundles,
-            typed_program,
-        )
-        result = replace(
-            result,
-            typed_program=typed_program,
-            validated_bundles=frozen_bundles,
-        )
+        result = replace(result, typed_program=typed_program)
     return result
 
 
@@ -1723,10 +1676,9 @@ def _run_stage3_entrypoint_validation_pipeline(
             ),
         )
     compile_result: LinkedStage3CompileResult | None = None
-    selected_workflow_name: str | None = None
 
     def frontend_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        nonlocal compile_result, selected_workflow_name
+        nonlocal compile_result
         compile_result = _compile_stage3_graph(
             graph,
             entry_workflow=entry_workflow,
@@ -1735,7 +1687,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             imported_workflow_bundles=imported_workflow_bundles,
             imported_programs=imported_programs,
             command_boundaries=command_boundaries,
-            validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
+            validation_profile=normalized_validation_profile,
             boundary_admission_profile=normalized_boundary_admission_profile,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
@@ -1744,123 +1696,17 @@ def _run_stage3_entrypoint_validation_pipeline(
             source_read_trace=source_read_trace,
             compiler_session=compiler_session,
         )
-        compile_result = replace(
-            compile_result,
-            entry_result=replace(
-                compile_result.entry_result,
-                validation_profile=normalized_validation_profile,
-            ),
-            validation_profile=normalized_validation_profile,
-        )
-        selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
-        return replace(
-            state,
-            module=compile_result.entry_result.module,
-            lowered_workflows=compile_result.entry_result.lowered_workflows,
-            validated_bundles=compile_result.entry_result.validated_bundles,
-        )
-
-    def source_map_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        del state
-        assert compile_result is not None
-        assert selected_workflow_name is not None
-        _validate_stage3_linked_source_map_lineage(
-            compile_result,
-            selected_name=selected_workflow_name,
-        )
-        return ValidationPipelineState(
-            module=compile_result.entry_result.module,
-            lowered_workflows=compile_result.entry_result.lowered_workflows,
-            validated_bundles=compile_result.entry_result.validated_bundles,
-        )
-
-    def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        nonlocal compile_result
-        if not _shared_validation_enabled(normalized_validation_profile):
-            return state
-        assert compile_result is not None
-        entry_module_source = compile_result.graph.modules_by_name.get(
-            compile_result.graph.entry_module_name
-        )
-        entry_target = (
-            entry_module_source.syntax_module.target_dsl_version
-            if entry_module_source is not None
-            else compile_result.entry_result.module.target_dsl_version
-        )
-        if target_dsl_uses_evaluated_execution(entry_target):
-            validated_bundles = {}
-        else:
-            validated_bundles = validate_lowered_workflows(
-                compile_result.entry_result.lowered_workflows,
-                workspace_root=workspace_root,
-                imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
-                validation_profile=normalized_validation_profile,
-            )
-        compile_result = replace(
-            compile_result,
-            entry_result=replace(
-                compile_result.entry_result,
-                validated_bundles=validated_bundles,
-            ),
-            validated_bundles_by_name={
-                **dict(compile_result.validated_bundles_by_name),
-                **validated_bundles,
-            },
-        )
-        return replace(state, validated_bundles=validated_bundles)
-
-    def executable_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        del state
-        assert compile_result is not None
-        assert selected_workflow_name is not None
-        _revalidate_stage3_executable_bundles(
-            compile_result.validated_bundles_by_name,
-            lowered_workflows_by_name=_linked_stage3_lowered_workflows_by_name(compile_result),
-        )
-        _validate_stage3_linked_source_map_lineage(
-            compile_result,
-            selected_name=selected_workflow_name,
-        )
-        return ValidationPipelineState(
-            module=compile_result.entry_result.module,
-            lowered_workflows=compile_result.entry_result.lowered_workflows,
-            validated_bundles=compile_result.entry_result.validated_bundles,
-        )
-
-    passes: list[ValidationPipelinePass] = [
-        ValidationPipelinePass(
-            pass_id="parse",
-            runner=frontend_pass,
-            covers_passes=VALIDATION_PASS_CATALOG[:10],
-            artifact_ready=lambda state: bool(state.lowered_workflows),
-            attach_metadata=False,
-        ),
-        ValidationPipelinePass(
-            pass_id="source_map",
-            runner=source_map_pass,
-            artifact_ready=lambda state: bool(state.lowered_workflows),
-        ),
-    ]
-    if _shared_validation_enabled(normalized_validation_profile):
-        passes.extend(
-            [
-                ValidationPipelinePass(
-                    pass_id="shared_validation",
-                    runner=shared_validation_pass,
-                    authority_layer="shared_validation",
-                    artifact_ready=lambda state: bool(state.validated_bundles),
-                ),
-                ValidationPipelinePass(
-                    pass_id="executable",
-                    runner=executable_pass,
-                    artifact_ready=lambda state: bool(state.validated_bundles),
-                ),
-            ]
-        )
+        return replace(state, module=compile_result.entry_result.module)
 
     _, results = run_validation_pipeline(
         ValidationPipelineState(),
-        tuple(passes),
+        (ValidationPipelinePass(
+            pass_id="parse",
+            runner=frontend_pass,
+            covers_passes=VALIDATION_PASS_CATALOG[:9],
+            artifact_ready=lambda state: state.module is not None,
+            attach_metadata=False,
+        ),),
         lint_profile=lint_profile,
     )
     return compile_result, results
@@ -2535,66 +2381,6 @@ def _run_stage3_validation_pipeline(
                 for procedure in state.typed_procedures
             },
         )
-        if closed_entry(state):
-            return replace(state, lowered_workflows=())
-        lowered_workflows = _lower_workflows_for_route(
-            compiler_session=compiler_session,
-            lowering_route=normalized_lowering_route,
-            typed_workflows=state.typed_workflows,
-            typed_procedures=state.typed_procedures,
-            available_workflows_by_name=None,
-            procedure_type_envs={
-                procedure.definition.name: state.type_env
-                for procedure in state.typed_procedures
-            },
-            workflow_type_envs=None,
-            procedure_catalog=state.procedure_catalog,
-            workflow_path=path,
-            workflow_catalog=state.workflow_catalog,
-            imported_workflow_bundles=effective_imported_workflow_bundles,
-            extern_environment=state.extern_environment,
-            command_boundary_environment=state.command_boundary_environment,
-            type_env=state.type_env,
-            target_dsl_version=state.module.target_dsl_version,
-            source_read_trace=source_read_trace,
-        )
-        return replace(state, lowered_workflows=lowered_workflows)
-
-    def source_map_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        if closed_entry(state):
-            return state
-        _validate_stage3_source_map_lineage(
-            state,
-            path=path,
-            include_executable_nodes=False,
-        )
-        return state
-
-    def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        if not _shared_validation_enabled(normalized_validation_profile):
-            return state
-        if closed_entry(state):
-            return replace(state, validated_bundles={})
-        validated_bundles = validate_lowered_workflows(
-            state.lowered_workflows,
-            workspace_root=workspace_root,
-            imported_workflow_bundles=effective_imported_workflow_bundles,
-            validation_profile=normalized_validation_profile,
-        )
-        return replace(state, validated_bundles=validated_bundles)
-
-    def executable_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        if closed_entry(state):
-            return state
-        _revalidate_stage3_executable_bundles(
-            state.validated_bundles,
-            lowered_workflows_by_name=_stage3_lowered_workflows_by_name(state.lowered_workflows),
-        )
-        _validate_stage3_source_map_lineage(
-            state,
-            path=path,
-            include_executable_nodes=True,
-        )
         return state
 
     passes: list[ValidationPipelinePass] = [
@@ -2632,28 +2418,7 @@ def _run_stage3_validation_pipeline(
             runner=lowering_surface_pass,
             artifact_ready=lambda state: bool(state.lowered_workflows),
         ),
-        ValidationPipelinePass(
-            pass_id="source_map",
-            runner=source_map_pass,
-            artifact_ready=lambda state: bool(state.lowered_workflows),
-        ),
     ]
-    if _shared_validation_enabled(normalized_validation_profile):
-        passes.extend(
-            [
-                ValidationPipelinePass(
-                    pass_id="shared_validation",
-                    runner=shared_validation_pass,
-                    authority_layer="shared_validation",
-                    artifact_ready=lambda state: bool(state.validated_bundles),
-                ),
-                ValidationPipelinePass(
-                    pass_id="executable",
-                    runner=executable_pass,
-                    artifact_ready=lambda state: bool(state.validated_bundles),
-                ),
-            ]
-        )
     return run_validation_pipeline(
         ValidationPipelineState(),
         tuple(passes),
@@ -3705,47 +3470,8 @@ def _compile_stage3_graph(
             module_type_envs=module_type_envs,
             base_procedures_by_name=resolved_procedures_by_name,
         )
-        if closed_entry:
-            lowered_workflows = ()
-        else:
-            lowered_workflows = _lower_workflows_for_route(
-                compiler_session=compiler_session,
-                lowering_route=normalized_lowering_route,
-                typed_workflows=typed_workflows,
-                typed_procedures=resolved_combined_procedures,
-                available_workflows_by_name=typed_workflows_by_name,
-                procedure_type_envs=combined_procedure_type_envs,
-                workflow_type_envs=workflow_type_envs_by_name,
-                procedure_catalog=procedure_catalog,
-                workflow_path=module_source.path,
-                workflow_catalog=lowering_workflow_catalog,
-                imported_workflow_bundles=effective_imported_bundles,
-                extern_environment=extern_environment,
-                command_boundary_environment=command_boundary_environment,
-                type_env=type_env,
-                target_dsl_version=module_source.syntax_module.target_dsl_version,
-                source_read_trace=source_read_trace,
-            )
-        requires_internal_bundle_validation = (
-            normalized_validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE
-            and module_name != graph.entry_module_name
-            and bool(export_surfaces[module_name].workflows_by_name)
-        )
-        validated_exports: Mapping[str, LoadedWorkflowBundle]
-        if closed_entry:
-            validated_exports = {}
-        elif (
-            normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
-            or requires_internal_bundle_validation
-        ):
-            validated_exports = validate_lowered_workflows(
-                lowered_workflows,
-                workspace_root=workspace_root,
-                imported_workflow_bundles=effective_imported_bundles,
-                validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
-            )
-        else:
-            validated_exports = {}
+        lowered_workflows = ()
+        validated_exports: Mapping[str, LoadedWorkflowBundle] = {}
         diagnostics = _collect_stage3_required_lint_diagnostics(
             typed_workflows,
             lowering_route=normalized_lowering_route,

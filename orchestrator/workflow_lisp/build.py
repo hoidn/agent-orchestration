@@ -7,6 +7,7 @@ import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 from types import MappingProxyType
 
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
@@ -79,18 +80,22 @@ from .compiler import (
     WorkflowBoundaryAdmissionProfile,
     _normalize_workflow_boundary_admission_profile,
     compile_stage3_entrypoint,
+    compile_stage3_module,
 )
 from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .lints import LINT_PROFILE_DEFAULT
-from .reader import SourceReadRecord, SourceReadTrace
+from .reader import SourceReadRecord, SourceReadTrace, read_sexpr_file
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
 from .wcc.route import LoweringRoute, normalize_lowering_route
 from .closed.target import (
-    refuse_compiled_target_at_evaluated_execution_target,
     refuse_compiled_retired_entry_target,
     refuse_retired_entry_target,
 )
+
+
+if TYPE_CHECKING:
+    from .closed.frontend import TypedProgram
 
 
 # Artifact helpers remain re-exported from this historical module boundary so
@@ -163,7 +168,7 @@ class FrontendCompileRequestCapture:
         str,
         ExternalToolBinding | CertifiedAdapterBinding,
     ]
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle]
+    imported_workflow_bundles: Mapping[str, "TypedProgram"]
 
 
 @dataclass(frozen=True)
@@ -182,7 +187,7 @@ class FrontendEntrySelection:
 
 @dataclass(frozen=True)
 class ImportedWorkflowBundleBinding:
-    """One existing workflow bundle linked into Lisp as a callable boundary.
+    """One selected typed producer linked into Lisp as a callable boundary.
 
     Each binding is compiled from an explicit `.orc` source before linking.
     """
@@ -192,10 +197,8 @@ class ImportedWorkflowBundleBinding:
     resolved_bundle_path: Path
     bundle_kind: str
     workflow_name: str | None
-    bundle_fingerprint: str | None
     load_status: str
-    bundle: LoadedWorkflowBundle
-    bundle_catalog: Mapping[str, LoadedWorkflowBundle]
+    typed_program: "TypedProgram"
 
 
 @dataclass(frozen=True)
@@ -317,26 +320,14 @@ class FrontendInitializationConfiguration:
 
 @dataclass(frozen=True)
 class FrontendInMemoryBuildResult:
-    """Read-only value prefix shared by persistent builds and LSP consumers."""
+    """Read-only typed analysis with exact source and configuration evidence."""
 
-    build_root: Path | None
-    manifest_path: Path | None
     resolved_request: FrontendBuildRequest
     selected_workflow_name: str | None
-    validated_bundle: LoadedWorkflowBundle | None
-    run_ref_bundle_capsule: EncodedBundleCapsule | None
     diagnostics: tuple[LispFrontendDiagnostic, ...]
     entry_selection: FrontendEntrySelection | None
     imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
     compile_result: LinkedStage3CompileResult
-    fingerprint: str | None
-    source_map_payload: Mapping[str, object] | None
-    workflow_boundary_projection_payload: Mapping[str, object] | None
-    persisted_surface_payload: Mapping[str, object] | None
-    semantic_ir_payload: Mapping[str, object] | None
-    core_workflow_ast_payload: Mapping[str, object] | None
-    executable_ir_payload: Mapping[str, object] | None
-    runtime_plan_payload: Mapping[str, object] | None
     source_read_trace: FrontendSourceReadTraceSnapshot
     configuration_trace: FrontendConfigurationTraceSnapshot
     compile_request_capture: FrontendCompileRequestCapture
@@ -429,10 +420,7 @@ def load_frontend_initialization_configuration(
             command_boundary_manifest
         ),
         command_boundaries=_freeze_command_boundaries(command_boundaries),
-        imported_workflow_bundles=tuple(
-            _freeze_imported_workflow_binding(binding)
-            for binding in imported_workflow_bundles
-        ),
+        imported_workflow_bundles=imported_workflow_bundles,
         source_read_trace=FrontendSourceReadTraceSnapshot(
             records=source_read_trace.records,
             revision_vector=source_read_trace.revision_vector,
@@ -491,110 +479,6 @@ def _freeze_command_boundaries(
     )
 
 
-def _freeze_imported_workflow_bundle(
-    bundle: LoadedWorkflowBundle,
-    *,
-    imports: Mapping[str, LoadedWorkflowBundle],
-) -> LoadedWorkflowBundle:
-    """Freeze one catalog bundle and its reproduced provenance payload."""
-
-    coverage = bundle.provenance.frontend_source_map_coverage
-    provenance = (
-        bundle.provenance
-        if coverage is None
-        else replace(
-            bundle.provenance,
-            frontend_source_map_coverage=_freeze_configuration_mapping(coverage),
-        )
-    )
-    surface = (
-        replace(bundle.surface, provenance=provenance)
-        if bundle.surface.provenance is bundle.provenance
-        else bundle.surface
-    )
-    core_workflow_ast = bundle.core_workflow_ast
-    retained_surface = core_workflow_ast._surface_workflow
-    if (
-        retained_surface is not None
-        and retained_surface.provenance is bundle.provenance
-    ):
-        core_workflow_ast = replace(
-            core_workflow_ast,
-            _surface_workflow=replace(
-                retained_surface,
-                provenance=provenance,
-            ),
-        )
-    if core_workflow_ast.provenance is bundle.provenance:
-        core_workflow_ast = replace(
-            core_workflow_ast,
-            provenance=provenance,
-        )
-    executable_ir = (
-        replace(bundle.ir, provenance=provenance)
-        if bundle.ir.provenance is bundle.provenance
-        else bundle.ir
-    )
-    return replace(
-        bundle,
-        surface=surface,
-        core_workflow_ast=core_workflow_ast,
-        ir=executable_ir,
-        imports=imports,
-        provenance=provenance,
-    )
-
-
-def _freeze_imported_bundle_catalog(
-    bundle_catalog: Mapping[str, LoadedWorkflowBundle],
-) -> Mapping[str, LoadedWorkflowBundle]:
-    """Rebuild one canonical catalog with shared immutable import identities."""
-
-    source_catalog = dict(bundle_catalog)
-    import_storage_by_name: dict[str, dict[str, LoadedWorkflowBundle]] = {
-        canonical_name: {} for canonical_name in source_catalog
-    }
-    frozen_by_name: dict[str, LoadedWorkflowBundle] = {}
-
-    for canonical_name in sorted(source_catalog):
-        frozen_by_name[canonical_name] = _freeze_imported_workflow_bundle(
-            source_catalog[canonical_name],
-            imports=MappingProxyType(import_storage_by_name[canonical_name]),
-        )
-    for canonical_name in sorted(source_catalog):
-        import_storage = import_storage_by_name[canonical_name]
-        for alias, imported_bundle in source_catalog[canonical_name].imports.items():
-            imported_name = imported_bundle.surface.name
-            import_storage[alias] = frozen_by_name.get(
-                imported_name,
-                imported_bundle,
-            )
-    return MappingProxyType(
-        {
-            canonical_name: frozen_by_name[canonical_name]
-            for canonical_name in sorted(frozen_by_name)
-        }
-    )
-
-
-def _freeze_imported_workflow_binding(
-    binding: ImportedWorkflowBundleBinding,
-) -> ImportedWorkflowBundleBinding:
-    """Freeze a retained bundle catalog while preserving canonical identity."""
-
-    bundle_catalog = _freeze_imported_bundle_catalog(binding.bundle_catalog)
-    workflow_name = binding.workflow_name
-    if workflow_name is None or workflow_name not in bundle_catalog:
-        raise RuntimeError(
-            "compiled imported workflow is missing from its bundle catalog"
-        )
-    return replace(
-        binding,
-        bundle=bundle_catalog[workflow_name],
-        bundle_catalog=bundle_catalog,
-    )
-
-
 def _flatten_compiled_bundle_catalog(
     compile_result: LinkedStage3CompileResult,
 ) -> Mapping[str, LoadedWorkflowBundle]:
@@ -642,10 +526,7 @@ def _capture_frontend_compile_request(
 ]:
     """Copy and freeze the exact values that the production compiler consumes."""
 
-    frozen_imported_bindings = tuple(
-        _freeze_imported_workflow_binding(binding)
-        for binding in imported_bindings
-    )
+    frozen_imported_bindings = imported_bindings
     return (
         FrontendCompileRequestCapture(
             source_path=resolved_request.source_path,
@@ -667,7 +548,7 @@ def _capture_frontend_compile_request(
             command_boundaries=_freeze_command_boundaries(command_boundaries),
             imported_workflow_bundles=MappingProxyType(
                 {
-                    binding.canonical_key: binding.bundle
+                    binding.canonical_key: binding.typed_program
                     for binding in frozen_imported_bindings
                 }
             ),
@@ -709,6 +590,7 @@ def build_frontend_bundle(
     build_root) -> `_emit` (artifact/manifest writes + result construction).
     """
 
+    request = _resolve_request(request)
     refuse_retired_entry_target(request.source_path, source_read_trace=source_read_trace)
     in_memory = build_frontend_bundle_in_memory(
         request, source_read_trace=source_read_trace
@@ -760,7 +642,7 @@ def build_frontend_bundle_in_memory(
     *,
     source_read_trace: SourceReadTrace | None = None,
 ) -> FrontendInMemoryBuildResult:
-    """Compile, select, and reattach one entry workflow without emitting files."""
+    """Analyze one source graph with exact configuration and source evidence."""
 
     configuration_read_trace = ConfigurationReadTrace()
     try:
@@ -925,72 +807,13 @@ def _build_frontend_bundle_in_memory(
         records=configuration_read_trace.records,
         revision_vector=configuration_read_trace.revision_vector,
     )
-    if entry_selection is None:
-        return FrontendInMemoryBuildResult(
-            build_root=None,
-            manifest_path=None,
-            resolved_request=resolved_request,
-            selected_workflow_name=None,
-            validated_bundle=None,
-            run_ref_bundle_capsule=None,
-            diagnostics=compile_result.diagnostics,
-            entry_selection=None,
-            imported_workflow_bundles=imported_bindings,
-            compile_result=compile_result,
-            fingerprint=None,
-            source_map_payload=None,
-            workflow_boundary_projection_payload=None,
-            persisted_surface_payload=None,
-            semantic_ir_payload=None,
-            core_workflow_ast_payload=None,
-            executable_ir_payload=None,
-            runtime_plan_payload=None,
-            source_read_trace=source_read_snapshot,
-            configuration_trace=configuration_snapshot,
-            compile_request_capture=compile_request_capture,
-        )
-    try:
-        reattached = _select_and_reattach(
-            compile_result,
-            entry_selection,
-            resolved_request=resolved_request,
-            imported_bindings=imported_bindings,
-            provider_externs=compile_request_capture.provider_externs,
-            prompt_externs=compile_request_capture.prompt_externs,
-            command_boundary_manifest=command_boundary_manifest,
-            source_read_trace=source_read_snapshot,
-        )
-    except LispFrontendCompileError as error:
-        _attach_compile_request_capture(error, compile_request_capture)
-        raise
-    semantic_ir_payload = workflow_semantic_ir_to_json(reattached.validated_bundle.semantic_ir)
-    core_workflow_ast_payload = workflow_core_ast_to_json(
-        reattached.validated_bundle.core_workflow_ast
-    )
-    executable_ir_payload = workflow_executable_ir_to_json(reattached.validated_bundle.ir)
-    runtime_plan_payload = _public_runtime_plan_payload(
-        reattached.validated_bundle.runtime_plan
-    )
-
     return FrontendInMemoryBuildResult(
-        build_root=reattached.build_root,
-        manifest_path=reattached.build_root / "manifest.json",
         resolved_request=resolved_request,
-        selected_workflow_name=entry_selection.selected_name,
-        validated_bundle=reattached.validated_bundle,
-        run_ref_bundle_capsule=reattached.run_ref_bundle_capsule,
+        selected_workflow_name=(entry_selection.selected_name if entry_selection else None),
         diagnostics=compile_result.diagnostics,
         entry_selection=entry_selection,
         imported_workflow_bundles=imported_bindings,
         compile_result=compile_result,
-        fingerprint=reattached.fingerprint,
-        source_map_payload=reattached.source_map_payload,
-        workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
-        persisted_surface_payload=reattached.persisted_surface_payload,
-        semantic_ir_payload=semantic_ir_payload,
-        core_workflow_ast_payload=core_workflow_ast_payload,
-        executable_ir_payload=executable_ir_payload,
-        runtime_plan_payload=runtime_plan_payload,
         source_read_trace=source_read_snapshot,
         configuration_trace=configuration_snapshot,
         compile_request_capture=compile_request_capture,
@@ -1067,9 +890,7 @@ def _compile_entry(
         entry_workflow=compile_request_capture.entry_workflow,
         provider_externs=compile_request_capture.provider_externs,
         prompt_externs=compile_request_capture.prompt_externs,
-        imported_workflow_bundles=(
-            compile_request_capture.imported_workflow_bundles
-        ),
+        imported_programs=compile_request_capture.imported_workflow_bundles,
         command_boundaries=compile_request_capture.command_boundaries,
         validation_profile=compile_request_capture.validation_profile,
         boundary_admission_profile=(
@@ -1080,15 +901,6 @@ def _compile_entry(
         lowering_route=compile_request_capture.lowering_route,
         source_read_trace=active_source_read_trace,
         compiler_session=compiler_session,
-    )
-
-    entry_module_source = compile_result.graph.modules_by_name[
-        compile_result.graph.entry_module_name
-    ]
-    refuse_compiled_target_at_evaluated_execution_target(
-        entry_module_source.path,
-        entry_module_source.syntax_module.target_dsl_version,
-        active_source_read_trace.raw_bytes_by_path,
     )
 
     export_surface = compile_result.graph.export_surfaces_by_name[
@@ -1582,7 +1394,7 @@ def _load_imported_workflow_bundle_manifest(
     source_read_trace: SourceReadTrace | None,
     configuration_read_trace: ConfigurationReadTrace,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
-    """Internal imported-bundle loader sharing one configuration trace."""
+    """Load selected typed producers while sharing configuration evidence."""
 
     if manifest_path is None:
         return ()
@@ -1598,66 +1410,61 @@ def _load_imported_workflow_bundle_manifest(
         raw_entry = payload[canonical_key]
         raw_path = raw_entry["path"]
         bundle_kind = raw_entry["kind"]
-        compiled_result = _build_frontend_bundle_in_memory(
-            FrontendBuildRequest(
-                source_path=resolved_bundle_path,
-                source_roots=source_roots,
-                entry_workflow=requested_entry,
-                provider_externs_path=provider_externs_path,
-                prompt_externs_path=prompt_externs_path,
-                imported_workflow_bundles_path=None,
-                command_boundaries_path=command_boundaries_path,
-                emit_debug_yaml=False,
-                workspace_root=workspace_root,
-                lowering_route=lowering_route,
-            ),
-            source_read_trace=source_read_trace,
+        from .closed.frontend import _select_and_finalize_typed_program
+
+        provider_externs = _load_string_mapping(
+            provider_externs_path, label="provider externs manifest",
             configuration_read_trace=configuration_read_trace,
         )
-        try:
-            (
-                bundle,
-                _,
-                _,
-                bundle_fingerprint,
-                _,
-                _,
-                _,
-                _,
-                _,
-            ) = _require_runnable_in_memory_build(compiled_result)
-        except LispFrontendCompileError as error:
-            _attach_compile_request_capture(
-                error,
-                compiled_result.compile_request_capture,
-            )
-            raise
-        workflow_name = compiled_result.selected_workflow_name
-        if workflow_name is None:
-            raise RuntimeError("compiled imported workflow is missing its selected name")
-        bundle_catalog = dict(
-            _flatten_compiled_bundle_catalog(compiled_result.compile_result)
+        prompt_externs = _load_prompt_extern_mapping(
+            prompt_externs_path, configuration_read_trace=configuration_read_trace,
         )
-        if workflow_name not in bundle_catalog:
-            raise RuntimeError(
-                "compiled imported workflow is missing from its bundle catalog"
-            )
-        bundle_catalog[workflow_name] = bundle
-        frozen_bundle_catalog = _freeze_imported_bundle_catalog(bundle_catalog)
-        load_status = "compiled"
-        bindings.append(
-            ImportedWorkflowBundleBinding(
-                canonical_key=canonical_key,
-                manifest_entry_path=raw_path,
-                resolved_bundle_path=resolved_bundle_path,
-                bundle_kind=bundle_kind,
-                workflow_name=workflow_name,
-                bundle_fingerprint=bundle_fingerprint,
-                load_status=load_status,
-                bundle=frozen_bundle_catalog[workflow_name],
-                bundle_catalog=frozen_bundle_catalog,
-            )
+        command_manifest = _load_command_boundaries_manifest_payload(
+            command_boundaries_path, configuration_read_trace=configuration_read_trace,
         )
+        boundaries = _parse_command_boundaries_manifest(
+            command_manifest, manifest_path=command_boundaries_path,
+        )
+        from .syntax import build_syntax_module
+
+        trace = source_read_trace if source_read_trace is not None else SourceReadTrace()
+        source_syntax = build_syntax_module(read_sexpr_file(
+            resolved_bundle_path, source_read_trace=trace,
+        ))
+        compile_kwargs = dict(
+            entry_workflow=requested_entry,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            command_boundaries=boundaries,
+            workspace_root=workspace_root,
+            lowering_route=lowering_route,
+            validate_shared=True,
+            source_read_trace=trace,
+        )
+        if source_syntax.module_name is not None:
+            linked = compile_stage3_entrypoint(
+                resolved_bundle_path, source_roots=source_roots, **compile_kwargs,
+            )
+            program = _select_and_finalize_typed_program(
+                linked.entry_result, entry_path=resolved_bundle_path,
+                entry_workflow=requested_entry,
+                export_surface=linked.graph.export_surfaces_by_name[linked.graph.entry_module_name],
+                diagnostics=linked.diagnostics,
+            )
+        else:
+            result = compile_stage3_module(resolved_bundle_path, **compile_kwargs)
+            program = _select_and_finalize_typed_program(
+                result, entry_path=resolved_bundle_path, entry_workflow=requested_entry,
+            )
+        bindings.append(ImportedWorkflowBundleBinding(
+            canonical_key=canonical_key,
+            manifest_entry_path=raw_path,
+            resolved_bundle_path=resolved_bundle_path,
+            bundle_kind=bundle_kind,
+            workflow_name=program.entry.definition.name,
+            load_status="compiled",
+            typed_program=program,
+        ))
     return tuple(bindings)
 
 
@@ -1674,7 +1481,7 @@ def _select_entry_workflow(
     return _select_entry_workflow_from_surface(
         export_surface,
         requested_name=requested_name,
-        available_names=compile_result.entry_result.validated_bundles,
+        available_names={workflow.definition.name for workflow in compile_result.entry_result.typed_workflows},
         source_path=source_path,
         entry_span=entry_module.syntax_module.span,
     )

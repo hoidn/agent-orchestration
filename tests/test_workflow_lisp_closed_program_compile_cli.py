@@ -412,7 +412,7 @@ def test_malformed_target_peek_keeps_duplicate_export_diagnostic_precedence(
     assert diagnostic["code"] == "artifact_export_requested_multiple_times"
 
 
-def test_compile_requires_closures_at_the_command_manifest_and_keeps_234_compatibility(
+def test_compile_requires_closures_and_refuses_retired_entries(
     tmp_path: Path,
 ) -> None:
     files = _write_workspace(tmp_path)
@@ -431,8 +431,15 @@ def test_compile_requires_closures_at_the_command_manifest_and_keeps_234_compati
     legacy_manifest = json.loads(legacy["commands"].read_text())
     legacy_manifest["probe_revise"].pop("closure")
     legacy["commands"].write_text(json.dumps(legacy_manifest))
+    before = {path.relative_to(legacy["workspace"]): path.read_bytes()
+        for path in legacy["workspace"].rglob("*") if path.is_file()}
     legacy_completed = _compile(legacy)
-    assert legacy_completed.returncode == 0, legacy_completed.stderr
+    assert legacy_completed.returncode == 2
+    assert "workflow_execution_target_retired" in legacy_completed.stderr
+    after = {path.relative_to(legacy["workspace"]): path.read_bytes()
+        for path in legacy["workspace"].rglob("*") if path.is_file()}
+    assert before == after
+    assert not (legacy["workspace"] / ".orchestrate").exists()
 
 
 @pytest.mark.parametrize("entry", [None, "run", "entry::run"])
@@ -971,9 +978,11 @@ def test_imported_producer_key_uses_the_consumed_source_snapshot(
 ) -> None:
     from orchestrator.workflow_lisp.closed import artifact as artifact_module
 
+    from orchestrator.workflow_lisp.closed import frontend as frontend_module
+
     files = _write_transitive_import_workspace(tmp_path)
     original_helper = files["helper"].read_bytes()
-    original_compile = artifact_module.compile_typed_program
+    original_compile = frontend_module._select_and_finalize_typed_program
     changed = False
 
     def compile_then_edit(*args, **kwargs):
@@ -984,9 +993,9 @@ def test_imported_producer_key_uses_the_consumed_source_snapshot(
             changed = True
         return typed
 
-    monkeypatch.setattr(artifact_module, "compile_typed_program", compile_then_edit)
+    monkeypatch.setattr(frontend_module, "_select_and_finalize_typed_program", compile_then_edit)
     first = artifact_module.build_closed_program_bundle(_build_request(files))
-    monkeypatch.setattr(artifact_module, "compile_typed_program", original_compile)
+    monkeypatch.setattr(frontend_module, "_select_and_finalize_typed_program", original_compile)
     second = artifact_module.build_closed_program_bundle(_build_request(files))
 
     assert changed
@@ -1165,7 +1174,7 @@ def test_recursive_imported_snapshot_contributions_include_leaf_module_identity(
         return original_key(**kwargs)
 
     def retain_middle(_request, **_kwargs):
-        return {}, {"selected-run": middle}
+        return {"selected-run": middle}
 
     monkeypatch.setattr(artifact_module, "closed_build_key", record_recipe)
     monkeypatch.setattr(artifact_module, "_load_closed_imports", retain_middle)
@@ -1226,20 +1235,21 @@ def test_imported_producer_peek_and_compile_share_a_separate_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
 ) -> None:
     from orchestrator.workflow_lisp.closed import artifact as artifact_module
+    from orchestrator.workflow_lisp import build as build_module
     from orchestrator.workflow_lisp.reader import SourceReadTrace
 
     files = _write_import_workspace(tmp_path, producer_target)
     producer = files["source_root"] / "producer" / "entry.orc"
     consumer_trace = SourceReadTrace()
     producer_traces: list[SourceReadTrace] = []
-    trace_class = artifact_module.SourceReadTrace
+    trace_class = build_module.SourceReadTrace
 
     def make_producer_trace() -> SourceReadTrace:
         trace = trace_class()
         producer_traces.append(trace)
         return trace
 
-    original_peek = artifact_module.entry_target_dsl_version
+    original_peek = build_module.read_sexpr_file
     changed = False
 
     def peek_then_edit(path: Path, *, source_read_trace: SourceReadTrace | None = None):
@@ -1250,8 +1260,8 @@ def test_imported_producer_peek_and_compile_share_a_separate_trace(
             changed = True
         return version
 
-    monkeypatch.setattr(artifact_module, "SourceReadTrace", make_producer_trace)
-    monkeypatch.setattr(artifact_module, "entry_target_dsl_version", peek_then_edit)
+    monkeypatch.setattr(build_module, "SourceReadTrace", make_producer_trace)
+    monkeypatch.setattr(build_module, "read_sexpr_file", peek_then_edit)
 
     with pytest.raises(RuntimeError, match="changed during one compiler read trace"):
         artifact_module.build_closed_program_bundle(

@@ -29,7 +29,7 @@ Concurrent dirty main changes remain outside W and are preserved.
 | 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
 | 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
-| 3 cutoff / gate R | In progress | Public cutoff candidate and native fixture separation verified; typed imports/LSP separation and final R qualification remain |
+| 3 cutoff / gate R | In progress | Public cutoff, native fixtures and typed imports/LSP separation verified; drain terminal coverage, human-input mutation cutoff, normative reconciliation and final R qualification remain |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
 
@@ -366,3 +366,39 @@ An audit hook blocks writes and subprocesses; full path/mode/mtime/content
 inventories remain unchanged (130 and 105 entries). These completed captures
 prove refusal and readability, not interrupted recovery. Final deleted-tree
 import checks and gate R remain separate.
+
+## Typed Analysis Without Flat Emission
+
+Stage 3 now returns typed programs without emitting or validating flat executable
+bundles. Imported producers retain their original headers, schema metadata,
+names, configuration and captured source identities as `TypedProgram` values.
+The existing LSP build result keeps analysis, diagnostics and source/configuration
+captures; it no longer carries executable artifacts. Public evaluated compilation
+retains its entry-target guard. Missing input files retain their specific frontend
+diagnostic before any build publication.
+
+`E/typed-analysis-cutover-implementation.md`,
+`E/typed-analysis-final-source-hashes.json` and
+`E/typed-analysis-final-dispositions.json` bind the implementation and corrected
+test scope. The final affected campaign passed **517 cases**, 33.20 s, using
+the required parallel command in tmux (`typed-contract-repair-affected`). The
+focused correction passed **12 cases** and collection found **189 cases**.
+Earlier RED campaigns remain in their receipts: all 26 failures from the second
+campaign have exact dispositions, with 19 migrated or preserved nodes passing
+in the final campaign and seven exclusively flat tests retired. The original
+parse-error comparison remains, alongside an evaluated type-error comparison.
+
+Source-free producer scopes, schema metadata, selected signatures and nominal
+descriptors remain checked without preparing flat capsules. The historical
+refusal for an independent producer with private nested nominal types remains
+explicit; this change does not expand that admission. A coherent captured source
+graph still builds and reads back after its sources are removed.
+
+The public CLI smoke compiles and runs both standalone and graph imports from
+2.34 producers into 2.35 consumers, with terminal value 4 in both cases
+(`typed-analysis-cli-smoke.json`). Contract and quality reviews are PASS in
+`E/typed-analysis-{contract,quality}-review.md`. The quality probe also confirms
+equal identity, configuration, closed tree and digest for an evaluated standalone
+producer through the retained wrapper and new loader in the candidate tree.
+This is bounded analysis/import evidence; gate R, physical deletion and the final
+full campaign remain pending.

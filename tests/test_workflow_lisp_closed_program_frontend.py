@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, replace
@@ -23,7 +22,6 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.command_boundaries import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, PromptExtern
-from orchestrator.workflow.loaded_bundle import workflow_boundary_projection
 from orchestrator.workflow_lisp.closed.frontend import TypedProgram, compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.artifact import _load_closed_imports
@@ -32,8 +30,6 @@ from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import EnumMemberExpr, GeneratedRelpathSeedExpr
 from orchestrator.workflow_lisp.type_env import PathTypeRef, PrimitiveTypeRef
-from orchestrator.workflow.run_ref import bundle_transport
-from orchestrator.workflow.surface_ast import SurfaceContract
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "closed_program"
@@ -66,12 +62,10 @@ def _error(path: Path, operation) -> tuple[str, Path, int, int]:
     )
 
 
-def test_source_free_imports_keep_typed_and_restored_producer_scopes(
+def test_source_free_typed_imports_keep_each_original_producer_scope(
     tmp_path: Path,
 ) -> None:
-    """Typed and capsule-restored producers retain their own bodies/configs."""
-    identity = "sha256:" + "c" * 64
-
+    """Original producers retain distinct bodies/configs after their sources disappear."""
     def install(root: Path, module: str, text: str) -> Path:
         path = root / f"{module}.orc"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,31 +81,6 @@ def test_source_free_imports_keep_typed_and_restored_producer_scopes(
             command_boundaries={},
             **configuration,
         )
-
-    def decoded_snapshot(bundle, source: Path):
-        encoded = bundle_transport.encode_bundle_capsule(
-            {bundle.surface.name: bundle},
-            target_workflow_names=(bundle.surface.name,),
-            closure=(
-                bundle_transport.BundleCapsuleClosureBlob(
-                    path=source.name,
-                    roles=("orc",),
-                    payload=source.read_bytes(),
-                ),
-            ),
-            workflow_closure_paths={bundle.surface.name: source.name},
-            compiler_runtime_identity_digest=identity,
-            lowering_schema_version=2,
-        )
-        decoded = bundle_transport.decode_bundle_capsule(
-            manifest_bytes=encoded.manifest_bytes,
-            pickle_bytes=encoded.pickle_bytes,
-            closure=encoded.closure,
-            expected_capsule_digest=encoded.capsule_digest,
-            expected_compiler_runtime_identity_digest=identity,
-        ).bundles_by_name[bundle.surface.name]
-        assert decoded.typed_program is None
-        return decoded
 
     def definition(tree, module: str, kind: str, name: str):
         matches = [
@@ -153,11 +122,9 @@ def test_source_free_imports_keep_typed_and_restored_producer_scopes(
                     command_boundaries={},
                     **producer_config,
                 )
-                bundle = flat.validated_bundles_by_name[f"{module}::run"]
-                native = bundle.typed_program
-                assert native is not None
-                decoded = decoded_snapshot(bundle, producer)
-                imports[module] = replace(decoded, typed_program=native)
+                native = replace(flat.entry_result.typed_program,
+                    entry=flat.entry_result.typed_program.workflows[f"{module}::run"])
+                imports[module] = native
             native_by_module[module] = native
 
         consumer = install(
@@ -174,35 +141,7 @@ def test_source_free_imports_keep_typed_and_restored_producer_scopes(
             "provider_externs": {"provider": "consumer-provider"},
             "prompt_externs": {"prompt": {"input_file": "consumer.txt"}},
         }
-        if target == "2.34":
-            flat_beta = compile_stage3_entrypoint(
-                producer_paths[-1],
-                source_roots=(root,),
-                workspace_root=root,
-                command_boundaries={},
-                provider_externs={"provider": "beta-provider"},
-                prompt_externs={"prompt": {"input_file": "beta.txt"}},
-            )
-            missing_snapshot = decoded_snapshot(
-                flat_beta.validated_bundles_by_name["beta::run"], producer_paths[-1]
-            )
-            with pytest.raises(LispFrontendCompileError) as excinfo:
-                compile_source(
-                    consumer,
-                    imported_workflow_bundles={**imports, "beta": missing_snapshot},
-                    **consumer_config,
-                )
-            assert excinfo.value.diagnostics[0].code == "compiled_workflow_source_required"
-
-        typed = compile_source(
-            consumer,
-            **(
-                {"imported_programs": imports}
-                if target == "2.35"
-                else {"imported_workflow_bundles": imports}
-            ),
-            **consumer_config,
-        )
+        typed = compile_source(consumer, imported_programs=imports, **consumer_config)
         assert all(
             typed.imported_programs[module] is native
             for module, native in native_by_module.items()
@@ -256,7 +195,7 @@ def test_source_free_imports_keep_typed_and_restored_producer_scopes(
         }
 
 
-def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
+def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_deletion(
     tmp_path: Path,
 ) -> None:
     child_path = tmp_path / "cp" / "child.orc"
@@ -284,21 +223,15 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         '"closure":["child-probe.py"]}}',
         encoding="utf-8",
     )
-    child_build = build_frontend_bundle(
-        FrontendBuildRequest(
-            source_path=child_path,
-            source_roots=(tmp_path,),
-            provider_externs_path=child_providers,
-            prompt_externs_path=child_prompts,
-            command_boundaries_path=child_commands,
-            workspace_root=tmp_path,
-            lowering_route="legacy",
-        )
+    child_imports = tmp_path / "child-imports.json"
+    child_imports.write_text(json.dumps({"child": {"kind": "compiled", "path": "cp/child.orc"}}))
+    (child_binding,) = load_imported_workflow_bundle_manifest(
+        child_imports, workspace_root=tmp_path, source_roots=(tmp_path,),
+        provider_externs_path=child_providers, prompt_externs_path=child_prompts,
+        command_boundaries_path=child_commands, lowering_route="legacy",
     )
-    child_bundle = child_build.validated_bundle
-    child_snapshot = child_bundle.typed_program
+    child_snapshot = child_binding.typed_program
     assert child_snapshot.producer_lowering_schema == 1
-    assert child_build.manifest.lowering_schema_version == 1
 
     parent_path = tmp_path / "cp" / "parent.orc"
     parent_path.write_text(
@@ -317,7 +250,7 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         source_roots=(tmp_path,),
         provider_externs={"provider": "parent-provider"},
         prompt_externs={"prompt": {"input_file": "parent.txt"}},
-        imported_workflow_bundles={"dep": child_bundle},
+        imported_programs={"dep": child_snapshot},
         command_boundaries={
             "echo": ExternalToolBinding(
                 name="echo",
@@ -329,69 +262,17 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         workspace_root=tmp_path,
         lowering_route="wcc_m4",
     )
-    parent_bundle = parent_result.validated_bundles_by_name["cp/parent::run"]
-    parent_snapshot = parent_bundle.typed_program
-    _assert_original_mixed_schema_snapshots(parent_snapshot, child_snapshot, child_bundle, child_build)
-
-    identity = "sha256:" + "c" * 64
-    bundles = {
-        child_bundle.surface.name: child_bundle,
-        parent_bundle.surface.name: parent_bundle,
-    }
-    encoded = bundle_transport.encode_bundle_capsule(
-        bundles,
-        target_workflow_names=(parent_bundle.surface.name,),
-        closure=(
-            bundle_transport.BundleCapsuleClosureBlob(
-                path=child_path.relative_to(tmp_path).as_posix(),
-                roles=("orc",),
-                payload=child_path.read_bytes(),
-            ),
-            bundle_transport.BundleCapsuleClosureBlob(
-                path=parent_path.relative_to(tmp_path).as_posix(),
-                roles=("orc",),
-                payload=parent_path.read_bytes(),
-            ),
-        ),
-        workflow_closure_paths={
-            child_bundle.surface.name: child_path.relative_to(tmp_path).as_posix(),
-            parent_bundle.surface.name: parent_path.relative_to(tmp_path).as_posix(),
-        },
-        compiler_runtime_identity_digest=identity,
-        lowering_schema_version=2,
-    )
-
-    moved = tmp_path / "relocated-capsule"
-    moved.mkdir()
-    manifest_bytes = moved / "manifest.json"
-    pickle_bytes = moved / "catalog.pickle"
-    manifest_bytes.write_bytes(encoded.manifest_bytes)
-    pickle_bytes.write_bytes(encoded.pickle_bytes)
-    moved_closure = []
-    for blob in encoded.closure:
-        moved_blob = moved / blob.path
-        moved_blob.parent.mkdir(parents=True, exist_ok=True)
-        moved_blob.write_bytes(blob.payload)
-        moved_closure.append(
-            replace(blob, payload=moved_blob.read_bytes())
-        )
-
-    shutil.rmtree(child_build.build_root)
+    parent_snapshot = replace(parent_result.entry_result.typed_program,
+        entry=parent_result.entry_result.typed_program.workflows["cp/parent::run"])
+    assert parent_snapshot.producer_lowering_schema == 2
+    assert parent_snapshot.imported_programs["dep"] is child_snapshot
+    assert child_snapshot.configuration_bindings["provider_externs"] == {"provider": "child-provider"}
+    assert parent_snapshot.configuration_bindings["provider_externs"] == {"provider": "parent-provider"}
     child_path.unlink()
     parent_path.unlink()
     child_commands.unlink()
-    assert not child_build.build_root.exists()
-    assert not child_commands.exists()
-    decoded = bundle_transport.decode_bundle_capsule(
-        manifest_bytes=manifest_bytes.read_bytes(),
-        pickle_bytes=pickle_bytes.read_bytes(),
-        closure=tuple(moved_closure),
-        expected_capsule_digest=encoded.capsule_digest,
-        expected_compiler_runtime_identity_digest=identity,
-    )
-    restored_child, restored_parent = _reattach_original_mixed_schema_snapshots(
-        decoded, child_bundle, parent_bundle, child_snapshot, parent_snapshot,
-    )
+    child_imports.unlink()
+    assert not (tmp_path / ".orchestrate").exists()
 
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
@@ -405,9 +286,9 @@ def test_mixed_schema_capsule_pairs_each_original_snapshot_after_relocation(
         entry_workflow="run",
         source_roots=(tmp_path,),
         command_boundaries={},
-        imported_workflow_bundles={
-            "parent": restored_parent,
-            "child": restored_child,
+        imported_programs={
+            "parent": parent_snapshot,
+            "child": child_snapshot,
         },
     )
     _assert_consumer_mixed_schema_snapshots(consumer, child_snapshot)
@@ -582,27 +463,6 @@ def test_typed_program_keeps_each_module_externs_and_unused_bindings(
     assert "unused" in typed.command_boundaries
 
 
-def test_old_entry_keeps_its_flat_route_refusal(tmp_path: Path) -> None:
-    entry = _install(tmp_path, "loop_in_branch", target="2.34")
-
-    code, path, line, column = _error(
-        entry,
-        lambda: compile_stage3_entrypoint(
-            entry,
-            source_roots=(tmp_path,),
-            command_boundaries=BOUNDARIES,
-            validate_shared=True,
-            workspace_root=tmp_path,
-            lowering_route=None,
-        ),
-    )
-
-    assert (code, path, line, column) == (
-        "workflow_signature_mismatch",
-        entry,
-        17,
-        28,
-    )
 
 
 def test_old_entry_cannot_import_an_evaluated_module(tmp_path: Path) -> None:
@@ -1043,7 +903,8 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
             validate_shared=True,
             workspace_root=tmp_path,
         )
-        bundles.append(result.validated_bundles_by_name["producer::get"])
+        bundles.append(replace(result.entry_result.typed_program,
+            entry=result.entry_result.typed_program.workflows["producer::get"]))
 
     parent_path = tmp_path / "parent.orc"
     parent_path.write_text(
@@ -1062,10 +923,10 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
         source_roots=(tmp_path,),
         validate_shared=True,
         workspace_root=tmp_path,
-        imported_workflow_bundles={"one": bundles[0], "two": bundles[1]},
+        imported_programs={"one": bundles[0], "two": bundles[1]},
     )
 
-    assert "parent::run" in result.validated_bundles_by_name
+    assert "parent::run" in {workflow.definition.name for workflow in result.entry_result.typed_workflows}
     assert result.entry_result.typed_program is None
 
 
@@ -1640,7 +1501,7 @@ def test_macro_expansion_local_identity_is_scoped_to_its_callable(tmp_path: Path
     assert first_run_keys == second_run_keys
 
 
-def test_old_source_producer_retains_typed_snapshot_on_result_and_bundle(
+def test_old_source_producer_retains_typed_snapshot_without_flat_bundles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     entry = tmp_path / "cp" / "producer.orc"
@@ -1660,43 +1521,12 @@ def test_old_source_producer_retains_typed_snapshot_on_result_and_bundle(
             stable_command=("python", "original.py"),
         )
     }
-    lower_calls = []
-    shared_calls = []
-    executable_calls = []
-    original_lower = compiler_module._lower_workflows_for_route
-    original_validate = compiler_module.validate_lowered_workflows
-    original_revalidate = compiler_module._revalidate_stage3_executable_bundles
-    original_attach = compiler_module._attach_typed_programs_to_source_bundles
-    pre_attachment_catalog = {}
+    def forbidden(*args, **kwargs):
+        raise AssertionError("typed analysis must not emit or validate flat workflows")
 
-    def lower_spy(*args, **kwargs):
-        lower_calls.append(kwargs.get("target_dsl_version"))
-        return original_lower(*args, **kwargs)
-
-    def validation_spy(*args, **kwargs):
-        shared_calls.append(kwargs.get("validation_profile"))
-        return original_validate(*args, **kwargs)
-
-    def executable_spy(*args, **kwargs):
-        executable_calls.append(True)
-        return original_revalidate(*args, **kwargs)
-
-    def attach_spy(bundles_by_name, typed_program):
-        pre_attachment_catalog.update(bundles_by_name)
-        return original_attach(bundles_by_name, typed_program)
-
-    monkeypatch.setattr(compiler_module, "_lower_workflows_for_route", lower_spy)
-    monkeypatch.setattr(compiler_module, "validate_lowered_workflows", validation_spy)
-    monkeypatch.setattr(
-        compiler_module,
-        "_revalidate_stage3_executable_bundles",
-        executable_spy,
-    )
-    monkeypatch.setattr(
-        compiler_module,
-        "_attach_typed_programs_to_source_bundles",
-        attach_spy,
-    )
+    for name in ("_lower_workflows_for_route", "validate_lowered_workflows",
+                 "_revalidate_stage3_executable_bundles", "_attach_typed_programs_to_source_bundles"):
+        monkeypatch.setattr(compiler_module, name, forbidden)
 
     result = compile_stage3_entrypoint(
         entry,
@@ -1719,41 +1549,14 @@ def test_old_source_producer_retains_typed_snapshot_on_result_and_bundle(
     assert tuple(retained_boundaries) == ("original",)
     with pytest.raises(TypeError):
         retained_boundaries["mutate"] = caller_boundaries["original"]
-    bundle = result.validated_bundles_by_name["cp/producer::get"]
-    assert result.entry_result.validated_bundles["cp/producer::get"] is bundle
-    assert bundle.typed_program.producer_lowering_schema == 2
+    assert not result.validated_bundles_by_name
+    assert not result.entry_result.validated_bundles
+    assert not result.entry_result.lowered_workflows
     assert result.entry_result.validation_profile is not None
-    assert lower_calls == ["2.34"]
-    assert shared_calls
-    assert executable_calls
-    assert result.compiled_results_by_name["cp/producer"].validated_bundles[
-        "cp/producer::get"
-    ] is bundle
-    assert bundle.typed_program.entry.definition.name == "cp/producer::get"
-    assert bundle.typed_program.procedures["cp/producer::private-inc"].typed_body is not None
-    assert bundle.typed_program.source_file_digests["cp/producer"] == hashlib.sha256(
+    assert snapshot.procedures["cp/producer::private-inc"].typed_body is not None
+    assert snapshot.source_file_digests["cp/producer"] == hashlib.sha256(
         source.encode("utf-8")
     ).hexdigest()
-    kwargs = {
-        "target_workflow_names": (bundle.surface.name,),
-        "closure": (
-            bundle_transport.BundleCapsuleClosureBlob(
-                path=entry.name,
-                roles=("orc",),
-                payload=source.encode("utf-8"),
-            ),
-        ),
-        "workflow_closure_paths": {bundle.surface.name: entry.name},
-        "compiler_runtime_identity_digest": "sha256:" + "c" * 64,
-        "lowering_schema_version": 2,
-    }
-    encoded_before_attachment = bundle_transport.encode_bundle_capsule(
-        pre_attachment_catalog, **kwargs
-    )
-    encoded_after_attachment = bundle_transport.encode_bundle_capsule(
-        result.validated_bundles_by_name, **kwargs
-    )
-    assert encoded_before_attachment == encoded_after_attachment
 
 
 def test_typed_snapshot_copies_certified_adapter_configuration(
@@ -1828,9 +1631,8 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    producer_snapshot = producer.validated_bundles_by_name[
-        "cp/producer::get"
-    ].typed_program
+    producer_snapshot = replace(producer.entry_result.typed_program,
+        entry=producer.entry_result.typed_program.workflows["cp/producer::get"])
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
         f'''(workflow-lisp
@@ -1860,9 +1662,10 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
 @pytest.mark.parametrize(
     "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
 )
-def test_evaluated_consumer_requires_a_matching_bundle_snapshot(
+def test_evaluated_consumer_keeps_the_selected_typed_producer_contract(
     tmp_path: Path, consumer_target: str,
 ) -> None:
+    boundaries = {name: replace(binding, closure=()) for name, binding in BOUNDARIES.items()}
     producer_path = tmp_path / "cp" / "producer.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
@@ -1879,12 +1682,13 @@ def test_evaluated_consumer_requires_a_matching_bundle_snapshot(
     producer = compile_stage3_entrypoint(
         producer_path,
         source_roots=(tmp_path,),
-        command_boundaries=BOUNDARIES,
+        command_boundaries=boundaries,
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    get_bundle = producer.validated_bundles_by_name["cp/producer::get"]
-    other_bundle = producer.validated_bundles_by_name["cp/producer::other"]
+    snapshot = producer.entry_result.typed_program
+    get_program = replace(snapshot, entry=snapshot.workflows["cp/producer::get"])
+    other_program = replace(snapshot, entry=snapshot.workflows["cp/producer::other"])
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
         f'''(workflow-lisp
@@ -1897,41 +1701,31 @@ def test_evaluated_consumer_requires_a_matching_bundle_snapshot(
         encoding="utf-8",
     )
 
-    def compile_bundle(bundle):
+    def compile_selected(program):
         return compile_typed_program(
             consumer_path,
             entry_workflow="run",
             source_roots=(tmp_path,),
-            command_boundaries=BOUNDARIES,
-            imported_workflow_bundles={"dep": bundle},
+            command_boundaries=boundaries,
+            imported_programs={"dep": program},
         )
 
-    compiled = compile_bundle(get_bundle)
-    assert compiled.imported_programs["dep"] is get_bundle.typed_program
+    compiled = compile_selected(get_program)
+    assert compiled.imported_programs["dep"] is get_program
     assert "cp/producer::get" in compiled.workflows
     assert "cp/producer" in compiled.module_type_envs
     assert "cp/producer" not in compiled.source_file_digests
 
-    decoded_bundle = replace(get_bundle, typed_program=None)
-    code, path, _line, _column = _error(
-        consumer_path,
-        lambda: compile_bundle(decoded_bundle),
-    )
-    assert code == "compiled_workflow_source_required"
-    assert path == Path(get_bundle.provenance.workflow_path)
-
-    restored = replace(decoded_bundle, typed_program=get_bundle.typed_program)
-    assert compile_bundle(restored).entry.definition.name == "cp/consumer::run"
     producer_path.unlink()
-    assert compile_bundle(restored).entry.definition.name == "cp/consumer::run"
-
-    wrong_pair = replace(decoded_bundle, typed_program=other_bundle.typed_program)
-    code, path, _line, _column = _error(
-        consumer_path,
-        lambda: compile_bundle(wrong_pair),
-    )
-    assert code == "compiled_workflow_source_required"
-    assert path == Path(get_bundle.provenance.workflow_path)
+    source_free = compile_selected(get_program)
+    assert source_free.entry.definition.name == "cp/consumer::run"
+    assert source_free.imported_programs["dep"] is get_program
+    assert source_free.module_workflow_signatures["cp/consumer"]["dep"].params == get_program.entry.signature.params
+    built = build_closed_program(source_free)
+    assert ClosedProgram.from_artifact(built.artifact()).digest == built.digest
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_selected(other_program)
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
 
 
 def test_typed_snapshot_keeps_its_schema_across_a_direct_import(tmp_path: Path) -> None:
@@ -1956,9 +1750,8 @@ def test_typed_snapshot_keeps_its_schema_across_a_direct_import(tmp_path: Path) 
         workspace_root=tmp_path,
         lowering_route="legacy",
     )
-    producer_snapshot = producer.validated_bundles_by_name[
-        "cp/producer::get"
-    ].typed_program
+    producer_snapshot = replace(producer.entry_result.typed_program,
+        entry=producer.entry_result.typed_program.workflows["cp/producer::get"])
 
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
@@ -2034,8 +1827,8 @@ def test_source_manifest_compilation_keeps_the_supplied_legacy_schema(
         lowering_route="legacy",
     )
 
-    assert binding.bundle.typed_program.producer_lowering_schema == 1
-    assert binding.bundle.provenance.frontend_build_root is not None
+    assert binding.typed_program.producer_lowering_schema == 1
+    assert binding.typed_program.entry.definition.name == "cp/producer::get"
 
 
 def test_closed_import_manifest_compiles_evaluated_source_with_default_schema(
@@ -2067,19 +1860,15 @@ def test_closed_import_manifest_compiles_evaluated_source_with_default_schema(
         workspace_root=tmp_path,
     )
 
-    bundles, programs = _load_closed_imports(
+    programs = _load_closed_imports(
         request,
-        provider_externs={},
-        prompt_externs={},
-        command_boundaries={},
         configuration_trace=ConfigurationReadTrace(),
     )
 
-    assert not bundles
     assert programs["dep"].producer_lowering_schema == 2
 
 
-def test_bundle_snapshot_contract_survives_deleted_nested_nominal_sources(
+def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     tmp_path: Path,
 ) -> None:
     types_path = tmp_path / "types.orc"
@@ -2112,34 +1901,58 @@ def test_bundle_snapshot_contract_survives_deleted_nested_nominal_sources(
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = producer.validated_bundles_by_name["child::get"]
-    assert compiler_module._typed_program_matches_bundle(bundle.typed_program, bundle)
-    types_path.unlink()
-    producer_path.unlink()
-
+    snapshot = replace(producer.entry_result.typed_program,
+        entry=producer.entry_result.typed_program.workflows["child::get"])
+    rows_type = dict(snapshot.entry.signature.params)["rows"]
+    outer_type = rows_type.item_type_ref
+    inner_type = outer_type.field_types["inner"]
+    assert outer_type.name == "types::Outer"
+    assert inner_type.name == "Inner"
+    assert Path(inner_type.definition.span.start.path) == types_path
+    original_inner_name = snapshot._workflow_type_env_with_retained_nominal_names("child::get").nominal_descriptor_name(inner_type)
+    assert inner_type.field_types["x"].name == "Int"
     consumer_path = tmp_path / "consumer.orc"
     consumer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
   (:target-dsl "{TARGET}")
   (defmodule consumer)
+  (import types :only (Outer))
+  (import child :only (get))
   (export run)
-  (defworkflow run () -> Int 1))
+  (defworkflow run ((rows List[types/Outer])) -> Int (call get :rows rows)))
 ''',
         encoding="utf-8",
     )
-    code, path, _line, _column = _error(
-        consumer_path,
-        lambda: compile_typed_program(
-            consumer_path,
-            entry_workflow="run",
-            source_roots=(tmp_path,),
-            command_boundaries={},
-            imported_workflow_bundles={"dep": bundle},
-        ),
+    typed = compile_typed_program(
+        consumer_path, entry_workflow="run", source_roots=(tmp_path,),
+        command_boundaries={},
     )
+    captured_rows = dict(typed.workflows["child::get"].signature.params)["rows"]
+    assert captured_rows.item_type_ref.field_types["inner"].field_types["x"].name == "Int"
+    retained = typed.module_type_envs["types"].resolve_type("Outer",
+        span=snapshot.entry.definition.span, form_path=("workflow-lisp",))
+    assert retained.field_types["inner"].field_types["x"].name == "Int"
+    assert retained.field_types["inner"].name == inner_type.name
+    assert Path(retained.field_types["inner"].definition.span.start.path) == types_path
+    assert typed.workflow_type_env("child::get").target_dsl_version == "2.34"
+    types_path.unlink()
+    producer_path.unlink()
+    consumer_path.unlink()
+    built = build_closed_program(typed)
+    assert ClosedProgram.from_artifact(built.artifact()).digest == built.digest
 
-    assert (code, path) == ("workflow_call_signature_erased", producer_path)
+    for inner_field in ("Int", "String"):
+        consumer_path.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+          (defmodule consumer) (export run)
+          (defrecord Inner (x {inner_field})) (defrecord Outer (inner Inner))
+          (defworkflow run ((rows List[Outer])) -> Int (call dep :rows rows)))''')
+        with pytest.raises(LispFrontendCompileError) as excinfo:
+            compile_typed_program(consumer_path, entry_workflow="run", source_roots=(tmp_path,),
+                command_boundaries={}, imported_programs={"dep": snapshot})
+        assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
+        assert Path(excinfo.value.diagnostics[0].span.start.path) == producer_path
+    assert snapshot._workflow_type_env_with_retained_nominal_names("child::get").nominal_descriptor_name(inner_type) == original_inner_name
 
 
 def test_typed_product_preserves_grouped_inputs_and_defaults(tmp_path: Path) -> None:
@@ -2161,7 +1974,8 @@ def test_typed_product_preserves_grouped_inputs_and_defaults(tmp_path: Path) -> 
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = producer.validated_bundles_by_name["producer::get"]
+    snapshot = replace(producer.entry_result.typed_program,
+        entry=producer.entry_result.typed_program.workflows["producer::get"])
 
     consumer_path = tmp_path / "consumer.orc"
     consumer_path.write_text(
@@ -2180,7 +1994,7 @@ def test_typed_product_preserves_grouped_inputs_and_defaults(tmp_path: Path) -> 
         entry_workflow="run",
         source_roots=(tmp_path,),
         command_boundaries={},
-        imported_workflow_bundles={"dep": bundle},
+        imported_programs={"dep": snapshot},
     )
 
     imported_signature = consumer.module_workflow_signatures["consumer"]["dep"]
@@ -2189,8 +2003,8 @@ def test_typed_product_preserves_grouped_inputs_and_defaults(tmp_path: Path) -> 
         ("count", "Int"),
     ]
     assert imported_signature.param_defaults["count"].datum == 3
-    assert imported_signature.hidden_context_requirements == bundle.typed_program.entry.signature.hidden_context_requirements
-    assert imported_signature.private_compatibility_bridge_types == bundle.typed_program.entry.signature.private_compatibility_bridge_types
+    assert imported_signature.hidden_context_requirements == snapshot.entry.signature.hidden_context_requirements
+    assert imported_signature.private_compatibility_bridge_types == snapshot.entry.signature.private_compatibility_bridge_types
 
 
 def test_typed_product_groups_private_context_by_its_source_formal(
@@ -2237,40 +2051,10 @@ def test_typed_product_groups_private_context_by_its_source_formal(
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = producer.validated_bundles_by_name["producer::run-phase"]
-    native_signature = bundle.typed_program.entry.signature
-    assert compiler_module._typed_program_matches_bundle(bundle.typed_program, bundle)
+    snapshot = replace(producer.entry_result.typed_program,
+        entry=producer.entry_result.typed_program.workflows["producer::run-phase"])
+    native_signature = snapshot.entry.signature
     assert set(native_signature.hidden_context_requirements) == {"phase__ctx"}
-    private_bindings = workflow_boundary_projection(bundle).private_runtime_context_bindings
-    assert len(private_bindings) == 1
-    assert private_bindings[0].source_param_name == "phase__ctx"
-    changed_provenance = replace(
-        private_bindings[0],
-        source_provenance={"workflow_name": "other-owner", "path": "/other/source.orc"},
-    )
-    provenance_bundle = replace(
-        bundle,
-        provenance=replace(
-            bundle.provenance,
-            private_exec_context_bindings=(changed_provenance,),
-        ),
-    )
-    assert compiler_module._typed_program_matches_bundle(
-        bundle.typed_program,
-        provenance_bundle,
-    )
-    changed_source = replace(private_bindings[0], source_param_name="other-context")
-    source_bundle = replace(
-        bundle,
-        provenance=replace(
-            bundle.provenance,
-            private_exec_context_bindings=(changed_source,),
-        ),
-    )
-    assert not compiler_module._typed_program_matches_bundle(
-        bundle.typed_program,
-        source_bundle,
-    )
 
     consumer_path = tmp_path / "consumer.orc"
     consumer_path.write_text(
@@ -2298,31 +2082,12 @@ def test_typed_product_groups_private_context_by_its_source_formal(
 ''',
         encoding="utf-8",
     )
-    consumer = compile_typed_program(
-        consumer_path,
-        entry_workflow="run",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        imported_workflow_bundles={"dep": bundle},
-    )
-
-    imported_signature = consumer.module_workflow_signatures["consumer"]["dep"]
-    assert [(name, type_ref.name) for name, type_ref in imported_signature.params] == [
-        ("a", "Pair"),
-        ("phase__ctx", "PhaseCtx"),
-    ]
-    bundle_requirement = imported_signature.hidden_context_requirements["phase__ctx"]
-    assert (bundle_requirement.binding_kind, bundle_requirement.allows_entry_bootstrap) == (
-        "derived_private_child_context",
-        True,
-    )
-
     typed_consumer = compile_typed_program(
         consumer_path,
         entry_workflow="run",
         source_roots=(tmp_path,),
         command_boundaries={},
-        imported_programs={"dep": bundle.typed_program},
+        imported_programs={"dep": snapshot},
     )
     typed_signature = typed_consumer.module_workflow_signatures["consumer"]["dep"]
     assert [(name, type_ref.name) for name, type_ref in typed_signature.params] == [
@@ -2334,61 +2099,6 @@ def test_typed_product_groups_private_context_by_its_source_formal(
     )
 
 
-def test_source_snapshot_boundary_capture_rejects_projection_changes(
-    tmp_path: Path,
-) -> None:
-    entry = tmp_path / "cp" / "union.orc"
-    entry.parent.mkdir(parents=True)
-    entry.write_text(
-        '''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.34")
-  (defmodule cp/union)
-  (export run)
-  (defunion Outcome (OK (value Int)) (NOPE (reason String)))
-  (defworkflow run ((flag Bool)) -> Outcome
-    (if flag
-      (variant Outcome OK :value 1)
-      (variant Outcome NOPE :reason "no"))))
-''',
-        encoding="utf-8",
-    )
-    result = compile_stage3_module(
-        entry,
-        entry_workflow="run",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    bundle = result.validated_bundles["run"]
-    retained = bundle.typed_program._compiled_bundle_boundaries["run"]
-    assert compiler_module._typed_program_matches_bundle(bundle.typed_program, bundle)
-    assert "projection" in retained[1]["return__variant"]
-    with pytest.raises(TypeError):
-        retained[1]["return__variant"]["projection"]["return_kind"] = "record"
-
-    original = bundle.surface.outputs["return__variant"]
-    changed_definition = dict(original.definition)
-    changed_projection = dict(changed_definition["projection"])
-    changed_projection["active_variants"] = ("NOPE",)
-    changed_definition["projection"] = changed_projection
-    changed_surface = replace(
-        bundle.surface,
-        outputs={
-            **bundle.surface.outputs,
-            "return__variant": SurfaceContract(
-                name=original.name,
-                kind=original.kind,
-                value_type=original.value_type,
-                definition=changed_definition,
-                from_ref=original.from_ref,
-            ),
-        },
-    )
-    changed_bundle = replace(bundle, surface=changed_surface)
-    assert not compiler_module._typed_program_matches_bundle(
-        bundle.typed_program,
-        changed_bundle,
-    )
 
 
 @pytest.mark.parametrize("supply_trace", (True, False))
@@ -2429,7 +2139,7 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
 
     def traced_lowerer(*args, **kwargs):
         lowered_targets.append(kwargs["target_dsl_version"])
-        return original_lowerer(*args, **kwargs)
+        raise AssertionError("standalone typed analysis must not lower workflows")
 
     monkeypatch.setattr(
         compiler_module,
@@ -2471,8 +2181,9 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     assert snapshot.source_file_digests["producer"] == hashlib.sha256(
         source.encode("utf-8")
     ).hexdigest()
-    assert "get" in result.validated_bundles
-    assert lowered_targets == ["2.34"]
+    assert not result.validated_bundles
+    assert not result.lowered_workflows
+    assert lowered_targets == []
 
 
 @pytest.mark.parametrize(
@@ -2552,7 +2263,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
 
     def observed_lowerer(*args, **kwargs):
         lowered_targets.append(kwargs["target_dsl_version"])
-        return original_lowerer(*args, **kwargs)
+        raise AssertionError("standalone typed analysis must not lower workflows")
 
     monkeypatch.setattr(
         compiler_module,
@@ -2577,8 +2288,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     assert delegated_traces == [supplied_trace]
     assert recorded_traces
     assert all(trace is supplied_trace for trace in recorded_traces)
-    assert len(lowered_targets) == 2
-    assert set(lowered_targets) == {"2.34"}
+    assert lowered_targets == []
 
 
 def test_graph_source_producer_rejects_conflicting_repeated_reads(
@@ -2635,54 +2345,6 @@ def test_graph_source_producer_rejects_conflicting_repeated_reads(
     assert trace.revision_conflict_paths == (child.resolve(),)
 
 
-def test_old_source_compilation_preserves_opaque_import_without_claiming_full_snapshot(
-    tmp_path: Path,
-) -> None:
-    child_path = tmp_path / "cp" / "child.orc"
-    child_path.parent.mkdir(parents=True)
-    child_path.write_text(
-        '''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.34")
-  (defmodule cp/child)
-  (export inc)
-  (defworkflow inc ((n Int)) -> Int (+ n 1)))
-''',
-        encoding="utf-8",
-    )
-    child_result = compile_stage3_entrypoint(
-        child_path,
-        source_roots=(tmp_path,),
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    opaque_child = replace(
-        child_result.validated_bundles_by_name["cp/child::inc"],
-        typed_program=None,
-    )
-    caller_path = tmp_path / "cp" / "caller.orc"
-    caller_path.write_text(
-        '''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.34")
-  (defmodule cp/caller)
-  (export run)
-  (defworkflow run ((n Int)) -> Int (call dep :n n)))
-''',
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_entrypoint(
-        caller_path,
-        source_roots=(tmp_path,),
-        imported_workflow_bundles={"dep": opaque_child},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert result.entry_result.typed_program is None
-    assert result.entry_result.lowered_workflows
-    assert "cp/caller::run" in result.validated_bundles_by_name
 
 
 def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
@@ -2708,7 +2370,8 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
             workspace_root=tmp_path,
         )
         producer_bundles.append(
-            producer.validated_bundles_by_name["producer::get"]
+            replace(producer.entry_result.typed_program,
+                entry=producer.entry_result.typed_program.workflows["producer::get"])
         )
 
     caller_path = tmp_path / "caller.orc"
@@ -2724,7 +2387,7 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
     )
     result = compile_stage3_module(
         caller_path,
-        imported_workflow_bundles={
+        imported_programs={
             "first": producer_bundles[0],
             "second": producer_bundles[1],
         },
@@ -2733,8 +2396,8 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
     )
 
     assert result.typed_program is None
-    assert result.lowered_workflows
-    assert "run" in result.validated_bundles
+    assert not result.lowered_workflows
+    assert "run" in {workflow.definition.name for workflow in result.typed_workflows}
 
 
 def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path) -> None:
@@ -2767,7 +2430,7 @@ def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path)
             workspace_root=tmp_path,
             validate_shared=True,
         )
-        assert f"cp/{module}::legacy" in flat.validated_bundles_by_name
+        assert f"cp/{module}::legacy" in flat.entry_result.typed_program.workflows
 
     old_source = f'''(workflow-lisp
   (:language "0.1") (:target-dsl "2.35") (defmodule cp/entry)
@@ -2843,8 +2506,8 @@ def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
         workspace_root=tmp_path,
         validate_shared=True,
     )
-    producer_bundle = producer_result.validated_bundles_by_name["producer::get"]
-    assert producer_bundle.typed_program is not None
+    snapshot = replace(producer_result.entry_result.typed_program,
+        entry=producer_result.entry_result.typed_program.workflows["producer::get"])
 
     consumer_path = tmp_path / "consumer.orc"
     consumer_path.write_text(
@@ -2861,7 +2524,7 @@ def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
         source_roots=(tmp_path,),
         workspace_root=tmp_path,
         command_boundaries={},
-        imported_workflow_bundles={"dep": producer_bundle},
+        imported_programs={"dep": snapshot},
     )
     program = build_closed_program(typed)
     restored = ClosedProgram.from_artifact(program.artifact())
@@ -2906,7 +2569,7 @@ def test_generic_retyped_argument_keeps_generated_path_seed_type(tmp_path: Path)
         workspace_root=tmp_path,
         validate_shared=True,
     )
-    assert "helper::run" in old_product.validated_bundles_by_name
+    assert "helper::run" in old_product.entry_result.typed_program.workflows
     entry = tmp_path / "entry.orc"
     entry.write_text(
         '''(workflow-lisp
@@ -3011,7 +2674,7 @@ def test_required_drain_context_stays_an_explicit_entry_input(
         workspace_root=prepared.workspace_root,
         validate_shared=True,
     )
-    assert workflow.canonical_name in old.validated_bundles_by_name
+    assert workflow.canonical_name in old.entry_result.typed_program.workflows
 
     from tests.workflow_lisp_closed_program_corpus import _replace_entry_target
 
@@ -3126,9 +2789,8 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         validate_shared=True,
         **compile_kwargs(invalid_root),
     )
-    bundle = old.validated_bundles_by_name["producer::entry"]
-    assert bundle.typed_program is not None
-    snapshot = bundle.typed_program
+    snapshot = replace(old.entry_result.typed_program,
+        entry=old.entry_result.typed_program.workflows["producer::entry"])
 
     invalid_source.write_text(producer_source("2.35", "state"), encoding="utf-8")
     assert_code(
@@ -3172,7 +2834,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
             compile_typed_program(
                 snapshot_consumer,
                 entry_workflow="snapshot-consumer::run",
-                imported_workflow_bundles={"dep": imported},
+                imported_programs={"dep": imported},
                 **compile_kwargs(invalid_root),
             )
         )
@@ -3190,7 +2852,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         compile_typed_program(
             uncalled_consumer,
             entry_workflow="uncalled-consumer::run",
-            imported_workflow_bundles={"dep": bundle},
+            imported_programs={"dep": snapshot},
             **compile_kwargs(invalid_root),
         )
     )
@@ -3199,12 +2861,12 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         lambda: compile_typed_program(
             snapshot_consumer,
             entry_workflow="snapshot-consumer::run",
-            imported_workflow_bundles={"dep": replace(bundle, typed_program=None)},
+            imported_programs={"dep": None},
             **compile_kwargs(invalid_root),
         ),
         "compiled_workflow_source_required",
     )
-    assert_code(lambda: consume(replace(bundle, typed_program=snapshot)), "provider_bundle_path_target_invalid", invalid_source)
+    assert_code(lambda: consume(snapshot), "provider_bundle_path_target_invalid", invalid_source)
 
     valid_root = tmp_path / "valid"
     valid_source = install_producer(valid_root, "2.14", ".orchestrate/runs")
@@ -3214,7 +2876,8 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         validate_shared=True,
         **compile_kwargs(valid_root),
     )
-    valid_bundle = valid_old.validated_bundles_by_name["producer::entry"]
+    valid_snapshot = replace(valid_old.entry_result.typed_program,
+        entry=valid_old.entry_result.typed_program.workflows["producer::entry"])
     valid_source.write_text(producer_source("2.35", ".orchestrate/runs"), encoding="utf-8")
     direct = checked(
         compile_typed_program(
@@ -3250,7 +2913,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         compile_typed_program(
             valid_snapshot_consumer,
             entry_workflow="snapshot-consumer::run",
-            imported_workflow_bundles={"dep": valid_bundle},
+            imported_programs={"dep": valid_snapshot},
             **compile_kwargs(valid_root),
         )
     )
@@ -3258,44 +2921,16 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         lambda: compile_typed_program(
             valid_snapshot_consumer,
             entry_workflow="snapshot-consumer::run",
-            imported_workflow_bundles={"dep": replace(valid_bundle, typed_program=None)},
+            imported_programs={"dep": None},
             **compile_kwargs(valid_root),
         ),
         "compiled_workflow_source_required",
     )
-    valid_snapshot = valid_bundle.typed_program
-    decoded_bundle = replace(valid_bundle, typed_program=None)
-    assert valid_snapshot is not None
-    restored_bundle = replace(decoded_bundle, typed_program=valid_snapshot)
-    assert checked(
-        compile_typed_program(
-            valid_snapshot_consumer,
-            entry_workflow="snapshot-consumer::run",
-            imported_workflow_bundles={"dep": restored_bundle},
-            **compile_kwargs(valid_root),
-        )
-    ).digest == valid_bundle_program.digest
     assert source_readback.sites
 
 
-def _assert_original_mixed_schema_snapshots(parent_snapshot, child_snapshot, child_bundle, child_build):
-    assert parent_snapshot.producer_lowering_schema == 2
-    assert parent_snapshot.imported_programs["dep"] is child_snapshot
-    assert child_bundle.provenance.frontend_build_root == child_build.build_root
 
 
-def _reattach_original_mixed_schema_snapshots(decoded, child_bundle, parent_bundle, child_snapshot, parent_snapshot):
-    assert decoded.bundles_by_name[child_bundle.surface.name].typed_program is None
-    assert decoded.bundles_by_name[parent_bundle.surface.name].typed_program is None
-    restored_child = replace(
-        decoded.bundles_by_name[child_bundle.surface.name],
-        typed_program=child_snapshot,
-    )
-    restored_parent = replace(
-        decoded.bundles_by_name[parent_bundle.surface.name],
-        typed_program=parent_snapshot,
-    )
-    return restored_child, restored_parent
 
 
 def _assert_consumer_mixed_schema_snapshots(consumer, child_snapshot):
@@ -3348,3 +2983,58 @@ def _assert_mixed_schema_command_owner(definition, effects, command):
     slot = command_effect["argv_transport"][0]["parts"][0]
     assert slot["name"] == ["input", "n", "n"]
     assert slot["value"]["n"] == definition["params"][0][0]
+
+
+@pytest.mark.parametrize("standalone", (True, False))
+@pytest.mark.parametrize("lowering_route, schema", ((None, 2), ("legacy", 1)))
+def test_old_typed_producer_import_never_emits_flat_workflows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, standalone: bool,
+    lowering_route: str | None, schema: int,
+) -> None:
+    from orchestrator.workflow_lisp import build
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("typed analysis must not emit or validate flat workflows")
+
+    for name in ("_lower_workflows_for_route", "validate_lowered_workflows",
+                 "_revalidate_stage3_executable_bundles", "_attach_typed_programs_to_source_bundles"):
+        monkeypatch.setattr(compiler_module, name, forbidden)
+    producer = tmp_path / "producer.orc"
+    header = "" if standalone else "(defmodule producer) (export get)"
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+      {header}
+      (defproc inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+      (defworkflow get ((n Int :default 3)) -> Int (inc n)))''')
+    manifest = tmp_path / "imports.json"
+    manifest.write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc", "entry_workflow": "get"}}))
+    bindings = load_imported_workflow_bundle_manifest(
+        manifest, workspace_root=tmp_path, source_roots=(tmp_path,), lowering_route=lowering_route,
+    )
+    imported = bindings[0].typed_program
+    assert imported.target == "2.34"
+    assert imported.entry_module == "producer"
+    assert imported.entry.definition.name == ("get" if standalone else "producer::get")
+    assert imported.producer_lowering_schema == schema
+    assert imported.source_file_digests["producer"] == hashlib.sha256(producer.read_bytes()).hexdigest()
+    consumer = tmp_path / "consumer.orc"
+    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule consumer) (export run)
+      (defworkflow run () -> Int (call dep)))''')
+    analysis = build.build_frontend_bundle_in_memory(build.FrontendBuildRequest(
+        source_path=consumer, entry_workflow="run", workspace_root=tmp_path,
+        source_roots=(tmp_path,), imported_workflow_bundles_path=manifest,
+        lowering_route=lowering_route,
+    ))
+    assert analysis.entry_selection.canonical_name == "consumer::run"
+    assert analysis.compile_result.entry_result.typed_program.imported_programs["dep"].target == "2.34"
+    assert not analysis.compile_result.validated_bundles_by_name
+    assert {producer, consumer} <= {path for path, _ in analysis.source_read_trace.revision_vector}
+    assert manifest in dict(analysis.configuration_trace.revision_vector)
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+    closed = build_closed_program_bundle(build.FrontendBuildRequest(
+        source_path=consumer, entry_workflow="run", workspace_root=tmp_path,
+        source_roots=(tmp_path,), imported_workflow_bundles_path=manifest,
+        lowering_route=lowering_route,
+    ))
+    assert closed.typed_program.imported_programs["dep"].producer_lowering_schema == schema
+    assert ClosedProgram.from_artifact(closed.program.artifact()).digest == closed.program.digest

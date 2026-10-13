@@ -61,7 +61,11 @@ def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_pat
     source = tmp_path / "retired.orc"
     source.write_text(PROGRAM.format(target="2.34"))
     assert compile_stage1_entrypoint(source).entry_module.target_dsl_version == "2.34"
-    assert compile_stage3_entrypoint(source).entry_result.typed_workflows
+    analysis = compile_stage3_entrypoint(source)
+    assert analysis.entry_result.typed_program.target == "2.34"
+    assert analysis.entry_result.typed_workflows
+    assert not analysis.validated_bundles_by_name
+    assert not analysis.entry_result.lowered_workflows
     before = tree(tmp_path)
     with pytest.raises(LispFrontendCompileError) as caught:
         build_frontend_bundle(FrontendBuildRequest(source_path=source, workspace_root=tmp_path))

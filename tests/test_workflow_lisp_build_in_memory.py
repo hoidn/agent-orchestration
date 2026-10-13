@@ -11,22 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from orchestrator.workflow_lisp.reader import SourceReadTrace
-from orchestrator.workflow.persisted_surface import (
-    canonical_persisted_surface_bytes,
-    decode_persisted_workflow_surface_graph,
-    serialize_persisted_workflow_surface_graph,
-)
-from orchestrator.workflow.surface_ast import (
-    SurfaceStep,
-    SurfaceStepCommonConfig,
-    SurfaceStepKind,
-)
-from tests.test_workflow_lisp_build_artifacts import (
-    _build_module,
-    _build_request,
-    _persisted_fragment_contracts,
-    _synthetic_surface_bundle,
-)
+
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -68,81 +53,8 @@ PRODUCTION_REQUEST_CAPTURE_FIELDS = (
 )
 
 
-def test_in_memory_q2_persisted_surface_payload_round_trips_v2(
-    tmp_path: Path,
-) -> None:
-    template = _build_module().build_frontend_bundle(
-        _build_request(tmp_path)
-    ).validated_bundle
-    _, contract, expected_outputs = _persisted_fragment_contracts()
-    root = _synthetic_surface_bundle(
-        template,
-        "synthetic::in-memory-q2",
-        steps=(
-            SurfaceStep(
-                name="Q2",
-                step_id="q2",
-                kind=SurfaceStepKind.PROVIDER,
-                provider="test-provider",
-                common=SurfaceStepCommonConfig(
-                    expected_outputs=expected_outputs
-                ),
-                compiler_prompt_fragment_contract=contract,
-                compiled_prompt_fragment_identity=(
-                    contract.compiled_prompt_fragment_identity
-                ),
-            ),
-        ),
-    )
-    root = replace(
-        root,
-        surface=replace(root.surface, version="2.21"),
-    )
-
-    payload = serialize_persisted_workflow_surface_graph(root)
-    decoded = decode_persisted_workflow_surface_graph(
-        canonical_persisted_surface_bytes(payload)
-    )
-    assert payload["schema_version"] == "persisted_workflow_surface_graph.v2"
-    assert decoded.entry_node.steps[0].compiler_prompt_fragment_contract == (
-        contract
-    )
 
 
-def test_in_memory_q3_persisted_surface_payload_round_trips_exact_pair(
-    tmp_path: Path,
-) -> None:
-    from tests.test_workflow_lisp_prompt_identity_carriage import (
-        _compile as _compile_prompt_identity,
-        _provider_carriers,
-    )
-
-    result = _compile_prompt_identity(
-        tmp_path,
-        target_dsl="2.22",
-        lowering_route="legacy",
-        with_output=True,
-    )
-    _, surface, _, _, _, _, bundle = _provider_carriers(result)
-
-    payload = serialize_persisted_workflow_surface_graph(bundle)
-    decoded = decode_persisted_workflow_surface_graph(
-        canonical_persisted_surface_bytes(payload)
-    )
-    decoded_step = decoded.entry_node.steps[0]
-
-    assert payload["schema_version"] == (
-        "persisted_workflow_surface_graph.v3"
-    )
-    assert decoded_step.prompt_attempt_identity_version == (
-        surface.prompt_attempt_identity_version
-    )
-    assert decoded_step.compiler_prompt_attempt_binding_plan == (
-        surface.compiler_prompt_attempt_binding_plan
-    )
-    assert decoded_step.compiler_prompt_fragment_contract == (
-        surface.compiler_prompt_fragment_contract
-    )
 
 
 def _tree_snapshot(root: Path) -> tuple[tuple[str, str, bytes | str], ...]:
@@ -268,7 +180,7 @@ def _assert_exact_production_request_capture(
     )
     assert tuple(
         getattr(capture, field_name)
-        for field_name in PRODUCTION_REQUEST_CAPTURE_FIELDS
+        for field_name in PRODUCTION_REQUEST_CAPTURE_FIELDS[:-1]
     ) == (
         request.source_path.resolve(),
         request.workspace_root.resolve(),
@@ -281,11 +193,19 @@ def _assert_exact_production_request_capture(
         configuration.provider_externs,
         configuration.prompt_externs,
         configuration.command_boundaries,
-        {
-            binding.canonical_key: binding.bundle
-            for binding in configuration.imported_workflow_bundles
-        },
     )
+    expected_imports = {binding.canonical_key: binding.typed_program
+        for binding in configuration.imported_workflow_bundles}
+    assert set(capture.imported_workflow_bundles) == set(expected_imports)
+    for name, program in capture.imported_workflow_bundles.items():
+        expected = expected_imports[name]
+        assert program.entry.definition.name == expected.entry.definition.name
+        assert (program.target, program.producer_lowering_schema,
+            program.source_file_digests, program.configuration_bindings) == (
+            expected.target, expected.producer_lowering_schema,
+            expected.source_file_digests, expected.configuration_bindings)
+        assert program.entry.signature.params == expected.entry.signature.params
+        assert program.entry.signature.param_defaults == expected.entry.signature.param_defaults
     with pytest.raises(FrozenInstanceError):
         capture.entry_workflow = "mutated"
     with pytest.raises(TypeError):
@@ -416,7 +336,7 @@ def test_same_production_request_capture_is_retained_on_success_and_language_err
     )
 
 
-def test_read_only_build_matches_persistent_prefix_without_mutating_workspace(
+def test_read_only_build_preserves_frozen_sources_without_mutating_workspace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -471,39 +391,6 @@ def test_read_only_build_matches_persistent_prefix_without_mutating_workspace(
     assert supplied_trace.records
     assert _tree_snapshot(tmp_path) == before
 
-    persistent = build.build_frontend_bundle(request)
-
-    assert persistent.entry_selection == in_memory.entry_selection
-    assert persistent.validated_bundle == in_memory.validated_bundle
-    assert persistent.imported_workflow_bundles == in_memory.imported_workflow_bundles == ()
-    assert persistent.compile_result == in_memory.compile_result
-    assert persistent.manifest.fingerprint == in_memory.fingerprint
-    assert persistent.build_root == in_memory.build_root
-    assert persistent.manifest_path == in_memory.manifest_path
-    assert in_memory.manifest_path == in_memory.build_root / "manifest.json"
-    assert json.loads(persistent.artifact_paths["source_map"].read_text()) == in_memory.source_map_payload
-    assert (
-        json.loads(persistent.artifact_paths["workflow_boundary_projection"].read_text())
-        == in_memory.workflow_boundary_projection_payload
-    )
-    assert (
-        json.loads(persistent.artifact_paths["persisted_workflow_surface"].read_text())
-        == in_memory.persisted_surface_payload
-    )
-    assert json.loads(persistent.artifact_paths["semantic_ir"].read_text()) == in_memory.semantic_ir_payload
-    assert (
-        json.loads(persistent.artifact_paths["core_workflow_ast"].read_text())
-        == in_memory.core_workflow_ast_payload
-    )
-    assert (
-        json.loads(persistent.artifact_paths["executable_ir"].read_text())
-        == in_memory.executable_ir_payload
-    )
-    assert (
-        json.loads(persistent.artifact_paths["runtime_plan"].read_text())
-        == in_memory.runtime_plan_payload
-    )
-    assert (tmp_path / ".orchestrate" / "build").is_dir()
 
 
 def test_read_only_build_retains_immutable_exact_source_bytes_after_mutation(
@@ -563,160 +450,8 @@ def test_read_only_build_rejects_invalid_source_revision_vectors(
     assert not (tmp_path / ".orchestrate").exists()
 
 
-def test_in_memory_build_uses_authoritative_source_map_when_path_conflicts(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    build = importlib.import_module("orchestrator.workflow_lisp.build")
-    request = _command_request(build, tmp_path)
-    first = build.build_frontend_bundle_in_memory(request)
-    source_map_path = first.build_root / "source_map.json"
-    source_map_path.parent.mkdir(parents=True)
-    source_map_path.write_text(
-        json.dumps(
-            {
-                "workflows": {
-                    first.entry_selection.canonical_name: {
-                        "command_boundaries": [
-                            {
-                                "step_id": "probe_ready",
-                                "boundary_kind": "certified_adapter",
-                                "adapter_name": "conflicting-adapter",
-                            }
-                        ]
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    before = _tree_snapshot(tmp_path)
-    read_text = Path.read_text
-
-    def reject_conflicting_source_map_read(path: Path, *args, **kwargs) -> str:
-        if path == source_map_path:
-            raise AssertionError("supplied source-map payload must be authoritative")
-        return read_text(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", reject_conflicting_source_map_read)
-
-    result = build.build_frontend_bundle_in_memory(request)
-
-    assert _tree_snapshot(tmp_path) == before
-    assert {
-        boundary["boundary_name"]
-        for boundary in result.runtime_plan_payload["observability"]["command_boundaries"]
-    } == {"probe_ready"}
-    semantic_boundary_names = {
-        boundary["boundary_name"]
-        for boundary in result.semantic_ir_payload["command_boundaries"].values()
-    }
-    assert "probe_ready" in semantic_boundary_names
-    assert "conflicting-adapter" not in semantic_boundary_names
-    assert any(
-        bridge["bridge_kind"] == "validation_subject"
-        for bridge in result.semantic_ir_payload["source_map"].values()
-    )
 
 
-def test_source_map_empty_payload_is_authoritative_and_none_is_legacy_fallback(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    build = importlib.import_module("orchestrator.workflow_lisp.build")
-    core_ast = importlib.import_module("orchestrator.workflow.core_ast")
-    lowering = importlib.import_module("orchestrator.workflow.lowering")
-    semantic_ir = importlib.import_module("orchestrator.workflow.semantic_ir")
-    request = _command_request(build, tmp_path)
-    compiled = build.build_frontend_bundle_in_memory(request)
-    bundle = compiled.validated_bundle
-    source_map_path = compiled.build_root / "source_map.json"
-    source_map_path.parent.mkdir(parents=True)
-    conflicting_payload = json.loads(json.dumps(compiled.source_map_payload))
-    workflow_payload = conflicting_payload["workflows"][
-        compiled.entry_selection.canonical_name
-    ]
-    for boundary in workflow_payload["command_boundaries"]:
-        boundary["boundary_kind"] = "certified_adapter"
-        boundary["adapter_name"] = "conflicting-adapter"
-    source_map_path.write_text(
-        json.dumps(conflicting_payload, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    read_text = Path.read_text
-
-    def reject_source_map_read(path: Path, *args, **kwargs) -> str:
-        if path == source_map_path:
-            raise AssertionError("an explicit empty source-map payload may not read provenance")
-        return read_text(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", reject_source_map_read)
-
-    empty_core = core_ast.build_core_workflow_ast(
-        bundle.surface,
-        bundle.imports,
-        bundle.provenance,
-        source_map_payload={},
-    )
-    empty_bundle = lowering.build_loaded_workflow_bundle(
-        bundle.surface,
-        imports=bundle.imports,
-        source_map_payload={},
-    )
-    empty_semantic_ir = semantic_ir.derive_workflow_semantic_ir(
-        core_workflow_ast=empty_core,
-        surface=empty_bundle.surface,
-        ir=empty_bundle.ir,
-        projection=empty_bundle.projection,
-        runtime_plan=empty_bundle.runtime_plan,
-        imports=empty_bundle.imports,
-        provenance=empty_bundle.provenance,
-        source_map_payload={},
-    )
-
-    assert "conflicting-adapter" not in json.dumps(
-        core_ast.workflow_core_ast_to_json(empty_core)
-    )
-    assert "conflicting-adapter" not in json.dumps(
-        build._public_runtime_plan_payload(empty_bundle.runtime_plan)
-    )
-    assert "conflicting-adapter" not in json.dumps(
-        semantic_ir.workflow_semantic_ir_to_json(empty_semantic_ir)
-    )
-
-    monkeypatch.setattr(Path, "read_text", read_text)
-
-    fallback_core = core_ast.build_core_workflow_ast(
-        bundle.surface,
-        bundle.imports,
-        bundle.provenance,
-        source_map_payload=None,
-    )
-    fallback_bundle = lowering.build_loaded_workflow_bundle(
-        bundle.surface,
-        imports=bundle.imports,
-        source_map_payload=None,
-    )
-    fallback_semantic_ir = semantic_ir.derive_workflow_semantic_ir(
-        core_workflow_ast=fallback_core,
-        surface=fallback_bundle.surface,
-        ir=fallback_bundle.ir,
-        projection=fallback_bundle.projection,
-        runtime_plan=fallback_bundle.runtime_plan,
-        imports=fallback_bundle.imports,
-        provenance=fallback_bundle.provenance,
-        source_map_payload=None,
-    )
-
-    assert "conflicting-adapter" in json.dumps(
-        core_ast.workflow_core_ast_to_json(fallback_core)
-    )
-    assert "conflicting-adapter" in json.dumps(
-        build._public_runtime_plan_payload(fallback_bundle.runtime_plan)
-    )
-    assert "conflicting-adapter" in json.dumps(
-        semantic_ir.workflow_semantic_ir_to_json(fallback_semantic_ir)
-    )
 
 
 def test_recursive_imported_builds_share_trace_and_never_emit_child_artifacts(
@@ -747,22 +482,13 @@ def test_recursive_imported_builds_share_trace_and_never_emit_child_artifacts(
     assert len(in_memory.imported_workflow_bundles) == 1
     imported = in_memory.imported_workflow_bundles[0]
     assert imported.workflow_name == "imported_selector::selector-run"
-    assert imported.bundle_fingerprint
-    assert imported.bundle == in_memory.validated_bundle.imports["selector-run"]
-
-    persistent = build.build_frontend_bundle(request)
-
-    assert persistent.imported_workflow_bundles == in_memory.imported_workflow_bundles
-    emitted_build_roots = tuple(
-        path
-        for path in (tmp_path / ".orchestrate" / "build").iterdir()
-        if path.is_dir()
-    )
-    assert emitted_build_roots == (persistent.build_root,)
-    assert imported.bundle_fingerprint != persistent.manifest.fingerprint
+    snapshot = in_memory.compile_result.entry_result.typed_program
+    assert imported.typed_program is snapshot.imported_programs["selector-run"]
+    assert imported.typed_program.entry.definition.name == imported.workflow_name
+    assert not in_memory.compile_result.validated_bundles_by_name
 
 
-def test_imported_binding_retains_frozen_complete_canonical_bundle_catalog(
+def test_imported_binding_retains_frozen_complete_typed_program(
     tmp_path: Path,
 ) -> None:
     build = importlib.import_module("orchestrator.workflow_lisp.build")
@@ -778,34 +504,17 @@ def test_imported_binding_retains_frozen_complete_canonical_bundle_catalog(
     assert _tree_snapshot(tmp_path) == before
     assert not (tmp_path / ".orchestrate").exists()
     binding = configuration.imported_workflow_bundles[0]
-    catalog = binding.bundle_catalog
-    assert tuple(catalog) == (
-        "catalog/entry::selected",
-        "catalog/entry::sibling",
-        "catalog/shared::shared",
-    )
+    program = binding.typed_program
+    assert set(program.workflows) == {
+        "catalog/entry::selected", "catalog/entry::sibling", "catalog/shared::shared",
+    }
     assert binding.workflow_name == "catalog/entry::selected"
-    assert binding.bundle is catalog[binding.workflow_name]
-    shared = catalog["catalog/shared::shared"]
-    for catalog_bundle in catalog.values():
-        for imported_bundle in catalog_bundle.imports.values():
-            assert imported_bundle is catalog[imported_bundle.surface.name]
-    for workflow_name in (
-        "catalog/entry::selected",
-        "catalog/entry::sibling",
-    ):
-        imported = tuple(catalog[workflow_name].imports.values())
-        assert imported == (shared,)
-        with pytest.raises(TypeError):
-            catalog[workflow_name].imports["other"] = shared  # type: ignore[index]
+    assert program.entry is program.workflows[binding.workflow_name]
+    assert set(program.source_file_digests) == {"catalog/entry", "catalog/shared"}
     with pytest.raises(TypeError):
-        catalog["other"] = shared  # type: ignore[index]
-
-    coverage = binding.bundle.provenance.frontend_source_map_coverage
-    assert coverage is binding.bundle.surface.provenance.frontend_source_map_coverage
-    assert coverage is binding.bundle.ir.provenance.frontend_source_map_coverage
+        program.workflows["other"] = program.entry
     with pytest.raises(TypeError):
-        coverage["frontend_ast"] = "mutated"
+        program.source_file_digests["other"] = "missing"
 
 
 def test_imported_catalog_flattening_rejects_canonical_name_conflicts() -> None:
@@ -839,23 +548,14 @@ def test_library_only_in_memory_result_is_explicit_and_non_runnable(
     assert result.compile_result.graph.export_surfaces_by_name["std/context"].types_by_name
     assert result.entry_selection is None
     assert result.selected_workflow_name is None
-    assert result.validated_bundle is None
-    assert result.fingerprint is None
-    assert result.build_root is None
-    assert result.manifest_path is None
-    assert result.source_map_payload is None
-    assert result.workflow_boundary_projection_payload is None
-    assert result.persisted_surface_payload is None
-    assert result.semantic_ir_payload is None
-    assert result.core_workflow_ast_payload is None
-    assert result.executable_ir_payload is None
-    assert result.runtime_plan_payload is None
+    assert result.compile_result.entry_result.typed_program is not None
+    assert not result.compile_result.validated_bundles_by_name
     assert result.source_read_trace.records
     assert _tree_snapshot(tmp_path) == before
 
-    with pytest.raises(build.LispFrontendCompileError) as persistent_error:
-        build.build_frontend_bundle(request)
-    assert persistent_error.value.diagnostics[0].code == "entry_workflow_required"
+    with pytest.raises(build.LispFrontendCompileError) as selection_error:
+        build._select_entry_workflow(result.compile_result, requested_name=None, source_path=request.source_path)
+    assert selection_error.value.diagnostics[0].code == "entry_workflow_required"
     assert _tree_snapshot(tmp_path) == before
 
     manifest_path = tmp_path / "library-only-imports.json"
@@ -884,7 +584,7 @@ def test_library_only_in_memory_result_is_explicit_and_non_runnable(
     assert _tree_snapshot(tmp_path) == before_import
 
 
-def test_recursive_library_only_import_error_retains_child_capture_without_writes(
+def test_recursive_library_only_import_error_retains_source_diagnostic_without_writes(
     tmp_path: Path,
 ) -> None:
     build = importlib.import_module("orchestrator.workflow_lisp.build")
@@ -921,8 +621,9 @@ def test_recursive_library_only_import_error_retains_child_capture_without_write
         workspace_root=tmp_path,
     )
 
+    analysis = build.build_frontend_bundle_in_memory(child_request)
     with pytest.raises(build.LispFrontendCompileError) as direct_error:
-        build.build_frontend_bundle(child_request)
+        build._select_entry_workflow(analysis.compile_result, requested_name=None, source_path=child_source)
     expected_diagnostics = direct_error.value.diagnostics
     before_recursive_attempt = _tree_snapshot(tmp_path)
 
@@ -938,8 +639,7 @@ def test_recursive_library_only_import_error_retains_child_capture_without_write
     assert tuple(diagnostic.code for diagnostic in error.diagnostics) == (
         "entry_workflow_required",
     )
-    assert error.compile_request_capture.source_path == child_source.resolve()
-    assert error.compile_request_capture.entry_workflow is None
+    assert Path(error.diagnostics[0].span.start.path) == child_source.resolve()
     assert _tree_snapshot(tmp_path) == before_recursive_attempt
     assert not (tmp_path / ".orchestrate").exists()
 
@@ -1852,17 +1552,12 @@ def test_initialization_configuration_copies_and_deep_freezes_retained_payloads(
     with pytest.raises(TypeError):
         adapter.path_safety["rules"][0]["root"] = "other"
 
-    imported = configuration.imported_workflow_bundles[0]
-    coverage = imported.bundle.provenance.frontend_source_map_coverage
-    assert coverage is imported.bundle.surface.provenance.frontend_source_map_coverage
-    assert coverage is imported.bundle.core_workflow_ast.provenance.frontend_source_map_coverage
-    assert coverage is imported.bundle.ir.provenance.frontend_source_map_coverage
-    assert (
-        coverage
-        is imported.bundle.core_workflow_ast._surface_workflow.provenance.frontend_source_map_coverage
-    )
+    imported = configuration.imported_workflow_bundles[0].typed_program
+    assert imported.entry is not None
     with pytest.raises(TypeError):
-        coverage["frontend_ast"] = "mutated"
+        imported.source_file_digests["mutated"] = "missing"
     with pytest.raises(TypeError):
-        imported.bundle.imports["other"] = imported.bundle
+        imported.configuration_bindings["mutated"] = {}
+    with pytest.raises(TypeError):
+        imported.workflows["mutated"] = imported.entry
     assert not (tmp_path / ".orchestrate").exists()

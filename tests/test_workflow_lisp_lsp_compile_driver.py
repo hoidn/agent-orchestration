@@ -2365,15 +2365,7 @@ def _l3_result_identity(
         ),
         "workflow_catalog": entry_result.workflow_catalog,
         "procedure_catalog": entry_result.procedure_catalog,
-        "artifact_presence": tuple(
-            getattr(result, field_name) is not None
-            for field_name in (
-                "source_map_payload",
-                "semantic_ir_payload",
-                "executable_ir_payload",
-                "runtime_plan_payload",
-            )
-        ),
+        "typed_workflow_names": tuple(workflow.definition.name for workflow in entry_result.typed_workflows),
     }
 
 
@@ -2397,10 +2389,7 @@ def _l3_serializable_result_identity(
             "provider_externs": dict(capture.provider_externs),
             "prompt_externs": dict(capture.prompt_externs),
             "command_boundaries": tuple(sorted(capture.command_boundaries)),
-            "imported_workflow_bundles": tuple(
-                binding.canonical_key
-                for binding in capture.imported_workflow_bundles
-            ),
+            "imported_workflow_bundles": tuple(sorted(capture.imported_workflow_bundles)),
         },
         "diagnostics": tuple(
             build._json_data(diagnostic)
@@ -2436,9 +2425,7 @@ def _l3_serializable_result_identity(
                 sorted(entry_result.procedure_catalog.definitions_by_name)
             ),
         },
-        "artifact_presence": _l3_result_identity(result)[
-            "artifact_presence"
-        ],
+        "typed_workflow_names": _l3_result_identity(result)["typed_workflow_names"],
     }
 
 
@@ -2653,18 +2640,10 @@ def test_l3_mixed_entry_driver_matches_isolated_peers_without_state_bleed(
     } == {
         "library::library-helper",
     }
-    assert _l3_result_identity(application)["artifact_presence"] == (
-        True,
-        True,
-        True,
-        True,
-    )
-    assert _l3_result_identity(library)["artifact_presence"] == (
-        False,
-        False,
-        False,
-        False,
-    )
+    assert application.compile_result.entry_result.typed_program is not None
+    assert library.compile_result.entry_result.typed_program is not None
+    assert not application.compile_result.validated_bundles_by_name
+    assert not library.compile_result.validated_bundles_by_name
     assert combined_driver.queued_generations == ()
     assert _workspace_snapshot(L3_ENTRY_SELECTION_ROOT) == before
     assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
@@ -4514,3 +4493,26 @@ def test_observe_disk_path_routes_frozen_member_to_configuration_latch(
     assert driver.state.configuration_stale is True
     assert driver.state.entries == ()
     assert transition.effects.restart_notice_required is True
+
+
+@pytest.mark.parametrize("target", ("2.34", "2.35", "2.36", "2.37"))
+def test_analysis_build_accepts_supported_headers_without_flat_emission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str,
+) -> None:
+    def forbidden(*args, **kwargs):
+        raise AssertionError("LSP analysis must not emit or reattach flat workflows")
+
+    monkeypatch.setattr(compiler, "_lower_workflows_for_route", forbidden)
+    monkeypatch.setattr(build, "_select_and_reattach", forbidden)
+    source = tmp_path / "analysis.orc"
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+      (defmodule analysis) (export run) (defworkflow run () -> Int 1))''')
+    result = build.build_frontend_bundle_in_memory(build.FrontendBuildRequest(
+        source_path=source, entry_workflow="run", workspace_root=tmp_path,
+    ))
+    assert result.entry_selection.canonical_name == "analysis::run"
+    assert result.compile_result.entry_result.typed_program.target == target
+    assert not result.compile_result.validated_bundles_by_name
+    assert not result.compile_result.entry_result.lowered_workflows
+    assert source in dict(result.source_read_trace.revision_vector)
+    assert not (tmp_path / ".orchestrate").exists()

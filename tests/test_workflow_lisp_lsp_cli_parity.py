@@ -74,7 +74,9 @@ def _make_cli_lsp_workspace(
     source_root = workspace / "src" if explicit_source_roots else workspace
     source_root.mkdir(parents=True)
     entry_path = source_root / ENTRY_FIXTURE.name
-    shutil.copyfile(ENTRY_FIXTURE, entry_path)
+    entry_path.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule entry_publication_runtime) (export entry-publication-runtime)
+      (defworkflow entry-publication-runtime () -> Int 1))''')
     caller_roots = (
         (source_root.resolve(), workspace.resolve())
         if explicit_source_roots
@@ -84,170 +86,86 @@ def _make_cli_lsp_workspace(
 
 
 def _observe_real_cli_and_lsp_captures(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    explicit_source_roots: bool,
-) -> tuple[
-    object,
-    object,
-    tuple[object, ...],
-    tuple[object, ...],
-    tuple[tuple[Path, ...], ...],
-    Path,
-    Path,
-    tuple[Path, ...],
-]:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, explicit_source_roots: bool,
+):
     workspace, entry_path, caller_roots = _make_cli_lsp_workspace(
-        tmp_path,
-        explicit_source_roots=explicit_source_roots,
+        tmp_path, explicit_source_roots=explicit_source_roots,
     )
     run_command = importlib.import_module("orchestrator.cli.commands.run")
+    evaluated_command = importlib.import_module("orchestrator.cli.commands.evaluated")
     cli_main = importlib.import_module("orchestrator.cli.main")
     compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
-    persistent_build = run_command.build_frontend_bundle
-    cli_captures: list[object] = []
-    cli_diagnostic_identities: list[tuple[object, ...]] = []
-    effective_root_observations: list[tuple[Path, ...]] = []
-    production_effective_source_roots = compiler._effective_source_roots
+    production_build = evaluated_command.build_closed_program_bundle
+    observed_builds = []
+    effective_root_observations = []
+    production_roots = compiler._effective_source_roots
 
-    def observing_effective_source_roots(
-        path: Path,
-        *,
-        source_roots: tuple[Path, ...] | None = None,
-        source_read_trace: object = None,
-    ) -> tuple[Path, ...]:
-        result = production_effective_source_roots(
-            path,
-            source_roots=source_roots,
-            source_read_trace=source_read_trace,
-        )
+    def observe_roots(path, **kwargs):
+        result = production_roots(path, **kwargs)
         effective_root_observations.append(result)
         return result
 
-    def observing_build(request: build.FrontendBuildRequest):
-        result = persistent_build(request)
-        cli_captures.append(
-            getattr(result, "compile_request_capture", _MISSING)
-        )
-        cli_diagnostic_identities.append(
-            _diagnostic_identities(result.diagnostics)
-        )
+    def observe_build(request, **kwargs):
+        result = production_build(request, **kwargs)
+        observed_builds.append((request, result))
         return result
 
-    monkeypatch.setattr(run_command, "build_frontend_bundle", observing_build)
-    monkeypatch.setattr(
-        compiler,
-        "_effective_source_roots",
-        observing_effective_source_roots,
-    )
+    monkeypatch.setattr(evaluated_command, "build_closed_program_bundle", observe_build)
+    monkeypatch.setattr(compiler, "_effective_source_roots", observe_roots)
     monkeypatch.chdir(workspace)
-    cli_argv = [
-        "run",
-        str(entry_path),
-        "--entry-workflow",
-        "entry-publication-runtime",
-        "--dry-run",
-        "--quiet",
-    ]
-    for source_root in caller_roots:
-        cli_argv.extend(("--source-root", str(source_root)))
-    cli_args = cli_main.create_parser().parse_args(cli_argv)
-
-    assert run_command.run_workflow(cli_args).exit_code == 0
-    assert len(cli_captures) == 1
-
-    state = lsp_state.initialize_lsp_state(
-        root_uri=workspace.as_uri(),
-        initialization_options={
-            "entry_workflows": {
-                str(entry_path): "entry-publication-runtime",
-            },
+    argv = ["run", str(entry_path), "--entry-workflow", "entry-publication-runtime", "--dry-run", "--quiet"]
+    for root in caller_roots:
+        argv.extend(("--source-root", str(root)))
+    assert run_command.run_workflow(cli_main.create_parser().parse_args(argv)).exit_code == 0
+    [(cli_request, cli_result)] = observed_builds
+    before_lsp = {path.relative_to(workspace): path.read_bytes()
+        for path in workspace.rglob("*") if path.is_file()}
+    driver = compile_driver.initialize_compile_driver(lsp_state.initialize_lsp_state(
+        root_uri=workspace.as_uri(), initialization_options={
+            "entry_workflows": {str(entry_path): "entry-publication-runtime"},
             "source_roots": caller_roots,
         },
-    )
-    driver = compile_driver.initialize_compile_driver(state)
-    driver.apply_transition(
-        lsp_state.open_entry(
-            driver.state,
-            document_uri=entry_path.as_uri(),
-            editor_text=entry_path.read_text(encoding="utf-8"),
-            disk_snapshot=compile_driver.probe_disk_source(entry_path),
-        )
-    )
+    ))
+    driver.apply_transition(lsp_state.open_entry(driver.state,
+        document_uri=entry_path.as_uri(), editor_text=entry_path.read_text(),
+        disk_snapshot=compile_driver.probe_disk_source(entry_path)))
     driver.drain()
     accepted = driver.state.entries[0].accepted_snapshot
     assert accepted is not None
-    lsp_capture = getattr(
-        accepted.build_value,
-        "compile_request_capture",
-        _MISSING,
-    )
-    lsp_diagnostic_identities = _diagnostic_identities(
-        accepted.build_value.diagnostics
-    )
-    return (
-        cli_captures[0],
-        lsp_capture,
-        cli_diagnostic_identities[0],
-        lsp_diagnostic_identities,
-        tuple(effective_root_observations),
-        workspace,
-        entry_path,
-        caller_roots,
-    )
+    assert before_lsp == {path.relative_to(workspace): path.read_bytes()
+        for path in workspace.rglob("*") if path.is_file()}
+    assert not (workspace / ".orchestrate" / "runs").exists()
+    return cli_request, cli_result, accepted.build_value, tuple(effective_root_observations), workspace, entry_path, caller_roots
 
 
 @pytest.mark.parametrize("explicit_source_roots", (False, True))
-def test_real_dry_run_and_lsp_share_the_build_owned_request_capture(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    explicit_source_roots: bool,
+def test_real_evaluated_dry_run_and_lsp_consume_the_same_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit_source_roots: bool,
 ) -> None:
-    (
-        cli_capture,
-        lsp_capture,
-        cli_diagnostic_identities,
-        lsp_diagnostic_identities,
-        effective_root_observations,
-        workspace,
-        entry_path,
-        caller_roots,
-    ) = _observe_real_cli_and_lsp_captures(
-        tmp_path,
-        monkeypatch,
-        explicit_source_roots=explicit_source_roots,
+    cli_request, cli_result, lsp_result, observations, workspace, entry_path, caller_roots = _observe_real_cli_and_lsp_captures(
+        tmp_path, monkeypatch, explicit_source_roots=explicit_source_roots,
     )
-
-    assert cli_capture is not _MISSING, (
-        "the persistent dry-run result lacks the production compile-request capture"
-    )
-    assert lsp_capture is not _MISSING, (
-        "the LSP result lacks the production compile-request capture"
-    )
-    assert type(cli_capture) is type(lsp_capture)
-    assert type(cli_capture).__module__ == build.__name__
-    assert tuple(field.name for field in fields(cli_capture)) == REQUEST_IDENTITY_FIELDS
-    assert cli_capture == lsp_capture
-    assert cli_diagnostic_identities == lsp_diagnostic_identities
+    capture = lsp_result.compile_request_capture
+    assert (cli_request.source_path, cli_request.workspace_root, cli_request.source_roots,
+        cli_request.entry_workflow) == (capture.source_path, capture.workspace_root,
+        capture.source_roots, capture.entry_workflow)
+    configuration = cli_result.typed_program.configuration_bindings
+    assert configuration["provider_externs"] == capture.provider_externs
+    assert configuration["prompt_externs"] == capture.prompt_externs
+    assert configuration["command_boundaries"] == capture.command_boundaries
+    assert cli_result.typed_program.imported_programs == capture.imported_workflow_bundles == {}
+    assert cli_result.typed_program.source_file_digests == lsp_result.compile_result.entry_result.typed_program.source_file_digests
+    assert cli_result.typed_program.target == lsp_result.compile_result.entry_result.typed_program.target == "2.35"
+    assert cli_result.entry_workflow == lsp_result.selected_workflow_name
+    assert _diagnostic_identities(cli_result.compile_diagnostics) == _diagnostic_identities(lsp_result.diagnostics)
     builtin_root = compile_driver.compiler._builtin_stdlib_source_root().resolve()
-    expected_effective_roots = (
-        (caller_roots[0], builtin_root, caller_roots[1])
-        if explicit_source_roots
-        else (workspace, builtin_root)
-    )
-    assert effective_root_observations == (
-        expected_effective_roots,
-        expected_effective_roots,
-    )
-    assert cli_capture.source_path == entry_path
-    assert cli_capture.workspace_root == workspace
-    assert cli_capture.source_roots == caller_roots
-    if not explicit_source_roots:
-        assert cli_capture.source_roots == ()
-        assert cli_capture.workspace_root not in cli_capture.source_roots
-    assert (driver_builtin_root := builtin_root) not in cli_capture.source_roots
-    assert driver_builtin_root != workspace
+    expected = ((caller_roots[0], builtin_root, caller_roots[1])
+        if explicit_source_roots else (workspace, builtin_root))
+    assert observations == (expected, expected)
+    assert capture.source_path == entry_path
+    assert capture.source_roots == caller_roots
+    assert builtin_root not in capture.source_roots
+    assert builtin_root != workspace
 
 
 @pytest.mark.parametrize(
@@ -258,260 +176,165 @@ def test_real_dry_run_and_lsp_share_the_build_owned_request_capture(
     ),
     ids=("listed-application", "unlisted-library"),
 )
-def test_l3_listed_and_unlisted_requests_match_real_cli_f2_capture(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    source_name: str,
-    entry_workflow: str | None,
-    expected_cli_status: int,
+def test_l3_listed_and_unlisted_requests_match_real_evaluated_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_name: str,
+    entry_workflow: str | None, expected_cli_status: int,
 ) -> None:
     workspace = (tmp_path / "workspace").resolve()
     source_root = workspace / "src"
     source_root.mkdir(parents=True)
     for fixture_name in ("application.orc", "library.orc"):
-        shutil.copyfile(
-            L3_ENTRY_SELECTION_ROOT / fixture_name,
-            source_root / fixture_name,
-        )
+        (source_root / fixture_name).write_text((L3_ENTRY_SELECTION_ROOT / fixture_name).read_text().replace('"2.15"', '"2.35"'))
     source_path = source_root / source_name
-    application_path = source_root / "application.orc"
-    caller_roots = (source_root, workspace)
+    roots = (source_root, workspace)
     run_command = importlib.import_module("orchestrator.cli.commands.run")
+    evaluated_command = importlib.import_module("orchestrator.cli.commands.evaluated")
     cli_main = importlib.import_module("orchestrator.cli.main")
     compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
-    persistent_build = run_command.build_frontend_bundle
-    cli_results: list[build.FrontendBuildResult] = []
-    cli_errors: list[build.LispFrontendCompileError] = []
-    effective_root_observations: list[tuple[Path, ...]] = []
-    production_effective_source_roots = compiler._effective_source_roots
+    production_build = evaluated_command.build_closed_program_bundle
+    production_roots = compiler._effective_source_roots
+    results, errors, requests, observations = [], [], [], []
 
-    def observe_effective_source_roots(
-        path: Path,
-        *,
-        source_roots: tuple[Path, ...] | None = None,
-        source_read_trace: object = None,
-    ) -> tuple[Path, ...]:
-        result = production_effective_source_roots(
-            path,
-            source_roots=source_roots,
-            source_read_trace=source_read_trace,
-        )
-        effective_root_observations.append(result)
-        return result
-
-    def observe_cli_build(
-        request: build.FrontendBuildRequest,
-    ) -> build.FrontendBuildResult:
+    def observe_build(request, **kwargs):
+        requests.append(request)
         try:
-            result = persistent_build(request)
+            result = production_build(request, **kwargs)
         except build.LispFrontendCompileError as error:
-            cli_errors.append(error)
+            errors.append(error)
             raise
-        cli_results.append(result)
+        results.append(result)
         return result
 
-    monkeypatch.setattr(
-        run_command,
-        "build_frontend_bundle",
-        observe_cli_build,
-    )
+    def observe_roots(path, **kwargs):
+        result = production_roots(path, **kwargs)
+        observations.append(result)
+        return result
+
+    monkeypatch.setattr(evaluated_command, "build_closed_program_bundle", observe_build)
+    monkeypatch.setattr(compiler, "_effective_source_roots", observe_roots)
     monkeypatch.chdir(workspace)
-    cli_argv = [
-        "run",
-        str(source_path),
-        "--dry-run",
-        "--quiet",
-    ]
+    argv = ["run", str(source_path), "--dry-run", "--quiet"]
     if entry_workflow is not None:
-        cli_argv[2:2] = ["--entry-workflow", entry_workflow]
-    for caller_root in caller_roots:
-        cli_argv.extend(("--source-root", str(caller_root)))
-    cli_args = cli_main.create_parser().parse_args(cli_argv)
-
-    monkeypatch.setattr(
-        compiler,
-        "_effective_source_roots",
-        observe_effective_source_roots,
-    )
-    assert run_command.run_workflow(cli_args).exit_code == expected_cli_status
-
-    driver = compile_driver.initialize_compile_driver(
-        lsp_state.initialize_lsp_state(
-            root_uri=workspace.as_uri(),
-            initialization_options={
-                "source_roots": [
-                    str(caller_root)
-                    for caller_root in caller_roots
-                ],
-                "entry_workflows": {
-                    str(application_path): "selected",
-                },
-            },
-        )
-    )
-    driver.apply_transition(
-        lsp_state.open_entry(
-            driver.state,
-            document_uri=source_path.as_uri(),
-            editor_text=source_path.read_text(encoding="utf-8"),
-            disk_snapshot=compile_driver.probe_disk_source(source_path),
-        )
-    )
+        argv.extend(("--entry-workflow", entry_workflow))
+    for root in roots:
+        argv.extend(("--source-root", str(root)))
+    assert run_command.run_workflow(cli_main.create_parser().parse_args(argv)).exit_code == expected_cli_status
+    before_lsp = {path.relative_to(workspace): path.read_bytes()
+        for path in workspace.rglob("*") if path.is_file()}
+    driver = compile_driver.initialize_compile_driver(lsp_state.initialize_lsp_state(
+        root_uri=workspace.as_uri(), initialization_options={
+            "source_roots": roots,
+            "entry_workflows": {str(source_root / "application.orc"): "selected"},
+        },
+    ))
+    driver.apply_transition(lsp_state.open_entry(driver.state,
+        document_uri=source_path.as_uri(), editor_text=source_path.read_text(),
+        disk_snapshot=compile_driver.probe_disk_source(source_path)))
     driver.drain()
     [entry] = driver.state.entries
     assert entry.compile_status == "success"
-    assert entry.accepted_snapshot is not None
     lsp_result = entry.accepted_snapshot.build_value
-    assert isinstance(lsp_result, build.FrontendInMemoryBuildResult)
-    lsp_capture = lsp_result.compile_request_capture
-
+    capture = lsp_result.compile_request_capture
+    [request] = requests
+    assert (request.source_path, request.workspace_root, request.source_roots, request.entry_workflow) == (
+        capture.source_path, capture.workspace_root, capture.source_roots, capture.entry_workflow)
+    assert capture.entry_workflow == entry_workflow
+    assert before_lsp == {path.relative_to(workspace): path.read_bytes()
+        for path in workspace.rglob("*") if path.is_file()}
+    assert not (workspace / ".orchestrate" / "runs").exists()
     if entry_workflow is not None:
-        [cli_result] = cli_results
-        assert cli_errors == []
-        cli_capture = cli_result.compile_request_capture
-        assert (
-            _diagnostic_identities(cli_result.diagnostics)
-            == _diagnostic_identities(lsp_result.diagnostics)
-            == ()
-        )
-        assert lsp_result.entry_selection is not None
+        [result] = results
+        assert errors == []
+        assert result.entry_workflow == lsp_result.selected_workflow_name == "application::selected"
         assert lsp_result.entry_selection.requested_name == entry_workflow
-        assert lsp_result.selected_workflow_name == "application::selected"
+        assert result.typed_program.source_file_digests == lsp_result.compile_result.entry_result.typed_program.source_file_digests
+        assert _diagnostic_identities(result.compile_diagnostics) == _diagnostic_identities(lsp_result.diagnostics) == ()
     else:
-        assert cli_results == []
-        [cli_error] = cli_errors
-        assert [item.code for item in cli_error.diagnostics] == [
-            "entry_workflow_required"
-        ]
-        cli_capture = cli_error.compile_request_capture
+        assert results == []
+        [error] = errors
+        assert [diagnostic.code for diagnostic in error.diagnostics] == ["entry_workflow_required"]
         assert lsp_result.entry_selection is None
         assert lsp_result.selected_workflow_name is None
-        assert lsp_result.validated_bundle is None
-        assert lsp_result.source_map_payload is None
-
-    assert cli_capture == lsp_capture
-    assert tuple(field.name for field in fields(cli_capture)) == (
-        REQUEST_IDENTITY_FIELDS
-    )
-    assert cli_capture.source_path == source_path
-    assert cli_capture.workspace_root == workspace
-    assert cli_capture.source_roots == caller_roots
-    assert cli_capture.entry_workflow == entry_workflow
-    assert cli_capture.validation_profile is lsp_capture.validation_profile
-    assert (
-        cli_capture.boundary_admission_profile
-        is lsp_capture.boundary_admission_profile
-    )
-    assert cli_capture.lint_profile == lsp_capture.lint_profile
-    assert cli_capture.lowering_route == lsp_capture.lowering_route
-    assert cli_capture.provider_externs == lsp_capture.provider_externs
-    assert cli_capture.prompt_externs == lsp_capture.prompt_externs
-    assert cli_capture.command_boundaries == lsp_capture.command_boundaries
-    assert (
-        cli_capture.imported_workflow_bundles
-        == lsp_capture.imported_workflow_bundles
-    )
+        assert not lsp_result.compile_result.validated_bundles_by_name
+        assert not (workspace / ".orchestrate").exists()
     builtin_root = compiler._builtin_stdlib_source_root().resolve()
-    expected_effective_roots = (
-        caller_roots[0],
-        builtin_root,
-        caller_roots[1],
-    )
-    assert tuple(effective_root_observations) == (
-        expected_effective_roots,
-        expected_effective_roots,
-    )
-    assert effective_root_observations[0] == effective_root_observations[1]
-    assert tuple(
-        root
-        for root in effective_root_observations[0]
-        if root != builtin_root
-    ) == cli_capture.source_roots == lsp_capture.source_roots
-    assert builtin_root not in cli_capture.source_roots
-    assert builtin_root not in lsp_capture.source_roots
-    assert builtin_root != workspace
+    assert observations == [(roots[0], builtin_root, roots[1])] * 2
+    assert builtin_root not in capture.source_roots
 
 
+@pytest.mark.parametrize("entry_text, expected_code", (
+    ("(workflow-lisp\n", "frontend_parse_error"),
+    ('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule broken) (export run) (defworkflow run () -> Int "bad"))''', "return_type_mismatch"),
+), ids=("parse-preflight", "typed-235"))
 def test_real_broken_dry_run_and_lsp_share_request_and_diagnostic_identity(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_text: str, expected_code: str,
 ) -> None:
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
-    entry_path = workspace / "broken.orc"
-    entry_text = "(workflow-lisp\n"
-    entry_path.write_text(entry_text, encoding="utf-8")
+    source_path = workspace / "broken.orc"
+    source_path.write_text(entry_text)
     run_command = importlib.import_module("orchestrator.cli.commands.run")
+    evaluated_command = importlib.import_module("orchestrator.cli.commands.evaluated")
     cli_main = importlib.import_module("orchestrator.cli.main")
-    persistent_build = run_command.build_frontend_bundle
-    cli_errors: list[build.LispFrontendCompileError] = []
+    cli_errors, cli_requests = [], []
+    production_refusal = run_command.refuse_retired_entry_target
+    production_build = evaluated_command.build_closed_program_bundle
 
-    def observing_cli_build(request: build.FrontendBuildRequest):
+    def observe_refusal(*args, **kwargs):
         try:
-            return persistent_build(request)
+            return production_refusal(*args, **kwargs)
         except build.LispFrontendCompileError as error:
             cli_errors.append(error)
             raise
 
-    monkeypatch.setattr(
-        run_command,
-        "build_frontend_bundle",
-        observing_cli_build,
-    )
-    monkeypatch.chdir(workspace)
-    cli_args = cli_main.create_parser().parse_args(
-        ("run", str(entry_path), "--dry-run", "--quiet")
-    )
-
-    assert run_command.run_workflow(cli_args).exit_code == 2
-    assert len(cli_errors) == 1
-
-    read_only_build = build.build_frontend_bundle_in_memory
-    lsp_errors: list[build.LispFrontendCompileError] = []
-
-    def observing_lsp_build(
-        request: build.FrontendBuildRequest,
-        *,
-        source_read_trace: object,
-    ):
+    def observe_build(request, **kwargs):
+        cli_requests.append(request)
         try:
-            return read_only_build(
-                request,
-                source_read_trace=source_read_trace,
-            )
+            return production_build(request, **kwargs)
+        except build.LispFrontendCompileError as error:
+            cli_errors.append(error)
+            raise
+
+    monkeypatch.setattr(run_command, "refuse_retired_entry_target", observe_refusal)
+    monkeypatch.setattr(evaluated_command, "build_closed_program_bundle", observe_build)
+    monkeypatch.chdir(workspace)
+    before = {path.relative_to(workspace): path.read_bytes() for path in workspace.rglob("*") if path.is_file()}
+    args = cli_main.create_parser().parse_args(("run", str(source_path), "--dry-run", "--quiet"))
+    assert run_command.run_workflow(args).exit_code == 2
+    [cli_error] = cli_errors
+    production_analysis = build.build_frontend_bundle_in_memory
+    lsp_errors, lsp_requests = [], []
+
+    def observe_analysis(request, **kwargs):
+        lsp_requests.append(request)
+        try:
+            return production_analysis(request, **kwargs)
         except build.LispFrontendCompileError as error:
             lsp_errors.append(error)
             raise
 
-    driver = compile_driver.initialize_compile_driver(
-        lsp_state.initialize_lsp_state(root_uri=workspace.as_uri()),
-        build_in_memory=observing_lsp_build,
-    )
-    driver.apply_transition(
-        lsp_state.open_entry(
-            driver.state,
-            document_uri=entry_path.as_uri(),
-            editor_text=entry_text,
-            disk_snapshot=compile_driver.probe_disk_source(entry_path),
-        )
-    )
+    driver = compile_driver.initialize_compile_driver(lsp_state.initialize_lsp_state(root_uri=workspace.as_uri()),
+        build_in_memory=observe_analysis)
+    driver.apply_transition(lsp_state.open_entry(driver.state,
+        document_uri=source_path.as_uri(), editor_text=entry_text,
+        disk_snapshot=compile_driver.probe_disk_source(source_path)))
     driver.drain()
-
-    assert len(lsp_errors) == 1
-    cli_error = cli_errors[0]
-    lsp_error = lsp_errors[0]
-    assert cli_error.compile_request_capture == lsp_error.compile_request_capture
-    cli_identities = _diagnostic_identities(cli_error.diagnostics)
-    lsp_identities = _diagnostic_identities(lsp_error.diagnostics)
-    assert cli_identities
-    assert cli_identities == lsp_identities
-    assert cli_identities[0][1:6] == (
-        "validation",
-        "error",
-        "read",
-        "parse",
-        "frontend",
-    )
+    [lsp_error] = lsp_errors
+    assert cli_error.diagnostics[0].code == lsp_error.diagnostics[0].code == expected_code
+    assert _diagnostic_identities(cli_error.diagnostics) == _diagnostic_identities(lsp_error.diagnostics)
+    [lsp_request] = lsp_requests
+    assert lsp_request.source_path == source_path
+    assert lsp_request.workspace_root == workspace
+    if expected_code == "frontend_parse_error":
+        assert cli_requests == []
+        assert _diagnostic_identities(cli_error.diagnostics)[0][1:6] == ("validation", "error", "read", "parse", "frontend")
+    else:
+        [cli_request] = cli_requests
+        assert (cli_request.source_path, cli_request.workspace_root, cli_request.source_roots, cli_request.entry_workflow) == (
+            lsp_request.source_path, lsp_request.workspace_root, lsp_request.source_roots, lsp_request.entry_workflow)
+    assert before == {path.relative_to(workspace): path.read_bytes() for path in workspace.rglob("*") if path.is_file()}
+    assert not (workspace / ".orchestrate").exists()
 
 
 @pytest.fixture(scope="module")
@@ -1086,11 +909,9 @@ def test_real_cli_and_lsp_select_same_std_improve_graph_source_and_root(
     driver.drain()
     [entry] = driver.state.entries
 
-    assert entry.compile_status == "language_error"
-    assert entry.accepted_snapshot is None
-    assert tuple(item.code for item in entry.diagnostic_contributions) == (
-        "evaluated_execution_unavailable",
-    )
+    assert entry.compile_status == "success"
+    assert entry.accepted_snapshot is not None
+    assert entry.diagnostic_contributions == ()
     # Both entry paths resolve this graph once.
     assert len(observations) == 2
 
