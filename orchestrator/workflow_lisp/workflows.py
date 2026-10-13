@@ -100,7 +100,7 @@ from .typecheck import (
 
 if TYPE_CHECKING:
     from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
-    from .functions import FunctionCatalog
+    from .functions import FunctionCatalog, TypedFunctionDef
     from .lowering import LoweredWorkflow
     from .procedures import TypedProcedureDef
 
@@ -426,6 +426,17 @@ class WorkflowCatalog:
 
 
 @dataclass(frozen=True)
+class ExpressionCompileContext:
+    """Transient compiler facts needed to compile an expression in this module."""
+
+    function_catalog: "FunctionCatalog"
+    typed_functions_by_name: Mapping[str, "TypedFunctionDef"]
+    function_name_resolver: Callable[..., str]
+    procedure_name_resolver: Callable[..., str]
+    workflow_name_resolver: Callable[..., str]
+
+
+@dataclass(frozen=True)
 class Stage3CompileResult:
     """Compiled module result after typecheck, lowering, and shared validation."""
 
@@ -444,6 +455,11 @@ class Stage3CompileResult:
     retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     lowering_schema_version: int = 1
     typed_program: object | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+    expression_context: ExpressionCompileContext | None = field(
         default=None,
         compare=False,
         repr=False,
