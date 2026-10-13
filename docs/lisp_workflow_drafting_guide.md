@@ -52,13 +52,14 @@ The Design Delta family (`workflows/library/lisp_frontend_design_delta/`) is
 deprecated, apart from its reusable library procedures. Do not start new work
 from it, and read
 [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
-as a historical checklist for that family's shape. Start from a recent example
-instead: [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-for a `std/improve` review loop, or
+as a historical checklist for that family's shape. Start current authoring from
+[`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
+at 2.36 for a `std/improve` review loop, or the
+[complete 2.35 lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate).
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
-for generate-and-select and a hand-written review loop. Each passes
-`--dry-run` through the command-line entry.
+retain their older targets as historical generate/select and hand-written
+review-loop patterns; they are not current evaluated copy targets.
 
 Use the retired [Workflow Drafting Guide](workflow_drafting_guide.md) only to
 translate or audit historical YAML/YML definitions and evidence. It is not an
@@ -83,6 +84,13 @@ computed parity evidence. Do not attempt to rerun the retired source or infer
 parity merely because an `.orc` version compiles.
 
 ## Editor Diagnostics And Navigation
+
+Evaluated targets have source/helper selection parity only; evaluated LSP
+snapshot/navigation and terminal diagnostic parity remain unqualified. The
+features below describe the established full-Stage-3 editor lane, not a promise
+of evaluated-run editor support. See the
+[language-server owner](design/workflow_lisp_language_server.md) and
+[capability matrix](capability_status_matrix.md) for exact scope.
 
 The optional Workflow Lisp language server v1 is implemented for practical
 `.orc` authoring feedback. Install the `[lsp]` extra, launch
@@ -222,46 +230,10 @@ procedures are the normal internal reuse unit.
 Do not author brittle gates, pointer plumbing, report parsers, candidate-path
 selectors, or manual state-file choreography.
 
-Good high-level workflow code should look like typed composition:
-
-```lisp
-(defworkflow run-selected-backlog-item
-  ((selection SelectionInput)
-   (providers NeuripsProviders))
-  -> SelectedItemResult
-
-  (let* ((selected
-           (resolve-selected-item selection))
-
-         (plan
-           (ensure-approved-plan
-             :selected selected
-             :providers providers.plan))
-
-         (implementation
-           (call implementation/run
-             :inputs (make-implementation-inputs selected plan)
-             :providers providers.implementation)))
-
-    (finalize-selected-item
-      :selected selected
-      :plan plan
-      :implementation implementation)))
-```
-
-It should not look like low-level runtime plumbing:
-
-```lisp
-(step ...)
-(pre-snapshot ...)
-(select-variant-output ...)
-(requires-variant ...)
-(write-pointer ...)
-(parse-markdown-report ...)
-```
-
-Those lower-level concepts may still exist after lowering, but they should not
-dominate high-level authored Lisp.
+Good high-level workflow code composes typed provider/command results, pure
+helpers and bounded control. See [Section 13.7](#137-improve) for the exercised
+review/revise composition. Low-level state-file choreography, report parsing
+and pointer plumbing should not dominate authored Lisp.
 
 ## Runtime-Native Authoring Direction
 
@@ -270,19 +242,18 @@ lowering/runtime own execution mechanics.
 
 Preferred authoring shape:
 
-- provider calls render supported scalar, record, relpath, target-2.19 exact
+- provider calls render supported scalar, record, relpath, exact
   `Value`, and recursively renderer-admitted `List[T]` values from `:inputs`
   at the prompt consumer seam; other composite shapes require an implemented
   checked route;
 - private runtime context, generated paths, checkpoint identity, and write roots
   are hidden from public entrypoints and ordinary user-facing calls;
 - deterministic local reshaping uses pure typed projection instead of Python;
-- durable state changes use `resource-transition` or certified transition
-  adapters;
+- durable resource changes require an admitted, reviewed effect;
+  `resource-transition` remains unavailable at evaluated targets;
 - prompt text, public summaries, observability, and compatibility files are
   renderings at consumer seams; and
-- body-level `materialize-view` is reserved for justified timed publications or
-  low-level compatibility work.
+- body-level `materialize-view` remains unavailable at evaluated targets.
 
 For example, the high-level call should usually be:
 
@@ -334,27 +305,15 @@ Think in five layers.
 | Types and contracts | What values exist? | `defpath`, `defenum`, `defrecord`, `defunion`, `defschema` | Contracts, path safety, artifact shapes |
 | Procedures and workflows | Which boundary is public, and what behavior is internally reusable? | `defworkflow`, `defproc`, `defun`, `call`, `let*` | Public run/resume identity, graph structure, procedure lowering, workflow calls |
 | Structured results | What did a provider or command produce? | `provider-result`, `command-result`, `match` | Output validation, prompt contract, variant proof |
-| Transitions | What state changed? | `resume-or-start`, `resource-transition`, `review-revise-loop`, `backlog-drain` | Atomic commit, durable state, effects |
+| Effects | What work occurs? | Admitted `provider-result`, `command-result`, calls and path-mode `run-ref` | Effect identity, validated results, memo commits |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
-The authoring pipeline is:
-
-```text
-.orc source
-  -> frontend AST
-  -> macro/procedure elaboration
-  -> Core Workflow AST
-  -> shared validation
-  -> validated executable IR
-  -> derived runtime plan and semantic IR
-  -> existing runtime
-```
-
-The optional `expanded.debug.yaml` artifact is a JSON-rendered debug projection
-despite its historical suffix. It is not semantic or executable authority and
-is never workflow source.
-
-The first question is not "which YAML field do I need?"
+For targets 2.35/2.36, the compiler elaborates and checks `.orc` source into a
+closed program; the evaluator computes its values and memoizes its effects.
+The checked `closed_program.json` is execution authority. The memo is effect
+result authority, and `state.json` is a derived view. The
+[evaluated-execution design](design/workflow_lisp_evaluated_execution.md)
+owns the full model.
 
 Ask these first:
 
@@ -373,705 +332,110 @@ adapter.
 
 ## 2. Availability Model
 
-The Lisp frontend now supports substantially more than the original MVP, but
-current compiler behavior, current component contracts, future design targets,
-and production workflow migration are separate questions.
+Use the [Capability Status Matrix](capability_status_matrix.md) to distinguish
+implemented, library-provided, designed, future and legacy surfaces. Compiler
+acceptance at an older target does not establish evaluated runtime admission.
+New entry workflows in this guide use 2.35 or 2.36 and the scope in
+[Section 2A](#2a-program-shapes-what-runs-today).
 
-For current availability and copy-safety status, start with
-[Capability Status Matrix](capability_status_matrix.md). This section explains
-the status labels used in authoring guidance; the matrix is the routing table
-for individual surfaces.
+The shared authoring surface includes declarations (`defenum`, `defpath`,
+`defrecord`, `defunion`, `defschema`), modules/imports/exports, `defworkflow`,
+`defproc`, `defun`, bounded deterministic macros, `let*`, strict-`Bool` `if`
+and `cond`, `match`, `loop/recur`, the closed pure operator and list surfaces,
+`call`, `provider-result`, `command-result`, and fully applied `defprompt`
+fragments. Prompt output slots may own one required UTF-8 file alongside the
+structured result. See the effect admission limits in Section 2A before using
+any library helper.
 
-Use these labels in docs and examples when needed:
+Native transportable results need no one-field record wrapper: use the actual
+scalar, enum, path, optional, list, map, record, union or exact opaque `Value`
+contract. Optional typed guidance uses
+`(result T :description ... :format-hint ... :example ...)`; examples are
+typed pure constants and safe path examples need not exist at compile time.
+Exact `Value` permits description/format guidance, but not an example.
 
-| Label | Meaning |
-| --- | --- |
-| Implemented | Accepted by the current compiler and covered by local fixtures/tests |
-| Library | Standard-library form; may lower to existing primitives or certified adapters |
-| Designed | Part of the accepted design, but not yet implemented |
-| Future | Intended direction, not yet available |
-| Legacy | Compatibility-only; avoid in new workflows |
+Procedure composition remains compile-time-only: `ProcRef[...]`,
+`(proc-ref ...)`, `bind-proc`, and `WorkflowRef[...]` are specialized before
+execution. They cannot cross transport seams, become provider-produced values,
+or survive in runtime state. Generic `defproc` is supported; generic
+`defworkflow`, dynamic runtime dispatch and runtime closures remain outside
+current authoring.
 
-The currently implemented authoring surface includes:
+At target 2.35, bounded V1 `let-proc` has one typed local procedure and
+explicit identifier captures. At 2.36,
+[W3](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+adds several bindings, inferred lexical captures and incomplete signatures
+inferred from exactly one authored direct consumer site. Complete signatures
+retain reuse. Nested local definitions and recursion remain excluded. See
+[Section 13.7](#137-improve) for the maintained proposal recipe.
 
-- `defenum`
-- `defpath`
-- `defrecord`
-- `defunion`
-- `defschema`
-- `defworkflow`
-- `defproc`
-- `defun`
-- `defmacro`
-- target-2.20 `defprompt` declarations and fully applied fragment-backed
-  `provider-result :prompt` applications
-- target-2.21 `:path :out` prompt slots for one required UTF-8 output file
-  composed with the prompt-owned structured result
-- target-2.22 content-free prompt-attempt identity and drift reports for direct
-  fragment-backed calls, with no additional authored call fields
-- target-2.23 read-only Q4 judgment inspection for the bounded
-  `review_revise_design_docs` explicit-composed panel sibling; this adds no
-  source form or workflow-readable value
-- modules, imports, and exports
-- `let*`
-- `if` and `cond`, including arbitrary exact-`Bool` conditions at target 2.26;
-  condition effects run left to right and at most once, `and`/`or`
-  short-circuit, and a no-`else` `cond` must be provably exhaustive (below
-  2.26, only computed pure `Bool` conditions)
-- the closed pure-expression operator surface (`=`, `!=`, `<`, `<=`, `>`,
-  `>=`, `and`, `or`, `not`, `+`, `-`, `*`, `min`, `max`, `string/concat`,
-  `string/empty?`, `symbol/name`, `some?`, `or-else`, `record-update`),
-  lowering through compiler-generated `pure_projection` steps; see Section 9A.
-  Target 2.34 adds decimal literals in expressions and the numeric operators
-  `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`,
-  `int/to-float`, `float/floor` and `float/round`
-- `match`
-- `loop/recur`
-- target-2.18 list construction and total list operators, pure `list/map`,
-  bounded `list/map-effect`, eligible `List[T]` loop state, and
-  containment-safe `path/join-under`
-- `call`
-- `WorkflowRef[...]` and `(workflow-ref ...)`
-- native returns for every currently transportable type across workflows,
-  providers, commands, procedures, and workflow calls when targeting the
-  public DSL v2.15
-- `provider-result`
-- target-2.16 `with-live-providers` for exactly one eligible worker and one
-  supervisor with pure settlement
-- target-2.17 `with-live-provider-peers` for two through eight eligible
-  provider members with recorded turn-boundary messaging and pure settlement
-- `command-result`
-- `with-phase`
-- `phase-target`
-- `run-provider-phase`
-- `resume-or-start`
-- `review-revise-loop` as an implemented authoring surface; the ordinary
-  imported stdlib lowering route exists in the current checkout; current route
-  claims come from registry-cited direct owner tests, while historical
-  promotion rationale remains in
-  `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- `resource-transition` through declared runtime-native transitions, with
-  certified adapters only as explicit compatibility backends
-- `finalize-selected-item`
-- `backlog-drain`
-- JSON debug-projection renderer (`expanded.debug.yaml`)
-- source-map and build-artifact emission
-
-The ProcRef tranche currently supports compile-time-only procedure composition:
-`ProcRef[...]` type annotations, explicit `(proc-ref ...)` literals,
-module-aware resolution and diagnostics, keyword-only `bind-proc` partial
-application, residual-signature specialization before lowering, forwarding
-through `ProcRef[...]` parameters, and lexical invocation through ProcRef-bound
-call heads. ProcRef values are still compile-time-only: they cannot cross
-runtime transport seams or survive into executable runtime state.
-
-Current component-contract boundaries:
-
-- current macro support is implemented, deterministic, and bounded by
-  [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md);
-- standard-library forms are ordinary authoring guidance only when their
-  lowering contract is supported and their generated effects/source maps remain
-  visible; see [Workflow Lisp Frontend Standard Library Lowering](design/workflow_lisp_stdlib_lowering.md);
-- Semantic IR and Executable IR are formalized current-checkout component
-  contracts, but they have different authority lanes: Semantic IR is semantic
-  authority, and Executable IR is executable authority;
-- Core statement-family identity comes from the current shared Core AST
-  taxonomy, not from ad hoc frontend-only statement names.
-
-Designed or future, but not current authoring:
-
-- runtime first-class procedures or closures
-- provider-selected or command-produced procedure values
-- procedure values stored in workflow outputs, records, unions, artifacts,
-  provider results, command results, state, ledgers, or loop-carried runtime
-  state
-- dynamic runtime procedure dispatch
-- stronger multi-resource transactional backends beyond the current
-  runtime-native transition contract
-- generic `defworkflow` headers or type-parameterized workflow entrypoints
-
-Runtime closures remain future runtime-owned callable values. Current work only
-proves disabled-profile rejection and source-map diagnostics. Do not author
-runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
-state.
-
-Native returns and typed guidance are landed: a `.orc` source declaring
-`(:target-dsl "2.15")` may
-return `Bool`, `Int`, `Float`, `String`, an enum, a declared path, an
-`Optional[T]`, a `List[T]`, or a `Map[String, T]` directly from
-`defworkflow`, `provider-result`, `command-result`, effectful `defproc`, and
-workflow calls, without wrapping it in a one-field record. Typed result
-guidance uses `(result T :description ... :format-hint ... :example ...)`, and
-record/union payload fields accept the same optional keys. Examples are typed
-pure constants. Path examples must be safe but need not exist at compile time.
-DSL v2.15 is public through ordinary `.orc` frontend entrypoints. Follow the
-[Capability Status Matrix](capability_status_matrix.md) for current status.
-
-Historical migration records retain their captured YAML baseline and parity
-claims as evidence. YAML is no longer an executable authority; current routes
-must be `.orc` and satisfy their ordinary compile, validation, and runtime
-gates.
-
-Do not present a form as ordinary authoring guidance unless the guide labels
-whether it is implemented, library-backed, designed, future, or legacy.
-
-Through target 2.35, bounded V1 `let-proc` is implemented: declare one typed local procedure
-with explicit identifier captures, reference it through `(proc-ref local-name)`,
-and keep it within its lexical scope. It uses ordinary `defproc` lowering;
-nested bindings, recursion, capture aliases, and runtime closures remain
-excluded. See the [local-binding contract](design/workflow_lisp_let_proc_local_proc_refs.md)
-and `tests/fixtures/workflow_lisp/valid/let_proc_proc_ref_forwarding.orc`.
-At target 2.36, [W3](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-adds several bindings, inferred lexical captures and signatures from one
-authored direct consumer site when incomplete. Full annotations retain reuse.
-The [proposal recipe](#137-improve) shows the maintained source; the
-[closeout](reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns W3 qualification and delivery evidence.
+The [macro contract](design/workflow_lisp_macro_surface_contract.md),
+[parametric type contract](design/workflow_lisp_parametric_type_system.md), and
+[local-binding contract](design/workflow_lisp_let_proc_local_proc_refs.md)
+own their detailed language limits. Historical YAML migration records preserve
+captured baselines and parity evidence; they do not select a current runtime
+route.
 
 ## 2A. Program Shapes: What Runs Today
 
-Decide before writing whether the shape you have in mind runs. Each row below
-comes from a program in
-[`tests/fixtures/workflow_lisp/guide_shapes/`](../tests/fixtures/workflow_lisp/guide_shapes/),
-run through the public run entry at targets 2.33 and 2.34.
-[`tests/test_workflow_lisp_guide_programs.py`](../tests/test_workflow_lisp_guide_programs.py)
-runs every program again and checks its exit code, its value and command log,
-or its diagnostic code, its location and the stage that raised it. It also
-checks that each program quoted here is part of its file. The two targets
-differ only for decimals (rows 3, 9 and 10).
+Author new entry workflows at target **2.35** or **2.36**. Both select evaluated
+execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
+shown in [Section 13.7](#137-improve). An older module can still be imported
+when its own syntax gates and the evaluated graph's admission rules allow it.
+This guide's scope does not remove older runtime targets or convert their runs.
 
-The kind of a refusal follows from the stage that raises it, by the rule of
-[middle-end §13.3](design/workflow_lisp_core_calculus_middle_end.md#133-diagnostics-contract):
+Values are evaluated in lexical scope; they are not stored as generated steps.
+Effects execute in source order and are recorded in `memo.jsonl`. A committed
+effect is reused on resume. The public shape evidence lives in
+[`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py)
+and [`tests/test_workflow_evaluated_programs.py`](../tests/test_workflow_evaluated_programs.py),
+not in the historical flat-route workaround catalogue.
 
-- **Rule**: the typechecker refuses the form by name.
-- **Defect**: a refusal after typecheck of a form the typechecker accepts, a
-  wrong diagnostic, or a wrong value.
-  [Composition-first §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
-  lists the known defects with their causes.
-- **Reader**: at 2.33 the frontend refuses a decimal operator or literal while
-  it reads the source into expressions, before typecheck. Targets that exist
-  keep their behaviour on purpose
-  ([numeric surface §6](design/workflow_lisp_numeric_surface.md#6-targets-and-compatibility)).
-- **Limit**: the 256-node bound of a pure payload, raised after typecheck by
-  `validate_pure_expr_payload` (`orchestrator/workflow/pure_expr.py`) when the
-  program is lowered. It is a limit and not a defect because the design makes a
-  payload size fixed at compile time part of the pure evaluator's contract
-  ([adapter-retirement design §8.4](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md#84-pure-expression-core)),
-  and the refusal names the bound and prints the count, as
-  [principle 28](design/workflow_language_design_principles.md#28-refusals-must-name-their-rule)
-  asks.
-- **No such form**: the language has no form for the shape, so no program is
-  refused; the fixture shows what the nearest form does.
+| Shape | Current guidance |
+| --- | --- |
+| Branches, nested loops, and helpers in loops | Compose admitted forms directly; selected branches are lazy and lexical bindings retain their scope. |
+| Records, unions, lists, and repeated pure bindings | Keep typed native values; no flattening or value-as-step wrapper is needed to reach a command. |
+| Effectful arguments and conditions | Admitted effects run in structural evaluation order, once per activation; boolean operators short-circuit. |
+| Pure contexts | Keep `:on-exhausted` and pure `list/map` bodies effect-free; union reads still require proof. |
+| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; parallel map is outside the release. |
+| Decimal arithmetic | Use the closed numeric operator surface in Section 9A; mixed numeric types and non-finite results fail closed. |
+| Path-mode `run-ref` | Admitted directly or through calls in effect-admitting branches, loops, budgets, seeds, `match` subjects and serial effect maps; retain pure-context restrictions. |
 
-Exit 2 means the program was refused before any command ran. Exit 1 means it
-compiled and a step failed at run time.
-Most defects below share one cause: at run time a value exists only as the
-output of a step
-([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
-[Evaluated execution](design/workflow_lisp_evaluated_execution.md) is the
-accepted model that removes that cause: at target 2.35 a program is compiled
-to a checked closed program and evaluated, so a value is never a step's
-output. The rows below are the measured behaviour at 2.33 and 2.34 and stay
-valid for those targets; they are not retargeted. At 2.35 the same shapes are
-owned by the Task 13A totality matrix
-([`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py)),
-where the admitted cells have no known defect, and the compact search
-controller that row 14 refuses runs at 2.35 in
-[`tests/test_workflow_evaluated_programs.py`](../tests/test_workflow_evaluated_programs.py).
-The public 2.35 entries (`compile`, `--dry-run`, `run`, `resume`, `invalidate`
-and the readers) are integrated for the admitted classes; the
-[complete recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate)
-at the end of this section shows them on one public fixture. Task 15 of the
-[Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
-(external kills at every window, the durable fault model, invalidation
-windows, view-failure recovery) is integrated; Task 17 (phase closeout) is
-pending.
-
-Run a program from the repository root. The value is in
-`.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
-
-```bash
-python -m orchestrator run tests/fixtures/workflow_lisp/guide_shapes/loop_in_called_workflow.orc \
-  --source-root tests/fixtures/workflow_lisp --entry-workflow run \
-  --command-boundaries-file tests/fixtures/workflow_lisp/guide_shapes/commands.json \
-  --input go=true
-```
-
-The commands are `probe.py`: `bump n` returns `{n: n+1}`, `fetch n` returns
-`{n: n}`, and each call appends `<command> <n>` to
-`.orchestrate/guide-probe.log`.
-
-| # | Shape | At 2.33 and 2.34 | Kind (stage) | Write instead |
-| --- | --- | --- | --- | --- |
-| 1 | A loop in a branch of an `if` | exit 2, `workflow_boundary_type_invalid`, located at the loop's `:on-exhausted` value | Defect (shared validation) | the loop in its own `defworkflow`, `call`ed from the branch |
-| 2 | A loop in a loop | exit 2, `compiler_defect` at the outer loop | Defect (defunctionalization) | the inner loop in its own `defworkflow` |
-| 3 | An `:on-exhausted` value that calls a helper or applies an operator | a `defun` that builds a record runs; a `defproc` declared `:effects ()` gets exit 2, `loop_recur_contract_invalid`; an operator over `Int`, or over `Float` at 2.34, written there or inside a `defun`, gets exit 2, `workflow_return_not_exportable` | Defect (typecheck, wrongly applied; lowering) | a `defun`; for an operator, a `loop-state` field that holds the value |
-| 4 | A state update over many fields | runs; at 2.29, exit 2, `pure_expr_payload_too_large` | Limit at 2.29 (payload validation) | target 2.30 or later |
-| 5 | A bound value used many times in one expression | runs; at 2.29, exit 2, `pure_expr_payload_too_large` | Limit at 2.29 (payload validation) | target 2.30 or later |
-| 6 | One expression of more than 256 nodes | exit 2, `pure_expr_payload_too_large` | Limit (payload validation) | split it into `defun`s |
-| 7 | A record in a command's `:argv` | exit 2, `workflow_return_not_exportable` at the record | Defect (lowering) | pass its fields |
-| 8 | A record as an input of a certified adapter | exit 2, `command_adapter_input_not_projectable` | Rule (typecheck) | declare and pass its fields |
-| 9 | Arithmetic over decimals | 2.33: exit 2, `pure_expr_operator_unsupported`. 2.34: runs | Reader, at 2.33 | target 2.34 |
-| 10 | A decimal literal in an expression | 2.33: exit 2, `frontend_parse_error`. 2.34: runs | Reader, at 2.33 | at 2.33, a parameter default |
-| 11 | Commands in parallel | the language has no form for it; the fixture shows `list/map-effect` running its commands one after another | No such form | - |
-| 12 | A `list/map-effect` body that calls a procedure | exit 2, `list_map_effect_body_unsupported` | Defect (defunctionalization) | `command-result` in the body, or a `call` of a `defworkflow` |
-| 13 | A helper shared by two branches inside a loop | exit 2, `compiler_defect_loop_control_value` or `workflow_signature_mismatch` | Defect (defunctionalization; lowering) | one call; the helper chooses the branch |
-| 14 | A `let*` binding whose value is an `if` over two lists, in a procedure called in a loop | exit 2, `workflow_return_not_exportable` | Defect (lowering) | the `if` written inside the record that the procedure puts in the loop state, the record chosen through a `defun` |
-| 15 | A `let*` binding whose value is an `if` over two records, in a procedure called in a loop | compiles; exit 1, `pure_expr_payload_invalid` | Defect (run time) | bind the choice through a `defun` |
-| 16 | An effectful call as the argument of another | exit 2, `compiler_defect` | Defect (elaboration) | bind the inner call with `let*` first |
-| 17 | A name bound inside an expression that shadows an outer name | runs, with the value of lexical scope | - | - |
-| 18 | A pure `bind-proc` value used under a later binder of a name it reads | runs, preserving its creation-scope value: 7 | - | - |
-
-At target **2.35**, public `compile` builds `closed_program.json` and
-`manifest.json`; it validates typed values/control, callee bodies,
-canonical configuration and the perform-site table. Commands, portable
-composed providers (extern `asset_file`/`input_file` and admitted `defprompt`
-slots, without context capture), calls/captures/bounded local procedures and
-path-mode run references are admitted. `run` evaluates the closed program
-and records each effect once in `memo.jsonl`; `resume` rebuilds the program
-from the header's recipe, compares it, and continues from the memo without
-running a committed effect again; `invalidate RUN_ID IDENTITY` cancels one
-commit and every later one so that the next resume runs them again; `report`,
-the dashboard and the monitor read a view derived from the memo. The exact
-header, journal, view and exit contracts are normative in
-[State](../specs/state.md#evaluated-execution-persistence-profile-target-235),
-[Step IO](../specs/io.md#evaluated-command-and-provider-io-target-235),
-[CLI](../specs/cli.md#evaluated-execution-target-235)
-and [Versioning](../specs/versioning.md#version-gating-summary); the runtime lifecycle page gives the
-[evaluated sequence](runtime_execution_lifecycle.md#evaluated-profile-target-235).
-Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
-[target tests](../tests/test_workflow_lisp_target_evaluated_execution.py) and
-the public runtime owners `tests/test_workflow_evaluated_*.py`.
+The admitted effects are commands (external tools and certified adapters),
+portable composed providers, procedure/workflow calls and path-mode run
+references. Portable providers admit extern `asset_file`/`input_file` prompts
+and supported `defprompt` slots, including `:path :out`, but no session,
+context binding/capture, managed job or secrets.
 
 Selected `request-input`, `trial`, phased provider delivery,
 `run-provider-phase`, `produce-one-of`, `resume-or-start`,
 `finalize-selected-item`, `resource-transition`, `materialize-view`, live
-provider supervision/peer groups and bundle-mode `run-ref` refuse with
-`closed_program_gap`. Provider session artifacts, context binding/capture,
-materialization attempts and unsupported input renderers are also outside
-this compiler subset. Recursive calls remain excluded. The owning
-`closed/build.py` / `closed/effects.py` under `orchestrator/workflow_lisp/`
-and [effect tests](../tests/test_workflow_lisp_closed_program_effects.py)
-record located gaps; frontend/typechecking can refuse a source before it
-reaches the builder, so these are not promises of acceptance for every
-retargeted old workflow. The [corpus evidence](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#task-10-the-corpus-check)
-records the exact 37 Built, 10 Gap, 4 Refused and 1 NotSynthesizable partition.
+provider supervision/peer groups and bundle-mode `run-ref` are unavailable
+at both evaluated targets and refuse at build with `closed_program_gap`.
+Provider session artifacts and materialization attempts are also excluded.
+Recursive calls and runtime closures remain excluded. Frontend/typechecking
+may reject a source before this admission check; retargeting an old workflow
+is not an acceptance guarantee. Exact scope is owned by
+[evaluated execution §1.1](design/workflow_lisp_evaluated_execution.md#11-the-first-release)
+and the [located-gap tests](../tests/test_workflow_lisp_closed_program_effects.py).
+
+Public `compile` writes `closed_program.json` and `manifest.json`; `run`
+evaluates that checked program, `resume` rebuilds it from the recorded recipe
+and reuses committed effects, and `invalidate RUN_ID IDENTITY` cancels a
+commit and every later commit for the next resume. Reports, dashboard and
+monitor consume derived views. Exact persistence, IO and command contracts
+live in [State](../specs/state.md#evaluated-execution-persistence-profile-target-235),
+[Step IO](../specs/io.md#evaluated-command-and-provider-io-target-235),
+[CLI](../specs/cli.md#evaluated-execution-target-235) and
+[Versioning](../specs/versioning.md#version-gating-summary).
 
 Every supplied command manifest row, even unused, and every used injected
-binding needs `"closure": ["tool.py", "lib/"]` or an explicit `"closure": []`.
-Omission refuses with `command_boundary_closure_missing`; malformed values
-refuse with `command_boundary_manifest_invalid`. Build records canonical
-logical paths without reading closure contents; at run time the declared
-files are hashed when the command starts and before it commits, a changed
-file fails the attempt or refuses the resume, and the interpreter is pinned
-for the run. The declaration binds the bytes of the declared files and
-nothing else: it is not a sandbox. See
-[command closure declaration](design/workflow_command_adapter_contract.md#command-closure-declaration),
-[closure tests](../tests/test_workflow_lisp_command_boundary_closure.py)
-and [runtime closure tests](../tests/test_workflow_evaluated_closure.py).
-
-The two forms of the paired search controller meet rows 1 and 14. The form
-with a copy per branch,
-[`search.orc`](../experiments/mlevolve_pair/search.orc), is refused as row 1,
-at its `:on-exhausted` helper call (line 92, column 25). The compact form,
-[`search_compact.orc`](../experiments/mlevolve_pair/search_compact.orc), is
-refused as row 14 at line 34, column 21.
-
-### Loops in branches and loops in loops (rows 1 to 3)
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/loop_in_branch.orc
-  (defworkflow run ((go Bool)) -> Box
-    (if go
-      (loop/recur :max 5
-        :state (record Box :n 0)
-        :on-exhausted state
-        (fn (state)
-          (let* ((next (bump state.n)))
-            (if (< next.n 3) (continue next) (done next)))))
-      (record Box :n 0))))
-```
-
-Exit 2: `[workflow_boundary_type_invalid] ... structured repeat_until is only
-supported on top-level steps in v2.7`, at line 15, column 23: the
-`:on-exhausted` value, not the loop. The program typechecks and shared
-validation refuses the lowered loop, so it is a defect
-([middle-end §13.3](design/workflow_lisp_core_calculus_middle_end.md#133-diagnostics-contract));
-"v2.7" is fixed text, not the target. Give the loop a top level with a call
-boundary:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/loop_in_called_workflow.orc
-  (defworkflow count-up () -> Box
-    (loop/recur :max 5
-...
-  (defworkflow run ((go Bool)) -> Box
-    (if go
-      (call count-up)
-      (record Box :n 0))))
-```
-
-With `go=true` it returns `{n: 3}` after `bump 0`, `bump 1`, `bump 2`.
-
-A loop bound by `let*` in the body of another loop (`loop_in_loop.orc`) is
-refused with `compiler_defect` ("unsupported WCC join binding during loop
-defunctionalization: WccRecJoin") at the outer loop, line 12, column 5. The
-same call boundary works there:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/loop_in_loop_called.orc
-      (fn (outer)
-        (let* ((inner (call count-up))
-               (total (+ outer.total inner.n)))
-```
-
-It returns `{n: 4}` after `bump 0`, `bump 1`, `bump 0`, `bump 1`.
-
-A `defun` helper in `:on-exhausted` runs (`on_exhausted_helper.orc` returns
-`{n: 2, status: "exhausted"}` when the bound of 2 is reached). The same helper
-written as a `defproc` declared `:effects ()` is refused with
-`loop_recur_contract_invalid` ("exhaustion projection must be pure") at the
-call (`on_exhausted_pure_proc.orc`, line 19, column 21): the defect
-`on-exhausted-call-edge` of composition-first §11.3; the typechecker applies
-its purity check wrongly.
-
-An operator as the `:on-exhausted` value is refused after typecheck, in
-lowering, with `workflow_return_not_exportable` ("`loop/recur` could not
-project `result` from `PureOpExpr`") at the value: for `Int` at 2.33 and 2.34
-(`on_exhausted_operator.orc`, line 9, column 21), and for `Float` at 2.34,
-although the operator is admitted elsewhere:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/on_exhausted_float_operator.orc
-  (defworkflow run ((base Float)) -> Float
-    (loop/recur :max 1
-      :state (loop-state (turn Int 0))
-      :on-exhausted (+ base base)
-```
-
-At 2.33 the typechecker refuses the `Float` addition first
-(`pure_expr_operand_type_mismatch`, a rule). The same operator inside a
-`defun` called as the `:on-exhausted` value is refused the same way at 2.34
-(`on_exhausted_float_defun.orc`, line 11, column 21). The extended totality
-matrix pins the `Float` cell (`t234:float-operator/on-exhausted-value`).
-Compute the value in a `loop-state` field, where the operator is admitted, and
-name the field:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/on_exhausted_float_in_state.orc
-    (loop/recur :max 1
-      :state (loop-state (turn Int 0) (fallback Float (+ base base)))
-      :on-exhausted state.fallback
-```
-
-With `base=1.25` it returns 2.5 when the bound is reached. The same form over
-`Int` (`on_exhausted_operator_in_state.orc`) returns 6 for `base=3` at 2.33
-and 2.34.
-
-When the loop is in a branch, row 1 is reported at the `:on-exhausted` helper
-call with two notes, "helper call site" and "helper definition":
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/on_exhausted_helper_in_branch.orc
-    (if go
-      (loop/recur :max 2
-        :state (record Box :n 0)
-        :on-exhausted (outcome state "exhausted")
-```
-
-The helper is not the cause; the same loop at the top level runs. This is
-what `search.orc` meets.
-
-### The size of a pure expression (rows 4 to 6)
-
-A pure expression lowers to one payload of at most 256 nodes. The bound is a
-limit, raised in lowering by `validate_pure_expr_payload`, and the runtime
-checks each payload again before it evaluates it; no document gives a reason
-for the number 256
-([execution facts, E.3](reports/2026-09-29-workflow-lisp-execution-facts.md#e3-the-256-node-bound)).
-From target 2.30 a value bound by `let*` and used more than once is emitted
-once and referred to. Below 2.30 (run here at 2.29) it is copied at each use:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/shared_binding.orc
-  (defworkflow run ((a Int) (b Int)) -> Int
-    (let* ((x (* (+ a b) (- a b))))
-      ; x is used 100 times
-      (+
-         x x x x x x x x x x
-...
-```
-
-With `a=3`, `b=1` it returns 800 at 2.30 and later. At 2.29 it is refused:
-`[pure_expr_payload_too_large] pure-expression payload exceeds its node limit:
-node_count=701, max_nodes=256; largest subexpressions: PureOpExpr at
-<file>:9:7 nodes=701; PureOpExpr at <file>:7:15 nodes=7; PureOpExpr at
-<file>:7:18 nodes=3`. The refusal prints the count, the limit and the three
-largest subexpressions with their locations. `many_field_update.orc` updates a
-12-field loop state from a command result; two bound values are each read
-seven times. It runs at 2.30 and later and is refused at 2.29 with
-`node_count=647`.
-
-One expression that is larger than the bound is refused at 2.33 and 2.34
-(`payload_too_large.orc`: `(+ a a ...)` with 300 operands, `node_count=301`).
-Split it into `defun`s; the program runs, so the two calls are not counted in
-one payload:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/payload_split.orc
-  (defworkflow run ((a Int)) -> Int
-    (+ (part a) (part a))))
-```
-
-`part` adds 150 operands; with `a=1` the program returns 300.
-
-### Records as command inputs (rows 7 and 8)
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/record_command_input.orc
-    (let* ((box (record Box :n 4)))
-      (command-result fetch :argv ("python" "tests/fixtures/workflow_lisp/guide_shapes/probe.py" "fetch" box) :returns Box))))
-```
-
-Exit 2: `[workflow_return_not_exportable] Stage 3 lowering requires command
-argv values to resolve to literals or workflow inputs`, at the record (line 9,
-column 106). Typecheck accepts it, so it is a defect. A record read from a
-workflow input or from a command result is refused the same way. Pass its
-fields: with `box.n` in place of `box`
-(`record_fields_command_input.orc`) the program returns `{n: 4}` after
-`fetch 4`.
-
-Through a certified adapter whose declared input is the record, typecheck
-refuses it: `command_adapter_input_not_projectable` ("cannot lower through
-`json_object_positional_arg`") at line 9, column 72 of
-`record_adapter_input.orc`. Declare the field as an `Int` input of the adapter
-instead and pass `box.n` (`record_fields_adapter_input.orc`): the program
-returns `{n: 4}` after `fetch-fields 4`.
-
-### Decimals (rows 9 and 10)
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/decimal_arithmetic.orc
-  (defworkflow run ((total Float) (visits Int) (all-visits Int)) -> Float
-    (+ (/ total (int/to-float visits))
-       (* 1.5 (float/sqrt (/ (float/log (int/to-float all-visits))
-                            (int/to-float visits)))))))
-```
-
-At 2.34, with `total=3.5`, `visits=2` and `all-visits=10`, it returns
-`3.3594745197170104`. At 2.33 the reader refuses it, before typecheck, with
-`pure_expr_operator_unsupported` ("unsupported pure operator `/`") at line 7,
-column 9. At 2.34 with `visits=0` it compiles and the step fails at run time,
-exit 1, `pure_expr_division_by_zero`, which prints the operator `/` and the
-operands `[3.5, 0.0]`. The operators and their refusals are in
-[section 9A](#9a-pure-computation-and-typed-projection).
-
-A decimal literal in an expression, `(let* ((threshold 0.5)) ...)`, is
-refused at 2.33 by the reader with `frontend_parse_error` ("float literals
-are only supported in `defworkflow` parameter defaults", `decimal_literal.orc`,
-line 7, column 23) and runs at 2.34. At 2.33, write the constant as a
-parameter default:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/decimal_default.orc
-  (defworkflow run ((score Float) (threshold Float :default 0.5)) -> Bool
-    (< score threshold)))
-```
-
-### Parallel commands (rows 11 and 12)
-
-The language has no form that runs two commands of one workflow at once, so
-no program is refused for it. The fixture shows the nearest form:
-`list/map-effect` runs its body once per item, in list order:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/commands_in_sequence.orc
-  (defworkflow run ((items List[Int])) -> List[Box]
-    (list/map-effect ((item items)) :max 4
-      (command-result fetch :argv ("python" "tests/fixtures/workflow_lisp/guide_shapes/probe.py" "fetch" item) :returns Box))))
-```
-
-With `items=[3, 1, 2]` it returns `[{n: 3}, {n: 1}, {n: 2}]` after `fetch 3`,
-`fetch 1`, `fetch 2`. The same body written as a call to a procedure that
-holds the command, `(fetch item)`, is refused with
-`list_map_effect_body_unsupported` ("lowered loop iteration effect kind does
-not match its specialized WCC source") at the `list/map-effect`
-(`map_effect_procedure_body.orc`, line 12, column 5). The
-[list traversal design](design/workflow_lisp_pure_list_traversal.md) admits a
-procedure call as the body, so this is a defect. Write the `command-result` in
-the body, or move it into a `defworkflow` and `call` that:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/map_effect_workflow_body.orc
-  (defworkflow fetch-one ((n Int)) -> Box
-    (command-result fetch :argv ("python" "tests/fixtures/workflow_lisp/guide_shapes/probe.py" "fetch" n) :returns Box))
-  (defworkflow run ((items List[Int])) -> List[Box]
-    (list/map-effect ((item items)) :max 4
-      (call fetch-one :n item))))
-```
-
-It returns the same list after the same three commands. The forms that run
-effects at once are providers under `with-live-providers` (section 8A),
-provider peer groups (section 8B) and the arms of a `trial`
-([execution facts, F](reports/2026-09-29-workflow-lisp-execution-facts.md#f-concurrency-that-exists)).
-
-### A helper shared by two branches inside a loop (row 13)
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/helper_bound_in_loop.orc
-      (fn (state)
-        (let* ((next (if (< state.a state.b) (step state "A") (step state "B"))))
-          (if (< next.turn 4) (continue next) (done next)))))))
-```
-
-Exit 2: `compiler_defect_loop_control_value` at the `if` (line 20, column 22).
-Calling the helper in each arm of a tail `if`, each arm with its own `let*` and
-`continue` (`helper_literal_argument.orc`), is refused with
-`workflow_signature_mismatch` ("requires same-file call bindings to resolve to
-workflow inputs") at `(step state "A")`, line 21, column 36: in a loop body a
-literal argument of a procedure that runs a command has no producing step
-(the defect `loop-call-argument`). Let the helper choose the branch, and call
-it once:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/helper_holds_the_branch.orc
-  (defproc step ((state Pair)) -> Pair
-    :effects ((uses-command bump))
-    :lowering inline
-    (let* ((got (command-result bump :argv ("python" "tests/fixtures/workflow_lisp/guide_shapes/probe.py" "bump" state.turn) :returns Box)))
-      (if (< state.a state.b)
-        (record-update state :a (+ state.a got.n) :turn got.n)
-        (record-update state :b (+ state.b got.n) :turn got.n))))
-...
-      (fn (state)
-        (let* ((next (step state)))
-          (if (< next.turn 4) (continue next) (done next)))))))
-```
-
-It returns `{a: 6, b: 4, turn: 4}` after `bump 0` to `bump 3`.
-
-### `if` bound by `let*` in a procedure called in a loop (rows 14 and 15)
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/if_over_lists.orc
-    (let* ((current (if (= branch "A") pair.a pair.b))
-           (parents (if (= branch "C") (list pair.b) (list current)))
-           (got (fetch current.n)))
-      (record Out :n got.n :parents parents)))
-```
-
-Exit 2: ``[workflow_return_not_exportable] Stage 3 lowering does not support
-let* binding `IfExpr` ``, at the `parents` binding (line 17, column 21). This
-is the refusal of `search_compact.orc`. The same procedure called outside a
-loop runs. The form below computes the same `Out` with the same command. It
-changes three things: the loop state carries the result (`Walk` holds `out`);
-`pick` writes the `Out` into that state instead of returning it; the `if` over
-the two lists is written inside the `Out` record, and the record `current` is
-chosen through a `defun` (row 15):
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/list_in_state_update.orc
-  (defrecord Walk (pair Pair) (out Out))
-  (defun choose ((pair Pair) (branch String)) -> Box
-    (if (= branch "A") pair.a pair.b))
-  (defproc pick ((walk Walk) (branch String)) -> Walk
-    :effects ((uses-command fetch))
-    :lowering inline
-    (let* ((current (choose walk.pair branch))
-           (got (fetch current.n)))
-      (record-update walk
-        :out (record Out :n got.n :parents (if (= branch "C") (list walk.pair.b) (list current))))))
-...
-      (fn (state)
-        (let* ((next (pick state branch)))
-          (done next.out))))))
-```
-
-It returns `{n: 1, parents: [{n: 1}]}` after `fetch 1` for `branch=A`, and
-`{n: 2, parents: [{n: 2}]}` after `fetch 2` for `branch=C`: what the refused
-source computes. Binding the list with `let*`, returning from `done` a record
-that the procedure built with a list in it, or building the list in a `defun`
-that takes the chosen record were each refused.
-
-An `if` over two records bound by `let*` compiles:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/if_over_records.orc
-    (let* ((current (if (= branch "A") pair.a pair.b))
-           (got (fetch current.n)))
-      (record Box :n (+ got.n current.n))))
-```
-
-Called in a loop with `branch=B`, it runs `fetch 2` and then fails at run
-time: exit 1, `pure_expr_payload_invalid` ("binding node references unknown
-binding"). The result reads both the `if` value and the command result. The
-same happens over two `Int` values (`if_over_scalars.orc`). Bind the choice
-through a `defun` (`if_through_defun.orc`):
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/if_through_defun.orc
-  (defun choose ((pair Pair) (branch String)) -> Box
-    (if (= branch "A") pair.a pair.b))
-...
-    (let* ((current (choose pair branch))
-```
-
-It returns `{n: 4}` after `fetch 2`.
-
-### An effectful call as an argument (row 16)
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/effect_argument.orc
-  (defworkflow run () -> Box
-    (fetch (bump 26))))
-```
-
-Exit 2: `compiler_defect` ("unsupported WCC elaboration node:
-ProcedureCallExpr", in elaboration) at `(bump 26)`, line 16, column 12. Bind
-the inner call first:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/effect_argument_bound.orc
-    (let* ((bumped (bump 26)))
-      (fetch bumped))))
-```
-
-It returns `{n: 27}` after `bump 26`, `fetch 27`.
-
-### Shadowed names (rows 17 and 18)
-
-A name bound inside an expression does not capture a reference to an outer
-binding of the same name. The pure `bind-proc` shape below also preserves
-the binding's creation scope, at every accepting target
-([versioning, "Exceptions to target stability"](../specs/versioning.md)).
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/shadowed_name.orc
-    (let* ((b (bump 1))
-           (total (+ b.n (let* ((b (bump 10))) b.n))))
-      (+ total b.n))))
-```
-
-It returns 15, the value of lexical scope, after `bump 1`, `bump 10`.
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/bind_proc_capture.orc
-    (let* ((b 1)
-           (hook (bind-proc (proc-ref add-leading) :leading (+ b 1))))
-      (let* ((b 7))
-        (hook 5)))))
-```
-
-It returns 7: `hook` captures `(+ b 1)` with `b` equal to 1. The later
-binding does not change that value. Renaming the later binding gives the
-same result:
-
-```lisp
-;; tests/fixtures/workflow_lisp/guide_shapes/bind_proc_renamed.orc
-      (let* ((c 7))
-        (hook 5)))))
-```
-
-It returns 7.
+binding needs an explicit `closure` array, including `[]` when nothing is
+declared. Compilation records logical paths without reading their contents;
+execution binds the declared bytes and pins the interpreter for the run.
+This declaration is not a sandbox. See the
+[command closure contract](design/workflow_command_adapter_contract.md#command-closure-declaration)
+and the complete lifecycle below.
 
 ### A complete 2.35 recipe: compile, run, resume, report, invalidate
 
@@ -1294,10 +658,10 @@ provider stand-ins in tests prove integration rather than live provider quality.
 These rules apply across `.orc`, generated Core AST, the JSON-rendered
 `expanded.debug.yaml` view, and runtime IR.
 
-Semantic IR is the typed semantic authority surface for validated workflows.
-Executable IR is the validated executable authority surface. Runtime plans,
-source maps, `expanded.debug.yaml`, summaries, and reports are derived views
-unless a specific contract says otherwise.
+For evaluated execution, the checked closed program is execution authority and
+the memo owns committed effect results. State, runtime plans, source maps,
+summaries and reports are views. Semantic/Executable IR retain their component
+contracts for older compiler routes; they do not replace evaluated authority.
 
 ### 3.1 Structured State Is Authority
 
@@ -1385,18 +749,13 @@ mtime may be recorded for debugging only.
 
 ### 3.5 Validate Before Committing State
 
-Canonical state should be visible only after validation succeeds.
-
-The intended sequence is:
-
-1. build candidate result;
-2. validate type, contract, path, variant, and effect constraints;
-3. write temp state;
-4. atomically rename;
-5. expose typed artifacts;
-6. publish values.
-
-Do not leave invalid canonical state behind for resume/recovery.
+Validate type, contract, path, variant and effect constraints before committing
+an effect result. Evaluated execution appends and synchronizes the validated
+memo record, then derives and atomically replaces `state.json` before the next
+dispatch. The memo record remains authority if view replacement fails;
+`view_write_failed` stops execution without revoking the commit or fabricating
+a failure record. See the
+[writer sequence](../specs/state.md#writer-sequence-and-durability).
 
 ### 3.6 Contracts May Only Narrow
 
@@ -1433,10 +792,9 @@ attempt.execution-report
 ```
 A computed pure `Bool` condition, such as `(= status "READY")`, may route
 control flow, but it is proof-neutral: it does not unlock variant-specific
-fields, optional payloads, or union narrowing. At target 2.26, typed
-`.variant` equality and inequality comparisons such as
-`(= attempt.variant COMPLETED)` establish branch-local variant proof. Below
-2.26, `match` remains the only construct that establishes variant proof.
+fields, optional payloads, or union narrowing. Typed `.variant` equality and
+inequality comparisons such as `(= attempt.variant COMPLETED)` establish
+branch-local variant proof.
 
 ### 3.8 Do Not Hand-Manage Runtime State
 
@@ -1468,10 +826,10 @@ Use the smallest unit that represents the behavior truthfully.
 | Command returns structured state | `command-result` | Stdout scraping |
 | Outcome-shaped result | `defunion` + `match` | Stringly gates |
 | Fixed-shape result | `defrecord` | Fake tagged union |
-| Queue/ledger movement | `resource-transition` or certified adapter | Shell move + hidden ledger update |
-| Resume prior state or run fresh | `resume-or-start` | Recovery gate |
-| Review/fix loop | `review-revise-loop` where its lowering contract is supported for the promotion target | Raw back-edge or shell counter |
-| Select/run/gap/repeat | `backlog-drain` | Hand-authored drain loop |
+| Queue/ledger movement | Unavailable resource effect; see Section 13.4 | Shell move + hidden ledger update |
+| Continue an interrupted run | Public memo-backed `resume` | File-existence recovery gate |
+| Review/fix loop | Exercised `std/improve` composition in Section 13.7 | Raw back-edge or shell counter |
+| Select/run/gap/repeat | Bounded admitted composition; resource drain recipe unavailable | Hidden state/resource effects |
 
 ## 5. Types First
 
@@ -1602,7 +960,7 @@ Construct one declared union variant with the explicit `variant` form:
 
 Keep the union type and variant name explicit. Use the same keyword/value field
 shape as `record`. Constructing a union does not prove later field access;
-variant-specific reads still need `match` or, at target 2.26, a branch proven
+variant-specific reads still need `match` or a branch proven
 by a typed `.variant` equality or inequality comparison.
 
 Bad:
@@ -1639,7 +997,7 @@ A schema is not a workflow. It is reusable contract structure.
 
 ### 5.6 Loose Transport With `Value`
 
-At target DSL 2.19, use compiler-owned `Value` only when the useful contract is
+Use compiler-owned `Value` only when the useful contract is
 "one transportable JSON value" and consumers do not yet need named fields,
 variants, path constraints, or element guarantees:
 
@@ -1664,8 +1022,7 @@ their surrounding collection position is supported. `Value` does not make a
 Bool condition, `match` subject, path operand, or otherwise ineligible form
 valid.
 
-Classic and WCC lowering emit the same `Value` contracts. State, reports,
-checkpoint identity, and resume retain the declared opaque type and validated
+The evaluated program and memo retain the declared opaque type and validated
 payload; they never infer a narrower type from a previous run's JSON shape.
 
 ## 6. Workflows, Procedures, Pure Helpers, And Macros
@@ -1723,22 +1080,13 @@ workflow-entry export. Use `defproc` for internal reuse.
 
 Use `defproc` for reusable internal effectful graph behavior.
 
-Status boundary: procedure-first authoring, explicit lowering modes, and the
-resolved direct/transitive-effect substrate are implemented. Family conversion
-remains compatibility-gated, and the completed migration wave retained many
-workflow boundaries. Do not promote a family on this guidance alone; use the
-capability matrix and current roadmap evidence for route availability.
-
-Current `defproc` syntax still requires `:effects`; ordinary authored
-procedures are checked for an exact inferred match, while current specialization
-exceptions mean an empty generic clause is not a universal purity promise.
+Current `defproc` syntax requires `:effects`; ordinary authored procedures are
+checked against inferred effects. Generic specialization exceptions mean an
+empty generic clause is not a universal purity promise.
 [Optional effect restrictions](design/workflow_lisp_effect_ledger_simplification.md)
-remain a proposal. At target 2.30,
-[pure-call expression composition](design/workflow_lisp_pure_call_composition.md)
-supports resolved inline effect-free helpers in expressions, preserving eager
-once-only arguments and lexical scope. Private, effectful or unrepresentable
-calls still require their existing supported placement. Older targets retain
-their existing `defun`/explicit `let*` behavior and limitations.
+remain a proposal. Resolved effect-free helpers can compose in expressions,
+with eager once-only arguments and lexical scope; admitted effectful calls use
+the evaluated placement rules in Section 2A.
 
 ```lisp
 (defproc ensure-approved-plan
@@ -1763,19 +1111,9 @@ behavior. If
 the abstraction has effects, prefer `defproc` or a compiler-owned
 standard-library form over `defmacro`.
 
-Procedure-first migrations select `:lowering inline` explicitly. Inline
-lowering keeps runtime state, checkpoint, resume, and publication ownership on
-the retained public workflow. Use `:lowering private-workflow` only when the
-migration contract and evidence identify a private state, resume, or debug
-namespace; the generated boundary remains internal and does not replace a
-public workflow.
-In the current slice, that namespace need is recorded in migration evidence;
-it is not a new source annotation beyond choosing the
-`:lowering private-workflow` mode.
-`:lowering auto` remains available for identity-free helpers, but its selected
-route is not a stable persisted identity promise. Keep a `defworkflow`
-boundary whenever its public run/resume/invocation/publication identity is part
-of the contract.
+The evaluated route retains typed callee bodies and lexical call activations.
+Choose public workflow boundaries for actual public identity; internal reuse
+does not require generated private workflow state.
 
 Procedure effects have two useful views. The direct summary covers effects
 introduced by the body. The caller-visible transitive summary also includes
@@ -1932,14 +1270,12 @@ Rules:
 
 Use `provider-result` when a provider produces structured state.
 
-`:returns` may name a record, a union, or (with `(:target-dsl "2.15")`) any
-other currently transportable narrower type directly — `Bool`, `Int`, `Float`,
+`:returns` may name a record, a union, or any currently transportable
+narrower type directly — `Bool`, `Int`, `Float`,
 `String`, an enum, a declared path, `Optional[T]`, `List[T]`, or
-`Map[String, T]`. Target 2.19 additionally permits exact opaque `Value`. A
-direct return lowers to one generated `output_bundle` field named `__result__`
-with `json_pointer: ""`; the provider writes the plain JSON value, and
-authored code never names `__result__`. A `Value` object, boolean, list, or
-`null` is likewise written directly, never inside `{"value": ...}`.
+`Map[String, T]`, including exact opaque `Value`. The provider writes the
+plain JSON value to its runtime-bound result bundle; a `Value` object, boolean,
+list or `null` is written directly, never inside `{"value": ...}`.
 
 ```lisp
 (let* ((attempt
@@ -1951,7 +1287,7 @@ authored code never names `__result__`. A `Value` object, boolean, list, or
   ...)
 ```
 
-Supported scalar, record, relpath, target-2.19 exact `Value`, target-2.28 closed
+Supported scalar, record, relpath, exact `Value`, closed
 union, and recursively renderer-admitted `List[T]` values in `:inputs` are
 rendered at the provider prompt consumer seam without family-profile metadata.
 Scalars, records, unions, `Value`, and admitted lists use the canonical-JSON default;
@@ -1960,7 +1296,7 @@ structural type/kind recursively rather than nominal type names:
 `List[ReviewReportPath]` is admitted, while `List[RunId]` is not. Typed state
 remains authority and the rendered bytes are ephemeral provider input.
 
-At target 2.28, pass a union result directly to the next call with
+Pass a union result directly to the next call with
 `:inputs (decision)`, or fill a prompt's `:value Decision` slot. The provider
 receives canonical JSON containing the discriminant and only the active
 payload, including nested records and lists. No `match`-and-repackage step is
@@ -1997,148 +1333,34 @@ not synthesize policy, argv fragments, or `null` fields.
 Provider externs remain compiler-known. Their declarative bindings decide how
 canonical model/effort reach native argv; workflow authors do not construct
 `provider_call_policy`, `call_policy_bindings`, or arbitrary provider params in
-`.orc`. Unsupported canonical options fail before launch. Public resume treats
-policy changes as ordinary source/program drift and uses the existing checksum,
-bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
+`.orc`. Unsupported canonical options fail before launch. Public evaluated
+resume treats policy changes as ordinary source/program drift and preserves its
+program, bound-input and memo integrity guards. Runtime plans, reports,
 dashboard/debug projections, `expanded.debug.yaml`, and source maps are
 inspection views, not call-policy or resume authority.
 
 ### Portable Provider Context
 
-At target 2.31+, ordinary calls can return captured history as data. This body
-fragment assumes declared provider/prompt externs using the supported Codex
-adapter; `:returns` remains the model result type:
-
-```lisp
-(let* ((investigation
-         (provider-result providers.investigate
-           :prompt prompts.investigate :inputs ()
-           :capture-context :portable :returns String))
-       (followup
-         (provider-result providers.followup
-           :prompt prompts.followup :inputs ()
-           :context investigation.context
-           :capture-context :portable :returns String)))
-  followup)
-```
-
-The body returns `Contextual[String]`: `followup.result` is the answer and
-`followup.context` is the accumulated portable history. Omit capture on the
-second call to return only `String`. Pass the same seed to two calls for fresh
-independent continuations. Ordinary records/list operations can transform the
-materialized Context; preserve coverage and record authored changes/lineage.
-Imported helpers can take and return it without manual JSON or a session ID.
-
-This is quoted history, not native resume or workspace transfer. The initial
-Codex 0.155.1 codec retains exposed task/assistant text, command exchanges and
-file-change metadata; it does not capture patch contents or hidden reasoning.
-Other tool event kinds and unsupported adapters reject rather than disappear.
-The complete result/context pair must fit the ordinary 16 MiB/depth-64 limits.
-Prefer a small result or artifact handoff when it already supplies what the
-next call needs. See the [context contract](design/workflow_lisp_provider_context_values.md)
-for exact coverage, source-origin rules and remaining limits.
+Provider context binding and capture are unavailable at targets 2.35/2.36 and
+refuse with `closed_program_gap`. Use typed results or artifact handoffs within
+the admitted provider subset. The
+[provider-context contract](design/workflow_lisp_provider_context_values.md)
+owns the separate context surface and its coverage limits.
 
 ### Durable Host Input
 
-At target 2.32, use `request-input` for one host-mediated `String` question.
-It returns the fixed closed `HumanReply` union, so match cancellation rather
-than treating an empty answer as cancellation. This complete minimal module is
-copy-safe:
-
-```lisp
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.32")
-  (defmodule host_question)
-  (export ask)
-
-  (defworkflow ask ((question String)) -> HumanReply
-    (request-input question)))
-```
-
-The operation is an inferred `host-input` effect. A `defproc` that contains it
-must declare `:effects ((host-input))`; callers normally handle the reply with
-`match`:
-
-```lisp
-(match (request-input question)
-  ((ANSWERED reply) reply.text)
-  ((CANCELLED cancelled) ""))
-```
-
-Running the workflow suspends its root after it has durably recorded one
-request. Inspect and settle that exact request with the thin clients, then use
-ordinary resume:
-
-```text
-orchestrator input get RUN_ID
-orchestrator input answer RUN_ID REQUEST_ID --text "approved"
-orchestrator resume RUN_ID
-```
-
-`input cancel RUN_ID REQUEST_ID` records `CANCELLED` instead. Answering,
-cancelling, and `input get` never execute or resume the workflow; empty answer
-text is valid. The same request accepts only an identical retry, while stale,
-conflicting, or overlapping requests reject. A pending resume remains
-suspended. An answered resume returns to the original checked call/loop visit,
-so do not attempt to change bound inputs, the question, or a provider session
-to continue the run. There is one outstanding request per root, no arbitrary
-continuation capture, and no native provider-session continuation.
+`request-input` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. The [human-input contract](../specs/dsl.md)
+owns the separate host-input lifecycle.
 
 ### Explicit OMP Session Publication
 
-Target 2.27 adds one narrow opt-in for a provider result whose OMP session must
-remain resumable or importable:
+Provider session artifacts are unavailable at targets 2.35/2.36 and refuse
+with `closed_program_gap`. The typed result bundle remains provider-result
+authority. See the [session publication contract](../specs/providers.md)
+and [OMP runbook](omp_upgrade_runbook.md) for the separate session surface.
 
-```lisp
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.27")
-  (defmodule task)
-  (export run)
-
-  (defworkflow run () -> TaskResult
-    (provider-result providers.task
-      :prompt prompts.task
-      :inputs ()
-      :session-artifact omp_session
-      :returns TaskResult)))
-```
-
-`:session-artifact` takes one bare, previously undeclared symbol. The compiler
-creates the scalar String artifact and selects the provider template's existing
-fresh-session command. The clause is valid only in the selected entry workflow
-at the root or along its sequential `let*` spine. Do not place it in a
-procedure, imported/called workflow, branch, loop, trial, supervision group,
-peer group, or nested provider expression; do not declare a second session
-artifact. Omit the clause for an ordinary transient `--no-session` call.
-
-The four public code-owned templates are `omp`, `omp_no_tools`, `omp_conf`, and
-`omp_unrestricted_workspace`; `omp_conf_inference` is internal. Choose
-`omp_conf` only when the provider needs the admitted repository workspace and
-an explicit conf root. Choose `omp_no_tools` for the packaged neutral,
-workspace-free profile. `omp` and `omp_unrestricted_workspace` inherit ambient
-operator configuration and are for trusted repositories; the unrestricted
-template additionally selects OMP `--yolo`.
-
-Before using a profile-isolated lane, follow the [OMP run prerequisites](omp_upgrade_runbook.md#run-prerequisites)
-to verify the installed pin, populate the caller's HOME/XDG/temp environment,
-and start its credential broker. The launcher creates child attempt roots;
-authors do not supply those paths. Ambient lanes retain their ordinary
-operator configuration.
-
-`omp_conf` is a trusted, credential-bearing tool lane, not a secret sandbox. It
-retains same-UID read, network, and process access; model-facing tools can
-observe the current `OMP_AUTH_BROKER_TOKEN` through the process environment or
-procfs, and assistant, tool, or session output may persist it. Use `omp_conf`
-only with trusted repository, conf, and model inputs. `omp_no_tools` and
-internal inference disable this model-to-tool path but are not general OS
-sandboxes.
-
-The published artifact is the validated OMP session ID, not the provider
-result. The typed structured bundle remains semantic authority. Journal files,
-launch frames, and observation panes are bounded evidence and must not be
-parsed as workflow output.
+### Provider Prompt Dependencies
 
 When provider prompt semantics require workspace file contents, declare exact
 typed prompt dependencies on the provider result:
@@ -2167,8 +1389,11 @@ instructions, or commands that copy file contents into an intermediate bundle.
 The runtime resolves and de-duplicates present targets, renders them in
 deterministic canonical path order, and bounds the exact UTF-8 dependency block
 to `262144` bytes with explicit truncation. One attempt uses one immutable
-snapshot; a retry reads a fresh snapshot. A compatible completed provider
-result is reused without reopening the files.
+snapshot; a retry reads a fresh snapshot. Evaluated resume rereads prompt
+sources and dependencies to compare their digests before reusing a committed
+provider result. Changed, missing or unreadable committed inputs refuse with
+`effect_input_diverged` before launch; compatible results are reused without
+redispatch. See [evaluated provider IO](../specs/io.md#evaluated-command-and-provider-io-target-235).
 
 The compiler-owned typed contract and per-attempt content-free evidence are not
 authoring surfaces. `runtime_plan` remains topology-only, and evidence or its
@@ -2188,30 +1413,9 @@ channel must pass the same fail-closed validation.
 Markdown reports may be written and referenced by fields in the structured
 result, but the report is not parsed later for semantic state.
 
-Good pattern:
-
-```lisp
-(let* ((attempt
-         (provider-result providers.execute
-           :prompt prompts.implementation.execute
-           :inputs
-             (inputs.design
-              inputs.plan)
-           :targets
-             ((execution-report inputs.execution-report-target)
-              (progress-report (phase-target ctx "progress-report.md")))
-           :returns ImplementationAttempt)))
-
-  (match attempt
-    ((COMPLETED c)
-      (review-completed-implementation ctx inputs c.execution-report providers))
-
-    ((BLOCKED b)
-      (variant ImplementationResult EXECUTION_BLOCKED
-        :progress-report b.progress-report
-        :blocker-class b.blocker-class
-        :blocker-reason b.blocker-reason))))
-```
+Good pattern: pass the validated typed provider result directly to `match`
+and carry its actual report path as data. The complete evaluated recipe above
+shows supported provider transport.
 
 Bad pattern:
 
@@ -2253,7 +1457,9 @@ Prompts should usually avoid:
 - variant proof mechanics;
 - workflow routing internals.
 
-### Authoring Prompt Fragments - Target 2.20
+<a id="authoring-prompt-fragments---target-220"></a>
+
+### Authoring Prompt Fragments
 
 Use `defprompt` when one provider prompt should own its complete visible input
 contract and result contract:
@@ -2294,7 +1500,7 @@ Choose slot kinds by delivery:
 | --- | --- |
 | `:doc PathType` | Inject one required existing workspace file through the fixed prepend dependency lane. Do not put `{slot}` in the template. |
 | `:text` | Insert exact `String` bytes inline. |
-| `:value T` | Insert canonical JSON for a uniquely supported static type. Target 2.20 includes recursively supported `List[T]`, such as `List[DesignDocPath]`. |
+| `:value T` | Insert canonical JSON for a uniquely supported static type. Includes recursively supported `List[T]`, such as `List[DesignDocPath]`. |
 | `:path PathType` | Insert one POSIX path reference line, not file content. |
 
 Every `:text`, `:value`, and `:path` slot needs at least one `{slot-name}`
@@ -2303,8 +1509,9 @@ format operators, indexing, attribute access, whitespace, or expressions.
 
 Refinements are optional constraints, not nominal prompt brands. They may only
 narrow an already supported kind/renderer pairing. In particular, `:value`
-does not convert `T` to the Workflow Lisp `Value` type. Optional, map, union,
-reference, resource, and schema fragment rendering is not implemented.
+does not convert `T` to the Workflow Lisp `Value` type. Closed unions and
+eligible lists of unions use canonical JSON; optional, map, reference,
+resource and schema fragment rendering are not generally admitted.
 
 Do not partially apply a prompt, store it in a record, return it, pass it as a
 procedure reference, nest it in another fragment, or use it outside
@@ -2318,7 +1525,7 @@ field. A changed declaration, result contract, or fill expression changes
 program identity and is ordinary resume drift. Runtime prompt snapshots are
 evidence views, not an authoring or recovery surface.
 
-### Authoring Prompt Output Positions - Target 2.21
+### Authoring Prompt Output Positions
 
 Use one `:path :out` slot when the prompt must tell the provider where to write
 one required UTF-8 file and the runtime must validate that same path:
@@ -2346,8 +1553,9 @@ The slot's one named fill drives both the rendered POSIX path and one required
 file postcondition. The prompt still owns one structured result:
 `ReviewDecision` remains semantic authority for the decision and its declared
 fields, while the generated file contract validates the human-facing report.
-The first shipped consumer is the `review-design-docs` call in
-`workflows/examples/review_revise_design_docs.orc`.
+The historical first consumer, `review-design-docs` in
+`workflows/examples/review_revise_design_docs.orc`, is not an evaluated copy
+target; the slot contract itself remains admitted.
 
 Do not add a call-site output declaration, duplicate the path in another
 contract, or infer a general relationship between an output slot and a result
@@ -2356,375 +1564,74 @@ the structured-result bundle before the provider starts. The prompt and
 post-attempt validators process the output position first and the structured
 result second; neither artifact mapping enters state unless both pass.
 
-Target 2.20 remains the compatibility route for fragments without `:out`.
-Target 2.21 does not add optional files, directories, globs, dynamic output
-sets, arbitrary file schemas, or a second result channel. Q3
-role-separated prompt identity/diagnostics are implemented at target 2.22;
-Q4 judgment inspection is separately bounded as described below.
+Output positions do not add optional files, directories, globs, dynamic
+output sets, arbitrary file schemas or a second result channel. Diagnostic
+prompt-identity and judgment-view contracts are scoped separately below.
 
-### Inspecting Prompt-Attempt Identity - Target 2.22
+### Inspecting Prompt-Attempt Identity
 
-Choose target 2.22 when a direct fragment-backed `provider-result` needs
-content-free retry provenance. There is no new call keyword: the compiler and
-runtime supply the identity-version carrier and declaration-ordered binding
-plan, publish one validated functional-v2 snapshot after invocation
-preparation and before launch, and expose role digests and fixed-order drift
-classifications in `orchestrator report`.
+Prompt identity and drift evidence is diagnostic, never a workflow value or
+resume decision. The [prompt-identity contract](design/workflow_lisp_prompt_identity_diagnostics.md)
+owns Q3's versioned snapshot and report behavior; its older-route evidence does
+not establish evaluated-profile availability. Use the evaluated lifecycle and
+reader contracts for reports from a 2.35/2.36 run.
 
-The five report roles distinguish fragment-program, resolved-binding,
-dependency-content, runtime-contribution, and prepared provider-policy
-changes. Treat those rows as diagnostics only. They do not prove dispatch,
-remote receipt, model attention, correctness, or provider liveness, and they
-must not be used to decide workflow values, result validity, retry, checkpoint,
-or resume. Prompt bodies, resolved values, dependency contents, argv, and
-environment do not appear in the Q3 projection.
+### Inspecting Judgment Views
 
-Use targets 2.20/2.21 when this evidence is not needed; their compiler,
-provider, checkpoint, result, and functional-v1 evidence behavior remains
-unchanged. Reports still have the additive `prompt_context` key: a validated
-older fragment snapshot appears as `legacy_snapshot`, while an unqualified
-run has an empty attempt list. Coordinated-provider and extern-backed calls do
-not gain Q3 identity by implication.
+Q4 judgment views are a bounded read-only diagnostic projection, not provider
+results or workflow-readable state. See the
+[judgment-view contract](design/workflow_lisp_judgment_views.md) and the
+[capability matrix](capability_status_matrix.md) for the panel's exact scope;
+older-profile snapshot evidence does not qualify evaluated readers.
 
-### Inspecting Judgment Views - Bounded Target 2.23 Panel
+### Authoring Phased Contract Delivery
 
-Q4 adds no source syntax and is not a general annotation for provider calls.
-Use or adapt
-`workflows/examples/review_revise_design_docs_judgment_panel.orc` only when
-the exact panel shape applies: a non-empty ordered set of at most eight
-pairwise-distinct, path-safe lenses; one explicit
-`:delivery :composed` fragment-backed child review per lens; and one
-extern-backed synthesis over the resulting `List[ReviewReportPath]`.
-
-Eligible child results retain their authoritative typed value and Q3 evidence
-while runtime co-persists a non-authoritative locator. `orchestrator report`
-uses those existing authorities to derive the read-only `judgment_views`
-projection. Do not parse that projection, pass it to synthesis, or route,
-retry, resume, score, or promote from it.
-
-The production `workflows/examples/review_revise_design_docs.orc` call remains
-phased identity-v2/functional-v3 and Q4-ineligible. The panel's extern-backed
-synthesis is also ineligible. Target 2.23 alone does not make other phased,
-extern-backed, coordinated-provider, or non-fragment calls inspectable.
-
-### Authoring Phased Contract Delivery - Target 2.23
-
-Use explicit phased delivery when one direct prompt-fragment call has a
-non-empty generated output contract and the provider can correct
-materialization in the same interactive client without redoing the task:
-
-```lisp
-(provider-result providers.design-docs.review
-  :prompt
-    (review-design-doc
-      :target_doc completed.target_doc
-      :review_report_target_path inputs.review_report_target_path)
-  :delivery :phased
-  :materialization-attempts 2
-  :model inputs.review_model
-  :effort inputs.review_effort
-  :timeout-sec 3600)
-```
-
-The provider template must declare the exact
-`interactive_terminal_turn_queue.v1` capability. The runtime delivers the
-task portion once, then the generated materialization contract at the next
-natural turn boundary. A failed output-position or structured-result
-validation may receive a materialization-only retry in the same client.
-`:materialization-attempts` is the total candidate-submission count, is a
-literal integer in `1..3`, and defaults to `2` when phased delivery is
-explicit.
-
-Omit `:delivery` for the ordinary composed path. Explicit
-`:delivery :composed` also selects that path and cannot carry
-`:materialization-attempts`. Phased delivery is accepted only for a direct
-fragment application with a non-empty generated contract suffix; there is no
-extern-backed form, dynamic attempt count, capability-based fallback, third
-phase, or same-turn steering.
-
-Keep output obligations in the fragment result/output-position contracts.
-Do not add prose telling the provider how to satisfy deterministic structure
-that those contracts already carry. The phase ledger, report, submit receipt,
-stdout, and provisional candidate files are diagnostic evidence only.
-Validated output files and the structured result bundle remain the sole
-workflow authority. Compatible completed resume does not replay the provider;
-after the ordinary source, checksum, projection, checkpoint, and
-completed-result guards validate an exact interrupted nonterminal phased
-visit, resume discards only its partial ledger/candidate authority, emits
-exactly one `provider_attempt_interrupted_rerun`, and lets ordinary dispatch
-rerun the whole phased visit from the task turn with a fresh attempt. It never
-reuses the interrupted provider session, attempt, or provisional candidate.
-Missing, malformed, conflicting, or ambiguous authoritative recovery state
-fails closed before provider launch.
+Phased provider delivery and materialization attempts are unavailable at
+2.35/2.36 and refuse with `closed_program_gap`. Use ordinary composed delivery
+for admitted calls. The [prompt-calculus contract](design/workflow_lisp_prompt_calculus.md)
+owns the separate phased lifecycle.
 
 ## 8A. Bounded Live Provider Supervision
 
-Target DSL 2.16 implements one deliberately narrow concurrent form:
-
-```lisp
-(defworkflow orchestrate () -> String
-  (with-live-providers
-    ((worker
-      (provider-result providers.worker
-        :prompt prompts.worker
-        :inputs ()
-        :timeout-sec 30
-        :returns String))
-     (supervisor
-      (provider-result providers.supervisor
-        :prompt prompts.supervisor
-        :inputs ()
-        :timeout-sec 30
-        :returns ProviderSteeringDirective)
-      :observes worker))
-    worker))
-```
-
-Use it only when all of these are true:
-
-- there are exactly two bindings and exactly one `:observes` edge;
-- the worker provider template declares validated structural
-  `session_support.turn_boundary_resume: true`; the supervisor does not need
-  session support;
-- each member is a direct `provider-result` or an inline procedure call that
-  normalizes to exactly one unconditional provider effect and a pure result
-  projection;
-- the worker returns a transportable type, while the supervisor returns the
-  reserved `ProviderSteeringDirective`; and
-- the body is a pure settlement expression over the two member values.
-
-The supervisor's structured bundle must be exactly
-`{"variant":"CONTINUE"}` or
-`{"variant":"STEER","guidance":"non-empty corrective text"}`. `CONTINUE`
-selects the fresh worker result. `STEER` permits at most one exact-session
-resume at a validated turn boundary and selects only the resumed result.
-
-Both member providers still write validated structured bundles at
-runtime-bound paths. Those bundles—not pane output, stdout, transcripts,
-session JSONL, or prompt prose—carry the member values. The runtime settles
-the selected worker value and directive into one atomic workflow result.
-Observation panes are process-local views; do not capture or pass their tmux
-targets as workflow data.
-
-Target `2.17` adds the separate cooperative peer-group form below. It does not
-change this target-`2.16` supervision form or its
-`provider_supervision.v1` executable node.
+`with-live-providers` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. See the
+[live-binding contract](design/workflow_lisp_provider_live_binding.md) for the
+separate one-worker/one-supervisor surface.
 
 ## 8B. Recorded Provider Peer Groups
 
-Use `with-live-provider-peers` when two through eight providers must exchange
-free-form messages at natural turn boundaries and then contribute typed values
-to one pure settlement:
-
-```lisp
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.17")
-
-  (defrecord TeamResult
-    (plan String)
-    (approved Bool)
-    (notes String))
-
-  (defworkflow orchestrate () -> TeamResult
-    (with-live-provider-peers
-      ((planner
-         (provider-result providers.planner
-           :prompt prompts.planner
-           :inputs ()
-           :timeout-sec 300
-           :returns String))
-       (reviewer
-         (provider-result providers.reviewer
-           :prompt prompts.reviewer
-           :inputs ()
-           :timeout-sec 300
-           :returns Bool))
-       (builder
-         (provider-result providers.builder
-           :prompt prompts.builder
-           :inputs ()
-           :timeout-sec 300
-           :returns String)))
-      (record TeamResult
-        :plan planner
-        :approved reviewer
-        :notes builder))))
-```
-
-Authoring rules:
-
-- Declare a literal list of two through eight unique bindings. Authored order
-  is preserved through WCC, executable projections, runtime allocation, and
-  settlement.
-- Each binding is only `(<name> <provider-producing-expression>)`. There is no
-  `:observes`, dynamic membership, role, or per-edge permission syntax.
-- A member may send to every other binding name but cannot send to itself. A
-  member expression cannot refer to a sibling result.
-- Each member must be a direct `provider-result` or an inline procedure call
-  that specializes to exactly one unconditional provider effect followed by a
-  pure result projection. Residual calls, branches, loops, a second provider
-  perform, or another effect are rejected.
-- Every member and the settlement may return any transportable type. Do not
-  invent a nominal wrapper only to enter a peer group; start with the ordinary
-  structural or general transportable contract and narrow it when the workflow
-  needs stronger guarantees.
-- The body is a pure expression over exactly the member values. It cannot run
-  another provider, command, workflow, or state effect.
-
-Every selected provider template must explicitly declare the closed queued
-interactive capability. The relevant provider-template field has this shape:
-
-```json
-{
-  "interactive_session_support": {
-    "schema_version": "interactive_terminal_turn_queue.v1",
-    "turn_boundary_messages": true,
-    "command": ["provider-client", "${PROMPT}"],
-    "message_submit_keys": ["ENTER"],
-    "graceful_close_text": "/exit",
-    "graceful_close_submit_keys": ["ENTER"]
-  }
-}
-```
-
-The command must contain exactly one `${PROMPT}` and no `${SESSION_ID}`.
-Submit-key sequences use the adapter's closed non-forcing vocabulary. The
-capability is never inferred from provider name, stdin/TTY mode, session
-support, observation panes, or tmux availability. Provider extern bindings
-still select registered provider templates in the ordinary way; they do not
-redeclare this capability in `.orc` source.
-
-The runtime injects the member protocol and gives each attempt one opaque
-endpoint binding:
-
-```text
-orchestrator peer-ready
-orchestrator peer-send <target-binding> <message>
-orchestrator peer-ack <message-id>
-orchestrator peer-finish
-```
-
-`peer-ready` is an all-members barrier. An accepted non-empty UTF-8 message,
-up to 65,536 encoded bytes, is appended and fsynced to the exact receiver
-attempt's ledger before the adapter offers it to that provider client.
-`offered` means literal input was submitted at the natural-turn queue; it does
-not mean the model saw or understood it. `peer-ack` records only that the exact
-receiver returned the message id through its ordinary tool channel.
-
-A member writes its ordinary typed output bundle before `peer-finish`.
-Outstanding incoming messages make finish retryable rather than successful.
-Once all incoming messages are acknowledged, the coordinator freezes the
-validated bundle, offers the provider-declared graceful close, and requires a
-complete natural process/pane/server join before marking the member terminal.
-Only after every member is terminal does the runtime validate and atomically
-publish the pure settlement.
-
-The runtime endpoint, opaque credentials, panes, member ledgers, provisional
-bundles, and message text are not workflow values. A normally completed or
-reportable failed group exposes a `provider_peer_group` debug record pointing
-to `provider_peer_group_terminal_evidence.v1`; each allocated receiver attempt
-retains `injected-messages.jsonl`, `evidence.json`, and
-`provisional-result.json` below the run-owned peer-group visit root. A startup
-failure whose cleanup cannot be proved before a member handle exists fails
-without inventing terminal group evidence.
-
-Do not use this form for same-turn steering, mixed peer messaging plus
-`STEER`, dynamic groups, cross-run messaging, effectful settlement, or
-unrecorded raw-pane input. A peer message cannot cancel, resume, replace,
-select, or settle a member. Compatible completed groups remain
-invocation-free. If a controller interruption leaves an exact nonterminal
-visit, ordinary resume first applies every source, checkpoint, and integrity
-guard, preserves partial ledgers as audit-only evidence, discards that visit's
-partial result authority, emits exactly one
-`provider_attempt_interrupted_rerun`, and enters a fresh group visit through
-ordinary dispatch. It never retargets messages or reuses interrupted member
-sessions, attempts, endpoints, panes, bundles, or settlements. Missing,
-malformed, conflicting, or ambiguous authoritative recovery state fails
-closed before provider launch.
+`with-live-provider-peers` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. See the
+[peer-messaging contract](design/workflow_lisp_provider_peer_messaging.md) for
+the separate cooperative-provider surface.
 
 ## Pinned Child Runs And Trials
 
-Target 2.24 `run-ref` runs a child against an exact repository commit. Keep the
-commit as a literal 40-character lowercase Git object ID. `:bundle` selects a
-workflow from the already compiled caller bundle and transports its reachable
-compiled graph and source/asset closure to the child without recompiling; it
-derives the result type and does not accept `:returns` or `:environment`.
-`:path` selects a `.orc` path in the pinned clone and runs the ordinary full
-compiler there; omitting `:returns` claims exactly `Value`, while an explicit
-`:returns T` must match the child's return type exactly. V1 admits only
-`:environment :deterministic-effect-free`.
-Clones and child processes are workspace/output boundaries, not an OS sandbox.
-Relpath inputs are copied to deterministic child-workspace destinations and
-rebound only after input-contract validation; host paths do not cross into the
-child. Supply every input required by the selected child entry.
+Path-mode `run-ref` is admitted at targets 2.35/2.36. Pin an exact literal
+40-character lowercase Git commit, supply every child input, and preserve the
+child's exact result contract and `:deterministic-effect-free` environment.
+Relpath inputs are copied and rebound into the pinned child workspace after
+validation; cloning and process boundaries are not an OS sandbox.
 
-This `:path` form is a syntax specimen from the current DSL contract. Replace
-the example repository, commit, and entry with the exact source you intend to
-run; it is not a production template or a test-fixture recommendation.
+Use the exercised path-child fixtures in
+[`tests/test_workflow_evaluated_run_ref.py`](../tests/test_workflow_evaluated_run_ref.py)
+and the [path-child lifecycle](design/workflow_lisp_evaluated_execution.md#931-path-child-admission-authority-and-return)
+for source, pin and root requirements. The public lifecycle recipe above
+records the run-reference root used on resume.
 
-```lisp
-(run-ref
-  :source (:repo "/absolute/repository"
-           :commit "0123456789abcdef0123456789abcdef01234567")
-  :program (:path "candidate.orc" :entry candidate)
-  :inputs (:task task)
-  :returns Value
-  :policy (:environment :deterministic-effect-free :setup ()))
-```
-
-At target 2.25, `trial` evaluates 2–16 statically authored `run-ref` arms over
-1–64 repetitions (at most 256 cells); all arms must have the same normalized
-result type. The selected entry must end in the exact compiler-owned trial
-result. The full evaluation and budget fields are specified in the [DSL
-contract](../specs/dsl.md).
-The CLI expects the workflow's declared inputs plus any source roots and
-provider, prompt, imported-bundle, or command-boundary manifests that source
-uses:
-
-```bash
-python -m orchestrator trial <controller.orc> \
-  --entry-workflow <module::entry> \
-  --input-file <inputs.json> \
-  --source-root . \
-  --provider-externs-file <providers.json> \
-  --prompt-externs-file <prompts.json> \
-  --imported-workflow-bundles-file <bundles.json> \
-  --command-boundaries-file <commands.json> \
-  --state-dir <absolute-state-dir> \
-  --run-ref-root <canonical-absolute-run-ref-root>
-```
-
-Omit manifest flags the source does not need. An explicit run-ref root must be
-canonical and absolute; the default is
-`~/.local/state/orchestrator/run-ref`. Trial has no dry-run mode: this command
-can execute child programs and evaluator providers.
-`python -m orchestrator trial --help` is safe for checking the CLI shape. The
-command prints `workflow_trial_run_result.v1`; exit `0` means completed, `1`
-means the trial ran and failed, and `2` means validation or admission refused
-before execution.
-
-If a trial is interrupted, identify its run ID from the persisted run
-directory and `state.json` under the configured `--state-dir`, or from the
-terminal JSON when available. Resume that run from the same workspace and
-state directory, with the same explicit `--run-ref-root` if one was used;
-resume validates and reuses committed trial/cell results. For an explicitly
-configured root and state directory, use:
-
-```bash
-python -m orchestrator resume <run-id> --state-dir <same-state-dir> \
-  --run-ref-root <same-canonical-run-ref-root>
-```
-
-See [state settlement](../specs/state.md#target-225-trial-state-settlement-and-replay).
+Bundle-mode run references and `trial` are unavailable at both evaluated
+targets and refuse with `closed_program_gap`. The `trial` CLI also refuses an
+evaluated entry with `evaluated_execution_unavailable`; it is not an execution
+route for these programs. The [DSL contract](../specs/dsl.md) and
+[CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.
 
 ## 9. Structured Command Results
 
 Use `command-result` when a deterministic command or certified adapter returns
 structured state.
 
-`:returns` may name a record, a union, or (with `(:target-dsl "2.15")`) any
-other currently transportable type directly. If current behavior genuinely
+`:returns` may name a record, a union, or any currently transportable type
+directly. If current behavior genuinely
 has a meaningful fixed result shape, model that shape as a record. Otherwise,
 prefer a direct scalar/enum/path/optional/list/map return over inventing a
 transport-only one-field wrapper.
@@ -2788,9 +1695,9 @@ Better:
 ```
 
 Use direct `command-result :adapter` only for non-resource, non-resume
-certified adapters with declared typed fields. Queue or ledger movement still
-belongs in `resource-transition`, and reusable-state gating still belongs in
-`resume-or-start`.
+certified adapters with declared typed fields. Resource transitions and
+reusable-state helpers remain unavailable at evaluated targets; do not hide
+those semantics in an arbitrary command workaround.
 
 ## 9A. Pure Computation And Typed Projection
 
@@ -2808,29 +1715,22 @@ Section 10.2):
 | Equality | `=`, `!=` over `String`, `Int`, `Bool`, `Symbol`, same-type enums |
 | Ordering | `<`, `<=`, `>`, `>=` over `Int` pairs or `Float` pairs |
 | Boolean | `and`, `or`, `not` |
-| Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` over `Int`, fail-closed on 64-bit overflow |
-| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` over two or more operands, all `Int` or all `Float`; `-` over two; `/` over two `Float`; `int/div` (rounds toward negative infinity) and `int/mod` (sign of the divisor) over two `Int`; `float/abs`, `float/sqrt`, `float/log` (natural) over one `Float` |
-| Conversion, target 2.34 | `int/to-float`; `float/floor` and `float/round` (halves to even) to `Int`, refused outside 64 bits |
+| Arithmetic | `+`, `*`, `min`, `max` over two or more operands, all `Int` or all `Float`; `-` over two; `/` over two `Float`; `int/div` (rounds toward negative infinity) and `int/mod` (sign of the divisor) over two `Int`; `float/abs`, `float/sqrt`, `float/log` (natural) over one `Float` |
+| Conversion | `int/to-float`; `float/floor` and `float/round` (halves to even) to `Int`, refused outside 64 bits |
 | String | `string/concat`, `string/empty?`, `symbol/name` |
 | Option | `some?`, `or-else` |
 | Record | `record-update` |
 
-At 2.34 a decimal literal (`1.5`, `-0.25`, `2e-3`) is an expression wherever
-an expression is admitted; at 2.33 and older it is admitted only as a
-`defworkflow` parameter default. Operands of mixed types are refused at
-compile time (`pure_expr_operand_type_mismatch`); nothing converts silently.
-Also at 2.34, a non-finite `Float` in a workflow input, a command or provider
-result field, an expected output file or saved state read on resume is
-refused with `float_not_finite`, which names the field (`specs/io.md`).
-Section 2A runs these forms at both targets.
+A decimal literal (`1.5`, `-0.25`, `2e-3`) is admitted wherever an expression
+is admitted. Mixed numeric operands refuse at compile time; conversion must
+be explicit. Integer arithmetic fails closed on 64-bit overflow, and
+non-finite floats at input/result/resume boundaries refuse with
+`float_not_finite`. The [numeric contract](design/workflow_lisp_numeric_surface.md)
+owns exact arities, rounding and domain rules.
 
-There is deliberately no float equality, path-string concatenation,
-collection operator beyond the list surface of Section 17.2, regex, time,
-randomness, or IO, and no division before target 2.34. If a workflow seems to
-need one of those, that is a design question for the adapter-retirement target
-(`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`)
-or the [numeric surface](design/workflow_lisp_numeric_surface.md), not a
-reason to fall back to a command step or grow the surface informally.
+There is no float equality, path-string concatenation, regex, time, randomness
+or IO in pure expressions. Use the list surface in Section 17.2 for collection
+operations; record a capability gap rather than inventing operators.
 
 Typed projection example — compare, default, and construct without Python:
 
@@ -2851,42 +1751,21 @@ Choosing the surface:
 | Behavior | Use |
 | --- | --- |
 | Compare, count, combine, default, build a reason string or typed value | Pure expressions / `defun` |
-| Produce a typed record/union from existing typed values for routing or publication | Pure typed projection (same operators; visible generated step) |
+| Produce a typed record/union from existing typed values | Pure typed projection in lexical scope |
 | External tool, process spawn, network, git, real shell work | `command-result` with a certified adapter |
-| Durable state mutation: queue, ledger, run-state | `resource-transition` (Section 13.4), never a bare command step |
+| Durable resource mutation | Outside current evaluated admission; see Section 13.4 |
 
-What lowering generates: maximal pure regions become one compiler-generated
-`pure_projection` step with a validated payload of at most 256 nodes (from
-target 2.30 a `let*` value used more than once is counted once; Section 2A
-shows the refusal and how to split an expression), payload digest, and a
-private managed result bundle (`PURE_PROJECTION_BUNDLE`, resume-safe at step
-scope). The step is visibility, not authority transfer: the expression body
-stays effect-free, the generated bundle path is private, and
-`pure_projection` is not an authored surface. Literal-only expressions may
-fold away at compile time; the runtime evaluator owns the semantics either
-way.
+Pure values stay in the lexical environment; they have no generated step,
+private projection bundle or memo entry. Resume recomputes them while reusing
+committed effect results. The historical flat-route `pure_projection` payload
+limit and split-expression workarounds do not govern evaluated programs.
 
-Failures are typed and fail-closed — expect `pure_expr_overflow`,
-`pure_expr_float_equality_forbidden`, `pure_expr_union_equality_forbidden`,
-`pure_expr_path_string_concat_forbidden`, `pure_expr_operand_type_mismatch`,
-`pure_expr_payload_too_large`, or `pure_expr_operator_unsupported`, never
-silent coercion. At 2.34 add `pure_expr_division_by_zero`,
-`pure_expr_float_domain` (`float/sqrt` of a negative value, `float/log` of
-zero or less), `pure_expr_float_not_finite`, and `float_literal_not_finite`
-for a literal that is not a finite double. `pure_expr_overflow`,
-`pure_expr_division_by_zero`, `pure_expr_float_domain` and
-`pure_expr_float_not_finite` name the operator and print its operands;
-`pure_expr_overflow` does so at every target and also prints the value and
-the 64-bit bounds. A refusal at run time points at the generated step's pure region,
-not at the failing application: in `(let* ((q (/ a b))) (+ q 1.0))` it points
-at `(+ q 1.0)`.
-
-Copy-safe fixtures:
-`tests/fixtures/workflow_lisp/valid/pure_expr_loop_counter.orc` and
-`tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc`.
+Pure evaluation fails closed on overflow, invalid operand types, division by
+zero, float domain errors and non-finite results. See the numeric contract for
+exact diagnostics and Section 2A for public evaluated evidence.
 
 Routing is not generally proof. `(if (= status "READY") ...)` may choose a
-branch, but it never makes union variant fields readable. At target 2.26, typed
+branch, but it never makes union variant fields readable. Typed
 `.variant` equality and inequality comparisons are the deliberate exception.
 
 ## 10. Pattern Matching And Variant Proof
@@ -2910,7 +1789,7 @@ Inside the `COMPLETED` arm, `c.execution-report` is available. Inside the
 `BLOCKED` arm, `b.progress-report`, `b.blocker-class`, and
 `b.blocker-reason` are available. The proof is arm-local.
 
-At target 2.26, ordinary `if` and `cond` may establish the same branch-local
+Ordinary `if` and `cond` may establish the same branch-local
 proof from a typed union discriminant:
 
 ```lisp
@@ -2941,22 +1820,16 @@ Ordinary scalar predicates and status mirrors remain proof-neutral:
     ...)
 ```
 
-Below target 2.26, `match` remains the only authored variant-proof source.
 Prefer `match` for exhaustive deconstruction; use typed discriminant `if` or
-`cond` when ordinary branch control is clearer.
-
-Current ceiling: consume narrowed fields in branch bodies or effect arguments.
-A pure value-position `if` that selects between variant-only fields is not a
-supported projection shape and fails closed with a diagnostic rather than
-creating an unguarded value.
-
-Copy-safety evidence:
-`tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_requires_variant_local_union_branch_narrows`,
-`tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_closed_union_terminal_is_exhaustive`,
-and
-`tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py::test_cond_exhaustive_terminal_routes_and_resumes`.
+`cond` when branch control is clearer. Current evaluated composition evidence,
+including nested native union values, is in
+[`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py).
 
 ## 11. Contexts And Derived State
+
+These private context concepts remain useful for admitted helper composition.
+They do not admit resource transitions, materialized views or reusable-state
+helpers at 2.35/2.36; consult Section 2A before copying a library recipe.
 
 High-level Lisp should derive state paths from private context and typed
 resources, not from public path plumbing. Public workflow inputs are for caller
@@ -3058,9 +1931,9 @@ Before adding a path field, decide who semantically owns that path:
 | Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
 | Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
-| Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, target-2.19 exact `Value`, target-2.28 closed union, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
+| Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, exact `Value`, closed union, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
-| Durable workflow state | backlog item state, drain state, recovery state | Use `Resource<TState>` and `Transition<TRequest, TResult>`, not arbitrary file writes. |
+| Durable resource state | backlog item state, drain state, recovery state | Resource-transition semantics are outside evaluated admission; do not bypass that gap with arbitrary writes. |
 
 Litmus test: if deleting the path field would not change the workflow's
 semantic domain input or output, the path is probably private, generated,
@@ -3097,15 +1970,9 @@ Avoid:
 - `(mtime-newer-than? output phase-start)`
 - `(recovery-gate ...)`
 
-Prefer:
-
-- `(match result ...)`
-- `(resume-or-start ...)`
-- `(resource-transition ...)`
-- `(review-revise-loop ...)`
-- `(provider-result ...)`
-- `(command-result ...)`
-- `(backlog-drain ...)`
+Prefer typed `match`, admitted provider/command results, and ordinary bounded
+composition. State/resource effects remain governed by Section 2A; the
+high-level helpers below have their own availability limits.
 
 ## 13. Standard High-Level Forms
 
@@ -3134,149 +2001,43 @@ compiler/runtime contract, not an alternate authored surface.
 
 ### 13.1 `run-provider-phase`
 
-Use for a provider-driven phase that returns typed structured state.
-
-```lisp
-(run-provider-phase implementation
-  :ctx ctx
-  :inputs inputs
-  :provider providers.execute
-  :prompt prompts.implementation.execute
-  :returns ImplementationAttempt)
-```
-
-Expected lowering derives phase state paths, canonical result bundles, provider
-output contracts, typed artifact refs, and validated commits. Authors should not
-provide manual state paths.
+`run-provider-phase` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. See the [phase helper contract](design/workflow_lisp_stdlib_lowering.md) for its
+separate lowering and state semantics.
 
 ### 13.2 `review-revise-loop`
 
-Use for bounded review/fix loops where the form's lowering contract is
-supported for the workflow's target.
-
-The current authoring surface supports review/fix loop examples and fixtures,
-and the current checkout lowers the form through the ordinary imported stdlib
-route over compile-time review/fix `ProcRef` hooks. Historical YAML-to-`.orc`
-migration claims remain bounded by the preserved parity evidence described by
-`docs/design/workflow_lisp_key_migration_parity_architecture.md`.
-
-The exact first-tranche `ReviewFindings`, `ReviewDecision`, and
-`ReviewLoopResult` schemas are owned by
-`docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`.
-This guide should summarize that contract rather than restating alternate enum
-or field-name variants.
-
-```lisp
-(review-revise-loop implementation-review
-  :ctx ctx
-  :completed completed
-  :inputs inputs
-  :review (proc-ref review-implementation)
-  :fix (proc-ref fix-implementation)
-  :max 40)
-```
-
-A review loop should return a typed result, such as `APPROVED`, `BLOCKED`, or
-`EXHAUSTED`. Do not parse markdown review prose to recover the decision.
-For a loop that returns the candidate its outcome is about, see
-[13.7 `improve`](#137-improve).
+This ordinary stdlib composition is usable only when its selected hooks and
+generated effects are admitted by the evaluated graph. Its context/publication
+recipe is not a current copy target. The [review-loop contract](design/workflow_lisp_review_revise_stdlib_parametric_integration.md)
+owns the helper's exact schemas; use [Section 13.7](#137-improve) for the
+publicly exercised evaluated review/revise recipe.
 
 ### 13.3 `resume-or-start`
 
-Use to reuse canonical prior state or run fresh.
-
-```lisp
-(resume-or-start plan-gate
-  :ctx ctx
-  :resume-from selected.final-plan-gate-state
-  :valid-when APPROVED
-  :start
-    (call plan/run
-      :ctx (phase-ctx ctx 'plan)
-      :selected selected
-      :roadmap roadmap
-      :providers providers.plan)
-  :returns PlanGateResult)
-```
-
-Meaning:
-
-- validate prior canonical state;
-- if reusable, return typed resumed value;
-- otherwise run fresh workflow/procedure;
-- normalize both branches to the same return type.
-
-This replaces brittle recovery gates. Do not call it a recovery gate.
+`resume-or-start` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. See the [reusable-state helper contract](design/workflow_lisp_stdlib_lowering.md) for its
+separate lowering and state semantics.
 
 ### 13.4 `resource-transition`
 
-Use for queue/resource movement plus ledger/state update.
-
-```lisp
-(resource-transition backlog-item
-  :ctx ctx
-  :resource selected.item
-  :from Queue.active
-  :to Queue.in-progress
-  :ledger ctx.ledger
-  :event SELECTED)
-```
-
-Valid lowerings:
-
-- certified command adapter plus typed result validation;
-- runtime-native `ResourceTransition` effect;
-- transaction-capable state operation.
-
-The form must not pretend to be more atomic than the substrate supports.
+`resource-transition` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. See the [resource transition contract](design/workflow_lisp_frontend_specification.md) for its
+separate lowering and state semantics.
 
 ### 13.5 `finalize-selected-item`
 
-Use to normalize terminal selected-item outcomes.
-
-```lisp
-(finalize-selected-item
-  :ctx ctx
-  :selected selected
-  :plan plan
-  :implementation implementation)
-```
-
-Meaning:
-
-- match typed phase results;
-- record completed or blocked item result;
-- move resources if needed;
-- write structured selected-item outcome;
-- publish summary artifact;
-- return `SelectedItemResult`.
-
-This replaces fan-in through multiple handwritten blocked/completed scripts.
+`finalize-selected-item` is unavailable at targets 2.35/2.36 and refuses with
+`closed_program_gap`. See the [selected-item finalizer contract](design/workflow_lisp_stdlib_lowering.md) for its
+separate lowering and state semantics.
 
 ### 13.6 `backlog-drain`
 
-Use for select/run/gap/repeat orchestration.
-
-```lisp
-(backlog-drain neurips
-  :ctx ctx
-  :selector selector/run
-  :run-item selected-item/run
-  :gap-drafter gap/draft
-  :max-iterations max-iterations)
-```
-
-Expected lowering:
-
-- bounded loop;
-- selector workflow call;
-- selected-item workflow call;
-- gap-drafter workflow call;
-- typed state accumulator;
-- terminal typed result.
-
-This is the high-level construct that should materially shrink top-level
-backlog-drain authoring.
+The historical context/resource-based drain recipe is not an evaluated-target
+copy target: resource transitions, reusable-state effects and materialized
+views remain unavailable at 2.35/2.36. Ordinary bounded composition is governed
+by Section 2A. The [drain-authoring design](design/workflow_lisp_runtime_native_drain_authoring.md) owns the separate
+family's intended responsibilities and migration evidence.
 
 ### 13.7 `improve`
 
@@ -3294,7 +2055,7 @@ The entry target chooses one API for the entire **source import graph**:
 
 | Entry target | Call | Hook signatures |
 | --- | --- | --- |
-| Through 2.35 | `(improve initial inputs review revise limit)` | `review(S I) -> Decision[F B]`; `revise(S I F) -> S` |
+| 2.35 | `(improve initial inputs review revise limit)` | `review(S I) -> Decision[F B]`; `revise(S I F) -> S` |
 | 2.36 | `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S` |
 
 Every source importer sees that API, even with an older defining-module target.
@@ -3456,38 +2217,25 @@ or retargeting an old source does not promise compatible resume. The
 and [CLI contract](../specs/cli.md#evaluated-execution-target-235) own operator
 behavior for both evaluated targets.
 
-#### Legacy through 2.35
+#### Target 2.35 explicit inputs
 
-The five-argument caller is preserved in
-[`improve_legacy/improve_experiment_proposal.orc`](../tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc).
-It passes domain inputs explicitly. Its target-2.33 tests and the following
-legacy rejection table continue to describe the flat route. For evaluated
-W3, use [composition-first §11.4](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
-for the exact remaining OPEN pure-helper, combined-capture and relay cases;
-independent successful compositions do not close those fixtures.
+At 2.35 use the five-argument form with explicit domain inputs and complete
+hook signatures. The preserved
+[`improve_legacy/improve_experiment_proposal.orc`](../tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc)
+has an older source header; its name does not make the five-argument API
+unsupported at 2.35. For bounded evaluated consumer evidence and remaining
+composition limits, see
+[composition-first §11.4](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries).
 
 #### `improve` rejections
 
-These target-2.33 flat-route cases fail at compile time. They are legacy
-observations, not a target-2.36 refusal or remedy table. Most of these diagnostics point into
-`std/improve.orc`, not at the caller, so the table names the form each one
-points at. A rule is a restriction the language makes on purpose; a defect is
-a failure after typecheck or a wrong diagnostic, listed with its cause in
-[Composition-First Procedures §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233).
-
-| Case | Kind | Code | Where it points |
-| --- | --- | --- | --- |
-| `limit` is `0` or negative | Rule | `workflow_boundary_type_invalid` (`repeat_until.max_iterations must be > 0`) | `std/improve.orc`, the `:on-exhausted` line; a note gives the call site |
-| `limit` is a workflow parameter | Rule | `workflow_return_not_exportable` (`must lower from a literal integer`) | `std/improve.orc`, the `loop/recur :max limit` line |
-| `inputs` is a `String` or `Int` literal | Defect | `workflow_signature_mismatch` | `std/improve.orc`, the `review` call; pass a record or a `String` workflow parameter |
-| the review hook is pure (it calls no command or provider) | Defect | `compiler_defect` (an internal `KeyError`) | `std/improve.orc`, the `review` call; make the hook command- or provider-backed |
-| the revise hook is pure | Defect | `workflow_return_not_exportable` (`does not support let* binding`) | `std/improve.orc`, the `revise` call; make the hook command- or provider-backed |
-| `initial` is a record literal that contains a list of record literals | Defect | `type_unknown` | the caller, at the inner record's type name; build `initial` in a procedure of the calling module instead |
-
-A pure `match` over the result whose arms build a record that holds a
-literal compiles, but `--dry-run` and the run start reject it with
-`pure_result_replay_unavailable`; see composition-first §11 for the forms
-that run.
+The [W3 contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+owns incomplete-local restrictions; the
+[evaluated composition boundary](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
+owns the remaining OPEN pure-helper, combined-capture and relay cases.
+Independent successful compositions do not close those fixtures. Retargeting
+a five-argument caller to 2.36 requires migration to its four-argument API;
+it does not promise compatible resume of an older run.
 
 ## 14. Provider Prompt Guidance
 
@@ -3533,7 +2281,7 @@ typed pure constant; for path types it is checked for path safety but the
 target need not exist during compilation. Schema inclusion, imports, and
 generic specialization preserve field guidance without changing type identity.
 
-Exact `Value` is the target-2.19 exception: it accepts `:description` and
+Exact `Value` is the opaque-type exception: it accepts `:description` and
 `:format-hint`, but rejects `:example` because ordinary narrower literals are
 not implicitly `Value`. The provider contract describes one JSON document
 root; the text guidance never adds fields, an envelope, or narrower runtime
@@ -3562,23 +2310,17 @@ provider inputs named, typed, and separate from runtime bookkeeping:
   :returns ImplementationAttempt)
 ```
 
-For supported scalar, record, relpath, target-2.19 exact `Value`, target-2.28
+For supported scalar, record, relpath, exact `Value`,
 closed union, and recursively renderer-admitted `List[T]` bindings, the runtime renders each
 value at the provider prompt seam through the unique registered default.
 Missing, unknown, shape-incompatible, or ambiguous renderer selection fails
 before provider launch. The provider output still comes only from the
 declared structured result contract.
 
-Direct unions and eligible lists of unions require target 2.28. Optional, map,
-and lists whose element type has no default renderer are not generally visible
-through this route. Use a separately implemented
-checked route for those values. Explicit renderer override syntax and the
-remaining consumer-rendering ergonomics are future work. On an ordinary call,
-supported neighbors still use their implicit renderers, but the unsupported
-binding remains unavailable to the prompt. Phase lowerings with a whole-input
-materialization route select that fallback atomically; a phase-derived
-lowering without a recoverable fallback fails before provider launch rather
-than dropping the unsupported remainder.
+Prompt rendering does not grant source-level variant proof. Use only the
+renderer-admitted input shapes and keep unsupported composites behind a
+separately implemented checked route; do not assume a historical phase
+materialization fallback exists on the evaluated route.
 
 Flat input lists are fine for small calls:
 
@@ -3668,13 +2410,9 @@ produced, or dynamically dispatched procedures.
 
 ## 17. Loops
 
-Use high-level loop forms when the pattern is known.
-
-Prefer `review-revise-loop` for review/fix loops only when its current lowering
-contract is supported for the workflow's route. Historical migration reviews
-should preserve the captured baseline and parity evidence, not execute the
-retired source. Prefer `backlog-drain` for select/run/gap/repeat. Use direct
-`loop/recur` only when the loop shape is genuinely novel.
+Use `loop/recur` for bounded typed iteration and the exercised `std/improve`
+recipe for review/revise loops. A stdlib helper must compose only effects
+admitted by the selected evaluated target.
 
 Every loop must have:
 
@@ -3742,22 +2480,20 @@ does not deserve a top-level reusable `defrecord`.
 
 ### 17.2 Bounded list traversal
 
-Target 2.18 adds `(list ...)`, the total list operators `list/empty?`,
-`list/head`, `list/rest`, `list/append`, and `list/length`, pure `list/map`,
-and bounded `list/map-effect`. It also permits eligible `List[T]` loop state
-and adds `path/join-under` for pure containment-preserving construction below a
-declared root. The accepted element boundary is structural: use ordinary
-transportable scalar, enum, path, or nested-list values, and introduce a
-narrower named path family only when its rooted contract is load-bearing.
+The total list operators are `list/empty?`, `list/head`, `list/rest`,
+`list/append` and `list/length`, with `(list ...)` construction, pure `list/map`
+and bounded serial `list/map-effect`. Transportable records and unions may be
+list elements; source-level variant field reads still require proof. Eligible
+lists can also be loop state. `path/join-under` constructs safe paths below a
+declared root.
 
-`list/map-effect` has an explicit `:max` and erases to the existing
-loop/call/checkpoint machinery; it is not a higher-order runtime function.
-Record/union elements, indexing, filtering, folding, `ProcRef` mapping,
-nested effect bodies, and unbounded traversal remain outside this surface.
-The original target-2.18 runtime-cardinality fixture retains its checked
-family-profile route for `List[T]`; ordinary provider calls separately render
-a list only when its element type is recursively renderer-admitted. Traversal
-itself does not grant prompt visibility.
+`list/map-effect` requires an explicit `:max` and one admitted effect in its
+body; its source and body arguments remain pure. Pure `list/map` bodies remain
+effect-free. Indexing, filtering, folding, general ProcRef mapping, parallel
+map and unbounded traversal are outside the current surface. Traversal does
+not grant prompt visibility: a provider input still needs an admitted renderer.
+See [evaluated totality evidence](../tests/test_workflow_evaluated_totality.py)
+for record/union/list transport and pure-context refusals.
 
 ## 18. Effects
 
@@ -3799,28 +2535,11 @@ Effect kinds include:
 If a procedure's effects are hard to explain, the procedure is probably too
 broad.
 
-Semantic IR also promotes a small set of generated visibility effects
-(`snapshot_capture`, `pointer_materialization`, `pure_projection`) so
-generated runtime structure stays inspectable. A `pure_projection` entry is
-observational metadata for one generated projection boundary; it does not
-mean the authored expression gained provider, command, IO, or state effects.
-
-Rendering is also an effect boundary. Prefer the consumer-owned lane:
-
-| Consumer | Preferred authoring surface |
-| --- | --- |
-| typed workflow step | pass the typed value; no rendering |
-| provider prompt | supported scalar, record, relpath, target-2.19 exact `Value`, or recursively renderer-admitted `List[T]` value in `:inputs`; `:prompt-dependencies` additionally for relpath body content; checked routes for other composites |
-| public workflow output | entry publication policy / boundary view |
-| observability | typed terminal result rendered by report/dashboard surfaces |
-| legacy reader | labeled compatibility bridge |
-| timed mid-run artifact | explicit `materialize-view` |
-
-If a body-level `materialize-view` only exists so a later prompt, summary,
-public output, or legacy reader can see bytes, prefer moving that rendering to
-the consumer seam. Keep explicit `materialize-view` when the file must exist at
-that exact point in the workflow or when a low-level compatibility fixture is
-being preserved deliberately.
+The evaluated route records admitted effects and their typed results in the
+memo. Pure computation is not an effect or a generated step. Provider prompts
+render values at their consumer seam; reports and dashboard render derived
+views. Explicit `materialize-view` and boundary publication machinery from
+older resource recipes remain outside current evaluated admission.
 
 ## 19. Source Maps And Debugging
 
@@ -3837,46 +2556,17 @@ reason: field is available only for ImplementationAttempt.COMPLETED
 hint: access it inside match
 ```
 
-For generated nodes, diagnostics should show:
+Located diagnostics retain authored source provenance, including file,
+line/column and the refused form. For evaluated compilation inspect the
+checked `closed_program.json` and `manifest.json`; at run time inspect
+`run.json`, `memo.jsonl`, the derived `state.json`, attempt requests,
+stdout/stderr and validated result bundles. The complete lifecycle recipe and
+[State contract](../specs/state.md#evaluated-execution-persistence-profile-target-235)
+own their exact layout and authority.
 
-- source file;
-- line/column;
-- source form;
-- macro/procedure expansion stack;
-- generated Core AST node id;
-- semantic IR node id;
-- executable step id.
-
-Useful build artifacts may include:
-
-```text
-.orchestrate/build/<workflow>/frontend_ast.json
-.orchestrate/build/<workflow>/expanded_frontend_ast.json
-.orchestrate/build/<workflow>/typed_frontend_ast.json
-.orchestrate/build/<workflow>/core_workflow_ast.json
-.orchestrate/build/<workflow>/semantic_ir.json
-.orchestrate/build/<workflow>/executable_ir.json
-.orchestrate/build/<workflow>/source_map.json
-.orchestrate/build/<workflow>/expanded.debug.yaml
-```
-
-`expanded.debug.yaml` is optional and non-authoritative. Its filename is
-retained for historical tooling compatibility, but its body is a JSON-rendered
-projection and is never accepted as authored workflow source.
-
-After compile/lowering succeeds, use ordinary runtime artifacts:
-
-- `.orchestrate/runs/<run>/state.json`
-- `.orchestrate/runs/<run>/logs/`
-- composed prompts
-- stdout/stderr
-- artifact registry
-- provider result bundles
-- command result bundles
-- generated `pure_projection` result bundles (private managed paths)
-
-When a runtime failure references a generated executable step, the diagnostic
-should also reference the high-level `.orc` source form.
+Older Core/semantic/executable IR and optional `expanded.debug.yaml` exports
+remain compiler/debugging surfaces for their own routes; they are not the
+execution authority for an evaluated run.
 
 ## 20. Lints
 
@@ -3887,9 +2577,9 @@ The frontend and lint tools should warn on brittle authoring patterns.
 | `semantic_field_extracted_from_report` | Parse a markdown line for a decision or blocker | Structured provider/command result |
 | `pointer_used_as_semantic_authority` | Publish a pointer file path as the value | Publish the typed artifact value |
 | `variant_output_without_variant_specific_fields` | Union variants with no fields | Record plus enum |
-| `recovery_gate_without_canonical_state` | File-existence recovery gate | `resume-or-start` |
-| `resource_move_without_transition` | Shell move plus hidden ledger update | `resource-transition` or certified adapter |
-| `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match`, or target-2.26 typed discriminant `if`/`cond` |
+| `recovery_gate_without_canonical_state` | File-existence recovery gate | Public memo-backed resume; reusable-state helper unavailable |
+| `resource_move_without_transition` | Shell move plus hidden ledger update | Record the resource-effect gap; Section 13.4 |
+| `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match`, or typed discriminant `if`/`cond` |
 | `manual_state_path` | Hand-built state path | Context helper such as `with-phase` |
 | `command_step_for_pure_computation` | Python/`jq` step that only compares, counts, defaults, or formats | Closed pure-expression surface / typed projection (Section 9A) |
 | `loop_state_carries_path_authority` | Loop state threading state-file paths between iterations | Typed value state plus `record-update` (Section 17) |
@@ -3908,7 +2598,7 @@ target; they do not define a runnable YAML frontend.
 | `variant_output` | `defunion` plus `provider-result` |
 | `pre_snapshot` + `select_variant_output` | `run-provider-phase` or another structured producer result |
 | `materialize_artifacts` | Context-derived materialization or internal lowering |
-| `requires_variant` | Compiler-generated from `match` or target-2.26 typed discriminant proof |
+| `requires_variant` | Compiler-generated from `match` or typed discriminant proof |
 | `match` | Same concept, used directly over unions |
 | `repeat_until` | `review-revise-loop`, `backlog-drain`, or `loop/recur` |
 | Raw `goto` | Avoid; use structured control |
@@ -3988,209 +2678,26 @@ workflows.
 
 ## 23. Example: Implementation Phase
 
-Types:
-
-```lisp
-(defrecord ImplementationInputs
-  (design Path.design)
-  (plan Path.plan)
-  (check-commands Path.check-commands)
-  (execution-report-target Path.execution-report-target)
-  (checks-report-target Path.checks-report-target)
-  (review-report-target Path.review-report-target))
-
-(defrecord ImplementationProviders
-  (execute Provider)
-  (review Provider)
-  (fix Provider))
-
-(defunion ImplementationAttempt
-  (COMPLETED
-    (execution-report Path.execution-report))
-
-  (BLOCKED
-    (progress-report Path.progress-report)
-    (blocker-class BlockerClass)
-    (blocker-reason String)))
-
-(defunion ImplementationResult
-  (APPROVED
-    (execution-report Path.execution-report)
-    (review_report Path.review-report)
-    (findings ReviewFindings))
-
-  (EXECUTION_BLOCKED
-    (progress-report Path.progress-report)
-    (blocker-class BlockerClass)
-    (blocker-reason String))
-
-  (REVIEW_BLOCKED
-    (execution-report Path.execution-report)
-    (review_report Path.review-report)
-    (blocker_class BlockerClass)
-    (findings ReviewFindings))
-
-  (EXHAUSTED
-    (execution-report Path.execution-report)
-    (last_review_report Path.review-report)
-    (findings ReviewFindings)
-    (reason String)))
-```
-
-Workflow:
-
-```lisp
-(defworkflow implementation/run
-  ((ctx PhaseCtx)
-   (inputs ImplementationInputs)
-   (providers ImplementationProviders))
-  -> ImplementationResult
-
-  :effects
-    ((reads inputs.design inputs.plan inputs.check-commands)
-     (uses-provider providers.execute providers.review providers.fix)
-     (writes Path.execution-report)
-     (writes Path.checks-report)
-     (writes Path.review-report)
-     (updates-state ctx))
-
-  (with-phase ctx implementation
-    (let* ((attempt
-             (provider-result providers.execute
-               :prompt prompts.implementation.execute
-               :inputs
-                 (inputs.design
-                  inputs.plan)
-               :targets
-                 ((execution-report inputs.execution-report-target)
-                  (progress-report (phase-target ctx "progress-report.md")))
-               :returns ImplementationAttempt)))
-
-      (match attempt
-        ((COMPLETED completed)
-          (match
-            (review-revise-loop implementation-review
-              :ctx ctx
-              :completed completed
-              :inputs inputs
-              :review (proc-ref review-implementation)
-              :fix (proc-ref fix-implementation)
-              :max 40)
-
-            ((APPROVED approved)
-              (ImplementationResult.APPROVED
-                :execution-report completed.execution-report
-                :review_report approved.review_report
-                :findings approved.findings))
-
-            ((BLOCKED blocked)
-              (ImplementationResult.REVIEW_BLOCKED
-                :execution-report completed.execution-report
-                :review_report blocked.review_report
-                :blocker_class blocked.blocker_class
-                :findings blocked.findings))
-
-            ((EXHAUSTED exhausted)
-              (ImplementationResult.EXHAUSTED
-                :execution-report completed.execution-report
-                :last_review_report exhausted.last_review_report
-                :findings exhausted.findings
-                :reason exhausted.reason))))
-
-        ((BLOCKED blocked)
-          (ImplementationResult.EXECUTION_BLOCKED
-            :progress-report blocked.progress-report
-            :blocker-class blocked.blocker-class
-            :blocker-reason blocked.blocker-reason))))))
-```
-
-The stdlib loop returns the exact stdlib-owned `ReviewLoopResult`; the
-workflow-specific `ImplementationResult` above is a caller-side projection over
-that terminal protocol, not a replacement for it.
-
-The author does not hand-manage `implementation_state.json`, snapshot names,
-candidate paths, variant selector files, pointer sidecars, `requires_variant`,
-or markdown line extraction.
+The former phase/context/publication recipe is not a target-2.35/2.36 copy
+example. Start with the [evaluated review/revise recipe](#137-improve) and
+compose only admitted provider, command and call effects. The
+[review-loop contract](design/workflow_lisp_review_revise_stdlib_parametric_integration.md)
+retains the separate phase helper's schemas.
 
 ## 24. Example: Selected Backlog Item
 
-```lisp
-(defworkflow selected-item/run
-  ((selection SelectionInput)
-   (providers NeuripsProviders))
-  -> SelectedItemResult
-
-  (let* ((selected
-           (resolve-selected-item selection))
-
-         (queued
-           (resource-transition selected-backlog-item
-             :resource selected.item
-             :from Queue.active
-             :to Queue.in-progress
-             :event SELECTED))
-
-         (roadmap
-           (call roadmap/run-sync
-             :selected selected
-             :providers providers.roadmap))
-
-         (plan
-           (resume-or-start plan-gate
-             :resume-from selected.final-plan-gate-state
-             :valid-when APPROVED
-             :start
-               (call plan/run
-                 :selected selected
-                 :roadmap roadmap
-                 :providers providers.plan)
-             :returns PlanGateResult))
-
-         (implementation
-           (call implementation/run
-             :inputs
-               (make-implementation-inputs
-                 :selected selected
-                 :plan plan)
-             :providers providers.implementation)))
-
-    (finalize-selected-item
-      :selected selected
-      :queued queued
-      :roadmap roadmap
-      :plan plan
-      :implementation implementation)))
-```
-
-This is the target shape for procedural composability. The workflow reads like a
-typed program, not like a list of gates. Lowering/runtime may bind `ItemCtx`,
-phase contexts, generated paths, idempotency keys, and transition audit state
-behind this surface; those bindings should not become public workflow inputs.
+The former recipe depended on `resource-transition`, `resume-or-start` and
+`finalize-selected-item`, all unavailable at targets 2.35/2.36. The
+[stdlib lowering contract](design/workflow_lisp_stdlib_lowering.md) owns their
+separate semantics. Do not copy that recipe into an evaluated entry.
 
 ## 25. Example: Top-Level Backlog Drain
 
-```lisp
-(defworkflow neurips/run-backlog-drain
-  ((providers NeuripsProviders)
-   (max-iterations Int))
-  -> DrainResult
-
-  (backlog-drain neurips
-    :selector selector/run
-    :run-item selected-item/run
-    :gap-drafter gap/draft
-    :providers providers
-    :max-iterations max-iterations))
-```
-
-The `backlog-drain` form should own select, run selected item, handle empty,
-handle gap, handle blocked item, record terminal drain state, and bounded
-repetition.
-
-Do not hand-author this pattern repeatedly, and do not expose `DrainCtx`,
-run-state roots, summary targets, or generated bundle paths as ordinary public
-inputs just to make the drain work. Library internals may still receive private
-context after lowering.
+The former context/resource-based drain example is not an evaluated-target
+recipe. Resource transitions and materialized views are outside 2.35/2.36
+admission. The [drain-authoring design](design/workflow_lisp_runtime_native_drain_authoring.md)
+retains the separate family's intended lifecycle; use Section 2A to assess
+ordinary bounded compositions.
 
 ## 26. Prompt Examples
 
@@ -4238,20 +2745,20 @@ Before running a new `.orc` workflow, confirm:
 | Area | Check |
 | --- | --- |
 | Frontend choice | This belongs in `.orc`; there is no alternate fresh authored frontend. |
-| Types | All boundary values are typed. Public DSL v2.15 supports the existing concrete transportable types across function, procedure, provider-result, command-result, workflow-call, and public-workflow returns. Target 2.19 adds exact opaque `Value`, distinct from `Json` and concrete record/union contracts, including supported `Optional`/`List`/`Map` nesting. Direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed metadata and never changes runtime validity; `Value` allows description/format hint but not example. |
+| Types | Every boundary has its actual transportable type; no wrapper is required. Exact `Value` remains opaque. Typed result guidance does not alter validation. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
-| Providers | Provider decisions return structured state through `provider-result`. Target-2.16 live supervision uses exactly one eligible worker, one supervisor returning `ProviderSteeringDirective`, one observation edge, and a pure settlement body. Target-2.17 peer groups use 2..8 eligible provider members, an explicitly declared queued-interactive capability, recorded turn-boundary messages, and pure settlement. Panes and ledgers are never result transport. |
+| Providers | Portable composed calls return validated structured state. Sessions, context capture, phased delivery, supervision and peer groups are unavailable at evaluated targets. |
 | Commands | Command semantics use `command-result` or certified adapters. |
 | Reports | No markdown report is parsed for semantic state in new high-level code. |
 | Pointers | Pointer files are not treated as artifact values. |
-| Variants | Variant-specific fields are used only inside a proof-bearing `match` arm or target-2.26 typed discriminant branch. |
-| State | State paths are derived from contexts. |
+| Variants | Variant-specific fields are used only inside a proof-bearing `match` arm or typed discriminant branch. |
+| State | The memo owns committed effects; run state and reports are derived views. Resource/reusable-state helpers remain outside current admission. |
 | Effects | Provider, command, write, move, ledger, state, and call effects are visible. |
 | Reuse | Durable public run/resume/invocation/publication identity is a `defworkflow`; repeated internal effectful behavior is a `defproc`; pure behavior is a `defun`. |
 | Gates | Gates have been replaced by typed outcomes or transitions where possible. |
-| Prompts | Prompts describe domain work, not runtime mechanics. At target 2.20, use `defprompt` only for a complete prompt-owned fill/result contract: fully discharge every named slot and do not duplicate `:inputs`, `:prompt-dependencies`, or `:returns` at the call. At target 2.21, use `:path :out` only when one slot must own both rendered destination guidance and one required UTF-8 file postcondition alongside the one structured result. |
-| Lowering | Generated Core AST uses real shared statement families; Semantic IR derives from validated shared bundle data; Executable IR validates before runtime-facing use; source maps preserve authored/generated provenance. |
+| Prompts | Fully discharge `defprompt` slots without duplicating its input/dependency/result contract. `:path :out` may own one required UTF-8 file alongside the structured result. |
+| Evaluation | Compile a checked closed program; declared command closures and typed input contracts match the intended execution. |
 | Diagnostics | Errors map back to useful `.orc` source forms. |
 | Metrics | Authored size and brittle-pattern count improve over the YAML baseline. |
 
@@ -4293,7 +2800,7 @@ Require artifact values.
 ### Unproved Variant Access
 
 Look for variant-specific fields outside a proof-bearing context. Require
-`match` or, at target 2.26, a typed `.variant` equality or inequality branch.
+`match` or a typed `.variant` equality or inequality branch.
 
 ## 29. Persisted Legacy And Historical Compatibility Policy
 
@@ -4316,9 +2823,9 @@ The `.orc` boundary should expose typed values.
 
 ## 30. Low-Level Core Surfaces
 
-These surfaces exist after `.orc` lowering and remain useful for debugging,
-persisted compatibility, and runtime tests. They are compiler targets, not a
-second source language.
+These older-route Core surfaces remain useful for historical debugging,
+persisted compatibility and runtime tests. They are compiler targets, not
+current evaluated authoring instructions or a second source language.
 
 | Surface | Purpose |
 | --- | --- |
@@ -4344,14 +2851,14 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need to parse the report." | "The provider/command should return structured state." |
 | "I need a pointer file." | "What artifact value does the downstream step need?" |
 | "I need when status == X." | "This is probably a match over a union." |
-| "I need a recovery step." | "This is `resume-or-start` from canonical state." |
-| "I need to move a file and update the ledger." | "This is a `resource-transition`." |
-| "I need a custom review loop." | "Can this be `review-revise-loop`?" |
-| "I need to select/run/gap/repeat." | "This is `backlog-drain`." |
+| "I need a recovery step." | "Use public `resume` to reuse committed effects; reusable-state helpers are unavailable here." |
+| "I need to move a file and update the ledger." | "Resource transitions are outside evaluated admission; record the gap." |
+| "I need a custom review loop." | "Can the exercised `std/improve` composition express it?" |
+| "I need to select/run/gap/repeat." | "Use bounded admitted composition; the historical resource drain recipe is unavailable." |
 | "I need a tiny Python helper to compare, count, or format." | "This is pure computation; use the operator surface and typed projection." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
-| "I need an external prompt plus separately repeated inputs, dependencies, and return guidance." | "Can one target-2.20 `defprompt` own the complete fill and result contract?" |
-| "I need prompt text and runtime validation to agree on a required report path." | "Can one target-2.21 `:path :out` slot own both while the prompt keeps one structured result?" |
+| "I need an external prompt plus separately repeated inputs, dependencies, and return guidance." | "Can one `defprompt` own the complete fill and result contract?" |
+| "I need prompt text and runtime validation to agree on a required report path." | "Can one `:path :out` slot own both while the prompt keeps one structured result?" |
 | "`expanded.debug.yaml` looks unusual." | "Inspect the Core AST, executable IR, Semantic IR, and source map; the historical filename contains only a JSON-rendered projection." |
 
 ## 32. Minimal Safe Subset
@@ -4374,12 +2881,13 @@ small subset before introducing procedures, macros, loops, or library forms
 - `with-phase`
 - `phase-target`
 
-Minimal example:
+Minimal syntax example (provider/prompt extern bindings are supplied by the
+caller; use the complete lifecycle recipe for an executable package):
 
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
 
   (defmodule minimal_subset)
   (export implementation-execute)
@@ -4428,29 +2936,12 @@ until the implementation and fixtures have landed.
 
 ## 33. Final Rule
 
-The frontend is successful only if authors can write workflows as typed
-procedural compositions:
-
-```lisp
-(defworkflow run-selected-backlog-item (...) -> SelectedItemResult
-  (let* ((selected (resolve-selected-item ...))
-         (plan (ensure-approved-plan ...))
-         (implementation (call implementation/run ...)))
-    (finalize-selected-item ...)))
-```
-
-It is not successful if authors mostly write:
-
-```lisp
-(step ...)
-(command ...)
-(pre-snapshot ...)
-(select-variant-output ...)
-(write-pointer ...)
-(parse-report ...)
-```
+Author typed compositions over admitted effects, lexical values, explicit
+outcomes and bounded control. Keep runtime bookkeeping and report parsing out
+of domain code. A helper's existence at another target does not make its
+resource, publication or session effects available on the evaluated route.
 
 The purpose of Workflow Lisp is not to make YAML prettier. The purpose is to
 make deterministic workflow authoring typed, structured, composable,
 state-safe, variant-safe, effect-visible, source-mapped, and less brittle while
-still lowering into the same validated runtime substrate.
+running through the checked program and memo-backed evaluated runtime.

@@ -11,6 +11,11 @@ itself. A workflow improves on it only by supplying something the agent cannot
 give itself. This guide records what did and did not, and the authoring
 mistakes that cost runs.
 
+The compiler/runtime observations and workarounds below describe the original
+pre-2.35 experiment targets. For current 2.35/2.36 admission and execution,
+use the [drafting guide](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today);
+do not downgrade a new workflow to reproduce a historical workaround.
+
 Working examples:
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc).
@@ -41,8 +46,9 @@ run three review rounds took a patch two judges would have merged from 8.0 to
 4.0.
 
 `list/map-effect` runs its body in sequence. Four implementers take four times
-as long as one. A `command-result` or a `call` of a workflow runs as its body;
-a call to an inline procedure that holds the command is refused ([drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today)).
+as long as one. The experiment's flat route admitted a `command-result` or
+workflow call as its body but refused an inline procedure holding the command.
+Current composition rules are in [drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today).
 
 ## Writing A Review Loop
 
@@ -67,10 +73,9 @@ criteria, and the verdict rules.
 Each row was hit while writing the example workflows. A rule is a restriction
 the language makes on purpose. A defect is a failure after typecheck or a
 wrong diagnostic; [Composition-First Procedures §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
-lists each known defect with its cause and the test that pins it. Before
-writing, check the program's shape in the [drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today): a loop in a branch or in
-another loop, a large state update, a record as a command input, decimals, and
-a helper shared by branches inside a loop, each with the form that runs.
+lists each historical defect with its cause and the test that pins it. Before
+writing new source, check the current evaluated shapes and restrictions in
+[drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today).
 
 | Symptom | Kind | Cause | Write instead |
 | --- | --- | --- | --- |
