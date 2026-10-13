@@ -323,6 +323,20 @@ class _Comparison:
             (left.metadata.binding_identity, right.metadata.binding_identity))
         self.walk(left.continuation, right.continuation, local, path + ".continuation")
 
+    def WccParallelMap(self, left, right, frame, path):
+        from .command_templates import command_parallel_index_name
+
+        self.record(left, right, frame, path,
+            ("binder_name", "binding_identity", "workspace_body", "body"))
+        local = _bind(frame, (left.binder_name, right.binder_name),
+            (left.binding_identity, right.binding_identity), path)
+        workspace = {**local, "index": (None, None)}
+        self.walk(left.workspace_body, right.workspace_body, workspace, path + ".workspace_body")
+        indexes = tuple(command_parallel_index_name(row.metadata.node_id) for row in (left, right))
+        local = _bind(local, indexes, (None, None), (path, "index"))
+        local["index"] = indexes
+        self.walk(left.body, right.body, local, path + ".body")
+
     def WccRecJoin(self, left, right, frame, path):
         from .command_templates import command_loop_index_name
 

@@ -2250,6 +2250,31 @@ def binding_type_for_elaboration(
     )
 
 
+def _parallel_command_bindings(expr, metadata, scope, bindings, context):
+    from ..closed.command_templates import binding_demand_key, command_parallel_index_name, runtime_binding_value
+
+    item_type = expr.source_item_type_ref
+    operand = WccNameAtom(metadata=scope.atom_metadata(role=f"name:{expr.binder_name}",
+        type_ref=item_type, source_span=expr.span, form_path=expr.form_path,
+        binding_identity=expr.binding_identity), name=expr.binder_name)
+    control = replace(context.control,
+        local_type_bindings={**context.control.local_type_bindings, expr.binder_name: item_type},
+        iteration_scope=True)
+    value = runtime_binding_value(item_type, facts=control, span=expr.span, form_path=expr.form_path)
+    index = None
+    if context.include_command_plans:
+        index = WccNameAtom(metadata=scope.atom_metadata(role="command-parallel-index",
+            type_ref=PrimitiveTypeRef(name="Int"), source_span=expr.span, form_path=expr.form_path),
+            name=command_parallel_index_name(metadata.node_id))
+    child = replace(context, control=control, owner="loop", command_index=index,
+        values={**context.values, expr.binder_name: value},
+        operands={**context.operands, expr.binder_name: operand},
+        retained_bindings=(*context.retained_bindings,
+            (binding_demand_key(operand.metadata, scope.enclosing_variants),
+                expr.binding_identity, item_type, value, operand)))
+    return {**bindings, _COMMAND_SCOPE_CONTEXT: child}
+
+
 def _elaborate_parallel_map_to_body(
     expr: ListMapEffectExpr, *, scope: WccIdentityFactory,
     type_env: FrontendTypeEnvironment, value_env: Mapping[str, TypeRef],
@@ -2273,18 +2298,25 @@ def _elaborate_parallel_map_to_body(
     item_env = {**value_env, expr.binder_name: expr.source_item_type_ref}
     item_bindings = dict(compile_time_bindings)
     item_bindings.pop(expr.binder_name, None)
+    command_context = item_bindings.get(_COMMAND_SCOPE_CONTEXT)
+    metadata = scope.body_metadata(role="parallel-map", type_ref=_infer_expr_type(expr,
+        type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types, closed_program=scope.closed_program),
+        source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+        effect_summary=effect_summary, phase_scope=active_phase_scope)
+    if command_context is not None:
+        item_bindings = _parallel_command_bindings(expr, metadata, item_scope,
+            item_bindings, command_context)
     workspace = _elaborate_expr_to_body(expr.workspace_expr,
         scope=item_scope.child_scope("workspace"), value_env=item_env,
-        compile_time_bindings=item_bindings, **{**inputs, "effect_summary": EMPTY_EFFECT_SUMMARY})
+        compile_time_bindings={**item_bindings, **({_COMMAND_SCOPE_CONTEXT:
+            replace(item_bindings[_COMMAND_SCOPE_CONTEXT], command_index=None)}
+            if command_context is not None else {})}, **{**inputs, "effect_summary": EMPTY_EFFECT_SUMMARY})
     body = _elaborate_expr_to_body(expr.body_expr,
         scope=item_scope.child_scope("body"), value_env=item_env,
         compile_time_bindings=item_bindings, **inputs)
     control = WccParallelMap(
-        metadata=scope.body_metadata(role="parallel-map", type_ref=_infer_expr_type(expr,
-            type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types, closed_program=scope.closed_program),
-            source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
-            effect_summary=effect_summary, phase_scope=active_phase_scope),
+        metadata=metadata,
         source=source, binder_name=expr.binder_name, binder_type_ref=expr.source_item_type_ref,
         workspace_body=workspace, body=body, max_count=expr.max_iterations,
         parallel_count=expr.parallel_count, binding_label=expr.binding_label,

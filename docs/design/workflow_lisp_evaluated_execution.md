@@ -2830,10 +2830,9 @@ report, §6); V3 is the last review's rule.
 ## 11. Parallel Effects
 
 The owner selected target **2.37** for Phase 5 parallel map on 2026-10-12.
-Target 2.37 registration and the parsed/typed frontend cut are qualified at
-`692eaf73` ([bounded record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut)).
-Checked `par-map` construction/read-back and parallel runtime admission remain
-pending; the [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md)
+Target 2.37 registration and checked `par-map` construction/read-back are
+qualified ([bounded record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)).
+Parallel runtime admission remains pending; the [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md)
 owns those cuts and public qualification before runnable availability. Its rules
 are fixed here so that identity and the memo need no change when it enters.
 The accepted D2/D3 [concrete refinements](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#contract-delta-to-review-before-implementation)

@@ -50,7 +50,7 @@ from orchestrator.workflow.view_renderer import (
 )
 
 from orchestrator.workflow.type_descriptor import _named_type_basename
-from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution
+from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
 
 from .targets import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .names import (
@@ -89,6 +89,8 @@ _BODY_KEYS = {
         "k", "name", "param", "state_type", "result", "budget", "init",
         "body", "exhausted", "code", "label", "index", "@",
     },
+    "par-map": {"k", "binder", "item_type", "result", "source", "max", "parallel",
+        "workspace", "body", "label", "index", "@"},
     "continue": {"k", "loop", "args", "@"},
 }
 _VALUE_KEYS = {
@@ -401,6 +403,11 @@ class _Checker:
                     self.fail("join_arity", "join must have exactly one result parameter", node)
                 walk_body(node.get("body"))
                 walk_body(node.get("cont"))
+            elif kind == "par-map":
+                label(node)
+                value(node.get("source"))
+                value(node.get("workspace"))
+                walk_body(node.get("body"))
             elif kind == "loop":
                 label(node)
                 value(node.get("budget"))
@@ -430,6 +437,7 @@ class _Checker:
             "join": {"k", "name", "params", "result", "body", "cont"},
             "jump": {"k", "join", "args"},
             "loop": {"k", "name", "param", "state_type", "result", "budget", "init", "body", "exhausted", "code"},
+            "par-map": {"k", "binder", "item_type", "result", "source", "max", "parallel", "workspace", "body", "label"},
             "continue": {"k", "loop", "args"},
             "lit": {"k", "v", "type"}, "name": {"k", "n"},
             "field": {"k", "base", "path"},
@@ -683,6 +691,10 @@ class _Checker:
             elif kind == "join":
                 scan_body(node["body"], owner)
                 scan_body(node["cont"], owner)
+            elif kind == "par-map":
+                scan_value(node["source"], owner)
+                scan_value(node["workspace"], owner)
+                scan_body(node["body"], owner)
             elif kind == "loop":
                 scan_value(node["budget"], owner)
                 scan_value(node["init"], owner)
@@ -803,6 +815,13 @@ class _Checker:
                             nested[row[0]] = None
                 body(node.get("body"), dict(env), owner)
                 body(node.get("cont"), nested, owner)
+            elif kind == "par-map":
+                value(node.get("source"), env, owner)
+                nested = {**env, node.get("binder"): None}
+                value(node.get("workspace"), nested, owner)
+                if "index" in node:
+                    nested[node["index"]] = None
+                body(node.get("body"), nested, owner)
             elif kind == "loop":
                 value(node.get("budget"), env, owner)
                 value(node.get("init"), env, owner)
@@ -1536,6 +1555,10 @@ class _Checker:
                 body = body_effect(node["body"])
                 cont = body_effect(node["cont"])
                 return body or cont
+            if kind == "par-map":
+                pure_value(node["source"])
+                pure_value(node["workspace"])
+                return body_effect(node["body"])
             if kind == "loop":
                 pure_value(node["budget"])
                 pure_value(node["init"])
@@ -1595,6 +1618,10 @@ class _Checker:
                     label = next_label(scope, param_name, body.get("label"))
                     walk_body(owner, body["body"], (*prefix, label, "body"), _SiteLabels())
                 walk_body(owner, body["cont"], prefix, scope)
+            elif kind == "par-map":
+                if body_effect(body["body"]):
+                    label = next_label(scope, body["binder"], body.get("label"))
+                    walk_body(owner, body["body"], (*prefix, f"par-map:{label}[*]"), _SiteLabels())
             elif kind == "loop":
                 in_body = body_effect(body["body"])
                 exhausted = body["exhausted"]
@@ -3233,6 +3260,10 @@ class _Checker:
                 observed = self._value(argument, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(observed, expected, "type_mismatch", argument)
             return (_BodyOutcome("jump", target=target),)
+        if kind == "par-map":
+            return self._parallel_map_body(node, env, owner=owner, scope=scope,
+                provider_origins=provider_origins, command_roots=command_roots,
+                command_index=command_index)
         if kind == "loop":
             loop_name = node.get("name")
             param_name = self._binding_name(node.get("param"), node)
@@ -3769,6 +3800,46 @@ class _Checker:
             rows[row[0]] = row[1]
         return rows
 
+    def _parallel_map_body(self, node, env, *, owner, scope, provider_origins,
+        command_roots, command_index):
+        if not target_dsl_supports_parallel_map(self.tree["target"]):
+            self.fail("target", "par-map requires target 2.37 or later", node)
+        for field in ("max", "parallel"):
+            if type(node[field]) is not int or node[field] <= 0:
+                self.fail("parallel_map_bound", "parallel map bounds must be positive integers", node)
+        binder = self._binding_name(node["binder"], node)
+        item_type, result = node["item_type"], node["result"]
+        self._validate_descriptor(item_type, node=node)
+        self._validate_descriptor(result, node=node)
+        context = dict(owner=owner, loops=(), scope=scope, allow_effect=False,
+            provider_origins=provider_origins, command_roots=command_roots,
+            command_index=command_index)
+        source = self._value(node["source"], env, **context)
+        self._require_type(source, {"kind": "list", "item": item_type}, "type_mismatch", node)
+        if result["kind"] != "list":
+            self.fail("type_mismatch", "parallel map result must be a list", node)
+        nested = {**env, binder: item_type}
+        context.update(provider_origins=provider_origins - {binder}, command_index=None)
+        workspace = self._value(node["workspace"], nested, **context)
+        if workspace.get("kind") != "path" and workspace != {"kind": "primitive", "name": "String"}:
+            self.fail("type_mismatch", "parallel map workspace must be a String or path", node)
+        body_index = self._parallel_map_index(node, nested)
+        outcomes = self._body(node["body"], nested, owner=owner, result=result["item"],
+            joins={}, loops=(), scope=scope, provider_origins=context["provider_origins"],
+            command_roots=command_roots, command_index=body_index)
+        self._halt_body_type(outcomes, result["item"], rule="parallel_map_control",
+            message="parallel map item must halt locally with its declared result", node=node)
+        return (_BodyOutcome("halt", result),)
+
+    def _parallel_map_index(self, node, env):
+        if "index" not in node:
+            return None
+        name = self._binding_name(node["index"], node)
+        if name in env:
+            self.fail("command_index", "parallel map index must be fresh and distinct from its item", node)
+        env[name] = {"kind": "primitive", "name": "Int"}
+        return {"k": "name", "n": name}
+
     def _require_no_effect_value(
         self,
         node: Any,
@@ -4094,6 +4165,10 @@ class _Checker:
             body = self._body_has_effect(node.get("body"))
             cont = self._body_has_effect(node.get("cont"))
             return body or cont
+        if kind == "par-map":
+            return (self._effect_in_value(node.get("source"))
+                or self._effect_in_value(node.get("workspace"))
+                or self._body_has_effect(node.get("body")))
         if kind == "loop":
             body = self._body_has_effect(node.get("body"))
             exhausted = node.get("exhausted")

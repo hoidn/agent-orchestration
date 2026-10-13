@@ -1,12 +1,10 @@
 # Evaluated Execution Phase 5 Execution Record
 
-Status: **implementation in progress**. Task 0 is prepared and bounded Task 1A
-frontend is accepted after independent contract/quality reviews and coordinator
-acceptance.
-The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) still
-owns pending checked-program and runtime/public qualification. The WCC cut below
-passed independent contract/quality reviews and coordinator acceptance. Task 1 overall
-and parallel-map delivery are not complete.
+Status: **implementation in progress**. Task 0 is prepared; Task 1 compilation
+and checked read-back are accepted after independent contract/quality reviews
+and coordinator acceptance.
+The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) owns
+pending runtime/public qualification. Parallel-map delivery is not complete.
 
 ## Decisions And Current Baseline
 
@@ -154,3 +152,48 @@ This cut does not qualify closed emission, preparation comparison, command-scope
 projection, source-free read-back/sites or parallel runtime. The full suite was
 not repeated for this intermediate cut; its Phase 5 campaign remains required.
 Task 1 overall and parallel public availability remain pending.
+
+## Task 1C — Checked Compilation And Read-Back
+
+The compiler emits one target-2.37 `par-map` in the existing `table/1`
+representation. Source, item binder, pure workspace block, local item body,
+types, bounds, labels and provenance pass independent checked read-back.
+Existing site, call, capture, command-index and provider-IO walks reach the new
+regions. No runtime execution or new effect class is added.
+
+Independent contract review found a frontend prerequisite defect: a pure inline
+helper containing another parallel map was incorrectly checked as if its
+expanded implementation were call arguments. The correction reuses retained
+binding identity and helper-expansion provenance. A new positive case preserves
+both maps; four negative cases retain the authored-call and pure-argument rules.
+Independent contract review accepted the correction. A distinct code-quality
+reviewer accepted the frozen cut without findings; the coordinator inspected
+the diff, final hashes and verification receipts before integration.
+
+| Evidence under E | Result and scope |
+| --- | --- |
+| `phase5-closed-red.*` | Initial missing closed translation: 1 failed |
+| `phase5-nested-inline-red.*`, `phase5-nested-inline-green.*` | Reproduced inline-helper defect; corrected positive and four negative cases pass |
+| `phase5-nested-inline-final-collection.*` | 60 new/changed compiler and read-back cases collected |
+| `phase5-nested-inline-final-narrow.*` | 120 passed: frontend, WCC, construction and malformed read-back |
+| `phase5-nested-inline-controls.*` | 1,025 passed, including public CLI compilation, existing compiler/contract controls, compiler-free isolation and imported-provider IO; canonical Python, tmux, `-n 16 --dist=worksteal` |
+| `phase5-nested-inline-corpus.*` | All 53 original corpus outcomes and 38 Built artifacts unchanged at fixed identity inputs; the current 54-case corpus retains its one pre-existing additional case |
+| `phase5-old-reader.*` | Reader from `bfd0f324` rejects the new target and, with an older header, the unknown control |
+| `phase5-serial-helper-index.json` | Old/current serial helper index-reset witness unchanged |
+| `phase5-review-contract-final-recheck.json`, `phase5-review-contract-final-tests.*` | Independent contract PASS: original reproducer, five tests, eleven hashes and specific malformed-control refusals |
+
+`E/phase5-closed-handoff.md` and its revision addendum distinguish the original
+115/918-case receipts from the final corrected checks. The current eleven-path
+snapshot is `E/phase5-nested-inline-path-hashes.json`, SHA-256
+`be35578ceca86e94420a1646ac51e7d10701f74f1128603e627aa3852eedf0c3`.
+Independent quality review also verified all eleven hashes and compiled/read
+three additional cases: command roots/index under an item, maps inside a
+`match` helper, and a second map consuming generated run-reference results. New test modules remain
+below 500 lines and new functions below CC 12, including assertions; the
+existing large structural typechecker changed from CC 56 to 59. Earlier malformed
+test assumptions are recorded separately from product defects.
+
+These results qualify compiler/read-back behavior only. Concurrent execution,
+independent-prefix replay, item cwd, durable recovery, consumer qualification and
+the final full-suite campaign remain pending. Task 1 is closed for compilation
+and read-back; no runnable parallel authoring recipe or retirement claim follows.

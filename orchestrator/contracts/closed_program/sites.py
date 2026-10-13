@@ -148,6 +148,10 @@ def _call_nodes(value: Any):
     elif kind in {"jump", "continue"}:
         for argument in value["args"]:
             yield from _value_calls(argument)
+    elif kind == "par-map":
+        yield from _value_calls(value["source"])
+        yield from _value_calls(value["workspace"])
+        yield from _call_nodes(value["body"])
     elif kind == "loop":
         yield from _value_calls(value["init"])
         yield from _value_calls(value["budget"])
@@ -215,6 +219,10 @@ def _ast_nodes(body: dict[str, Any]):
     elif kind in {"jump", "continue"}:
         for argument in body["args"]:
             yield from _value_nodes(argument)
+    elif kind == "par-map":
+        yield from _value_nodes(body["source"])
+        yield from _value_nodes(body["workspace"])
+        yield from _ast_nodes(body["body"])
     elif kind == "loop":
         yield from _value_nodes(body["init"])
         yield from _value_nodes(body["budget"])
@@ -327,6 +335,10 @@ class _SiteWalker:
             body_effect = self._body_has_effect(node["body"])
             cont_effect = self._body_has_effect(node["cont"])
             return body_effect or cont_effect
+        if kind == "par-map":
+            self._require_pure_value(node["source"])
+            self._require_pure_value(node["workspace"])
+            return self._body_has_effect(node["body"])
         if kind == "loop":
             self._require_pure_value(node["budget"])
             self._require_pure_value(node["init"])
@@ -443,6 +455,11 @@ class _SiteWalker:
                     _Scope(),
                 )
             self.walk_body(definition, node["cont"], prefix, scope)
+        elif kind == "par-map":
+            if self._body_has_effect(node["body"]):
+                label = scope.label(node["binder"], node.get("label"))
+                self.walk_body(definition, node["body"],
+                    (*prefix, f"par-map:{label}[*]"), _Scope())
         elif kind == "loop":
             body_has_effect = self._body_has_effect(node["body"])
             exhausted = node.get("exhausted")

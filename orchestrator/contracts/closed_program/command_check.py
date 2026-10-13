@@ -59,6 +59,7 @@ def _control_children(node):
         return children
     fields = {"let": ("value", "body"), "if": ("cond", "then", "else"),
         "join": ("body", "cont"), "loop": ("budget", "init", "body", "exhausted"),
+        "par-map": ("source", "workspace", "body"),
         "block": ("body",), "halt": ("value",), "done": ("value",),
         "jump": ("args",), "continue": ("args",)}.get(kind)
     if fields is None:
@@ -125,6 +126,8 @@ def _body_term(node, aliases, binders):
             *(_body_term(node[arm], aliases, binders) for arm in ("then", "else"))))
     if kind == "case":
         return _case_term(node, aliases, binders)
+    if kind == "par-map":
+        return _parallel_term(node, aliases, binders)
     if kind == "loop":
         return _loop_term(node, aliases, binders)
     if kind == "join":
@@ -146,6 +149,16 @@ def _case_term(node, aliases, binders):
         terms.append(_term(arm, ("command_scope", "body"),
             (*roots, _body_term(arm["body"], nested, frame)), **retained))
     return _term(node, ("subject", "arms"), terms)
+
+
+def _parallel_term(node, aliases, binders):
+    nested, frame = _term_binding(aliases, binders, node["binder"])
+    workspace = _resolve(node["workspace"], nested, frame)
+    if "index" in node:
+        nested, frame = _term_binding(nested, frame, node["index"])
+    return _term(node, ("source", "workspace", "body"), (
+        _resolve(node["source"], aliases, binders), workspace,
+        _body_term(node["body"], nested, frame)))
 
 
 def _loop_term(node, aliases, binders):
@@ -232,6 +245,8 @@ class _Projection:
             self.body(node["body"], nested)
         elif kind == "case":
             self.case(node, state)
+        elif kind == "par-map":
+            self.parallel(node, state)
         elif kind == "loop":
             self.loop(node, state)
         elif kind == "if":
@@ -271,6 +286,20 @@ class _Projection:
             roots[formal] = (_resolve(value, state["aliases"]),
                 ["arm", ordinal, arm["variant"], formal])
         return roots
+
+    def parallel(self, node, state):
+        ordinal = state["counts"]["loop"]
+        state["counts"]["loop"] += "index" in node
+        self.value(node["source"], state)
+        aliases = {**state["aliases"], node["binder"]: object()}
+        nested = dict(state, aliases=aliases, index=None)
+        self.value(node["workspace"], nested)
+        if "index" in node:
+            aliases = {**aliases, node["index"]: object()}
+            nested["aliases"] = aliases
+            nested["index"] = (aliases[node["index"]], ["loop", ordinal])
+            state["bound_indexes"].add(ordinal)
+        self.body(node["body"], nested)
 
     def loop(self, node, state):
         ordinal = state["counts"]["loop"]

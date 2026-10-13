@@ -46,6 +46,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccNameAtom,
     WccPureOp,
     WccRecJoin,
+    WccParallelMap,
     WccRecordAtom,
     WccSelect,
     WccProviderSupervision,
@@ -1177,7 +1178,7 @@ class Builder:
         if id(value) in seen:
             return ()
         seen.add(id(value))
-        if isinstance(value, (WccNameAtom, WccLet, WccRecJoin)):
+        if isinstance(value, (WccNameAtom, WccLet, WccRecJoin, WccParallelMap)):
             return self._run_ref_context_for_binding(value, d, seen)
         if isinstance(value, WccFieldAccessAtom):
             return self._run_ref_context_for_value(value.base, d, seen=seen)
@@ -1894,11 +1895,47 @@ class Builder:
                 "loop": d.loops[-1][1],
                 "args": [self.value(arg, d, env) for arg in node.state_args],
             }
+        elif isinstance(node, WccParallelMap):
+            result = self._parallel_map(node, d, env)
         elif isinstance(node, WccRecJoin):
             result = self._loop(node, d, env)
         else:
             raise ValueError(f"WCC body {type(node).__name__} has no closed translation")
         return {**result, **self.provenance(node)}
+
+    def _parallel_map(self, node, d, env):
+        from .command_templates import command_parallel_index_name
+
+        descriptor_start = len(self.emitted_descriptors)
+        producer_start = len(self.run_ref_producers)
+        source = self.value(node.source, d, env)
+        local, binder = self.bind(d, node.binder_name, label=node.binding_label)
+        item_env = {**env, node.binder_name: node.binder_type_ref}
+        local, aliases = self._freeze_bound_capture(local, node.binding_identity, binder,
+            self._run_ref_context_for_value(node.source, d))
+        local = replace(local, command_index=None)
+        workspace = {"k": "block", "body": _prepend_lets(
+            self.body(node.workspace_body, local, item_env), aliases)}
+        index = None
+        if node.metadata.node_id in d.command_indexes:
+            index_name = command_parallel_index_name(node.metadata.node_id)
+            local, index = self.bind(local, index_name, label=None)
+            item_env = {**item_env, index_name: PrimitiveTypeRef(name="Int")}
+            local = replace(local, command_index={"k": "name", "n": index})
+        body = _prepend_lets(self.body(node.body, local, item_env), aliases)
+        producers = tuple(self.run_ref_producers[producer_start:])
+        if producers and self._run_ref_type_refs(node.metadata.type_ref):
+            self._retain_map_result_descriptors(descriptor_start, producers)
+            if len(producers) == 1:
+                self.run_ref_producers_by_effect[id(node)] = producers[0]
+        result = {"k": "par-map", "binder": binder,
+            "item_type": self.desc(node.binder_type_ref, d),
+            "result": self.desc(node.metadata.type_ref, d), "source": source,
+            "max": node.max_count, "parallel": node.parallel_count,
+            "workspace": workspace, "body": body, "label": node.binding_label}
+        if index is not None:
+            result["index"] = index
+        return result
 
     def _join(self, node: WccJoin, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
         if len(node.params) != 1:
@@ -4360,6 +4397,10 @@ class Builder:
             elif isinstance(node, WccJoin):
                 visit(node.body)
                 visit(node.continuation)
+            elif isinstance(node, WccParallelMap):
+                visit_value(node.source)
+                visit(node.workspace_body)
+                visit(node.body)
             elif isinstance(node, WccRecJoin):
                 visit_value(node.budget)
                 if node.initial_state is not None:

@@ -456,13 +456,19 @@ def typecheck_structural_value_expr(
                 reason="is not permitted in a `list/map-effect` body",
                 effect_summary=typed_body.effect_summary,
             )
+        from .conditionals import _is_helper_expanded
         from .expression_traversal import iter_child_exprs
         from .functions import _find_purity_violation
 
+        argument_children = iter_child_exprs(typed_body.expr)
+        if (expr.parallel_count is not None and expr.binding_identity is not None
+            and _is_helper_expanded(expr.body_expr)):
+            # The authored call's actuals were checked before its body expanded.
+            argument_children = ()
         nested_effect = next(
             (
                 violation
-                for child in iter_child_exprs(typed_body.expr)
+                for child in argument_children
                 if (violation := _find_purity_violation(child)) is not None
             ),
             None,

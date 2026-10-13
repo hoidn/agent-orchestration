@@ -23,6 +23,7 @@ _CALL_CHILD_FIELDS = {
     w.WccJoin: ("body", "continuation"),
     w.WccJump: ("args",),
     w.WccRecJoin: ("budget", "initial_state", "body", "exhaustion"),
+    w.WccParallelMap: ("source", "workspace_body", "body"),
     w.WccLoopContinue: ("state_args",),
     w.WccLoopDone: ("result", "state"),
     w.WccHalt: ("result",),
@@ -229,6 +230,11 @@ def _initial_bindings(typed_body, *, inputs, scope, facts, procedure_edges, loca
 def command_loop_index_name(loop_name):
     """One unspellable compiler binder owned by the existing WCC loop."""
     return f"\0command-index:{loop_name}"
+
+
+def command_parallel_index_name(node_id):
+    """An item index uses the existing command index namespace."""
+    return command_loop_index_name(node_id)
 
 
 def _command_slot(expression, *, roots, source_program, index):

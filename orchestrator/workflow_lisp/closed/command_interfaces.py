@@ -5,6 +5,7 @@ from hashlib import sha256
 from ..wcc import model as w
 from .command_templates import (
     _CALL_CHILD_FIELDS, _call_coordinate, command_call_occurrences, command_loop_index_name,
+    command_parallel_index_name,
 )
 from orchestrator.contracts.closed_program.program import _canonical_json
 
@@ -129,6 +130,11 @@ def command_capture_routes(body, *, child_interfaces, call_declaration_identity)
         if isinstance(node, w.WccCase):
             visit_case(node, variants, inherited, incoming_index)
             return
+        if isinstance(node, w.WccParallelMap):
+            visit(node.source, variants, inherited, incoming_index)
+            visit(node.workspace_body, variants, inherited, False)
+            visit(node.body, variants, inherited, False)
+            return
         if isinstance(node, w.WccRecJoin):
             visit_loop(node, variants, inherited, incoming_index)
             return
@@ -203,6 +209,14 @@ def _local_inventory(body, *, occurrences, child_interfaces, child_bearings):
         bearing = visit(node.body, variants, owned_index) or bearing
         return visit(node.exhaustion, variants, index) or bearing
 
+    def visit_parallel(node, variants, index):
+        ordinal = len(loops)
+        loops.append(False)
+        owned = (ordinal, command_parallel_index_name(node.metadata.node_id))
+        bearing = visit(node.source, variants, index)
+        bearing = visit(node.workspace_body, variants, None) or bearing
+        return visit(node.body, variants, owned) or bearing
+
     def mark_command_index(node, index):
         if index is None:
             return
@@ -215,6 +229,8 @@ def _local_inventory(body, *, occurrences, child_interfaces, child_bearings):
     def visit(node, variants=(), index=None):
         if isinstance(node, w.WccCase):
             return visit_case(node, variants, index)
+        if isinstance(node, w.WccParallelMap):
+            return visit_parallel(node, variants, index)
         if isinstance(node, w.WccRecJoin):
             return visit_loop(node, variants, index)
         bearing = False
@@ -256,6 +272,8 @@ def command_loop_index_binders(body, *, child_interfaces, child_bearings, call_d
         child_interfaces=child_interfaces, child_bearings=child_bearings)
 
     def loops(node):
+        if isinstance(node, w.WccParallelMap):
+            yield node.metadata.node_id
         if isinstance(node, w.WccRecJoin):
             yield node.loop_name
         if isinstance(node, w.WccCase):
@@ -317,6 +335,15 @@ def command_interface(body, *, native_rows, command_capture_rows, child_interfac
         visit(node.body, variants, reset, owned)
         visit(node.exhaustion, variants, reset, index)
 
+    def visit_parallel(node, variants, reset, index):
+        demanded = next(loops)
+        ordinal = counts["loop"]
+        counts["loop"] += demanded
+        visit(node.source, variants, reset, index)
+        visit(node.workspace_body, variants, reset, None)
+        owned = (ordinal, command_parallel_index_name(node.metadata.node_id)) if demanded else None
+        visit(node.body, variants, reset, owned)
+
     def command_rows(node, reset, index):
         ordinal = counts["command"]
         counts["command"] += 1
@@ -332,6 +359,8 @@ def command_interface(body, *, native_rows, command_capture_rows, child_interfac
     def visit(node, variants=(), reset=None, index=None):
         if isinstance(node, w.WccCase):
             return visit_case(node, variants, reset, index)
+        if isinstance(node, w.WccParallelMap):
+            return visit_parallel(node, variants, reset, index)
         if isinstance(node, w.WccRecJoin):
             return visit_loop(node, variants, reset, index)
         for child in _children(node):
