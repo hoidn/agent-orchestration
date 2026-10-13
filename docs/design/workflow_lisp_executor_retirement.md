@@ -1,11 +1,11 @@
 # Best Of N Migration And Old Executor Retirement
 
-**Status:** selected for execution by the owner on 2026-10-13. Serial migration and the ordering amendment are authorized; effective cutoff remains gated on finite consumer/run dispositions and verification (R).
+**Status:** selected by the owner on 2026-10-13; migration and cutoff are implemented candidates in preparation for R. Qualification and delivery remain gated on finite consumer/run dispositions and final verification; executor deletion is not claimed complete.
 **Kind:** architecture and migration. **Date:** 2026-10-13.
 **Owner:** frontend/runtime maintainers; repository owner selects supported consumers and recovery policy.
 **Plan:** [bounded implementation plan](../plans/2026-10-13-best-of-n-and-executor-retirement-plan.md).
 
-## 1. Decision Proposed
+## 1. Selected Decision
 
 Migrate the canonical serial `best_of_n` to evaluated target 2.35 using its
 existing program and provider services. Finish consolidation by removing the
@@ -21,7 +21,7 @@ The clean final system has one execution route, one checked closed-program
 contract, and the existing effect services. It needs no new backend selector,
 compatibility runtime, effect registry, authored `defeffect`, IR, or schema.
 
-## 2. Authorities And Proposed Ordering Amendment
+## 2. Authorities And Selected Ordering Amendment
 
 [Evaluated execution](workflow_lisp_evaluated_execution.md) owns evaluation,
 memo identity, artifact lineage and coordinator recovery.
@@ -31,13 +31,13 @@ shared-service boundary. [State](../../specs/state.md), [CLI](../../specs/cli.md
 Use the [capability matrix](../capability_status_matrix.md) before copying forms.
 
 The [parent plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-currently orders Phase 5 before Phase 6b and Phase 7, and the
+originally ordered Phase 5 before Phase 6b and Phase 7, and the
 [consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md)
-expressly sends canonical best of N through Phase 5. This proposal amends that
-dependency for consumers whose current contracts already run serially at 2.35:
+originally sent canonical best of N through Phase 5. The selected amendment
+replaces that dependency for consumers whose contracts run serially at 2.35:
 serial migration → finite consumer/run dispositions → executable cutoff and
 deletion. The owner selected this ordering amendment with “proceed” on
-2026-10-13; the [execution closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md) records progress and unresolved consumer dispositions.
+2026-10-13; the [execution closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md) records progress, selected dispositions and outstanding verification gates.
 
 Preserve existing evaluated support at 2.35/2.36 and bounded 2.37, with its current
 admission and qualification limits. Retiring entries through 2.34 must not
@@ -46,31 +46,35 @@ and parallel best of N are not prerequisites for serial 2.35 migration.
 Retirement depends on selected consumer contracts; selection alone closes no
 implementation or qualification gate.
 
-## 3. Current Route And Feasibility
+## 3. Historical Baseline And Canonical Migration
 
-`experiments/orc_vs_single_call/workflows/best_of_n.orc` targets 2.28. Its
-`list/map-effect :max 8` invokes `implement-one` serially, then gives the judge
-the input repository list and corresponding accounts. The maximum is a bound,
-not a concurrency setting. `best-of-n` and `select-only` are its exported entries.
+The historical 2.28 baseline used serial `list/map-effect :max 8` candidate
+implementation followed by the judge. The maximum bounds list size, not
+concurrency. The canonical
+[`best_of_n.orc`](../../experiments/orc_vs_single_call/workflows/best_of_n.orc)
+now targets 2.35 with its existing provider manifest; `best-of-n` and
+`select-only` remain exported entries. The
+[experiment recipe](../../experiments/orc_vs_single_call/README.md) owns the
+source/input/manifests needed to use it.
 
 `tests/test_workflow_evaluated_consumers.py::test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge`
-already compares the old program with a 2.35 copy through actual CLI/provider
-boundaries and deterministic external transports. It checks isolated candidate
-edits, ordered requests, typed selection/report output, judge dependencies, an
-interruption after either candidate commit, and completed resume without dispatch.
-The companion helper currently rewrites the copied target; it does not prove
-that the canonical source has migrated. The plan owns the fresh proof receipt.
+now checks the canonical source at 2.35 without target substitution, through
+CLI/provider boundaries and deterministic external transports: isolated
+candidate edits, ordered requests, typed selection/report output, judge
+dependencies, interruption after candidate commits and completed resume
+without dispatch. The old-route comparison is migration evidence, not a
+requirement to retain an executable old oracle after deletion.
 
-This establishes bounded serial feasibility without a new runtime feature.
-It does not prove arbitrary N, live-provider behavior, parallelism, or universal
-old-run compatibility. Before retiring tests of the old executor, preserve the
-relevant historical inputs/results and receipts separately; keep the ongoing
-behavior tests on the canonical source with no target substitution.
+The [execution closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+owns exact receipts and qualification. This design does not claim arbitrary
+N, live-provider behavior, parallelism or universal old-run compatibility.
+Historical inputs/results and accepted comparison receipts remain preserved;
+ongoing tests use canonical evaluated sources.
 
 | Alternative | Result | Disposition |
 | --- | --- | --- |
 | Wait for all Phase 4/5 capabilities, then migrate everything | Preserves the largest historical surface; postpones removal indefinitely | Reject as the default dependency |
-| Serial best of N now; keep only named consumers; retire exclusive infrastructure | Uses demonstrated behavior and gives deletion a finite gate | Recommended |
+| Serial best of N now; keep only named consumers; retire exclusive infrastructure | Uses demonstrated behavior and gives deletion a finite gate | Selected |
 | Add a legacy backend or compatibility adapter | Keeps the old runtime and another supported door | Reject |
 
 ## 4. Public Behavior After Cutover
@@ -98,7 +102,7 @@ than literal prompt wording. Resume reuses committed candidates and judge
 effects; it never reruns a committed edit merely because its input is equal to
 another candidate's. No new fallback or target-conversion flag is introduced.
 
-| Boundary | Proposed behavior |
+| Boundary | Selected behavior |
 | --- | --- |
 | `compile`/`run`/`run --dry-run` of an old executable entry target through 2.34 | Explicit retired-target diagnostic before build/run publication; source is not rewritten |
 | New evaluated entry importing older source modules | Keep supported typed module contracts; an imported module header is not a request to execute the old backend |
@@ -108,10 +112,14 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 | Existing evaluated entries/profiles at 2.35/2.36/2.37 | Preserve target registration, admitted compiler/read-back and runtime behavior with current limits; retain rebuild/pin checks, memo authority, writer locking, effect recovery and suffix invalidation |
 | Historical `report`/dashboard state | Keep existing read-only access where it can be independent of execution; inability to read a family requires an explicit disposition |
 | Unsupported feature in an evaluated entry | Existing source-located admission refusal; no hidden dispatch to old execution |
-| Public `WorkflowExecutor`, flat lowerer exports, and target-2.25 trial compile-and-run SDK | Propose retirement of those executable APIs, with named caller dispositions and release guidance; keep supported parser/type/compiler interfaces and shared trial/read contracts where used |
+| Public `WorkflowExecutor`, flat lowerer exports, and target-2.25 trial compile-and-run SDK | Retire those executable APIs with named caller dispositions and exact retained-release guidance; preserve supported parser/type/compiler interfaces and shared read contracts where used |
+| `input answer`/`cancel`, workflow watchdog, ES/research trial execution and flat `explain`/IR views | Retire without ports; input settlement and explain refuse before writes (CLI exit 2); keep `input get`, shared probing, REPL/LSP and historical readers |
 
-These proposed refusals require normative CLI/versioning changes in the cutoff
-change. The draft does not pretend that old targets are already unsupported.
+[CLI](../../specs/cli.md#executable-support-boundary),
+[versioning](../../specs/versioning.md#executable-support-and-historical-version-gates),
+[State](../../specs/state.md#execution-and-historical-format-scope) and
+[IO](../../specs/io.md) own the cutoff contract. Its implementation candidate
+requires final R verification before qualification/delivery is claimed.
 
 ## 5. Finite Consumer Dispositions
 
@@ -121,17 +129,17 @@ repository-owned runs. Registry rows alone are incomplete. Each path receives
 `migrate`, `retain evaluated/shared`, `retire executable`, or `read-only history`;
 an unresolved row blocks cutoff rather than creating an open-ended port project.
 
-| Consumer / owner | Recommended disposition |
+| Consumer / owner | Selected disposition |
 | --- | --- |
 | Canonical `best_of_n.orc`, sibling `.providers.json`, experiment README and consumer tests | Migrate serial source to 2.35; preserve both exported entries and current policy |
 | `workflows/examples/{plan_review_execute,improve_experiment_proposal}.orc` and their input directories | Retain delivered evaluated contracts at 2.35/2.36; regression witnesses |
 | Canonical `reviewed_change.orc` and `workflows/library/control/direct_task.orc` | Migrate admitted current behavior with existing consumer evidence; do not add W3 or new effects merely for uniformity |
-| `workflows/library/verified_iteration_drain/drain.orc`, migration manifests and scripts | Propose a bounded canonical 2.35 port using `test_workflow_evaluated_verified_drain.py`; preserve history/phase/artifact behavior |
-| `workflows/library/generic_run_watchdog/watchdog.orc` and its launch recipes | Propose retirement as an executable consumer; the user does not require a watchdog port. Retire its primary routing and exclusive tests/assets explicitly; keep shared read-only probing where still used |
+| `workflows/library/verified_iteration_drain/drain.orc`, migration manifests and scripts | Use the bounded canonical 2.35 migration and `test_workflow_evaluated_verified_drain.py`; preserve history/phase/artifact behavior |
+| `workflows/library/generic_run_watchdog/watchdog.orc` and its launch recipes | Retire as an executable consumer; the user does not require a watchdog port. Retire its primary routing and exclusive tests/assets explicitly; keep shared read-only probing where still used |
 | `tracked_design_phase.orc`, `tracked_plan_phase.orc`, `design_plan_impl_implementation_phase.orc`, their importers and stdlib | Preserve useful reusable contracts; enumerate actual executable roots separately. Retire unused roots, migrate only selected used roots and required minimal dependencies; deprecation of Design Delta does not by itself retire these modules |
-| Remaining `workflows/**/*.orc`, `experiments/**/*.orc`, fixtures, Python callers and advertised examples | Enumerate exact paths before cutoff. Propose historical retirement for unused roots; every maintained exception must name its caller, required contract, and migration evidence |
+| Remaining `workflows/**/*.orc`, `experiments/**/*.orc`, fixtures, Python callers and advertised examples | Apply the frozen inventory's selected dispositions before cutoff. Retire unused roots as historical references; every maintained exception must name its caller, required contract, and migration evidence |
 | Historical `run_best_of_n_trial.sh` / `run_single_call.sh` | Keep labeled experiment provenance or remove obsolete launch guidance; do not revive their missing machine-specific variant files as a new runner |
-| Generated `prompt_scaffold_render.py::_render_run_orc`, `prompt run`/`import`, and `omp_assets/infer-output-contract.orc` | Owner selected retirement from the new package with the complete previous release/environment retained; retire inference if no other caller remains. Retain native `prompt resume [--in-place]` and its historical scaffold-byte verification |
+| Generated `prompt_scaffold_render.py::_render_run_orc`, `prompt run`/`import`, and `omp_assets/infer-output-contract.orc` | Owner selected retirement from the new package; retain exact previous release/environment recovery only where evidenced for a family; retire inference if no other caller remains. Retain native `prompt resume [--in-place]` and its historical scaffold-byte verification |
 
 The generated prompt consumer uses target 2.27 and `:session-artifact omp_session`;
 retargeting only the inference asset or generated header cannot preserve its
@@ -145,8 +153,9 @@ The finite inventory records any needed human-input, context/session, trial,
 supervision, peer, phased-provider, adjudication, resource/view or managed-job
 surface by its actual consumer. No such class is automatically selected for
 porting. A required unsupported consumer needs a bounded design decision; an
-unused class can be retired with its callers. This is a proposed support change,
-not permission to silently drop an undiscovered user workflow.
+unused class is retired with its named callers. The frozen inventory and
+selected dispositions govern the support change; they do not authorize
+silently dropping an undiscovered consumer.
 
 ## 6. Target Ownership And Deletions
 
@@ -181,13 +190,18 @@ test with a 2.24 child is a real old-runtime dependency, not historical dead cod
 
 ## 7. Recovery Policy And One Deletion Gate
 
-Recommended cutoff: the release implementing this plan admits only evaluated
+Selected cutoff: the release implementing this plan admits only evaluated
 workflow entries and resumes only their supported evaluated workflow profiles;
 native `prompt resume [--in-place]` remains separate. For
 repository-owned old families, retain an exact complete release/environment
 outside the new distribution where interrupted recovery is demonstrated; otherwise
 record explicit retirement of resumability. No shim remains in the new package.
-Selection of the cutoff and each family disposition remains an owner decision.
+The owner has selected this cutoff and the finite family dispositions; the
+closeout records their evidence and any remaining qualification work. A family
+without demonstrated exact-release recovery has retired resumability, rather
+than a general previous-release recovery promise. Schema-2.1/derived-replay
+formats remain read-only history with no new creation, replay, repair or
+translation in the new package.
 
 Inventory includes nested project/experiment run and archive roots within this
 repository, not external projects. Record source/assets/closures, package and

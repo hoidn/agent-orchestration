@@ -1,25 +1,56 @@
 # CLI Contract (Normative)
 
+## Executable support boundary
+
+The owner selected retirement of the flat executor on 2026-10-13. This
+contract describes the implemented cutoff candidate; [gate R and its
+closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+own qualification and delivery, not a published package-version claim.
+
+Only evaluated entries at 2.35/2.36 and bounded 2.37 are executable, with their
+existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
+`compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
+`workflow_execution_target_retired`, exit 2, before build/run publication or
+execution locks. The captured compiled entry is checked again before
+publication. Older headers remain registered for typed analysis, supported
+imports and LSP; they do not enable old entry execution. Evaluated path
+children obey the same entry boundary; retired flat/staged child execution
+has no fallback.
+
+`resume` (including `--force-restart` and `--repair`) and `invalidate` reject
+historical workflow profiles with `workflow_execution_profile_retired`, exit
+2, before locks or run-state mutation. `prompt run` in every generation or
+scaffold mode and both `prompt import` branches reject with
+`prompt_execution_retired`, exit 2, before scaffold/run/session writes or
+effects. Native `prompt resume [--in-place]` remains an independent,
+compiler-free continuation of an existing linked session.
+
+The target-2.25 trial CLI/compile-and-run SDK, old `WorkflowExecutor` and flat
+lowerer execution APIs, ES/research trial execution, generic workflow watchdog
+execution and flat `explain`/IR views are selected for retirement; no replacement
+port is selected. `explain` refuses with `workflow_explain_retired`, exit 2,
+before source/build/export reads or writes; `compile --diagnostics-json`
+remains available for current source validation. Parser/types, admitted closed compilation, REPL/LSP
+inspection and shared provider/read services retain their contracts.
+Historical `report`, dashboard and `input get` read retained evidence without
+compiling source or rewriting it. Original run data is preserved. Recovery
+requires the exact complete release/environment qualified for the particular
+family; preserved source or a package pin alone is no universal recovery
+guarantee ([retirement policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)).
+
 ## Workspace execution ownership
 
-Only one run may execute in a workspace at a time. `run` and `resume`
-(including `--force-restart`) acquire a workspace lock before compilation or
-execution-state mutation. A competing invocation is refused with
-`workspace_run_already_active`, naming the active run, and `run`, `resume` and
-`trial` exit 2. Exit 2 means the request was refused before execution; exit 1
-stays the status of a workflow that ran and failed. Exit 2 is also the status
-of a compile or validation error, so a caller that must tell those apart reads
-the code. Changing `--state-dir` does not bypass this rule. The trial SDK/CLI
-uses the same workspace lock; nested workflow calls belong to their root run
-and do not acquire it again.
-Run-ref children own their separate clone workspace. `prompt run` can prepare
-or reserve its scaffold before entering the ordinary `run` owner, but cannot
-execute a provider while another run owns the workspace. The lock is not a
-transaction over scaffold authoring or reservation. Commands that are not
-runs take no workspace lock: `prompt resume` (with `--in-place` it runs a
-provider in the workspace), `input answer|cancel`, `invalidate` (it takes
-only the run's writer lock), `report` and `dashboard`. A target-2.35
-evaluated `run` or `resume` takes the same workspace and run writer locks
+Only one admitted evaluated run may execute in a workspace at a time.
+`run` and `resume` acquire a workspace lock before execution-state mutation.
+Retired-target/profile refusals above precede locks. A competing invocation is
+refused with `workspace_run_already_active`, naming the active run, and exits
+2. Exit 2 means refusal before execution or a compile/validation error; read
+the diagnostic code to distinguish them. Exit 1 is a workflow that ran and
+failed. Changing `--state-dir` does not bypass this rule. Nested workflow
+calls belong to their root run; run-reference children own separate clone
+workspaces. `prompt resume` (including a provider launched with `--in-place`),
+`input get`, `report` and `dashboard` take no workspace execution lock.
+`invalidate` takes only the admitted run's writer lock
 ([Evaluated execution](#evaluated-execution-target-235)).
 
 The workspace is the physical current directory: a path that reaches it through
@@ -43,50 +74,31 @@ writer lock, `run` and `resume` refuse with `run_already_active` and exit 2, as
 for `workspace_run_already_active`. Concurrent execution requires separate
 workspaces. Result bundle paths and persisted result identities are unchanged.
 
-A `run`, `resume`, or `trial` started from inside an active run (by one of its
+An admitted `run` or `resume` started from inside an active run (by one of its
 command steps or providers) in that run's workspace is a competing invocation
 and is refused the same way; only nested workflow calls belong to the root run.
-A run that supervises another run therefore uses its own workspace: it reads
-the other run's workspace by path and starts `resume` or `run` for it with that
-workspace as the working directory.
+Execution in separate workspaces must still satisfy the admission boundary;
+this locking rule does not retain workflow supervision or watchdog execution.
 
 - Commands
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
-    - `--dry-run` validates the workflow and may emit advisory warnings that do not change the exit code. A pure-result replay-index failure is an error only when the compiled structure guarantees that the call is reached; failures along a path under a branch, match arm, or loop body are warnings. Conditions are not evaluated, and a real run is refused if it reaches the call.
+    - `--dry-run` builds and binds an admitted evaluated entry without executing
+      effects; retired targets refuse before publication.
   - `orchestrate resume <run_id>`
-    - If persisted authoritative state proves an exact interrupted in-flight
-      ordinary, session, supervision, peer-group, phased, or adjudicated
-      provider visit, resume preserves completed-boundary reuse, discards only
-      the partial visit authority, emits
-      `provider_attempt_interrupted_rerun` (or the adjudication-specific
-      `adjudication_state_mismatch_rerun`), and re-enters normal execution with
-      fresh identities. Force restart is not required.
-    - Missing, malformed, ambiguous, checksum-incompatible, or otherwise
-      unprovable recovery state still fails before provider launch.
-    - A durable host request that is `pending` keeps the run suspended without
-      entering the execution prologue. An `answered` request is consumed only
-      after ordinary source, scope, node, visit, and reply validation; a
-      consumed reply uses the existing completed-effect recovery policy or
-      fails closed. Resume never creates a replacement question automatically.
+    - The evaluated memo/profile recovery and preflight contract below applies.
+      Retired profiles refuse before locks, source rebuild or mutation; historical
+      session/supervision/peer/phased/adjudicated recovery is not admitted.
   - `orchestrate input get <run_id> [--state-dir <runs-root>]`
     - Prints the current root host-request record. It does not resume or
       mutate execution.
   - `orchestrate input answer <run_id> <request_id> --text <text> [--state-dir <runs-root>]`
-    - Validates and records one `ANSWERED` reply under the existing root writer
-      lock. Empty text is valid. It does not execute or resume the workflow.
+    - Retired: exits 2 with `workflow_execution_profile_retired` before locks
+      or writes, including an otherwise valid target-2.32 request.
   - `orchestrate input cancel <run_id> <request_id> [--state-dir <runs-root>]`
-    - Validates and records the `CANCELLED` reply under the same lock. It does
-      not execute or resume the workflow.
-    - Answer/cancel are idempotent only for an identical reply to the latest
-      request; conflicting, stale, or overlapping submissions fail without
-      replacing persisted data. They preserve the original bound inputs and
-      recorded launch arguments.
-    - These are thin clients of the durable host-input API. They apply only to
-      a target-2.32 run carrying a request record; they do not parse state,
-      acquire an alternate lock, or resume execution themselves.
-    - Each successful input command prints the complete current request record
-      as JSON and exits 0. Missing/invalid requests or submission conflicts
-      exit 2; they never launch a provider.
+    - Same no-write retirement refusal as `input answer`. Historical settlement
+      semantics are retained in [State](state.md#durable-host-input-state-and-recovery);
+      `input get` remains a read-only client, printing the recorded request as
+      JSON with exit 0, or exit 2 for a missing/invalid request.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
     - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.
@@ -94,20 +106,10 @@ workspace as the working directory.
       interrupted-rerun diagnostic context; partial provider evidence remains
       non-authoritative.
   - `orchestrate prompt run (--prompt TEXT | --prompt-file PATH) --provider (omp|omp_no_tools|omp_conf|omp_unrestricted_workspace) [--conf PATH] [--model MODEL] [--returns JSON | --output TEXT]`
-    - Generation requires exactly one prompt source and one public provider.
-      `--conf` is required only for `omp_conf`. `--returns` supplies the exact
-      semantic contract; `--output` is mutually exclusive and performs one
-      internal `omp_conf_inference` call, so ambient providers reject it.
-    - The command captures all source inputs before inference or destination
-      creation, publishes or reuses one content-addressed target-2.27 scaffold,
-      executes its ordinary compiled `run.orc`, and prints one success summary
-      naming the run and generated scaffold. Existing mismatched occupants,
-      source drift, and malformed or semantically invalid inferred contracts
-      fail without replacement.
+    - Retired in every default/exact/inferred contract mode: exits 2 with
+      `prompt_execution_retired` before reading inputs, inference or writes.
   - `orchestrate prompt run --scaffold PATH`
-    - Rerun accepts only a fully verified scaffold root and is mutually
-      exclusive with every generation flag. It executes a run-owned private
-      snapshot; mutable generated files are never the execution authority.
+    - Same refusal before scaffold verification, reservation or execution.
   - `orchestrate prompt resume ID [--in-place]`
     - This foreground command requires fd 0, 1, and 2 to be TTYs before lock
       acquisition or child launch. The default is one full-id fork into a new
@@ -118,13 +120,8 @@ workspace as the working directory.
       grammar errors. The continuation record retains the observed child exit
       code; every post-start outcome publishes exactly one closed record.
   - `orchestrate prompt import ID --provider NAME [--conf PATH] [--model MODEL] [--returns JSON | --output TEXT] [--reuse-run-contract]`
-    - Import resolves one exact linked active primary journal, verifies the
-      full continuation chain and source scaffold/run evidence, extracts only
-      authored user-message content, and then uses the ordinary prompt
-      generation path. Without `--reuse-run-contract`, the caller supplies the
-      new provider/contract flags. With it, provider, model, semantic contract,
-      conf, and composed prompt bytes come only from the fully verified source
-      scaffold; incompatible flags reject.
+    - Both ordinary import and `--reuse-run-contract` are retired with
+      `prompt_execution_retired`, exit 2, before journal/scaffold reads or writes.
   - `orchestrate provider-isolation-environment-manifest --root <absolute-source> --provider-prefix <absolute-prefix> --output <absolute-manifest>`
     - Prospectively validates and canonicalizes one provider rootfs, including
       the runtime-reserved launch shim row, without mutating the source or
@@ -156,12 +153,13 @@ workspace as the working directory.
 
 - Debugging and recovery flags
   - `--debug`, `--stream-output`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
-  - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`, `--summary-profile basic|phase-performance`, `--live-agent-notes`, `--live-agent-note-provider <name>`, `--live-agent-note-interval-sec <n>`, `--live-agent-note-timeout-sec <n>`, `--live-agent-note-max-tail-chars <n>`
+  - Historical flat observability flags (not read by evaluated execution): `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`, `--summary-profile basic|phase-performance`, `--live-agent-notes`, `--live-agent-note-provider <name>`, `--live-agent-note-interval-sec <n>`, `--live-agent-note-timeout-sec <n>`, `--live-agent-note-max-tail-chars <n>`
     - `--summary-profile phase-performance` enables advisory provider-step and phase-boundary summaries with performance judgments. It implies step summaries if `--step-summaries` was not otherwise provided.
     - `--live-agent-notes` enables advisory live notes from bounded tmux pane tails, using `claude_haiku_summary` by default. Provider-session transport may be used as a fallback when tmux pane capture is unavailable. It implies step summaries if `--step-summaries` was not otherwise provided.
   - `--force-restart`, `--repair`, `--backup-state`, `--state-dir <path>`
-    (`--force-restart` is refused and `--repair` is not read for a
-    target-2.35 evaluated run; see [Evaluated execution](#evaluated-execution-target-235))
+    (`--force-restart` is refused for evaluated runs; `--repair` and
+    `--backup-state` have no evaluated recovery effect. Retired profiles refuse
+    regardless of these flags; see [Evaluated execution](#evaluated-execution-target-235))
   - Error handling: `--on-error stop|continue|interactive` (interactive optional/post-MVP)
   - Retries: `--max-retries <n>`, `--retry-delay <ms>`
 
@@ -182,13 +180,10 @@ workspace as the working directory.
 ## Commands and Examples
 
 ```bash
-# Run a Workflow Lisp workflow from the beginning
-orchestrate run workflows/examples/cycle_guard_demo.orc \
-  --entry-workflow cycle-guard-demo \
-  --source-root workflows/examples \
-  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json \
-  --input terminal_status=READY \
-  --input guard_cycles=0
+# Run an admitted evaluated entry (provider execution changes the workspace)
+orchestrate run workflows/examples/plan_review_execute.orc \
+  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json \
+  --input task="Describe the repository architecture"
 
 # Resume failed/interrupted run
 orchestrate resume <run_id>
@@ -202,20 +197,11 @@ orchestrate dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
 # Monitor configured workspaces once without sending email
 orchestrator monitor --config ~/.config/orchestrator/monitor.json --once --dry-run
 
-# Validate the same Workflow Lisp source without executing
-orchestrate run workflows/examples/cycle_guard_demo.orc \
-  --entry-workflow cycle-guard-demo \
-  --source-root workflows/examples \
-  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json \
-  --input terminal_status=READY \
-  --input guard_cycles=0 \
+# Build and bind the same source without executing providers
+orchestrate run workflows/examples/plan_review_execute.orc \
+  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json \
+  --input task="Describe the repository architecture" \
   --dry-run
-
-# Execute single step (optional/post-MVP)
-orchestrate run-step <step_name> --workflow workflows/examples/cycle_guard_demo.orc
-
-# Watch for changes and re-run (optional/post-MVP)
-orchestrate watch workflows/examples/cycle_guard_demo.orc
 ```
 
 ### Workflow Lisp trials (target 2.25)
@@ -229,32 +215,19 @@ orchestrate trial WORKFLOW --entry-workflow NAME
   [--state-dir DIR] [--run-ref-root DIR]
 ```
 
-The public command compiles the selected entry with the ordinary full compiler
-and runs it with the ordinary executor. The entry must target DSL `2.25` and
-its terminal public result must be the exact compiler-owned trial result.
-Inputs bind through `--input` (repeatable) or `--input-file`; provide source
-roots and extern manifests required by that workflow. Raw executable configs,
-non-trial terminal results, other targets, and privileged bypasses are refused.
-
-The command prints one closed `workflow_trial_run_result.v1` JSON record. It
-contains the run ID and terminal status; completed results also contain the
-verdict digest and path, while failed results contain a bounded failure
-diagnostic. Exit `0` means completed, `1` means the trial ran and failed, and
-`2` means validation or admission refused before execution. As elsewhere, exit
-`2` alone does not distinguish compile errors from other refusals; read the
-diagnostic code.
-
-`--run-ref-root` sets the canonical absolute child-workspace root. When
-omitted, it defaults to `~/.local/state/orchestrator/run-ref`. An explicit
-value must already be canonical and absolute, and resume must use the root
-bound to the persisted run. Trial has no dry-run mode.
+Historical grammar only: trial execution is retired. The CLI and
+`run_trial_entry` SDK refuse with `workflow_execution_target_retired` before
+execution/publication (CLI exit 2), rather than compiling or creating a trial
+run/result. The historical `workflow_trial_run_result.v1` wire remains useful
+for reading retained trial evidence; it does not admit new trials. ES/research
+callers share this retirement, with no evaluated trial port.
 
 ### Evaluated execution (target 2.35)
 
-This contract applies to both registered evaluated entry targets, 2.35 and
-2.36. W3 changes local-hook authoring and selected helper source, not command/
-provider IO or the public lifecycle. See [versioning](versioning.md) for the
-target-2.36 contract.
+This contract applies to evaluated entries at 2.35/2.36 and the admitted
+bounded 2.37 surface. W3 changes authoring, not command/provider IO or the
+public lifecycle; 2.37 registration does not establish full parallel delivery.
+See [versioning](versioning.md#version-gating-summary) for qualification limits.
 
 An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`
 builds the checked closed program, binds inputs and evaluates it on a
@@ -274,7 +247,7 @@ Evidence: `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_invalidate.py`,
 `tests/test_workflow_evaluated_invalidate_smoke.py` and
 `tests/test_workflow_lisp_target_evaluated_execution.py`. Targets through
-2.34 keep the flat route, and every flag below keeps its meaning there.
+2.34 are subject to the [retirement boundary](#executable-support-boundary).
 
 ```text
 orchestrator compile WORKFLOW [--entry-workflow NAME] [--source-root DIR ...]
@@ -338,7 +311,7 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `.orchestrate`, prints `[code] detail` and exits `2`. A run directory
   without any evaluated authority file (`run.json`, `closed_program.json`,
   `memo.jsonl`) that holds a flat-route `state.json` refuses with
-  `invalidate_profile_unsupported`, exit `2`, nothing written. A
+  `workflow_execution_profile_retired`, exit `2`, before locking or writing. A
   `state.json` that carries the evaluated view hint (schema `3.0` or the
   profile) without the authority files is `memo_inconsistent`, as for
   readers. An authority file without `run.json` and a symlinked run
@@ -397,14 +370,18 @@ python -m orchestrator resume "$run_id"
 Resume refuses at the first failing step, with exit `2` and no change to
 authority, memo, attempts or views, in this order:
 
-1. The run root exists (otherwise exit `1`, "No run found"); the workspace
-   lock (`workspace_run_already_active`) and the run writer lock
-   (`run_already_active`) are acquired.
-2. Header shape: `run.json` is present (a journal or program without it is
-   `memo_inconsistent`), the profile/schema pair, the exact key set, the run
+1. The run root exists (otherwise exit `1`, "No run found"). Read-only profile
+   selection rejects schema-2.1 historical headers or a run without evaluated
+   authority with `workflow_execution_profile_retired`, before workspace/run
+   locks. An evaluated journal/program without its header, malformed header or
+   unknown profile/schema is `memo_inconsistent`. Only an admitted profile
+   then acquires the workspace (`workspace_run_already_active`) and run writer
+   (`run_already_active`) locks.
+2. Header shape under those locks: `run.json` is present (a journal or program
+   without it is `memo_inconsistent`), the profile/schema pair, the exact key set, the run
    id and the spelling of any present `resume_request`, `run_ref_root` and
-   `result_root` (`memo_inconsistent`). A schema-2.1 header selects the flat
-   route instead; any other pair is `memo_inconsistent`.
+   `result_root` (`memo_inconsistent`). A retired profile refuses with
+   `workflow_execution_profile_retired`; any other pair is `memo_inconsistent`.
 3. `resume_request` is present (`resume_request_missing`); a historical
    header without it stays readable and invalidatable.
 4. Not `--force-restart` (`evaluated_execution_unavailable`).
@@ -470,7 +447,11 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
 | `resume_request_missing` | `resume` | 2 | None |
-| `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run, and every flat-route build or run of a registered evaluated entry (2.35/2.36): `resume` of a schema-2.1 run whose source targets 2.35/2.36; `run` whose compiled snapshot targets 2.35/2.36 after the early target read; `explain` and `trial` on a 2.35/2.36 entry; a target ≤2.34 parent whose path child targets 2.35/2.36 (reason `flat_execution_unavailable`; the parent run fails) | 2 | None on the evaluated route; a legacy parent records its failed state |
+| `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.34; retired trial CLI/SDK; old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
+| `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; `input answer`/`cancel` | 2 | None; before locks or writes |
+| `prompt_execution_retired` | Every `prompt run` and `prompt import` mode | 2 | None; before inputs, inference, scaffold/run/session writes or effects |
+| `workflow_explain_retired` | `explain`, independent of entry target or export flags | 2 | None; before source/build/export reads or writes |
+| `evaluated_execution_unavailable` | `resume --force-restart` on an admitted evaluated run | 2 | None |
 | `resume_run_ref_root_changed`, `resume_result_root_changed` | `resume` header/option preflight | 2 | None |
 | `resume_program_changed`, `resume_inputs_changed` | `resume` fresh build and inputs | 2 | None |
 | `resume_interpreter_missing` | `resume` stored authority | 2 | None |
@@ -481,7 +462,7 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `result_root_missing` | a result-path form reached in replay (header without `result_root`); reached after continuation | 2; later 1 | As above; read-only replay stops at the form with no error row |
 | `run_already_active`, `workspace_run_already_active` | `run`, `resume` | 2 | None |
 | `memo_busy` | `invalidate` | 2 | None |
-| `invalidate_profile_unsupported`, `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
+| `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
 | `undefined_variables`, `effect_input_invalid` | a reached command's template or input document before its `started` | 1; 2 in resume preflight at a command with a retry baseline | No `started`, directory or dispatch; failed terminal where the journal permits. Against an active commit the same condition is `effect_input_diverged`; with only a prior start the code is kept |
 | `command_closure_unreadable` | a reached command's closure before a first attempt (missing, unreadable, cyclic or unsupported entry), or a C4 destination overlap (reason `runtime destination overlaps command closure`) | 1 | No `started`, directory or dispatch; failed terminal where the journal permits. Against a prior start or commit a resolution failure is `effect_input_diverged`; a destination overlap keeps this code |
 | `effect_attempt_path_exists`, `effect_attempt_allocation_failed` | attempt allocation after `started` | 1 | `failed` row with `exit_info {errno}`; the existing directory is preserved; failed terminal where permitted |
@@ -695,9 +676,9 @@ behavior and any evidence that public execution legitimately wrote.
 --summary-profile basic|phase-performance
 
 # State management
---force-restart         # Ignore existing state (flat route; refused for an evaluated run)
---repair                # Attempt state recovery (flat route only)
---backup-state          # Backup state before each step
+--force-restart         # Refused for evaluated runs; retired profiles also refuse
+--repair                # No effect on evaluated recovery; retired profiles refuse
+--backup-state          # No effect on evaluated runs
 --state-dir <path>      # Override default .orchestrate/runs
 
 # Workflow signatures (v2.1+)

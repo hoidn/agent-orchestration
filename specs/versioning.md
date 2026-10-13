@@ -1,5 +1,29 @@
 # Versioning and Migration (Normative)
 
+## Executable support and historical version gates
+
+Language versions govern syntax/types and remain registered for typed imports
+and analysis; they are distinct from executable support. The owner-selected
+2026-10-13 retirement cutoff is an implemented candidate pending [gate R
+qualification and delivery](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md).
+It admits evaluated entries/profiles at 2.35/2.36 and the registered bounded
+2.37 surface with its existing limits, not entries through 2.34. The
+[CLI support boundary](cli.md#executable-support-boundary) owns refusal
+codes/exits and precedence. Old entry builds/runs/dry-runs refuse before
+publication; old-profile resume/restart/repair/invalidation refuse without
+mutation. No old-to-evaluated representation/profile conversion is provided.
+
+The additions and stability receipts through 2.34 below describe historical
+language/artifact semantics, not continued flat execution or recovery in the
+new package. Typed imports, parser/LSP analysis and shared services retain their
+admitted contracts. Trials/SDK, ES/research trial execution, workflow watchdog,
+flat `explain`/IR APIs and `prompt run`/`import` execution are retired without
+ports; native compiler-free `prompt resume [--in-place]` and historical readers
+remain separate. Original run data stays unchanged. Recovery is promised only
+for families demonstrated under an exact retained complete release/environment
+([policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate));
+no new package version or universal recovery guarantee is inferred.
+
 - Tracks
   - DSL version: governs available fields and validation behavior.
   - State schema version: `schema_version` stored in `state.json`.
@@ -715,12 +739,13 @@
     pins are preserved and genuine pin differences reported separately.
   - A retained incorrect legacy checkpoint whose semantic digest changes from
     this duplicate-effect correction must fail closed before further effects.
-    For the demonstrated 2.30 case, existing legacy resume exits 1 with
+    For the historical demonstrated 2.30 case, legacy resume exited 1 with
     `lexical_restore_invalid` / `lexical_restore_semantic_digest_mismatch`,
-    preserves committed results, checkpoint records and effect-log bytes, and
-    writes only failure/session state, monitor state and default/restore reports.
-    This is not successful compatible resume or the evaluated route's
-    `resume_program_changed` refusal without writes. No new runtime policy,
+    preserved committed results, checkpoint records and effect-log bytes, and
+    wrote only failure/session state, monitor state and default/restore reports.
+    This receipt predates the retirement cutoff, which rejects that profile
+    without those writes; it is not successful compatible resume or the
+    evaluated route's `resume_program_changed` refusal without writes. No new runtime policy,
     representation or target is introduced. The [correction report](../docs/reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
     records the bounded evidence and original failed gates.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
@@ -859,41 +884,45 @@
     outside the first release still refuses at build with
     `closed_program_gap`, a scope exclusion rather than a defect list. A
     2.35 module may import an older-target module whose definitions the
-    closed program can express; an older-target entry never calls a 2.35
-    module and keeps its own route. Builds and runs of targets through 2.34
-    retain their route, profile (`2.1`) and artifacts without conversion; a
-    run started under one profile or representation is resumed under it.
+    closed program can express. Older typed imports remain admitted; an
+    older-target executable entry instead refuses before publication under the
+    support boundary above. Historical profile (`2.1`) and artifact bytes are
+    preserved for reading, not converted or resumed by this package.
   - Path-mode run references at a 2.35 entry are admitted in a loop body, in
     a budget or seed expression, as a `match` subject and as the one-effect
     body of a serial `list/map-effect`, directly or through admitted calls
     including older-target helpers; exhaustion guards and other pure
     contexts stay pure, trials, bundle mode and effectful children stay
-    excluded, and older entries (2.24–2.34) keep their rejection ([DSL](dsl.md)).
+    excluded; retired old child entries refuse before child publication.
+    Older executable entries (2.24–2.34) are retired ([DSL](dsl.md)).
     Evidence: `tests/test_workflow_evaluated_run_ref.py`,
     `tests/test_workflow_evaluated_run_ref_kills.py`,
     `tests/test_workflow_evaluated_totality.py`.
-  - Source forms admitted only at 2.35: external-tool `:argv` plus `:inputs`
-    (older entries keep `command_result_adapter_invalid`); the `closure`
-    manifest field is accepted and ignored by binding identity through 2.34.
-    The spelling of a target-2.35 provider's `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`
-    is given by [Providers](providers.md); commands and older targets are
-    unchanged.
-  - `evaluated_execution_unavailable` is the refusal of `resume --force-restart`
-    on an evaluated run and of every flat-route build or run of a 2.35
-    entry: `resume` of a schema-2.1 run whose source targets 2.35, `explain`,
-    `trial` and the other flat builders given a 2.35 entry, a `run` whose
-    compiled snapshot targets 2.35 after the early target read, and a target
-    2.34-or-older parent whose path child targets 2.35. Apart from force
-    restart it does not refuse the evaluated `run` or `resume` route. Sites
-    and exits:
-    [CLI](cli.md#diagnostics). Evidence:
-    `tests/test_workflow_lisp_target_evaluated_execution.py`,
-    `tests/test_workflow_evaluated_run_ref.py`.
+  - Source forms added at 2.35: external-tool `:argv` plus `:inputs`.
+    Historically, older entries refused that form with
+    `command_result_adapter_invalid`, and through-2.34 binding identity
+    accepted and ignored the valid `closure` manifest field. Those comparisons
+    describe the old build contract; public compile/run of a retired entry
+    now refuses first with `workflow_execution_target_retired`, before build
+    or publication. The spelling of a target-2.35 provider's
+    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` is given by [Providers](providers.md);
+    command transport retains its own contract.
+  - `evaluated_execution_unavailable` refuses `resume --force-restart` on an
+    admitted evaluated run. Historical schema-2.1 resume now refuses first with
+    `workflow_execution_profile_retired`, even if its source has an evaluated
+    header; it never chooses a flat runtime. Old entry compile/run/dry-run and
+    retired trials/SDK use `workflow_execution_target_retired`;
+    `prompt run`/`import` use `prompt_execution_retired`. Flat `explain` views
+    refuse with `workflow_explain_retired`, exit 2 before reads/writes, with
+    no evaluated replacement. Sites/exits:
+    [CLI](cli.md#diagnostics). Candidate cutoff evidence:
+    `tests/test_executor_retirement_cutoff.py`; final qualification belongs to R.
 
 - v2.36 additions (W3)
   - Target 2.36 selects the existing evaluated route. The closed program's
     top-level `target` is the entry's source target, also recorded in its build
-    manifest. The admitted evaluated targets are `"2.35"` and `"2.36"`.
+    manifest. W3 adds `"2.36"` alongside `"2.35"`; registered `"2.37"`
+    retains its separate bounded qualification below.
     Schema `workflow-lisp/closed-program/1`, representation `table/1`, runtime
     profile `evaluated_execution.v1`, state schema `3.0`, read-back equality
     and the separate internal run-reference target `2.35` retain their contracts.
@@ -1079,6 +1108,9 @@ Planned acceptance:
 
 ## Version Gating Summary
 
+The rows through 2.34 below retain historical feature gates; they do not
+admit old executable entries after the [support cutoff](#executable-support-and-historical-version-gates).
+
 The owner selected **2.37** for evaluated-execution Phase 5 parallel map on
 2026-10-12 ([Phase 5 D1](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)).
 Target 2.37 is registered, and parallel checked-program compilation/read-back
@@ -1134,7 +1166,7 @@ not yet a copy-safe authoring surface. Existing
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Typed match-subject preservation is limited to typed prompts and type-dependent hooks; a direct generic subject without either still lowers differently from the same call bound by `let*`, including at 2.34. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
 | 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
-| 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Existing targets retain their current route, profile and artifacts. |
+| 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Older module headers retain typed/import contracts; old executable entries/profiles are retired without artifact conversion. |
 | 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, several local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with old-caller migration on retargeting and unchanged snapshot/resume guards. See v2.36 additions and the Phase 4c plan for qualification status. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

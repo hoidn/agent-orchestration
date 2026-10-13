@@ -7,20 +7,22 @@ compared case-insensitively, is `.orc`. `run` rejects YAML/YML and every other
 non-`.orc` path with a diagnostic containing `.orc required` before creating
 run state. The production YAML parser is retired.
 
-`resume` loads the selected run's persisted state before applying the frontend
-boundary. Once state is loaded, every recorded workflow suffix other than
-`.orc` fails closed with `.orc required`, regardless of run terminality or
-force-restart selection. A non-`.orc` source is neither compiled nor executed.
-`report` and dashboard surfaces remain state-only observability for legacy
-runs, but must not parse authored YAML to reconstruct workflow semantics.
+Execution admission follows the [CLI support boundary](cli.md#executable-support-boundary)
+and [versioning](versioning.md#executable-support-and-historical-version-gates).
+Retired workflow profiles refuse before locks, source loading or mutation,
+regardless of recorded source suffix, terminality or restart/repair flags;
+there is no historical resume fallback. `report` and dashboard remain state-only
+observability for historical runs, without parsing authored YAML or compiling
+source to reconstruct semantics. Registered older headers remain useful for
+typed imports and LSP analysis, not old entry execution.
 
-The schema below remains the normative Core workflow contract produced by the
-`.orc` compiler and consumed by shared validation/runtime code. YAML-fenced
-snippets are structural notation for that mapping, not accepted fresh workflow
-source.
+The schema below defines typed Core contracts and shared validation/services;
+old-only control/effect execution details are historical. A definition here
+does not widen evaluated admission or select a port of an excluded effect.
+YAML-fenced snippets are structural notation, not authored workflow files.
 
 - Top-level workflow keys
-  - `version`: string (admitted revisions extend through `"2.36"`; targets 2.35 and 2.36 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (registered revisions include bounded `"2.37"` (see [qualification](versioning.md#version-gating-summary)); targets 2.35/2.36 and bounded 2.37 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).

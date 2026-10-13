@@ -1,8 +1,14 @@
 # Providers and Prompt Delivery (Normative)
 
 Fresh authored workflows reach this contract through compiled `.orc` source
-only. The mapping snippets below describe the validated Core/executable provider
-shape; YAML-fenced snippets are schema notation, not accepted workflow files.
+only, within the [CLI execution support boundary](cli.md#executable-support-boundary)
+and [evaluated IO admission](io.md#evaluated-command-and-provider-io-target-235).
+The retirement candidate retains shared provider services and typed contracts;
+old session/supervision/peer/phased/adjudicated workflow execution and recovery
+descriptions below are historical, not an evaluated port. Native
+`prompt resume [--in-place]` remains a separate compiler-free session continuation.
+The mapping snippets describe validated Core/provider shapes; YAML fences are
+schema notation, not authored workflow files.
 
 - Provider attempt lifecycle
   - At-least-once recovery applies to a validated interrupted in-flight

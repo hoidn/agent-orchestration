@@ -1,5 +1,24 @@
 # Run Identity and State (Normative)
 
+## Execution and historical-format scope
+
+The [CLI support boundary](cli.md#executable-support-boundary) governs the
+implemented retirement candidate, pending gate R qualification/delivery.
+Only the evaluated profile below supports current workflow execution. Schema
+`2.1`, its bundle-backed and `derived_pure_replay.v1` profiles, lexical
+checkpoints and the flat-family resume/recovery descriptions in this document
+are historical wire contracts for retained evidence. The new package creates,
+replays, repairs and translates none of those profiles. Public resume (including
+restart/repair) and invalidation refuse them before locks or mutation; they
+do not proceed to the historical checksum, projection or numeric validators.
+
+Historical report/dashboard readers interpret stored evidence without source
+compilation or rewriting original data. Shared result/provider IO contracts
+remain applicable where used by admitted evaluated effects. A historical
+provider family or host-input format does not confer evaluated admission.
+Recovery is qualified only for the exact retained complete release/environment
+and demonstrated family, under the [retirement recovery policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate).
+
 - Run identification
   - `run_id` format: `YYYYMMDDTHHMMSSZ-<6char>` (UTC timestamp + random suffix)
   - `RUN_ROOT`: `.orchestrate/runs/${run_id}` under WORKSPACE
@@ -8,8 +27,8 @@
     [CLI](cli.md), "Workspace execution ownership"). They are not run state and
     are never removed.
 
-- State file schema (authoritative record for targets through 2.34; a
-  target-2.35/2.36 evaluated run publishes a derived view instead, see
+- Historical state file schema (formerly authoritative for targets through
+  2.34; admitted evaluated runs publish a derived view instead, see
   [Evaluated Execution Persistence Profile](#evaluated-execution-persistence-profile-target-235))
   - `schema_version: "2.1"`
   - `run_id`, `workflow_file`, `workflow_checksum`
@@ -29,15 +48,11 @@
     profile fails closed. The pair `evaluated_execution.v1` with
     `schema_version: "3.0"` selects the evaluated profile below and is
     recognized from `run.json` before any schema-2.1 check.
-    The field is written atomically when a root or nested call-frame state is
-    created under that profile, before any visit begins. The supported
-    automatic creation policy selects it for a successfully compiled typed
-    public `.orc` run, a new `.orc` root created by
-    `orchestrate resume --force-restart`, and a fresh non-iterative child whose
-    validated loaded-bundle provenance has
-    `frontend_kind == "workflow_lisp"`. Generic initialization remains
-    explicit opt-in. Ordinary resume never infers, backfills, or upgrades the
-    field from source kind, rows, or sidecar presence.
+    Historical creation wrote this field atomically before visits in a root
+    or call frame. The creation/restart/child selection policy belonged to the
+    retired runtime; it is not an opt-in for new execution. Existing fields,
+    rows and sidecars are preserved, never backfilled or upgraded by the
+    current package.
   - `bound_inputs`: v2.1+ typed workflow inputs bound before execution starts
   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
@@ -86,7 +101,7 @@
       `provider_sessions/<visit-key>.conf/` (admitted profile conf),
       `provider_sessions/<visit-key>.session-link.json`, and
       `provider_sessions/<visit-key>.continuations/<n>.json`.
-    - A successful `prompt run` publishes the closed `session_link.v1`
+    - Historical successful `prompt run` published the closed `session_link.v1`
       no-replace only after state, provider-session metadata, scaffold, live
       tree, frozen snapshot, optional conf, launch frame, and the unique
       primary journal agree. It binds run/step/visit/workspace identity,
@@ -96,7 +111,10 @@
       sorted environment names, and the lane's null-or-closed confinement
       record. It is a consistency record under an operator-trusted run root,
       not authenticated provenance.
-    - `session_continuation.v1` records are a no-replace contiguous chain
+    - Native `prompt resume [--in-place]` remains compiler-independent and
+      verifies the historical link/scaffold bytes before continuing the native
+      session. It does not resume a retired workflow or publish a new scaffold.
+      `session_continuation.v1` records are a no-replace contiguous chain
       beginning at 1. Each `previous_sha256` binds exact link bytes or the
       preceding record; each record binds source/result journal identity,
       mode, timestamps, child exit, stable failure, binary/conf/launch/
@@ -172,7 +190,9 @@
 
 ## Derived Pure-Result Persistence Profile
 
-Under exact `result_persistence_profile: derived_pure_replay.v1`, a successful
+Historical format only: the retirement candidate provides no new creation,
+execution replay or repair of this profile. Under exact
+`result_persistence_profile: derived_pure_replay.v1`, a successful
 eligible, acyclic, single-visit compiler-generated `pure_projection` persists
 this exact value-free completion shell:
 
@@ -228,20 +248,11 @@ unrelated node; a cursor targeting the same presentation name or step identity
 conflicts with the completed row and fails closed. Missing or non-one visits,
 missing or malformed rows, and mismatched active rows also fail closed.
 
-The supported automatic creation policy selects this profile for a typed public
-`.orc` run, a new `.orc` force-restart root, and a fresh non-iterative typed
-Workflow Lisp child. Child selection comes from the callee's validated typed
-provenance and resolved non-iterative boundary, not from the parent profile,
-path suffix, alias, or step identity. A failed non-iterative Workflow Lisp
-child resumes in the latest validated failed frame; it keeps that frame's
-persisted profile and does not allocate a fresh retry frame.
-
-Generic `StateManager.initialize(...)` callers remain explicit opt-in.
-Ordinary resume uses only the profile already persisted in the selected root
-or frame. Existing roots and frames, non-Workflow-Lisp callees, and
-iteration-owned child frames remain historical-profile. Recurrent, loop-owned,
-and other multiply visited pure nodes remain fully durable even inside a
-profiled root.
+Historical automatic creation selected this profile for typed public `.orc`
+roots, force-restart roots and fresh non-iterative typed children. Those
+creation and replay paths are retired; the exact completion shell above is
+preserved as a historical decoding contract, not a migration to evaluated
+memo authority.
 
 ## Evaluated Execution Persistence Profile (target 2.35)
 
@@ -263,9 +274,10 @@ fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_run_ref_settlement.py` and
 `tests/test_workflow_evaluated_invalidate.py`.
 
-Targets 2.35 and 2.36 use this same persistence contract. The
-[W3 target contract](versioning.md) changes authoring and graph-selected
-helper source, without changing this profile, journal or resume guards.
+Targets 2.35/2.36 and admitted bounded 2.37 use this persistence contract.
+[Versioning](versioning.md#version-gating-summary) owns 2.37's qualification
+limits; W3 changes authoring and graph-selected helper source without changing
+this profile, journal or resume guards.
 
 ### Authority and run root
 
@@ -284,7 +296,9 @@ Under exact `result_persistence_profile: "evaluated_execution.v1"` with
 | `state.json` | Derived view (below), absent until the first journal record; never authority |
 
 The artifact's top-level `target` must be a string registered for the evaluated
-route, currently `"2.35"` or `"2.36"`; it is not the representation version.
+route: `"2.35"`, `"2.36"` or bounded `"2.37"`, with the
+[existing qualification limits](versioning.md#version-gating-summary). It is
+not the representation version.
 The separate internal run-reference target remains `2.35`. Schema, profile,
 representation and read-back equality are unchanged. Retargeting current source
 from 2.35 to 2.36 changes the fresh program digest when the rebuild is valid
@@ -458,8 +472,11 @@ A target-2.35 path child is an ordinary evaluated run in the clone's
 `interpreters: {}`, and a journal of exactly one `terminal` `completed`
 record. Its private `run_ref_path_child_result.v2` carries
 `path_compile.program_identity.program_digest` equal to that header's
-`program_digest`; a 2.24 child keeps `run_ref_path_child_result.v1`. Child
-admission, authority and return:
+`program_digest`. `run_ref_path_child_result.v1` is retained only as the
+historical result format of 2.24 children. The retirement candidate neither
+creates nor executes those children; their entries refuse before child
+publication under the [CLI support boundary](cli.md#executable-support-boundary).
+Admitted child authority and return:
 [design §9.3.1](../docs/design/workflow_lisp_evaluated_execution.md#931-path-child-admission-authority-and-return).
 
 ### Derived view (`state.json`)
@@ -540,6 +557,11 @@ admission in [Versioning](versioning.md).
 
 ## Durable Host Input State And Recovery
 
+Historical target-2.32 workflow contract: new request execution and
+`input answer`/`cancel` settlement are retired; those public commands refuse
+before locks or writes. `input get` remains a read-only reader of the stored
+request ([CLI](cli.md#executable-support-boundary)).
+
 Target 2.32 defines one host-operation contract. A participating root run has
 at most one `human_input` record, with exactly `request_id`,
 `resume_scope` (`root_workflow_file` plus ordered `call_frame_ids`),
@@ -613,7 +635,9 @@ creates or asks a replacement question.
     This authority covers expected outputs and result bundles, not state
     metadata or logs.
   - Include workflow checksum to detect modifications.
-  - On corruption: `resume --repair` attempts recovery from latest valid backup; `resume --force-restart` creates a new run.
+  - Historical corruption recovery used backup repair or a force-restart
+    root. The current package refuses these historical profiles before locks
+    or mutation; neither flag restores this execution path.
   - Provider attempts are at-least-once. After all ordinary source, checksum,
     projection, bound-input, checkpoint, and completed-result guards pass, an
     exact interrupted in-flight visit is discarded and re-run; malformed,
@@ -1222,8 +1246,9 @@ creates or asks a replacement question.
 
 ## State File Schema (example)
 
-The state file (`${RUN_ROOT}/state.json`) is the authoritative record of
-execution for the flat route (schema `2.1`). A target-2.35 evaluated run
+The historical state file (`${RUN_ROOT}/state.json`) was the authoritative
+record of flat execution (schema `2.1`); this example is read-only history.
+An admitted evaluated run
 publishes a schema-`3.0` derived view with the keys given in
 [Derived view](#derived-view-statejson) instead; this example does not apply
 to it.
@@ -1327,7 +1352,17 @@ to it.
 
 ## State Integrity and Recovery
 
-Corruption detection and backups:
+Current recovery uses the evaluated [writer sequence](#writer-sequence-and-durability)
+and [resume precedence](cli.md#resume-preflight-precedence). Historical profiles
+refuse before locks, checksum/projection checks, repair or executor construction
+with `workflow_execution_profile_retired`, exit 2, without changing original
+data. Retained-release recovery is family-specific and requires exact evidence;
+no universal recovery or atomic conversion is promised.
+
+The checksum, projection, lexical-checkpoint and backup details below describe
+the retired flat runtime, retained to interpret historical evidence.
+
+Corruption detection and backups (historical):
 - Include `workflow_checksum` to detect workflow modifications.
 - Atomic updates: write to a temp file then rename.
 - When `--backup-state` or `--debug` is enabled, before each step copy `state.json` to `state.json.step_<Step>.bak` and keep the last 3 backups.
@@ -1400,27 +1435,17 @@ Workflow Lisp lexical-checkpoint default resume:
   remains terminal; filtering an admitted pure point never permits scanning
   past that boundary.
 
-Recovery mechanisms:
+Current evaluated recovery:
 ```bash
-# Resume with state validation
+# Resume an admitted evaluated profile with memo validation
 orchestrate resume <run_id>
-
-# Force restart ignoring corrupted state
-orchestrate resume <run_id> --force-restart
-
-# Attempt repair of corrupted state
-orchestrate resume <run_id> --repair
-
-# Archive old runs
-orchestrate clean --older-than 7d
 ```
 
-An evaluated run (target 2.35 or 2.36) recovers from its memo alone: `resume` replays
-the committed prefix and retries the first uncommitted effect, `--force-restart`
-is refused and `--repair`, `--backup-state` and the checksum/projection
-guards above do not apply. See the
-[writer sequence](#writer-sequence-and-durability) and the
-[resume precedence](cli.md#resume-preflight-precedence).
+An admitted evaluated run recovers from its memo alone: `resume` replays the
+committed prefix and retries the first uncommitted effect. `--force-restart`
+is refused; `--repair`, `--backup-state` and the historical checksum/projection
+guards above do not apply. Historical `resume --repair`/`--force-restart`
+recipes are retired rather than recovery commands for this package.
 
 Schema boundary note:
 - Post-v2.0 runtimes reject resume from pre-v2.0 state rather than silently remapping old name-keyed lineage/freshness data.

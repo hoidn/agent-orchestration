@@ -1,5 +1,14 @@
 # Step IO and Output Capture (Normative)
 
+Execution scope follows the [CLI support boundary](cli.md#executable-support-boundary)
+and [evaluated IO](#evaluated-command-and-provider-io-target-235). The retirement
+cutoff is an implemented candidate pending gate R; old-profile IO/persistence
+details below are historical contracts, while shared validation and provider
+services remain in use for admitted evaluated effects. Definitions of session,
+supervision, peers, phased or adjudicated IO do not admit those excluded
+workflow effects. Targets 2.35/2.36 retain current support; registered 2.37
+retains only its [bounded qualification](versioning.md#version-gating-summary).
+
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
     - Under reusable `call`, `input_file` remains workspace-relative and does not become import-local.
@@ -29,15 +38,15 @@
       the credential-minimized projection; OMP journals remain separate
       observations as defined in `state.md`.
   - Deterministic artifact contracts:
-    - Evaluated target 2.35/2.36 command boundary manifests accept `closure`, an array of
+    - Admitted evaluated command boundary manifests accept `closure`, an array of
       literal file or directory paths for both `external_tool` and
       `certified_adapter`. C1 requires it on every supplied declaration
       (including unused rows) and every used compiler-injected binding;
       omission refuses with `command_boundary_closure_missing`. An explicit
       `[]` is valid; `null`, non-arrays, non-string entries, empty strings and
-      NUL refuse with `command_boundary_manifest_invalid`. Below 2.35 the
-      valid field is accepted and ignored by binding serialization and effect
-      identity. Existing raw-manifest cache hashing stays unchanged; editing
+      NUL refuse with `command_boundary_manifest_invalid`. In the historical
+      through-2.34 build contract, the valid field was accepted and ignored by
+      binding serialization and effect identity. Existing raw-manifest cache hashing stays unchanged; editing
       the manifest can still change the build key.
       At build, C2 means canonical logical declarations enter configuration
       and program identity; compilation does not read, traverse, resolve
@@ -93,18 +102,18 @@
       structural field is refused with the same code. A string in a nested
       `Float` position remains a type error (`invalid_transportable_value`).
       The target is the one of the workflow whose step or input is validated.
-      Resume is such a boundary: resuming a 2.34 run whose saved state holds a
-      non-finite number is refused with `float_not_finite`, naming its JSON
-      pointer in `state.json`, before any effect runs. The rule refuses
-      non-finite values only; a finite value edited into saved state is still
-      trusted. The rule covers the values the orchestrator serialises and
+      Historically, resume of a 2.34 run with a non-finite saved value refused
+      with `float_not_finite`, naming its JSON pointer in `state.json`. The
+      retirement cutoff instead rejects that profile before the numeric state
+      validator, without mutation. The historical validator refused only
+      non-finite values; a finite value edited into saved state was trusted. The rule covers the values the orchestrator serialises and
       commits (state, checkpoints, records); a result file written by a command
       or provider is that effect's file and stays, as evidence, when refused.
-    - Targets 2.33 and older keep their behaviour. They accept non-finite
+    - Historical targets 2.33 and older accepted non-finite
       values in workflow inputs, plain `float` bundle fields, variant fields
-      and expected output files, and write them to `state.json` as the tokens
+      and expected output files, and wrote them to `state.json` as the tokens
       `NaN`, `Infinity` and `-Infinity`. An integer too large for a double in
-      a `float` position fails the run with an uncaught `OverflowError`.
+      a `float` position failed the run with an uncaught `OverflowError`.
   - Command structured-bundle environment:
     - For command steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative bundle path before launch and sets
@@ -313,10 +322,10 @@
 
 ## Evaluated Command And Provider IO (target 2.35)
 
-This contract applies to both registered evaluated entry targets, 2.35 and
-2.36. W3 changes local-hook authoring and selected helper source, not command/
-provider IO or the public lifecycle. See [versioning](versioning.md) for the
-target-2.36 contract.
+This contract applies to admitted evaluated effects at 2.35/2.36 and bounded
+2.37. W3 changes authoring, not command/provider IO or the public lifecycle;
+2.37 registration does not imply general parallel qualification. See
+[versioning](versioning.md#version-gating-summary) for the target limits.
 
 This section owns the request a target-2.35 command or provider receives,
 the evidence the run binds for it and the files each attempt leaves. The
@@ -421,7 +430,7 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     `--max-retries` and `--retry-delay` are not read.
 - Typed command input documents (external tools)
   - `:argv` plus `:inputs ((field expression) ...)` is admitted only at
-    target 2.35 or 2.36 and only for `external_tool` bindings; `certified_adapter`
+    evaluated targets and only for `external_tool` bindings; `certified_adapter`
     keeps its signature-ordered inline JSON document and empty authored argv;
     `:argv`-only forms of either kind are unchanged. Omitting `:inputs` sends
     no document and no token; `:inputs ()` sends `{}`.
@@ -621,6 +630,11 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
 - The raw, unmodified stdout stream is preserved in `logs/<StepName>.stdout` when truncation occurs or when JSON parsing fails.
 
 ## Adjudicated Provider IO (v2.11)
+
+Historical execution contract: adjudicated workflow execution/promotion and
+its old-profile recovery are retired, with no evaluated port selected. Shared
+validation helpers retain their admitted callers; this format is not a launch
+or repair recipe for the current package.
 
 - Candidate output validation runs in the candidate workspace. Downstream workflow state is not updated from candidate outputs until selection and promotion complete.
 - Selected-output promotion copies only declared deterministic outputs:
