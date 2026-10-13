@@ -60,7 +60,7 @@ def _refuse_without_authority(run_root: Path) -> None:
     if _has_authority_header(run_root, None):
         return
     if (run_root / "state.json").exists() and not has_evaluated_authority(run_root):
-        raise MemoError("invalidate_profile_unsupported", "flat-route run profile cannot be invalidated")
+        raise MemoError("workflow_execution_profile_retired", "historical workflow execution is retired; use a separately retained complete release/environment qualified for this run")
     raise RunAuthorityError("evaluated run authority header is missing")
 
 
@@ -72,7 +72,7 @@ def _invalidate_retained(run_root, identity, run_files):
     profile = header.get("result_persistence_profile")
     schema = header.get("schema_version")
     if schema == "2.1" and profile in (None, DERIVED_PURE_REPLAY_PROFILE):
-        raise MemoError("invalidate_profile_unsupported", "historical run profile cannot be invalidated")
+        raise MemoError("workflow_execution_profile_retired", "historical workflow execution is retired; use a separately retained complete release/environment qualified for this run")
     if profile != PROFILE or schema != SCHEMA_VERSION:
         raise RunAuthorityError("unsupported evaluated run authority profile or schema")
     authority = load_run_authority(run_root, header=header, run_files=run_files)

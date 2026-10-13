@@ -29,7 +29,6 @@ from orchestrator.prompt_contract import (
     semantic_contract_sha256,
 )
 from orchestrator.providers.omp_launch import LANE_POLICY, neutral_conf_root
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 
 PUBLIC_PROVIDER_NAMES = (
     "omp",
@@ -410,6 +409,7 @@ def compile_check(root_fd: int, provider: str) -> SemanticContract:
     """Compile a directory-descriptor tree through its retained fd path."""
     root = _fd_root(root_fd)
     try:
+        from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
         compiled = compile_stage3_entrypoint(
             root / "run.orc",
             source_roots=(root,),

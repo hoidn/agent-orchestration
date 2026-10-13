@@ -22,7 +22,7 @@ from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_resume import _resume_cli
 
 
-def _public_fixture(root: Path, *, child_target="2.24", parent_target="2.35", body=None,
+def _public_fixture(root: Path, *, child_target="2.35", parent_target="2.35", body=None,
     definitions="", inputs="", call_inputs="", child_body="true", child_definitions="", returns="Bool", parameters="", imports="", child_imports=""):
     candidate = root / "candidate"
     commit = _commit_candidate(candidate, f'''(workflow-lisp
@@ -55,7 +55,7 @@ def _assert_readonly_resumes(parent, authority, refs):
         assert (_tree_bytes(parent), _tree_bytes(refs)) == before
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"], ids=["legacy-child", "evaluated-child"])
+@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
 def test_public_parent_child_matrix_and_k7(tmp_path, child_target):
     parent, source, refs = _public_fixture(tmp_path, child_target=child_target)
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
@@ -80,7 +80,7 @@ def test_public_parent_child_matrix_and_k7(tmp_path, child_target):
     request = json.loads((attempt_root / "child-request.json").read_text())
     child_result = json.loads((attempt_root / "child-result.json").read_text())
     assert request["schema_version"] == "run_ref_path_child_request.v2"
-    assert child_result["schema_version"] == ("run_ref_path_child_result.v1" if child_target == "2.24" else "run_ref_path_child_result.v2")
+    assert child_result["schema_version"] == "run_ref_path_child_result.v2"
     assert request["parent_authority"] == {"run_root": str(authority.run_root),
         "identity": commit.data["identity"], "attempt": commit.data["attempt"]}
     _assert_complete_evidence_manifest(attempt_root, settlement=settled, mode="path")
@@ -91,22 +91,13 @@ def test_public_parent_child_matrix_and_k7(tmp_path, child_target):
 def test_public_legacy_parent_retains_child_target_boundary(tmp_path, child_target):
     parent, source, refs = _public_fixture(tmp_path, child_target=child_target, parent_target="2.24")
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
-    assert result.returncode == (0 if child_target == "2.24" else 2), result.stderr
-    (run_root,) = (parent / ".orchestrate" / "runs").iterdir()
-    state = json.loads((run_root / "state.json").read_text())
-    assert state["status"] == ("completed" if child_target == "2.24" else "failed")
-    if child_target == "2.24":
-        assert state["workflow_outputs"] == {"__result__": True}
-        assert _resume_cli(parent, run_root.name).returncode == 0
-    else:
-        assert "evaluated_execution_unavailable" in json.dumps(state)
-        assert not list(refs.rglob("closed_program.json"))
-        (request_path,) = refs.rglob("child-request.json")
-        request = json.loads(request_path.read_text())
-        assert not (Path(request["child_state_dir"]) / request["child_run_id"]).exists()
+    assert result.returncode == 2, result.stderr
+    assert "workflow_execution_target_retired" in result.stderr
+    assert not (parent / ".orchestrate").exists()
+    assert not refs.exists()
 
 
-def _repeated_fixture(root, *, child_target="2.24", structure="direct", forwarding=False):
+def _repeated_fixture(root, *, child_target="2.35", structure="direct", forwarding=False):
     definitions = ""
     if structure != "direct":
         leaf = lambda call: f'''(defproc invoke ((flag Bool)) -> Bool
@@ -135,7 +126,7 @@ def _assert_distinct_repeated_visits(proofs):
     assert all(proof["visit"]["visit_count"] == proof["attempt_ordinal"] == 1 for proof in proofs)
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"])
+@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
 @pytest.mark.parametrize("structure", ["direct", "helper", "nested"])
 @pytest.mark.parametrize("forwarding", [False, True], ids=["same-inputs", "state-input"])
 def test_public_same_site_continue_done_keeps_distinct_k7(tmp_path, child_target, structure, forwarding):

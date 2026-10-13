@@ -331,7 +331,7 @@ def test_public_invalidate_does_not_read_current_sources_or_recipe_locators(
 @pytest.mark.parametrize(
     ("case", "diagnostic"),
     [
-        ("old-profile", "invalidate_profile_unsupported"),
+        ("old-profile", "workflow_execution_profile_retired"),
         ("unknown-profile", "memo_inconsistent"),
         ("malformed-recipe", "memo_inconsistent"),
         ("malformed-artifact", "memo_inconsistent"),
@@ -397,14 +397,10 @@ def _assert_refused_without_writes(root: Path, run_id: str, code: str, *watched:
 
 
 def test_public_invalidate_refuses_a_flat_route_legacy_run_without_writes(tmp_path: Path) -> None:
-    _source, boundaries = _fixture(tmp_path, 20)
-    source = tmp_path / "invalidate_legacy.orc"
-    source.write_text(LEGACY_PROGRAM, encoding="utf-8")
-    run = _cli(tmp_path, "run", str(source), "--command-boundaries-file", str(boundaries))
-    assert run.returncode == 0, run.stderr
-    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
-    assert json.loads((run_root / "state.json").read_text(encoding="utf-8"))["schema_version"] == "2.1"
-    _assert_refused_without_writes(tmp_path, run_root.name, "invalidate_profile_unsupported")
+    run_root = tmp_path / ".orchestrate" / "runs" / "historical"
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(json.dumps({"schema_version": "2.1"}))
+    _assert_refused_without_writes(tmp_path, run_root.name, "workflow_execution_profile_retired")
 
 
 FLAT_STATE = json.dumps({"schema_version": "2.1"})
@@ -446,7 +442,7 @@ def test_public_invalidate_refuses_a_deeply_nested_state_without_a_traceback(tmp
     run_root = tmp_path / ".orchestrate" / "runs" / "nested-run"
     run_root.mkdir(parents=True)
     (run_root / "state.json").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
-    _assert_refused_without_writes(tmp_path, run_root.name, "invalidate_profile_unsupported")
+    _assert_refused_without_writes(tmp_path, run_root.name, "workflow_execution_profile_retired")
 
 
 def test_invalidate_default_root_refuses_a_state_root_symlink(

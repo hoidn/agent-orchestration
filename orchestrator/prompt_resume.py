@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 from orchestrator._common.safe_tree import read_regular_file
-from orchestrator.cli.commands.prompt_io import PromptCliError
 from orchestrator.providers.omp_launch_fs import LaunchFsError, open_dir_no_follow
 from orchestrator.providers.omp_launch import resolve_omp_binary
 from orchestrator.providers.omp_launch_contract import (
@@ -451,7 +450,8 @@ def prompt_resume_workflow(args: Namespace) -> int:
     try:
         repeats = getattr(args, "in_place", 0)
         if repeats not in (0, 1):
-            raise PromptCliError("--in-place must be given at most once")
+            print("prompt resume: --in-place must be given at most once", file=sys.stderr)
+            return 2
         return resume_prompt_session(
             runs_root=Path.cwd() / ".orchestrate" / "runs",
             identifier=args.session_id,
@@ -464,9 +464,6 @@ def prompt_resume_workflow(args: Namespace) -> int:
             stderr_fd=2,
             cwd=os.getcwd(),
         )
-    except PromptCliError as exc:
-        print(terminal_safe_line(f"prompt resume: {exc}"), file=sys.stderr)
-        return 2
     except (PromptResumeError, PromptSessionError) as exc:
         print(terminal_safe_line(f"prompt resume: {exc}"), file=sys.stderr)
         return 1

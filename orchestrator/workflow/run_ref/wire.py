@@ -29,6 +29,7 @@ _STRUCTURAL_REFUSAL_CODES = frozenset(
     }
 )
 _RUNTIME_FAILURE_REASONS = {
+    "workflow_execution_target_retired": frozenset({"staged_execution_retired", "flat_execution_retired"}),
     "run_ref_capsule_invalid": frozenset(
         {"capsule_validation_failed", "target_not_declared"}
     ),

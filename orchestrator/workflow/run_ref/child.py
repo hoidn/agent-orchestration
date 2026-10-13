@@ -14,19 +14,7 @@ import sys
 from typing import Any, Mapping, Sequence
 
 from orchestrator.run_lock import run_writer_lock, workspace_run_lock
-from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import (
-    workflow_context,
-    workflow_public_input_contracts,
-)
-from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow_lisp.syntax import (
-    target_dsl_refuses_non_finite_floats,
-    target_dsl_uses_evaluated_execution,
-    EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
-)
 
 from .bundle_transport import (
     BundleCapsuleValidationError,
@@ -629,124 +617,13 @@ def _execute_bundle(
 ) -> dict[str, Any]:
     """Execute one admitted bundle while owning its run-lifetime writer lock."""
 
-    if target_dsl_uses_evaluated_execution(bundle.surface.version):
-        from orchestrator.workflow_lisp.closed.target import (
-            _evaluated_execution_unavailable_diagnostic,
-        )
-        from orchestrator.workflow_lisp.diagnostics import (
-            build_compile_diagnostics_document,
-        )
-
-        diagnostic = _evaluated_execution_unavailable_diagnostic(
-            bundle.surface.version,
-            bundle.provenance.workflow_path,
-        )
-        raise _ChildCommandError(
-            "evaluated_execution_unavailable",
-            "flat_execution_unavailable",
-            details={
-                "rejected_value": {
-                    "target_dsl_version": bundle.surface.version
-                },
-                "secondary_causes": [
-                    "evaluated_execution_minimum_target_dsl_version:"
-                    + EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
-                ],
-                "compile_diagnostics": (
-                    build_compile_diagnostics_document(
-                        status="rejected",
-                        diagnostics=(diagnostic,),
-                    )
-                ),
-            },
-        )
-
-    try:
-        bound_inputs = bind_workflow_inputs(
-            workflow_public_input_contracts(bundle),
-            inputs,
-            clone_root,
-            finite_floats=target_dsl_refuses_non_finite_floats(bundle.surface.version),
-        )
-    except Exception as exc:
-        raise _ChildCommandError(
-            "run_ref_child_launch_failed",
-            "input_binding_rejected",
-        ) from exc
-
-    try:
-        workflow_path = bundle.provenance.workflow_path.resolve(strict=True)
-        workflow_file = workflow_path.relative_to(clone_root).as_posix()
-        context = _plain_json(workflow_context(bundle))
-        if not isinstance(context, dict):
-            raise TypeError("workflow context is not an object")
-        manager = StateManager(
-            clone_root,
-            run_id=child_run_id,
-            state_dir=child_state_dir,
-        )
-        manager.run_root.mkdir(parents=True, exist_ok=False)
-        with run_writer_lock(manager.run_root):
-            manager.initialize(
-                workflow_file,
-                context=context,
-                bound_inputs=bound_inputs,
-            )
-            state = WorkflowExecutor(
-                bundle,
-                clone_root,
-                manager,
-                retry_delay_ms=0,
-            ).execute(on_error="stop")
-    except _ChildCommandError:
-        raise
-    except Exception as exc:
-        raise _ChildCommandError(
-            "run_ref_child_launch_failed",
-            "workflow_execution_failed",
-            exit_code=1,
-        ) from exc
-    if state.get("status") != "completed":
-        raise _ChildCommandError(
-            "run_ref_child_launch_failed",
-            "workflow_execution_failed",
-            exit_code=1,
-        )
-    try:
-        workflow_outputs = _plain_json(state.get("workflow_outputs", {}))
-    except TypeError as exc:
-        raise _ChildCommandError(
-            "run_ref_child_result_invalid",
-            "workflow_outputs_invalid",
-            exit_code=1,
-        ) from exc
-    if not isinstance(workflow_outputs, dict):
-        raise _ChildCommandError(
-            "run_ref_child_result_invalid",
-            "workflow_outputs_invalid",
-            exit_code=1,
-        )
-    return workflow_outputs
+    raise _ChildCommandError("workflow_execution_target_retired", "flat_execution_retired")
 
 
 def execute_request(request: RunRefChildRequest) -> dict[str, Any]:
     """Execute one decoded/staged mode-1 target through the ordinary runtime."""
 
-    workflow_outputs = _execute_bundle(
-        _target_bundle(request),
-        clone_root=request.clone_root,
-        child_run_id=request.child_run_id,
-        child_state_dir=request.child_state_dir,
-        inputs=request.inputs,
-    )
-    return {
-        "schema_version": RUN_REF_CHILD_RESULT_SCHEMA,
-        "status": "completed",
-        "capsule_digest": request.expected_capsule_digest,
-        "target_workflow_name": request.target_workflow_name,
-        "child_run_id": request.child_run_id,
-        "workflow_outputs": workflow_outputs,
-    }
+    raise _ChildCommandError("workflow_execution_target_retired", "staged_execution_retired")
 
 
 def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
@@ -784,44 +661,14 @@ def execute_path_request(request: RunRefPathChildRequest) -> dict[str, Any]:
         request.test_control,
         boundary="mode_2_compile",
     )
-    from .closed_path import AdmittedClosedPathProgram
-
-    if isinstance(admitted, AdmittedClosedPathProgram):
-        return _execute_closed_path(request, admitted)
-    workflow_outputs = _execute_bundle(
-        admitted.build_result.validated_bundle,
-        clone_root=request.clone_root,
-        child_run_id=request.child_run_id,
-        child_state_dir=request.child_state_dir,
-        inputs=request.inputs,
-    )
-    return {
-        "schema_version": RUN_REF_PATH_CHILD_RESULT_SCHEMA,
-        "status": "completed",
-        "step_config_digest": request.step_config.step_config_digest,
-        "target_workflow_name": admitted.build_result.selected_workflow_name,
-        "child_run_id": request.child_run_id,
-        "workflow_outputs": workflow_outputs,
-        "path_compile": {
-            "diagnostics": admitted.diagnostics_document,
-            "program_identity": admitted.program_identity,
-            "signature": admitted.signature,
-            "effect_facts": admitted.effect_facts,
-            "evidence": admitted.evidence,
-        },
-    }
+    return _execute_closed_path(request, admitted)
 
 
 def _admit_path_request(request):
-    if request.request_document is not None:
-        from .closed_path import compile_closed_path_if_evaluated
+    from .closed_path import compile_closed_path_if_evaluated
 
-        admitted = compile_closed_path_if_evaluated(materialized_source=request.materialized_source,
-                                                    step_config=request.step_config)
-        if admitted is not None:
-            return admitted
-    return compile_and_admit_path_program(materialized_source=request.materialized_source,
-                                         step_config=request.step_config)
+    return compile_closed_path_if_evaluated(materialized_source=request.materialized_source,
+                                           step_config=request.step_config)
 
 
 def _validate_closed_admission(request, admitted):

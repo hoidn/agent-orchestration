@@ -153,6 +153,9 @@ def _run_private_reuse(resolved: ResolvedPrimary) -> int:
 
 def prompt_import_workflow(args: Namespace) -> int:
     """Entry for exact linked-primary import; return the process exit code."""
+    print("[prompt_execution_retired] prompt run/import are retired; use a separately retained complete release/environment", file=sys.stderr)
+    return 2
+
     try:
         mode = _parse(args)
         resolved = resolve_prompt_session(Path.cwd() / ".orchestrate" / "runs", args.session_id)

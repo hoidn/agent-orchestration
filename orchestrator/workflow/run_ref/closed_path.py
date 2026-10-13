@@ -7,10 +7,9 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed import artifact
 from orchestrator.workflow_lisp.closed.artifact import ClosedProgramBuildResult
-from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
+from orchestrator.workflow_lisp.closed.target import refuse_retired_entry_target
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, serialize_diagnostics
 from orchestrator.workflow_lisp.reader import SourceReadTrace
-from orchestrator.workflow_lisp.syntax import target_dsl_uses_evaluated_execution
 
 from .contracts import canonical_json_bytes
 from .path_contracts import (
@@ -62,13 +61,12 @@ def _closed_diagnostics(built):
 
 
 def compile_closed_path_if_evaluated(*, materialized_source, step_config):
-    """Prepare once through the ordinary builder, or retain the legacy branch."""
+    """Prepare once through the evaluated builder, refusing retired entries."""
     program, compiler_identity = _validate_path_compile_authority(materialized_source, step_config)
     source = _require_program_file(materialized_source.workspace_path, program)
     trace = SourceReadTrace()
     try:
-        if not target_dsl_uses_evaluated_execution(entry_target_dsl_version(source, source_read_trace=trace)):
-            return None
+        refuse_retired_entry_target(source, source_read_trace=trace)
         request = FrontendBuildRequest(source_path=source, source_roots=(materialized_source.workspace_path,),
             entry_workflow=program.entry_name, workspace_root=materialized_source.workspace_path)
         built = artifact.prepare_closed_program_bundle(request, source_read_trace=trace)

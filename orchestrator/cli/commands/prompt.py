@@ -29,14 +29,7 @@ from orchestrator.cli.commands.prompt_io import (
     _read_prompt_file,
     _write_inference_snapshot,
 )
-from orchestrator.cli.commands.prompt_run_service import (
-    materialize_and_run,
-    run_namespace,
-)
 from orchestrator.run_lock import ReservedRunRootError, reserved_run_writer_lock
-from orchestrator.cli.commands.run import run_workflow
-from orchestrator.cli.commands.evaluated import _request
-from orchestrator.omp_assets import inference_output_contract_path
 from orchestrator.prompt_contract import (
     SemanticContract,
     PromptContractError,
@@ -272,6 +265,10 @@ def _infer_output_contract(
     captured: _Captured, runs_root: Path, workspace: Path
 ) -> tuple[SemanticContract, dict[str, object]]:
     """Run the packaged inference workflow; parse only the typed draft."""
+    from orchestrator.cli.commands.run import run_workflow
+    from orchestrator.cli.commands.evaluated import _request
+    from orchestrator.cli.commands.prompt_run_service import run_namespace
+    from orchestrator.omp_assets import inference_output_contract_path
     if captured.provider in ("omp", "omp_unrestricted_workspace"):
         raise PromptCliError(
             f"--output is not supported for ambient provider {captured.provider!r}; "
@@ -376,70 +373,12 @@ def _resolve_contract(
 
 
 def prompt_workflow(args: Namespace) -> int:
-    """Entry for `orchestrate prompt run`; returns the process exit code."""
-    if getattr(args, "prompt_command", None) == "import":
-        from orchestrator.cli.commands.prompt_import import prompt_import_workflow
-        return prompt_import_workflow(args)
+    """Retain native resume and refuse retired creation before reading inputs."""
+    if getattr(args, "prompt_command", None) in ("run", "import"):
+        print("[prompt_execution_retired] prompt run/import are retired; use a separately retained complete release/environment", file=sys.stderr)
+        return 2
     if getattr(args, "prompt_command", None) == "resume":
         from orchestrator.prompt_resume import prompt_resume_workflow
         return prompt_resume_workflow(args)
-    try:
-        mode = _parse_prompt_run(args)
-        workspace = Path.cwd()
-        runs_root = workspace / ".orchestrate" / "runs"
-        if mode["kind"] == "rerun":
-            resolved_scaffold = mode["scaffold"].resolve()
-            if len(resolved_scaffold.parents) < 3:
-                raise PromptRunError(
-                    f"rerun scaffold path is too shallow: {mode['scaffold']}"
-                )
-            scaffold_workspace = resolved_scaffold.parents[2]
-            if scaffold_workspace != workspace.resolve():
-                raise PromptRunError(
-                    "rerun scaffold must belong to the current workspace"
-                )
-            run_id, run_root, identity = _new_reserved_run(runs_root, workspace)
-            captured, inputs = _capture_rerun(mode["scaffold"])
-            verification = prompt_scaffold.verify_scaffold(
-                generated_root=mode["scaffold"].parent,
-                inputs=inputs, name=mode["scaffold"].name)
-            return materialize_and_run(
-                workspace=workspace, runs_root=runs_root, run_id=run_id,
-                run_root=run_root, identity=identity, captured=captured,
-                contract=verification.semantic_contract,
-                verification=verification, print_scaffold=False,
-                scaffold_path=mode["scaffold"],
-                scaffold_workspace=workspace.resolve(),
-            )
-        captured = _capture_generation(mode)
-        contract, authoring = _resolve_contract(captured, runs_root, workspace)
-        try:
-            inputs = ScaffoldInputs(
-                prompt_sha256=captured.prompt_sha256, contract=contract,
-                provider=captured.provider, model=captured.model,
-                conf_manifest=captured.conf_manifest, slug=captured.slug,
-                pin=OMP_BINARY_PIN,
-            )
-        except (ValueError, TypeError) as exc:
-            raise PromptRunError(f"invalid scaffold inputs: {exc}") from exc
-        run_id, run_root, identity = _new_reserved_run(runs_root, workspace)
-        scaffold = prompt_scaffold.generate_scaffold(
-            generated_root=_ensure_generated_root(workspace),
-            inputs=inputs,
-            prompt_bytes=captured.prompt,
-            authoring=authoring,
-        )
-        return materialize_and_run(
-            workspace=workspace, runs_root=runs_root, run_id=run_id,
-            run_root=run_root, identity=identity, captured=captured,
-            contract=contract, verification=scaffold.verification,
-            print_scaffold=True, scaffold_path=scaffold.path,
-        )
-    except PromptCliError as exc:
-        print(f"prompt run: {exc}", file=sys.stderr)
-        return 2
-    except (PromptRunError, PromptSessionError, ReservedRunRootError,
-            ScaffoldCompileError, ScaffoldVerificationError,
-            ScaffoldSnapshotError) as exc:
-        print(f"prompt run: {exc}", file=sys.stderr)
-        return 1
+    print("prompt: choose run, import, or resume", file=sys.stderr)
+    return 2

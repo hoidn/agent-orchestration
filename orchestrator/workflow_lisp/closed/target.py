@@ -75,6 +75,36 @@ def entry_target_dsl_version(
     return target_dsl_version
 
 
+def refuse_retired_entry_target(
+    path: Path, *, source_read_trace: SourceReadTrace | None = None,
+) -> None:
+    """Admit executable entries without changing imported-module analysis."""
+    target, span = _entry_target_header(path, source_read_trace=source_read_trace)
+    if not syntax.target_dsl_uses_evaluated_execution(target):
+        _raise_retired_execution_target(target, span)
+
+
+def _raise_retired_execution_target(target: str, span: SourceSpan) -> None:
+    raise LispFrontendCompileError((LispFrontendDiagnostic(
+        code="workflow_execution_target_retired",
+        message=(f"target DSL {target} execution is retired; use a separately retained "
+                 "complete release/environment qualified for this source or run"),
+        span=span, phase="lowering",
+    ),))
+
+
+def refuse_compiled_retired_entry_target(
+    path: Path, target: str, source_bytes_by_path: Mapping[Path, bytes],
+) -> None:
+    """Guard publication against the compiler's captured entry, not a fresh peek."""
+    if syntax.target_dsl_uses_evaluated_execution(target):
+        return
+    captured_target, span = _entry_target_header_from_bytes(path, source_bytes_by_path[path])
+    if captured_target != target:
+        raise RuntimeError("compiled entry target does not match its source snapshot")
+    _raise_retired_execution_target(target, span)
+
+
 def _raise_evaluated_execution_unavailable(
     target_dsl_version: str,
     target_span: SourceSpan,

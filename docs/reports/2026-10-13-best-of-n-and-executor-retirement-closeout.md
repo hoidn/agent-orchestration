@@ -29,7 +29,7 @@ Concurrent dirty main changes remain outside W and are preserved.
 | 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
 | 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
-| 3 cutoff / gate R | Pending | No current-package refusal or historical recovery claim yet |
+| 3 cutoff / gate R | In progress | Public cutoff candidate verified; native fixture preparation, typed imports/LSP separation and final R qualification remain |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
 
@@ -290,3 +290,44 @@ extraction, not all retained flat behavior or gate R. The next candidate first
 implements public cutoff refusals with the backend present, then separates
 typed imports/LSP from flat bundle creation. Constant serializer pruning moves
 with physical deletion after R; it is not an extra preparatory migration.
+
+## Public Cutoff Candidate
+
+Executable entries through 2.34 and historical execution profiles now refuse
+at their public boundaries before publication or writer locks. The build guard
+also checks the compiler's captured source. Evaluated children have no legacy
+fallback; staged flat children refuse. Old executor/lowerer/SDK exports retire,
+and prompt run/import reject before input capture or session writes. Native
+prompt resume retains its existing bridge. Historical report status is derived
+for display without rewriting state.
+
+`E/retirement-cutoff-implementation.{md,json}` binds the 23 changed code/test
+files to hashes and exact commands. The final bounded campaign passed **89
+cases**, including all 43 new cutoff tests, older typed imports and retained
+2.37 read-back/replay/worker controls. Earlier evaluated lifecycle/child/report
+controls passed 167 cases; their one stale diagnostic expectation was corrected
+and verified in the final campaign. Collection found 102 cases. The receipts
+distinguish genuine initial failures from invalid test arguments and an
+incorrect assumption about nested child diagnostics; no retained runtime
+assertion was weakened.
+
+Native fork and in-place smoke tests invoke the real CLI in fresh PTY processes
+with the compiler blocked, using a deterministic child. They verify exactly one
+continuation and source/result hashes. Their setup still uses historical
+scaffold generation, which must be replaced before Stage 3 stops emitting flat
+bundles. This is native bridge evidence, not historical workflow recovery.
+
+`E/retirement-cutoff-contract-review.md` records PASS, including independent
+captured-source and lock-acquisition race probes. Quality review also passed in
+`E/retirement-cutoff-quality-review.md` after correcting one diagnostic wrapper:
+an old profile substituted during lock acquisition keeps its retirement code.
+Four race cases and three malformed-authority controls pass; collection of the
+updated cutoff owner found 47 cases. The prior bounded receipts remain valid
+with this focused correction recorded separately.
+
+`E/retirement-reader-closure.md`
+records read-only report/dashboard access to the exact retained 2.28 reviewed
+change and 2.15 watchdog captures, with writes blocked and trees unchanged.
+Neither receipt establishes universal old-run recovery or final deleted-tree
+import isolation. Backend removal, normative reconciliation and gate R remain
+pending; the cutoff candidate is not the retirement delivery.

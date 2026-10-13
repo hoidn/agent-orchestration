@@ -1,29 +1,6 @@
 """CLI command handlers."""
 
-from .compile import compile_workflow
-from .explain import explain_workflow
-from .run import RunWorkflowResult
-from .run import run_workflow
-from .repl import repl_workflow
-from .prompt import prompt_workflow
-from .resume import resume_workflow
-from .report import report_workflow
-from .dashboard import dashboard_workflow
-from .monitor import monitor_workflows
-from .human_input import human_input_command
-from .provider_isolation_environment_manifest import (
-    provider_isolation_environment_manifest_workflow,
-)
-from .route_readiness import route_readiness_workflow
-from .peer import (
-    peer_ack_workflow,
-    peer_finish_workflow,
-    peer_ready_workflow,
-    peer_send_workflow,
-)
-from .provider_materialization import (
-    provider_materialization_submit_workflow,
-)
+from importlib import import_module
 
 __all__ = [
     'compile_workflow',
@@ -45,3 +22,17 @@ __all__ = [
     'peer_send_workflow',
     'provider_materialization_submit_workflow',
 ]
+
+
+def __getattr__(name: str):
+    """Load only the selected handler, preserving the public command exports."""
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    owner = {
+        "RunWorkflowResult": "run", "monitor_workflows": "monitor",
+        "human_input_command": "human_input",
+        "provider_materialization_submit_workflow": "provider_materialization",
+    }.get(name, "peer" if name.startswith("peer_") else name.removesuffix("_workflow"))
+    value = getattr(import_module(f".{owner}", __name__), name)
+    globals()[name] = value
+    return value

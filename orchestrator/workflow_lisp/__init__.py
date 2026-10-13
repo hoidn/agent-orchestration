@@ -69,7 +69,6 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
-from .lowering import LoweredWorkflow, LoweringOriginMap, lower_workflow_definitions, validate_lowered_workflows
 from .phase import PhaseScope
 from .prompts import (
     PromptDef,
@@ -160,8 +159,6 @@ __all__ = [
     "ListExpr",
     "LiteralExpr",
     "LoopRecurExpr",
-    "LoweredWorkflow",
-    "LoweringOriginMap",
     "MatchArm",
     "MatchExpr",
     "NameExpr",
@@ -236,14 +233,12 @@ __all__ = [
     "elaborate_expression",
     "elaborate_definition_module",
     "classify_condition_expr",
-    "lower_workflow_definitions",
     "read_sexpr_file",
     "read_sexpr_text",
     "render_diagnostic",
     "render_diagnostics",
     "run_validation_pipeline",
     "typecheck_expression",
-    "validate_lowered_workflows",
     "DEFAULT_LOWERING_ROUTE",
     "LoweringRoute",
 ]

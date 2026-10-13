@@ -46,7 +46,6 @@ from orchestrator.prompt_scaffold_render import (
 )
 from orchestrator.prompt_scaffold_verify import verify_occupant
 from orchestrator.providers.omp_launch_fs import directory_identity
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 
 _NOFOLLOW_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _FILE_MODE = "0644"
@@ -456,6 +455,7 @@ def compile_snapshot(
         raise ValueError("snapshot root descriptor is not open")
     root = _fd_root(snapshot.root_fd)
     try:
+        from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
         compiled = compile_stage3_entrypoint(
             root / "run.orc",
             source_roots=(root,),

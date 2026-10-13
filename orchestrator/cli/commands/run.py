@@ -50,6 +50,7 @@ from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.closed.target import (
     entry_target_dsl_version,
+    refuse_retired_entry_target,
     refuse_run_at_evaluated_execution_target,
 )
 from orchestrator.workflow_lisp.reader import SourceReadTrace
@@ -619,6 +620,13 @@ def run_workflow(
         if not workflow_path.exists():
             logger.error(f"Workflow file not found: {workflow_path}")
             return _run_result(1)
+
+        try:
+            refuse_retired_entry_target(workflow_path)
+        except LispFrontendCompileError as exc:
+            for diagnostic in exc.diagnostics:
+                logger.error(render_diagnostic(diagnostic))
+            return _run_result(2)
 
         source_read_trace = SourceReadTrace()
         try:

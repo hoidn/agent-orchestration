@@ -712,14 +712,22 @@ def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: b
             return None
         raise RunAuthorityError("unsupported run authority profile or schema")
     except (OSError, UnicodeError, ValueError) as exc:
-        logger.error("[memo_inconsistent] %s", exc)
+        logger.error("[%s] %s", getattr(exc, "code", "memo_inconsistent"), exc)
         return 2
 
 
 def _has_authority_header(run_root, run_files):
-    from orchestrator.workflow.evaluated.authority import RunAuthorityError
+    from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, RunAuthorityError, _read_header_json
+    from orchestrator.workflow.evaluated.memo import MemoError
     exists = run_files.exists if run_files is not None else lambda path: Path(path).exists() or Path(path).is_symlink()
     if exists(run_root / "run.json"):
+        header = _read_header_json(run_root / "run.json", run_files)
+        if not isinstance(header, dict):
+            raise RunAuthorityError("run header is not an object")
+        if header.get("schema_version") == "2.1" and header.get("result_persistence_profile") in (None, DERIVED_PURE_REPLAY_PROFILE):
+            raise MemoError("workflow_execution_profile_retired", "historical workflow execution is retired; use a separately retained complete release/environment qualified for this run")
+        if header.get("schema_version") != SCHEMA_VERSION or header.get("result_persistence_profile") != PROFILE:
+            raise RunAuthorityError("unsupported run authority profile or schema")
         return True
     if exists(run_root / "memo.jsonl") or exists(run_root / "closed_program.json"):
         raise RunAuthorityError("evaluated run authority header is missing")
@@ -773,6 +781,9 @@ def resume_workflow(
         return 1
 
     try:
+        if not _has_authority_header(run_root, None):
+            from orchestrator.workflow.evaluated.memo import MemoError
+            raise MemoError("workflow_execution_profile_retired", "historical workflow execution is retired; use a separately retained complete release/environment qualified for this run")
         with ExitStack() as writer_locks:
             import uuid
             restart_run_id = uuid.uuid4().hex if force_restart else None
@@ -786,32 +797,13 @@ def resume_workflow(
             evaluated_exit = _evaluated_resume_route(run_root, workspace_dir, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=not kwargs.get("quiet", False))
             if evaluated_exit is not None:
                 return evaluated_exit
-            return _resume_workflow_with_writer_lock_held(
-                run_id=run_id,
-                repair=repair,
-                force_restart=force_restart,
-                state_dir=state_dir,
-                on_error=on_error,
-                max_retries=max_retries,
-                retry_delay_ms=retry_delay_ms,
-                backup_state=backup_state,
-                debug=debug,
-                stream_output=stream_output,
-                summary_mode=summary_mode,
-                summary_provider=summary_provider,
-                summary_timeout_sec=summary_timeout_sec,
-                summary_max_input_chars=summary_max_input_chars,
-                summary_profile=summary_profile,
-                live_agent_notes=live_agent_notes,
-                live_agent_note_provider=live_agent_note_provider,
-                live_agent_note_interval_sec=live_agent_note_interval_sec,
-                live_agent_note_timeout_sec=live_agent_note_timeout_sec,
-                live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
-                run_ref_root=run_ref_root,
-                _writer_locks=writer_locks,
-                _restart_run_id=restart_run_id,
-                **kwargs,
-            )
+            from orchestrator.workflow.evaluated.authority import RunAuthorityError
+            raise RunAuthorityError("evaluated run authority header disappeared before resume")
+    except (OSError, UnicodeError, ValueError) as exc:
+        code = getattr(exc, "code", "memo_inconsistent")
+        logger.error("[%s] %s", code, exc)
+        print(f"Error: [{code}] {exc}", file=sys.stderr)
+        return 2
     except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as exc:
         logger.error(str(exc))
         print(f"Error: {exc}", file=sys.stderr)

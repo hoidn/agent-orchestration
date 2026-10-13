@@ -239,7 +239,7 @@ def test_report_writes_output_file(tmp_path, monkeypatch):
     assert "# Workflow Status" in output_path.read_text()
 
 
-def test_report_reconciles_stale_running_state_on_disk(tmp_path, monkeypatch, capsys):
+def test_report_derives_stale_running_status_without_changing_state(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     runs_root = tmp_path / ".orchestrate" / "runs"
     run_id = "20260227T000005Z-eeeeee"
@@ -283,6 +283,7 @@ steps:
     }
     state_file = run_dir / "state.json"
     state_file.write_text(json.dumps(state, indent=2))
+    before = state_file.read_bytes()
 
     result = report_workflow(
         run_id=run_id,
@@ -295,9 +296,7 @@ steps:
     assert payload["run"]["status"] == "failed"
     assert payload["run"]["status_reason"] == "stale_running_without_current_step"
 
-    persisted = json.loads(state_file.read_text())
-    assert persisted["status"] == "failed"
-    assert persisted["context"]["status_reconciled_reason"] == "stale_running_without_current_step"
+    assert state_file.read_bytes() == before
 
 
 def test_report_json_does_not_reopen_authored_source_for_lint(

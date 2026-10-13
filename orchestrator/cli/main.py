@@ -6,7 +6,6 @@ from typing import Optional
 
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 
-from .commands import run_workflow
 
 
 def _add_frontend_flags(
@@ -736,6 +735,7 @@ def main(args: Optional[list] = None) -> int:
         return 1
 
     if parsed_args.command == 'run':
+        from .commands import run_workflow
         return run_workflow(parsed_args).exit_code
     elif parsed_args.command == 'repl':
         from .commands import repl_workflow

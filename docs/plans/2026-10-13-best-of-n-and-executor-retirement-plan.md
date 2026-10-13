@@ -154,6 +154,8 @@ helpers and pure-expression classification to their existing semantic owners.
 Then separate shared command/control analysis. Next implement Task 3 refusals
 with the backend still present, and preserve typed producer imports and LSP
 analysis independently of executable bundle creation before qualifying R.
+Prepare native prompt-resume fixtures without scaffold compilation before
+removing flat emission from Stage 3; retain their byte-verification contracts.
 After R, move only the retained constant-evaluation code and prune its runtime
 binding/sharing branches together with physical deletion. Do not first move the
 general flat serializer into the retained owner. Move definitions once and

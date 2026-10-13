@@ -425,6 +425,11 @@ def run_trial_entry(
 ) -> TrialRunResult:
     """Compile and execute one exact target-2.25 terminal trial entry."""
 
+    raise TrialEntryRequestError(
+        "workflow_execution_target_retired",
+        "the target-2.25 trial SDK is retired; use a separately retained complete release/environment",
+    )
+
     source = _request_path(workflow_file, field="workflow_file")
     root = _request_path(workspace, field="workspace")
     runs = _request_path(state_dir, field="state_dir", optional=True)
@@ -577,5 +582,4 @@ __all__ = [
     "TrialFailureDiagnostic",
     "TrialRunOptions",
     "TrialRunResult",
-    "run_trial_entry",
 ]

@@ -86,7 +86,11 @@ from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
 from .wcc.route import LoweringRoute, normalize_lowering_route
-from .closed.target import refuse_compiled_target_at_evaluated_execution_target
+from .closed.target import (
+    refuse_compiled_target_at_evaluated_execution_target,
+    refuse_compiled_retired_entry_target,
+    refuse_retired_entry_target,
+)
 
 
 # Artifact helpers remain re-exported from this historical module boundary so
@@ -705,8 +709,13 @@ def build_frontend_bundle(
     build_root) -> `_emit` (artifact/manifest writes + result construction).
     """
 
+    refuse_retired_entry_target(request.source_path, source_read_trace=source_read_trace)
     in_memory = build_frontend_bundle_in_memory(
         request, source_read_trace=source_read_trace
+    )
+    entry = in_memory.compile_result.graph.modules_by_name[in_memory.compile_result.graph.entry_module_name]
+    refuse_compiled_retired_entry_target(
+        entry.path, entry.syntax_module.target_dsl_version, in_memory.source_read_trace.raw_bytes_by_path,
     )
     try:
         (
