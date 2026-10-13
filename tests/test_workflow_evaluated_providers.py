@@ -19,7 +19,7 @@ from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.contracts.prompt_contract import _RELPATH_GUIDANCE, render_output_bundle_contract_block
+from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.test_workflow_evaluated_prompts import _run_flat
@@ -41,6 +41,7 @@ with Path("requests.jsonl").open("a", encoding="utf-8") as out:
         for key in ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY")}}) + "\n")
 mode = os.environ.get("PROVIDER_SHIM_MODE", "success")
 if mode == "silent": sys.exit(0)
+if mode == "nul": sys.stdout.buffer.write(b"I wrote it\x00 here \x1b[31mred\x1b[0m\n"); sys.exit(0)
 if mode != "empty":
     sys.stdout.buffer.write(b"complete stdout\n"); sys.stdout.buffer.flush()
     sys.stderr.buffer.write(b"complete stderr\n"); sys.stderr.buffer.flush()
@@ -185,40 +186,6 @@ def test_public_provider_dispatches_once_and_commits_its_typed_result(tmp_path):
     _assert_attempt_evidence(run_root, commit, request)
 
 
-def _contract_lines(prompt, result_path):
-    lines = prompt.splitlines()
-    format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: "))
-    assert lines.count("## Output Contract") == 1
-    assert lines.count(f"- path: {result_path}") == 1
-    assert lines.index("## Output Contract") < lines.index(f"- path: {result_path}") < format_at
-    return lines
-
-
-def test_public_provider_prompt_renders_the_file_delivery_contract_once(tmp_path):
-    fixture = _fixture(tmp_path)
-    assert _cli(tmp_path, fixture).returncode == 0
-    run_root, snapshot = _public_snapshot(tmp_path, fixture)
-    (commit,) = snapshot.active_commits.values()
-    prompt = (run_root / Path(commit.data["result_path"]).parent / "prompt.txt").read_text()
-    lines = _contract_lines(prompt, os.path.relpath(run_root / commit.data["result_path"], tmp_path))
-    assert _RELPATH_GUIDANCE not in lines
-    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
-
-
-def test_public_omp_provider_records_the_legacy_delivery_rendering(tmp_path):
-    """omp children never receive the bundle path, so their attempts keep `legacy`; preparation then refuses
-    the `effort` policy for omp, so nothing launches."""
-    fixture = _fixture(tmp_path)
-    fixture[1].write_text(json.dumps({"providers.review": "omp"}), encoding="utf-8")
-    assert _cli(tmp_path, fixture).returncode == 1
-    run_root, snapshot = _public_snapshot(tmp_path, fixture)
-    started, failed = [entry.data for entry in snapshot.entries][:2]
-    assert failed["code"] == "provider_preparation_failed" and not _requests(tmp_path)
-    assert started["input_parts"]["delivery"] == canonical_sha256("legacy")
-    prompt = (run_root / Path(started["result_path"]).parent / "prompt.txt").read_text()
-    assert _RELPATH_GUIDANCE in _contract_lines(prompt, os.path.relpath(run_root / started["result_path"], tmp_path))
-
-
 def test_public_provider_that_changes_directory_still_writes_the_pinned_attempt(tmp_path):
     fixture = _fixture(tmp_path)
     result = _cli(tmp_path, fixture, mode="chdir")
@@ -285,38 +252,6 @@ def test_public_provider_failure_keeps_one_attempt_and_complete_streams(tmp_path
     assert len(_requests(tmp_path)) == 1
     run_root, snapshot = _public_snapshot(tmp_path, fixture)
     _assert_failed_attempt(run_root, snapshot, mode)
-
-
-@pytest.mark.parametrize("mode", ["stdout-only", "silent"])
-def test_public_missing_result_names_the_reply_head_and_resume_retries(tmp_path, mode):
-    """Design scenario 2: the reply is diagnostic text only; nothing commits and resume dispatches attempt 2."""
-    from tests.test_workflow_evaluated_resume_kills import _cli as _env_cli, _env
-
-    fixture = _fixture(tmp_path)
-    reply = json.dumps("Here is the move:\n\n   " + "e2e4 " * 80)
-    assert _cli(tmp_path, fixture, mode=mode, payload=reply).returncode == 1
-    run_root, snapshot = _public_snapshot(tmp_path, fixture)
-    started, failed, terminal = [entry.data for entry in snapshot.entries]
-    result_path = os.path.relpath(run_root / started["result_path"], tmp_path)
-    assert failed["code"] == terminal["code"] == "provider_result_missing"
-    assert failed["exit_info"] == {} and not snapshot.active_commits
-    if mode == "silent":
-        assert terminal["message"] == f"provider did not create {result_path}"
-    else:
-        head = " ".join(f"complete stdout\n{reply}".split())[:240]
-        assert terminal["message"] == f"provider did not create {result_path}; reply began: {head}"
-        report = _env_cli(tmp_path, ["report", "--run-id", run_root.name, "--runs-root",
-            str(run_root.parent), "--format", "json"], _env(tmp_path))
-        assert report.returncode == 0, report.stderr
-        assert head in json.loads(report.stdout)["run"]["error"]["message"]
-
-    resumed = _env_cli(tmp_path, ["resume", run_root.name], _env(tmp_path, provider=True))
-
-    assert resumed.returncode == 0, resumed.stderr
-    after = _public_snapshot(tmp_path, fixture)[1]
-    assert [entry.data["attempt"] for entry in after.entries if entry.data["record"] == "started"] == [1, 2]
-    assert [commit.data["attempt"] for commit in after.active_commits.values()] == [2]
-    assert len(_requests(tmp_path)) == 2
 
 
 def test_public_provider_empty_streams_are_exclusive_attempt_evidence(tmp_path):

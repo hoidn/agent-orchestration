@@ -119,6 +119,8 @@ def _resolve_effect_input(
 def _provider_delivery_name(node, commit, identity):
     """The committed row's rendering on replay (None when it predates the part), else the current one."""
     if commit is None:
+        # omp children never receive ORCHESTRATOR_OUTPUT_BUNDLE_PATH; they deliver by final assistant text
+        # that the parent materializes (specs/providers.md), so they keep the legacy wording.
         return "legacy" if node["provider"].startswith("omp") else "file/1"
     digest = commit.data["input_parts"].get("delivery")
     if digest is None:

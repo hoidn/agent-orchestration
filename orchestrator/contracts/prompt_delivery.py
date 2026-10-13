@@ -3,6 +3,13 @@
 `legacy` is the text composed before the delivery was selected; the flat route
 and evaluated rows committed before `file/1` existed render it. `file` is the
 evaluated route's file transport (docs/design/provider_result_delivery.md).
+
+`_LEGACY`, `_FILE`, `RELPATH_GUIDANCE` and the relpath walk are replay identity
+for committed rows: the `prompt` input part digests the bytes they produce. A
+change needs a new rendering name (`file/2`) registered beside `file/1` in
+`orchestrator.workflow.evaluated.providers.DELIVERY_SELECTORS`, never an
+in-place edit. The resume test over tests/fixtures/provider_delivery_pre_change
+(a run committed under `legacy`) fails when those bytes drift.
 """
 
 from __future__ import annotations

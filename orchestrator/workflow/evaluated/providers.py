@@ -283,12 +283,12 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
 
 
 def _reply_excerpt(attempt_files):
-    """`; reply began: <head>` from the attempt's stdout for operators; empty when stdout is empty or unreadable."""
-    try:
-        reply = attempt_files.read("stdout.txt").decode("utf-8", errors="replace")
-    except (OSError, ValueError):
-        return ""
-    head = " ".join(reply.split())[:240]
+    """`; reply began: <head>` from the attempt's stdout for operators, or "" when it is blank.
+
+    Non-printable characters (NUL, ANSI escapes) become spaces: the memo rejects a NUL in the terminal message.
+    """
+    reply = attempt_files.read("stdout.txt").decode("utf-8", errors="replace")
+    head = " ".join("".join(c if c.isprintable() else " " for c in reply).split())[:240]
     return f"; reply began: {head}" if head else ""
 
 

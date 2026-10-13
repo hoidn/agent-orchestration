@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
+import sys
 
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
@@ -425,3 +427,47 @@ def test_resume_refuses_a_provider_commit_with_an_unknown_delivery_rendering(tmp
     assert any("[effect_input_diverged]" in line and "delivery" in line for line in resumed.stderr.splitlines())
     assert _snapshot(tmp_path / ".orchestrate") == before
     assert (tmp_path / "requests.jsonl").read_bytes() == requests_before
+
+
+_PRE_CHANGE = Path(__file__).parent / "fixtures" / "provider_delivery_pre_change"
+
+
+def _pre_change_workspace(root: Path) -> list[str]:
+    """The fixture's sources and fake provider in `root`; returns the `run` arguments."""
+    root.mkdir(parents=True)
+    for name in ("main.orc", "providers.json", "prompts.json", "prompt.md"):
+        shutil.copy2(_PRE_CHANGE / name, root / name)
+    shim = root / "bin" / "codex"
+    shim.parent.mkdir()
+    shim.write_text(f"#!{sys.executable}\n" + (_PRE_CHANGE / "codex_shim.py").read_text(encoding="utf-8"),
+                    encoding="utf-8")
+    shim.chmod(0o700)
+    return ["run", str(root / "main.orc"), "--source-root", str(root), "--provider-externs-file",
+            str(root / "providers.json"), "--prompt-externs-file", str(root / "prompts.json"),
+            "--input", "message=typed input"]
+
+
+def test_resume_reuses_the_checked_in_pre_change_provider_commit(tmp_path: Path) -> None:
+    """The fixture run was committed by the package before the `delivery` part existed and is never regenerated,
+    so this fails when the bytes the `legacy` rendering composes drift."""
+    baseline, root = tmp_path / "baseline", tmp_path / "resumed"
+    assert _env_cli(baseline, _pre_change_workspace(baseline), _env(baseline, provider=True)).returncode == 0
+    (baseline_run,) = (baseline / ".orchestrate" / "runs").iterdir()
+    _pre_change_workspace(root)
+    shutil.copytree(_PRE_CHANGE / "runs", root / ".orchestrate" / "runs")
+    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
+    committed = (run_root / "memo.jsonl").read_bytes()
+
+    resumed = _env_cli(root, ["resume", run_root.name], _env(root, provider=True))
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert (run_root / "memo.jsonl").read_bytes().startswith(committed)
+    rows = _memo_rows(run_root)
+    second = [row for row in rows[2:] if row["record"] in {"started", "committed"}]
+    assert [row["record"] for row in second] == ["started", "committed"]
+    assert second[0]["identity"] != rows[1]["identity"]
+    assert {row["input_parts"]["delivery"] for row in second} == {canonical_sha256("file/1")}
+    (request,) = _requests(root)
+    assert request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == (
+        "sha256:" + hashlib.sha256(second[0]["identity"].encode()).hexdigest())
+    assert rows[-1]["record"] == "terminal" and rows[-1]["value"] == _memo_rows(baseline_run)[-1]["value"]
