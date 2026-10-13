@@ -181,3 +181,43 @@ pytest -q -n 16 --dist=worksteal \
   tests/experiments/test_dynamic_core_utility_search.py \
   tests/experiments/test_dynamic_core_utility_edits.py
 ```
+
+## Implemented W3 Comparison (Opt-In)
+
+This separate current comparison executes real upstream W3/2.36 against
+qualified native 3.0; the historical DC-2 instructions and pins above remain
+unchanged. Its [plan](../../docs/plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+owns scope/setup, and the [single evaluation report's dated packet](../../docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
+owns actual results: all 100 logical observations executed, 98 PASS and two
+genuine parity FAIL, plus a passing provenance guard. Final source refinements
+and affected checks are separately qualified there; final code and document reviews are approved; the original campaign stays RED.
+
+Run from the candidate repository root with the clean typed comparator at exact
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca`. Native runtime/reused helper and
+consumer bytes must equal `b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012`;
+authorized packet-only descendants do not advance that runtime pin. The module
+requires the external checkout explicitly and fails when it is unavailable,
+dirty, mismatched or not supplied. It stages workspaces outside both source
+trees, using real public compile/run/resume routes and deterministic local
+commands; no live/paid provider setup is required.
+
+```bash
+export ORC_W3_REEVALUATION_TYPED_ROOT=/home/ollie/Documents/agent-orchestration/.worktrees/orc-w3-dynamic-comparator-20261012
+python -m pytest --collect-only -q experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py
+python -m pytest -q experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py -k 'RW_I01 or RW_S02'
+```
+
+For the complete comparison, run this explicit selector in tmux with the same
+environment variable set in that shell:
+
+```bash
+python -m pytest -q -n 16 --dist=worksteal experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py
+```
+
+Default pytest discovery remains `testpaths = ["tests"]`. This opt-in module
+retains runtime `limit=0` and malformed Bool-string transport discrepancies as
+failures; it neither skips missing setup nor patches either runtime to erase
+them. Raw observations and unique attempt directories are retained under
+`/tmp/orc-w3-dynamic-reevaluation-20261012/`. A nonzero comparison exit does not
+erase completed observations, and positive rows do not select adoption,
+migration, a default change or retirement.

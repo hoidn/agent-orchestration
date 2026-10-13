@@ -2486,3 +2486,271 @@ DC-P remains unselected: this synchronization does not authorize the proposed
 `experiments/mlevolve_pair/search_compact.orc` migration, paid/live allocation,
 adoption, a default change or Phase 7 retirement. The original DC-3 evidence and
 accepted fresh-restart losses remain as recorded above.
+
+## Implemented W3 Reevaluation — 2026-10-12
+
+The owner-authorized [reevaluation plan](../plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+compares actual upstream W3/2.36 with the qualified fresh-only native 3.0
+runtime. The complete campaign executed every one of the **100 logical
+observations**, with **98 PASS and 2 parity FAIL**; the additional Git
+provenance guard passed, giving **101 collected, 99 PASS, 2 FAIL, no skips**,
+exit 1, **176.94s**. RED remains RED. E04 fairness and edit-receipt refinements
+have separate affected checks below; final independent code review is
+PASS / quality APPROVED; final independent document review also records
+conformity PASS / quality APPROVED.
+The campaign remains bound to its original
+source, not the final refined module.
+
+The prior **186674 bytes** of this report remain verbatim, SHA-256
+`0c412cfc9ce86eb830c5034a5771198891596daf610e13dcc95eefb4fd743604`.
+This section adds current evidence without advancing frozen DC-2 comparator
+`4b69ee00`, spike `3a7f8efd` or test-byte pin `26bc796f`, or changing their
+counterfactual W3 claims into executable historical observations. W3 remains
+outside the candidate runtime; neither execute nor this packet authorizes
+adoption, a default change, consumer migration or retirement.
+
+### Pins, Public Routes And Evidence
+
+| Owner | Actual source and observation |
+| --- | --- |
+| Native runtime | `b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012`, candidate `/var/tmp/agent-orchestration-orc-dynamic-core`; campaign packet HEAD equals this pin. Public compilation produces `workflow-lisp/dynamic-program/1` at target 3.0; actual run headers bind its digest and `dynamic_execution.v1`. |
+| Implemented W3 | Clean detached `47e85a9c7e452bfd367275a15d5e97b928efa5ca` at `/home/ollie/Documents/agent-orchestration/.worktrees/orc-w3-dynamic-comparator-20261012`; implementation `8e6e06b2`, bounded closeout `d6f76950`. Public compilation produces `workflow-lisp/closed-program/1` at target 2.36; run headers bind its digest and `evaluated_execution.v1`. |
+| Full campaign source | [Immutable module](/tmp/orc-w3-dynamic-reevaluation-20261012/campaign-full-module.py), SHA-256 `7a98215a1a7bbdc6f9e096c24a804273b85ebc2cb7300b9fc6ee7bc6325eec49`; fixture SHA-256 `d5906752947cbaef444afda6eba93b2631b3575e0f0e27694cdab6832fabab1b`. [Source receipt](/tmp/orc-w3-dynamic-reevaluation-20261012/campaign-full-source.json), SHA-256 `14ee6b9d824d8ed571612da041874ccfedbcea1c2fe9d42443a6b01b33c27ab6`, binds both pins, packet HEAD and interpreter. |
+| Full campaign execution | [Command/exit receipt](/tmp/orc-w3-dynamic-reevaluation-20261012/comparison-full.json), SHA-256 `f48eef87ef94e16d0e56e22db3e17220c65e399ac02dd8324737a5029ca051be`; [raw log](/tmp/orc-w3-dynamic-reevaluation-20261012/comparison-full.log), SHA-256 `6f96be11443eaf75c63edb9bac3e218ae691152e9118ebd9bab4569e5ea5846e`; [JUnit XML](/tmp/orc-w3-dynamic-reevaluation-20261012/comparison-full.xml), SHA-256 `fd0244ae4a54ae520ab795e785f89f4b714faaafb9d760ee1193cf4d9ffc748e`. |
+
+The recorded command runs from the candidate root with
+`/home/ollie/miniconda3/bin/python` (Python 3.13.9):
+`-m pytest -q -n 16 --dist=worksteal experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py --junitxml=/tmp/orc-w3-dynamic-reevaluation-20261012/comparison-full.xml`.
+The explicitly supplied `ORC_W3_REEVALUATION_TYPED_ROOT` selects the clean
+typed checkout. Each runtime executes in its own subprocess/import root and
+staged workspace, recording resolved package origin, source bytes, public
+compile/run argv, artifact target/digest, run profile and requests before and
+after execution. Native packet descendants may contain only the authorized
+documentation/comparison additions with frozen runtime, reused helper and
+consumer byte equality; the typed HEAD must remain exact and clean.
+
+The opt-in [comparison module](../../experiments/dynamic_core_evaluation/test_w3_dynamic_reevaluation.py)
+is outside unchanged default pytest `testpaths = ["tests"]` because it needs
+that external pinned checkout and preserves actual discrepancies. Explicit
+invocation without the required setup fails. There is no fallback comparator,
+skip, changed marker/configuration or runtime patch to produce green results.
+The [reproduction section](../../experiments/dynamic_core_evaluation/README.md#implemented-w3-comparison-opt-in)
+describes current invocation separately from the historical spike.
+
+### Complete Observation Inventory
+
+The inventory counts logical observations, not subprocesses, source variants
+or repeated refinement checks. The two failing rows still executed both
+runtimes; no remaining row is silently untested.
+
+| Cases | Count | Full campaign result and scope |
+| --- | ---: | --- |
+| RW-I01–I11 | 11 | 10 PASS, RW-I10 FAIL. Initial approval, revision/blocking/exhaustion, malformed review, final revision failure, imported wrapper, inline/imported outcomes and declared blocked output execute publicly with full payload/order checks. |
+| RW-S01 | 72 | All PASS: nine existing scenarios × eight budgets independently match the retained Python reference and each other for complete SearchResult/history, ordered full command inputs, spend and stop reason. |
+| RW-S02–S06 | 5 | Four PASS, RW-S05 FAIL. Real local ten-evaluation trace, invalid budget/strict Bool-versus-Int inputs, malformed candidate prefix and lowered controller exhaustion are covered; RW-S05 separately executes valid domain-invalid repair as well as the malformed Bool document. |
+| RW-E01–E04 | 4 | All original campaign checks PASS; external/private fields, feedback rename, captured rubric use and pure helper extraction. Later source fairness/source-file receipts are qualified by seven reusable metadata checks and the corrected final E04 check below. |
+| RW-D01–D06 | 6 | All PASS: unbound names, arity/missing-field timing, operation-budget restart, two actual committed-pair process kills with public W3 resume versus native fresh run. |
+| RW-C01–C02 | 2 | Both PASS as comparison observations, including a recorded W3 compiler defect and a successful ordinary W3 alternative. PASS here does not approve the compiler defect. |
+| Git provenance guard | Separate 1 | PASS; authorized packet descendants are admitted while changed frozen runtime or reused helper bytes are refused. Not a 101st logical consumer observation. |
+
+**RW-I10:** runtime `limit=0` executes no hooks on either side. Native rejects
+with `dynamic_explicit_failure`, reason `invalid_limit`; W3 returns successful
+`EXHAUSTED` with the initial value. This is a genuine helper behavior
+discrepancy, not matching zero-limit rejection, and remains FAIL.
+
+**RW-S05:** the physical evaluation document contains `valid: "false"`.
+Native rejects its first command result with `dynamic_command_result_invalid`
+and no successful value. W3 normalizes that string to Bool false and continues
+to a budget-exhausted SearchResult. Its permissive transport is an observed
+boundary difference; it does not establish exact strict-Boolean parity.
+The same logical row separately proves the ordinary domain-invalid
+`valid=false` path and same-branch repair against the reference on both sides.
+That positive subcase does not erase the malformed-document FAIL.
+
+### Four Edits And Remaining Composition Value
+
+| Edit | Actual comparison and cost |
+| --- | --- |
+| RW-E01 external `Draft.origin` | Both retain one legitimate boundary-schema edit plus three internal sites (initial construction and two command-input reads) and one shared revision-producer change. Missing initialization is refused before effects: W3 at compile (`record_field_missing`), native at runtime before dispatch (`dynamic_field_missing`). Repaired origin survives the exhausted result. Removing useful schemas earns no simplification credit. |
+| RW-E01 private search `history_size` | Existing private state only: initialize to 2, increment beside each evaluation update, use existing proposal reads; external schemas unchanged. Native has five internal sites; typed W3 has the same five plus its private `SearchState` declaration. Complete ten-evaluation results/requests, including fusion, match. No new carrier or logical observation. |
+| RW-E02 `Feedback.note` → `message` | Each has one boundary-schema site, one consumer access and one shared producer change; final receipts save the actual schema source and file/symbol/role fields. Approval evidence and exhausted revision remain intact. A stale producer fails result validation after one review on both; a stale consumer fails statically on W3 (`record_field_unknown`) versus after a completed native review (`dynamic_field_missing`). |
+| RW-E03 review-only rubric use | One review-argv captured read on each side; zero new declarations or context forwarding. Rubric already exists as an input; the test starts from equivalent no-use variants and adds its use. This is a tie, not a unique dynamic capture gain. Revise retains goal and receives no separate rubric argument. |
+| RW-E04 pure feedback helper | Final same-module sources execute the same projection with review then revise and no added effect. Native has helper/call sites (two); W3's pure `defun`/direct argv has those plus a legitimate `Feedback -> String` signature (three). Compiled dataflow checks prove the native field-projection helper is called. Faulty intermediate E04 receipts are superseded only by the corrected final check below. |
+
+Implemented W3 supplies inferred local captures, grouped locals, bounded
+expected hook signatures and four-argument `std/improve` without `inputs I`.
+RW-C01 verifies the same captured goal/rubric and requests as native returned
+hook factories, with zero explicit W3 hook signatures and zero forwarded
+context objects. This removes the earlier rationale for attributing every
+capture/context improvement uniquely to dynamic typing.
+
+All semantic-site receipts name the source file, symbol and role. Shared probe
+producer changes and boundary-schema files are saved separately rather than
+being charged only to one runtime. E03's equivalent probe changes remain
+separate from its one ORC captured-read site. Nonblank main-ORC counts are
+secondary and exclude those separately reported files; they are not total
+authoring cost or a productivity measurement.
+
+RW-C02 demonstrates native runtime selection of two captured ordinary
+function values, followed by one chosen call: results **45/35**, no effects.
+The strongest attempted W3 spelling uses fully annotated local ProcRefs and
+`apply-int`; assigning the conditional ProcRef to `chosen` produces located
+**`compiler_defect`** at the conditional expression. This is an observed bug,
+not a designed prohibition or proof of impossibility. Its ordinary branch at
+the call site, `apply-int (proc-ref left/right)`, executes **45/35** with no
+effects. Native has one chosen call site; this W3 alternative has two. The
+bounded function-value composition gain survives, while consumer behavior is
+achievable on both routes.
+
+### Errors, Restart And Conserved Boundaries
+
+Both reject unbound lexical names at compilation with located diagnostics and
+zero calls. W3 rejects wrong helper arity and unknown internal fields before
+effects. Native exposes those errors on the executed path: wrong arity is
+tested before effects and after a completed review; a missing feedback field
+fails after one review. A corrected fresh native run repeats that prefix.
+Boundary declarations, result validation and complete domain values remain
+present on both sides; internal dynamism is not permission to weaken them.
+The RW-S05 typed transport difference stays explicit rather than being
+normalized away in the comparison adapter.
+
+RW-D04 exhausts native operation budget after one completed review. A fresh
+successful run repeats that review: **three total hook requests** versus two
+in the corresponding ordinary W3 run. W3 has no equivalent operation-budget
+promise; this is a restart-cost observation, not a performance comparison.
+
+RW-D05/D06 send actual external SIGKILL after one settled/committed
+review/revise pair; process exits are **-9**. W3 public `resume` returns the
+three-revision result with **six total calls**, preserving committed result
+bytes. Native public fresh run returns it with **eight total calls**, repeats
+the first pair and leaves every old-run file byte-identical. The second row
+uses captured goal `steady` instead of `tidy` and retains it throughout.
+The saved `recovery-observation.json`, gate/command receipts, ledgers and
+run-state files are under each row's attempt in the campaign evidence root;
+this packet's read-only verification checked actual old-run hashes and committed result hashes.
+No simulated failure or sleep stands in for the committed boundary.
+
+### Reused Qualification And Final Review Boundary
+
+The unchanged native/shared import proof remains **961 PASS**, with
+[verification.json](/tmp/orc-dc3-upstream-20261012/verification.json) SHA-256
+`ab788fa64f3a58f9ff98f46b4b31a4d3a0e2957b3c49acb657bf1852fd947c04`.
+The clean upstream W3 baseline remains **22 PASS**, with
+[baseline-typed.json](/tmp/orc-w3-dynamic-reevaluation-20261012/baseline-typed.json)
+SHA-256 `2e360b94a3cd7c997a21fc5f26c00ea84c56c5cfafeb109974223c35f5e030f6`.
+The comparison guards frozen runtime/stdlib/reused helper and consumer bytes
+around execution; the authorized new fixture/module do not replace those
+owners. These qualified receipts and prior Q1–Q5/fault/provider/readers
+evidence are reused, not rerun or added to a new full-suite total. Existing
+upstream RED full campaigns retain their original limits and outcomes.
+
+The final refined module is SHA-256
+`607bb07c0c44bd95df8d6a65303ab07a5ba2ba4deb3b8d963de8989ed3634d2d`;
+its fixture remains unchanged. [Implementation handoff](/tmp/orc-w3-dynamic-reevaluation-20261012/implementation-handoff.json),
+SHA-256 `c5152428b393aad856ee9b36ba87c07eec3306631b7efb6600898c48641e7688`,
+binds all 100 case outcomes, exact receipt/source hashes, final edit-site files
+and refined source. [Observed findings/reproductions](/tmp/orc-w3-dynamic-reevaluation-20261012/implementation-findings.md),
+SHA-256 `d0804dd251af757b6dd417cdf6aba58e28478a9a4f7b4b597a93c6ec2b5cbb39`,
+retain the two RED rows and compiler-defect reproduction. The original
+[full-campaign attempt inventory](/tmp/orc-w3-dynamic-reevaluation-20261012/final-review-inventory.json),
+SHA-256 `40f5cf818ac0c344105885503ceac8a3203dee7de4aaf4b2f4c77d068fd2c2bd`,
+is unchanged; its attempts remain separate from fresh refinement attempts.
+
+The metadata/source-file refinement on intermediate module SHA-256
+`b70e4ce5dcb69c9ffed49ddeb3f52403a612b618b9a203cb7dfe9f5c38ad995b`
+collected **101** and ran the eight changed receipt rows with
+`-q -n 16 --dist=worksteal ... -k 'RW_E or RW_D01 or RW_D02 or RW_D03 or RW_C01'`:
+**8 PASS in 34.70s**, exit 0. [Command/source receipt](/tmp/orc-w3-dynamic-reevaluation-20261012/refinement.json),
+SHA-256 `4d4010bf790c800e73469c7c43dbca78bce67af8c4975e631411e25c5b8d4bbb`,
+and [raw log](/tmp/orc-w3-dynamic-reevaluation-20261012/refinement.log), SHA-256
+`272c9fd842f29d5089fd6e7fbe27d6cbe48bfcdbc73b0e5c3a49ee924d0244bb`,
+preserve that result. Reviewer inspection then found its E04 native helper was
+accidentally self-recursive and unused. That PASS is **insufficient E04
+evidence** and does not qualify the correction; the other seven unchanged
+rows retain applicable metadata proof.
+
+The author corrected source mutation order, retained the typed pure
+`defun`/direct argv, and added public compiled helper/call dataflow assertions.
+On final SHA `607bb07c…`, collection again finds **101**; the explicit
+`-q ... -k RW_E04` check gives **1 PASS, 100 deselected, 8.31s**, exit 0.
+[Final collection](/tmp/orc-w3-dynamic-reevaluation-20261012/collection-e04-final.txt),
+SHA-256 `dac557ae125b405c1fc322119c8f7eb02eb8b85081233e3ce9a5df26c45278f3`,
+and [final E04 log](/tmp/orc-w3-dynamic-reevaluation-20261012/e04-final.log),
+SHA-256 `55eca6e25ac2983eafec9f75df653c05c65cd00e638ac6c87746638f6c181ac6`,
+support that bounded check. The final E04 receipt is SHA-256
+`246dbf9ecc4c15bdf3911ce412dce98964d03a35a79cd61fc0d3b7370bcef942`,
+at the exact attempt path in the implementation handoff. It supersedes both
+faulty intermediate E04 receipts; raw history remains. This final one-row
+result is not a rerun of the full campaign or eight new logical observations.
+
+| Source checkpoint | Actual checks | Qualification |
+| --- | --- | --- |
+| Original full SHA `7a98215a…` | 101 collected; 99 PASS, 2 FAIL; 176.94s; exit 1 | All 100 logical observations executed; original E04 imported native helper is valid. Source, receipts and RED rows frozen. |
+| Earlier E04 fairness attempt | [Retained log](/tmp/orc-w3-dynamic-reevaluation-20261012/e04-refinement.log), SHA-256 `ab9411fa63935ca22a451c182ed93eac10ca9409aac33ade15f0ac88df1cf9d2`; 1 PASS, 100 deselected; 11.89s | Faulty intermediate helper/call mutation; insufficient E04 proof, superseded by the final dataflow check. No original full result is relabeled. |
+| Intermediate metadata SHA `b70e4ce5…` | 101 collected; selected eight receipt rows PASS; 34.70s; exit 0 | Seven unchanged rows reusable. E04 remains insufficient despite its PASS and is superseded. |
+| Final SHA `607bb07c…` | 101 collected; E04 1 PASS, 100 deselected; 8.31s; exit 0 | Corrected same-module helper/call dataflow. Seven unchanged metadata rows and original unaffected campaign evidence reused; no new logical observations or final-SHA full rerun. |
+
+Final independent Sol code conformity is **PASS**, then quality **APPROVED**,
+at SHA `607bb07c…`: [final code review](/tmp/orc-w3-dynamic-reevaluation-20261012/final-code-review.md),
+SHA-256 `ae50e57d11d7114701df30523eb62834545bbf0aa01b01bed5f759f01263c264`,
+with [source/evidence hashes](/tmp/orc-w3-dynamic-reevaluation-20261012/final-code-review-hashes.json),
+SHA-256 `fc64f54543222f93eaced433d1b2ce1af83abe8cacdc328eb0ac2991191dbcb2`.
+The full campaign's 99/2 result stays attached to SHA `7a98215a…`; the final
+source acceptance uses that unchanged-scope campaign, seven applicable
+refinement rows and the corrected E04 row. No complete repository PASS or
+full-matrix rerun at the refined SHA is claimed. Final independent Astra
+document conformity is **PASS**, then quality **APPROVED**:
+[final document review](/tmp/orc-w3-dynamic-reevaluation-20261012/final-document-review.md),
+SHA-256 `94c48663723193b92acb7fe8128698aac417baaa7d48b5134b77f6f338d4f7e8`.
+The bounded evidence/decision packet is reviewed and delivered; root commit,
+postcommit checks and push remain later closeout steps. These reviews do not
+turn the two parity FAIL into PASS or select the owner DC-P disposition.
+
+The coordinator's final synchronization checkpoint ran `git fetch origin`
+successfully (exit 0). Committed `origin/main` remains
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca` and shared repairs remain
+`6846531c40f65fe379dffc4ab61a68a45678d4c2`, already ancestral to the native
+pin; no new committed upstream change requires import or re-pinning.
+[Final checkpoint receipt](/tmp/orc-w3-dynamic-reevaluation-20261012/final-upstream-check.json),
+SHA-256 `f7f5828f666b90dc6d0420929c3b6214251a04c26293c6bbcf922729e1f70bb8`,
+keeps this moving-head inspection separate from frozen historical controls.
+
+### Concrete DC-P Choice And Recommendation
+
+**Recommendation from this bounded evidence: retain typed W3 for the
+demonstrated fixed improve/search consumers at the current migration decision.**
+W3 already supplies the principal context/hook improvement, and the rubric
+edit ties. Native saves a private state declaration and offers ordinary
+function-value composition, but this tranche removes **zero production
+owners** while retaining both runtime/compatibility owners. W3 keeps early
+internal diagnostics and committed recovery; native demonstrably loses those
+guarantees and repeats successful calls. This evidence does not yet justify
+that production tradeoff for these two consumers. The typed zero-limit and
+strict-Boolean transport differences remain open and need bounded disposition
+before relying on those exact contracts; retaining W3 does not certify them.
+
+This recommendation concerns these fixed consumers, not abandonment of the
+owner's broader Scheme-like dynamic direction. The qualified native code and
+its demonstrated ordinary-function capabilities remain available. Current
+continue/execute neither stops dynamic research nor authorizes deleting that
+qualified code; any later allocation, adoption or retirement needs its explicit
+scoped owner disposition.
+
+This is an evidence recommendation, not the owner's disposition. The exact
+DC-P choices remain: **continue explicitly selecting this fresh-only,
+sequential native profile and authorizing one bounded Phase 6b migration of
+`experiments/mlevolve_pair/search_compact.orc`, entry `run-search`**, preserving
+`commands_compact.json`, complete policy and strict `SearchResult`; **revise
+one named bounded correction with one reevaluation**; or **stop and retain the
+typed fallback**. No generic continue, test count or report publication selects
+that migration, an adopted/default target or Phase 7 retirement. W3 candidate
+import is also unselected; its implemented comparator is a separate checkout.
+
+The sources/probes are scripted local command programs using existing policy
+oracles and concrete source edits. They establish the exercised behavior and
+edit sites, not human productivity, provider quality, paid cost or production
+performance. Runtime helpers are reused without duplicating their policy;
+staged target changes and diagnostic variants are explicit. Paid/live
+qualification, unavailable effect classes and direct dynamic OMP remain their
+existing separate gaps. Broad compiler deletion requires future caller/run
+dispositions and measured owner removal, which this packet does not supply.

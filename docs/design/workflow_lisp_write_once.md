@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** proposed target; not implemented and not current syntax
+- **Status:** W3 implemented upstream at 2.36, absent from this candidate; the local body preserves earlier proposal context. Other rules retain their independent proposal/status scope.
 - **Kind:** language and standard-library contract, with one authoring rule
   that needs no language change
 - **Owner:** Workflow Lisp frontend
@@ -18,6 +18,19 @@
   [parametric type system](workflow_lisp_parametric_type_system.md),
   [composition-first procedures](workflow_lisp_composition_first.md),
   [pure list traversal](workflow_lisp_pure_list_traversal.md)
+
+**Current W3 route, 2026-10-12:** fixed upstream
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca` contains implementation `8e6e06b2`
+and bounded closeout `d6f76950`. Its committed design §6, closeout and consumers
+are available in the clean typed comparator through the
+[reevaluation plan](../plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md).
+Use those committed sources for actual 2.36 grammar and qualification limits;
+the earlier grammar/target wording below does not describe current upstream W3.
+W3 uses compile-time captures and four-argument `std/improve` selected by entry
+graph, with no runtime closures. The candidate retains qualified fresh-only
+native 3.0 and has not imported W3. Owner execute authorizes the paired
+comparison and DC-P preparation, not adoption or migration; frozen proposed-W3
+comparisons remain historical. The [actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12) records the complete campaign with two parity FAIL retained; final code and document reviews are approved.
 
 ## 1. Summary
 
@@ -192,6 +205,11 @@ Correctness burden removed: a change to a helper's body forces an edit to the
 `:effects` clause of every procedure that calls it, directly or not.
 
 ## 6. W3: Hooks See Their Context
+
+This section preserves the earlier branch proposal. For implemented upstream
+2.36 grammar, bounded signature inference and qualification, use the committed
+W3 design/closeout linked by the [reevaluation plan](../plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md).
+W3 is absent from this candidate; its real comparison with native 3.0 executed all 100 logical observations. Final code and document reviews are approved in the packet above.
 
 ### 6.1 The problem
 

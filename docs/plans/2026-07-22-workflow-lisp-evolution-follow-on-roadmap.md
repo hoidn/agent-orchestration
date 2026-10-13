@@ -652,7 +652,18 @@ and any necessary allocation.
 
 ## W3 — Local Hooks With Inferred Context
 
-**Status:** pending typed Phase 4c comparator/fallback in the
+**Current status, 2026-10-12:** W3 is implemented upstream at 2.36 on fixed
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca` (implementation `8e6e06b2`,
+bounded closeout `d6f76950`), available in the clean separate typed comparator
+and not imported into this candidate. The
+[reevaluation plan](2026-10-12-dynamic-core-w3-reevaluation-plan.md) routes to
+committed W3 design/closeout and selects the owner-authorized paired
+comparison with qualified fresh-only native 3.0 and concrete DC-P preparation.
+The [actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12) records all 100 observations executed, with two retained parity FAIL; final code and document reviews are approved.
+No adoption, migration or retirement is selected. W3 retains compile-time
+captures; W1/W2 and runtime closures remain separate.
+
+**Historical branch sequencing, 2026-10-02:** pending typed Phase 4c comparator/fallback in the
 [evaluated-execution delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities).
 The 2026-10-01 integration is conditioned on this branch by the 2026-10-02 dynamic
 qualification route below. W3 implementation/target selection remain pending;
@@ -664,7 +675,9 @@ retains Task 4 qualification and Tasks 11–14 typed delivery: multiple local
 bindings, inferred lexical captures and expected `ProcRef` signatures, then
 removal of `inputs I` and context-only records from `improve` callers. Preserve
 useful domain records, definition-site values, once-only effects and old-target
-compatibility. Grammar, inference and stdlib target/module decisions stay open.
+compatibility. Grammar, inference and stdlib target/module decisions were open
+at that historical branch cut; they are now resolved upstream within W3's
+bounded closeout, not imported locally.
 
 Task 4 and Phase 6a supply the typed comparator for DC-U. Use the best executable
 incumbent and clearly labeled proposed W1/W3 variants; do not require building
@@ -822,11 +835,12 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   anchor. It owns the value-returning review helper and generic-union delta;
   `std/phase` remains available beside `std/improve` until CF-1c decides
   otherwise.
-- [W3](#w3--local-hooks-with-inferred-context) remains typed Phase 4c
-  comparator/fallback. Task 4 and Phase 6a feed DC-U; its Tasks 11–14 and Phase
-  6b rollout follow only if that destination is retained. Selected dynamic
-  closures replace future W3 delivery, preserving caller/compatibility duties;
-  no requirement to build W3 before the dynamic spike.
+- [W3](#w3--local-hooks-with-inferred-context) is implemented upstream at 2.36,
+  absent from this candidate and available as the clean pinned typed comparator.
+  The [current reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+  compares it with qualified native 3.0 and prepares DC-P without adoption or
+  migration. Earlier Task 4/DC-U and future-delivery choices remain historical;
+  caller/compatibility duties and one selected Phase 6b migration remain.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:

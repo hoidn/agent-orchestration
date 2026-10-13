@@ -6,6 +6,16 @@
 - **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.
 - **Plan:** the [dynamic-core evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) owns qualification, bounded experiments, decision gates and changes to prospective delivery. Selection for evaluation is not production adoption.
 
+**Current comparison, 2026-10-12:** the qualified native runtime remains
+`b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012`, target 3.0 and fresh-only.
+W3 is implemented upstream at target 2.36 on pinned
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca` (implementation `8e6e06b2`,
+closeout `d6f76950`), available in the clean typed comparator and not imported
+into this candidate. The [reevaluation plan](../plans/2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+owns the authorized real paired comparison and concrete DC-P decision
+preparation. The [actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12) records all 100 logical observations executed, with two genuine parity FAIL; final code and document reviews are approved. Earlier W3 counterfactuals below
+retain their historical scope. No adoption or migration follows from execute.
+
 ## 1. Recommendation
 
 Use a small dynamically typed lexical language: ordinary functions and closures,
@@ -65,8 +75,9 @@ W1 removes repeated constructor type names; W3 removes context-only records and
 `inputs I`; W2/W4 simplify effects and provider options independently; W5 adds
 constraint inference only where a real caller needs it. Credit those gains to
 the incumbent before attributing all improvements to dynamic typing.
-Use the best executable typed control; label unimplemented W1/W3 rewrites as
-counterfactual evidence, without requiring both candidates to ship first. Keep
+Use the best executable typed control. The frozen DC-2 comparison labeled its
+then-unimplemented W1/W3 rewrites as counterfactual evidence; the current
+reevaluation must use real implemented W3, while W1 remains separate. Keep
 useful domain types and schemas in the comparison. Simpler binary decisions
 already expressible with booleans are not a unique gain of the dynamic core.
 
@@ -763,9 +774,9 @@ The four paired author edits retain genuine boundary declarations on both sides.
 Use complete-consumer checks after each edit and include source/contract repair,
 internal errors before and after actual effects, fresh-restart repeated work,
 and the lack of static tracking/resume. Credit already available typed
-`record-update`, String context inputs and ordinary helpers; label W1/W3
-counterfactuals as proposed. Source size alone and removing legitimate domain
-types are not utility gains.
+`record-update`, String context inputs and ordinary helpers; this historical
+DC-2 scope labels W1/W3 counterfactuals as proposed. Source size alone and
+removing legitimate domain types are not utility gains.
 
 For utility interpretation, distinguish value arguments from type parameters:
 ordinary helpers still take initial values, hook functions and limits. The
@@ -914,7 +925,7 @@ unimplemented declaration forms. Do not remove their existing typed support.
 
 | Route | What it achieves | What remains to maintain |
 | --- | --- | --- |
-| Retain typed evaluated execution; qualify W3 separately | Existing domain contracts, early checks and recovery; W3 can reduce context forwarding without dynamic values. | Typed specialization/proofs and pending shared runtime delivery; the dynamic evaluation can remain historical evidence. |
+| Retain typed evaluated execution with implemented upstream W3 | Existing domain contracts, early checks and recovery; upstream W3 reduces context forwarding without dynamic values. | Typed specialization/proofs, upstream bounded composition limits and separate integration/qualification if this branch selects that route; the dynamic evaluation can remain historical evidence. |
 | Promote the experimental leaf bridge | Already executes both policies with fresh local effects; lowest immediate integration work. | Two frontends, source assembly, per-effect legacy workflows/state, caller wire reconstruction and all old compiler machinery. It preserves DC-2's adverse edit costs and removes no production owner. Reject as the final topology. |
 | Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Qualified branch destination; DC-P adoption/migration remain unselected. |
 

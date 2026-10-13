@@ -31,11 +31,24 @@ command-backed deterministic procedures and stand-in providers.
 
 ## Status, Authorities, And Scope
 
-Status: draft; implementation is not selected. The W3 planning revision is
-recorded below. Qualification supplies evidence for the open decisions;
-implementation starts only after the applicable decisions are resolved.
+Status on this candidate: local W3 delivery/import is unselected; other
+repetition rules retain their independent scope. W3 is implemented upstream
+at target 2.36 on fixed `47e85a9c7e452bfd367275a15d5e97b928efa5ca`
+(implementation `8e6e06b2`, bounded closeout `d6f76950`). The
+[reevaluation plan](2026-10-12-dynamic-core-w3-reevaluation-plan.md) routes to
+the clean typed comparator's committed design/closeout and owns the authorized
+comparison with qualified fresh-only native 3.0. The [actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12) records all 100 observations executed with two retained parity FAIL; final code and document reviews are approved. No adoption or
+migration is selected. The dated amendments, decisions and task checkmarks
+below preserve this branch's earlier planning state; pending/future W3 delivery
+wording is not current upstream status or permission to implement W3 again.
+Frozen proposed-W3 controls remain historical evidence.
 
 ### W3 Planning Amendment
+
+Current upstream W3 is implemented at 2.36 and compared through the separate
+pinned [reevaluation route](2026-10-12-dynamic-core-w3-reevaluation-plan.md).
+The dated amendment below preserves historical candidate sequencing and
+checkmarks; it does not reopen upstream delivery or select candidate import.
 
 Owner request, 2026-10-01: make the before/after local-hook proposal concrete
 in the roadmap and this planset. W3 covers multiple local bindings, inferred

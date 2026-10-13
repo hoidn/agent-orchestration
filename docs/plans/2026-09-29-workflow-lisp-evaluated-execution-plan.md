@@ -391,6 +391,18 @@ selected.
 
 ### Delivery Order And Preserved Capabilities
 
+**Current comparison amendment, 2026-10-12:** native runtime
+`b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012` remains the qualified fresh-only
+target-3.0 candidate. W3/2.36 is implemented upstream at fixed
+`47e85a9c7e452bfd367275a15d5e97b928efa5ca` (implementation `8e6e06b2`,
+closeout `d6f76950`), available only in the clean separate typed comparator;
+it has not been imported into this candidate. Owner execute selects the
+[real W3 reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md) and
+concrete DC-P decision preparation. The [actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12) records the complete 100-observation campaign and two retained parity FAIL; final code and document reviews are approved. DC-P adoption,
+Phase 6b migration and Phase 7 retirement remain unselected. Earlier proposed
+W3 controls and prospective delivery wording retain their dated historical
+scope; current comparison does not require implementing W3 again.
+
 **Branch amendment, 2026-10-02:** preserve completed Phase 2 and Phase 3
 Tasks 1–5, then follow the
 [dynamic-core evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md).
@@ -439,7 +451,7 @@ work stays with its upstream owner; do not implement the same component here.
 | Phase 3 Tasks 6–8, 12–15 | Import necessary shared performers, request/input transport and validation; compare fresh restart/repeated work. Task 8 recovery is optional, not a candidate gate |
 | Phase 3 Tasks 9–11, 16–17 | Child runs when needed; readers/watchdog are readiness, not initial-spike prerequisites; honest availability and separate selected-profile closeout |
 | Phase 4a/4b and Phase 5 | Shared, consumer-driven work after applicable runtime contract proofs; typed Phase 3 completion alone never authorizes dynamic parallel effects |
-| Phase 4c W3 | Typed comparator/fallback; candidate lexical closures replace future W3 delivery only if selected, with preserved caller/compatibility evidence |
+| Phase 4c W3 | Implemented upstream at 2.36, not imported here; the current reevaluation uses its clean pinned comparator and native 3.0 without selecting either migration. Historical future-delivery choices below predate upstream W3 implementation |
 | Phase 6a / 6b / 7 | Pilot evidence feeds DC-U; migrate once after DC-P; retire only with explicit consumer and existing-run dispositions |
 
 W1/W5 are static-specific or deferred; EL-1 must reassess useful effect
@@ -460,9 +472,10 @@ Preserve useful boundary/domain contracts while evaluating internal typing.
 | Typed prompt and result contracts | Preserve prompt assembly, validation and typed value transport for admitted effects; the pilot exercises these through public entries |
 | Artifact production, publication, consumption, freshness and lineage | Preserve the existing contracts needed by each migrating consumer and demonstrate a producer-to-consumer handoff. Memoized values do not substitute for artifact tracking, nor do declared dependencies prove every file an agent actually read |
 | Explicit portable provider context | A named Phase 4 priority, with capture, transformation/forking and rebinding evidence; not part of the first-release portable provider subset |
-| Local hooks with inferred context (W3) | Phase 6a/DC-U compares full caller improvement against the typed baseline and labeled proposed W1/W3 controls. Phase 4c remains the typed fallback; selected dynamic closures may replace its future delivery, and Phase 6b migrates only the chosen destination |
+| Local hooks with inferred context (W3) | Historical Phase 6a/DC-U uses its frozen typed baseline and labeled proposed W1/W3 controls. Current paired reevaluation uses implemented upstream W3, credits inferred hooks and context-free `improve`, and prepares DC-P; Phase 6b migrates only the explicitly chosen destination |
 
-Delivery integration, 2026-10-01, conditioned by the 2026-10-02 amendment:
+Historical delivery integration, 2026-10-01, conditioned by the 2026-10-02 amendment
+(superseded for upstream W3 availability by the current comparison amendment):
 W3 remains Phase 4c on the typed comparator/fallback route. The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
 retains its technical tasks, not a competing schedule. Grammar, target and
 module compatibility remain open prerequisites; scheduling W3 does not mark
@@ -553,7 +566,11 @@ ledger. Authoring changes reuse existing effect and execution owners.
   run-reference modes. Name the consumer
   and the missing behavior before selecting a class. Path-mode run references
   already belong to Phases 2–3; they do not wait here.
-- **4c — W3 local hooks (typed comparator/fallback):** if that route is selected,
+- **4c — W3 local hooks (implemented upstream typed comparator/fallback):**
+  W3/2.36 is available in the pinned comparator described by the current
+  comparison amendment; candidate import and migration remain unselected.
+  The following records the original delivery obligations, now closed upstream
+  within its documented bounded scope. Historically, if that route was selected,
   deliver multiple `let-proc` bindings, inferred
   lexical captures, expected `ProcRef` signatures and `improve` without
   `inputs I`, using the existing compiler and Phase 3 evaluator. The
@@ -646,7 +663,12 @@ as missing. The candidate's DC-F/DC-U/DC-P owner decisions govern further
 investment; evidence is limited to the capabilities exercised, and untested
 context or other capabilities neither prove benefit nor authorize expansion.
 
-For W3, use the existing explicit-hook API for the baseline and perform
+The current [W3 reevaluation](2026-10-12-dynamic-core-w3-reevaluation-plan.md)
+uses implemented inferred hooks and context-free `improve` from the separate
+typed comparator; it records current execution rather than replacing DC-U's
+frozen controls. The following preserves the historical pilot instructions.
+
+For that earlier W3 pilot, use the existing explicit-hook API for the baseline and perform
 [component Task 4](2026-09-29-workflow-lisp-repetition-reduction-plan.md#task-4-qualify-w3-on-concrete-callers):
 compare the local-hook proposal, identify forwarding to delete and settle
 the migration/compatibility decision. Qualification preparation can overlap

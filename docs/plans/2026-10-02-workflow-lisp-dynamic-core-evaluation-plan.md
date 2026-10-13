@@ -46,6 +46,21 @@ contracts, including the [branch-qualified profile](../../specs/versioning.md#br
 The [guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
 provides complete examples; full readiness/adoption remain separate.
 
+**Implemented-W3 reevaluation, 2026-10-12:** owner execute selects the
+[finite actual comparison](2026-10-12-dynamic-core-w3-reevaluation-plan.md),
+not adoption or migration. The [current packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
+records all 100 logical observations executed: 98 PASS and two genuine parity
+FAIL, plus the passing provenance guard (101 collected, 99 PASS, 2 FAIL).
+Original campaign source/receipts remain pinned separately from accepted
+E04/source-receipt refinements, seven reusable affected checks and a final E04 check; final code and document reviews are approved. Native
+code pin `b0b05d50` remains qualified fresh-only 3.0; implemented W3/2.36 stays
+at exact clean comparator pin `47e85a9c`, outside this candidate runtime.
+The packet recommends retaining typed W3 for the demonstrated fixed consumers;
+that bounded judgment does not stop the owner's broader Scheme-like dynamic
+direction or authorize deleting qualified code. DC-P's explicit disposition,
+the one possible later `search_compact.orc::run-search` migration and Phase 7
+remain unselected. Historical DC-2 evidence/pins below retain their scope.
+
 Initial owner amendment, 2026-10-02: select DC-0 qualification followed by a
 bounded feasibility spike. The initial integration/planning turn implemented no
 candidate. The subsequent owner instruction to start execution activates the
@@ -125,7 +140,11 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest checkpoint, 2026-10-12: checked `origin/main` at `47e85a9c` and shared
+Latest checkpoint, 2026-10-12: the [final comparison checkpoint](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12)
+records a successful fresh fetch with unchanged main `47e85a9c` and shared
+repairs `6846531c`; no relevant committed delta or comparison-pin change.
+
+Earlier import checkpoint, 2026-10-12: checked `origin/main` at `47e85a9c` and shared
 repairs at `6846531c` (already integrated). Selectively import recursive result
 schema rendering `2acd4b51`, provider destination `fd885caa` with its R2 design
 `344a6fd3`, and command cache exclusion `f57104af`. The
@@ -210,6 +229,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Complete; all 110 cases executed; code/conformity PASS at `4728b14e`; independent document/utility review PASS; DC-U owner continue on 2026-10-02 | Full protocols and edits/diagnostics recorded in the existing report's DC-U packet; selects bounded DC-3 qualification only |
 | DC-3 — production readiness | Reviewed Tasks 1–8 atomic cutover; branch-qualified target 3.0 / schema 3.1 public route, shared boundaries and complete consumers; Q1–Q5 code proof complete at `0bdb7460` | [Final documentation/handoff record](2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md#completion-record); DC-P open, no adoption/default/migration |
+| Implemented-W3 reevaluation | All 100 logical observations executed; 98 PASS, two genuine parity FAIL; provenance guard PASS; refinements qualified; final code and document reviews approved | [Actual packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#implemented-w3-reevaluation--2026-10-12); concrete DC-P choice prepared without owner adoption/migration disposition |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
 Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
