@@ -163,7 +163,7 @@ def _require_matching_result_root(header: Mapping[str, Any], run_root: Path, wor
         )
 
 
-def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None) -> int:
+def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True) -> int:
     """Rebuild and compare before loading the stored program, pins or memo."""
     try:
         if run_files is not None:
@@ -194,7 +194,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         authority = load_run_authority(run_root, header=header, run_files=run_files)
         provider_io = fresh.provider_io.bind(authority.program)
         _warn_changed_interpreters(authority)
-        exit_code, _ = execute_pure_resume(authority, inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io)
+        exit_code, _ = execute_pure_resume(authority, inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
         return exit_code
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
@@ -265,6 +265,7 @@ def run_evaluated_workflow(
                     run_id=state_manager.run_id,
                     workspace=workspace,
                     provider_io=built.provider_io,
+                    stream_output=not getattr(args, "quiet", False),
                 )
                 return exit_code, state_manager.run_id, state_manager.run_root, _run_outputs(exit_code, value)
     finally:

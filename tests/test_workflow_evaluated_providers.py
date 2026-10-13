@@ -463,3 +463,15 @@ def _assert_public_nested_labels(program, request, commit):
     assert request["prompt"].count("typed input") == 2
     assert request["prompt"].count("AUTHORED SUFFIX") == 1
     assert commit["identity"] == " / ".join((program.tree["entry"], call["frame"], provider["site"]))
+
+
+@pytest.mark.parametrize(("extra", "streamed"), [((), True), (("--quiet",), False)], ids=["default", "quiet"])
+def test_provider_output_streams_to_the_terminal_unless_quiet(tmp_path, extra, streamed):
+    """The provider's stdout/stderr reach the CLI's streams live by default; the attempt files are unchanged."""
+    result = _cli(tmp_path, _fixture(tmp_path), extra=extra)
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    (stdout_file,) = run_root.glob("effects/*/attempt-1/stdout.txt")
+
+    assert result.returncode == 0, result.stderr
+    assert ("complete stdout\n" in result.stdout, "complete stderr\n" in result.stderr) == (streamed, streamed)
+    assert stdout_file.read_bytes() == b"complete stdout\n"
