@@ -1870,6 +1870,31 @@ Prefer `match` for exhaustive deconstruction; use typed discriminant `if` or
 including nested native union values, is in
 [`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py).
 
+### 10.1 A step that may be unable to answer
+
+When a provider may be unable to do its task, give its result a variant that
+says so, instead of leaving it to invent a value or fail the attempt:
+
+```lisp
+(defunion MoveOutcome
+  (Moved (position String))
+  (Blocked (reason String)))
+
+(let* ((white (provider-result providers.white :prompt prompts.white
+                :inputs (state.position) :returns MoveOutcome)))
+  (match white
+    ((Moved w) (continue (loop-state :like state :position w.position)))
+    ((Blocked w)
+      (done (variant GameOutcome Blocked :side "White" :reason w.reason)))))
+```
+
+`Blocked` is an ordinary committed result; the runtime does not retry it, and
+`match` routes it to a typed outcome of the loop (here the workflow's own
+`GameOutcome` union). Authored prompts carry no transport instructions, such as
+result-file paths or environment variables: the runtime renders the delivery
+contract for the transport it selects. The full example is
+[`experiments/agent_chess/chess.orc`](../experiments/agent_chess/chess.orc).
+
 ## 11. Contexts And Derived State
 
 These private context concepts remain useful for admitted helper composition.

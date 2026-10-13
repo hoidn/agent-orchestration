@@ -56,7 +56,7 @@ else:
             __POSITIONS__[1]: __POSITIONS__[2],
             __POSITIONS__[3]: __POSITIONS__[4],
         }[visible_board]
-    output = json.dumps(position).encode()
+    output = json.dumps({"variant": "Moved", "position": position}).encode()
 target = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
 target.write_bytes(output)
 '''.replace("__PYTHON__", sys.executable).replace("__POSITIONS__", repr(POSITIONS))
@@ -136,7 +136,8 @@ def test_public_run_alternates_two_rounds_and_completed_resume_does_not_redispat
 
     run_root, snapshot = _run_snapshot(root)
     assert snapshot.terminal.data == {
-        "record": "terminal", "outcome": "completed", "value": POSITIONS[-1]
+        "record": "terminal", "outcome": "completed",
+        "value": {"variant": "Finished", "position": POSITIONS[-1]},
     }
     requests_before = (root / "provider_calls.jsonl").read_bytes()
     memo_before = (run_root / "memo.jsonl").read_bytes()
@@ -201,19 +202,37 @@ def test_invalid_black_result_preserves_last_accepted_white_board(tmp_path):
 
     _, after = _run_snapshot(root)
     assert after.terminal.data["outcome"] == "completed"
-    assert after.terminal.data["value"] == POSITIONS[2]
+    assert after.terminal.data["value"] == {"variant": "Finished", "position": POSITIONS[2]}
     assert after.active_commits[white_commit.data["identity"]] == white_commit
     assert {path.name: path.read_bytes() for path in white_attempt.iterdir()} == white_evidence
     assert {path.name: path.read_bytes() for path in failed_black_attempt.iterdir()} == failed_black_evidence
 
 
-def test_non_string_black_result_preserves_last_accepted_white_board(tmp_path):
+def test_non_outcome_black_result_preserves_last_accepted_white_board(tmp_path):
     root, env = _workspace(tmp_path, bad_call=1, bad_output="17")
     result = _cli(root, env, "run", *_arguments(root), *_input_args(rounds=1))
     assert result.returncode == 1
     assert (root / BOARD_PATH).read_text() == POSITIONS[1]
     _, snapshot = _run_snapshot(root)
     assert snapshot.terminal.data["outcome"] == "failed"
+
+
+def test_blocked_white_result_commits_and_ends_game_without_retry(tmp_path):
+    blocked = {"variant": "Blocked", "reason": "no legal move"}
+    root, env = _workspace(tmp_path, bad_call=0, bad_output=json.dumps(blocked))
+    result = _cli(root, env, "run", *_arguments(root), *_input_args(rounds=2))
+    assert result.returncode == 0, result.stderr
+    assert [call["provider"] for call in _calls(root)] == ["codex"]
+    assert (root / BOARD_PATH).read_text() == POSITIONS[0]
+
+    _, snapshot = _run_snapshot(root)
+    assert snapshot.terminal.data["outcome"] == "completed"
+    assert snapshot.terminal.data["value"] == {"variant": "Blocked", "side": "White", "reason": "no legal move"}
+    white_commit, = [commit for commit in snapshot.active_commits.values() if commit.data["effect_class"] == "provider"]
+    assert white_commit.data["value"] == blocked
+    started = [entry.data["identity"] for entry in snapshot.entries if entry.data["record"] == "started"]
+    assert started.count(white_commit.data["identity"]) == 1
+    assert not [entry for entry in snapshot.entries if entry.data["record"] == "failed"]
 
 
 def test_board_writer_refuses_paths_outside_its_artifact_directory(tmp_path):
