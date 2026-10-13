@@ -175,12 +175,16 @@ Coordinator verification on `aba32230`: the owner modules
 `tests/experiments/test_agent_chess.py`, `test_provider_delivery_census.py`)
 collect and pass, **384 passed** (`narrow-owners-final.log`).
 
-## Affected-Module Campaign On `aba32230`
+## Affected-Module Campaign On `aba32230` (`affected-final.log`)
 
-PENDING at the time of this commit: `pytest -q -n 16 --dist=worksteal` over
-`tests/test_workflow_evaluated_*.py`, `tests/test_prompt_contract*.py`,
-`tests/test_prompt_resume_child.py`, the chess and census modules
-(`affected-final.log`); recorded in the follow-up commit.
+`pytest -q -n 16 --dist=worksteal` over `tests/test_workflow_evaluated_*.py`,
+`tests/test_prompt_contract*.py`, `tests/test_prompt_resume_child.py`, the
+chess and census modules: **2 failed, 2,679 passed, 11 min 6 s**.
+
+| Failure | Disposition |
+| --- | --- |
+| `test_workflow_evaluated_programs.py::test_growth_selectors_take_both_arms_and_counters_change_after_seeds` | Pre-existing: in the branch baseline list and in the final full suite; unrelated owner |
+| `test_workflow_evaluated_durability_model.py::test_lost_authority_with_journal_refuses_without_reconstruction_or_launch[preexisting-roots]` | Environment-dependent, not caused by this delivery: it passes alone (`1 passed in 4.03 s`), fails together with its sibling `test_authority_survives_loss_of_unsynced_writes[preexisting-roots]` inside the module with `OSError: cannot open run root …/images/010/ws/.orchestrate/runs/<id>: cannot open directory root component: symlink or non-directory` (`durability-module-rerun.log`), and the sibling fails with the same error on the pre-change commit `27792626` in a detached worktree (`1 failed, 5 passed in 104 s`). The failure sits in the test's filesystem-image topology under `/tmp/pytest-of-ollie`, which this machine's pytest temp state is known to disturb (undeletable `garbage-*` roots); no code of this delivery touches run-root creation or authority |
 
 ## Limits
 
