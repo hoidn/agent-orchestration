@@ -22,7 +22,7 @@ from tests.test_workflow_evaluated_consumers import (
     _predecessors as _consumer_predecessors,
     _review,
 )
-from tests.test_workflow_lisp_improve_example_e2e import (
+from tests.workflow_lisp_improve_example_sources import (
     APPROVED_LAUNCH,
     EXHAUSTED_LAUNCH,
     QUESTION,

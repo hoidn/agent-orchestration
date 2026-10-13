@@ -1,16 +1,12 @@
-"""Maintained consumers at 2.35 against their accepted old route, with deterministic stand-ins.
+"""Retained evaluated consumers with deterministic provider and command stand-ins.
 
-`std/improve` with its stand-in launcher, the reviewed change and serial best-of-N of
-the single-call comparison, and the generic run watchdog. Every scenario runs on both
-routes; values, ordered requests and counts agree apart from R1–R12, and the 2.35 run
-is stopped after a relevant commit, resumed through the CLI and resumed again once
-completed without dispatching anything again.
+Public compile/run checks stop at a committed effect, resume to completion and
+resume again without dispatching effects or changing committed artifact bytes.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
-from itertools import chain
 import json
 from pathlib import Path
 import re
@@ -21,13 +17,11 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow_lisp.route_readiness import load_route_readiness_registry, registry_entry_for_path
-from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _cli
-from tests.test_workflow_lisp_improve_example_e2e import APPROVED_LAUNCH, EXHAUSTED_LAUNCH, QUESTION, _params
+from tests.workflow_lisp_improve_example_sources import APPROVED_LAUNCH, EXHAUSTED_LAUNCH, QUESTION, _params
 from tests.workflow_evaluated_consumer_sources import (
-    BUGGY, CANDIDATES, PROGRAMS, SITE, assert_request_lineage, checked_run, compile_current, executions, flat_outputs,
-    current_route, git, install, install_shims, jsonl, lineage, missing_edges, old_route, request_view, requests, ROOT,
-    resume_to_completion, routes, sha256, stop_after,
+    BUGGY, BUNDLE, CANDIDATES, PROGRAMS, SITE, ROOT, assert_request_lineage, current_route,
+    git, install, install_shims, jsonl, lineage, missing_edges, request_view, requests, run_consumer,
 )
 
 
@@ -35,6 +29,23 @@ def _owners(route) -> list[tuple[str, str]]:
     """Effect class and owning definition of each commit, in journal order."""
     return [(data["effect_class"], re.findall(r"(?:workflow|procedure):([^\s\[]+)", data["identity"])[-1])
             for data in route.commits]
+
+
+def _assert_provider_policy(route) -> None:
+    request_view(route)  # Provider cwd and attempt result path in the rendered prompt.
+    for request in route.requests:
+        assert set(request["env"]) == {BUNDLE, SITE}
+        assert request["argv"] == ({
+            "claude": ["-p", "--model", "claude-sonnet-5-5", "--effort", "medium",
+                       "--permission-mode", "bypassPermissions"],
+            "codex": ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check",
+                      "--model", "gpt-6-sol", "--config", "model_reasoning_effort=high"],
+        }[request["tool"]])
+
+
+def _assert_prompt_values(request, *values: str) -> None:
+    for value in values:
+        assert value in request["prompt"], value
 
 
 @pytest.mark.parametrize("source", [
@@ -53,19 +64,14 @@ def test_public_direct_task_preserves_bool_policy_and_one_call_resume(tmp_path, 
     (root / source).parent.mkdir(parents=True)
     (root / source).write_bytes((ROOT / source).read_bytes())
     (root / "providers.json").write_text(json.dumps({"providers.direct": "codex_unrestricted_workspace"}))
-    (root / "inputs.json").write_text(json.dumps({"task": "Complete the direct task.",
-                                               "model": "gpt-6-sol", "effort": "high"}))
+    inputs = {"task": "Complete the direct task.", "model": "gpt-6-sol", "effort": "high"}
+    (root / "inputs.json").write_text(json.dumps(inputs))
     install_shims(tmp_path / "bin", monkeypatch, {"codex": [{"result": answer}]})
     frontend = [source, "--entry-workflow", "control/direct_task::direct-task", "--source-root", "workflows/library",
                 "--provider-externs-file", "providers.json"]
-    old_root = tmp_path / "old"
-    (old_root / source).parent.mkdir(parents=True)
-    (old_root / source).write_bytes((ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy/control/direct_task.orc").read_bytes())
-    for name in ("providers.json", "inputs.json"):
-        (old_root / name).write_bytes((root / name).read_bytes())
-    old = old_route(old_root, frontend)
 
     route = current_route(root, frontend, "control/direct_task::direct-task")
+    assert (root / source).read_bytes() == (ROOT / source).read_bytes()
 
     dry_run = _cli(root, "run", *frontend, "--input-file", "inputs.json", "--dry-run")
     report = _cli(root, "report", "--run-id", route.authority.run_root.name,
@@ -75,19 +81,14 @@ def test_public_direct_task_preserves_bool_policy_and_one_call_resume(tmp_path, 
         answer, 1, 1, [("provider", "control/direct_task::direct-task")], [[]], {1})
     request = route.requests[0]
     assert request["tool"] == "codex"
+    _assert_prompt_values(request, inputs["task"])
     assert "gpt-6-sol" in request["argv"]
     assert any("high" in argument for argument in request["argv"])
     assert_request_lineage(route)
-    assert old.value == {"__result__": answer}
-    assert request_view(old) == request_view(route)
+    _assert_provider_policy(route)
     assert dry_run.returncode == report.returncode == 0, (dry_run.stderr, report.stderr)
     assert json.loads(report.stdout)["run"]["workflow_outputs"] is answer
     assert requests(root) == route.requests
-
-
-def _chain(count: int) -> list[list[int]]:
-    """C9 when each commit's resolved input reads a result of every earlier commit."""
-    return [list(range(index)) for index in range(count)]
 
 
 def _predecessors(count: int) -> list[set[int]]:
@@ -104,8 +105,6 @@ def _files(root: Path, *bases: str) -> dict[str, bytes]:
 
 # std/improve ----------------------------------------------------------------------
 
-REVIEW = "decision=procedure:improve_experiment_proposal::review-proposal"
-REVISION = "next=procedure:improve_experiment_proposal::revise-proposal"
 VERDICTS = {
     "APPROVE": lambda hypothesis: {"variant": "APPROVE", "evidence": {"notes": f"methods:ok:{hypothesis}"}},
     "BLOCKED": lambda hypothesis: {"variant": "BLOCKED", "reason": {"issue": f"methods:blocked:{hypothesis}"}},
@@ -137,35 +136,6 @@ def _improve_required(route) -> list[set[int]]:
 
 
 BLOCKED_LAUNCH = {**APPROVED_LAUNCH, "outcome": "blocked", "note": "methods:blocked:warmup+r"}
-IMPROVE = [
-    pytest.param(("REVISE", "APPROVE"), REVIEW, 1, "launched", APPROVED_LAUNCH, id="approved-after-committed-review"),
-    pytest.param(("REVISE", "APPROVE"), REVISION, 2, "launched", APPROVED_LAUNCH,
-                 id="approved-after-committed-revision"),
-    pytest.param(("REVISE", "BLOCKED"), REVISION, 2, "held", BLOCKED_LAUNCH, id="blocked-after-committed-revision"),
-    pytest.param(("REVISE",) * 3, "loop:state[3] / REVISE", 6, "held", EXHAUSTED_LAUNCH,
-                 id="exhausted-after-final-continue"),
-]
-
-
-@pytest.mark.parametrize("verdicts,marker,paused,status,launch", IMPROVE)
-def test_public_improve_launcher_consumes_the_returned_proposal(tmp_path, monkeypatch, verdicts, marker, paused,
-                                                                status, launch):
-    old, new = routes(tmp_path, monkeypatch, "improve", _improve_plan(*verdicts), {"question": QUESTION}, marker)
-
-    (command,) = [data for data in new.commits if data["effect_class"] == "command"]
-    (old_argv,), (new_argv,) = (jsonl(route.root / "scripts/launch_experiment.py.argv.jsonl") for route in (old, new))
-    interpreter = json.loads((new.authority.run_root / "run.json").read_text(encoding="utf-8"))["interpreters"]
-    assert {"value": new.value, "providers": len(new.requests), "paused": len(new.paused),
-            "launches": [jsonl(route.root / "scripts/launch_experiment.log") for route in (old, new)],
-            "argv": [old_argv["argv"], new_argv["argv"][0]], "argv_digest": command["input_parts"]["argv"],
-            "command_env": [new_argv["bundle"], new_argv["PYTHONDONTWRITEBYTECODE"]],
-            "owners": _owners(new)[-1], "first": lineage(new)[0],
-            "missing": missing_edges(new, _improve_required(new))} == {
-        "value": {"status": status}, "providers": 2 * len(verdicts) - (verdicts[-1] != "REVISE"), "paused": paused,
-        "launches": [[launch], [launch]], "argv": [["python", *new_argv["argv"][1:]], interpreter["python"]["path"]],
-        "argv_digest": canonical_sha256(["python", *new_argv["argv"][1:]]),
-        "command_env": [new.result(command), "1"],
-        "owners": ("command", "improve_experiment_proposal::execute"), "first": [], "missing": [[]] * len(new.commits)}
 
 
 # Reviewed change -------------------------------------------------------------------
@@ -177,6 +147,7 @@ def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
     frontend = install(root, program, inputs, current=False)
     assert entry_target_dsl_version(root / program.source) == "2.36"
     route = current_route(root, frontend, marker)
+    assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
     summary = json.loads((root / "compile.stdout").read_text())
     build = Path(summary["build_root"])
     restored = ClosedProgram.from_artifact((build / "closed_program.json").read_text())
@@ -209,6 +180,14 @@ def test_public_w3_improve_launcher_consumes_returned_proposal(tmp_path, monkeyp
     assert len(route.paused) == 1
     assert len(route.requests) == 2 * len(verdicts) - (verdicts[-1] != "REVISE")
     assert jsonl(route.root / "scripts/launch_experiment.log") == [launch]
+    (command,) = [data for data in route.commits if data["effect_class"] == "command"]
+    (argv,) = jsonl(route.root / "scripts/launch_experiment.py.argv.jsonl")
+    interpreters = json.loads((route.authority.run_root / "run.json").read_text())["interpreters"]
+    assert argv["argv"][0] == interpreters["python"]["path"]
+    assert command["input_parts"]["argv"] == canonical_sha256(["python", *argv["argv"][1:]])
+    assert (argv["bundle"], argv["PYTHONDONTWRITEBYTECODE"]) == (route.result(command), "1")
+    assert _owners(route)[-1] == ("command", "improve_experiment_proposal::execute")
+    assert lineage(route)[0] == []
     assert ["revise-proposal" in data["identity"] for data in route.commits[:-1]] == [
         index % 2 == 1 for index in range(len(route.requests))]
     assert missing_edges(route, _improve_required(route)) == [[]] * len(route.commits)
@@ -250,6 +229,39 @@ REVIEWED = [
 ]
 
 
+def _reviewed_change_dataflow(route, plan, inputs) -> None:
+    coders = [request for request in route.requests if request["tool"] == "claude"]
+    reviewers = [request for request in route.requests if request["tool"] == "codex"]
+    assert len(coders) == len(plan["claude"])
+    assert len(reviewers) == len(plan["codex"])
+
+    for index, request in enumerate(coders):
+        _assert_prompt_values(request, inputs["task"])
+        if index:
+            previous = plan["codex"][index - 1]["result"]
+            values = previous["findings"] if previous["variant"] == "REQUEST_CHANGES" else [previous["reason"]]
+            _assert_prompt_values(request, *values)
+            if index > 1:
+                stale = plan["codex"][index - 2]["result"]
+                stale_values = stale["findings"] if stale["variant"] == "REQUEST_CHANGES" else [stale["reason"]]
+                for value in stale_values:
+                    if value not in values:
+                        assert value not in request["prompt"]
+
+    for index, request in enumerate(reviewers):
+        coder = plan["claude"][index]["result"]
+        replies = coder.get("replies", "none")
+        assert inputs["repo"] in request["prompt"].split()
+        _assert_prompt_values(request, inputs["intent"], coder["account"], replies)
+        if index:
+            previous = plan["claude"][index - 1]["result"]
+            if previous["account"] != coder["account"]:
+                assert previous["account"] not in request["prompt"]
+            previous_replies = previous.get("replies", "none")
+            if previous_replies != replies:
+                assert previous_replies not in request["prompt"]
+
+
 @pytest.mark.parametrize("plan,value", [
     *[pytest.param(case.values[0], case.values[3], id=case.id) for case in REVIEWED],
     pytest.param({"claude": [CHANGE], "codex": [_review("APPROVE", 1, notes=["fine"])]},
@@ -262,16 +274,19 @@ def test_public_w3_reviewed_change_preserves_outcomes_and_round_guards(tmp_path,
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
               "intent": "add returns a + b", "repo": "repo"}
     new = _w3_consumer(tmp_path / "w3", monkeypatch, "w3_reviewed_change", plan, inputs, " / change")
-    old = old_route(tmp_path / "old", install(tmp_path / "old", PROGRAMS["reviewed_change"], inputs, current=False))
+    _reviewed_change_dataflow(new, plan, inputs)
     assert new.value == value
-    assert old.value == flat_outputs(new.value)
-    assert request_view(new) == request_view(old)
+    _assert_provider_policy(new)
     calls = len(plan["claude"]) + len(plan["codex"])
     assert len(new.paused) == 1
     assert len(new.requests) == calls
     assert [request["tool"] for request in new.requests] == ["claude", "codex"] * (calls // 2)
     assert missing_edges(new, _predecessors(calls)) == [[]] * calls
-    assert _files(new.root, "artifacts", "repo") == _files(old.root, "artifacts", "repo")
+    assert _files(new.root, "artifacts") == {name: text.encode() for answer in plan["codex"]
+                                             for name, text in answer.get("files", {}).items()}
+    assert _files(new.root / "repo", ".") == {
+        "calc.py": BUGGY.encode(), **{name.removeprefix("repo/"): text.encode() for answer in plan["claude"]
+                                     for name, text in answer["files"].items()}}
     assert value.get("report") is None or (new.root / value["report"]).is_file()
 
 
@@ -281,7 +296,9 @@ def test_public_reviewed_change_keeps_independent_review_order(tmp_path, monkeyp
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.", "intent": "add returns a + b",
               "repo": "repo"}
 
-    old, new = routes(tmp_path, monkeypatch, "reviewed_change", plan, inputs, marker)
+    new = run_consumer(tmp_path, monkeypatch, "reviewed_change", plan, inputs, marker)
+    _reviewed_change_dataflow(new, plan, inputs)
+    _assert_provider_policy(new)
     program = PROGRAMS["reviewed_change"]
     assert (new.root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
     dry_run = _cli(new.root, "run", program.source, "--entry-workflow", program.entry,
@@ -296,14 +313,14 @@ def test_public_reviewed_change_keeps_independent_review_order(tmp_path, monkeyp
     calls = len(plan["claude"]) + len(plan["codex"])
     assert {"value": new.value, "tools": [request["tool"] for request in new.requests], "paused": len(new.paused),
             "owners": set(_owners(new)), "first": lineage(new)[0], "missing": missing_edges(new, _predecessors(calls)),
-            "reports": [_files(route.root, "artifacts") for route in (old, new)],
-            "repo": [_files(route.root / "repo", ".") for route in (old, new)]} == {
+            "reports": _files(new.root, "artifacts"),
+            "repo": _files(new.root / "repo", ".")} == {
         "value": value, "tools": ["claude", "codex"] * (calls // 2), "paused": paused,
         "owners": {("provider", "reviewed_change::reviewed-change")}, "first": [], "missing": [[]] * calls,
-        "reports": [{name: text.encode() for answer in plan["codex"]
-                     for name, text in answer.get("files", {}).items()}] * 2,
-        "repo": [{"calc.py": BUGGY.encode(), **{name.removeprefix("repo/"): text.encode() for answer in plan["claude"]
-                                                for name, text in answer["files"].items()}}] * 2}
+        "reports": {name: text.encode() for answer in plan["codex"]
+                    for name, text in answer.get("files", {}).items()},
+        "repo": {"calc.py": BUGGY.encode(), **{name.removeprefix("repo/"): text.encode() for answer in plan["claude"]
+                                               for name, text in answer["files"].items()}}}
     assert value.get("report") is None or (new.root / value["report"]).is_file()
 
 
@@ -333,7 +350,15 @@ def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_p
     inputs = {"task": "Fix add in calc.py so that it returns the sum.", "intent": "add returns a + b",
               "repos": list(CANDIDATES)}
 
-    old, new = routes(tmp_path, monkeypatch, "best_of_n", BEST_OF_N, inputs, marker)
+    new = run_consumer(tmp_path, monkeypatch, "best_of_n", BEST_OF_N, inputs, marker)
+    for request, repo in zip(new.requests[:len(inputs["repos"])], inputs["repos"], strict=True):
+        _assert_prompt_values(request, inputs["task"], repo)
+    judge_prompt = new.requests[-1]["prompt"]
+    accounts = [answer["result"]["account"] for answer in BEST_OF_N["claude"]]
+    _assert_prompt_values(new.requests[-1], inputs["intent"], *accounts, *inputs["repos"])
+    assert [judge_prompt.index(account) for account in accounts] == sorted(
+        judge_prompt.index(account) for account in accounts)
+    _assert_provider_policy(new)
 
     program = PROGRAMS["best_of_n"]
     dry_run = _cli(new.root, "run", program.source, "--entry-workflow", program.entry,
@@ -341,7 +366,7 @@ def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_p
                    "--input-file", "inputs.json", "--dry-run")
     report = _cli(new.root, "report", "--run-id", new.authority.run_root.name,
                   "--runs-root", str(new.authority.run_root.parent), "--format", "json")
-    candidates = [_candidate(route.root) for route in (old, new)]
+    candidates = _candidate(new.root)
     assert (new.root / PROGRAMS["best_of_n"].source).read_bytes() == (
         ROOT / PROGRAMS["best_of_n"].source).read_bytes()
     summary = json.loads((new.root / "compile.stdout").read_text())
@@ -358,15 +383,16 @@ def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_p
                                          ("codex", list(CANDIDATES))],
         "paused": paused,
         "owners": [("provider", "best_of_n::implement-one")] * 2 + [("provider", "best_of_n::best-of-n")],
-        "lineage": [[], [0, 1]], "candidates": [candidates[0]] * 2, "report": True}
+        "lineage": [[], [0, 1]], "candidates": {"calc": [FIXED, FIXED_ALT], "bases": 1,
+                       "status": {repo: " M calc.py\n" for repo in CANDIDATES}}, "report": True}
     assert (closed.tree["target"], manifest["target"], run_header["result_persistence_profile"]) == (
         "2.35", "2.35", "evaluated_execution.v1")
     assert dry_run.returncode == 0, dry_run.stderr
     assert report.returncode == 0, report.stderr
     assert json.loads(report.stdout)["run"]["workflow_outputs"] == new.value
     assert requests(new.root) == new.requests
-    assert candidates[0]["calc"] == [FIXED, FIXED_ALT] and candidates[0]["bases"] == 1
-    assert candidates[0]["status"] == {repo: " M calc.py\n" for repo in CANDIDATES}
+    assert candidates["calc"] == [FIXED, FIXED_ALT] and candidates["bases"] == 1
+    assert candidates["status"] == {repo: " M calc.py\n" for repo in CANDIDATES}
 
 
 FOUR_CANDIDATES = (*CANDIDATES, "candidates/gamma", "candidates/delta")
@@ -395,6 +421,8 @@ def test_public_best_of_n_runs_four_candidates_in_order(tmp_path, monkeypatch):
 
     route = current_route(root, frontend, "loop:#1[2]")
 
+    _assert_provider_policy(route)
+    assert_request_lineage(route)
     judge_prompt = route.requests[-1]["prompt"]
     dependencies = lineage(route)
     assert (route.value, [(request["tool"], request["repos"]) for request in route.requests],
@@ -428,6 +456,8 @@ def test_public_best_of_n_select_only_preserves_ordered_accounts(tmp_path, monke
 
     route = current_route(root, frontend, "best_of_n::select-only")
 
+    _assert_provider_policy(route)
+    assert_request_lineage(route)
     prompt = route.requests[0]["prompt"]
     assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
     assert (route.value, len(route.requests), route.requests[0]["tool"], route.requests[0]["repos"],
@@ -442,15 +472,10 @@ def test_public_best_of_n_select_only_preserves_ordered_accounts(tmp_path, monke
 EVIDENCE = "artifacts/work/watchdog"
 PROBE = "workflows/library/scripts/probe_orchestrator_run.py"
 PUBLISHER = "workflows/library/scripts/publish_run_watchdog_result.py"
-PUBLISH_FLAGS = ("--repair-result-path", "--target-run-id", "--watch-status", "--repair-required",
-                 "--recommended-recovery", "--evidence-bundle-path", "--repair-status", "--fix-complexity",
-                 "--recovery-action", "--repair-report-path", "--plan-path", "--new-run-id", "--output")
 REPAIRED = {"repair_status": "FIXED_AND_RESUMED", "fix_complexity": "TRIVIAL", "recovery_action": "RESUME",
             "repair_report_path": f"{EVIDENCE}/repair-report.md", "plan_path": "", "new_run_id": ""}
 REPAIR = {"result": REPAIRED, "files": {f"{EVIDENCE}/repair-report.md": "# Fixture repair report\n",
                                          f"{EVIDENCE}/repair-result.json": json.dumps(REPAIRED, indent=2) + "\n"}}
-WATCHDOG = "generic_run_watchdog/watchdog::"
-PUBLISHED = [("command", WATCHDOG + "watchdog"), ("command", WATCHDOG + "publish-repair-outcome")]
 REPAIR_OUTPUT = {"watch_status": "FAILED", "repair_status": "FIXED_AND_RESUMED", "recovery_action": "RESUME",
                  "watchdog_result_path": "state/watchdog/watchdog-result.json"}
 
@@ -466,20 +491,6 @@ def _watch_inputs(root: Path, status: str, provider: str) -> dict:
             "repair_provider": provider}
 
 
-def _command_requests(old, new, target: str, watch: tuple, repair: tuple) -> None:
-    """R9/R12: probe and publisher ran once per route with the same argv on both; the 2.35 commits' argv
-    digests are of that argv and of the source operands in order, `${inputs.state_root}` rendered."""
-    probe = ["python", PROBE, "--run-id", "target-run", "--target-workspace", target, "--output",
-             "state/watchdog/watch.json", "--evidence-root", EVIDENCE, "--repair-result-target-path",
-             f"{EVIDENCE}/repair-result.json", "--max-stale-minutes", "60"]
-    values = (repair[0], "target-run", *watch, f"{EVIDENCE}/target-run-evidence.json", *repair[1:],
-              "state/watchdog/watchdog-result.json")
-    publish = ["python", PUBLISHER, *chain.from_iterable(zip(PUBLISH_FLAGS, values, strict=True))]
-    commands = [data["input_parts"]["argv"] for data in new.commits if data["effect_class"] == "command"]
-    executed = [canonical_sha256(["python", *argv]) for argv in executions((old, new), PROBE, PUBLISHER)]
-    assert commands == executed == [canonical_sha256(probe), canonical_sha256(publish)]
-
-
 WATCH_CASES = {
     "no-action": ("running", "codex", " / watch", [], ("RUNNING_OK", "NO", "NONE"),
                   ("", "NO_ACTION", "NOT_APPLICABLE", "NONE", "", "", "")),
@@ -488,80 +499,3 @@ WATCH_CASES = {
     "claude-repair": ("failed", "claude_opus", "invoke-repair", ["claude"], ("FAILED", "YES", "RESUME"),
                       (f"{EVIDENCE}/repair-result.json", *REPAIRED.values())),
 }
-
-
-def _watch_case(root: Path, monkeypatch, case: str) -> dict:
-    status, provider, marker, tools, watch, repair = WATCH_CASES[case]
-    inputs = _watch_inputs(root, status, provider)
-    old, new = routes(root, monkeypatch, "watchdog", {"codex": [REPAIR], "claude": [REPAIR]}, inputs, marker)
-    _command_requests(old, new, inputs["target_workspace"], watch, repair)
-    lineage_files = [_files(route.root, "state/watchdog", EVIDENCE) for route in (old, new)]
-    assert lineage_files[0] == lineage_files[1]
-    repairs = [("provider", WATCHDOG + "invoke-repair")] if tools else []
-    assert ([request["tool"] for request in new.requests], _owners(new), lineage(new), len(new.paused)) == (
-        tools, PUBLISHED[:1] + repairs + PUBLISHED[1:], _chain(len(new.commits)), 0 if case == "no-action" else 1)
-    semantic = json.loads(lineage_files[1]["state/watchdog/watchdog-result.json"])
-    return {"outputs": new.value, "lineage_paths": sorted(lineage_files[1]), "semantic_result": semantic}
-
-
-def test_public_watchdog_both_branches_preserve_artifact_lineage(tmp_path, monkeypatch):
-    no_action, codex_repair, claude_repair = (_watch_case(tmp_path / case, monkeypatch, case) for case in WATCH_CASES)
-
-    assert no_action["outputs"] == {"watch_status": "RUNNING_OK", "repair_status": "NO_ACTION",
-                                    "recovery_action": "NONE",
-                                    "watchdog_result_path": "state/watchdog/watchdog-result.json"}
-    assert {"state/watchdog/watch.json", "state/watchdog/watchdog-result.json",
-            f"{EVIDENCE}/target-run-evidence.json"}.issubset(no_action["lineage_paths"])
-    assert {f"{EVIDENCE}/repair-result.json", f"{EVIDENCE}/repair-report.md"}.isdisjoint(no_action["lineage_paths"])
-    assert codex_repair["outputs"] == claude_repair["outputs"] == REPAIR_OUTPUT
-    assert no_action["semantic_result"]["repair_result_path"] == ""
-    assert codex_repair["semantic_result"]["repair_result_path"] == f"{EVIDENCE}/repair-result.json"
-    assert codex_repair["lineage_paths"] == claude_repair["lineage_paths"]
-    assert {"state/watchdog/watch.json", "state/watchdog/watchdog-result.json", f"{EVIDENCE}/target-run-evidence.json",
-            f"{EVIDENCE}/repair-result.json", f"{EVIDENCE}/repair-report.md"}.issubset(codex_repair["lineage_paths"])
-
-
-def _publications(root: Path) -> int:
-    _, snapshot = checked_run(root)
-    return sum(1 for entry in snapshot.entries
-               if entry.data["record"] == "started" and "publish-repair-outcome" in entry.data["identity"])
-
-
-def test_public_watchdog_retry_reuses_provider_and_publishes_once(tmp_path, monkeypatch):
-    failing = {"exit": 1, "merge": {"state/watchdog/watch.json": {"fixture_dependency_version": "after-first-attempt"}}}
-    install_shims(tmp_path / "bin", monkeypatch, {"codex": [failing, REPAIR]})
-    inputs, program, root = _watch_inputs(tmp_path, "failed", "codex"), PROGRAMS["watchdog"], tmp_path / "new"
-    old = old_route(tmp_path / "old", install(tmp_path / "old", program, inputs, current=False),
-                    "--max-retries", "1", "--retry-delay", "0")
-    frontend = install(root, program, inputs, current=True)
-    compile_current(root, frontend)
-    assert _run_cli(root, *frontend, "--input-file", "inputs.json").returncode != 0
-    run_id = checked_run(root)[0].run_root.name
-    stop_after(root, ["resume", run_id], "invoke-repair")
-    before_resume = (len(requests(root)), _publications(root))
-
-    new = resume_to_completion(root)
-
-    executions((old, new), PROBE, PUBLISHER)
-    attempts = [entry.data for entry in new.snapshot.entries
-                if entry.data["record"] == "started" and "invoke-repair" in entry.data["identity"]]
-    prompts = [(new.authority.run_root / Path(row["result_path"]).parent / "prompt.txt").read_bytes()
-               for row in attempts]
-    (repaired,) = [data for data in new.commits if data["effect_class"] == "provider"]
-    result = (new.authority.run_root / repaired["result_path"]).read_bytes()
-    assert (old.value, request_view(old)) == (flat_outputs(new.value), request_view(new))
-    assert_request_lineage(new)
-    assert {"tools": [request["tool"] for request in new.requests], "attempts": [row["attempt"] for row in attempts],
-            "sites": len({request["env"][SITE] for request in new.requests}),
-            "dependencies": len({row["input_parts"]["dependency:state/watchdog/watch.json"] for row in attempts}),
-            "captured": [sha256(request["prompt"]) for request in new.requests],
-            "started": [row["input_parts"]["prompt"] for row in attempts],
-            "before_resume": before_resume, "after_resume": (len(new.requests), _publications(root)),
-            "result": [repaired["result_digest"], repaired["value"], repaired["input_digest"]],
-            "semantic": (root / "state/watchdog/watchdog-result.json").read_bytes(), "outputs": new.value} == {
-        "tools": ["codex", "codex"], "attempts": [1, 2], "sites": 1, "dependencies": 2,
-        "captured": [sha256(raw) for raw in prompts],
-        "started": [sha256(raw) for raw in prompts], "before_resume": (2, 0), "after_resume": (2, 1),
-        "result": [sha256(result), json.loads(result), canonical_sha256(repaired["input_parts"])],
-        "semantic": (old.root / "state/watchdog/watchdog-result.json").read_bytes(), "outputs": REPAIR_OUTPUT}
-    assert len(set(prompts)) == 2

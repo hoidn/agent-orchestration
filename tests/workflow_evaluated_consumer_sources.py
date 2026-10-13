@@ -1,10 +1,10 @@
-"""Maintained consumer programs run on both routes with deterministic stand-ins.
+"""Evaluated consumer programs and historical source fixtures with deterministic stand-ins.
 
 Each program is copied into a fresh workspace at its repository path with its
-checked-in manifests; legacy-source fixtures preserve the old comparison route,
+checked-in manifests; legacy-source fixtures preserve historical source witnesses,
 while migrated current sources are copied unchanged. `SHIM` is installed as the `codex`
 and `claude` executables on PATH, so every request goes through the real provider
-templates, ProviderExecutor and attempt lifecycle of either route: it answers from a
+templates, ProviderExecutor and evaluated attempt lifecycle: it answers from a
 scripted plan per executable, writes the files the plan names (report files, edits in
 the repository named by its prompt) and logs the request it received before answering, so
 a dispatch the script does not expect still leaves a row. `LAUNCHER` is the stand-in
@@ -24,7 +24,6 @@ import subprocess
 import sys
 from typing import Callable
 
-from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
 from tests.test_workflow_evaluated_providers import workspace_relative
 from tests.test_workflow_evaluated_resume import _resume_cli
@@ -167,14 +166,6 @@ def _copy(root: Path, relpath: str, *, source_fixture: str | None = None) -> Non
     (root / relpath).write_text(text, encoding="utf-8")
 
 
-def executions(routes, *scripts: str) -> list[list[str]]:
-    """Each copied script ran once per route with the same argv on both; the argv of each."""
-    runs = [[jsonl(route.root / f"{script}.runs.jsonl") for script in scripts] for route in routes]
-    assert [[len(rows) for rows in route_runs] for route_runs in runs] == [[1] * len(scripts)] * len(runs)
-    assert all(route_runs == runs[0] for route_runs in runs)
-    return [rows[0] for rows in runs[0]]
-
-
 def install_shims(bin_dir: Path, monkeypatch, plan: dict) -> None:
     bin_dir.mkdir(parents=True)
     for tool in ("codex", "claude"):
@@ -231,7 +222,7 @@ def stop_after(root: Path, argv: list[str], marker: str) -> None:
 
 @dataclass
 class Route:
-    """One route's run of a scenario: final value, logged requests and, on 2.35, its authority."""
+    """An evaluated run: final value, logged requests and its memo authority."""
 
     root: Path
     value: dict
@@ -250,15 +241,6 @@ class Route:
     def result(self, data: dict) -> str:
         """The workspace-relative result path of a committed or attempted effect (R2)."""
         return f".orchestrate/runs/{self.authority.run_root.name}/{data['result_path']}"
-
-
-def old_route(root: Path, frontend: list[str], *options: str) -> Route:
-    result = _run_cli(root, *frontend, "--input-file", "inputs.json", *options)
-    assert result.returncode == 0, result.stderr
-    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
-    state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
-    assert not any(os.path.isabs(request["env"][BUNDLE]) for request in requests(root))
-    return Route(root, state["workflow_outputs"], requests(root))
 
 
 def compile_current(root: Path, frontend: list[str]) -> None:
@@ -362,17 +344,11 @@ def flat_outputs(value: dict) -> dict:
     return {f"return__{key}": item for key, item in value.items()}
 
 
-def routes(root: Path, monkeypatch, name: str, plan: dict, inputs: dict, marker: str) -> tuple[Route, Route]:
-    """The scenario on the accepted old route and at 2.35, compared value for value and request for request.
-
-    The 2.35 run stops after the `marker` commit, resumes through the CLI and is resumed
-    again once completed; each effect starts once.
-    """
+def run_consumer(root: Path, monkeypatch, name: str, plan: dict, inputs: dict, marker: str) -> Route:
+    """Run the retained source, stop at a commit and verify once-only resume and provider lineage."""
     install_shims(root / "bin", monkeypatch, plan)
     program = PROGRAMS[name]
-    old = old_route(root / "old", install(root / "old", program, inputs, current=False))
-    new = current_route(root / "new", install(root / "new", program, inputs, current=True), marker)
-    assert (old.value, request_view(old)) == (flat_outputs(new.value), request_view(new))
-    assert set(new.started().values()) == {1}
-    assert_request_lineage(new)
-    return old, new
+    route = current_route(root / "new", install(root / "new", program, inputs, current=True), marker)
+    assert set(route.started().values()) == {1}
+    assert_request_lineage(route)
+    return route

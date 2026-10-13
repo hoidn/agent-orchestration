@@ -21,6 +21,27 @@ LEGACY_COMMANDS = EXAMPLE.with_name("commands.json")
 EXAMPLE_INPUTS = REPO_ROOT / "workflows" / "examples" / "inputs" / "improve_experiment_proposal"
 EXAMPLE_PROMPTS = REPO_ROOT / "workflows" / "examples" / "prompts" / "workflows" / "improve_experiment_proposal"
 
+QUESTION = "warmup"
+
+
+SEED = {"name": "seed", "value": 0}
+
+
+def _params(*notes: str) -> list[dict]:
+    return [SEED, *({"name": note, "value": index} for index, note in enumerate(notes, start=1))]
+
+
+APPROVED_LAUNCH = {
+    "outcome": "approved", "note": "methods:ok:warmup+r", "hypothesis": "warmup+r", "parameters": _params("methods:add-1"),
+}
+
+
+EXHAUSTED_LAUNCH = {
+    "outcome": "exhausted", "note": "", "hypothesis": "warmup+r+r+r",
+    "parameters": _params("methods:add-1", "methods:add-2", "methods:add-3"),
+}
+
+
 LAUNCH_PROBE = """import argparse, json, os
 from pathlib import Path
 parser = argparse.ArgumentParser()

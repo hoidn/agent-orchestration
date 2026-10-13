@@ -19,7 +19,7 @@ from tests.test_workflow_evaluated_consumers import (
     APPROVE_2, BEST_OF_N, CHANGE, NEEDS_HUMAN, QUESTION_FOR_HUMAN, READY, REDO, REPAIR, REPAIR_OUTPUT, REVISED,
     SELECTION, WATCH_CASES, _changes, _improve_plan, _review, _watch_inputs,
 )
-from tests.test_workflow_lisp_improve_example_e2e import QUESTION
+from tests.workflow_lisp_improve_example_sources import QUESTION
 from tests.workflow_evaluated_consumer_sources import CANDIDATES, sha256
 from tests.workflow_evaluated_recovery_helpers import WINDOWS, current_source, digest
 

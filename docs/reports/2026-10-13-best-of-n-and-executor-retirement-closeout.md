@@ -28,8 +28,8 @@ Concurrent dirty main changes remain outside W and are preserved.
 | --- | --- | --- |
 | 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
-| 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
-| 3 cutoff / gate R | In progress | Cutoff, native continuation, typed imports/LSP, retained consumers, normative reconciliation and family-specific recovery have evidence; independent R review leaves consumer request-data assertions and their recheck pending |
+| 2 other selected consumers | Bounded migration accepted | Canonical lifecycle, terminal branches and current request-data assertions verified; exclusive retirement routing remains part of final delivery |
+| 3 cutoff / gate R | R accepted | Independent gate review's sole condition R1 closed by source-bound 14/22 PASS and independent quality recheck; coordinator accepted the gate on 2026-10-13; final deleted-tree checks still required |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
 
@@ -513,3 +513,47 @@ The changed-package attempt correctly refused the changed program; it does not
 establish recovery on the new package. Completed target-2.28/2.15 parent captures
 prove read-only access/refusal, not interrupted parent recovery. No universal
 historical-run recovery claim follows from these family-specific receipts.
+
+### R Accepted After The Consumer Correction
+
+`E/retirement-consumer-dataflow-correction.md` records explicit checks that
+authored task/intent and the preceding account, replies, findings or reason reach
+the appropriate provider. They follow the actual authored connections: task goes
+to the coder, intent to the reviewer. Ordered candidate accounts reach the judge.
+No assertion fixes prompt phrasing and no old executable oracle returns.
+
+The final source hash is
+`1d04b481f3b1df38e1e36f93dc0f9c39c0968de54142963c7d87edb45fc4cbcd`.
+The affected 14 cases passed in 16.40 s and all 22 consumers passed in 26.47 s,
+both under the required parallel command. Dependent collection found 162 cases;
+collection does not claim their execution. Shared fixtures were restored before
+these final campaigns, and fresh AST comparison confirms their original values.
+The in-memory mutation check rejects a changed task even with an internally
+consistent prompt digest.
+
+Independent quality recheck `E/retirement-consumer-dataflow-quality-recheck.md`
+closes R1 with PASS. The coordinator checked the diff, final source hash, shared
+fixture AST and XML results. This satisfies the sole outstanding condition in
+`E/retirement-gate-r-review.md`; **R is accepted on 2026-10-13**. Physical removal
+may now proceed, including A3b's retained constant serializer, under the existing
+plan. The 19 mixed-reference failures still need adaptation, and final cold
+import checks, full-suite comparison, routing and delivery remain required.
+
+## Historical Reader Fixture Preparation
+
+The dashboard fixture now uses the existing persisted-surface data builder for
+three nodes and two distinct call aliases, with real canonical bytes and bound
+hashes. It creates no flat executable build. All reader assertions remain;
+the old linker-dedup test was renamed to describe its three-node persisted
+closure assertion. These synthetic data prove reading, not compiler provenance,
+linker behavior or interrupted recovery.
+
+`E/retirement-reader-fixtures-implementation.md` records **38 dashboard cases,
+three CLI modes and one shared reader caller passed**. The affected campaign
+was **133 passed, three failed**: two unrelated old-target build expectations
+and an outdated target-catalog tail assertion, explicitly left for Task 4.
+After the one-name correction, fresh collection found 38 cases and the renamed
+case passed. Contract and independent quality are PASS in
+`E/retirement-reader-fixtures-{contract,quality}-review.md`; final source hash
+`d0c79db2b1c08dce94e80bcdee1c3fa4746addffd9ca02cb64f1a6c91d4d93cf`.
+Final import isolation after physical deletion remains a separate requirement.

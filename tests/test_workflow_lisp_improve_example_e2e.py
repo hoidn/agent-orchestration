@@ -34,6 +34,10 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from tests.test_workflow_lisp_generic_unions_runtime import _PostCommitInterruption
 from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args
 from tests.workflow_lisp_improve_example_sources import (
+    APPROVED_LAUNCH,
+    EXHAUSTED_LAUNCH,
+    QUESTION,
+    SEED,
     EXAMPLE,
     EXAMPLE_INPUTS,
     EXAMPLE_PROMPTS,
@@ -49,7 +53,6 @@ from tests.workflow_lisp_improve_example_sources import (
 
 
 ENTRY = "improve_experiment_proposal::run-experiment"
-QUESTION = "warmup"
 PROVIDERS = {
     "providers.proposal.review": "methods",
     "providers.proposal.revise": "reviser",
@@ -82,13 +85,6 @@ def _first_draft(then):
 def _reviser(hook: dict) -> dict:
     parameters = [*hook["proposal__parameters"], {"name": hook["review__notes"], "value": len(hook["proposal__parameters"])}]
     return {"hypothesis": hook["proposal__hypothesis"] + "+r", "parameters": parameters}
-
-
-SEED = {"name": "seed", "value": 0}
-
-
-def _params(*notes: str) -> list[dict]:
-    return [SEED, *({"name": note, "value": index} for index, note in enumerate(notes, start=1))]
 
 
 # Workspace and public entry.
@@ -206,18 +202,11 @@ def _after_iteration_commit(iteration: int):
 # Expected hook operations and executor inputs per scenario.
 
 APPROVED_CALLS = [("methods", "warmup", None), ("reviser", "warmup", "methods:add-1"), ("methods", "warmup+r", None)]
-APPROVED_LAUNCH = {
-    "outcome": "approved", "note": "methods:ok:warmup+r", "hypothesis": "warmup+r", "parameters": _params("methods:add-1"),
-}
 EXHAUSTED_CALLS = [
     ("methods", "warmup", None), ("reviser", "warmup", "methods:add-1"),
     ("methods", "warmup+r", None), ("reviser", "warmup+r", "methods:add-2"),
     ("methods", "warmup+r+r", None), ("reviser", "warmup+r+r", "methods:add-3"),
 ]
-EXHAUSTED_LAUNCH = {
-    "outcome": "exhausted", "note": "", "hypothesis": "warmup+r+r+r",
-    "parameters": _params("methods:add-1", "methods:add-2", "methods:add-3"),
-}
 
 
 @pytest.fixture
