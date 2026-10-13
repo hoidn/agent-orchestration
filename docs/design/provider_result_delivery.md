@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Title:** Provider result delivery rendering, versioned replay, and a typed channel for inability
-- **Status:** draft
+- **Status:** implemented on 2026-10-13; execution record in the [closeout](../reports/2026-10-13-provider-result-delivery-closeout.md)
 - **Kind:** clarification and operational design
 - **Owner:** evaluated runtime and prompt-contract maintainers
 - **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
@@ -143,9 +143,10 @@ version that rendering per committed effect.
 
 - The three structured-result renderers take a `delivery` selector. `legacy`
   reproduces today's text exactly and is the default, used by the flat route.
-  `file` renders the evaluated route's block: the write action and the path
-  first, the environment variable as the same target, the statement that a
-  reply does not deliver, then the schema. The relpath guidance is rendered
+  `file` renders the evaluated route's block: the write action first,
+  pointing at the `- path:` line (the path itself appears exactly once in the
+  prompt, rule R3 of the evaluated design), the environment variable as the
+  same target, the statement that a reply does not deliver, then the schema. The relpath guidance is rendered
   under `file` only when the contract's schema contains a `relpath` type.
 - The evaluated route records the rendering it used as a provider input part,
   `delivery`, whose value is the canonical digest of the rendering name
@@ -155,8 +156,10 @@ version that rendering per committed effect.
   selector, `file/1`.
 - The `provider_result_missing` message carries a bounded excerpt of the
   attempt's `stdout.txt` (first 240 characters, whitespace collapsed) after
-  the path. The memo row shape is unchanged: the excerpt is inside the
-  existing `exit_info.error` string.
+  the path. The memo `failed` row is unchanged (`specs/state.md` fixes its
+  `exit_info` as `{}` for this code); the excerpt travels in the failure
+  message, which reaches the failed terminal row's `message`, the view's
+  `error.message` and `report`.
 - Authors express inability with a tagged union result; the drafting guide
   documents the shape and the chess workflow adopts it. Authored prompts drop
   transport paragraphs.
@@ -199,12 +202,12 @@ is owned by the renderer and is not a test oracle):
 
 ```text
 ## Output Contract
-Write one JSON value to this file, then stop:
-  .orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/result.json
+Write one JSON value to the file on the `- path:` line below, then stop.
 Create it with a file-writing or shell tool before you finish. The
 environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file.
 Returning the value in your reply does not deliver it.
-- format: JSON value
+- path: .orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/result.json
+  format: JSON value
   type: string
 ```
 
@@ -235,7 +238,7 @@ The flat route records no `delivery` part; its replay is unchanged.
 `provider_result` (evaluated `providers.py`) reads `stdout.txt` from the
 attempt directory on `FileNotFoundError` of `result.json` and appends the
 excerpt to the message. The excerpt is text for operators; nothing parses it.
-Views and `report` already surface `exit_info.error`.
+Views and `report` already surface the failure message.
 
 ### Authoring
 
@@ -269,7 +272,7 @@ outcome. It reads nothing but memo rows and attempt files and writes nothing.
 | Rendered contract block, evaluated route | Content-first sentence with a conditional alternative; relpath guidance always | Delivery-first sentence for the file transport; relpath guidance only with a path type | New runs only; replay of committed rows renders what they recorded |
 | Rendered contract block, flat route | unchanged | unchanged | Byte-identical |
 | Provider `input_parts` (`specs/state.md`) | `declaration`, `values`, `policy`, `params`, `prompt`, `dependency_rows`, sources, dependencies | plus `delivery` | Additive; absence means `legacy` on replay |
-| `provider_result_missing` `exit_info.error` | `provider did not create <path>` | same, plus `; reply began: <excerpt>` when `stdout.txt` is non-empty | String content only; shape unchanged |
+| `provider_result_missing` failure message (terminal row `message`, view `error.message`, `report`) | `provider did not create <path>` | same, plus `; reply began: <excerpt>` when `stdout.txt` is non-empty | Message text only; the memo `failed` row keeps `exit_info` `{}` |
 | Renderer Python API | `render_*_contract_block(payload, *, render_nominal_names=False)` | plus keyword `delivery="legacy"` | Existing callers unchanged |
 | Authored prompt assets | May carry transport prose | Should not; the runtime renders delivery | Guidance, not enforcement |
 
@@ -304,8 +307,8 @@ must-exist checks keep their diagnostics.
 
 ## Security, Operations, And Performance
 
-The excerpt in `exit_info.error` repeats up to 240 characters of provider
-stdout into `memo.jsonl` and derived views, which already retain the full
+The excerpt in the failure message repeats up to 240 characters of provider
+stdout into the terminal row of `memo.jsonl` and derived views, which already retain the full
 `stdout.txt`; no new data class is exposed. Rendering cost is unchanged. No
 deployment or credential impact.
 
@@ -397,6 +400,10 @@ pass; the coordinator inspects the diff and receipts.
   transport; the evaluated route selects the file.
 - `specs/state.md`: provider `input_parts` gain `delivery`; replay rule.
 - `specs/versioning.md`: v2.35 additions bullet.
+- `docs/design/workflow_lisp_evaluated_execution.md`: the parity statements
+  (R4, the admitted-class table, §8.4 and the feasibility row) say the prompt
+  differs from the flat route only by R3; they gain the contract block's
+  opening lines.
 - `docs/lisp_workflow_drafting_guide.md`: "A step that may be unable to
   answer" recipe; note that prompts carry no transport instructions.
 - `docs/capability_status_matrix.md`: row for delivery rendering.
@@ -434,14 +441,17 @@ whole suite is unchanged until the evaluated composer opts in.
 
 | Question | Owner | Blocking |
 | --- | --- | --- |
-| The omp launch strips `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` from the child environment (`orchestrator/providers/omp_launch.py`). How does an omp-backed provider deliver its result on the evaluated route, and should it render `file/1`? | providers maintainer | Blocks `file/1` for omp templates only; others proceed with omp on `legacy` |
+| Resolved 2026-10-13: `specs/providers.md` states that OMP JSON-transport children never receive the binding; they emit one validated final assistant JSON value that the parent materializes. Providers bound to `omp` templates therefore keep `legacy`, whose text includes that branch; a dedicated text rendering is later work. Owner selection recorded in the plan | owner | No |
 | Does a one-line delivery statement at the top of a long prompt (the 24 KB design case) reduce prose-only replies? | measured after phase 4, as `file/2` if adopted | No |
 | Should `report` render the excerpt distinctly from the error code? | views maintainer | No |
 
 ## Appendix
 
 Local baseline on 2026-10-13, evaluated runs under the main checkout, the
-`-smoke`, `-rerun` and `-repl` worktrees and the chess live workspace:
-67 provider attempts, 63 committed, 4 `provider_result_missing`, by the sites
-and shapes in §Problem. Produced with the ad-hoc pairing the census script
-formalizes.
+`-smoke`, `-rerun` and `-repl` worktrees and the chess live workspace, as
+reported by `scripts/provider_delivery_census.py`: 69 provider attempts, of
+which 64 committed, 4 `provider_result_missing` (the sites and shapes in
+§Problem) and 1 open (a `started` row with no end row, in the `-repl`
+worktree's run `9azbib`). An earlier hand count gave 67 because it skipped
+the open attempt and one commit; open attempts do not count toward a miss
+rate.

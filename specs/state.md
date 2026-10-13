@@ -391,7 +391,12 @@ instantiated with its dynamic index (`[3]`) in identities.
 digest: a command has `argv`, `contract`, `closure`, `implementation_files`,
 plus `document` for a checked input document and `input_contract` for an
 external-tool document; a provider has `declaration`, `values`, `policy`,
-`params`, `prompt`, `dependency_rows`, plus `source:<asset_file|input_file>:<path>`
+`params`, `prompt`, `dependency_rows`, `delivery` (the canonical digest of
+the name of the output-contract rendering the attempt used, `legacy` or
+`file/1`; absent in rows written before the part existed, which replay reads
+as `legacy`; replay recomputes a committed provider effect's parts with the
+rendering its `delivery` names, and an unknown digest is
+`effect_input_diverged`), plus `source:<asset_file|input_file>:<path>`
 for an extern prompt source (absent for a template prompt) and one
 `dependency:<path>` per prompt dependency; a run reference has `config` and
 `inputs`. `implementation_files` is `{}` for providers and run references;

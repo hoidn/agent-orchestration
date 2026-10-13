@@ -7,7 +7,7 @@
 > from the author. Tasks 1, 4 and 5 touch disjoint files and may run in
 > parallel; Task 2 follows Task 1; Task 3 follows Task 2; Task 6 follows all.
 
-**Status:** draft; no task selected. **Date:** 2026-10-13.
+**Status:** executed on 2026-10-13 on branch `feat/provider-result-delivery`; evidence in the [closeout](../reports/2026-10-13-provider-result-delivery-closeout.md). **Date:** 2026-10-13.
 **Design:** [provider result delivery](../design/provider_result_delivery.md).
 **Goal:** the evaluated route renders the delivery instruction for the file
 transport it selects, replays committed effects under the rendering they
@@ -32,9 +32,9 @@ appended once), `specs/io.md` (provider request and attempt files),
 [design principle 30](../design/workflow_language_design_principles.md#30-provider-attention-is-a-bounded-resource-the-language-conserves).
 Paths are repository-root relative.
 
-Record an owner selection before Task 2 ships: the current rendering name
-(`file/1`) and the decision that omp-backed providers stay on `legacy` until
-their delivery is confirmed (design §Open Questions).
+Owner selection, recorded 2026-10-13: the current rendering name is
+`file/1`; providers bound to `omp` templates stay on `legacy` (their delivery
+is final assistant text materialized by the parent, `specs/providers.md`).
 
 ## Baseline And Evidence Location
 
@@ -60,7 +60,7 @@ evidence directory.
 - [ ] With the unmodified package, run a two-provider evaluated program through public `run` with deterministic fixture providers, interrupting after the first provider commits (reuse the kill helpers of `tests/test_workflow_evaluated_resume_kills.py`). Retain the run root as a test fixture: `memo.jsonl`, `closed_program.json`, `run.json`, the committed attempt directory.
 - [ ] Record the fixture's committed `input_parts` and confirm it has no `delivery` key.
 - [ ] Capture, with the same package, the composed prompt bytes of one flat-route step (target 2.34 or earlier) and of one evaluated provider effect for each renderer shape: non-record root, record, tagged union. Store them beside the fixture as byte oracles for Task 1's `legacy` check.
-- [ ] Run the baseline census (Task 4's script does not exist yet; use the pairing in the design's appendix) and store the table.
+- [ ] Run the baseline census (Task 4's script does not exist yet; use the pairing in the design's appendix) and store the table. Record when it was taken.
 
 **Done:** fixture and oracles exist with hashes recorded in the closeout.
 
@@ -102,8 +102,8 @@ evidence directory.
 **Modify:** `orchestrator/workflow/evaluated/providers.py` (`provider_result`).
 **Tests:** `tests/test_workflow_evaluated_providers.py`, `tests/test_workflow_evaluated_views.py`.
 
-- [ ] Add failing tests: a fixture provider that prints a JSON string and exits 0 without writing the file fails with `provider_result_missing` whose `exit_info.error` contains the reply's head (bounded at 240 characters, whitespace collapsed); one that prints nothing has the unchanged message; `report` shows the error string. No result is committed; `resume` dispatches attempt 2.
-- [ ] Implement the excerpt read from the attempt's `stdout.txt` inside the existing `FileNotFoundError` branch. Memo row shape unchanged.
+- [ ] Add failing tests: a fixture provider that prints a JSON string and exits 0 without writing the file fails with `provider_result_missing` whose failure message (the failed terminal row's `message`, the view's `error.message`, `report`; memo `exit_info` stays `{}` per `specs/state.md`) contains the reply's head (bounded at 240 characters, whitespace collapsed); one that prints nothing has the unchanged message; `report` shows the error string. No result is committed; `resume` dispatches attempt 2.
+- [ ] Implement the excerpt read from the attempt's `stdout.txt` inside the existing `FileNotFoundError` branch, replacing non-printable characters before collapsing whitespace. Memo row shape unchanged.
 - [ ] Run the two modules.
 
 **Done:** scenario 2 of the design passes.
@@ -114,14 +114,14 @@ evidence directory.
 **Create:** `scripts/provider_delivery_census.py` (under 150 lines).
 **Tests:** `tests/test_provider_delivery_census.py` over a generated memo fixture.
 
-- [ ] Pair `started` rows with their `committed`/`failed` rows by identity and attempt; identify provider attempts by the presence of `prompt.txt` in the attempt directory; print per attempt: run, site (last identity segment), attempt, outcome (`committed`, `missing`, other failure code), delivery name from the part (absent → `legacy`), first 120 characters of `stdout.txt`; then counts by site and outcome. Accept several `--state-dir` arguments. Read-only.
-- [ ] Run it on the three baseline roots and store the table in the closeout; it must reproduce 4 missing of 67.
+- [ ] Pair `started` rows with their `committed`/`failed` rows by identity and attempt; identify provider attempts by the presence of `prompt.txt` in the attempt directory; print per attempt: run, site (last identity segment), attempt, outcome (`committed`, `missing`, other failure code), delivery name from the part (absent → `legacy`), first 120 characters of `stdout.txt`; then counts by site, delivery and outcome and a total broken down by delivery, so roots that hold both renderings (a run resumed across the change, an omp provider, the baseline runs) are never summed together. Accept several `--state-dir` arguments. Read-only; stdlib only.
+- [ ] Run it on the three baseline roots and store the table in the closeout; it must reproduce the 4 missing attempts (69 attempts, 64 committed, 1 open).
 
 **Done:** the baseline table is reproduced by the script.
 
 ## Task 5 — Authoring Recipe And Chess Example
 
-**Depends on:** nothing for the recipe; Task 1 for removing the prompt paragraphs.
+**Depends on:** nothing for the recipe; Task 2 for removing the prompt paragraphs (Task 1 switches no caller over, so a live game before Task 2 would meet the old block with no authored paragraph). Nothing from this task is merged or smoked before Task 2 lands.
 **Modify:** `docs/lisp_workflow_drafting_guide.md`,
 `experiments/agent_chess/{chess.orc,white.md,black.md,README.md}`.
 **Tests:** the chess example's existing compile check; a deterministic

@@ -890,6 +890,20 @@
     `tests/test_workflow_lisp_target_evaluated_execution.py`,
     `tests/test_workflow_evaluated_run_ref.py`.
 
+  - Provider result delivery rendering: on the evaluated route the output
+    contract block leads with the delivery the runtime selected (the attempt's
+    result file, rendering `file/1`), renders the relpath guidance only when
+    the contract carries a path type, and records the rendering as the
+    provider input part `delivery`; a committed effect replays with the
+    rendering it recorded, so a wording change never diverges it. Providers
+    bound to `omp` templates keep the earlier rendering (`legacy`). A
+    `provider_result_missing` failure carries the head of the provider's
+    stdout in its error text. Targets through 2.34 compose byte-identical
+    prompts. Evidence: `tests/test_prompt_contract.py`,
+    `tests/test_workflow_evaluated_resume_replay.py`,
+    `tests/test_workflow_evaluated_providers.py`
+    ([design](../docs/design/provider_result_delivery.md)).
+
 - v2.36 additions (W3)
   - Target 2.36 selects the existing evaluated route. The closed program's
     top-level `target` is the entry's source target, also recorded in its build
