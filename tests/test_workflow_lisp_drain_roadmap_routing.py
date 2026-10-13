@@ -1537,22 +1537,13 @@ def test_e_series_routing_artifacts_exist_and_closed_reviews_are_content_address
         surface["path"] == "tests/e2e/test_e2e_workflow_lisp_run_ref.py"
         for surface in route_registry["surfaces"]
     )
-    assert direct_control_route_rows[0] == {
-        "copy_safety": "preferred_current_guidance",
-        "entry_workflow": "control/direct_task::direct-task",
-        "evidence": [
-            "tests/test_workflow_lisp_direct_control.py::test_direct_task_is_one_composed_provider_boundary",
-            "tests/test_workflow_lisp_direct_control.py::test_direct_task_executes_once_and_committed_boundary_resume_reuses_result",
-            "tests/test_workflow_lisp_direct_control.py::test_direct_task_matches_ordinary_provider_accounting_structure",
-        ],
-        "lowering_route": "wcc_m4",
-        "lowering_schema_version": 2,
-        "path": "workflows/library/control/direct_task.orc",
-        "readiness_label": "promotion_eligible",
-        "route_label": "wcc_default",
-        "surface_id": "workflows.library.control.direct_task",
-        "surface_kind": "library_workflow",
-    }
+    route = direct_control_route_rows[0]
+    assert route["entry_workflow"] == "control/direct_task::direct-task"
+    assert route["route_label"] == "evaluated_execution"
+    assert route["copy_safety"] == "preferred_current_guidance"
+    assert route["evidence"] == [
+        "tests/test_workflow_evaluated_consumers.py::test_public_direct_task_preserves_bool_policy_and_one_call_resume"]
+    assert "lowering_route" not in route and "lowering_schema_version" not in route
 
 
 def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:

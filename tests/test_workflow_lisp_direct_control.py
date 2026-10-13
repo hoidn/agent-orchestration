@@ -1,3 +1,5 @@
+"""Historical flat direct-control proof; current public evidence lives in evaluated consumers."""
+
 from __future__ import annotations
 
 import json
@@ -31,7 +33,7 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LIBRARY_ROOT = ROOT / "workflows/library"
+LIBRARY_ROOT = ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy"
 SOURCE = LIBRARY_ROOT / "control/direct_task.orc"
 ENTRY = "control/direct_task::direct-task"
 ORDINARY_SOURCE = (

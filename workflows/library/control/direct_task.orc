@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.23")
+  (:target-dsl "2.35")
   (defmodule control/direct_task)
   (export direct-task)
 

@@ -1,4 +1,4 @@
-"""Compiler/runtime contract for the E-series four-cell QA-placement study."""
+"""Historical E-series compiler/runtime contract with the exact direct-control fixture."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = (
     REPOSITORY_ROOT / "workflows" / "experiments" / "qa_placement_effectiveness"
 )
-LIBRARY_ROOT = REPOSITORY_ROOT / "workflows" / "library"
+LIBRARY_ROOT = REPOSITORY_ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy"
 ARMS_SOURCE = WORKFLOW_ROOT / "qa_placement_arms.orc"
 TRIAL_SOURCE = WORKFLOW_ROOT / "qa_placement_trial.orc"
 PROVIDERS = WORKFLOW_ROOT / "providers.json"

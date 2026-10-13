@@ -1,4 +1,4 @@
-"""Public evaluated route for the canonical verified drain copied to target 2.35."""
+"""Public evaluated route for the canonical verified drain at target 2.35."""
 
 from __future__ import annotations
 
@@ -105,9 +105,6 @@ def _fixture(root: Path, monkeypatch, plan: dict[str, object]) -> list[str]:
     for relpath in ASSETS:
         (root / relpath).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relpath, root / relpath)
-    source = (ROOT / SOURCE).read_text(encoding="utf-8")
-    assert source.count('(:target-dsl "2.15")') == 1
-    (root / SOURCE).write_text(source.replace('(:target-dsl "2.15")', '(:target-dsl "2.35")'), encoding="utf-8")
     (root / TARGET).parent.mkdir(parents=True)
     (root / TARGET).write_text("TARGET_BEFORE\n", encoding="utf-8")
     (root / "workflows/checks.json").write_text(json.dumps(["python -c 'raise SystemExit(0)'"]), encoding="utf-8")
@@ -116,10 +113,7 @@ def _fixture(root: Path, monkeypatch, plan: dict[str, object]) -> list[str]:
                  ["add", "--", "workflows", "docs"], ["commit", "-q", "-m", "Seed drain fixture"]):
         subprocess.run(["git", *argv], cwd=root, check=True)
     (root / "manifests").mkdir()
-    commands = json.loads((MANIFESTS / "verified_iteration_drain.commands.json").read_text(encoding="utf-8"))
-    for row in commands.values():
-        row["closure"] = [row["stable_command"][1]]
-    (root / "manifests/commands.json").write_text(json.dumps(commands), encoding="utf-8")
+    shutil.copyfile(MANIFESTS / "verified_iteration_drain.commands.json", root / "manifests/commands.json")
     for kind in ("providers", "prompts"):
         shutil.copyfile(MANIFESTS / f"verified_iteration_drain.{kind}.json", root / f"manifests/{kind}.json")
     (root / "bin").mkdir()
@@ -193,6 +187,9 @@ def test_public_drain_continue_then_done_reads_two_captured_histories(tmp_path, 
                                                 "done_review": ["APPROVE"], "commit": [0]})
     compiled = _cli(tmp_path, "compile", *frontend)
     assert compiled.returncode == 0, compiled.stderr
+    dry_run = _cli(tmp_path, "run", *frontend, *INPUTS, "--dry-run")
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert (tmp_path / SOURCE).read_bytes() == (ROOT / SOURCE).read_bytes()
     result = _run_cli(tmp_path, *frontend, *INPUTS)
     assert result.returncode == 0, result.stderr
     run_root, rows, snapshot = _memo(tmp_path)
@@ -205,6 +202,9 @@ def test_public_drain_continue_then_done_reads_two_captured_histories(tmp_path, 
         ["iter 0", "ACCEPTED"], ["iter 1", "DONE"]]
     assert _lineage(tmp_path) == sorted({*FORMER_LINEAGE_PATHS, *histories})
     assert len(_lineage(tmp_path)) == 21
+    report = _cli(tmp_path, "report", "--run-id", run_root.name, "--runs-root", str(run_root.parent), "--format", "json")
+    assert report.returncode == 0, report.stderr
+    assert json.loads(report.stdout)["run"]["workflow_outputs"] == snapshot.terminal.data["value"]
     _assert_completed_resume_is_readonly(tmp_path, run_root)
 
 

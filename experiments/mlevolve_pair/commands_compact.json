@@ -77,7 +77,10 @@
     ],
     "owner_module": "mlevolve_pair/search_compact",
     "replacement_path": null,
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "closure": [
+      "experiments/mlevolve_pair/leaves.py"
+    ]
   },
   "evaluate_candidate": {
     "kind": "certified_adapter",
@@ -127,6 +130,9 @@
     ],
     "owner_module": "mlevolve_pair/search_compact",
     "replacement_path": null,
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "closure": [
+      "experiments/mlevolve_pair/leaves.py"
+    ]
   }
 }

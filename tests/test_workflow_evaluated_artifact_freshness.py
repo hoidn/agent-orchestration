@@ -214,7 +214,7 @@ def _drain_route(root: Path, monkeypatch, *, current: bool) -> dict[str, list[li
         assert _cli(root, "compile", *frontend).returncode == 0
     else:
         source = root / drain.SOURCE
-        source.write_text(source.read_text(encoding="utf-8").replace('"2.35"', '"2.15"'), encoding="utf-8")
+        source.write_bytes((drain.ROOT / "tests/fixtures/workflow_lisp/verified_drain_legacy/verified_iteration_drain/drain.orc").read_bytes())
         shutil.copyfile(drain.MANIFESTS / "verified_iteration_drain.commands.json", root / "manifests/commands.json")
     result = _run_cli(root, *frontend, *drain.INPUTS)
     assert result.returncode == 0, result.stderr

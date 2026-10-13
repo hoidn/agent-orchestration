@@ -26,7 +26,8 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ORC_WORKFLOW = ROOT / "workflows/library/verified_iteration_drain/drain.orc"
+LEGACY_ROOT = ROOT / "tests/fixtures/workflow_lisp/verified_drain_legacy"
+ORC_WORKFLOW = LEGACY_ROOT / "verified_iteration_drain/drain.orc"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 ENTRY_WORKFLOW = "verified_iteration_drain/drain::drain"
 PREPARE_SCRIPT = "workflows/library/scripts/prepare_verified_iteration.py"
@@ -60,7 +61,7 @@ def _compile_verified_orc():
     assert ORC_WORKFLOW.is_file(), f"verified Workflow Lisp candidate is absent: {ORC_WORKFLOW}"
     return compile_stage3_entrypoint(
         ORC_WORKFLOW,
-        source_roots=(ROOT / "workflows/library",),
+        source_roots=(LEGACY_ROOT,),
         entry_workflow=ENTRY_WORKFLOW,
         provider_externs=json.loads(
             (MIGRATION_INPUTS / "verified_iteration_drain.providers.json").read_text()
@@ -126,7 +127,7 @@ def _prepare_verified_runtime_workspace(workspace: Path):
     for relpath in copy_paths:
         destination = workspace / relpath
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relpath, destination)
+        shutil.copy2(ORC_WORKFLOW if relpath.endswith("/drain.orc") else ROOT / relpath, destination)
     target_design = workspace / "docs/design/verified-target.md"
     target_design.parent.mkdir(parents=True, exist_ok=True)
     target_design.write_text("DEPENDENCY_BEFORE_INTERRUPTION\n", encoding="utf-8")
@@ -829,14 +830,17 @@ def test_verified_extern_manifests_bind_existing_assets() -> None:
         "prepare_verified_iteration": {
             "kind": "external_tool",
             "stable_command": ["python", "workflows/library/scripts/prepare_verified_iteration.py"],
+            "closure": ["workflows/library/scripts/prepare_verified_iteration.py"],
         },
         "run_verified_iteration_checks": {
             "kind": "external_tool",
             "stable_command": ["python", "workflows/library/scripts/run_verified_iteration_checks.py"],
+            "closure": ["workflows/library/scripts/run_verified_iteration_checks.py"],
         },
         "record_verified_iteration": {
             "kind": "external_tool",
             "stable_command": ["python", "workflows/library/scripts/record_verified_iteration.py"],
+            "closure": ["workflows/library/scripts/record_verified_iteration.py"],
         },
     }
     for row in [*prompts.values(), *commands.values()]:
@@ -942,7 +946,7 @@ def _assert_retry_keeps_selected_history_and_resume_is_idempotent(workspace: Pat
     }
 
 
-def test_verified_post_promotion_orc_smoke_is_fresh(tmp_path: Path) -> None:
+def test_legacy_verified_post_promotion_fixture_preserves_contract(tmp_path: Path) -> None:
     registry = json.loads(
         (ROOT / "docs/workflow_lisp_route_readiness_registry.json").read_text()
     )
@@ -952,7 +956,7 @@ def test_verified_post_promotion_orc_smoke_is_fresh(tmp_path: Path) -> None:
         if row["path"] == "workflows/library/verified_iteration_drain/drain.orc"
     )
     assert route["surface_kind"] == "library_workflow"
-    assert route["route_label"] == "wcc_default"
+    assert route["route_label"] == "evaluated_execution"
     assert route["readiness_label"] == "promotion_eligible"
     assert route["entry_workflow"] == ENTRY_WORKFLOW
 

@@ -540,15 +540,11 @@
       "copy_safety": "preferred_current_guidance",
       "entry_workflow": "control/direct_task::direct-task",
       "evidence": [
-        "tests/test_workflow_lisp_direct_control.py::test_direct_task_is_one_composed_provider_boundary",
-        "tests/test_workflow_lisp_direct_control.py::test_direct_task_executes_once_and_committed_boundary_resume_reuses_result",
-        "tests/test_workflow_lisp_direct_control.py::test_direct_task_matches_ordinary_provider_accounting_structure"
+        "tests/test_workflow_evaluated_consumers.py::test_public_direct_task_preserves_bool_policy_and_one_call_resume"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
       "path": "workflows/library/control/direct_task.orc",
       "readiness_label": "promotion_eligible",
-      "route_label": "wcc_default",
+      "route_label": "evaluated_execution",
       "surface_id": "workflows.library.control.direct_task",
       "surface_kind": "library_workflow"
     },
@@ -799,16 +795,13 @@
       "copy_safety": "preferred_current_guidance",
       "entry_workflow": "verified_iteration_drain/drain::drain",
       "evidence": [
-        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_compiles_with_exact_public_contract",
-        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_one_continue_then_done_preserves_artifact_lineage",
-        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_blocked_stalled_and_exhausted_paths",
-        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent"
+        "tests/test_workflow_evaluated_verified_drain.py::test_public_drain_continue_then_done_reads_two_captured_histories",
+        "tests/test_workflow_evaluated_verified_drain.py::test_public_work_retry_keeps_the_prepare_selected_history",
+        "tests/test_workflow_evaluated_verified_drain.py::test_public_prepare_boundary_resume_keeps_history_unless_prepare_is_invalidated"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
       "path": "workflows/library/verified_iteration_drain/drain.orc",
       "readiness_label": "promotion_eligible",
-      "route_label": "wcc_default",
+      "route_label": "evaluated_execution",
       "surface_id": "workflows.library.verified_iteration_drain.drain",
       "surface_kind": "library_workflow"
     },

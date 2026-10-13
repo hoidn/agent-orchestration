@@ -37,6 +37,54 @@ def _owners(route) -> list[tuple[str, str]]:
             for data in route.commits]
 
 
+@pytest.mark.parametrize("source", [
+    "workflows/library/control/direct_task.orc",
+    "workflows/library/verified_iteration_drain/drain.orc",
+    "experiments/mlevolve_pair/search_compact.orc",
+])
+def test_retained_canonical_consumers_select_evaluated_execution(source):
+    assert entry_target_dsl_version(ROOT / source) == "2.35"
+
+
+@pytest.mark.parametrize("answer", [True, False])
+def test_public_direct_task_preserves_bool_policy_and_one_call_resume(tmp_path, monkeypatch, answer):
+    source = "workflows/library/control/direct_task.orc"
+    root = tmp_path / "workspace"
+    (root / source).parent.mkdir(parents=True)
+    (root / source).write_bytes((ROOT / source).read_bytes())
+    (root / "providers.json").write_text(json.dumps({"providers.direct": "codex_unrestricted_workspace"}))
+    (root / "inputs.json").write_text(json.dumps({"task": "Complete the direct task.",
+                                               "model": "gpt-6-sol", "effort": "high"}))
+    install_shims(tmp_path / "bin", monkeypatch, {"codex": [{"result": answer}]})
+    frontend = [source, "--entry-workflow", "control/direct_task::direct-task", "--source-root", "workflows/library",
+                "--provider-externs-file", "providers.json"]
+    old_root = tmp_path / "old"
+    (old_root / source).parent.mkdir(parents=True)
+    (old_root / source).write_bytes((ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy/control/direct_task.orc").read_bytes())
+    for name in ("providers.json", "inputs.json"):
+        (old_root / name).write_bytes((root / name).read_bytes())
+    old = old_route(old_root, frontend)
+
+    route = current_route(root, frontend, "control/direct_task::direct-task")
+
+    dry_run = _cli(root, "run", *frontend, "--input-file", "inputs.json", "--dry-run")
+    report = _cli(root, "report", "--run-id", route.authority.run_root.name,
+                  "--runs-root", str(route.authority.run_root.parent), "--format", "json")
+    assert (route.value, len(route.requests), len(route.paused), _owners(route), lineage(route),
+            set(route.started().values())) == (
+        answer, 1, 1, [("provider", "control/direct_task::direct-task")], [[]], {1})
+    request = route.requests[0]
+    assert request["tool"] == "codex"
+    assert "gpt-6-sol" in request["argv"]
+    assert any("high" in argument for argument in request["argv"])
+    assert_request_lineage(route)
+    assert old.value == {"__result__": answer}
+    assert request_view(old) == request_view(route)
+    assert dry_run.returncode == report.returncode == 0, (dry_run.stderr, report.stderr)
+    assert json.loads(report.stdout)["run"]["workflow_outputs"] is answer
+    assert requests(root) == route.requests
+
+
 def _chain(count: int) -> list[list[int]]:
     """C9 when each commit's resolved input reads a result of every earlier commit."""
     return [list(range(index)) for index in range(count)]
@@ -229,10 +277,21 @@ def test_public_w3_reviewed_change_preserves_outcomes_and_round_guards(tmp_path,
 
 @pytest.mark.parametrize("plan,marker,paused,value", REVIEWED)
 def test_public_reviewed_change_keeps_independent_review_order(tmp_path, monkeypatch, plan, marker, paused, value):
+    assert entry_target_dsl_version(ROOT / PROGRAMS["reviewed_change"].source) == "2.35"
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.", "intent": "add returns a + b",
               "repo": "repo"}
 
     old, new = routes(tmp_path, monkeypatch, "reviewed_change", plan, inputs, marker)
+    program = PROGRAMS["reviewed_change"]
+    assert (new.root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
+    dry_run = _cli(new.root, "run", program.source, "--entry-workflow", program.entry,
+                   "--source-root", program.source_root, "--provider-externs-file", "manifests/providers.json",
+                   "--input-file", "inputs.json", "--dry-run")
+    report = _cli(new.root, "report", "--run-id", new.authority.run_root.name,
+                  "--runs-root", str(new.authority.run_root.parent), "--format", "json")
+    assert dry_run.returncode == report.returncode == 0, (dry_run.stderr, report.stderr)
+    assert json.loads(report.stdout)["run"]["workflow_outputs"] == new.value
+    assert requests(new.root) == new.requests
 
     calls = len(plan["claude"]) + len(plan["codex"])
     assert {"value": new.value, "tools": [request["tool"] for request in new.requests], "paused": len(new.paused),

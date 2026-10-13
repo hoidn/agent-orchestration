@@ -39,13 +39,16 @@ CONTROLLER = "mlevolve_pair/search_compact"
 
 
 def compact_controller(root: Path) -> tuple[dict[str, str], dict]:
-    """The controller's source, unchanged, and its command boundaries; its leaves copied under `root`.
+    """The historical controller and its command boundaries; its leaves copied under `root`.
 
     Read from this checkout, or else from branch `phase0/t7`, where Task 7 adds it.
     """
 
     texts = []
     for name in ("experiments/mlevolve_pair/search_compact.orc", "experiments/mlevolve_pair/commands_compact.json"):
+        if name.endswith(".orc"):
+            texts.append((REPO / "tests/fixtures/workflow_lisp/mlevolve_pair_legacy/search_compact.orc").read_text(encoding="utf-8"))
+            continue
         if (REPO / name).exists():
             texts.append((REPO / name).read_text(encoding="utf-8"))
             continue
@@ -140,7 +143,12 @@ def _install_real(root: Path, name: str) -> tuple[Path, dict, dict, dict]:
     source, _, inputs_dir, _, _ = REAL[name]
     entry = root / Path(source).name
     root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(EXAMPLE if name == "improve-example" else REPO / source, entry)
+    legacy_sources = {
+        "improve-example": EXAMPLE,
+        "reviewed-change": REPO / "tests/fixtures/workflow_lisp/reviewed_change_legacy/reviewed_change.orc",
+        "best-of-n": REPO / "tests/fixtures/workflow_lisp/best_of_n_legacy/best_of_n.orc",
+    }
+    shutil.copy2(legacy_sources[name], entry)
     if inputs_dir is None:
         providers = json.loads((REPO / source.replace(".orc", ".providers.json")).read_text(encoding="utf-8"))
         return entry, providers, {}, {}

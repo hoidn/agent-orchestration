@@ -16,6 +16,7 @@ from tests.workflow_evaluated_program_sources import (  # noqa: E402
     occurrences, public_run, reference, selector_events, stock_source,
 )
 from tests.workflow_evaluated_totality_helpers import checked_run, compile_public  # noqa: E402
+from tests.test_workflow_evaluated_invalidate import _cli  # noqa: E402
 
 
 STOCK_BUDGETS = (2, 3, 4, 7, 12)
@@ -46,6 +47,16 @@ def test_public_stock_search_matches_python_reference(tmp_path, monkeypatch, bud
     observed, wanted = _parts(exercise(tmp_path, monkeypatch, stock_source(), budget), growth=False)
 
     assert observed == wanted
+    if budget == 12:
+        source = tmp_path / "experiments/mlevolve_pair/search_compact.orc"
+        assert source.read_bytes() == (PAIR / "search_compact.orc").read_bytes()
+        dry_run = _cli(tmp_path, "run", str(source), "--source-root", "experiments",
+                       "--command-boundaries-file", "commands.json", "--input", "max_evaluations=12", "--dry-run")
+        authority, _ = checked_run(tmp_path)
+        report = _cli(tmp_path, "report", "--run-id", authority.run_root.name,
+                      "--runs-root", str(authority.run_root.parent), "--format", "json")
+        assert dry_run.returncode == report.returncode == 0, (dry_run.stderr, report.stderr)
+        assert json.loads(report.stdout)["run"]["workflow_outputs"] == observed["result"]
 
 
 def test_campaign_has_72_unique_scenario_budget_cases():

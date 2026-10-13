@@ -159,7 +159,8 @@ def _public_run_diagnostic(source_name: str, tmp_path: Path, caplog) -> tuple[in
     source_dir.mkdir(parents=True)
     source = source_dir / source_name
     source.write_text(
-        (PAIR / source_name).read_text(encoding="utf-8").replace("run-search", "run"),
+        ((ROOT / "tests/fixtures/workflow_lisp/mlevolve_pair_legacy/search_compact.orc")
+         if source_name == "search_compact.orc" else PAIR / source_name).read_text(encoding="utf-8").replace("run-search", "run"),
         encoding="utf-8",
     )
     command_manifest = "commands_compact.json" if source_name == "search_compact.orc" else "commands.json"
@@ -285,7 +286,7 @@ def test_branch_expanded_controller_reports_its_current_diagnostic_code(
     )
 
 
-def test_compact_controller_reports_its_current_diagnostic_code(
+def test_legacy_compact_controller_preserves_its_original_diagnostic_code(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
     monkeypatch.chdir(tmp_path)

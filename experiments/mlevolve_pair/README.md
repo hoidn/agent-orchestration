@@ -46,17 +46,26 @@ From the repository root, reproduce the comparison and write its evidence with:
 python -m experiments.mlevolve_pair.compare --output /tmp/mlevolve-pair-evidence.json
 ```
 
-The compact controller is in `search_compact.orc`. Its module path is
+The maintained compact controller in `search_compact.orc` targets evaluated execution
+2.35 and retains the policy, typed trial history and budget described above. Its module path is
 `mlevolve_pair/search_compact`, so its certified adapter manifest is
-`commands_compact.json` (the `owner_module` metadata matches that module).
-Run it with the same public command, substituting that source and manifest:
+`commands_compact.json` (the `owner_module` metadata matches that module; each
+command declares `leaves.py` as its closure).
+From the repository root, compile, inspect admission, or run the compact controller:
 
 ```bash
 python -m orchestrator run experiments/mlevolve_pair/search_compact.orc \
   --entry-workflow run-search --source-root experiments \
   --command-boundaries-file experiments/mlevolve_pair/commands_compact.json \
-  --dry-run
+  --input max_evaluations=12 --dry-run
 ```
+
+Use `compile` instead of `run` and omit the input and `--dry-run` to persist its
+checked artifact. Omit `--dry-run` to execute; `orchestrator resume RUN_ID` reuses
+committed effects, and `orchestrator report --run-id RUN_ID --format json` shows
+the typed result. Scripted public tests compare results and ordered leaf requests
+with the Python reference across budgets, invalid candidates, repair and fusion,
+including interrupted and completed resume.
 
 The broader findings are in the
 [comparison report](../../docs/reports/2026-09-29-mlevolve-orc-python-comparison.md).

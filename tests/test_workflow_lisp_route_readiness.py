@@ -765,10 +765,10 @@ def test_verified_route_is_promotion_eligible_and_copy_safe() -> None:
     assert entry is not None
     assert entry.surface_kind == "library_workflow"
     assert entry.entry_workflow == "verified_iteration_drain/drain::drain"
-    assert entry.route_label == "wcc_default"
+    assert entry.route_label == "evaluated_execution"
     assert entry.readiness_label == "promotion_eligible"
-    assert entry.lowering_route == "wcc_m4"
-    assert entry.lowering_schema_version == 2
+    assert entry.lowering_route is None
+    assert entry.lowering_schema_version is None
     assert entry.copy_safety == "preferred_current_guidance"
 
 

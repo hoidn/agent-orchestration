@@ -131,8 +131,9 @@ PROGRAMS = {
         (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher,
         "tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc"),
     "reviewed_change": Program(
-        f"{COMPARISON}/reviewed_change.orc", "2.28", "reviewed_change::reviewed-change", COMPARISON,
-        {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo")),
+        f"{COMPARISON}/reviewed_change.orc", "2.35", "reviewed_change::reviewed-change", COMPARISON,
+        {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo"),
+        source_fixture="tests/fixtures/workflow_lisp/reviewed_change_legacy/reviewed_change.orc"),
     "best_of_n": Program(
         f"{COMPARISON}/best_of_n.orc", "2.35", "best_of_n::best-of-n", COMPARISON,
         {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates,

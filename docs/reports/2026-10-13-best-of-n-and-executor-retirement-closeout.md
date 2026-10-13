@@ -11,6 +11,8 @@ The selected order migrates canonical serial best of N to 2.35 independently
 of full Phase 5. Bounded existing 2.37 support stays. Watchdog needs no port;
 retire its exclusive executable routing with the qualified cutoff. Keep
 shared performers, useful typed imports and all original run data.
+New `prompt run`/`prompt import` executions retire with the complete previous
+release/environment retained; native `prompt resume [--in-place]` stays.
 
 Execution worktree: `.worktrees/orc-consolidation-20261012` (W). Evidence:
 `.worktrees/orc-consolidation-evidence-20261012` (E). Baseline is `23eb9c97`,
@@ -24,9 +26,9 @@ Concurrent dirty main changes remain outside W and are preserved.
 
 | Task | State | Evidence / remaining work |
 | --- | --- | --- |
-| 0 finite inventory | In progress | 542 tracked sources and recursive repository run census recorded; ES/research retirement selected; final row qualification pending |
+| 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
-| 2 other selected consumers | Pending | Maintain evaluated examples/REPL/chess; classify advertised older roots and shared libraries |
+| 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
 | 3 cutoff / gate R | Pending | No current-package refusal or historical recovery claim yet |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
@@ -55,11 +57,66 @@ assertions must remain under their typed interface or migrate to the evaluated
 entry; only exclusively retired execution assertions leave the suite.
 
 The core `prompt --output` entry,
-`orchestrator/omp_assets/infer-output-contract.orc`, also migrates to 2.35.
+`orchestrator/omp_assets/infer-output-contract.orc`, retires with its sole
+prompt run/import caller; its attempted migration was reverted. Migrating this asset alone would
+not preserve the generated prompt CLI contract selected for retirement below.
 Older module headers remain valid imported typed contracts; only executable
 entry targets through 2.34 are selected for retirement after R.
 
-### Preserved ES / Research Snapshot
+### Selected Maintained Roots
+
+| Exact source | Selected action |
+| --- | --- |
+| `experiments/orc_vs_single_call/workflows/best_of_n.orc` | Canonical serial 2.35 accepted under Task 1 |
+| `experiments/orc_vs_single_call/workflows/reviewed_change.orc` | Migrate existing review/revise behavior to 2.35 |
+| `workflows/library/control/direct_task.orc` | Migrate existing provider boundary to 2.35 |
+| `workflows/library/verified_iteration_drain/drain.orc` | Migrate bounded existing drain/history behavior to 2.35 |
+| `experiments/mlevolve_pair/search_compact.orc` | Migrate existing compact search to 2.35 |
+| `workflows/examples/plan_review_execute.orc` | Retain evaluated 2.35 |
+| `workflows/examples/design_review_execute.orc` | Retain evaluated 2.35 |
+| `experiments/orc_repl_feature/repl_feature.orc` | Retain evaluated 2.35 |
+| `workflows/examples/improve_experiment_proposal.orc` | Retain evaluated 2.36 |
+| `experiments/agent_chess/chess.orc` | Retain evaluated 2.36 |
+
+The census records every other tracked source's selected shared/import or
+historical disposition. `E/retirement-test-dispositions.{md,json}` enumerates
+389 impacted test/helper modules in thirteen owner groups. It is an impact
+inventory, not blanket approval to delete mixed suites. Only assertions about
+retired executable contracts disappear; retained semantics keep independent
+expected values and public/typed evidence without an old executor as oracle.
+
+### Generated Prompt Consumer — Retirement Selected
+
+Review found an executable consumer absent from the tracked `.orc` roots:
+`prompt_scaffold_render.py::_render_run_orc` generates target 2.27 with
+`:session-artifact omp_session` for `prompt run` default/exact/inferred contract
+modes, `--scaffold` rerun and both `prompt import` branches (including
+`--reuse-run-contract`). Its scaffold compiler also consumes flat `lowered_workflows`.
+`E/retirement-prompt-generated-review-probe.json` confirms that changing the
+header alone produces `closed_program_gap`; no provider was launched.
+
+The owner explicitly selected “Retirar run/import y conservar versión anterior”
+on 2026-10-13. Retire these new executions from the new package and preserve them
+in `E/retirement-retained-release`; no evaluated session port or sidecar metadata
+is selected. Task 0's contract choice is resolved; implementation and R remain
+pending. Tasks 3–4 must prove run/import refusal before scaffold/run/session
+writes or effects and preserve original data.
+
+`prompt resume [--in-place]` remains the native TTY bridge with its existing
+pins, isolation, lineage and continuation publication. `verify_private_scaffold`
+and `verify_captured_occupant` verify bytes/manifests/links without compilation
+or `WorkflowExecutor`. Keep `_scaffold_files` and the historical 2.27 renderer
+for deterministic byte verification; remove eager compiler dependencies and
+`compile_check`/`derive_compiled_contract` only when unused. Native resume mutates
+session journals and requires smoke/import-closure evidence in both modes;
+it does not resume retired workflows or establish universal old-run recovery.
+
+`E/retirement-inventory-review.md` records final Task 0 PASS after correcting
+the omitted generated consumer and fourteen stale decision labels. The original
+findings and pre-review JSON remain preserved. This accepts the finite scope,
+not the still-pending refusal, native-session or recovery checks of R.
+
+### Preserved Complete Release / Consumer Snapshot
 
 `E/retirement-retained-release` is a complete `23eb9c97` checkout overlaid with
 181 current code, test and asset files (6,456,961 bytes), including dirty and
@@ -142,3 +199,40 @@ No committed provider is dispatched again during completed resume.
 This is serial deterministic public-route evidence, not live-model quality,
 parallel qualification, or executor-retirement acceptance. Provider policy
 and delivery code did not change, so no new live-model campaign was needed.
+
+## Task 2 — Other Canonical Consumers
+
+`reviewed_change`, `direct_task`, the verified drain and compact search now
+declare 2.35. Their bodies are unchanged; command manifests declare the files
+already used by their implementations. Current lifecycle tests use canonical
+bytes, while exact older sources remain separate historical fixtures. Registry
+and README routing follow the canonical sources. The incomplete inference
+migration was reverted after selection of prompt run/import retirement.
+
+| Receipt in E | Outcome |
+| --- | --- |
+| `retained-source-preservation.json` | Four exact historical snapshots; canonical bodies differ only in their target header |
+| `retained-reviewed-green.{json,log,xml}` | 10 passed; reviewed-change outcomes and public interrupted/completed resume |
+| `retained-drain-search-narrow.{json,log,xml}` | 11 passed; drain history/resume, compact-search budgets and coupled contracts |
+| `retained-affected.{json,log,xml}` | 823 cases: 742 passed, 9 failed, 72 errors; initial affected campaign |
+| `retained-spike-correction.{json,log,xml}` | 85 passed after historical spike callers use their exact old sources |
+| `retained-manifest-correction.{json,log,xml}` | 1 passed after the manifest assertion includes the declared command closure |
+| `retained-four-final-collect.{json,log,xml}` | 115 cases collected |
+| `retained-affected-dispositions.json` | All 81 initial failures/errors matched by node ID: 80 corrected and verified, one pre-existing growth-observer failure retained |
+| `retained-consumers-contract-review.md` | Bounded PASS for the four migrations |
+| `retained-es-import-green.{json,log,xml}` / `retained-es-collect.{json,log,xml}` | 6 passed; 58 cases collected after three historical ES helpers use the exact 2.23 direct-task snapshot |
+| `retained-es-affected.{json,log,xml}` / `retained-es-affected-dispositions.json` | 51 passed, 7 failed; all seven node IDs and recorded launcher hashes match the baseline mismatch |
+| `retained-consumers-quality-review.md` | Final bounded PASS; original ES import-direction finding and its correction preserved |
+
+The quality review found a new ES test dependency missed by the initial affected
+selection: target-2.25 arms could no longer import canonical direct-task at 2.35.
+Three historical test helpers now use its exact 2.23 snapshot. This preserves
+their old assertions until selected ES retirement; it does not port ES or claim
+that its current launch path remains supported after cutoff.
+
+The existing growth-selector failure observes an extra `None` event lane and
+also fails at baseline `23eb9c97`; its assertions are unchanged. The full suite
+has not been rerun for this bounded cut. Drain BLOCKED, STALLED and exhaustion
+still have historical-route evidence only: move those assertions to the
+evaluated public path before deleting their historical test/runtime. This is
+not acceptance of gate R or of physical executor retirement.

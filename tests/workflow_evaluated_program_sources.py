@@ -1,6 +1,6 @@
 """Compact paired-search fixtures for public evaluated runs: stock, scripted and growth.
 
-The stock controller is copied with only its target header changed. Scripted leaves are
+The stock controller is copied unchanged. Scripted leaves are
 the fixture's stand-ins, installed with their answers in the declared closure. The
 growth variant adds 14 audit counters and their 27 source `if` selectors; it keeps the
 A/B policy, commands and budget, and its counters are checked against a fold over the
@@ -53,10 +53,7 @@ AUDIT = ("valid_trials", "invalid_trials", "accepted_trials", "rejected_trials",
 
 
 def stock_source() -> str:
-    text = (PAIR / "search_compact.orc").read_text(encoding="utf-8")
-    header = '(:target-dsl "2.33")'
-    assert text.count(header) == 1
-    return text.replace(header, '(:target-dsl "2.35")')
+    return (PAIR / "search_compact.orc").read_text(encoding="utf-8")
 
 
 def install(root: Path, text: str, scenario: dict | None) -> dict[str, Path]:

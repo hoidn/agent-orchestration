@@ -18,6 +18,12 @@ Material of the experiment of 2026-09-28.
 
 The patches themselves, the prompts and the agents' outputs are not tracked.
 
+The canonical `reviewed_change.orc` also targets evaluated execution 2.35. Its
+independent review loop preserves READY, ESCALATED and UNRESOLVED outcomes,
+provider models, revision ordering and the three-round limit. Public tests compile
+it unchanged and check interrupted and completed resume against the prior 2.28
+source with deterministic providers.
+
 ## Run the maintained best-of-N workflow
 
 The canonical [`best_of_n.orc`](workflows/best_of_n.orc) targets evaluated

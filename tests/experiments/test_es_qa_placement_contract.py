@@ -1,4 +1,4 @@
-"""Structural contract for the ES QA-placement arm module."""
+"""Historical ES QA-placement contract with the exact pre-migration direct-control fixture."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = (
     REPOSITORY_ROOT / "workflows" / "experiments" / "qa_placement_effectiveness"
 )
-LIBRARY_ROOT = REPOSITORY_ROOT / "workflows" / "library"
+LIBRARY_ROOT = REPOSITORY_ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy"
 ARMS_SOURCE = WORKFLOW_ROOT / "qa_placement_arms.orc"
 DIRECT_SOURCE = LIBRARY_ROOT / "control" / "direct_task.orc"
 PROVIDERS_PATH = WORKFLOW_ROOT / "providers.json"
@@ -425,7 +425,7 @@ def _derived_contract(workflows):
     return completed, prefixes, terminal_outcomes
 
 
-def test_public_arms_reuse_canonical_direct_and_compile_to_exact_bool_surface() -> None:
+def test_historical_arms_reuse_legacy_direct_and_compile_to_exact_bool_surface() -> None:
     syntax_module, _, workflows = _module_forms_and_workflows()
     assert syntax_module.export_directive is not None
     assert syntax_module.export_directive.names == tuple(ARM_ENTRIES.values())
@@ -451,12 +451,12 @@ def test_public_arms_reuse_canonical_direct_and_compile_to_exact_bool_surface() 
     assert product_calls[0] == "control.direct-task"
 
     _, _, direct_workflows = _module_forms_and_workflows(DIRECT_SOURCE)
-    canonical_direct = direct_workflows["direct-task"]
-    assert _return_type(canonical_direct) == "Bool"
-    canonical_expression = _body(canonical_direct)
-    assert canonical_expression[:2] == ("provider-result", "providers.direct")
-    canonical_arguments = _keyword_args(canonical_expression, offset=2)
-    assert canonical_arguments == {
+    historical_direct = direct_workflows["direct-task"]
+    assert _return_type(historical_direct) == "Bool"
+    historical_expression = _body(historical_direct)
+    assert historical_expression[:2] == ("provider-result", "providers.direct")
+    historical_arguments = _keyword_args(historical_expression, offset=2)
+    assert historical_arguments == {
         ":prompt": ("direct-task-prompt", ":task", "task"),
         ":model": "model",
         ":effort": "effort",

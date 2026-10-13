@@ -1,4 +1,4 @@
-"""Provider-free public-entry integration for the ES Task-5 controller."""
+"""Historical ES Task-5 integration with the exact pre-migration direct-control fixture."""
 
 from __future__ import annotations
 
@@ -217,7 +217,7 @@ def _stage_public_trial(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     )
     (workspace / "workflows/library/control").mkdir(parents=True)
     shutil.copy2(
-        source / "library/control/direct_task.orc",
+        REPOSITORY_ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy/control/direct_task.orc",
         workspace / "workflows/library/control/direct_task.orc",
     )
     state_dir = (tmp_path / "runs").resolve()

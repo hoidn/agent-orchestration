@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.28")
+  (:target-dsl "2.35")
   (defmodule reviewed_change)
   (export reviewed-change)
 

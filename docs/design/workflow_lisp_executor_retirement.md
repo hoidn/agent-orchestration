@@ -103,6 +103,8 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 | `compile`/`run`/`run --dry-run` of an old executable entry target through 2.34 | Explicit retired-target diagnostic before build/run publication; source is not rewritten |
 | New evaluated entry importing older source modules | Keep supported typed module contracts; an imported module header is not a request to execute the old backend |
 | Old persisted execution profile, including `resume --force-restart` and invalidation | Refuse without changing retained run contents; identify the tested retained-release route where one exists |
+| `prompt run` (default/exact/inferred contract or `--scaffold`) and both `prompt import` branches | Retire new executions from the new package; refuse before scaffold/run/session writes or effects, and direct users to the retained complete release/environment |
+| `prompt resume [--in-place]` on an existing linked session | Retain the native TTY bridge, pins, isolation, lineage and continuation publication without compiler/old-executor imports; this mutates native session journals, not retired workflow execution |
 | Existing evaluated entries/profiles at 2.35/2.36/2.37 | Preserve target registration, admitted compiler/read-back and runtime behavior with current limits; retain rebuild/pin checks, memo authority, writer locking, effect recovery and suffix invalidation |
 | Historical `report`/dashboard state | Keep existing read-only access where it can be independent of execution; inability to read a family requires an explicit disposition |
 | Unsupported feature in an evaluated entry | Existing source-located admission refusal; no hidden dispatch to old execution |
@@ -129,6 +131,15 @@ an unresolved row blocks cutoff rather than creating an open-ended port project.
 | `tracked_design_phase.orc`, `tracked_plan_phase.orc`, `design_plan_impl_implementation_phase.orc`, their importers and stdlib | Preserve useful reusable contracts; enumerate actual executable roots separately. Retire unused roots, migrate only selected used roots and required minimal dependencies; deprecation of Design Delta does not by itself retire these modules |
 | Remaining `workflows/**/*.orc`, `experiments/**/*.orc`, fixtures, Python callers and advertised examples | Enumerate exact paths before cutoff. Propose historical retirement for unused roots; every maintained exception must name its caller, required contract, and migration evidence |
 | Historical `run_best_of_n_trial.sh` / `run_single_call.sh` | Keep labeled experiment provenance or remove obsolete launch guidance; do not revive their missing machine-specific variant files as a new runner |
+| Generated `prompt_scaffold_render.py::_render_run_orc`, `prompt run`/`import`, and `omp_assets/infer-output-contract.orc` | Owner selected retirement from the new package with the complete previous release/environment retained; retire inference if no other caller remains. Retain native `prompt resume [--in-place]` and its historical scaffold-byte verification |
+
+The generated prompt consumer uses target 2.27 and `:session-artifact omp_session`;
+retargeting only the inference asset or generated header cannot preserve its
+session publication contract. No evaluated session port or sidecar metadata is
+selected. Keep `_scaffold_files` and the historical 2.27 renderer for deterministic
+byte/manifest/link verification by `verify_private_scaffold` and
+`verify_captured_occupant`, which do not compile. Remove the eager compiler
+dependency and remove `compile_check`/`derive_compiled_contract` only once unused.
 
 The finite inventory records any needed human-input, context/session, trial,
 supervision, peer, phased-provider, adjudication, resource/view or managed-job
@@ -157,6 +168,7 @@ consumer and test paths elsewhere are relative to the repository root.
 | `workflow_lisp/{compiler,procedure_specialization,result_guidance,prompts,conditionals}.py`, package exports, `workflow_lisp/closed/{build,command_templates}.py`, source-map/explain/LSP consumers | Remove obsolete calls/exports; move genuinely shared helper definitions once to their existing semantic owner, without forwarding aliases or a second lowering path |
 | `workflow/run_ref/{child,path_compile,closed_path}.py` | Remove legacy-child execution and legacy compile fallback; migrate/dispose pinned old child sources and persisted children explicitly |
 | `workflow/trial/sdk.py` and old-only calls/loops/adjudication/step helpers | Trace actual callers and delete retired execution code; no speculative replacement SDK or coordinator port |
+| `cli/commands/{prompt,prompt_import,prompt_run_service}.py`, `prompt_scaffold{,_fs,_render}.py`, `omp_assets/infer-output-contract.orc` | Retire run/import execution, executable scaffold compilation and unused inference; retain prompt-resume routing and pure contracts/codecs/provider and historical scaffold-verification helpers with retained callers |
 | `exec/step_executor.py`, `providers/`, evaluated runtime, run-reference wire/ledger/workspace services | Retain services required by evaluated execution, including error handling, validation and settlement |
 | `workflow/{executable_ir,loaded_bundle,executor_runtime}.py`, shared state/readers | Mixed ownership: remove old-only parts only after tracing compiler, provider, reader and run-reference callers; filenames are not deletion evidence |
 
@@ -170,7 +182,8 @@ test with a 2.24 child is a real old-runtime dependency, not historical dead cod
 ## 7. Recovery Policy And One Deletion Gate
 
 Recommended cutoff: the release implementing this plan admits only evaluated
-executable entries and resumes only their supported evaluated profiles. For
+workflow entries and resumes only their supported evaluated workflow profiles;
+native `prompt resume [--in-place]` remains separate. For
 repository-owned old families, retain an exact complete release/environment
 outside the new distribution where interrupted recovery is demonstrated; otherwise
 record explicit retirement of resumability. No shim remains in the new package.
@@ -195,7 +208,9 @@ same retirement change. There is no indefinite compatibility grace period.
 Prove actual route removal with fresh-process compile/run/resume/report and
 evaluated-child tests that block imports of retired modules, including lazy
 paths; simple import searches do not establish absence. Preserve the earlier
-compiler-independent interpreter boundary. Tests for retained contracts migrate;
+compiler-independent interpreter boundary. Add prompt run/import refusal checks
+before writes/effects and native prompt-resume smoke/import-closure checks,
+including `--in-place` and historical scaffold verification. Tests for retained contracts migrate;
 tests solely for explicitly retired behavior leave the current suite. Select existing
 `tests/test_workflow_lisp_parallel_map*.py` and
 `tests/test_workflow_evaluated_parallel*.py` regressions by changed owners, covering

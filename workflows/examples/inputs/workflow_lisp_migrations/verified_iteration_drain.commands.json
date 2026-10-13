@@ -4,6 +4,9 @@
     "stable_command": [
       "python",
       "workflows/library/scripts/prepare_verified_iteration.py"
+    ],
+    "closure": [
+      "workflows/library/scripts/prepare_verified_iteration.py"
     ]
   },
   "run_verified_iteration_checks": {
@@ -11,12 +14,18 @@
     "stable_command": [
       "python",
       "workflows/library/scripts/run_verified_iteration_checks.py"
+    ],
+    "closure": [
+      "workflows/library/scripts/run_verified_iteration_checks.py"
     ]
   },
   "record_verified_iteration": {
     "kind": "external_tool",
     "stable_command": [
       "python",
+      "workflows/library/scripts/record_verified_iteration.py"
+    ],
+    "closure": [
       "workflows/library/scripts/record_verified_iteration.py"
     ]
   }
