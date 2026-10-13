@@ -20,8 +20,10 @@ Accepted receipt refinements ran eight affected rows; its faulty intermediate
 E04 is superseded by a corrected final one-row/dataflow check. Seven unchanged
 rows retain applicable proof; final Sol code conformity PASS / quality APPROVED
 is recorded in the packet. Final Astra document conformity PASS / quality
-APPROVED is also recorded; the decision packet is delivered. Root commit,
-postcommit checks and push remain pending. Final module SHA-256 is
+APPROVED is also recorded; the decision packet is delivered. Committed packet
+`d87334f0` also passed the two public smokes and provenance guard: 3 PASS,
+98 deselected, 20.07s; the packet records this separate postcommit check.
+Final module SHA-256 is
 `607bb07c0c44bd95df8d6a65303ab07a5ba2ba4deb3b8d963de8989ed3634d2d`.
 Keep runtime limit-zero and malformed-Bool discrepancies RED. The fixed-consumer
 recommendation does not stop broader dynamic work or select a DC-P disposition.

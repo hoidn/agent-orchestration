@@ -2702,9 +2702,23 @@ full-matrix rerun at the refined SHA is claimed. Final independent Astra
 document conformity is **PASS**, then quality **APPROVED**:
 [final document review](/tmp/orc-w3-dynamic-reevaluation-20261012/final-document-review.md),
 SHA-256 `94c48663723193b92acb7fe8128698aac417baaa7d48b5134b77f6f338d4f7e8`.
-The bounded evidence/decision packet is reviewed and delivered; root commit,
-postcommit checks and push remain later closeout steps. These reviews do not
-turn the two parity FAIL into PASS or select the owner DC-P disposition.
+The bounded evidence/decision packet is reviewed and delivered. These reviews
+do not turn the two parity FAIL into PASS or select the owner DC-P disposition.
+
+The coordinator committed the reviewed packet at
+`d87334f0365f46bfeb56bf7a0f753d1490df85c5` and ran the separate
+`-k 'RW_I01 or RW_S02 or test_packet_commit'` public-smoke/provenance selector:
+**3 PASS, 98 deselected, 20.07s**, exit 0. The module remains SHA
+`607bb07c…`; runtime/helper bytes and the exact clean W3 pin remain guarded.
+[Postcommit command/HEAD receipt](/tmp/orc-w3-dynamic-reevaluation-20261012/postcommit-smoke.json),
+SHA-256 `f896620514bc199c1860ca27424221cfd279b031e8edbd080e98d9ae9237a369`,
+[raw log](/tmp/orc-w3-dynamic-reevaluation-20261012/postcommit-smoke.log),
+SHA-256 `85728ae475dffaaf8e4cda52d9a1562e45e62ebc86b19b167af98f4920a54b6e`,
+and [JUnit XML](/tmp/orc-w3-dynamic-reevaluation-20261012/postcommit-smoke.xml),
+SHA-256 `eb29b8d46ae657fb6680d509360dfd5396e69f95443cc265d2c53bf77410bd94`,
+bind this check to the committed comparison code. It adds no new logical
+observations or full-matrix qualification; this documentation-only closeout
+does not change the tested module or either runtime.
 
 The coordinator's final synchronization checkpoint ran `git fetch origin`
 successfully (exit 0). Committed `origin/main` remains
