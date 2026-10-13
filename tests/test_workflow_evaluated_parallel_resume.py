@@ -150,8 +150,8 @@ def test_pure_fault_in_one_item_does_not_hide_sibling_or_orphan_evidence(tmp_pat
             return original(*args, **kwargs)
 
         monkeypatch.setattr(effect_inputs, '_replay_committed_effect', validate)
-        with pytest.raises(ValueError, match='divisor is zero'):
-            preflight(authority)
+        _snapshot, _commits, consumed, _value, reached_boundary = preflight(authority)
+        assert consumed == 1 and reached_boundary
         assert checked == [effect(authority, 1)[0]]
         assert views._replay(authority, snapshot)[2] is False
 

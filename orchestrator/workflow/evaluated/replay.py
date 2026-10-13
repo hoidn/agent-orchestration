@@ -46,6 +46,7 @@ class Prefix:
     value: Any = None
     halted: bool = False
     fault: PureExprEvaluationError | None = None
+    fault_in_parallel: bool = False
 
 
 class _Discovery:
@@ -55,6 +56,7 @@ class _Discovery:
         self.prefix = Prefix()
         self.consumed = set()
         self.frontiers = set()
+        self.item_faults = set()
         self.order = _Order()
         self.starts = {}
         self.settlements = {}
@@ -149,7 +151,11 @@ class _Discovery:
         workspace = machine._value(node['workspace'], local, owner, activation, loops)
         workspace = machine._add_dependencies(workspace, source.dependencies)
         item_machine = replace(machine, launch_workspace=workspace)
-        result = item_machine._body(node['body'], local, owner, activation, (*loops, (node['label'], index)))
+        try:
+            result = item_machine._body(node['body'], local, owner, activation, (*loops, (node['label'], index)))
+        except PureExprEvaluationError as exc:
+            self.item_faults.add(exc)
+            raise
         result = machine._coerce_result(result, node['result']['item'], node)
         return machine._add_dependencies(result, workspace.dependencies | source.dependencies)
 
@@ -185,5 +191,6 @@ def discover_prefix(authority, snapshot, *, inputs=None, run_id=None, provider_i
         pass
     except PureExprEvaluationError as exc:
         discovery.prefix.fault = exc
+        discovery.prefix.fault_in_parallel = exc in discovery.item_faults
     discovery.finish()
     return discovery.prefix

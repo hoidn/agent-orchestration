@@ -120,3 +120,72 @@ def reconcile_evaluated_run_ref(authority, resolved, identity, workspace, expect
     _require_retained_root(authority.run_files)
     append_record(authority.memo_path, {"record": "settled", "identity": identity,
         "attempt": attempt, "by": "reconcile"}, run_files=authority.run_files, checked_authority=authority)
+
+
+def prepare_parallel_run_ref(attempt):
+    from orchestrator.workflow.run_ref.runtime import prepare_run_ref_lifecycle_allocation
+    request = _request(attempt.authority, attempt.resolved, attempt.identity, attempt.ordinal, attempt.workspace)
+    allocation, started = prepare_run_ref_lifecycle_allocation(request)
+    return request, allocation, started
+
+
+def inventory_parallel_run_ref_recovery(authority, obligations, workspace):
+    """Admit the whole E1 recovery set before any ledger or memo mutation."""
+    from orchestrator.workflow.run_ref.ledger import load_attempt_ledger, settled_result_binding_from_record
+    missing = 0
+    for reached in obligations:
+        proof = reached.commit.data['proof']['settled_result']
+        settled = settled_result_binding_from_record(proof)
+        ledger = load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl', run_files=authority.run_files)
+        committed = [row for row in ledger.rows if row.visit == settled.visit
+            and row.attempt_ordinal == settled.attempt_ordinal and row.stage == 'committed']
+        if not committed:
+            missing += 1
+            if missing > 1 or not ledger.rows or ledger.rows[-1].row_digest != settled.pending_row_digest:
+                raise MemoError('memo_inconsistent', 'parallel E1 recovery requires its sole pending append at the ledger head')
+    _require_retained_root(authority.run_files)
+
+
+def persist_parallel_run_ref_event(lifecycle, event, sequence, previous):
+    """Persist only events belonging to the coordinator's retained E1 grant."""
+    from orchestrator.workflow.run_ref.runtime import (persist_run_ref_lifecycle_event,
+        acknowledge_persisted_run_ref_lifecycle_event, RunRefLifecycleAcknowledgement)
+    from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
+    request, allocation, _started = lifecycle
+    _validate_parallel_event_scope(request, allocation, event, sequence)
+    ledger = load_attempt_ledger(request.ledger_path, run_files=request.run_files)
+    expected_digest = allocation.expected_previous_row_digest if previous is None else previous.authority_digest
+    expected_sequence = allocation.expected_ledger_sequence + sequence - 1
+    head = ledger.rows[-1].row_digest if ledger.rows else None
+    if len(ledger.rows) + 1 != expected_sequence or head != expected_digest:
+        raise MemoError('memo_inconsistent', 'parallel E1 event no longer has its retained ledger head')
+    acknowledgement = persist_run_ref_lifecycle_event(request, event)
+    if type(acknowledgement) is not RunRefLifecycleAcknowledgement:
+        raise MemoError('memo_inconsistent', 'parallel E1 event acknowledgement is missing')
+    durable = acknowledge_persisted_run_ref_lifecycle_event(event,
+        expected_row_digest=acknowledgement.authority_digest, run_files=request.run_files)
+    if acknowledgement != durable:
+        raise MemoError('memo_inconsistent', 'parallel E1 event acknowledgement differs from durable authority')
+    return acknowledgement
+
+
+def _validate_parallel_event_scope(request, allocation, event, sequence):
+    from orchestrator.workflow.run_ref.runtime import RunRefLifecycleEvent
+    if type(event) is not RunRefLifecycleEvent or event.sequence != sequence:
+        raise MemoError('memo_inconsistent', 'parallel E1 event sequence disagrees')
+    if (event.visit != request.visit or event.attempt_ordinal != allocation.attempt_ordinal
+            or event.effect_instance_root != allocation.effect_instance_root):
+        raise MemoError('memo_inconsistent', 'parallel E1 event allocation disagrees')
+    if sequence == 1 and (event.stage != 'allocated' or event.payload['bindings'] != allocation.bindings.record):
+        raise MemoError('memo_inconsistent', 'parallel E1 allocation event bindings disagree')
+
+
+def parallel_run_ref_authority_failure(error):
+    return (getattr(error, 'code', '') in {'run_ref_ledger_invalid', 'run_ref_evidence_invalid'}
+        or getattr(error, 'detail', '') == 'parent_launch_authority_invalid')
+
+
+def parallel_run_ref_preparation_failure_is_ordinary(error):
+    from orchestrator.workflow.run_ref.runtime import RunRefRuntimeError
+    return (isinstance(error, RunRefRuntimeError) and error.code == 'run_ref_workspace_discard_failed'
+        and error.detail in {'bound_workspace_delete_failed', 'bound_workspace_still_exists'})

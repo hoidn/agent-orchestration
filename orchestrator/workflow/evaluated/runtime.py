@@ -99,11 +99,13 @@ def execute_pure_run(
                 launch_workspace=launch_workspace,
             )
 
+        handler = _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
+            checked_site_classes, run_files, workspace_files, stream_output)
         try:
             value = evaluate_closed_program(
                 authority.program,
                 inputs,
-                effect_handler=handle,
+                effect_handler=handler,
                 provider_io=provider_io,
                 run_id=run_id,
                 print_sink=sys.stdout,
@@ -128,6 +130,16 @@ def execute_pure_run(
         workspace_files.close()
         if owns_run_files:
             run_files.close()
+
+
+def _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
+                       site_classes, run_files, workspace_files, stream_output):
+    from .parallel import ParallelCoordinator, has_parallel
+    if not has_parallel(authority.program):
+        return handle
+    frontiers = _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io, site_classes)
+    return ParallelCoordinator(handle, authority, dict(workspace=workspace, run_files=run_files,
+        workspace_files=workspace_files, site_classes=site_classes, stream_output=stream_output), frontiers=frontiers)
 
 
 def _can_append_failure_terminal(exc):
@@ -175,6 +187,35 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True)
+    from .parallel import has_parallel
+    if has_parallel(authority.program):
+        from .run_ref import inventory_parallel_run_ref_recovery
+        obligations = [reached for reached in prefix.commits if reached.node["class"] == "run_ref"
+            and (reached.identity, reached.commit.data["attempt"]) not in snapshot.settlements]
+        inventory_parallel_run_ref_recovery(authority, obligations, workspace)
+    return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
+
+
+def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io, site_classes):
+    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
+    if not snapshot.entries:
+        return frozenset()
+    prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True)
+    run_ref_obligations = []
+    for reached in prefix.commits:
+        if reached.node['class'] == 'run_ref' and (reached.identity, reached.commit.data['attempt']) not in snapshot.settlements:
+            run_ref_obligations.append(reached)
+    from .run_ref import inventory_parallel_run_ref_recovery, resolve_run_ref_input
+    inventory_parallel_run_ref_recovery(authority, run_ref_obligations, workspace)
+    for reached in run_ref_obligations:
+        resolved, _parts = resolve_run_ref_input(reached.node, reached.operands)
+        reconcile_evaluated_run_ref(authority, resolved, reached.identity, workspace, reached.commit, site_classes)
+    return frozenset(reached.identity for reached in prefix.frontiers)
+
+
+def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False):
     for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
@@ -182,10 +223,10 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)
     for reached in prefix.frontiers:
         effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,
-            reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers, launch_workspace=reached.launch_workspace)
-    if prefix.fault is not None:
+            reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers,
+            launch_workspace=reached.launch_workspace)
+    if prefix.fault is not None and not (defer_parallel_fault and prefix.fault_in_parallel):
         raise prefix.fault
-    return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
 
 
 def _resume_refusal(exc: Exception) -> tuple[int, None]:
@@ -276,11 +317,14 @@ def prepare_effect(
     provider_executor: ProviderExecutor | None,
     stream_output: bool = False,
     launch_workspace: EvaluatedValue | None = None,
+    parallel_frontiers: frozenset[str] = frozenset(),
+    parallel_unsettled: bool = False,
 ) -> PreparedAttempt | EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
     if commit is None:
-        effect_inputs._ensure_effect_can_start(snapshot, identity)
+        effect_inputs._ensure_effect_can_start(snapshot, identity,
+            reached_frontiers=parallel_frontiers, allow_unsettled=parallel_unsettled)
     baseline = None if commit is not None else effect_inputs._retry_baseline(
         snapshot, identity, snapshot.latest_starts.get(identity))
     launch_cwd = effect_inputs.resolve_launch_cwd(workspace, launch_workspace,
@@ -339,7 +383,7 @@ def _start_and_perform_effect(attempt):
 
 
 def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = None,
-                  *, error: Exception | None = None) -> EvaluatedValue:
+                  *, error: Exception | None = None, fatal_publication: bool = False) -> EvaluatedValue:
     """Validate, rehash, publish and settle on the run's coordinator."""
     authority, node = attempt.authority, attempt.node
     try:
@@ -355,7 +399,7 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
             depends_on=list(attempt.dependencies), effect_class=node['class'], time=time.time())
         if proof is not None:
             committed['proof'] = proof
-        append_record(authority.memo_path, committed, run_files=authority.run_files, checked_authority=authority)
+        _append_effect_commit(authority, committed, fatal_publication)
         if prepared is not None:
             settle_evaluated_run_ref(authority, attempt.resolved, attempt.identity, attempt.ordinal,
                 attempt.workspace, attempt.site_classes, prepared, committed)
@@ -365,10 +409,29 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
     except ViewPublicationError:
         raise
     except Exception as exc:
-        _fail_started_effect(authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
+        if getattr(exc, "publication_failure", False) or (fatal_publication
+                and getattr(exc, "code", "") == "reserved_run_root_changed"):
+            raise
+        publication_error = _fail_started_effect(
+            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
+        _raise_if_publication_fatal(publication_error, fatal_publication)
         raise
     finally:
         attempt.attempt_files.close()
+
+
+def _append_effect_commit(authority, committed, fatal_publication):
+    try:
+        append_record(authority.memo_path, committed, run_files=authority.run_files, checked_authority=authority)
+    except Exception as exc:
+        _raise_if_publication_fatal(exc, fatal_publication)
+        raise
+
+
+def _raise_if_publication_fatal(error, fatal_publication):
+    if fatal_publication and error is not None:
+        from .parallel import ParallelPublicationError
+        raise ParallelPublicationError(error) from error
 
 
 def _validate_attempt_outcome(attempt, outcome):
@@ -405,7 +468,7 @@ def _rehash_command_implementation(node, workspace, implementation_files, launch
     return after_files
 
 
-def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> None:
+def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exception | None:
     try:
         after = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
         pending = after.pending_starts.get(identity)
@@ -423,5 +486,6 @@ def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Non
             append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
     except ViewPublicationError:
         raise
-    except (MemoError, OSError, ValueError):
-        pass
+    except (MemoError, OSError, ValueError) as publication_error:
+        return publication_error
+    return None

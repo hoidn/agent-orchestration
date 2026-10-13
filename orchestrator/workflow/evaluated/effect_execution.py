@@ -43,8 +43,8 @@ class ExternalOutcome:
 def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
     """Perform one external operation without publishing the parent memo.
 
-    E1 run-reference preparation still drives its existing ledger seam; Task 4
-    must marshal its existing lifecycle events to the coordinator.
+    Serial E1 uses its synchronous wrapper. Parallel workers use that driver
+    with lifecycle acknowledgements persisted by the parent coordinator.
     """
     node = attempt.node
     logical_root = attempt.workspace if attempt.launch_cwd is not None else None

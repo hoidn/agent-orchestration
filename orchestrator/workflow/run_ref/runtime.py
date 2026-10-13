@@ -2894,6 +2894,22 @@ def prepare_run_ref_settlement(
 ) -> PreparedRunRefSettlement:
     """Synchronous compatibility wrapper over the acknowledged E1 driver."""
 
+    effects = dependencies or RunRefRuntimeDependencies()
+    allocation, started_ns = prepare_run_ref_lifecycle_allocation(request, dependencies=effects)
+    return drive_run_ref_lifecycle(
+        request,
+        allocation=allocation,
+        dependencies=effects,
+        started_monotonic_ns=started_ns,
+        acknowledge=lambda event: persist_run_ref_lifecycle_event(
+            request,
+            event,
+        ),
+    )
+
+
+def prepare_run_ref_lifecycle_allocation(request, *, dependencies=None):
+    """Clean up and select fresh E1 allocation on the parent coordinator."""
     if type(request) is not RunRefRuntimeRequest:
         raise TypeError("request must be an exact RunRefRuntimeRequest")
     effects = dependencies or RunRefRuntimeDependencies()
@@ -2905,16 +2921,7 @@ def prepare_run_ref_settlement(
         allocation = select_run_ref_lifecycle_allocation(request)
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
-    return drive_run_ref_lifecycle(
-        request,
-        allocation=allocation,
-        dependencies=effects,
-        started_monotonic_ns=started_ns,
-        acknowledge=lambda event: persist_run_ref_lifecycle_event(
-            request,
-            event,
-        ),
-    )
+    return allocation, started_ns
 
 
 def _repository_revision(request: RunRefRuntimeRequest) -> RepositoryRevisionId:
