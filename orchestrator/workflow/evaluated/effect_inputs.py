@@ -55,8 +55,9 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     return result
 
 
-def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner) -> None:
-    _ensure_effect_can_start(snapshot, identity, allow_unsettled=True)
+def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner,
+                           *, reached_frontiers=frozenset()) -> None:
+    _ensure_effect_can_start(snapshot, identity, allow_unsettled=True, reached_frontiers=reached_frontiers)
     if node["class"] == "run_ref":
         require_run_ref_root(authority)
     baseline = _retry_baseline(snapshot, identity, snapshot.latest_starts.get(identity))
@@ -105,8 +106,9 @@ def _resolve_effect_input(
     return resolved, parts, implementation_files
 
 
-def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_unsettled=False) -> None:
-    pending_elsewhere = sorted(set(snapshot.pending_starts) - {identity})
+def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_unsettled=False,
+                             reached_frontiers=frozenset()) -> None:
+    pending_elsewhere = sorted(set(snapshot.pending_starts) - {identity} - reached_frontiers)
     if pending_elsewhere or (snapshot.unsettled_coordinators and not allow_unsettled):
         raise _PreflightRefusal(
             "memo_inconsistent",

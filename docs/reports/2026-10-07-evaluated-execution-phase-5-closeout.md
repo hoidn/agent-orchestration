@@ -1,8 +1,8 @@
 # Evaluated Execution Phase 5 Execution Record
 
 Status: **implementation in progress**. Task 0 is prepared; Task 1 compilation
-and checked read-back are accepted after independent contract/quality reviews
-and coordinator acceptance.
+and checked read-back and Task 2 read-only replay are accepted after independent
+contract/quality reviews and coordinator acceptance.
 The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) owns
 pending runtime/public qualification. Parallel-map delivery is not complete.
 
@@ -197,3 +197,49 @@ These results qualify compiler/read-back behavior only. Concurrent execution,
 independent-prefix replay, item cwd, durable recovery, consumer qualification and
 the final full-suite campaign remain pending. Task 1 is closed for compilation
 and read-back; no runnable parallel authoring recipe or retirement claim follows.
+
+
+## Task 2 — Independent-Prefix Replay
+
+Runtime preflight and source-free views now share one stored-value traversal
+through the existing evaluator. It discovers all independent item prefixes,
+then runtime validates committed inputs in journal order before checking retry
+frontiers. It preserves each item's sequential order, required coordinator
+settlements, the map barrier and whole-suffix invalidation. The ordinary live
+effect handler still refuses parallel maps; this cut launches no workers.
+
+Independent contract review found that the first implementation kept the item
+ordering rule active throughout the serial continuation. The correction separates
+the item rule from a persistent map barrier: subsequent starts must follow the
+map, while ordinary serial behavior remains unchanged. Pure/empty maps preserve
+existing barriers without multiplying them. Twelve regression cases cover that
+boundary; independent contract re-review and distinct quality review passed.
+The coordinator inspected the final diff, seven frozen hashes and raw receipts
+before accepting the cut.
+
+| Evidence under E | Result and scope |
+| --- | --- |
+| `phase5-replay-red-semantic.*` | Valid interleaved completed journal refused before implementation |
+| `phase5-replay-narrow-initial.*` | 69 passed: initial 13 new cases and 56 existing replay/view controls |
+| `phase5-replay-controls.*` | 59 passed: isolation, provider IO, imported-assets public run/completed resume, REPL/capture and input-document replay; canonical Python in tmux with `-n 16 --dist=worksteal` |
+| `phase5-replay-serial-tail-red-semantic.*` | Six genuine serial-policy failures and six passing controls before the review correction |
+| `phase5-replay-serial-tail-green.*`, `phase5-replay-serial-tail-collect.*` | Corrected module: 41 passed; 41 collected |
+| `phase5-replay-public-report.*` | Public CLI report after source/closure deletion, outputs in input order and unchanged run-file hashes; also exercised by the corrected module |
+| `phase5-contract-settlement.*` | Independent reviewer: six existing real run-reference settlement controls passed |
+| `phase5-contract-serial-tail-corrected.json`, `phase5-contract-corrected.*` | Original review reproducer accepts all six valid cases in runtime and views; four targeted barrier/nesting controls pass |
+
+`E/phase5-replay-handoff.md` distinguishes the reused controls from final corrected
+checks. `E/phase5-replay-owner-metrics.json` pins seven production/test owners,
+SHA-256 `db158d7ef0202495d9e25cc17f0a4fed0c3213c202ef2d68ce5c9bf3b0a157fd`.
+The new replay module has 185 physical lines and maximum function/closure CC 8;
+the new tests/helper have 383/117 lines and maximum CC 9/6, including assertions.
+The prior snapshot remains separate; final hashes are not attributed to older
+campaigns. The first setup failure exhausted `/tmp`; later tests used dedicated
+`/home` temporary roots. Fixture compilation/site-index mistakes are recorded
+separately from product defects. `E/phase5-contract-final-review.md` and
+`E/phase5-quality-final-review.md` retain the independent PASS dispositions.
+
+These receipts qualify read-only replay and preflight over checked parallel
+artifacts. Actual item cwd binding, concurrent execution, public interruption and
+consumer qualification remain Tasks 3–6. The final full-suite campaign remains
+Task 7; its existing RED baseline is not converted to PASS by these controls.

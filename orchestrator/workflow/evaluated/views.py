@@ -12,14 +12,13 @@ from orchestrator._common.safe_tree import SafeTreeRejectionError
 from orchestrator.run_lock import ReservedRunRootError, run_writer_active
 from orchestrator.workflow.evaluated.authority import (
     HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, PROFILE, SCHEMA_VERSION, RunAuthorityError,
-    load_run_authority_from_bytes, _require_retained_root, workspace_result_locator,
+    load_run_authority_from_bytes, _require_retained_root,
 )
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program, site_classes
 from orchestrator.workflow.evaluated.memo import MemoError, _DYNAMIC_INDEX, reduce_memo
-from orchestrator.workflow.evaluated.values import EvaluatedValueError, coerce_evaluated_value
-from orchestrator.workflow.pure_expr import PureExprEvaluationError
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
+from .replay import MissingCommit as _MissingCommit, discover_prefix
 
 
 def has_evaluated_authority(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> bool:
@@ -56,53 +55,10 @@ def _evaluated_view_hint(files):
         state.get("schema_version") == SCHEMA_VERSION or state.get("result_persistence_profile") == PROFILE)
 
 
-class _MissingCommit(Exception):
-    def __init__(self, identity: str):
-        self.identity = identity
-
-
 def _replay(authority, snapshot, *, evaluate=evaluate_closed_program):
-    commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
-    consumed = 0
-
-    def handle(node, operands, identity, _owner, _reader):
-        nonlocal consumed
-        commit = snapshot.active_commits.get(identity)
-        if commit is None:
-            if consumed != len(commits):
-                raise MemoError("memo_inconsistent", "an active commit is unreachable")
-            raise _MissingCommit(identity)
-        if consumed >= len(commits) or commits[consumed].offset != commit.offset:
-            raise MemoError("memo_inconsistent", "active commits are not reachable in journal order")
-        consumed += 1
-        return _committed_value(authority, node, commit, identity)
-
-    try:
-        value = evaluate(
-            authority.program, authority.header["bound_inputs"],
-            effect_handler=handle, run_id=authority.header["run_id"],
-        ).json_value()
-    except _MissingCommit as boundary:
-        return None, boundary.identity, False
-    except EvaluatedValueError as exc:
-        if consumed != len(commits) or snapshot.pending_starts:
-            raise MemoError("memo_inconsistent", str(exc)) from exc
-        return None, None, False
-    if consumed != len(commits) or snapshot.pending_starts:
-        raise MemoError("memo_inconsistent", "evaluated halt leaves unreachable effect evidence")
-    return value, None, True
-
-
-def _committed_value(authority, node, commit, identity):
-    try:
-        return coerce_evaluated_value(
-            commit.data["value"], node["result"],
-            dependencies=(*commit.data["depends_on"], identity),
-            committed_result_path=workspace_result_locator(authority.header, commit.data["result_path"]),
-            context=f"committed {node['class']} result",
-        )
-    except PureExprEvaluationError as exc:
-        raise MemoError("memo_inconsistent", str(exc)) from exc
+    prefix = discover_prefix(authority, snapshot, evaluate=evaluate)
+    next_effect = prefix.frontiers[0].identity if prefix.frontiers else None
+    return prefix.value, next_effect, prefix.halted
 
 
 def _checked_terminal(snapshot, value, halted):

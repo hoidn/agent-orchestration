@@ -141,10 +141,17 @@ class _Machine:
             "loop": self._loop,
             "continue": self._continue,
             "done": self._done,
+            "par-map": self._par_map,
         }.get(node.get("k"))
         if evaluator is None:
             raise self._error("closed_body_kind", f"unsupported body kind {node.get('k')!r}", node)
         return evaluator(node, environment, owner, activation, loops)
+
+    def _par_map(self, node, environment, owner, activation, loops):
+        handler = getattr(self.effect_handler, "parallel_map", None)
+        if handler is None:
+            raise self._error("closed_body_kind", "unsupported body kind 'par-map'", node)
+        return handler(self, node, environment, owner, activation, loops)
 
     def _let(self, node, environment, owner, activation, loops):
         value = self._bound(node["value"], environment, owner, activation, loops)

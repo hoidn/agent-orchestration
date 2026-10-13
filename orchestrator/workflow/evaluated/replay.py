@@ -1,0 +1,185 @@
+"""Read reached effect prefixes using stored values and structured order."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
+
+from orchestrator.workflow.pure_expr import PureExprEvaluationError
+
+from .authority import workspace_result_locator
+from .machine import evaluate_closed_program
+from .memo import JournalEntry, MemoError
+from .provider_io import WorkflowIOReader
+from .values import EvaluatedValue, coerce_evaluated_value
+
+
+class MissingCommit(Exception):
+    def __init__(self, identity: str):
+        self.identity = identity
+
+
+@dataclass(frozen=True)
+class ReachedEffect:
+    node: Mapping[str, Any]
+    operands: tuple[EvaluatedValue, ...]
+    identity: str
+    owner: str
+    reader: WorkflowIOReader | None
+    commit: JournalEntry | None = None
+
+
+@dataclass
+class _Order:
+    predecessors: tuple[JournalEntry, ...] = ()
+    parallel: bool = False
+    map_barrier: int | float = -1
+
+
+@dataclass
+class Prefix:
+    commits: list[ReachedEffect] = field(default_factory=list)
+    frontiers: list[ReachedEffect] = field(default_factory=list)
+    value: Any = None
+    halted: bool = False
+    fault: PureExprEvaluationError | None = None
+
+
+class _Discovery:
+    def __init__(self, authority, snapshot):
+        self.authority = authority
+        self.snapshot = snapshot
+        self.prefix = Prefix()
+        self.consumed = set()
+        self.frontiers = set()
+        self.order = _Order()
+        self.starts = {}
+        self.settlements = {}
+        for entry in snapshot.entries:
+            row = entry.data
+            if row['record'] in {'started', 'settled'}:
+                key = row['identity'], row['attempt']
+                target = self.starts if row['record'] == 'started' else self.settlements
+                target[key] = entry
+
+    def __call__(self, node, operands, identity, owner, reader):
+        if identity in self.consumed or identity in self.frontiers:
+            raise MemoError('memo_inconsistent', 'effect identity is reached more than once')
+        commit = self.snapshot.active_commits.get(identity)
+        reached = ReachedEffect(node, operands, identity, owner, reader, commit)
+        if commit is None:
+            self._frontier(reached)
+            raise MissingCommit(identity)
+        self._check_order(commit)
+        dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
+        if dependencies != commit.data['depends_on']:
+            raise MemoError('memo_inconsistent', 'committed dependencies differ from reached operands')
+        self.consumed.add(identity)
+        self.prefix.commits.append(reached)
+        self.order.predecessors = (commit,)
+        return committed_value(self.authority, node, commit, identity)
+
+    def _frontier(self, reached):
+        self.frontiers.add(reached.identity)
+        self.prefix.frontiers.append(reached)
+        pending = self.snapshot.pending_starts.get(reached.identity)
+        if pending is not None:
+            self._check_order(pending, committed=False)
+
+    def _check_order(self, entry, *, committed=True):
+        key = entry.data['identity'], entry.data['attempt']
+        start = self.starts[key]
+        for predecessor in self.order.predecessors:
+            if committed and entry.offset <= predecessor.offset:
+                raise MemoError('memo_inconsistent', 'active commits are not reachable in journal order')
+            if self.order.parallel:
+                barrier = self._settled_offset(predecessor)
+                if start.offset <= barrier:
+                    raise MemoError('memo_inconsistent', 'effect starts before its structured predecessor completes')
+        if start.offset <= self.order.map_barrier:
+            raise MemoError('memo_inconsistent', 'effect starts before its structured predecessor completes')
+
+    def _settled_offset(self, commit):
+        if commit.data['effect_class'] != 'run_ref':
+            return commit.offset
+        key = commit.data['identity'], commit.data['attempt']
+        settlement = self.settlements.get(key)
+        return float('inf') if settlement is None else settlement.offset
+
+    def parallel_map(self, machine, node, environment, owner, activation, loops):
+        source = machine._value(node['source'], environment, owner, activation, loops)
+        if len(source.value) > node['max']:
+            raise machine._error('list_map_effect_cap_exceeded',
+                f"parallel map length {len(source.value)} exceeds limit {node['max']}", node)
+        outer = self.order
+        commits_before = len(self.prefix.commits)
+        tails, results, faults = [], [], []
+        try:
+            for index, item in enumerate(source.value):
+                self.order = _Order(outer.predecessors, True, outer.map_barrier)
+                try:
+                    result = self._item(machine, node, environment, owner, activation, loops, index, item, source)
+                    results.append(result)
+                except (MissingCommit, PureExprEvaluationError) as exc:
+                    faults.append(exc)
+                tails.extend(self.order.predecessors)
+        finally:
+            self.order = outer
+        self._complete_map(outer, tails, commits_before)
+        if faults:
+            raise faults[0]
+        dependencies = source.dependencies | frozenset(d for result in results for d in result.dependencies)
+        return coerce_evaluated_value([result.json_value() for result in results],
+            node['result'], dependencies=dependencies, context='parallel map result')
+
+    def _complete_map(self, outer, tails, commits_before):
+        if len(self.prefix.commits) == commits_before:
+            return
+        outer.predecessors = tuple({entry.offset: entry for entry in tails}.values())
+        outer.map_barrier = max(outer.map_barrier, *(self._settled_offset(entry) for entry in tails))
+
+    def _item(self, machine, node, environment, owner, activation, loops, index, item, source):
+        value = coerce_evaluated_value(item, node['item_type'], dependencies=source.dependencies)
+        local = environment.extend(node['binder'], value)
+        if 'index' in node:
+            local = local.extend(node['index'], coerce_evaluated_value(index, {'kind': 'primitive', 'name': 'Int'}))
+        workspace = machine._value(node['workspace'], local, owner, activation, loops)
+        result = machine._body(node['body'], local, owner, activation, (*loops, (node['label'], index)))
+        result = machine._coerce_result(result, node['result']['item'], node)
+        return machine._add_dependencies(result, workspace.dependencies | source.dependencies)
+
+    def finish(self):
+        if self.consumed != set(self.snapshot.active_commits):
+            raise MemoError('memo_inconsistent', 'an active commit is unreachable from the evaluated program')
+        if set(self.snapshot.pending_starts) - self.frontiers:
+            raise MemoError('memo_inconsistent', 'a pending start is unreachable from the evaluated program')
+
+
+def committed_value(authority, node, commit, identity):
+    try:
+        return coerce_evaluated_value(commit.data['value'], node['result'],
+            dependencies=(*commit.data['depends_on'], identity),
+            committed_result_path=workspace_result_locator(authority.header, commit.data['result_path']),
+            context=f"committed {node['class']} result")
+    except PureExprEvaluationError as exc:
+        raise MemoError('memo_inconsistent', str(exc)) from exc
+
+
+def discover_prefix(authority, snapshot, *, inputs=None, run_id=None, provider_io=None,
+                    evaluate=evaluate_closed_program):
+    discovery = _Discovery(authority, snapshot)
+    arguments = dict(effect_handler=discovery, run_id=run_id or authority.header['run_id'])
+    if provider_io is not None:
+        arguments['provider_io'] = provider_io
+    try:
+        result = evaluate(authority.program,
+            authority.header['bound_inputs'] if inputs is None else inputs, **arguments)
+        discovery.prefix.value = result.json_value()
+        discovery.prefix.halted = True
+    except MissingCommit:
+        pass
+    except PureExprEvaluationError as exc:
+        discovery.prefix.fault = exc
+    discovery.finish()
+    return discovery.prefix

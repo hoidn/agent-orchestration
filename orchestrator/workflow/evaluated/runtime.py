@@ -40,6 +40,7 @@ from .run_ref import (
 )
 from .authority import RunAuthority, _require_retained_root, workspace_result_locator
 from .machine import evaluate_closed_program, site_classes
+from .replay import discover_prefix
 from .views import ViewPublicationError
 from . import effect_inputs
 
@@ -127,10 +128,6 @@ def execute_pure_run(
             run_files.close()
 
 
-class _ResumeBoundary(Exception):
-    pass
-
-
 def _can_append_failure_terminal(exc):
     return not isinstance(exc, ViewPublicationError) and not getattr(exc, "preflight", False)
 
@@ -175,35 +172,17 @@ def execute_pure_resume(
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes):
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
-    consumed = 0
-
-    def handle(node, operands, identity, owner, reader):
-        nonlocal consumed
-        commit = snapshot.active_commits.get(identity)
-        if commit is not None:
-            if consumed >= len(commits) or commits[consumed].offset != commit.offset:
-                raise MemoError("memo_inconsistent", "active commits are not reachable in journal order")
-            result = effect_inputs._replay_committed_effect(
-                authority, node, operands, identity, reader, commit, workspace, snapshot, owner
-            )
-            consumed += 1
-            return result
-        if consumed != len(commits):
-            raise MemoError("memo_inconsistent", "an active commit is unreachable from the evaluated program")
-        effect_inputs._check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner)
-        raise _ResumeBoundary
-
-    try:
-        value = evaluate_closed_program(
-            authority.program,
-            inputs,
-            effect_handler=handle,
-            provider_io=provider_io,
-            run_id=run_id,
-        ).json_value()
-    except _ResumeBoundary:
-        return snapshot, commits, consumed, None, True
-    return snapshot, commits, consumed, value, False
+    prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
+    for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
+        effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
+            reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner)
+    frontiers = frozenset(reached.identity for reached in prefix.frontiers)
+    for reached in prefix.frontiers:
+        effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,
+            reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers)
+    if prefix.fault is not None:
+        raise prefix.fault
+    return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
 
 
 def _resume_refusal(exc: Exception) -> tuple[int, None]:
