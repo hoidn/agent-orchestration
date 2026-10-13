@@ -652,7 +652,7 @@ def test_contract_block_has_one_path_line_before_its_schema(shape, schema, deliv
     lines = rendered.splitlines()
     format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: "))
     assert lines.count(heading) == 1
-    assert lines.count(_PATH_LINE) == 1
+    assert lines.count(_PATH_LINE) == 1 and rendered.count(_RESULT_PATH) == 1
     assert lines.index(heading) == 0 < lines.index(_PATH_LINE) < format_at
 
 
@@ -664,7 +664,6 @@ def test_file_delivery_changes_only_the_lines_before_the_path_line(shape, schema
     marker = f"\n{_PATH_LINE}\n"
     assert file[file.index(marker):] == legacy[legacy.index(marker):]
     assert file[: file.index(marker)] != legacy[: legacy.index(marker)]
-    assert _RESULT_PATH in file.splitlines()[1]
 
 
 @pytest.mark.parametrize("schema", _SCHEMAS)

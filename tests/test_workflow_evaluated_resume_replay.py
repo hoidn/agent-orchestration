@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
 
+from orchestrator.contracts.closed_program.sites import _ast_nodes
+from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
+from orchestrator.workflow.evaluated.authority import load_run_authority
+from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from tests.test_workflow_evaluated_providers import (
     SOURCE,
     _cli as _provider_cli,
@@ -11,6 +16,11 @@ from tests.test_workflow_evaluated_providers import (
     _requests,
 )
 from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
+from tests.test_workflow_evaluated_resume_kills import (
+    _cli as _env_cli,
+    _env,
+    _kill_after_first_commit,
+)
 from tests.test_workflow_evaluated_cli import _run_cli
 
 
@@ -312,3 +322,106 @@ def test_public_pure_failure_resume_twice_preserves_failed_terminal(tmp_path: Pa
     assert terminal is not None
     assert terminal.data["outcome"] == "failed"
     assert terminal.data["code"] == "pure_expr_division_by_zero"
+
+
+_TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule main) (export run)
+  (defrecord Review (ok Bool))
+  (defworkflow run ((message String)) -> Review
+    (let* ((first (provider-result providers.review :prompt prompts.base
+                    :inputs (message) :model "chosen-model" :effort "low" :returns Review))
+           (second (provider-result providers.review :prompt prompts.base
+                    :inputs (message first) :model "chosen-model" :effort "low" :returns Review)))
+      second)))
+'''
+
+
+def _two_provider_case(root: Path) -> list[str]:
+    root.mkdir(parents=True)
+    source, providers, prompts, _request = _provider_fixture(root, _TWO_PROVIDER_SOURCE)
+    return ["run", str(source), "--source-root", str(root), "--provider-externs-file", str(providers),
+            "--prompt-externs-file", str(prompts), "--input", "message=typed input"]
+
+
+def _memo_rows(run_root: Path) -> list[dict]:
+    return [json.loads(line) for line in (run_root / "memo.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+def _rewrite_input_parts(run_root: Path, identity: str, change) -> None:
+    """Edit one effect's `started`/`committed` parts and keep each row's `input_digest` consistent."""
+    rows = _memo_rows(run_root)
+    for row in rows:
+        if row.get("identity") == identity and row["record"] in {"started", "committed"}:
+            change(row["input_parts"])
+            row["input_digest"] = canonical_sha256(row["input_parts"])
+    (run_root / "memo.jsonl").write_text("".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for row in rows
+    ), encoding="utf-8")
+
+
+def _record_as_pre_delivery_package(root: Path, run_root: Path, identity: str) -> None:
+    """Make a committed provider effect look as the package before the `delivery` part recorded it:
+    a `legacy` contract block in the prompt and its digest, and no `delivery` part."""
+    (commit,) = [row for row in _memo_rows(run_root) if row["record"] == "committed" and row["identity"] == identity]
+    provider = next(node for node in _ast_nodes(load_run_authority(run_root).program.tree["body"])
+                    if node.get("class") == "provider")
+    payload = {**provider["contract"]["payload"],
+               "path": Path(os.path.relpath(run_root / commit["result_path"], root)).as_posix()}
+    prompt_file = run_root / Path(commit["result_path"]).parent / "prompt.txt"
+    prompt = prompt_file.read_text(encoding="utf-8")
+    file_block = render_output_bundle_contract_block(payload, delivery="file")
+    assert prompt.count(file_block) == 1
+    legacy_prompt = prompt.replace(file_block, render_output_bundle_contract_block(payload, delivery="legacy"))
+    prompt_file.write_text(legacy_prompt, encoding="utf-8")
+
+    def legacy_parts(parts):
+        del parts["delivery"]
+        parts["prompt"] = "sha256:" + hashlib.sha256(legacy_prompt.encode("utf-8")).hexdigest()
+
+    _rewrite_input_parts(run_root, identity, legacy_parts)
+
+
+def test_resume_reuses_a_provider_commit_recorded_before_the_delivery_part(tmp_path: Path) -> None:
+    """Design scenario 1: the pre-change commit replays as `legacy` without dispatch; the pending effect runs `file/1`."""
+    baseline, interrupted = tmp_path / "baseline", tmp_path / "interrupted"
+    baseline_args, interrupted_args = _two_provider_case(baseline), _two_provider_case(interrupted)
+    assert _env_cli(baseline, baseline_args, _env(baseline, provider=True)).returncode == 0
+    (baseline_run,) = (baseline / ".orchestrate" / "runs").iterdir()
+    expected = _memo_rows(baseline_run)[-1]["value"]
+    env = _env(interrupted, provider=True)
+    first = _kill_after_first_commit(interrupted, interrupted_args, env)
+    (run_root,) = (interrupted / ".orchestrate" / "runs").iterdir()
+    _record_as_pre_delivery_package(interrupted, run_root, first)
+    first_rows = _memo_rows(run_root)
+    assert [row["record"] for row in first_rows] == ["started", "committed"]
+    assert len(_requests(interrupted)) == 1
+
+    resumed = _env_cli(interrupted, ["resume", run_root.name], env)
+
+    assert resumed.returncode == 0, resumed.stderr
+    rows = _memo_rows(run_root)
+    assert rows[:2] == first_rows
+    second = [row for row in rows if row["record"] in {"started", "committed"} and row["identity"] != first]
+    assert [row["record"] for row in second] == ["started", "committed"]
+    assert {row["input_parts"]["delivery"] for row in second} == {canonical_sha256("file/1")}
+    assert rows[-1]["record"] == "terminal" and rows[-1]["value"] == expected
+    (_first_request, second_request) = _requests(interrupted)
+    assert second_request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == (
+        "sha256:" + hashlib.sha256(second[0]["identity"].encode()).hexdigest())
+
+
+def test_resume_refuses_a_provider_commit_with_an_unknown_delivery_rendering(tmp_path: Path) -> None:
+    fixture = _provider_fixture(tmp_path, SOURCE)
+    assert _provider_cli(tmp_path, fixture).returncode == 0
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    (commit,) = [row for row in _memo_rows(run_root) if row["record"] == "committed"]
+    _rewrite_input_parts(run_root, commit["identity"], lambda parts: parts.update(delivery=canonical_sha256("file/0")))
+    before = _snapshot(tmp_path / ".orchestrate")
+    requests_before = (tmp_path / "requests.jsonl").read_bytes()
+
+    resumed = _env_cli(tmp_path, ["resume", run_root.name], _env(tmp_path, provider=True))
+
+    assert resumed.returncode == 2, resumed.stderr
+    assert any("[effect_input_diverged]" in line and "delivery" in line for line in resumed.stderr.splitlines())
+    assert _snapshot(tmp_path / ".orchestrate") == before
+    assert (tmp_path / "requests.jsonl").read_bytes() == requests_before

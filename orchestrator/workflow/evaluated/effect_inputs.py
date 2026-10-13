@@ -20,7 +20,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
-from .providers import resolve_provider_input
+from .providers import DELIVERY_NAMES_BY_DIGEST, resolve_provider_input
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
 
 
@@ -100,10 +100,11 @@ def _resolve_effect_input(
         resolved, parts = resolve_run_ref_input(node, operands)
         implementation_files = {}
     else:
+        delivery_name = _provider_delivery_name(node, commit, identity)
         try:
             resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
                 result_path=workspace_relative_path(workspace, authority.run_root / result_path),
-                logical_workspace=launch_cwd is not None)
+                delivery_name=delivery_name, logical_workspace=launch_cwd is not None)
         except Exception as exc:
             if commit is not None:
                 raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
@@ -113,6 +114,18 @@ def _resolve_effect_input(
     if launch_cwd is not None:
         parts["launch_cwd"] = _cwd_digest(workspace, launch_cwd)
     return resolved, parts, implementation_files
+
+
+def _provider_delivery_name(node, commit, identity):
+    """The committed row's rendering on replay (None when it predates the part), else the current one."""
+    if commit is None:
+        return "legacy" if node["provider"].startswith("omp") else "file/1"
+    digest = commit.data["input_parts"].get("delivery")
+    if digest is None:
+        return None
+    if digest not in DELIVERY_NAMES_BY_DIGEST:
+        raise _EffectInputDiverged(identity, "delivery rendering unknown")
+    return DELIVERY_NAMES_BY_DIGEST[digest]
 
 
 def resolve_launch_cwd(workspace, value, *, identity=None, previous=None):

@@ -19,7 +19,8 @@ from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
+from orchestrator.contracts.prompt_contract import _RELPATH_GUIDANCE, render_output_bundle_contract_block
+from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.test_workflow_evaluated_prompts import _run_flat
 
@@ -183,6 +184,40 @@ def test_public_provider_dispatches_once_and_commits_its_typed_result(tmp_path):
     _assert_attempt_evidence(run_root, commit, request)
 
 
+def _contract_lines(prompt, result_path):
+    lines = prompt.splitlines()
+    format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: "))
+    assert lines.count("## Output Contract") == 1
+    assert lines.count(f"- path: {result_path}") == 1
+    assert lines.index("## Output Contract") < lines.index(f"- path: {result_path}") < format_at
+    return lines
+
+
+def test_public_provider_prompt_renders_the_file_delivery_contract_once(tmp_path):
+    fixture = _fixture(tmp_path)
+    assert _cli(tmp_path, fixture).returncode == 0
+    run_root, snapshot = _public_snapshot(tmp_path, fixture)
+    (commit,) = snapshot.active_commits.values()
+    prompt = (run_root / Path(commit.data["result_path"]).parent / "prompt.txt").read_text()
+    lines = _contract_lines(prompt, os.path.relpath(run_root / commit.data["result_path"], tmp_path))
+    assert _RELPATH_GUIDANCE not in lines
+    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
+
+
+def test_public_omp_provider_records_the_legacy_delivery_rendering(tmp_path):
+    """omp children never receive the bundle path, so their attempts keep `legacy`; preparation then refuses
+    the `effort` policy for omp, so nothing launches."""
+    fixture = _fixture(tmp_path)
+    fixture[1].write_text(json.dumps({"providers.review": "omp"}), encoding="utf-8")
+    assert _cli(tmp_path, fixture).returncode == 1
+    run_root, snapshot = _public_snapshot(tmp_path, fixture)
+    started, failed = [entry.data for entry in snapshot.entries][:2]
+    assert failed["code"] == "provider_preparation_failed" and not _requests(tmp_path)
+    assert started["input_parts"]["delivery"] == canonical_sha256("legacy")
+    prompt = (run_root / Path(started["result_path"]).parent / "prompt.txt").read_text()
+    assert _RELPATH_GUIDANCE in _contract_lines(prompt, os.path.relpath(run_root / started["result_path"], tmp_path))
+
+
 def test_public_provider_that_changes_directory_still_writes_the_pinned_attempt(tmp_path):
     fixture = _fixture(tmp_path)
     result = _cli(tmp_path, fixture, mode="chdir")
@@ -208,6 +243,7 @@ def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tm
     (request,) = _requests(tmp_path)
     _assert_public_request_contract(tmp_path, run_root, commit.data, request)
     _assert_attempt_evidence(run_root, commit.data, request)
+    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
     from orchestrator.cli.commands.resume import resume_workflow
 
     monkeypatch.chdir(tmp_path)
@@ -359,10 +395,13 @@ def _assert_prepare_parity(observed, flat, built, workspace):
     return _assert_prompt_path_parity(node, current, previous, workspace)
 
 
-def _assert_prompt_path_parity(node, current, previous, workspace):
+def _assert_prompt_path_parity(node, current, previous, workspace, *, previous_delivery="legacy"):
+    """The prompts differ only in the contract block: the flat route renders `legacy`, a new evaluated attempt `file`."""
     payload, key = node["contract"]["payload"], "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
-    flat_block = render_output_bundle_contract_block({**payload, "path": workspace_relative(previous["env"][key], workspace)})
-    current_block = render_output_bundle_contract_block({**payload, "path": workspace_relative(current["env"][key], workspace)})
+    flat_block = render_output_bundle_contract_block(
+        {**payload, "path": workspace_relative(previous["env"][key], workspace)}, delivery=previous_delivery)
+    current_block = render_output_bundle_contract_block(
+        {**payload, "path": workspace_relative(current["env"][key], workspace)}, delivery="file")
     assert flat_block in previous["prompt_content"]
     assert current["prompt_content"] == previous["prompt_content"].replace(flat_block, current_block, 1)
     return flat_block, current_block
@@ -379,7 +418,7 @@ def _assert_retry_request_parity(program, current, previous):
         if isinstance(row, dict) and row.get("class") == "provider"]
     _assert_prompt_path_parity(node,
         {"env": current["env"], "prompt_content": current["prompt"]},
-        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"])
+        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"], previous_delivery="file")
 
 
 def _assert_invocation_parity(current, previous, flat_block, current_block):

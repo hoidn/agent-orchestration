@@ -307,24 +307,23 @@ def _schema_mentions_relpath(spec: Any) -> bool:
     return any(_schema_mentions_relpath(child) for child in children)
 
 
-def _delivery_lines(
-    delivery: str, *, legacy: str, noun: str, path: str, schema_specs: Sequence[Any],
-) -> List[str]:
+def _delivery_lines(delivery: str, *, legacy: str, noun: str, schema_specs: Sequence[Any]) -> List[str]:
     """Render the opening lines that say how the structured result reaches the runtime.
 
     `legacy` reproduces the text composed before delivery was selected, with
-    unconditional relpath guidance; `file` states the file action and the
-    attempt path first, and renders relpath guidance only for a path type.
+    unconditional relpath guidance; `file` states the file action first and
+    points at the `- path:` line, which stays the only place the attempt path
+    appears, and renders relpath guidance only for a path type.
     """
     if delivery == "legacy":
         return [legacy, _RELPATH_GUIDANCE]
     if delivery != "file":
         raise ValueError(f"unknown output contract delivery: {delivery!r}")
     lines = [
-        f"Write the {noun} specified below to {path} with a file-writing or "
-        "shell tool before you finish. The environment variable "
-        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the "
-        "value in your reply does not deliver it."
+        f"Write the {noun} specified below to the file on the `- path:` line, "
+        "with a file-writing or shell tool, before you finish. The environment "
+        "variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. "
+        "Returning the value in your reply does not deliver it."
     ]
     if any(_schema_mentions_relpath(spec) for spec in schema_specs):
         lines.append(_RELPATH_GUIDANCE)
@@ -361,10 +360,7 @@ def render_output_bundle_contract_block(
 
     lines: List[str] = [
         "## Output Contract",
-        *_delivery_lines(
-            delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object",
-            path=output_bundle["path"], schema_specs=fields,
-        ),
+        *_delivery_lines(delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object", schema_specs=fields),
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
     ]
@@ -397,10 +393,7 @@ def _render_root_output_bundle_contract_block(
     """
     lines: List[str] = [
         "## Output Contract",
-        *_delivery_lines(
-            delivery, legacy=_LEGACY_VALUE_DELIVERY, noun="JSON value",
-            path=output_bundle["path"], schema_specs=(field,),
-        ),
+        *_delivery_lines(delivery, legacy=_LEGACY_VALUE_DELIVERY, noun="JSON value", schema_specs=(field,)),
         f"- path: {output_bundle['path']}",
         "  format: JSON value",
     ]
@@ -426,7 +419,6 @@ def render_variant_output_contract_block(
         "## Variant Output Contract",
         *_delivery_lines(
             delivery, legacy=_LEGACY_BUNDLE_DELIVERY, noun="JSON object",
-            path=variant_output["path"],
             schema_specs=(*variant_output.get("shared_fields", []), *variant_fields),
         ),
         f"- path: {variant_output['path']}",
