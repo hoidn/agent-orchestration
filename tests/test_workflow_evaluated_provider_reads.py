@@ -15,12 +15,14 @@ from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 from orchestrator.workflow.evaluated.prompts import assemble_provider_prompt
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from tests.test_workflow_evaluated_provider_io import WREF, _checked, _stages, _typed
+from tests.test_workflow_evaluated_provider_io import (
+    WREF, _checked, _reader_path, _stages, _typed,
+)
 
 
 def test_evaluated_provider_reads_follow_parent_left_parent_right(tmp_path):
     _, imports = _stages(tmp_path)
-    imports["right"].provenance.workflow_path.with_name("prompt.md").write_text(
+    _reader_path(imports["right"]).with_name("prompt.md").write_text(
         "TARGET RIGHT\n"
     )
     checked, provider_io = _checked(_typed(tmp_path, WREF, imports))

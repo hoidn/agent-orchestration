@@ -13,7 +13,9 @@ from orchestrator.providers.registry import ProviderRegistry
 from tests.test_workflow_evaluated_provider_lifecycle import (
     _execute, _fixture, _requests, _snapshot,
 )
-from tests.test_workflow_evaluated_provider_io import WREF, _checked, _stages, _typed
+from tests.test_workflow_evaluated_provider_io import (
+    WREF, _checked, _reader_path, _stages, _typed,
+)
 
 
 @pytest.mark.parametrize(
@@ -21,7 +23,7 @@ from tests.test_workflow_evaluated_provider_io import WREF, _checked, _stages, _
 )
 def test_provider_reads_follow_alias_and_bound_reference_routes(tmp_path, wrapper):
     _, imports = _stages(tmp_path)
-    imports["right"].provenance.workflow_path.with_name("prompt.md").write_text(
+    _reader_path(imports["right"]).with_name("prompt.md").write_text(
         "TARGET RIGHT\n", encoding="utf-8"
     )
     if wrapper in {"alias", "forward"}:
@@ -102,12 +104,8 @@ def test_provider_read_uses_transitive_private_proc_reader(tmp_path):
     _, imports = _stages(
         tmp_path, sources, "app/parent.orc", "app/parent::run"
     )
-    helper = next(
-        row
-        for row in imports["right"].imports.values()
-        if row.surface.name.startswith("%helper")
-    )
-    helper.provenance.workflow_path.with_name("prompt.md").write_text(
+    helper_path = _reader_path(imports["right"], "lib/helper")
+    helper_path.with_name("prompt.md").write_text(
         "PRIVATE RIGHT\n", encoding="utf-8"
     )
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -150,7 +148,7 @@ def test_supplied_staged_provider_selection_reaches_real_performer(tmp_path, mon
 
     _fixture(tmp_path)
     _, imports = _stages(tmp_path)
-    imports["right"].provenance.workflow_path.with_name("prompt.md").write_text("TARGET RIGHT\n")
+    _reader_path(imports["right"]).with_name("prompt.md").write_text("TARGET RIGHT\n")
     checked, provider_io = _checked(_typed(tmp_path, WREF, imports))
     original = ProviderRegistry._load_builtin_providers
 

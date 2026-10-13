@@ -6,14 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow.run_ref import bundle_transport
-from orchestrator.workflow.run_ref.capsule_build import _build_closure, _closed_graph_from_root
-from orchestrator.workflow.run_ref.capsule_stage import stage_bundle_capsule
 from orchestrator.workflow_lisp.closed.build import Builder, _build_with_builder
-from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+from orchestrator.workflow_lisp.closed.frontend import (
+    _select_and_finalize_typed_program,
+    compile_typed_program,
+)
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.reader import SourceReadTrace
 
 
 CONFIG = {"provider_externs": {"provider": "provider-id"},
@@ -43,29 +44,51 @@ def _write(path, text):
 def _stages(tmp_path, sources=None, entry="cp/producer.orc", name="cp/producer::run"):
     root = tmp_path / "original"
     sources = sources or {entry: PRODUCER, "cp/prompt.md": "TARGET LEFT\n"}
-    raw = {_write(root / relative, text): text.encode() for relative, text in sources.items()}
+    source_paths = [_write(root / relative, text) for relative, text in sources.items()]
+    source_read_trace = SourceReadTrace()
     result = compile_stage3_entrypoint(root / entry, entry_workflow="run", source_roots=(root,),
-        workspace_root=root, validate_shared=True, **CONFIG)
-    original = result.validated_bundles_by_name[name]
-    catalog = _closed_graph_from_root(original)
-    closure, paths = _build_closure(catalog, source_input=raw)
-    identity = "sha256:" + "c" * 64
-    encoded = bundle_transport.encode_bundle_capsule(catalog, target_workflow_names=(name,),
-        closure=closure, workflow_closure_paths=paths, compiler_runtime_identity_digest=identity,
-        lowering_schema_version=2)
-    decoded = bundle_transport.decode_bundle_capsule(manifest_bytes=encoded.manifest_bytes,
-        pickle_bytes=encoded.pickle_bytes, closure=encoded.closure,
-        expected_capsule_digest=encoded.capsule_digest, expected_compiler_runtime_identity_digest=identity)
-    imports = {}
+        workspace_root=root, validate_shared=True, source_read_trace=source_read_trace,
+        **CONFIG)
+    snapshot = _select_and_finalize_typed_program(
+        result.entry_result,
+        entry_path=root / entry,
+        entry_workflow=name,
+        export_surface=result.graph.export_surfaces_by_name[
+            result.graph.entry_module_name
+        ],
+        diagnostics=result.diagnostics,
+    )
+    expected_reads = {path.resolve() for path in source_paths if path.suffix == ".orc"}
+    actual_reads = {
+        path for path, _ in source_read_trace.revision_vector
+        if path.suffix == ".orc"
+    }
+    assert actual_reads == expected_reads
+    assert set(snapshot._io_source_paths.values()) == expected_reads
+    assert set(snapshot.source_file_digests) == set(snapshot._io_source_paths)
+    assert snapshot.configuration_bindings["provider_externs"] == CONFIG["provider_externs"]
+    assert snapshot.configuration_bindings["prompt_externs"] == CONFIG["prompt_externs"]
     for side in ("left", "right"):
         clone = tmp_path / side
-        clone.mkdir()
-        staged = stage_bundle_capsule(decoded, clone_root=clone)
-        imports[side] = replace(staged.bundles_by_name[name], typed_program=original.typed_program)
-    for path in raw:
+        for relative, text in sources.items():
+            if Path(relative).suffix != ".orc":
+                _write(clone / relative, text)
+        assert not tuple(clone.rglob("*.orc"))
+    for path in source_paths:
         if path.suffix == ".orc":
             path.unlink()
-    return original.typed_program, imports
+    imports = {
+        side: replace(snapshot, _io_source_paths={
+            module: tmp_path / side / path.relative_to(root)
+            for module, path in snapshot._io_source_paths.items()
+        })
+        for side in ("left", "right")
+    }
+    return snapshot, imports
+
+
+def _reader_path(program, module=None):
+    return program._io_source_paths[module or program.entry_module]
 
 
 def _typed(tmp_path, source, imports):
@@ -73,7 +96,7 @@ def _typed(tmp_path, source, imports):
     path = _write(root / "main.orc", source)
     _write(root / "prompt.md", "PARENT INLINE\n")
     typed = compile_typed_program(path, entry_workflow="run", source_roots=(root,),
-        workspace_root=root, imported_workflow_bundles=imports, **CONFIG)
+        workspace_root=root, imported_programs=imports, **CONFIG)
     path.unlink()
     return typed
 
@@ -91,8 +114,8 @@ def _calls(body):
 
 def test_original_wref_requests_keep_left_right_and_parent_reader(tmp_path):
     snapshot, imports = _stages(tmp_path)
-    imports["right"].provenance.workflow_path.with_name("prompt.md").write_text("TARGET RIGHT\n")
-    before = snapshot.entry_dir, dict(snapshot.source_file_digests)
+    _reader_path(imports["right"]).with_name("prompt.md").write_text("TARGET RIGHT\n")
+    before = snapshot.entry_dir, dict(snapshot.source_file_digests), dict(snapshot._io_source_paths)
     typed = _typed(tmp_path, WREF, imports)
     checked, io = _checked(typed)
     a, b = _calls(checked.tree["body"])
@@ -104,12 +127,15 @@ def test_original_wref_requests_keep_left_right_and_parent_reader(tmp_path):
         foo = io.call(checked.tree["entry"], call["frame"], io.entry)
         assert io.effect(owner, own_site, foo).workflow_path.parent == tmp_path / "consumer"
         target = io.call(owner, inner["frame"], foo)
-        assert target.reader.workflow_path == imports[side].provenance.workflow_path
-    assert (snapshot.entry_dir, dict(snapshot.source_file_digests)) == before
-    assert imports["left"].typed_program is imports["right"].typed_program is snapshot
+        assert target.reader.workflow_path == _reader_path(imports[side])
+    assert (snapshot.entry_dir, dict(snapshot.source_file_digests),
+        dict(snapshot._io_source_paths)) == before
+    assert imports["left"].entry is imports["right"].entry is snapshot.entry
+    assert imports["left"].source_file_digests == imports["right"].source_file_digests
+    assert imports["left"].configuration_bindings == imports["right"].configuration_bindings
 
 
-def test_original_direct_requests_share_body_with_distinct_staged_readers(tmp_path):
+def test_original_direct_requests_share_body_with_distinct_physical_readers(tmp_path):
     _, imports = _stages(tmp_path)
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule main) (export run) (defrecord Box (n Int))
@@ -120,7 +146,7 @@ def test_original_direct_requests_share_body_with_distinct_staged_readers(tmp_pa
     assert a["callee"] == b["callee"]
     for call, side in ((a, "left"), (b, "right")):
         child = io.call(checked.tree["entry"], call["frame"], io.entry)
-        assert child.reader.workflow_path == imports[side].provenance.workflow_path
+        assert child.reader.workflow_path == _reader_path(imports[side])
 
 
 @pytest.mark.parametrize("wrapper", ("alias", "forward", "bound", "nested-bound"))
@@ -153,9 +179,9 @@ def test_reference_forwarding_preserves_creation_selection(tmp_path, wrapper):
         while True:
             inner, = _calls(checked.tree["definitions"][activation.owner]["body"])
             activation = io.call(activation.owner, inner["frame"], activation)
-            if activation.reader.workflow_path == imports[side].provenance.workflow_path:
+            if activation.reader.workflow_path == _reader_path(imports[side]):
                 break
-        assert activation.reader.workflow_path == imports[side].provenance.workflow_path
+        assert activation.reader.workflow_path == _reader_path(imports[side])
 
 
 def test_carrier_rebind_rejects_missing_or_wrong_checked_coordinates(tmp_path):
@@ -186,8 +212,13 @@ def test_relocation_changes_only_physical_carrier(tmp_path):
     snapshot, imports = _stages(tmp_path)
     original_paths = dict(snapshot._io_source_paths)
     first, first_io = _checked(_typed(tmp_path / "a", WREF, imports))
-    moved = {side: replace(bundle, provenance=replace(bundle.provenance,
-        workflow_path=tmp_path / "moved" / side / "producer.orc")) for side, bundle in imports.items()}
+    moved = {
+        side: replace(program, _io_source_paths={
+            module: tmp_path / "moved" / side / path.relative_to(tmp_path / side)
+            for module, path in program._io_source_paths.items()
+        })
+        for side, program in imports.items()
+    }
     second, second_io = _checked(_typed(tmp_path / "b", WREF, moved))
     assert first.digest == second.digest
     assert first.sites == second.sites
@@ -197,11 +228,11 @@ def test_relocation_changes_only_physical_carrier(tmp_path):
         outer, _ = _calls(checked.tree["body"])
         foo = io.call(checked.tree["entry"], outer["frame"], io.entry)
         inner, = _calls(checked.tree["definitions"][foo.owner]["body"])
-        assert io.call(foo.owner, inner["frame"], foo).reader.workflow_path == selected["left"].provenance.workflow_path
+        assert io.call(foo.owner, inner["frame"], foo).reader.workflow_path == _reader_path(selected["left"])
 
 
 @pytest.mark.parametrize("mode", ("inline", "private-workflow"))
-def test_original_procedure_capsule_preserves_reader_decision(tmp_path, mode):
+def test_original_procedure_snapshot_preserves_reader_decision(tmp_path, mode):
     sources = {
         "lib/helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
@@ -220,13 +251,12 @@ def test_original_procedure_capsule_preserves_reader_decision(tmp_path, mode):
     parent = io.call(checked.tree["entry"], outer["frame"], io.entry)
     inner, = _calls(checked.tree["definitions"][outer["callee"]]["body"])
     helper = io.call(outer["callee"], inner["frame"], parent)
-    expected = parent.reader.workflow_path if mode == "inline" else next(
-        row.provenance.workflow_path for row in imports["left"].imports.values()
-        if row.surface.name.startswith("%helper"))
+    expected = parent.reader.workflow_path if mode == "inline" else _reader_path(
+        imports["left"], "lib/helper")
     assert helper.reader.workflow_path == expected
 
 
-def test_private_procedure_reference_uses_selected_capsule_catalog(tmp_path):
+def test_private_procedure_reference_uses_selected_typed_program_source(tmp_path):
     sources = {
         "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
@@ -249,7 +279,8 @@ def test_private_procedure_reference_uses_selected_capsule_catalog(tmp_path):
         call, = _calls(body)
         activation = io.call(activation.owner, call["frame"], activation)
     assert activation.reader.workflow_path.name == "helper.orc"
-    assert activation.reader.workflow_path != imports["left"].provenance.workflow_path
+    assert activation.reader.workflow_path == _reader_path(imports["left"], "lib/helper")
+    assert activation.reader.workflow_path != _reader_path(imports["left"])
 
 
 def test_build_result_delivers_carrier_bound_to_returned_readback(tmp_path):
@@ -324,8 +355,7 @@ def test_iteration_override_uses_actual_private_reader(tmp_path):
     parent = io.call(checked.tree["entry"], outer["frame"], io.entry)
     inner, = _calls(checked.tree["definitions"][parent.owner]["body"])
     helper = io.call(parent.owner, inner["frame"], parent)
-    expected = next(row.provenance.workflow_path for row in imports["left"].imports.values()
-        if row.surface.name.startswith("%helper"))
+    expected = _reader_path(imports["left"], "lib/helper")
     assert helper.reader.workflow_path == expected
     assert helper.reader.workflow_path != parent.reader.workflow_path
 
@@ -404,7 +434,7 @@ def test_capture_remap_preserves_nominal_objects_and_original_facts(tmp_path):
         _remap_capture_fact_scope(facts, {})
 
 
-def test_transitive_workflow_uses_current_staged_import(tmp_path):
+def test_transitive_workflow_uses_current_typed_import(tmp_path):
     sources = {
         "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
@@ -427,9 +457,8 @@ def test_transitive_workflow_uses_current_staged_import(tmp_path):
         parent = io.call(checked.tree["entry"], call["frame"], io.entry)
         child, = _calls(checked.tree["definitions"][parent.owner]["body"])
         selected = io.call(parent.owner, child["frame"], parent)
-        child_bundle, = imports[side].imports.values()
-        assert selected.reader.workflow_path == child_bundle.provenance.workflow_path
-    assert imports["left"].typed_program is imports["right"].typed_program is snapshot
+        assert selected.reader.workflow_path == _reader_path(imports[side], "lib/helper")
+    assert imports["left"].entry is imports["right"].entry is snapshot.entry
 
 
 @pytest.mark.parametrize("alias", (False, True))
