@@ -249,7 +249,7 @@ def validate_result_guidance_example(
     from .effects import EMPTY_EFFECT_SUMMARY
     from .expression_traversal import walk_expr
     from .expressions import RunRefExpr
-    from .lowering.pure_projection import is_pure_projection_expr
+    from .expression_traversal import is_pure_projection_expr
     from .type_env import OptionalTypeRef, type_refs_compatible
     from .typecheck import typecheck_expression
     from .typecheck_context import raise_run_ref_placement_invalid

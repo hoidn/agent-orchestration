@@ -15,7 +15,7 @@ from ..wcc.model import (
     WccBody, WccCase, WccHalt, WccIf, WccJoin, WccJump, WccLet,
     WccLoopContinue, WccLoopDone, WccNameAtom, WccPerform, WccRecJoin, WccParallelMap,
 )
-from .pure_projection import is_pure_projection_expr
+from ..expression_traversal import is_pure_projection_expr
 
 
 RUNTIME_REFERENCE = object()

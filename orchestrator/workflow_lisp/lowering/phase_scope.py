@@ -576,19 +576,6 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
     return local_values
 
 
-def _procedure_signature_local_type_bindings(procedure: TypedProcedureDef) -> dict[str, TypeRef]:
-    """Seed local type bindings from a private workflow procedure signature."""
-
-    local_type_bindings = {
-        param_name: param_type
-        for param_name, param_type in procedure.signature.params
-    }
-    specialization = getattr(procedure, "specialization", None)
-    if specialization is not None:
-        local_type_bindings.update(dict(getattr(specialization, "bound_param_types", {})))
-    return local_type_bindings
-
-
 def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str) -> dict[str, Any]:
     """Represent a union parameter as nested refs to flattened inputs."""
 

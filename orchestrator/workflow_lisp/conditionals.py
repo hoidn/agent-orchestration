@@ -116,7 +116,7 @@ def classify_condition_expr(
             fields=tuple(expr.fields),
         )
     if allow_pure_projection:
-        from .lowering.pure_projection import is_pure_projection_expr
+        from .expression_traversal import is_pure_projection_expr
 
         if is_pure_projection_expr(expr):
             return PureExprCondition(expr=expr)

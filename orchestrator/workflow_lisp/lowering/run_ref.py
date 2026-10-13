@@ -29,6 +29,7 @@ from ..expressions import (
     RecordExpr,
     UnionVariantExpr,
 )
+from ..expression_traversal import is_pure_projection_expr
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import (
     derive_run_ref_output_bundle_fields,
@@ -55,7 +56,6 @@ from .origins import (
 )
 from .pure_projection import (
     build_pure_projection_payload,
-    is_pure_projection_expr,
     lower_pure_projection_step,
 )
 from .values import ProjectedPathRef, _record_output_refs, _resolve_inline_expr_value

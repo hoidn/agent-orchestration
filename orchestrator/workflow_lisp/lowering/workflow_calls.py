@@ -22,6 +22,7 @@ from ..context_classification import (
 )
 from ..contracts import FlattenedContractField, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError
+from ..expression_traversal import is_pure_projection_expr
 from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr, RecordExpr
 from ..phase import (
     PHASE_CONTEXT_NAME,
@@ -39,7 +40,6 @@ from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_reusable_call_write_root
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 from .pure_projection import (
-    is_pure_projection_expr,
     lower_pure_projection_step,
     output_contracts_for_boundary_type,
 )

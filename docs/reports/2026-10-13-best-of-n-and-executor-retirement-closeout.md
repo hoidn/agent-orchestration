@@ -236,3 +236,25 @@ has not been rerun for this bounded cut. Drain BLOCKED, STALLED and exhaustion
 still have historical-route evidence only: move those assertions to the
 evaluated public path before deleting their historical test/runtime. This is
 not acceptance of gate R or of physical executor retirement.
+
+## Shared Compiler Preparation — First Batch
+
+The WCC value reconstructors and loop-cardinality analysis, procedure private
+names/local types and pure-expression classifier now live in their existing
+semantic owners. Prompt descriptors use the canonical descriptor through the
+existing lazy import barrier. Definitions were moved once and callers updated;
+temporary flat callers still work. No executor or emitter is retired by this
+batch, and the type-only lowering context remains pending final deletion.
+
+`E/shared-compiler-helpers-implementation.md` records the exact definitions and
+callers. The affected and W3 receipts contain 473 and 32 passing executions
+(overlapping selectors), including the public evaluated command CLI smoke.
+The follow-up spike receipt contains six passing cases. Independent contract
+and quality reviews are PASS in `E/shared-compiler-helpers-{contract,quality}-review.md`.
+Quality review also checked 25 imports in fresh processes.
+
+The initial eager-descriptor import cycle was corrected by preserving the
+existing lazy helper. Contract review found an overlooked historical spike
+import and two unused re-export imports; all were corrected, with the spike's
+same fresh-process import reproduced RED then GREEN. Full-suite verification
+remains pending the retirement delivery; the recorded RED baseline is unchanged.

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -29,6 +28,8 @@ from ..procedure_refs import ResolvedProcRefValue
 from ..procedures import (
     ProcedureLoweringMode,
     TypedProcedureDef,
+    _procedure_signature_local_type_bindings,
+    effective_private_workflow_name,
     procedure_type_env_for,
 )
 from ..spans import SourceSpan
@@ -480,12 +481,6 @@ def _schema1_iteration_private_override_applies(
     )
 
 
-def effective_private_workflow_name(procedure: TypedProcedureDef) -> str:
-    return procedure.generated_workflow_name or (
-        f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
-    )
-
-
 def _lower_procedure_call(
     expr: LowerableProcedureCall,
     *,
@@ -513,7 +508,6 @@ def _lower_procedure_call(
     )
     from .values import (
         _flatten_boundary_leaf_paths,
-        _procedure_signature_local_type_bindings,
         _resolve_inline_expr_value,
     )
     from .workflow_calls import (

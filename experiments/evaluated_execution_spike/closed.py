@@ -44,7 +44,7 @@ from orchestrator.workflow_lisp.expressions import (
     ProviderBundlePathExpr,
     UnionVariantTagExpr,
 )
-from orchestrator.workflow_lisp.lowering.values import _procedure_signature_local_type_bindings
+from orchestrator.workflow_lisp.procedures import _procedure_signature_local_type_bindings
 from orchestrator.workflow_lisp.normalized_type_descriptor import _module_export_info, compiler_normalized_type_descriptor
 from orchestrator.workflow_lisp.type_env import DiscriminantTypeRef
 from orchestrator.workflow_lisp.wcc import model as w

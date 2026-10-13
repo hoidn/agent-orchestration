@@ -354,7 +354,7 @@ def test_hygiene_scopes_variant_roots_and_preserves_source_formal(tmp_path):
 
 def test_selected_helper_initial_facts_preserve_erased_workflow_reference(tmp_path, monkeypatch):
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.values import _procedure_signature_local_type_bindings
+    from orchestrator.workflow_lisp.procedures import _procedure_signature_local_type_bindings
     from orchestrator.workflow_lisp.workflow_refs import ResolvedWorkflowRef
 
     program, inputs, facts = _compile(tmp_path, '(pick (workflow-ref leaf) choice flag)',

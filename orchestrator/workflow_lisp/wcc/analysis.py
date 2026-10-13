@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
+from typing import TYPE_CHECKING
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expression_traversal import free_expr_names
-from ..expressions import IfExpr
+from ..expressions import IfExpr, ResourceTransitionExpr
 from ..syntax import MAX_STATIC_LIVE_PROVIDER_PEERS
 from ..type_env import TypeRef
 from .model import (
@@ -42,6 +43,10 @@ from .model import (
     WccSelect,
     WccSelectArm,
 )
+
+if TYPE_CHECKING:
+    from ..lowering.context import _LoweringContext
+    from ..procedures import TypedProcedureDef
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,220 @@ class WccScopeAnalysis:
     arm_scopes: tuple[WccArmScope, ...]
     joins_by_name: Mapping[str, WccJoinSite]
     loop_sites: tuple[WccLoopSite, ...] = ()
+
+
+def _effect_boundary_step_kind(
+    value: (
+        WccPerform
+        | WccCall
+        | WccProviderSupervision
+        | WccProviderPeerGroup
+    ),
+) -> str:
+    if isinstance(value, WccProviderPeerGroup):
+        return "provider_peer_group"
+    if isinstance(value, WccProviderSupervision):
+        return "provider_supervision"
+    if isinstance(value, WccCall):
+        return "call"
+    if (
+        value.perform_kind == "resource_transition"
+        and isinstance(value.operation_payload, ResourceTransitionExpr)
+        and value.operation_payload.spec.mode != "declared_transition"
+    ):
+        return "command"
+    return {
+        "command_result": "command",
+        "provider_result": "provider",
+        "workflow_call": "call",
+        "materialize_view": "materialize_view",
+        "resource_transition": "resource_transition",
+        "resume_or_start": "resume_or_start",
+        "run_provider_phase": "provider",
+        "produce_one_of": "provider",
+        "finalize_selected_item": "finalize_selected_item",
+    }.get(value.perform_kind, value.perform_kind)
+
+
+def _normalized_inline_procedure_wcc_body(
+    value: WccCall,
+    *,
+    procedure: TypedProcedureDef,
+    context: _LoweringContext,
+) -> WccBody:
+    from ..procedures import (
+        _procedure_signature_local_type_bindings,
+        procedure_type_env_for,
+    )
+    from .anf import normalize_wcc_body_to_anf
+    from .elaborate import elaborate_typed_workflow_body
+
+    workflow_return_types = {
+        name: workflow.signature.return_type_ref
+        for name, workflow in context.workflows_by_name.items()
+    }
+    workflow_return_types.update(
+        {
+            name: signature.return_type_ref
+            for name, signature
+            in context.workflow_catalog.signatures_by_name.items()
+        }
+    )
+    procedure_return_types = {
+        name: candidate.signature.return_type_ref
+        for name, candidate in context.typed_procedures.items()
+    }
+    route_schema_version = value.metadata.node_id.split(":", 2)[1]
+    closed_context = {}
+    if getattr(context, "closed_program", False):
+        closed_context = {
+            "closed_program": True,
+            "resolved_procedures_by_name": context.typed_procedures,
+            "procedure_type_envs": context.procedure_type_envs,
+        }
+    return normalize_wcc_body_to_anf(
+        elaborate_typed_workflow_body(
+            procedure.typed_body,
+            owner_name=procedure.definition.name,
+            type_env=procedure_type_env_for(
+                procedure,
+                procedure_type_envs=context.procedure_type_envs,
+                default=context.type_env,
+            ),
+            value_env=_procedure_signature_local_type_bindings(procedure),
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            route_schema_version=route_schema_version,
+            **closed_context,
+        )
+    )
+
+
+def _iter_specialized_loop_effect_values(
+    body: WccBody,
+    *,
+    context: _LoweringContext,
+    active_procedures: frozenset[str] = frozenset(),
+):
+    from ..procedures import ProcedureLoweringMode
+
+    if isinstance(body, WccLet):
+        value = body.bound_value
+        if isinstance(
+            value,
+            (WccPerform, WccProviderSupervision, WccProviderPeerGroup),
+        ):
+            yield value
+        elif isinstance(value, WccCall):
+            procedure = (
+                context.typed_procedures.get(
+                    value.specialized_callee_name
+                )
+                or context.typed_procedures.get(value.callee_name)
+            )
+            if (
+                procedure is not None
+                and procedure.resolved_lowering_mode
+                is ProcedureLoweringMode.INLINE
+            ):
+                procedure_name = procedure.signature.name
+                if procedure_name in active_procedures:
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="proc_lowering_cycle",
+                                message=(
+                                    "recursive procedure specialization "
+                                    f"cycle detected for `{procedure_name}`"
+                                ),
+                                span=value.metadata.source_span,
+                                form_path=value.metadata.form_path,
+                                phase="lowering",
+                            ),
+                        )
+                    )
+                yield from _iter_specialized_loop_effect_values(
+                    _normalized_inline_procedure_wcc_body(
+                        value,
+                        procedure=procedure,
+                        context=context,
+                    ),
+                    context=context,
+                    active_procedures=(
+                        active_procedures | {procedure_name}
+                    ),
+                )
+            else:
+                yield value
+        yield from _iter_specialized_loop_effect_values(
+            body.body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        return
+    if isinstance(body, WccIf):
+        yield from _iter_specialized_loop_effect_values(
+            body.then_body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        yield from _iter_specialized_loop_effect_values(
+            body.else_body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        return
+    if isinstance(body, WccCase):
+        for arm in body.arms:
+            yield from _iter_specialized_loop_effect_values(
+                arm.body,
+                context=context,
+                active_procedures=active_procedures,
+            )
+        return
+    if isinstance(body, WccJoin):
+        yield from _iter_specialized_loop_effect_values(
+            body.body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        yield from _iter_specialized_loop_effect_values(
+            body.continuation,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        return
+    if isinstance(body, WccRecJoin):
+        yield from _iter_specialized_loop_effect_values(
+            body.body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        if body.exhaustion is not None:
+            yield from _iter_specialized_loop_effect_values(
+                body.exhaustion,
+                context=context,
+                active_procedures=active_procedures,
+            )
+
+
+def _loop_effect_compile_error(
+    body: WccRecJoin,
+    *,
+    code: str,
+    message: str,
+) -> LispFrontendCompileError:
+    return LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=body.metadata.source_span,
+                form_path=body.metadata.form_path,
+                phase="lowering",
+            ),
+        )
+    )
 
 
 def analyze_wcc_body(body: WccBody) -> WccScopeAnalysis:

@@ -843,12 +843,9 @@ def _compiled_identity_projection(
 
 
 def _normalized_type_descriptor(type_ref: object, *, type_env) -> dict[str, Any]:
-    # This is the existing compiler descriptor used by pure projection and
-    # transition lowering. Q1 consumes it; it does not invent a parallel type
-    # spelling or fall back to repr/source text.
-    from .lowering.pure_projection import _type_descriptor
+    from .normalized_type_descriptor import compiler_normalized_type_descriptor
 
-    return _type_descriptor(type_ref, type_env=type_env)
+    return compiler_normalized_type_descriptor(type_ref, type_env=type_env)
 
 
 def _identity_for_projection(projection: Mapping[str, Any]) -> str:

@@ -11,7 +11,7 @@ from typing import Any
 from .contracts import derive_workflow_boundary_fields, is_transportable_result_type
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY
-from .expression_traversal import _rebuild_with_replacements, iter_child_exprs
+from .expression_traversal import _rebuild_with_replacements, is_pure_projection_expr, iter_child_exprs
 from .expressions import (
     CallExpr,
     CommandResultExpr,
@@ -37,7 +37,6 @@ from .expressions import (
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
-from .lowering.pure_projection import is_pure_projection_expr
 from .procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from .procedures import (
     ProcedureCallableSpecialization,
@@ -45,6 +44,7 @@ from .procedures import (
     ProcedureLoweringMode,
     ProcedureParam,
     TypedProcedureDef,
+    _procedure_signature_local_type_bindings,
     parametric_specialization_name,
     proc_ref_specialization_name as proc_ref_call_specialization_name,
     procedure_type_env_for,
@@ -231,7 +231,6 @@ def _procedure_private_body_valid(
         return True
 
     from .lowering.values import (
-        _procedure_signature_local_type_bindings,
         _procedure_signature_local_values,
     )
 
@@ -472,7 +471,6 @@ def _private_workflow_binding_local_value(
 
     from .lowering.control import _binding_terminal_for_match_subject, _is_inline_let_binding_expr
     from .lowering.values import (
-        _procedure_signature_local_type_bindings,
         _procedure_signature_local_values,
         _resolve_inline_expr_value,
     )
@@ -649,7 +647,6 @@ def _private_workflow_body_exports_step_backed_outputs(
     """Check that a private workflow body returns step-backed outputs."""
 
     from .lowering.values import (
-        _procedure_signature_local_type_bindings,
         _procedure_signature_local_values,
         _resolve_inline_expr_value,
     )

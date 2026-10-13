@@ -15,7 +15,12 @@ from ..conditionals import (
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
-from ..expression_traversal import map_expr, walk_expr, map_command_operands
+from ..expression_traversal import (
+    is_pure_projection_expr,
+    map_command_operands,
+    map_expr,
+    walk_expr,
+)
 from ..expressions import (
     BindProcExpr,
     CallExpr,
@@ -97,7 +102,6 @@ from ..type_env import (
 from ..typecheck_context import TypedExpr
 from ..loops import LoopControlTypeRef
 from ..loop_state import carrier_metadata_for_expr
-from ..lowering.pure_projection import is_pure_projection_expr
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import derive_run_ref_result_contract
 from ..trial_result_contract import derive_trial_result_contract
@@ -162,6 +166,163 @@ from .model import (
     WccSpecializationCapture,
     WccValue,
 )
+
+
+def _frontend_expr_from_wcc_value(value: WccValue):
+    if isinstance(value, WccLiteralAtom):
+        if value.literal_kind == "enum":
+            type_ref = value.metadata.type_ref
+            if not isinstance(type_ref, PrimitiveTypeRef) or not type_ref.allowed_values:
+                raise TypeError("enum WCC literal requires an enum primitive type")
+            return EnumMemberExpr(
+                enum_name=type_ref.name,
+                member_name=str(value.value),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        return LiteralExpr(
+            value=value.value,
+            literal_kind=value.literal_kind,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccNameAtom):
+        return NameExpr(
+            name=value.name,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccPhaseTargetAtom):
+        from ..expressions import PhaseTargetExpr
+
+        return PhaseTargetExpr(
+            target_name=value.target_name,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccOpaqueFrontendValue):
+        if isinstance(value.expr, LoopStateSeedExpr):
+            type_ref = value.metadata.type_ref
+            if isinstance(type_ref, RecordTypeRef):
+                return RecordExpr(
+                    type_name=type_ref.name,
+                    fields=tuple(
+                        (field.name, field.value_expr)
+                        for field in value.expr.fields
+                    ),
+                    span=value.metadata.source_span,
+                    form_path=value.metadata.form_path,
+                    expansion_stack=value.metadata.expansion_stack,
+                    resolved_type=type_ref,
+                )
+        if isinstance(value.expr, LoopStateUpdateExpr):
+            return RecordUpdateExpr(
+                base_expr=value.expr.base_expr,
+                overrides=value.expr.overrides,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        return value.expr
+    if isinstance(value, WccFieldAccessAtom):
+        return FieldAccessExpr(
+            base=_frontend_expr_from_wcc_value(value.base),
+            fields=value.fields,
+            shared_field_types=value.shared_field_types,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccRecordAtom):
+        return RecordExpr(
+            type_name=value.type_name,
+            fields=tuple(
+                (field_name, _frontend_expr_from_wcc_value(field_value))
+                for field_name, field_value in value.fields
+            ),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
+        )
+    if isinstance(value, WccPureOp):
+        if value.operator == "record-update":
+            if not value.args:
+                raise TypeError("record-update WCC pure op requires a base argument")
+            return RecordUpdateExpr(
+                base_expr=_frontend_expr_from_wcc_value(value.args[0]),
+                overrides=tuple(
+                    (
+                        field_name,
+                        _frontend_expr_from_wcc_value(field_value),
+                    )
+                    for field_name, field_value in zip(value.field_names, value.args[1:], strict=True)
+                ),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        return PureOpExpr(
+            operator=value.operator,
+            args=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.args),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccInject):
+        return UnionVariantExpr(
+            type_name=value.union_name,
+            variant_name=value.variant_name,
+            fields=tuple(
+                (field_name, _frontend_expr_from_wcc_value(field_value))
+                for field_name, field_value in value.fields
+            ),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
+        )
+    if isinstance(value, WccSelect):
+        return IfExpr(
+            condition_expr=_frontend_expr_from_wcc_value(value.condition),
+            then_expr=_frontend_wcc_select_arm(value.then_arm),
+            else_expr=_frontend_wcc_select_arm(value.else_arm),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    raise TypeError(f"unsupported WCC value during defunctionalization: {type(value).__name__}")
+
+
+def _frontend_wcc_select_arm(arm: WccSelectArm):
+    """Reconstruct one select arm without an environment substitution."""
+
+    bindings = tuple(
+        (
+            let_node.bound_name,
+            _frontend_expr_from_wcc_value(let_node.bound_value),
+        )
+        for let_node in arm.prefix
+    )
+    value_expr = _frontend_expr_from_wcc_value(arm.value)
+    if not bindings:
+        return value_expr
+    return LetStarExpr(
+        bindings=bindings,
+        binding_identities=tuple(node.metadata.binding_identity for node in arm.prefix),
+        binding_capture_sources=tuple(
+            (node.bound_value.metadata.binding_identity, node.bound_type_ref)
+            if isinstance(node.bound_value, WccNameAtom) and node.bound_value.is_capture_read
+            else None for node in arm.prefix),
+        body=value_expr,
+        span=arm.value.metadata.source_span,
+        form_path=arm.value.metadata.form_path,
+        expansion_stack=arm.value.metadata.expansion_stack,
+    )
 
 
 @dataclass(frozen=True)
@@ -1435,8 +1596,6 @@ def _substitute_wcc_opaque_expr(
     substitution value is materialized through the shared WCC-to-frontend
     reconstruction so the opaque child stays a closed frontend term.
     """
-
-    from .defunctionalize import _frontend_expr_from_wcc_value
 
     def on_name(node: NameExpr):
         replacement = substitutions.get(node.name)
@@ -4627,8 +4786,6 @@ def _elaborate_if_to_body(
                 condition_control_body
             )
             condition_control_body = None
-            from .defunctionalize import _frontend_expr_from_wcc_value
-
             condition_source_expr = _frontend_expr_from_wcc_value(condition)
         else:
             condition_prefix = ()
@@ -4757,8 +4914,6 @@ def _elaborate_if_to_body(
             compile_time_bindings=compile_time_bindings,
         )
         if condition_binding_name is None:
-            from .defunctionalize import _frontend_expr_from_wcc_value
-
             condition_source_expr = _frontend_expr_from_wcc_value(condition)
             condition_shape = classify_condition_expr(
                 condition_source_expr,

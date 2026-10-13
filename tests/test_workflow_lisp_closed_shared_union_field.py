@@ -379,7 +379,8 @@ def test_wcc_frontend_reconstruction_retains_aligned_segment_facts(tmp_path):
     from orchestrator.workflow_lisp.expressions import FieldAccessExpr
     from orchestrator.workflow_lisp.wcc.model import WccNodeMetadata, WccNameAtom, WccFieldAccessAtom
     from orchestrator.workflow_lisp.wcc.lower import _inline_expr_from_wcc_value
-    from orchestrator.workflow_lisp.wcc.defunctionalize import _frontend_expr_from_wcc_value, _frontend_expr_from_wcc_value_with_env
+    from orchestrator.workflow_lisp.wcc.elaborate import _frontend_expr_from_wcc_value
+    from orchestrator.workflow_lisp.wcc.defunctionalize import _frontend_expr_from_wcc_value_with_env
     typed = _imported_typed(tmp_path)
     procedure = next(p for p in typed.procedures.values() if p.specialization is not None)
     field = next(n for n in walk_expr(procedure.typed_body.expr) if isinstance(n, FieldAccessExpr))

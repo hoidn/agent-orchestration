@@ -242,7 +242,6 @@ from .values import (
     _lower_record_expr,
     _lower_union_variant_expr,
     _phase_target_inline_ref,
-    _procedure_signature_local_type_bindings,
     _procedure_signature_local_values,
     _record_output_refs,
     _record_expr_value_at_path,

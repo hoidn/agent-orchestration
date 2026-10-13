@@ -15,7 +15,7 @@ from ..contracts import GeneratedInternalInput, derive_workflow_signature_contra
 from ..compiler_session import LoweringSessionState
 from ..conditionals import LiteralBoolCondition, PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
-from ..expression_traversal import free_expr_names, iter_child_exprs, map_expr
+from ..expression_traversal import free_expr_names, is_pure_projection_expr, iter_child_exprs, map_expr
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
@@ -56,7 +56,12 @@ from ..phase_family_boundary import (
     classify_phase_family_boundary,
     record_direct_entry_phase_context_binding,
 )
-from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
+from ..procedures import (
+    ProcedureCatalog,
+    ProcedureLoweringMode,
+    TypedProcedureDef,
+    _procedure_signature_local_type_bindings,
+)
 from ..reader import SourceReadTrace, _read_source_file_views
 from ..syntax import (
     HelperExpansionFrame,
@@ -104,11 +109,10 @@ from ..lowering.materialize_view import lower_materialize_view_step
 from ..lowering.pure_projection import (
     _type_descriptor,
     build_pure_projection_payload,
-    is_pure_projection_expr,
     lower_pure_projection_step,
     try_evaluate_static_pure_expr,
 )
-from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values, lower_rich_structural_return, union_output_refs_from_source
+from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _resolve_inline_expr_value, _signature_local_values, lower_rich_structural_return, union_output_refs_from_source
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation, _lower_request_input_operation
 from ..lowering.phase_flow import (
     _phase_stdlib_lower_produce_one_of_impl,
@@ -147,6 +151,7 @@ from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPa
 from .anf import normalize_wcc_body_to_anf
 from .elaborate import (
     WccPromptDependencyPayload,
+    _frontend_expr_from_wcc_value,
     elaborate_typed_workflow,
     elaborate_typed_workflow_body,
 )
@@ -190,7 +195,13 @@ from .model import (
     WccRunProviderPhasePayload,
     WccValue,
 )
-from .analysis import WccScopeAnalysis, analyze_wcc_body
+from .analysis import (
+    WccScopeAnalysis,
+    _effect_boundary_step_kind,
+    _iter_specialized_loop_effect_values,
+    _loop_effect_compile_error,
+    analyze_wcc_body,
+)
 from orchestrator.workflow.executable_ir import (
     PROVIDER_PEER_GROUP_MESSAGING_POLICY,
     PROVIDER_PEER_GROUP_SCHEMA_VERSION,
@@ -1647,39 +1658,6 @@ def _loop_frame_restore_descriptor(
     }
 
 
-def _effect_boundary_step_kind(
-    value: (
-        WccPerform
-        | WccCall
-        | WccProviderSupervision
-        | WccProviderPeerGroup
-    ),
-) -> str:
-    if isinstance(value, WccProviderPeerGroup):
-        return "provider_peer_group"
-    if isinstance(value, WccProviderSupervision):
-        return "provider_supervision"
-    if isinstance(value, WccCall):
-        return "call"
-    if (
-        value.perform_kind == "resource_transition"
-        and isinstance(value.operation_payload, ResourceTransitionExpr)
-        and value.operation_payload.spec.mode != "declared_transition"
-    ):
-        return "command"
-    return {
-        "command_result": "command",
-        "provider_result": "provider",
-        "workflow_call": "call",
-        "materialize_view": "materialize_view",
-        "resource_transition": "resource_transition",
-        "resume_or_start": "resume_or_start",
-        "run_provider_phase": "provider",
-        "produce_one_of": "provider",
-        "finalize_selected_item": "finalize_selected_item",
-    }.get(value.perform_kind, value.perform_kind)
-
-
 def _build_effect_resume_policy_payload(
     *,
     context: _LoweringContext,
@@ -2591,178 +2569,6 @@ def _lowered_effect_boundary_kind(
             "lowered loop iteration terminal effect kind is ambiguous"
         )
     return observed[0]
-
-
-def _normalized_inline_procedure_wcc_body(
-    value: WccCall,
-    *,
-    procedure: TypedProcedureDef,
-    context: _LoweringContext,
-) -> WccBody:
-    workflow_return_types = {
-        name: workflow.signature.return_type_ref
-        for name, workflow in context.workflows_by_name.items()
-    }
-    workflow_return_types.update(
-        {
-            name: signature.return_type_ref
-            for name, signature
-            in context.workflow_catalog.signatures_by_name.items()
-        }
-    )
-    procedure_return_types = {
-        name: candidate.signature.return_type_ref
-        for name, candidate in context.typed_procedures.items()
-    }
-    route_schema_version = value.metadata.node_id.split(":", 2)[1]
-    closed_context = {}
-    if getattr(context, "closed_program", False):
-        closed_context = {
-            "closed_program": True,
-            "resolved_procedures_by_name": context.typed_procedures,
-            "procedure_type_envs": context.procedure_type_envs,
-        }
-    return normalize_wcc_body_to_anf(
-        elaborate_typed_workflow_body(
-            procedure.typed_body,
-            owner_name=procedure.definition.name,
-            type_env=_procedure_type_env_for(
-                procedure,
-                procedure_type_envs=context.procedure_type_envs,
-                default=context.type_env,
-            ),
-            value_env=_procedure_signature_local_type_bindings(procedure),
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
-            route_schema_version=route_schema_version,
-            **closed_context,
-        )
-    )
-
-
-def _iter_specialized_loop_effect_values(
-    body: WccBody,
-    *,
-    context: _LoweringContext,
-    active_procedures: frozenset[str] = frozenset(),
-):
-    if isinstance(body, WccLet):
-        value = body.bound_value
-        if isinstance(
-            value,
-            (WccPerform, WccProviderSupervision, WccProviderPeerGroup),
-        ):
-            yield value
-        elif isinstance(value, WccCall):
-            procedure = (
-                context.typed_procedures.get(
-                    value.specialized_callee_name
-                )
-                or context.typed_procedures.get(value.callee_name)
-            )
-            if (
-                procedure is not None
-                and procedure.resolved_lowering_mode
-                is ProcedureLoweringMode.INLINE
-            ):
-                procedure_name = procedure.signature.name
-                if procedure_name in active_procedures:
-                    raise LispFrontendCompileError(
-                        (
-                            LispFrontendDiagnostic(
-                                code="proc_lowering_cycle",
-                                message=(
-                                    "recursive procedure specialization "
-                                    f"cycle detected for `{procedure_name}`"
-                                ),
-                                span=value.metadata.source_span,
-                                form_path=value.metadata.form_path,
-                                phase="lowering",
-                            ),
-                        )
-                    )
-                yield from _iter_specialized_loop_effect_values(
-                    _normalized_inline_procedure_wcc_body(
-                        value,
-                        procedure=procedure,
-                        context=context,
-                    ),
-                    context=context,
-                    active_procedures=(
-                        active_procedures | {procedure_name}
-                    ),
-                )
-            else:
-                yield value
-        yield from _iter_specialized_loop_effect_values(
-            body.body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        return
-    if isinstance(body, WccIf):
-        yield from _iter_specialized_loop_effect_values(
-            body.then_body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        yield from _iter_specialized_loop_effect_values(
-            body.else_body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        return
-    if isinstance(body, WccCase):
-        for arm in body.arms:
-            yield from _iter_specialized_loop_effect_values(
-                arm.body,
-                context=context,
-                active_procedures=active_procedures,
-            )
-        return
-    if isinstance(body, WccJoin):
-        yield from _iter_specialized_loop_effect_values(
-            body.body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        yield from _iter_specialized_loop_effect_values(
-            body.continuation,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        return
-    if isinstance(body, WccRecJoin):
-        yield from _iter_specialized_loop_effect_values(
-            body.body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        if body.exhaustion is not None:
-            yield from _iter_specialized_loop_effect_values(
-                body.exhaustion,
-                context=context,
-                active_procedures=active_procedures,
-            )
-
-
-def _loop_effect_compile_error(
-    body: WccRecJoin,
-    *,
-    code: str,
-    message: str,
-) -> LispFrontendCompileError:
-    return LispFrontendCompileError(
-        (
-            LispFrontendDiagnostic(
-                code=code,
-                message=message,
-                span=body.metadata.source_span,
-                form_path=body.metadata.form_path,
-                phase="lowering",
-            ),
-        )
-    )
 
 
 def _wcc_body_nodes(body: WccBody):
@@ -7578,161 +7384,6 @@ def _frontend_expr_from_wcc_loop_binding_value(
     return _frontend_expr_from_wcc_value(value)
 
 
-def _frontend_expr_from_wcc_value(value: WccValue):
-    if isinstance(value, WccLiteralAtom):
-        if value.literal_kind == "enum":
-            type_ref = value.metadata.type_ref
-            if not isinstance(type_ref, PrimitiveTypeRef) or not type_ref.allowed_values:
-                raise TypeError("enum WCC literal requires an enum primitive type")
-            return EnumMemberExpr(
-                enum_name=type_ref.name,
-                member_name=str(value.value),
-                span=value.metadata.source_span,
-                form_path=value.metadata.form_path,
-                expansion_stack=value.metadata.expansion_stack,
-            )
-        return LiteralExpr(
-            value=value.value,
-            literal_kind=value.literal_kind,
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-        )
-    if isinstance(value, WccNameAtom):
-        return NameExpr(
-            name=value.name,
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-        )
-    if isinstance(value, WccPhaseTargetAtom):
-        from ..expressions import PhaseTargetExpr
-
-        return PhaseTargetExpr(
-            target_name=value.target_name,
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-        )
-    if isinstance(value, WccOpaqueFrontendValue):
-        if isinstance(value.expr, LoopStateSeedExpr):
-            type_ref = value.metadata.type_ref
-            if isinstance(type_ref, RecordTypeRef):
-                return RecordExpr(
-                    type_name=type_ref.name,
-                    fields=tuple(
-                        (field.name, field.value_expr)
-                        for field in value.expr.fields
-                    ),
-                    span=value.metadata.source_span,
-                    form_path=value.metadata.form_path,
-                    expansion_stack=value.metadata.expansion_stack,
-                    resolved_type=type_ref,
-                )
-        if isinstance(value.expr, LoopStateUpdateExpr):
-            return RecordUpdateExpr(
-                base_expr=value.expr.base_expr,
-                overrides=value.expr.overrides,
-                span=value.metadata.source_span,
-                form_path=value.metadata.form_path,
-                expansion_stack=value.metadata.expansion_stack,
-            )
-        return value.expr
-    if isinstance(value, WccFieldAccessAtom):
-        return FieldAccessExpr(
-            base=_frontend_expr_from_wcc_value(value.base),
-            fields=value.fields,
-            shared_field_types=value.shared_field_types,
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-        )
-    if isinstance(value, WccRecordAtom):
-        return RecordExpr(
-            type_name=value.type_name,
-            fields=tuple(
-                (field_name, _frontend_expr_from_wcc_value(field_value))
-                for field_name, field_value in value.fields
-            ),
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-            resolved_type=value.resolved_type,
-        )
-    if isinstance(value, WccPureOp):
-        if value.operator == "record-update":
-            if not value.args:
-                raise TypeError("record-update WCC pure op requires a base argument")
-            return RecordUpdateExpr(
-                base_expr=_frontend_expr_from_wcc_value(value.args[0]),
-                overrides=tuple(
-                    (
-                        field_name,
-                        _frontend_expr_from_wcc_value(field_value),
-                    )
-                    for field_name, field_value in zip(value.field_names, value.args[1:], strict=True)
-                ),
-                span=value.metadata.source_span,
-                form_path=value.metadata.form_path,
-                expansion_stack=value.metadata.expansion_stack,
-            )
-        return PureOpExpr(
-            operator=value.operator,
-            args=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.args),
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-        )
-    if isinstance(value, WccInject):
-        return UnionVariantExpr(
-            type_name=value.union_name,
-            variant_name=value.variant_name,
-            fields=tuple(
-                (field_name, _frontend_expr_from_wcc_value(field_value))
-                for field_name, field_value in value.fields
-            ),
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-            resolved_type=value.resolved_type,
-        )
-    if isinstance(value, WccSelect):
-        return IfExpr(
-            condition_expr=_frontend_expr_from_wcc_value(value.condition),
-            then_expr=_frontend_wcc_select_arm(value.then_arm),
-            else_expr=_frontend_wcc_select_arm(value.else_arm),
-            span=value.metadata.source_span,
-            form_path=value.metadata.form_path,
-            expansion_stack=value.metadata.expansion_stack,
-        )
-    raise TypeError(f"unsupported WCC value during defunctionalization: {type(value).__name__}")
-
-
-def _frontend_wcc_select_arm(arm: WccSelectArm):
-    """Reconstruct one select arm without an environment substitution."""
-
-    bindings = tuple(
-        (
-            let_node.bound_name,
-            _frontend_expr_from_wcc_value(let_node.bound_value),
-        )
-        for let_node in arm.prefix
-    )
-    value_expr = _frontend_expr_from_wcc_value(arm.value)
-    if not bindings:
-        return value_expr
-    return LetStarExpr(
-        bindings=bindings,
-        binding_identities=tuple(node.metadata.binding_identity for node in arm.prefix),
-        binding_capture_sources=tuple(
-            (node.bound_value.metadata.binding_identity, node.bound_type_ref)
-            if isinstance(node.bound_value, WccNameAtom) and node.bound_value.is_capture_read
-            else None for node in arm.prefix),
-        body=value_expr,
-        span=arm.value.metadata.source_span,
-        form_path=arm.value.metadata.form_path,
-        expansion_stack=arm.value.metadata.expansion_stack,
-    )
 
 
 def _capture_opaque_projection_scope(expr, *, context, local_values):

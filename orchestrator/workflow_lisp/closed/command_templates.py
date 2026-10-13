@@ -399,7 +399,7 @@ class CommandScopeContext:
     def _wcc_binding_value(self, expr, *, demands, expansion_owned):
         from ..conditionals import _contains_effect
         from ..expressions import NameExpr
-        from ..lowering.pure_projection import is_pure_projection_expr
+        from ..expression_traversal import is_pure_projection_expr
 
         if _contains_effect(expr):
             return None

@@ -519,19 +519,6 @@ def _signature_local_values(typed_workflow: Any, *, type_env: Any | None = None)
     return local_values
 
 
-def _procedure_signature_local_type_bindings(procedure: TypedProcedureDef) -> dict[str, TypeRef]:
-    """Seed local type bindings from a private workflow procedure signature."""
-
-    local_type_bindings = {
-        param_name: param_type
-        for param_name, param_type in procedure.signature.params
-    }
-    specialization = getattr(procedure, "specialization", None)
-    if specialization is not None:
-        local_type_bindings.update(dict(getattr(specialization, "bound_param_types", {})))
-    return local_type_bindings
-
-
 def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:
     """Follow a flattened field path through a nested local-value mapping."""
 
@@ -621,7 +608,7 @@ def projected_union_field_activity(
 def _retained_inline_child(value):
     from ..expressions import ExprNode
     from .command_transport_decisions import RetainedExpressionFact
-    from .pure_projection import is_pure_projection_expr
+    from ..expression_traversal import is_pure_projection_expr
 
     if isinstance(value, ExprNode) and not isinstance(value, LiteralExpr):
         return RetainedExpressionFact("opaque", is_pure_projection_expr(value))
@@ -630,7 +617,7 @@ def _retained_inline_child(value):
 
 def _retained_inline_constructor(expr, *, local_values):
     from .command_transport_decisions import RetainedExpressionFact
-    from .pure_projection import is_pure_projection_expr
+    from ..expression_traversal import is_pure_projection_expr
 
     fields = tuple((name, _retained_inline_child(_resolve_inline_expr_value(child,
         local_values=local_values, retain_expression_facts=True))) for name, child in expr.fields)
@@ -640,7 +627,7 @@ def _retained_inline_constructor(expr, *, local_values):
 
 def _resolve_inline_record(expr, *, local_values, retain_expression_facts):
     from .command_transport_decisions import RetainedExpressionFact
-    from .pure_projection import is_pure_projection_expr
+    from ..expression_traversal import is_pure_projection_expr
 
     fields = []
     for name, child in expr.fields:
@@ -1015,7 +1002,8 @@ def lower_rich_structural_return(
     ):
         return None
     from . import core as lowering_core
-    from .pure_projection import is_pure_projection_expr, lower_pure_projection_step, output_contracts_for_boundary_type
+    from ..expression_traversal import is_pure_projection_expr
+    from .pure_projection import lower_pure_projection_step, output_contracts_for_boundary_type
 
     fields = tuple(
         derive_workflow_boundary_fields(

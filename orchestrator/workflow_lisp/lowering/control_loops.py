@@ -30,6 +30,7 @@ from ..expressions import (
     RecordExpr,
     UnionVariantExpr,
 )
+from ..expression_traversal import is_pure_projection_expr
 from ..loops import (
     LOOP_STATUS_ALLOWED,
     LOOP_STATUS_OUTPUT_NAME,
@@ -67,7 +68,7 @@ from .context import (
 )
 from .loop_exhaustion_routing import exhaustion_state_ref_allowed
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
-from .pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
+from .pure_projection import lower_pure_projection_step, try_evaluate_static_pure_expr
 from .values import (
     _assign_nested_local_value,
     _inline_expr_field_value,

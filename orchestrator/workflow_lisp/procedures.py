@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -227,6 +228,27 @@ class TypedProcedureDef:
     resolved_lowering_mode: ProcedureLoweringMode = ProcedureLoweringMode.AUTO
     generated_workflow_name: str | None = None
     specialization: object | None = None
+
+
+def effective_private_workflow_name(procedure: TypedProcedureDef) -> str:
+    return procedure.generated_workflow_name or (
+        f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
+    )
+
+
+def _procedure_signature_local_type_bindings(
+    procedure: TypedProcedureDef,
+) -> dict[str, TypeRef]:
+    """Seed local type bindings from a private workflow procedure signature."""
+
+    local_type_bindings = {
+        param_name: param_type
+        for param_name, param_type in procedure.signature.params
+    }
+    specialization = getattr(procedure, "specialization", None)
+    if specialization is not None:
+        local_type_bindings.update(dict(getattr(specialization, "bound_param_types", {})))
+    return local_type_bindings
 
 
 def procedure_type_env_for(

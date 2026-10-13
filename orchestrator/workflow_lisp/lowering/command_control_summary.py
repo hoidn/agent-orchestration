@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .. import expressions as ex
-from ..procedures import ProcedureLoweringMode, procedure_type_env_for
+from ..procedures import ProcedureLoweringMode, _procedure_signature_local_type_bindings, procedure_type_env_for
 from ..syntax import target_dsl_supports_generic_unions
 from ..type_env import RecordTypeRef, UnionTypeRef
 from .command_control_decisions import (
@@ -22,7 +22,7 @@ from .command_transport_decisions import (
 )
 from .values import (
     _build_output_step_local_value, _flatten_boundary_leaf_paths,
-    _procedure_signature_local_type_bindings, _resolve_inline_expr_value,
+    _resolve_inline_expr_value,
     inline_expr_field_value, inline_let_field_value,
 )
 

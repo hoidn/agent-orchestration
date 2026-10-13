@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import fields as dataclass_fields, is_dataclass, replace
-from typing import cast
+from typing import Any, cast
 
 from .expressions import (
     BindProcExpr,
@@ -60,6 +60,76 @@ from .expressions import (
 from .phase_stdlib import ProduceOneOfCandidateSpec, ProduceOneOfProducerSpec
 from .prompts import PromptApplicationExpr
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
+
+
+def is_pure_projection_expr(
+    expr: Any,
+    *,
+    allow_generated_relpath_seed: bool = False,
+) -> bool:
+    """Return whether one frontend expression can lower through pure projection."""
+
+    if isinstance(
+        expr,
+        (
+            LiteralExpr,
+            EnumMemberExpr,
+            NameExpr,
+            FieldAccessExpr,
+            PureOpExpr,
+            ListExpr,
+            ListMapExpr,
+            CompilerListNonemptyHeadExpr,
+            PathJoinUnderExpr,
+            RecordUpdateExpr,
+        ),
+    ):
+        return True
+    if isinstance(expr, GeneratedRelpathSeedExpr):
+        return allow_generated_relpath_seed
+    if isinstance(expr, RecordExpr):
+        return all(
+            is_pure_projection_expr(
+                field_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            for _, field_expr in expr.fields
+        )
+    if isinstance(expr, UnionVariantExpr):
+        return all(
+            is_pure_projection_expr(
+                field_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            for _, field_expr in expr.fields
+        )
+    if isinstance(expr, IfExpr):
+        return (
+            is_pure_projection_expr(
+                expr.condition_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            and is_pure_projection_expr(
+                expr.then_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            and is_pure_projection_expr(
+                expr.else_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+        )
+    if isinstance(expr, LetStarExpr):
+        return all(
+            is_pure_projection_expr(
+                binding_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            for _, binding_expr in expr.bindings
+        ) and is_pure_projection_expr(
+            expr.body,
+            allow_generated_relpath_seed=allow_generated_relpath_seed,
+        )
+    return False
 
 
 def _produce_one_of_children(

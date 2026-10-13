@@ -19,7 +19,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     compiler_defect_boundary,
     records_defect_provenance,
 )
-from orchestrator.workflow_lisp.lowering.values import _procedure_signature_local_type_bindings
+from orchestrator.workflow_lisp.procedures import _procedure_signature_local_type_bindings
 from orchestrator.workflow_lisp.type_env import (
     PrimitiveTypeRef,
     ProcRefTypeRef,
@@ -604,7 +604,7 @@ class Builder:
         return reader, references
 
     def _io_procedure_reader(self, procedure, source, context, origin):
-        from ..lowering.procedures import effective_private_workflow_name
+        from ..procedures import effective_private_workflow_name
 
         if self._command_inline_edge(procedure, context):
             return ("reader",)
@@ -1977,7 +1977,7 @@ class Builder:
             return
         from types import SimpleNamespace
 
-        from ..wcc.defunctionalize import (
+        from ..wcc.analysis import (
             _effect_boundary_step_kind,
             _iter_specialized_loop_effect_values,
             _loop_effect_compile_error,
