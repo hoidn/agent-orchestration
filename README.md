@@ -42,7 +42,9 @@ a failure halfway through.
 Claude drafts a plan. Codex reviews it. Claude revises the plan with that
 feedback. Codex executes the revised plan. This is
 [`workflows/examples/plan_review_execute.orc`](workflows/examples/plan_review_execute.orc),
-and it compiles with the command in its header.
+and it compiles with the command in its header. When the plan is a real design
+document, [`design_review_execute.orc`](workflows/examples/design_review_execute.orc)
+keeps it as a markdown file under `docs/design/` and passes its typed path.
 
 ```lisp
 (workflow-lisp
