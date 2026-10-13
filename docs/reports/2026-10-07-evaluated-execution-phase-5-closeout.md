@@ -402,3 +402,12 @@ module context and source snapshots. Fresh verification in W:
 
 This is integration evidence for the bounded cut. It does not replace Task 7's
 full-suite/pinned-controller campaign or close Task 3's public gaps and Tasks 5–7.
+
+Local main integration completed at `4edb406c` after those checks. Six overlapping
+local documentation edits were preserved by a rehearsed three-way restoration;
+other local and untracked work was left in place. `E/consistency-main-merge.json`
+records the integration and preservation checks. The final documentation scan
+checked 1,224 local links/anchors across 15 affected documents with no failures
+(`E/consistency-validation.json`); all 12 Task 4 source/test hashes still match
+the reviewed freeze. No push, full-suite rerun, consumer migration or executor
+retirement is claimed by this delivery.
