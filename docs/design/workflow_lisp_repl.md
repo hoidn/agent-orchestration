@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Title:** Workflow Lisp REPL
-- **Status:** proposed
+- **Status:** implemented
 - **Kind:** feature
 - **Owner:** Workflow Lisp frontend and evaluated-runtime maintainers
 - **Reviewers:** Independent code and design reviewers

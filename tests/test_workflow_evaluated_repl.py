@@ -143,7 +143,7 @@ def test_public_repl_attaches_to_completed_run_and_evaluates_typed_values(tmp_pa
     with run_writer_lock(run_root):
         repl = _repl(tmp_path, [
             ":bindings", "feedback.findings",
-            "(= feedback.findings (list))", "(list/length draft.steps)", "(plan-size draft)",
+            "(list/empty? feedback.findings)", "(list/length draft.steps)", "(plan-size draft)",
             "(count-steps draft)", "(count-through-proc draft)", ":result", ":quit",
         ], fixture=fixture, run_id=run_root.name)
 
@@ -242,7 +242,7 @@ def test_effectful_expressions_refuse_without_changing_run_and_session_recovers(
     )
 
     repl = _repl(tmp_path, [direct_effect, "(request-feedback task)", "not_a_name",
-                            "(= feedback.findings (list))", "(count-steps draft)", ":quit"],
+                            "(list/empty? feedback.findings)", "(count-steps draft)", ":quit"],
                  fixture=fixture, run_id=run_root.name)
 
     assert repl.returncode == 0, repl.stderr
