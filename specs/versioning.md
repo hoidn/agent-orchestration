@@ -901,7 +901,10 @@
     stdout in its error text. Targets through 2.34 compose byte-identical
     prompts. Evidence: `tests/test_prompt_contract.py`,
     `tests/test_workflow_evaluated_resume_replay.py`,
-    `tests/test_workflow_evaluated_providers.py`
+    `tests/test_workflow_evaluated_provider_delivery.py`,
+    `tests/test_workflow_evaluated_providers.py` and the checked-in pre-change
+    run `tests/fixtures/provider_delivery_pre_change/`, whose public resume
+    fails if the `legacy` bytes drift
     ([design](../docs/design/provider_result_delivery.md)).
 
 - v2.36 additions (W3)

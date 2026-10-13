@@ -2329,6 +2329,9 @@ Usually avoid:
 - variant proof mechanics;
 - runtime state path explanations;
 - duplicated generated output contracts;
+- result delivery instructions, such as result-file paths or
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`: the runtime renders the delivery contract
+  for the transport it selected (§10.1);
 - broad ambient doc globs;
 - instructions to echo session IDs or pointer paths.
 
