@@ -276,6 +276,8 @@ class ListMapEffectExpr:
         hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
+    parallel_count: int | None = field(default=None, metadata={"json_omit_if_none": True})
+    workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
 
 
 @dataclass(frozen=True)
@@ -3446,7 +3448,18 @@ def _elaborate_list_map_effect(
     session_state: ElaborationSessionState,
 ) -> ListMapEffectExpr:
     _require_list_traversal_target(datum, session_state=session_state)
-    if (
+    parallel_options = None
+    if any(
+        isinstance(item, SyntaxKeyword) and item.value in {":parallel", ":workspace"}
+        for item in datum.items[2:]
+    ):
+        from .parallel_map import parallel_map_options
+
+        parallel_options = parallel_map_options(
+            datum, target=session_state.target_dsl_version or "",
+            form_path=form_path, raise_error=_raise_error,
+        )
+    if parallel_options is None and (
         len(datum.items) != 5
         or not isinstance(datum.items[2], SyntaxKeyword)
         or datum.items[2].value != ":max"
@@ -3506,7 +3519,7 @@ def _elaborate_list_map_effect(
         session_state=session_state,
     )
     body_expr = _elaborate(
-        datum.items[4],
+        parallel_options[3] if parallel_options is not None else datum.items[4],
         form_path=form_path,
         bound_names=frozenset((*bound_names, binder.resolved_name)),
         procedure_names=procedure_names,
@@ -3515,7 +3528,7 @@ def _elaborate_list_map_effect(
     return ListMapEffectExpr(
         binder_name=binder.resolved_name,
         source_expr=source_expr,
-        max_iterations=datum.items[3].value,
+        max_iterations=parallel_options[0] if parallel_options is not None else datum.items[3].value,
         body_expr=body_expr,
         source_item_type_ref=None,
         result_item_type_ref=None,
@@ -3526,6 +3539,15 @@ def _elaborate_list_map_effect(
             binder.display_name
             if binder.introduced_by_expansion_id is None
             else None
+        ),
+        parallel_count=parallel_options[1] if parallel_options is not None else None,
+        workspace_expr=(
+            _elaborate(
+                parallel_options[2], form_path=form_path,
+                bound_names=bound_names | {binder.resolved_name},
+                procedure_names=procedure_names, session_state=session_state,
+            )
+            if parallel_options is not None else None
         ),
     )
 

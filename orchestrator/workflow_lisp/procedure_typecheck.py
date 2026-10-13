@@ -2416,12 +2416,13 @@ def _collect_proc_ref_use_spans(
     return ()
 
 def _dataclass_semantic_identity(value):
-    from .expressions import CommandResultExpr
+    from .expressions import CommandResultExpr, ListMapEffectExpr
 
     identity_fields = tuple(
         item for item in fields(value)
         if item.name not in {"span", "form_path", "expansion_stack"}
         and not item.metadata.get("semantic_identity_omit")
+        and not (isinstance(value, ListMapEffectExpr) and item.name in {"parallel_count", "workspace_expr"} and getattr(value, item.name) is None)
     )
     if isinstance(value, CommandResultExpr):
         identity_fields = tuple(

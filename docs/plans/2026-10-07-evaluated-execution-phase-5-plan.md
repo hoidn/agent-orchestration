@@ -10,7 +10,7 @@
 
 ## Status, entry and decisions
 
-**Prepared plan; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. No Phase 5 implementation or public qualification has run.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; product implementation and public qualification remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
+**Implementation in progress; D1 target 2.37 explicitly selected by the owner on 2026-10-12, D2/D3 accepted as design. Bounded frontend Task 1A passed independent contract/quality reviews and coordinator acceptance; overall Task 1/public qualification remain pending.** Historical preparation and source review used `06130a53193e42dc1fdc2e9aa4575220bb43d707`; documentation follow-up `b9baaa4226b80ac64a9bc233b8261b1c9ec5fbb0` changed no production/test source. This publication was prepared against delivered pilot `f062bd8871b77a3d8b89b49a6f44162df0c8190f`, whose production is `b11e678dc4081014c8ca04cbf14e86cea5e53776`, including the separately reviewed nested-result and bound-capture corrections. These later bytes do not retroactively change the preparation evidence. Task 0 now records the integrated execution entry below; Task 1A frontend implementation now has bounded receipts below; later cuts and public qualification remain pending. Phase 3 delivery and the maintained `best_of_n.orc` consumer satisfy the original capability prerequisite; the baseline and qualification gates remain. Owner selection on 2026-10-07 orders pure lexical-capture correction, then W3, before Phase 5; unrelated provider-context work remains independent.
 
 Authorities: [parent Phase 5 and closeout](2026-09-29-workflow-lisp-evaluated-execution-plan.md#phase-5-parallel-map), [evaluated design §§6–8, 11 and 13](../design/workflow_lisp_evaluated_execution.md#11-parallel-effects), [list traversal](../design/workflow_lisp_pure_list_traversal.md), [frontend](../design/workflow_lisp_frontend_specification.md), and normative [versioning](../../specs/versioning.md), [state](../../specs/state.md), [IO](../../specs/io.md) and [CLI](../../specs/cli.md). Availability comes from the [capability matrix](../capability_status_matrix.md). The [delivered pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md) owns later production/evidence limits; it does not establish parallel execution or discharge this plan's future qualification gates.
 
@@ -143,6 +143,14 @@ and binding coverage together; no alternate validator or IO route is added.
 ## Task 1 — Keep parallel map through frontend, WCC and checked artifact
 
 **Owners:** frontend/WCC/closed rows above; new compiler test module.
+
+Bounded Task 1A frontend is accepted after independent contract and quality
+reviews (no findings) and coordinator acceptance.
+The [execution record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1a--bounded-frontend-cut)
+retains initial/direction/pure-inline RED, revised 49-case PASS, 437 control PASS,
+collection, corrected pure 2.37 CLI and size/complexity receipts. WCC, checked
+construction/read-back/sites and runtime admission remain pending; these scoped
+frontend results do not close any Task 1 checkbox.
 
 - [ ] Add failing compiler cases for four String items, a same-module helper and an imported helper; positive bounds, empty list, wrong source/workspace type, impure source/workspace, missing workspace, malformed/duplicate keywords, unsupported target and target-crossing imports. Expected initial failure: no admitted parallel form.
 - [ ] Extend the existing map expression with optional parallel fields whose absence does not serialize new defaults into old artifacts. Preserve the new variant after typing instead of building the serial synthetic loop. Add one WCC control node and one closed `par-map` node; do not lower it to fake command steps or a provider peer group.

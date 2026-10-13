@@ -556,8 +556,15 @@ def _normalize_expr(
             ),
         )
     if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
+        workspace_fields = {}
+        if isinstance(expr, ListMapEffectExpr) and expr.workspace_expr is not None:
+            workspace_fields["workspace_expr"] = _normalize_expr(
+                expr.workspace_expr, typed_functions_by_name=typed_functions_by_name,
+                expand_admitted_containers=expand_admitted_containers,
+            )
         return replace(
             expr,
+            **workspace_fields,
             source_expr=_normalize_expr(
                 expr.source_expr,
                 typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
@@ -1709,8 +1716,15 @@ def _clone_function_expr(
             expansion_stack=expansion_stack,
         )
     if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
+        workspace_fields = {}
+        if isinstance(expr, ListMapEffectExpr) and expr.workspace_expr is not None:
+            workspace_fields["workspace_expr"] = _clone_function_expr(
+                expr.workspace_expr, span=span, form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
         return replace(
             expr,
+            **workspace_fields,
             source_expr=_clone_function_expr(
                 expr.source_expr,
                 span=span,

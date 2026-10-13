@@ -600,10 +600,15 @@ def _normalize_list_map(
     # the binder/iteration scope so they never leave the per-item execution.
     source_prefix, source_terminal = _normalize_operand(expr.source_expr, path=path + (0,), closed_program=closed_program)
     body_prefix, body_terminal = _normalize_operand(expr.body_expr, path=path + (1,), closed_program=closed_program)
+    workspace_fields = {}
+    if isinstance(expr, ListMapEffectExpr) and expr.workspace_expr is not None:
+        workspace_prefix, workspace_terminal = _normalize_operand(expr.workspace_expr, path=path + (2,), closed_program=closed_program)
+        workspace_fields["workspace_expr"] = _wrap_bindings(workspace_prefix, workspace_terminal, expr.workspace_expr)
     rebuilt = dataclasses.replace(
         expr,
         source_expr=source_terminal,
         body_expr=_wrap_bindings(body_prefix, body_terminal, expr.body_expr),
+        **workspace_fields,
     )
     if isinstance(expr, ListMapEffectExpr):
         binding_name = _condition_binding_name(expr, role="effect", path=path)

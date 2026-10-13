@@ -72,6 +72,7 @@ def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext
 
 
 def _check_map_effect_body(expr, *, context):
+    from .conditionals import _is_helper_expanded
     from .expression_traversal import walk_expr
     from .expressions import RunRefExpr, TrialExpr
 
@@ -97,6 +98,13 @@ def _check_map_effect_body(expr, *, context):
     )
     if context.compiler_session.closed_program:
         allowed_body_types += (RunRefExpr,)
+    if (
+        expr.parallel_count is not None
+        and expr.binding_identity is not None
+        and _is_helper_expanded(expr.body_expr)
+    ):
+        # A checked authored call may become an inline helper's lexical block.
+        allowed_body_types += (LetStarExpr,)
     if not isinstance(
         expr.body_expr,
         allowed_body_types,
@@ -498,6 +506,20 @@ def typecheck_structural_value_expr(
                 span=expr.span,
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
+            )
+        if expr.parallel_count is not None:
+            from .parallel_map import typecheck_parallel_workspace
+
+            workspace_expr = typecheck_parallel_workspace(
+                expr, context=context, recurse=recurse,
+                value_env=body_env, binding_env=body_binding_env,
+            )
+            return typed_factory(
+                expr=replace(expr, source_expr=typed_source.expr, body_expr=typed_body.expr,
+                             workspace_expr=workspace_expr, binding_identity=binding_identity,
+                             source_item_type_ref=typed_source.type_ref.item_type_ref,
+                             result_item_type_ref=typed_body.type_ref),
+                type_ref=result_type, effect=typed_body.effect_summary,
             )
         state_name = "__list_map_effect_state"
         next_state_name = "__list_map_effect_next_state"

@@ -681,6 +681,7 @@ def _binding_fact(mapping: Any, formal: Any, *, selector: Any | None = None) -> 
 def _source_expression_identity(value: Any, *, typed: Any) -> Any:
     """Compare retained checked expressions while excluding source coordinates."""
 
+    from ..expressions import ListMapEffectExpr
     from ..type_env import (
         DiscriminantTypeRef,
         ListTypeRef,
@@ -744,6 +745,7 @@ def _source_expression_identity(value: Any, *, typed: Any) -> Any:
                     for field in dataclass_fields(item)
                     if field.name not in ignored_fields
                     and not field.metadata.get("semantic_identity_omit")
+                    and not (isinstance(item, ListMapEffectExpr) and field.name in {"parallel_count", "workspace_expr"} and getattr(item, field.name) is None)
                 ],
             ]
         return [type(item).__name__]

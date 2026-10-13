@@ -91,6 +91,9 @@ GATES_FROM_234 = {
 GATES_FROM_EVALUATED_EXECUTION = {
     "EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION": syntax.target_dsl_uses_evaluated_execution,
 }
+GATES_FROM_PARALLEL_MAP = {
+    "PARALLEL_MAP_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_parallel_map,
+}
 
 
 def _write_program(root: Path, target: str) -> dict[str, Path]:
@@ -207,8 +210,8 @@ def test_program_targeting_234_imports_and_runs_std_improve_at_233(
     )
 
 
-def test_target_237_is_refused_as_unsupported(tmp_path: Path) -> None:
-    files = _write_program(tmp_path, "2.37")
+def test_target_238_is_refused_as_unsupported(tmp_path: Path) -> None:
+    files = _write_program(tmp_path, "2.38")
     line = next(n for n, text in enumerate(files["source"].read_text().splitlines(), 1) if ":target-dsl" in text)
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -225,7 +228,7 @@ def test_target_237_is_refused_as_unsupported(tmp_path: Path) -> None:
 def test_every_min_target_gate_has_a_predicate_here() -> None:
     assert {name for name in vars(syntax) if name.endswith("_MIN_TARGET_DSL_VERSION")} == set(GATE_PREDICATES) | set(
         GATES_FROM_234
-    ) | set(GATES_FROM_EVALUATED_EXECUTION)
+    ) | set(GATES_FROM_EVALUATED_EXECUTION) | set(GATES_FROM_PARALLEL_MAP)
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_PREDICATES))

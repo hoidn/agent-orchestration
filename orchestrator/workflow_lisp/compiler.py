@@ -172,6 +172,7 @@ from .syntax import (
     target_dsl_supports_provider_context_values,
     target_dsl_supports_pure_call_composition,
     target_dsl_uses_evaluated_execution,
+    target_dsl_supports_parallel_map,
 )
 from .stdlib_contracts import (
     STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
@@ -1917,27 +1918,37 @@ def _resolve_stage3_procedure_lowering(
     )
 
 
+def _target_import_direction_invalid(source_target: str, imported_target: str) -> bool:
+    return (
+        not target_dsl_uses_evaluated_execution(source_target)
+        and target_dsl_uses_evaluated_execution(imported_target)
+    ) or (
+        not target_dsl_supports_parallel_map(source_target)
+        and target_dsl_supports_parallel_map(imported_target)
+    )
+
+
 def _reject_legacy_to_evaluated_imports(graph: LinkedModuleGraph) -> None:
     for source_name, source in graph.modules_by_name.items():
         source_target = source.syntax_module.target_dsl_version
-        if target_dsl_uses_evaluated_execution(source_target):
+        if target_dsl_supports_parallel_map(source_target):
             continue
         for directive in source.syntax_module.imports:
             imported = graph.modules_by_name.get(directive.module_name)
             if imported is None:
                 continue
             imported_target = imported.syntax_module.target_dsl_version
-            if not target_dsl_uses_evaluated_execution(imported_target):
+            if not _target_import_direction_invalid(source_target, imported_target):
                 continue
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(
                         code="evaluated_execution_target_direction_invalid",
                         message=(
-                            f"legacy module `{source_name}` at target {source_target} "
-                            f"cannot import evaluated module `{directive.module_name}` "
-                            f"at target {imported_target}; legacy-to-evaluated edges "
-                            "are outside the evaluated-entry source graph"
+                            f"module `{source_name}` at target {source_target} "
+                            f"cannot import module `{directive.module_name}` "
+                            f"at target {imported_target}; the import exceeds "
+                            "the applied target direction limit"
                         ),
                         span=directive.span,
                         form_path=directive.form_path,
@@ -5202,7 +5213,7 @@ def _reject_legacy_to_evaluated_snapshot_calls(
                     message=(
                         f"module `{source_module}` target {source_target} cannot call typed workflow "
                         f"from module `{producer_module}` target {program.target}; "
-                        "legacy-to-evaluated calls exceed the applied target direction limit"
+                        "the call exceeds the applied target direction limit"
                     ),
                     span=span,
                     form_path=form_path,
@@ -5218,14 +5229,14 @@ def _reject_legacy_to_evaluated_snapshot_calls(
             if workflow_name in (workflow_type_envs or {})
             else target
         )
-        if target_dsl_uses_evaluated_execution(source_target):
+        if target_dsl_supports_parallel_map(source_target):
             continue
         source_module = workflow_name.split("::", 1)[0]
         for node in walk_expr(workflow.typed_body.expr):
             if not isinstance(node, CallExpr):
                 continue
             program = evaluated_aliases.get(node.callee_name)
-            if program is not None:
+            if program is not None and _target_import_direction_invalid(source_target, program.target):
                 reject_edge(
                     source_module=source_module,
                     source_target=source_target,
@@ -5242,7 +5253,7 @@ def _reject_legacy_to_evaluated_snapshot_calls(
     )
     for procedure in typed_procedures:
         source_target = procedure_target(procedure)
-        if target_dsl_uses_evaluated_execution(source_target):
+        if target_dsl_supports_parallel_map(source_target):
             continue
         specialization = procedure.specialization
         source_owner_name = (
@@ -5256,7 +5267,7 @@ def _reject_legacy_to_evaluated_snapshot_calls(
             if not isinstance(node, CallExpr):
                 continue
             program = evaluated_aliases.get(node.callee_name)
-            if program is not None:
+            if program is not None and _target_import_direction_invalid(source_target, program.target):
                 reject_edge(
                     source_module=source_module,
                     source_target=source_target,
@@ -5270,7 +5281,7 @@ def _reject_legacy_to_evaluated_snapshot_calls(
             continue
         for role_name, resolved_workflow_ref in specialization.workflow_ref_bindings.items():
             program = evaluated_aliases.get(resolved_workflow_ref.workflow_name)
-            if program is None:
+            if program is None or not _target_import_direction_invalid(source_target, program.target):
                 continue
             base_procedure = procedures_by_name.get(specialization.base_name)
             call_span = specialization.origin_span

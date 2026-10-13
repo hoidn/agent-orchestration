@@ -1,9 +1,11 @@
 # Evaluated Execution Phase 5 Execution Record
 
-Status: **Task 0 entry prepared; implementation pending**. This records entry to
-the [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md), not
-parallel-map delivery or public qualification. The frontend/compiler cut and
-all new Phase 5 tests remain pending; inspection predictions are not executed RED.
+Status: **implementation in progress**. Task 0 is prepared and bounded Task 1A
+frontend is accepted after independent contract/quality reviews and coordinator
+acceptance.
+The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md) still
+owns pending WCC/checked-program and runtime/public qualification. Task 1 overall
+and parallel-map delivery are not complete.
 
 ## Decisions And Current Baseline
 
@@ -14,8 +16,8 @@ original independent design acceptance at prepared-plan SHA-256
 The plan's contract delta owns the exact proposal and diagnostics; acceptance
 does not establish implementation, read-back compatibility or runtime behavior.
 
-On 2026-10-13, worktree `.worktrees/orc-consolidation-20261012` (W) is at
-documentation closure `2feb6db7`, with product/test bytes qualified at
+At Task 0 entry on 2026-10-13, worktree
+`.worktrees/orc-consolidation-20261012` (W) was at documentation closure `2feb6db7`, with product/test bytes qualified at
 `bfd0f32411cec03241a9b2f54a6fcae118c75bd5`. The
 [consolidation closeout](2026-10-12-workflow-lisp-consolidation-closeout.md) records
 independent review and coordinator acceptance of bounded Tasks 0–4/Gates A–D:
@@ -52,9 +54,10 @@ hashes, scope and limitations remain unchanged. The delivered Phase 6a pilot
 also remains baseline evidence. Reuse only unchanged contracts; none establishes
 parallel-map feasibility, delivery or acceptance at the new target.
 
-Current source still rewrites serial `ListMapEffectExpr`, rejects another pending
-effect identity and requires global runtime/view replay order. Command/provider
-launch and result paths still use the outer workspace. These are implementation
+At entry, source rewrote serial `ListMapEffectExpr`, rejected another pending
+effect identity and required global runtime/view replay order. Command/provider
+launch and result paths used the outer workspace; their parallel changes remain
+pending. These are implementation
 constraints, not failures newly demonstrated by this entry. Tasks 1–7 must prove
 the new checked control and target/import/read-back gates; command/adapter/path
 run-reference cwd behavior; independent interleaved prefixes and journal-ordered
@@ -62,6 +65,50 @@ validation; nested-map liveness and one-writer concurrent publication; and publi
 kill/resume/invalidate, retained-package and consumer/live qualification where
 required. Existing serial REPL capture must remain source-free and read-only.
 
-No new compiler test was collected or run, no concurrent runtime was launched,
-and no new cwd/replay/concurrency proof is claimed. Phase 6b migration and
-Phase 7 retirement gates remain unchanged.
+That entry involved no new compiler execution. The frontend checks below now
+supply bounded evidence; no concurrent runtime or new cwd/replay/concurrency
+proof is claimed. Phase 6b migration and Phase 7 retirement gates remain unchanged.
+
+
+## Task 1A — Bounded Frontend Cut
+
+The cut registers target 2.37 and admits the parsed/typed parallel form while
+preserving serial rewriting and absent-field identities. It covers frontend
+binder/capture propagation and old-entry/new-helper import direction; WCC,
+closed construction/checking/sites and runtime parallel execution remain pending.
+Independent contract and quality reviews passed; the quality reviewer found no
+findings and confirmed the 17-path tested snapshot unchanged. The coordinator
+accepted this bounded frontend cut; Task 1 overall remains open.
+
+| Evidence under E | Result and scope |
+| --- | --- |
+| `phase5-frontend-red.json`, `.log`, `.xml` | Initial RED retained: 16 failed/15 passed, exit 1; fixture failures are not all valid product counterexamples |
+| `phase5-frontend-direction-red.json`, `.log`, `.xml` | Meaningful old-entry/new-import direction RED: 4 failed, exit 1 |
+| `phase5-frontend-revision-red.json`, `.log`, `.xml` | Real pure-inline pipeline revision RED: 2 failed/4 passed, exit 1; reproduced and corrected |
+| `phase5-frontend-collect-renames.json`, `.log`, `.xml` | Earlier changed-module collection: 85 collected, exit 0 |
+| `phase5-frontend-revision-collect.json`, `.log`, `.xml` | Revised frontend test module: 49 collected, exit 0 |
+| `phase5-frontend-revision-green-scoped.json`, `.log`, `.xml` | Revised frontend module: 49 passed, exit 0, 1.44s pytest |
+| `phase5-frontend-controls-revised.json`, `.log`, `.xml` | Existing controls: 437 passed, exit 0, 8.39s pytest; `-n 16 --dist=worksteal` |
+| `phase5-frontend-cli.json` | Initial pure 2.37 public compile refused module/path mismatch, exit 2; retained |
+| `phase5-frontend-cli-corrected.json` | Corrected pure 2.37 public compile accepted, exit 0; this does not execute a parallel program |
+
+Receipts retain exact argv/cwd/exits; frontend tests use canonical Python 3.13.
+The real-pipeline revision distinguishes pure inline workspace/body acceptance
+from impure-workspace refusal and the retained authored one-call body rule.
+Earlier RED and intermediate receipts remain historical; final scoped receipts
+own the revised code's claims.
+
+The additional quality probe `E/phase5-quality-inline-probe/results.json`
+accepts a `defproc` inline `UsesCommand` helper at both 2.36 and 2.37: the former
+retains `LoopRecurExpr`, the latter retains `ListMapEffectExpr`. This is a
+reviewer's source/typecheck probe, not a new pytest campaign or parallel runtime
+qualification.
+
+`E/phase5-frontend-revised-snapshot.json` pins the tested paths, SHA-256
+`0ca647cb05369e0be660e26b14ea067fbff5ffecf5199535a1d63c377ad52597`.
+`E/phase5-frontend-revision-complexity.json` records Radon 6.0.1 with assertions
+and closures included: 34 new functions, maximum CC 9; new production/test
+modules are 104/284 physical lines. The modified existing
+`_check_map_effect_body` is CC 11, previously 8. These checks do not prove the
+pending WCC representation, checked read-back, artifact/site agreement, runtime
+admission or concurrent lifecycle; Task 1's overall checkboxes remain open.
