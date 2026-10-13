@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 
+import pytest
+
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
@@ -181,6 +183,7 @@ def test_invalid_black_result_preserves_last_accepted_white_board(tmp_path):
     assert (root / BOARD_PATH).read_text() == POSITIONS[1]
     run_root, before = _run_snapshot(root)
     assert before.terminal.data["outcome"] == "failed"
+    assert before.terminal.data["code"] == "provider_result_invalid"
     white_commit, = [commit for commit in before.active_commits.values() if commit.data["effect_class"] == "provider"]
     white_attempt = run_root / Path(white_commit.data["result_path"]).parent
     white_evidence = {path.name: path.read_bytes() for path in white_attempt.iterdir()}
@@ -215,23 +218,26 @@ def test_non_outcome_black_result_preserves_last_accepted_white_board(tmp_path):
     assert (root / BOARD_PATH).read_text() == POSITIONS[1]
     _, snapshot = _run_snapshot(root)
     assert snapshot.terminal.data["outcome"] == "failed"
+    assert snapshot.terminal.data["code"] == "provider_result_invalid"
 
 
-def test_blocked_white_result_commits_and_ends_game_without_retry(tmp_path):
+@pytest.mark.parametrize(("blocked_call", "side"), [(0, "White"), (1, "Black")])
+def test_blocked_result_commits_and_ends_game_without_retry(tmp_path, blocked_call, side):
     blocked = {"variant": "Blocked", "reason": "no legal move"}
-    root, env = _workspace(tmp_path, bad_call=0, bad_output=json.dumps(blocked))
+    root, env = _workspace(tmp_path, bad_call=blocked_call, bad_output=json.dumps(blocked))
     result = _cli(root, env, "run", *_arguments(root), *_input_args(rounds=2))
     assert result.returncode == 0, result.stderr
-    assert [call["provider"] for call in _calls(root)] == ["codex"]
-    assert (root / BOARD_PATH).read_text() == POSITIONS[0]
+    assert [call["provider"] for call in _calls(root)] == ["codex", "claude"][:blocked_call + 1]
+    assert (root / BOARD_PATH).read_text() == POSITIONS[blocked_call]
 
     _, snapshot = _run_snapshot(root)
     assert snapshot.terminal.data["outcome"] == "completed"
-    assert snapshot.terminal.data["value"] == {"variant": "Blocked", "side": "White", "reason": "no legal move"}
-    white_commit, = [commit for commit in snapshot.active_commits.values() if commit.data["effect_class"] == "provider"]
-    assert white_commit.data["value"] == blocked
+    assert snapshot.terminal.data["value"] == {"variant": "Blocked", "side": side, "reason": "no legal move"}
+    provider_commits = [commit for commit in snapshot.active_commits.values() if commit.data["effect_class"] == "provider"]
+    assert len(provider_commits) == blocked_call + 1
+    assert blocked in [commit.data["value"] for commit in provider_commits]
     started = [entry.data["identity"] for entry in snapshot.entries if entry.data["record"] == "started"]
-    assert started.count(white_commit.data["identity"]) == 1
+    assert all(started.count(commit.data["identity"]) == 1 for commit in provider_commits)
     assert not [entry for entry in snapshot.entries if entry.data["record"] == "failed"]
 
 

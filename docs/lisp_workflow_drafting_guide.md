@@ -1870,7 +1870,7 @@ Prefer `match` for exhaustive deconstruction; use typed discriminant `if` or
 including nested native union values, is in
 [`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py).
 
-### 10.1 A step that may be unable to answer
+### 10.1 A Step That May Be Unable To Answer
 
 When a provider may be unable to do its task, give its result a variant that
 says so, instead of leaving it to invent a value or fail the attempt:
