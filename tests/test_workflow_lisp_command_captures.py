@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
 from orchestrator.workflow_lisp.wcc.model import WccLet
@@ -13,7 +13,8 @@ from tests.test_workflow_lisp_command_scopes import _capture_rows, _compile, _wa
 
 def test_closed_workflow_ref_aliases_remain_compile_time_values(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile, _walk
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary, core
+    from orchestrator.workflow_lisp.lowering import core
+    from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.wcc.model import WccLet
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.type_env import WorkflowRefTypeRef
@@ -43,7 +44,7 @@ def test_closed_workflow_ref_aliases_remain_compile_time_values(tmp_path, monkey
 def test_command_scope_capture_retains_real_loop_state_frame(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes, _walk
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 
@@ -87,7 +88,7 @@ def test_closed_capture_changes_preserve_unrelated_type_errors(tmp_path, body, c
 def test_command_scope_call_types_use_same_prepared_condition_owner(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc import elaborate
 
     program, inputs, facts = _compile(tmp_path,
@@ -111,7 +112,7 @@ def test_command_scope_call_types_use_same_prepared_condition_owner(tmp_path, mo
 def test_loop_exhaustion_command_facts_keep_enclosing_owner(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
 
     program, inputs, facts = _compile(tmp_path,
         '(loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted '
@@ -134,7 +135,7 @@ def test_loop_exhaustion_command_facts_keep_enclosing_owner(tmp_path, monkeypatc
 def test_proof_branch_command_facts_consume_actual_narrowed_environment(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
     from orchestrator.workflow_lisp.type_env import VariantCaseTypeRef, UnionTypeRef
@@ -173,12 +174,12 @@ def test_proof_branch_command_facts_consume_actual_narrowed_environment(tmp_path
 def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monkeypatch, alias, reset_before):
     from tests.test_workflow_lisp_command_scopes import _compile, _walk, _without_scopes
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
     from orchestrator.workflow_lisp.wcc.model import WccCase, WccLet
     from orchestrator.workflow_lisp.procedure_refs import ResolvedProcRefValue
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary
+    from orchestrator.workflow_lisp.closed import command_templates as summary
 
     bindings = '((hook (proc-ref helper)) (alias hook))' if alias else '((hook (proc-ref helper)))'
     callee = 'alias' if alias else 'hook'
@@ -219,7 +220,7 @@ def _assert_erased_proc_ref_binders(body):
 def test_runtime_shadow_removes_erased_reference_before_command_reset(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 
@@ -250,7 +251,7 @@ def test_runtime_shadow_removes_erased_reference_before_command_reset(tmp_path, 
 def test_nested_command_owners_preserve_names_removed_by_reset(tmp_path, monkeypatch, nested):
     from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 
@@ -290,7 +291,7 @@ def _assert_forwarded_workflow_reference_remains_compile_time(typed_body):
 
 def test_forwarded_workflow_reference_is_not_a_runtime_command_root(tmp_path):
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
-    from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
     from orchestrator.workflow_lisp.wcc.model import WccCase
@@ -319,7 +320,8 @@ def test_forwarded_workflow_reference_is_not_a_runtime_command_root(tmp_path):
 def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path, monkeypatch, wrapped):
     from orchestrator.workflow_lisp.expression_traversal import walk_expr
     from orchestrator.workflow_lisp.expressions import LetStarExpr
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary, core
+    from orchestrator.workflow_lisp.lowering import core
+    from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.wcc.elaborate import binding_type_for_elaboration
 
     source = ('(let-proc (local ((n Int)) -> Int :captures (input) (+ input n)) '
@@ -372,7 +374,7 @@ def _assert_capture_binding_uses_incoming_type(program, inputs, typed, captures,
 ])
 def test_retained_capture_reads_original_value_in_actual_lexical_frame(tmp_path, monkeypatch, source):
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
 
     program, inputs, facts = _compile(tmp_path, source, params='(input Int) (choice Choice)')
     seen = []

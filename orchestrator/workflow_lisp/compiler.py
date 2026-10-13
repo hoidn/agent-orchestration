@@ -106,12 +106,12 @@ from .lowering import (
     _lowered_workflow_dependencies,
     _missing_validation_subject_message,
     _origin_for_validation_subject_refs,
-    _resolve_procedure_lowering,
     _remap_validation_message,
     _shared_validation_diagnostic_code,
     lower_workflow_definitions,
     validate_lowered_workflows,
 )
+from orchestrator.workflow_lisp.procedure_specialization import (_resolve_procedure_lowering)
 from .macros import collect_macro_catalog, collect_macro_catalog_with_imports, expand_module_forms
 from .modules import (
     LinkedModuleGraph,

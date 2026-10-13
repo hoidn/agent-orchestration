@@ -7,7 +7,7 @@ import orchestrator.workflow_lisp.compiler as compiler_module
 import orchestrator.workflow_lisp.effects as effect_module
 import orchestrator.workflow_lisp.expressions as expression_module
 import orchestrator.workflow_lisp.functions as function_module
-import orchestrator.workflow_lisp.lowering as lowering_module
+from orchestrator.workflow_lisp.procedure_specialization import _resolve_procedure_lowering
 import orchestrator.workflow_lisp.macros as workflow_lisp_macros
 import orchestrator.workflow_lisp.wcc.elaborate as wcc_elaborate_module
 import orchestrator.workflow_lisp.wcc.model as wcc_model
@@ -2485,7 +2485,7 @@ def _typed_live_provider_wcc_context(
         procedure.definition.name: type_env
         for procedure in typed_procedures
     }
-    resolved_procedures_by_name = lowering_module._resolve_procedure_lowering(
+    resolved_procedures_by_name = _resolve_procedure_lowering(
         typed_procedures,
         typed_workflows=typed_workflows,
         workflow_path=path,

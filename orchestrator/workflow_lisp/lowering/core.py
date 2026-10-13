@@ -230,28 +230,20 @@ from .control_loops import (
     _capture_generated_repeat_until_on_exhausted_refs,
     _iter_authored_step_mappings,
 )
+from orchestrator.workflow_lisp.procedure_specialization import (
+    _resolve_inline_expr_value,
+    _signature_local_values,
+)
 from .values import (
-    _assign_nested_local_value,
-    _build_output_step_local_value,
-    _build_record_local_value,
-    _build_record_step_local_value,
-    _flatten_boundary_leaf_paths,
     _flatten_return_output_names,
     _inline_expr_field_value,
     iter_parent_ref_strings,
     _lower_record_expr,
     _lower_union_variant_expr,
     _phase_target_inline_ref,
-    _procedure_signature_local_values,
     _record_output_refs,
-    _record_expr_value_at_path,
-    _resolve_nested_local_value,
-    _resolve_expr_local_value,
-    _render_existing_output_ref,
     _render_provider_artifact_ref,
     _return_field_path,
-    _resolve_inline_expr_value,
-    _signature_local_values,
     _union_variant_materialize_source,
     _boundary_placeholder_literals,
 )
@@ -1749,12 +1741,12 @@ def _inline_output_refs_for_expr(
     """Resolve direct branch output refs without synthesizing a child step."""
 
     output_refs: dict[str, str] = {}
-    from .command_control_decisions import inline_output_boundary_fields
+    from orchestrator.workflow_lisp.closed.command_templates import inline_output_boundary_fields
 
     fields = inline_output_boundary_fields(
         expr, type_ref=type_ref, type_env=context.type_env, signature=context.signature,
     )
-    from .command_transport_decisions import direct_output_leaves_available
+    from orchestrator.workflow_lisp.closed.command_templates import direct_output_leaves_available
 
     def leaf_values():
         for field in fields:

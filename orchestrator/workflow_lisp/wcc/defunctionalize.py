@@ -94,10 +94,7 @@ from ..lowering.context import (
     _context_with_local_type_binding,
     _copy_context_with_phase_scope,
 )
-from ..lowering.command_transport_decisions import (
-    _wcc_continuation_binding_demands,
-    wcc_binding_materialization,
-)
+from orchestrator.workflow_lisp.closed.command_templates import _wcc_continuation_binding_demands, wcc_binding_materialization
 from ..lowering.control_dispatch import (
     _binding_local_value_from_terminal,
     _lower_pure_projection_binding_expr,
@@ -112,7 +109,17 @@ from ..lowering.pure_projection import (
     lower_pure_projection_step,
     try_evaluate_static_pure_expr,
 )
-from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _resolve_inline_expr_value, _signature_local_values, lower_rich_structural_return, union_output_refs_from_source
+from orchestrator.workflow_lisp.procedure_specialization import (
+    ProjectedPathRef,
+    _flatten_inline_output_refs,
+    _resolve_inline_expr_value,
+    _signature_local_values,
+)
+from ..lowering.values import (
+    attach_provider_bundle_identity,
+    lower_rich_structural_return,
+    union_output_refs_from_source,
+)
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation, _lower_request_input_operation
 from ..lowering.phase_flow import (
     _phase_stdlib_lower_produce_one_of_impl,
@@ -136,8 +143,8 @@ from ..lowering.trial import (
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..phase import eligible_private_context_source_param_names
+from orchestrator.workflow_lisp.procedures import (LowerableProcedureCall)
 from ..lowering.procedures import (
-    LowerableProcedureCall,
     _lower_procedure_call,
     _merge_origin_notes,
     _private_workflow_from_procedure,
@@ -6536,7 +6543,10 @@ def _lower_wcc_procedure_call(
         span=value.metadata.source_span,
         form_path=value.metadata.form_path,
     )
-    from ..lowering.command_control_decisions import inline_procedure_bindings, procedure_specialization_bindings
+    from orchestrator.workflow_lisp.procedure_specialization import (
+        inline_procedure_bindings,
+        procedure_specialization_bindings,
+    )
 
     specialization_bindings = procedure_specialization_bindings(procedure)
     arg_values = tuple(_resolve_wcc_inline_expr_value(arg_expr, local_values=local_values) for arg_expr in arg_exprs)

@@ -17,7 +17,10 @@ from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_materialized_value_view
 from .origins import GeneratedSemanticEffectBinding, _record_step_origin
 from .pure_projection import _infer_expr_type, _type_descriptor
-from .values import ProjectedPathRef, _resolve_inline_expr_value
+from orchestrator.workflow_lisp.procedure_specialization import (
+    ProjectedPathRef,
+    _resolve_inline_expr_value,
+)
 
 
 MATERIALIZE_VIEW_EFFECT_KIND = "materialize_view"

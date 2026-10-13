@@ -258,3 +258,35 @@ existing lazy helper. Contract review found an overlooked historical spike
 import and two unused re-export imports; all were corrected, with the spike's
 same fresh-process import reproduced RED then GREEN. Full-suite verification
 remains pending the retirement delivery; the recorded RED baseline is unchanged.
+
+## Shared Command And Procedure Analysis — A3a
+
+Binding facts, procedure selection and match analysis now belong to
+`procedure_specialization.py`; `LowerableProcedureCall` belongs to
+`procedures.py`. Command/control analysis belongs to `closed/command_templates.py`.
+The emptied control-summary and transport-decision modules were removed.
+Existing flat match boundaries still construct their terminal objects from the
+shared mappings; executable emission and target admission remain unchanged.
+
+`E/command-analysis-extraction-implementation.md` and its ownership JSON record
+the moved definitions and remaining flat-only branches. Eight pre-existing
+homonyms with different flat behavior remain for deletion, not unification.
+The contract review's unused, locally shadowed import was removed without
+changing the local implementation; fresh import and diff checks passed.
+
+The affected campaign recorded **995 passed, 2 failed**. One failure was an
+assertion of the former helper owner, corrected and verified by five focused
+passing cases. Thus 996 distinct affected cases have passing evidence; the
+remaining WCC identity failure is pre-existing. Full observations generated
+from `cddd0ab8` and the changed code are byte-identical, SHA-256
+`ce57b10b24b9ac225d1548147d44cc1aaa2bd5c79a0947c082477c406bf006d4`.
+The golden assertion remains unchanged. Collection found 370 cases; twelve
+fresh-process imports and public compile/read-back also passed. Exact argv,
+exits and outputs are in `E/command-analysis-extraction-*` receipts.
+
+Independent contract and quality reviews are PASS in
+`E/command-analysis-extraction-{contract,quality}-review.md`. They certify this
+extraction, not all retained flat behavior or gate R. The next candidate first
+implements public cutoff refusals with the backend present, then separates
+typed imports/LSP from flat bundle creation. Constant serializer pruning moves
+with physical deletion after R; it is not an extra preparatory migration.

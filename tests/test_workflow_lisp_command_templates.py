@@ -39,9 +39,7 @@ def _selection():
     ],
 )
 def test_wcc_materialization_precedence(expansion, existing, run_ref, provider, request_input, expected):
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        wcc_binding_materialization,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import wcc_binding_materialization
 
     expr = _selection()
     kind, value = wcc_binding_materialization(
@@ -58,9 +56,7 @@ def test_wcc_materialization_precedence(expansion, existing, run_ref, provider, 
     ({"field": "inputs.actual"}, "expansion_projection"), (None, "expansion_projection"),
 ])
 def test_expansion_alias_requires_an_existing_direct_reference(existing, expected):
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        wcc_binding_materialization,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import wcc_binding_materialization
 
     expr = NameExpr(name="actual", span=SPAN, form_path=())
     kind, value = wcc_binding_materialization(
@@ -99,9 +95,7 @@ def test_legacy_command_binding_emission_retains_literal_and_runtime_bool(tmp_pa
 
 
 def test_surface_binding_inline_and_projection_are_distinct_owners():
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        is_inline_let_binding_expr, surface_binding_materialization,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import is_inline_let_binding_expr, surface_binding_materialization
 
     literal = _literal(True)
     selection = _selection()
@@ -145,9 +139,7 @@ def test_request_input_second_consumer_changes_the_command_binding(tmp_path: Pat
     ("inputs.record.field", True, "alias"),
 ])
 def test_provider_context_field_availability_precedes_request_projection(resolved, run_ref, expected):
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        wcc_binding_materialization,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import wcc_binding_materialization
 
     expr = FieldAccessExpr(
         base=NameExpr(name="record", span=SPAN, form_path=()),
@@ -163,9 +155,7 @@ def test_provider_context_field_availability_precedes_request_projection(resolve
 
 
 def test_run_ref_resolver_override_alone_does_not_emit_a_projection():
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        wcc_binding_materialization,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import wcc_binding_materialization
 
     expr = NameExpr(name="value", span=SPAN, form_path=())
     assert wcc_binding_materialization(
@@ -270,9 +260,7 @@ def test_run_ref_demand_precedes_real_request_input_alias_emission(tmp_path: Pat
 def test_all_direct_output_leaves_required_by_legacy_shortcut(monkeypatch, leaves):
     from types import SimpleNamespace
     from orchestrator.workflow_lisp.lowering import core
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        direct_output_leaves_available,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import direct_output_leaves_available
     from orchestrator.workflow_lisp.type_env import RecordTypeRef
 
     fields = tuple(
@@ -302,7 +290,7 @@ def test_all_direct_output_leaves_required_by_legacy_shortcut(monkeypatch, leave
 
 def test_capture_order_preserves_sequential_shadowing_and_match_binders():
     from orchestrator.workflow_lisp.expressions import LetStarExpr, MatchArm, MatchExpr
-    from orchestrator.workflow_lisp.lowering.command_control_decisions import helper_capture_names
+    from orchestrator.workflow_lisp.closed.command_templates import helper_capture_names
 
     def name(value):
         return NameExpr(name=value, span=SPAN, form_path=())
@@ -365,7 +353,7 @@ def test_schema1_private_override_requires_both_private_checks(
     monkeypatch, workflow, iteration, boundary, body, expected,
 ):
     from types import SimpleNamespace
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
+    from orchestrator.workflow_lisp.procedure_specialization import (
         schema1_iteration_private_override_applies,
     )
     from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode
@@ -402,10 +390,8 @@ def test_schema1_private_override_requires_both_private_checks(
 @pytest.mark.parametrize("control_body", [False, True])
 def test_selected_proc_ref_rows_match_independent_legacy_emission(tmp_path, monkeypatch, control_body):
     from orchestrator.workflow_lisp.lowering import procedures
-    from orchestrator.workflow_lisp.lowering.command_control_decisions import select_surface_procedure_call
-    from orchestrator.workflow_lisp.lowering.command_control_summary import (
-        expression_control_summary, control_facts_for_context,
-    )
+    from orchestrator.workflow_lisp.procedure_specialization import (select_surface_procedure_call)
+    from orchestrator.workflow_lisp.closed.command_templates import expression_control_summary, control_facts_for_context
     from orchestrator.workflow_lisp.lowering.composition_graph import (
         CompositionScope, build_fragment, fragment_requires_helper_boundary,
     )
@@ -480,7 +466,7 @@ def test_selected_proc_ref_rows_match_independent_legacy_emission(tmp_path, monk
 
 def test_inline_binding_merge_keeps_caller_specialization_actual_precedence():
     from types import SimpleNamespace
-    from orchestrator.workflow_lisp.lowering.command_control_decisions import inline_procedure_bindings
+    from orchestrator.workflow_lisp.procedure_specialization import (inline_procedure_bindings)
 
     procedure = SimpleNamespace(
         signature=SimpleNamespace(params=(("actual", object()),)),

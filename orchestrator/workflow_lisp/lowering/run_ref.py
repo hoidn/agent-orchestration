@@ -58,7 +58,11 @@ from .pure_projection import (
     build_pure_projection_payload,
     lower_pure_projection_step,
 )
-from .values import ProjectedPathRef, _record_output_refs, _resolve_inline_expr_value
+from orchestrator.workflow_lisp.procedure_specialization import (
+    ProjectedPathRef,
+    _resolve_inline_expr_value,
+)
+from .values import (_record_output_refs)
 
 if TYPE_CHECKING:
     from ..wcc.model import WccRunRefPayload

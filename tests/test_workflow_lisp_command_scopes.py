@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
 from orchestrator.workflow_lisp.procedures import ProcedureCatalog
 from orchestrator.workflow_lisp.workflows import WorkflowCatalog, ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
@@ -138,7 +138,8 @@ def _assert_distinct_scope_outputs(outputs):
 
 
 def test_closed_type_lookup_uses_real_sibling_environments(tmp_path, monkeypatch):
-    from orchestrator.workflow_lisp.lowering import core, command_control_summary as summary
+    from orchestrator.workflow_lisp.lowering import core
+    from orchestrator.workflow_lisp.closed import command_templates as summary
 
     program, inputs, facts = _compile(
         tmp_path, '(let* ((a (let* ((x 1)) x)) (b (let* ((x "hello")) x))) (record Result :i a :s b))',
@@ -277,7 +278,7 @@ def test_real_effect_argument_joins_and_anf_temporaries_link_without_source_ids(
 
 def test_variant_frames_keep_real_continuation_demands_separate(tmp_path, monkeypatch):
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
     from orchestrator.workflow_lisp.expressions import LiteralExpr
 
     program, inputs, facts = _compile(tmp_path,
@@ -312,8 +313,8 @@ def test_variant_frames_keep_real_continuation_demands_separate(tmp_path, monkey
 
 
 def test_suffix_shortcut_does_not_classify_unreached_binding(tmp_path, monkeypatch):
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.closed import command_templates as summary
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
 
     body = '(let* ((r (command-result echo :argv ("python" "probe.py") :returns Result)) '
     body += '(unused (match choice ((A a) (record Result :i 1 :s "a")) ((B b) (record Result :i 2 :s "b"))))) r)'
@@ -394,7 +395,7 @@ def test_distinct_caller_values_leave_neutral_elaboration_untouched(tmp_path, mo
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, runtime_binding_value
     from orchestrator.workflow_lisp.wcc import elaborate
     from orchestrator.workflow_lisp.wcc.model import WccCase
-    from orchestrator.workflow_lisp.lowering.values import _resolve_inline_expr_value
+    from orchestrator.workflow_lisp.procedure_specialization import (_resolve_inline_expr_value)
 
     program, inputs, facts = _compile(tmp_path,
         '(match choice ((A same) (let* ((x incoming) (unused (match choice '

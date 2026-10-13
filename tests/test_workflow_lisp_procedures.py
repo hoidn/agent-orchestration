@@ -10,6 +10,7 @@ import pytest
 
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 import orchestrator.workflow_lisp.lowering.procedures as procedure_lowering
+import orchestrator.workflow_lisp.procedure_specialization as procedure_specialization
 import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
@@ -48,7 +49,8 @@ from orchestrator.workflow_lisp.expressions import (
     UnionVariantExpr,
     WithPhaseExpr,
 )
-from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering, lower_workflow_definitions
+from orchestrator.workflow_lisp.procedure_specialization import (_resolve_procedure_lowering)
+from orchestrator.workflow_lisp.lowering import (lower_workflow_definitions)
 from orchestrator.workflow_lisp.lowering.procedures import _validate_resolved_procedure_mapping
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import (
@@ -2412,43 +2414,28 @@ def test_specialization_owner_split_stops_importing_value_helpers_from_core() ->
     )
 
     imported_from_values = _imported_symbols_from(source_path, "lowering.values")
+    assert not imported_from_values
+    definitions = {
+        node.name for node in ast.parse(source_path.read_text()).body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
     assert {
-        "_build_output_step_local_value",
-        "_flatten_boundary_leaf_paths",
-        "_flatten_inline_output_refs",
-        "_record_expr_value_at_path",
-        "_render_existing_output_ref",
-        "_normalize_union_field_path",
+        "_build_output_step_local_value", "_flatten_boundary_leaf_paths",
+        "_flatten_inline_output_refs", "_record_expr_value_at_path",
+        "_render_existing_output_ref", "_normalize_union_field_path",
         "_union_variant_expr_value_at_path",
-    } <= imported_from_values
-
-    control_owner_path = source_path.parent / "lowering" / "control.py"
-    if control_owner_path.is_file():
-        assert imported_from_core.isdisjoint(
-            {
-                "_binding_terminal_for_match_subject",
-                "_is_inline_let_binding_expr",
-                "_binding_terminal_for_inline_match",
-                "_match_arm_local_values",
-            }
-        )
-        imported_from_control = _imported_symbols_from(source_path, "lowering.control")
-        assert {
-            "_binding_terminal_for_match_subject",
-            "_is_inline_let_binding_expr",
-            "_binding_terminal_for_inline_match",
-            "_match_arm_local_values",
-        } <= imported_from_control
+        "_control_binding_terminal_for_match_subject_impl",
+        "_control_binding_terminal_for_inline_match_impl",
+        "_control_match_arm_local_values_impl",
+    } <= definitions
+    assert not _imported_symbols_from(source_path, "lowering.control")
 
 
-def test_specialization_workflow_call_imports_managed_write_root_helper() -> None:
+def test_specialization_workflow_call_does_not_import_managed_write_root_emitter() -> None:
     source_path = _procedure_specialization_source_path()
-    imported_from_core = _imported_symbols_from(source_path, "lowering.core")
+    assert not _imported_symbols_from(source_path, "lowering.core")
+    assert not _imported_symbols_from(source_path, "lowering.workflow_calls")
 
-    assert "_managed_write_root_binding_step" not in imported_from_core
-
-    imported_from_workflow_calls = _imported_symbols_from(source_path, "lowering.workflow_calls")
-    assert "_managed_write_root_binding_step" in imported_from_workflow_calls
 
 
 def test_compiler_uses_specialization_typecheck_owner_for_pending_parametric_specializations() -> None:
@@ -6798,7 +6785,7 @@ def test_stage3_resolves_lowering_once_after_specialization_and_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original_resolver = procedure_lowering._resolve_procedure_lowering
+    original_resolver = procedure_specialization._resolve_procedure_lowering
     resolver_inputs: list[tuple[str, ...]] = []
 
     def counting_resolver(typed_procedures, **kwargs):
@@ -6874,7 +6861,7 @@ def test_legacy_lowerer_uses_supplied_resolved_procedure_tuple(
         raise AssertionError("legacy lowerer recomputed procedure lowering")
 
     monkeypatch.setattr(
-        procedure_lowering,
+        procedure_specialization,
         "_resolve_procedure_lowering",
         fail_recomputation,
     )
@@ -6909,7 +6896,7 @@ def test_wcc_m4_lowerer_uses_supplied_resolved_procedure_tuple(
         raise AssertionError("WCC M4 lowerer recomputed procedure lowering")
 
     monkeypatch.setattr(
-        procedure_lowering,
+        procedure_specialization,
         "_resolve_procedure_lowering",
         fail_recomputation,
     )

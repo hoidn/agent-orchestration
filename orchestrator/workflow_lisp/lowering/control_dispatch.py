@@ -47,10 +47,7 @@ from ..syntax import (
 )
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
-from .command_transport_decisions import (
-    is_inline_let_binding_expr,
-    surface_binding_materialization,
-)
+from orchestrator.workflow_lisp.closed.command_templates import is_inline_let_binding_expr, surface_binding_materialization
 from .context import (
     _compile_error,
     _context_with_local_type_binding,
@@ -77,14 +74,16 @@ from .pure_projection import (
     lower_pure_projection_step,
     output_contracts_for_boundary_type,
 )
-from .values import (
+from orchestrator.workflow_lisp.procedure_specialization import (
     _build_output_step_local_value,
+    _resolve_inline_expr_value,
+    union_prompt_source_from_output_refs,
+)
+from .values import (
     _lower_record_expr,
     _lower_union_variant_expr,
     lower_rich_structural_return,
-    _resolve_inline_expr_value,
     attach_provider_bundle_identity,
-    union_prompt_source_from_output_refs,
 )
 
 
@@ -242,7 +241,7 @@ def _control_lower_expression_impl(
             step_name_prefix=context.step_name_prefix,
         )
     if isinstance(expr, LetStarExpr):
-        from .command_transport_decisions import compiler_owned_pure_let
+        from orchestrator.workflow_lisp.closed.command_templates import compiler_owned_pure_let
 
         if compiler_owned_pure_let(expr, target_dsl_version=context.type_env.target_dsl_version):
             lowered = lower_pure_projection_step(
@@ -557,7 +556,7 @@ def _lower_pure_projection_binding_expr(
         ),
     )
     output_refs = lowered.output_refs
-    from .command_control_decisions import binding_projection_output_aliases
+    from orchestrator.workflow_lisp.closed.command_templates import binding_projection_output_aliases
 
     aliases = binding_projection_output_aliases(
         boundary_fields, whole_value=whole_value,

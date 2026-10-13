@@ -69,16 +69,18 @@ from .context import (
 from .loop_exhaustion_routing import exhaustion_state_ref_allowed
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 from .pure_projection import lower_pure_projection_step, try_evaluate_static_pure_expr
-from .values import (
+from orchestrator.workflow_lisp.procedure_specialization import (
     _assign_nested_local_value,
-    _inline_expr_field_value,
     _normalize_union_field_path,
-    _phase_target_inline_ref,
-    projected_union_field_activity,
     _record_expr_value_at_path,
     _resolve_inline_expr_value,
     _resolve_inline_field_value,
     _union_variant_expr_value_at_path,
+)
+from .values import (
+    _inline_expr_field_value,
+    _phase_target_inline_ref,
+    projected_union_field_activity,
 )
 from .workflow_calls import _render_repeat_until_max_iterations
 

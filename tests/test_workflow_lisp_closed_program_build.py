@@ -1432,7 +1432,7 @@ def test_opaque_child_decisions_and_body_integrity_are_prepared_before_parent_ke
 
 
 def _assert_runtime_proof_frames(before, after):
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
     from orchestrator.workflow_lisp.type_env import VariantCaseTypeRef
 
     assert before.values['choice'] == {'variant': RUNTIME_REFERENCE}
@@ -1634,7 +1634,7 @@ def test_retained_closed_union_aliases_keep_distinct_payload_keys_and_plans(tmp_
 
 def _assert_retained_union_seed(value, expected):
     from orchestrator.workflow_lisp.expressions import LiteralExpr
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RetainedExpressionFact
+    from orchestrator.workflow_lisp.procedure_specialization import (RetainedExpressionFact)
 
     assert isinstance(value, RetainedExpressionFact) and value.form == 'union'
     assert value.tag.value == 'BOX'
@@ -1746,8 +1746,11 @@ def _assert_partial_command(definition, label):
 def test_retained_record_variant_field_is_distinct_from_union_tag(tmp_path):
     from orchestrator.workflow_lisp.expression_traversal import walk_expr
     from orchestrator.workflow_lisp.expressions import RecordExpr, UnionVariantExpr
-    from orchestrator.workflow_lisp.lowering.values import _resolve_inline_expr_value, _resolve_inline_field_value
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RetainedExpressionFact
+    from orchestrator.workflow_lisp.procedure_specialization import (
+        _resolve_inline_expr_value,
+        _resolve_inline_field_value,
+    )
+    from orchestrator.workflow_lisp.procedure_specialization import (RetainedExpressionFact)
     from tests.test_workflow_lisp_closed_command_transport import _compile
 
     program = _compile(tmp_path, '(let* ((record (record Payload :variant "ordinary" :n input)) (union (variant Choice YES :n input))) 0)',
@@ -1838,8 +1841,11 @@ def _assert_shadow_constructor_operands(closed):
 
 def test_retained_constructor_internal_let_and_if_freeze_selected_creation_facts(tmp_path):
     from orchestrator.workflow_lisp.expressions import elaborate_expression
-    from orchestrator.workflow_lisp.lowering.values import _resolve_inline_expr_value
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE, RetainedExpressionFact
+    from orchestrator.workflow_lisp.procedure_specialization import (_resolve_inline_expr_value)
+    from orchestrator.workflow_lisp.procedure_specialization import (
+        RUNTIME_REFERENCE,
+        RetainedExpressionFact,
+    )
     from orchestrator.workflow_lisp.typecheck import typecheck_expression
     from tests.test_workflow_lisp_closed_command_transport import _compile
     from tests.test_workflow_lisp_strict_boolean_control_flow import _expression_syntax

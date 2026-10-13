@@ -851,7 +851,6 @@ def test_lowering_facade_exports_current_test_surface() -> None:
     lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
 
     for name in (
-        "_resolve_procedure_lowering",
         "_managed_write_root_bindings",
         "_managed_write_root_requirements_for_callable",
         "_observed_statement_families",
@@ -865,6 +864,10 @@ def test_lowering_facade_exports_current_test_surface() -> None:
 def test_lowering_facade_source_defines_preflight_helpers_exactly_once() -> None:
     lowering_path = _lowering_source_path()
     procedure_lowering_path = _procedure_lowering_source_path()
+    assert _top_level_function_counts(
+        procedure_lowering_path.parent.parent / "procedure_specialization.py",
+        "_resolve_procedure_lowering",
+    ) == {"_resolve_procedure_lowering": 1}
 
     assert _top_level_function_counts(
         lowering_path,
@@ -881,7 +884,7 @@ def test_lowering_facade_source_defines_preflight_helpers_exactly_once() -> None
         "_private_workflow_from_procedure",
         "_procedure_provenance_notes",
     ) == {
-        "_resolve_procedure_lowering": 1,
+        "_resolve_procedure_lowering": 0,
         "_lower_procedure_call_expr": 1,
         "_private_workflow_from_procedure": 1,
         "_procedure_provenance_notes": 1,
@@ -1089,10 +1092,15 @@ def test_lowering_value_owner_receives_remaining_projection_helpers() -> None:
         "_phase_target_inline_ref": 1,
         "_lower_record_expr": 1,
         "_lower_union_variant_expr": 1,
-        "_render_existing_output_ref": 1,
+        "_render_existing_output_ref": 0,
         "_union_variant_materialize_source": 1,
         "_boundary_placeholder_literals": 1,
     }
+
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("values").parent.parent / "procedure_specialization.py",
+        "_render_existing_output_ref",
+    ) == {"_render_existing_output_ref": 1}
 
 
 def test_lowering_full_family_owners_receive_real_implementations() -> None:

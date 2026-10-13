@@ -13,7 +13,7 @@ from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_bo
 from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
 from orchestrator.workflow_lisp.wcc.use_site_scope import rename_capturing_binders
 from orchestrator.workflow_lisp.wcc.model import WccLet, WccNameAtom, WccJoin, WccCall, WccRecJoin
-from orchestrator.workflow_lisp.lowering.command_transport_decisions import _wcc_continuation_binding_demands
+from orchestrator.workflow_lisp.closed.command_templates import _wcc_continuation_binding_demands
 from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, install
 
 

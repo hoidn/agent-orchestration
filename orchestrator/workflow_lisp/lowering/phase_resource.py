@@ -81,11 +81,8 @@ from .pure_projection import (
     build_pure_projection_payload,
 )
 from .phase_scope import _resolve_signature_expr_type
-from .values import (
-    _record_output_refs,
-    _render_existing_output_ref,
-    _resolve_inline_expr_value,
-)
+from .values import (_record_output_refs)
+from orchestrator.workflow_lisp.procedure_specialization import _resolve_inline_expr_value
 from .workflow_calls import _render_boolean_predicate
 
 

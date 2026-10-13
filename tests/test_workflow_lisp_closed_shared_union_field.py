@@ -475,7 +475,9 @@ def test_inline_retyping_context_capability_replaces_prior_target(tmp_path):
 def test_union_leaf_projection_preserves_shared_suffix_alignment(tmp_path, shared):
     from orchestrator.workflow_lisp.expression_traversal import walk_expr
     from orchestrator.workflow_lisp.expressions import UnionVariantExpr
-    from orchestrator.workflow_lisp.lowering.values import _union_variant_expr_value_at_path
+    from orchestrator.workflow_lisp.procedure_specialization import (
+        _union_variant_expr_value_at_path,
+    )
     from orchestrator.workflow_lisp.typecheck import typecheck_expression
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule probe/concat) (export run)

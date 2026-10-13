@@ -472,7 +472,7 @@ def test_known_literal_union_and_metadata_skip_preserve_authored_fields() -> Non
     from orchestrator.workflow.prompt_fragment_contract import (
         validate_typed_prompt_value_source,
     )
-    from orchestrator.workflow_lisp.lowering.values import _flatten_inline_output_refs
+    from orchestrator.workflow_lisp.procedure_specialization import (_flatten_inline_output_refs)
 
     assert _flatten_inline_output_refs(
         {"__authored": "root.steps.source.artifacts.authored"}

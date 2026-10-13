@@ -106,19 +106,13 @@ from .origins import (
     _register_compiler_expected_output_binding,
     _rekey_origin_map,
 )
-from .values import (
+from orchestrator.workflow_lisp.procedure_specialization import (
     _assign_nested_local_value,
     _flatten_boundary_leaf_paths,
-    _normalize_union_field_path,
-    _phase_target_inline_ref,
-    _record_expr_value_at_path,
-    _record_output_refs,
-    _render_existing_output_ref,
-    _resolve_inline_expr_value,
     _resolve_nested_local_value,
-    union_prompt_source_from_type,
     _union_variant_expr_value_at_path,
 )
+from .values import (_phase_target_inline_ref, _record_output_refs, union_prompt_source_from_type)
 from .workflow_calls import (
     _declare_runtime_context_hidden_inputs,
     _managed_inputs_from_bundle,
@@ -322,7 +316,7 @@ def _resolve_active_phase_scope_parts(
     """Resolve derived phase paths and targets for a transparent phase-scope wrapper."""
 
     context_value = _resolve_inline_expr_value(ctx_expr, local_values=local_values)
-    from .command_control_decisions import selected_phase_scope
+    from orchestrator.workflow_lisp.closed.command_templates import selected_phase_scope
 
     scope, selected_targets = selected_phase_scope(
         context_value, phase_name=phase_name, ctx_expr=ctx_expr, span=span, form_path=form_path,
@@ -770,7 +764,7 @@ def _resolved_workflow_ref_value(
     context: _LoweringContext,
     expected_type: WorkflowRefTypeRef | None,
 ) -> ResolvedWorkflowRef | None:
-    from .command_control_decisions import resolved_surface_workflow_ref
+    from orchestrator.workflow_lisp.procedure_specialization import (resolved_surface_workflow_ref)
 
     return resolved_surface_workflow_ref(
         value, workflow_catalog=context.workflow_catalog,
@@ -785,7 +779,7 @@ def _resolved_proc_ref_value(
     local_values: Mapping[str, Any],
     expected_type: ProcRefTypeRef | None = None,
 ) -> ResolvedProcRefValue | None:
-    from .command_control_decisions import resolved_surface_proc_ref
+    from orchestrator.workflow_lisp.procedure_specialization import (resolved_surface_proc_ref)
 
     return resolved_surface_proc_ref(
         value, typed_procedures=context.typed_procedures, local_values=local_values,

@@ -71,7 +71,10 @@ from ..typecheck_pure_ops import catalog_operator_result_type
 from .context import _LoweringContext
 from .generated_paths import allocate_generated_result_bundle
 from .origins import GeneratedSemanticEffectBinding, _record_step_origin
-from .values import ProjectedPathRef, _resolve_inline_expr_value
+from orchestrator.workflow_lisp.procedure_specialization import (
+    ProjectedPathRef,
+    _resolve_inline_expr_value,
+)
 
 
 PURE_PROJECTION_EFFECT_KIND = "pure_projection"
@@ -290,7 +293,7 @@ def lower_pure_projection_step(
             "output_contracts": lowered_output_contracts,
         },
     }
-    from .command_control_decisions import projection_artifact_names
+    from orchestrator.workflow_lisp.closed.command_templates import projection_artifact_names
 
     output_refs = {
         output_name: f"root.steps.{step_name}.artifacts.{artifact_name}"

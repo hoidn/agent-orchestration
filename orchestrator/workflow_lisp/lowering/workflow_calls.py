@@ -43,14 +43,14 @@ from .pure_projection import (
     lower_pure_projection_step,
     output_contracts_for_boundary_type,
 )
-from .values import (
+from orchestrator.workflow_lisp.procedure_specialization import (
     _flatten_boundary_leaf_paths,
-    _inline_expr_field_value,
     _record_expr_value_at_path,
     _resolve_expr_local_value,
     _resolve_inline_expr_value,
     _resolve_nested_local_value,
 )
+from .values import (_inline_expr_field_value)
 
 
 @dataclass(frozen=True)

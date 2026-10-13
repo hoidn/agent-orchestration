@@ -82,18 +82,11 @@ from .phase_scope import (
     _surface_contract_from_structured_field,
     _union_output_contracts,
 )
-from .values import (
-    _assign_nested_local_value,
-    _flatten_boundary_leaf_paths,
-    _normalize_union_field_path,
-    _phase_target_inline_ref,
-    _record_expr_value_at_path,
-    _record_output_refs,
+from orchestrator.workflow_lisp.procedure_specialization import (
     _render_existing_output_ref,
     _resolve_inline_expr_value,
-    _resolve_nested_local_value,
-    _union_variant_expr_value_at_path,
 )
+from .values import (_phase_target_inline_ref, _record_output_refs)
 from .workflow_calls import _render_boolean_predicate, _render_call_binding_ref, _render_record_call_bindings
 
 

@@ -10,10 +10,9 @@ from tests.test_workflow_lisp_command_templates import SPAN, _literal
 
 
 def test_runtime_fact_is_exact_and_preserves_reference_materialization():
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import (
-        RUNTIME_REFERENCE, is_direct_reference, wcc_binding_materialization,
-    )
-    from orchestrator.workflow_lisp.lowering.values import inline_expr_field_value
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
+    from orchestrator.workflow_lisp.closed.command_templates import is_direct_reference, wcc_binding_materialization
+    from orchestrator.workflow_lisp.procedure_specialization import (inline_expr_field_value)
 
     root = NameExpr(name="root", span=SPAN, form_path=())
     field = FieldAccessExpr(base=root, fields=("leaf",), span=SPAN, form_path=())
@@ -37,8 +36,8 @@ def test_runtime_fact_is_exact_and_preserves_reference_materialization():
 
 
 def test_suffix_binding_resolver_preserves_unavailable_alias_and_caller():
-    from orchestrator.workflow_lisp.lowering.values import _resolve_inline_let_bindings
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.procedure_specialization import (_resolve_inline_let_bindings)
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
 
     caller = {"available": RUNTIME_REFERENCE}
     assert _resolve_inline_let_bindings(
@@ -67,9 +66,7 @@ def test_branch_summary_matches_real_pre_hoist_fragment(tmp_path, monkeypatch, p
     from copy import deepcopy
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
     from orchestrator.workflow_lisp.lowering import core
-    from orchestrator.workflow_lisp.lowering.command_control_summary import (
-        branch_control_summary, control_facts_for_context,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import branch_control_summary, control_facts_for_context
     from orchestrator.workflow_lisp.lowering.composition_graph import (
         CompositionScope, build_fragment, fragment_requires_helper_boundary,
     )
@@ -115,9 +112,7 @@ def test_branch_summary_matches_real_pre_hoist_fragment(tmp_path, monkeypatch, p
 def test_generated_control_and_phase_wrapper_match_real_fragment(tmp_path, monkeypatch, fixture_kind):
     from orchestrator.workflow_lisp import expressions as ex
     from orchestrator.workflow_lisp.lowering import control_dispatch
-    from orchestrator.workflow_lisp.lowering.command_control_summary import (
-        expression_control_summary, control_facts_for_context,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import expression_control_summary, control_facts_for_context
     from orchestrator.workflow_lisp.lowering.composition_graph import (
         CompositionScope, build_fragment, fragment_requires_helper_boundary,
     )
@@ -171,7 +166,7 @@ def test_generated_control_and_phase_wrapper_match_real_fragment(tmp_path, monke
 
 
 def test_unknown_operation_requires_an_explicit_summary_rule():
-    from orchestrator.workflow_lisp.lowering.command_control_summary import expression_control_summary
+    from orchestrator.workflow_lisp.closed.command_templates import expression_control_summary
 
     with pytest.raises(ValueError, match="no selected surface-control rule"):
         expression_control_summary(object(), result_type=None, facts=None, local_values={})
@@ -180,7 +175,7 @@ def test_unknown_operation_requires_an_explicit_summary_rule():
 def test_untyped_binding_keeps_existing_lexical_type_fact(monkeypatch):
     from types import SimpleNamespace
     from orchestrator.workflow_lisp.expressions import LetStarExpr
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary
+    from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.lowering.context import _context_with_local_type_binding
 
     retained_type = object()
@@ -205,11 +200,11 @@ def test_materialized_capture_preserves_whole_roots_without_nested_leaf_facts():
     from types import SimpleNamespace
     from orchestrator.workflow_lisp.context_types import _record, contextual_type
     from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-    from orchestrator.workflow_lisp.lowering.command_control_summary import _materialized_binding_value
-    from orchestrator.workflow_lisp.lowering.command_transport_decisions import RUNTIME_REFERENCE
+    from orchestrator.workflow_lisp.closed.command_templates import _materialized_binding_value
+    from orchestrator.workflow_lisp.procedure_specialization import (RUNTIME_REFERENCE)
     from orchestrator.workflow_lisp.lowering.effects import _provider_context_capture_output_refs
     from orchestrator.workflow_lisp.lowering.control_dispatch import _binding_local_value_from_terminal
-    from orchestrator.workflow_lisp.lowering.values import inline_expr_field_value
+    from orchestrator.workflow_lisp.procedure_specialization import (inline_expr_field_value)
 
     scalar = PrimitiveTypeRef(name="String")
     nested = _record("Nested", (("leaf", scalar),))
@@ -240,9 +235,7 @@ def _assert_selected_phase_shortcuts(expr, *, context, local_values):
     from orchestrator.workflow_lisp.lowering import core
     from orchestrator.workflow_lisp.lowering.context import _copy_context_with_phase_scope
     from orchestrator.workflow_lisp.lowering.phase_scope import _resolve_active_phase_scope
-    from orchestrator.workflow_lisp.lowering.command_control_summary import (
-        _with_phase_facts, _suffix_outputs_available, control_facts_for_context,
-    )
+    from orchestrator.workflow_lisp.closed.command_templates import _with_phase_facts, _suffix_outputs_available, control_facts_for_context
 
     active = _resolve_active_phase_scope(expr, local_values=local_values)
     facts = _with_phase_facts(expr, facts=control_facts_for_context(context), local_values=local_values)
@@ -264,7 +257,7 @@ def _assert_selected_phase_shortcuts(expr, *, context, local_values):
 @pytest.mark.parametrize("expr", [_literal(True), NameExpr(name="pure", span=SPAN, form_path=())])
 def test_typed_pure_values_have_an_explicit_noncontrol_rule(expr):
     from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-    from orchestrator.workflow_lisp.lowering.command_control_summary import expression_control_summary
+    from orchestrator.workflow_lisp.closed.command_templates import expression_control_summary
 
     assert not expression_control_summary(expr, result_type=PrimitiveTypeRef(name="Bool"), facts=None, local_values={})
 
@@ -273,7 +266,8 @@ def test_typed_pure_values_have_an_explicit_noncontrol_rule(expr):
 @pytest.mark.parametrize("caller_value", ['"caller"', '42'])
 def test_selected_inline_helper_uses_its_real_lexical_types(tmp_path, monkeypatch, caller_value):
     from tests.test_workflow_lisp_command_scopes import _compile
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary, core
+    from orchestrator.workflow_lisp.lowering import core
+    from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.expressions import LiteralExpr
 
     program, inputs, facts = _compile(tmp_path,
@@ -372,7 +366,7 @@ def _imported_snapshot_control_facts(caller, builder, summary):
 
 
 def _assert_imported_snapshot_alias_facts(leaf, snapshot, facts, reference, provider, monkeypatch):
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary
+    from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.expressions import CallExpr
 
     observed = []
@@ -424,7 +418,7 @@ def _assert_imported_reference_alias(references, own_alias, leaf, reference, pro
 @pytest.mark.parametrize("reference,provider", [(False, False), (True, False), (True, True)])
 def test_imported_helper_reads_its_original_snapshot_alias_view(tmp_path, monkeypatch, reference, provider):
     from orchestrator.workflow_lisp.closed.build import Builder
-    from orchestrator.workflow_lisp.lowering import command_control_summary as summary
+    from orchestrator.workflow_lisp.closed import command_templates as summary
 
     leaf, snapshot = _compile_imported_helper_snapshot(tmp_path, reference, provider)
     caller = _compile_imported_snapshot_caller(tmp_path, snapshot)

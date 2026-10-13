@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from orchestrator.workflow_lisp.procedure_specialization import (
+    _control_binding_terminal_for_inline_match_impl,
+    _control_binding_terminal_for_match_subject_impl,
+    _control_match_arm_local_values_impl,
+)
+
 import hashlib
 from collections.abc import Mapping
 from typing import Any
@@ -16,7 +22,7 @@ from ..spans import SourceSpan
 from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef, render_type_ref
 from ..typecheck import TypedExpr
 from ..workflows import TypedWorkflowDef, WorkflowDef, WorkflowParam, WorkflowSignature
-from .command_control_summary import branch_control_summary, control_facts_for_context
+from orchestrator.workflow_lisp.closed.command_templates import branch_control_summary, control_facts_for_context
 from .context import (
     _compile_error,
     _copy_context_with_composition_scope,
@@ -32,13 +38,7 @@ from .origins import (
     _record_step_origin,
     _register_generated_contract_field_bindings,
 )
-from .values import (
-    _build_output_step_local_value,
-    _flatten_inline_output_refs,
-    _normalize_union_field_path,
-    _resolve_inline_expr_value,
-    union_prompt_source_from_output_refs,
-)
+from orchestrator.workflow_lisp.procedure_specialization import _normalize_union_field_path
 
 
 def _conditional_case_outputs(*args, **kwargs):
@@ -189,15 +189,22 @@ def _lower_match_expr(*args, **kwargs):
 
 
 def _binding_terminal_for_match_subject(*args, **kwargs):
-    return _control_binding_terminal_for_match_subject_impl(*args, **kwargs)
+    output_refs = _control_binding_terminal_for_match_subject_impl(*args, **kwargs)
+    if output_refs is None:
+        return None
+    return _TerminalResult(step_name="", step_id="", output_refs=output_refs, output_kind="inline", hidden_inputs={})
 
 
 def _match_arm_local_values(*args, **kwargs):
+    kwargs["binding_terminal"] = kwargs["binding_terminal"].output_refs
     return _control_match_arm_local_values_impl(*args, **kwargs)
 
 
 def _binding_terminal_for_inline_match(*args, **kwargs):
-    return _control_binding_terminal_for_inline_match_impl(*args, **kwargs)
+    output_refs = _control_binding_terminal_for_inline_match_impl(*args, **kwargs)
+    if output_refs is None:
+        return None
+    return _TerminalResult(step_name="", step_id="", output_refs=output_refs, output_kind="inline", hidden_inputs={})
 
 
 def _binding_match_subject_name(subject: Any) -> str:
@@ -206,15 +213,6 @@ def _binding_match_subject_name(subject: Any) -> str:
     if isinstance(subject, FieldAccessExpr):
         return subject.base.name
     return "binding"
-
-
-def _control_binding_terminal_for_match_subject_impl(
-    subject: Any,
-    *,
-    local_values: Mapping[str, Any],
-) -> _TerminalResult | None:
-    resolved_subject = _resolve_inline_expr_value(subject, local_values=local_values)
-    return _binding_terminal_for_inline_match(resolved_subject)
 
 
 def _lower_binding_match_expr(
@@ -637,62 +635,6 @@ def _resolve_match_return_union_variant(
     )
 
 
-def _control_match_arm_local_values_impl(
-    *,
-    local_values: Mapping[str, Any],
-    binding_name: str,
-    binding_terminal: _TerminalResult,
-    binding_type: TypeRef | None = None,
-) -> dict[str, Any]:
-    localized_output_refs = {
-        output_name: _match_subject_scope_value(output_ref)
-        for output_name, output_ref in binding_terminal.output_refs.items()
-    }
-    if isinstance(binding_type, VariantCaseTypeRef):
-        allowed_field_names = {"variant", *(field.name for field in binding_type.definition.fields)}
-        localized_output_refs = {
-            output_name: output_ref
-            for output_name, output_ref in localized_output_refs.items()
-            if output_name == "return__variant"
-            or output_name.removeprefix("return__").split("__", 1)[0] in allowed_field_names
-        }
-    binding_value = _build_output_step_local_value(localized_output_refs)
-    if isinstance(binding_type, UnionTypeRef):
-        source = union_prompt_source_from_output_refs(
-            binding_type,
-            output_refs=localized_output_refs,
-        )
-        if source is not None:
-            binding_value["__typed_union_prompt_source__"] = source
-    return {
-        **local_values,
-        binding_name: binding_value,
-    }
-
-
-def _control_binding_terminal_for_inline_match_impl(local_value: Any) -> _TerminalResult | None:
-    output_refs = _flatten_inline_output_refs(local_value)
-    if "return__variant" not in output_refs:
-        return None
-    return _TerminalResult(
-        step_name="",
-        step_id="",
-        output_refs=output_refs,
-        output_kind="inline",
-        hidden_inputs={},
-    )
-
-
-def _match_subject_scope_value(value: Any) -> Any:
-    if isinstance(value, str):
-        if value.startswith("self.steps."):
-            return "parent.steps." + value.removeprefix("self.steps.")
-        return value
-    if isinstance(value, Mapping):
-        return {name: _match_subject_scope_value(item) for name, item in value.items()}
-    return value
-
-
 def _hoist_match_case_fragment_to_helper(
     *,
     match_expr: MatchExpr,
@@ -879,7 +821,7 @@ def _helper_capture_names(
     *,
     context: _LoweringContext,
 ) -> tuple[str, ...]:
-    from .command_control_decisions import helper_capture_names
+    from orchestrator.workflow_lisp.closed.command_templates import helper_capture_names
 
     return helper_capture_names(expr, local_type_bindings=context.local_type_bindings)
 

@@ -5,7 +5,6 @@ from .procedures import (
     _lower_procedure_call_expr,
     _private_workflow_from_procedure,
     _procedure_provenance_notes,
-    _resolve_procedure_lowering,
 )
 from .origins import (
     _missing_validation_subject_message,

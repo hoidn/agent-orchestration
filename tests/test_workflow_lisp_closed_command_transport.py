@@ -9,7 +9,7 @@ from orchestrator.workflow_lisp.closed.command_templates import elaborate_comman
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, workflow_catalog_for
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
-from orchestrator.workflow_lisp.lowering.command_control_summary import ControlFacts
+from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
 from orchestrator.workflow_lisp.procedures import ProcedureCatalog
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body

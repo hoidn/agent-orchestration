@@ -11,21 +11,15 @@ from orchestrator.workflow.references import MaterializeViewBindingReference
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
-    CallExpr,
-    CommandResultExpr,
-    LetStarExpr,
-    MatchExpr,
     NameExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
-    ProviderResultExpr,
-    RecordExpr,
-    WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
 from ..phase import eligible_private_context_source_param_names
 from ..procedure_refs import ResolvedProcRefValue
 from ..procedures import (
+    LowerableProcedureCall,
     ProcedureLoweringMode,
     TypedProcedureDef,
     _procedure_signature_local_type_bindings,
@@ -44,10 +38,7 @@ from ..type_env import (
     WorkflowRefTypeRef,
     render_type_ref,
 )
-from ..workflow_refs import (
-    ResolvedWorkflowRef,
-    workflow_ref_binding_identity,
-)
+from ..workflow_refs import ResolvedWorkflowRef
 from ..workflows import (
     PromptExtern,
     ProviderExtern,
@@ -56,18 +47,6 @@ from ..workflows import (
     WorkflowParam,
     WorkflowSignature,
 )
-
-
-@dataclass(frozen=True)
-class LowerableProcedureCall:
-    """Owner-level procedure-call payload shared by frontend and WCC lowering."""
-
-    callee_name: str
-    args: tuple[Any, ...]
-    span: Any
-    form_path: tuple[str, ...]
-    expansion_stack: tuple[object, ...] = ()
-    specialized_callee_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,134 +100,6 @@ def _runtime_erasure_checked(
         form_path=plan.provenance_source.form_path,
     )
     return steps, terminal
-
-
-def _resolve_procedure_lowering(
-    typed_procedures: tuple[TypedProcedureDef, ...],
-    *,
-    typed_workflows: tuple[TypedWorkflowDef, ...],
-    workflow_path: Path,
-    closed_program: bool = False,
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-) -> Mapping[str, TypedProcedureDef]:
-    from ..procedure_specialization import _procedure_private_body_valid, _procedure_private_boundary_valid
-    from .context import _compile_error
-
-    call_counts, lowerable_call_sites = _procedure_private_call_site_analysis(
-        typed_procedures,
-        typed_workflows=typed_workflows,
-        type_env=type_env,
-        procedure_type_envs=procedure_type_envs,
-    )
-    resolved: dict[str, TypedProcedureDef] = {}
-    typed_procedures_by_name = {
-        procedure.definition.name: procedure for procedure in typed_procedures
-    }
-    for procedure in typed_procedures:
-        requested = procedure.signature.requested_lowering_mode
-        boundary_valid = _procedure_private_boundary_valid(
-            procedure,
-            type_env=_procedure_type_env_for(
-                procedure,
-                procedure_type_envs=procedure_type_envs,
-                default=type_env,
-            ),
-        )
-        procedure_type_env = _procedure_type_env_for(
-            procedure,
-            procedure_type_envs=procedure_type_envs,
-            default=type_env,
-        )
-        compile_time_proc_ref_template = (
-            bool(procedure.signature.type_params)
-            and target_dsl_supports_provider_context_values(
-                procedure_type_env.target_dsl_version
-            )
-        ) or any(
-            isinstance(type_ref, ProcRefTypeRef)
-            for _, type_ref in procedure.signature.params
-        )
-        body_valid = _procedure_private_body_valid(
-            procedure,
-            closed_program=closed_program,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-        )
-        if (
-            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
-            and not boundary_valid
-            and not compile_time_proc_ref_template
-        ):
-            raise _compile_error(
-                code="proc_private_workflow_boundary_invalid",
-                message=f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3",
-                span=procedure.definition.span,
-                form_path=procedure.definition.form_path,
-            )
-        if (
-            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
-            and not body_valid
-            and not compile_time_proc_ref_template
-        ):
-            raise _compile_error(
-                code="proc_private_workflow_boundary_invalid",
-                message=(
-                    f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
-                    "because its body would not export step-backed outputs through the shared-validation seam"
-                ),
-                span=procedure.definition.span,
-                form_path=procedure.definition.form_path,
-            )
-        if (
-            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
-            and compile_time_proc_ref_template
-        ):
-            # The generic ProcRef-bearing definition is a compile-time
-            # specialization template, not a runtime workflow boundary.  Its
-            # authoritative monomorphic specializations are validated below
-            # after compiler fixed-point re-typechecking.
-            mode = ProcedureLoweringMode.INLINE
-        elif requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        elif (
-            requested == ProcedureLoweringMode.AUTO
-            and boundary_valid
-            and body_valid
-            and (
-                call_counts.get(procedure.definition.name, 0) > 1
-                or (
-                    procedure.specialization is not None
-                    and any(
-                        bool(getattr(procedure.specialization, field_name, {}))
-                        for field_name in (
-                            "type_bindings",
-                            "workflow_ref_bindings",
-                            "proc_ref_bindings",
-                        )
-                    )
-                )
-            )
-            and lowerable_call_sites.get(procedure.definition.name, True)
-        ):
-            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        else:
-            mode = ProcedureLoweringMode.INLINE
-        generated_name = None
-        if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-            generated_name = f"%{workflow_path.stem}.{procedure.definition.name}.v1"
-        resolved[procedure.definition.name] = TypedProcedureDef(
-            definition=procedure.definition,
-            signature=procedure.signature,
-            typed_body=procedure.typed_body,
-            direct_effect_summary=procedure.direct_effect_summary,
-            transitive_effect_summary=procedure.transitive_effect_summary,
-            resolved_lowering_mode=mode,
-            generated_workflow_name=generated_name,
-            specialization=procedure.specialization,
-        )
-    return MappingProxyType(resolved)
 
 
 def _validate_resolved_procedure_mapping(
@@ -327,118 +178,6 @@ def _validate_resolved_procedure_mapping(
     return resolved_procedures_by_name
 
 
-def _procedure_private_call_site_analysis(
-    typed_procedures: tuple[TypedProcedureDef, ...],
-    *,
-    typed_workflows: tuple[TypedWorkflowDef, ...],
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-) -> tuple[Mapping[str, int], Mapping[str, bool]]:
-    """Count procedure call sites and whether each can cross a workflow boundary."""
-
-    from .core import _resolve_expr_local_value, _signature_local_values
-    from .values import _build_record_step_local_value
-
-    typed_procedures_by_name = {
-        procedure.definition.name: procedure for procedure in typed_procedures
-    }
-    distinct_call_sites: dict[str, set[tuple[SourceSpan, tuple[str, ...]]]] = {}
-    lowerable: dict[str, bool] = {}
-
-    def walk(
-        expr: Any,
-        *,
-        local_values: Mapping[str, Any],
-        current_type_env: FrontendTypeEnvironment,
-    ) -> None:
-        if isinstance(expr, ProcedureCallExpr):
-            distinct_call_sites.setdefault(expr.callee_name, set()).add((expr.span, expr.form_path))
-            call_site_lowerable = True
-            for arg in expr.args:
-                walk(arg, local_values=local_values, current_type_env=current_type_env)
-                if _resolve_expr_local_value(arg, local_values=local_values) is None:
-                    call_site_lowerable = False
-            lowerable[expr.callee_name] = lowerable.get(expr.callee_name, True) and call_site_lowerable
-            callee = typed_procedures_by_name.get(expr.callee_name)
-            if callee is not None:
-                child_locals = {}
-                for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
-                    child_locals[param_name] = _resolve_expr_local_value(arg_expr, local_values=local_values)
-                walk(
-                    callee.typed_body.expr,
-                    local_values=child_locals,
-                    current_type_env=_procedure_type_env_for(
-                        callee,
-                        procedure_type_envs=procedure_type_envs,
-                        default=current_type_env,
-                    ),
-                )
-            return
-        if isinstance(expr, LetStarExpr):
-            child_locals = dict(local_values)
-            for binding_name, binding in expr.bindings:
-                walk(binding, local_values=child_locals, current_type_env=current_type_env)
-                resolved_binding = _resolve_expr_local_value(binding, local_values=child_locals)
-                if resolved_binding is not None:
-                    child_locals[binding_name] = resolved_binding
-                # schema1_compatibility: legacy local-value projection for covered provider results.
-                elif isinstance(binding, ProviderResultExpr):
-                    binding_type = current_type_env.resolve_type(
-                        binding.returns_type_name,
-                        span=binding.span,
-                        form_path=binding.form_path,
-                    )
-                    if isinstance(binding_type, RecordTypeRef):
-                        child_locals[binding_name] = _build_record_step_local_value(
-                            binding_type,
-                            step_name=binding_name,
-                        )
-            walk(expr.body, local_values=child_locals, current_type_env=current_type_env)
-            return
-        # schema1_compatibility: legacy procedure traversal for covered match forms.
-        if isinstance(expr, MatchExpr):
-            walk(expr.subject, local_values=local_values, current_type_env=current_type_env)
-            for arm in expr.arms:
-                walk(arm.body, local_values=local_values, current_type_env=current_type_env)
-            return
-        if isinstance(expr, RecordExpr):
-            for _, value in expr.fields:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-            return
-        if isinstance(expr, WithPhaseExpr):
-            walk(expr.ctx_expr, local_values=local_values, current_type_env=current_type_env)
-            walk(expr.body, local_values=local_values, current_type_env=current_type_env)
-            return
-        # schema1_compatibility: legacy procedure traversal for covered provider results.
-        if isinstance(expr, ProviderResultExpr):
-            walk(expr.provider, local_values=local_values, current_type_env=current_type_env)
-            walk(expr.prompt, local_values=local_values, current_type_env=current_type_env)
-            for value in expr.inputs:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-            return
-        # schema1_compatibility: legacy procedure traversal for covered command results.
-        if isinstance(expr, CommandResultExpr):
-            for value in expr.argv:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-            return
-        if isinstance(expr, CallExpr):
-            for _, value in expr.bindings:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-
-    for workflow in typed_workflows:
-        walk(
-            workflow.typed_body.expr,
-            local_values=_signature_local_values(workflow, type_env=type_env),
-            current_type_env=type_env,
-        )
-    return MappingProxyType(
-        {
-            callee_name: len(call_sites)
-            for callee_name, call_sites in distinct_call_sites.items()
-        }
-    ), MappingProxyType(lowerable)
-
-
 def _lower_procedure_call_expr(
     typed_expr: Any,
     *,
@@ -468,7 +207,9 @@ def _schema1_iteration_private_override_applies(
 ) -> bool:
     """Expose the legacy call-local override as an observable boolean decision."""
 
-    from .command_transport_decisions import schema1_iteration_private_override_applies
+    from orchestrator.workflow_lisp.procedure_specialization import (
+        schema1_iteration_private_override_applies,
+    )
 
     return schema1_iteration_private_override_applies(
         procedure,
@@ -506,7 +247,7 @@ def _lower_procedure_call(
         _render_call_binding_ref,
         _render_record_call_bindings,
     )
-    from .values import (
+    from orchestrator.workflow_lisp.procedure_specialization import (
         _flatten_boundary_leaf_paths,
         _resolve_inline_expr_value,
     )
@@ -532,7 +273,10 @@ def _lower_procedure_call(
         provenance_source=expr,
         runtime_erasure_inputs=(local_values, context.origin_notes),
     )
-    from .command_control_decisions import select_surface_procedure_call, inline_procedure_bindings
+    from orchestrator.workflow_lisp.procedure_specialization import (
+        select_surface_procedure_call,
+        inline_procedure_bindings,
+    )
 
     procedure, arg_exprs = select_surface_procedure_call(
         expr, local_values=local_values, typed_procedures=context.typed_procedures,

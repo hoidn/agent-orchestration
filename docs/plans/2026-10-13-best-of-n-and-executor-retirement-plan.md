@@ -151,12 +151,15 @@ Task 4 form one retirement delivery; do not ship the cutoff as permanent dead co
 Shared-helper preparation may precede R while both routes still work. First move
 WCC value conversion and loop-cardinality analysis, procedure naming/local-type
 helpers and pure-expression classification to their existing semantic owners.
-Then separate command/control analysis and constant evaluation from flat
-emission. Finally preserve typed producer imports and LSP analysis independently
-of executable bundle creation. Move definitions once and update every caller;
-do not keep re-export aliases or copy the old lowering package under a new name.
-Removal of execution doors and exclusive implementations still waits for R and
-ships together. The execution closeout owns evidence and exact helper inventory.
+Then separate shared command/control analysis. Next implement Task 3 refusals
+with the backend still present, and preserve typed producer imports and LSP
+analysis independently of executable bundle creation before qualifying R.
+After R, move only the retained constant-evaluation code and prune its runtime
+binding/sharing branches together with physical deletion. Do not first move the
+general flat serializer into the retained owner. Move definitions once and
+update every caller; do not keep re-export aliases or copy the old lowering
+package under a new name. The cutoff and exclusive implementation removal ship
+together. The execution closeout owns evidence and exact helper inventory.
 
 - [ ] Remove `workflow/executor.py::WorkflowExecutor`, public exports and CLI/child/trial call sites whose contracts are retired. Keep shared `exec/step_executor.py`, `providers/` and evaluated run-reference services.
 - [ ] Remove old executable replay/checkpoint/state-translation branches in `workflow/pure_result_replay.py`, `workflow_lisp/lexical_checkpoint*.py`, `state.py` and affected CLI commands after the read-only split, if needed.

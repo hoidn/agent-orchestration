@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import orchestrator.workflow_lisp.compiler as compiler_module
-import orchestrator.workflow_lisp.lowering as lowering_module
+from orchestrator.workflow_lisp.procedure_specialization import _resolve_procedure_lowering
 import orchestrator.workflow_lisp.wcc.elaborate as wcc_elaborate_module
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.compiler import (
@@ -1537,7 +1537,7 @@ def _typed_provider_peer_group_wcc_context(
         for procedure in typed_procedures
     }
     resolved_procedures_by_name = (
-        lowering_module._resolve_procedure_lowering(
+        _resolve_procedure_lowering(
             typed_procedures,
             typed_workflows=typed_workflows,
             workflow_path=path,

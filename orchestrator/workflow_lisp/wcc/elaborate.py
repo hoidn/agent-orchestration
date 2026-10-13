@@ -3654,7 +3654,7 @@ def _elaborate_expr_to_value(
     active_phase_scope: WccPhaseScope | None = None,
 ) -> tuple[tuple[WccLet, ...], WccValue]:
     if isinstance(expr, NameExpr) and expr.name in compile_time_bindings:
-        from ..lowering.values import _resolve_inline_expr_value
+        from orchestrator.workflow_lisp.procedure_specialization import (_resolve_inline_expr_value)
 
         bound_value = compile_time_bindings[expr.name]
         if _is_compile_time_reference_value(bound_value):

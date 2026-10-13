@@ -6,13 +6,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from types import MappingProxyType
 
 from .contracts import derive_workflow_boundary_fields, is_transportable_result_type
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY
 from .expression_traversal import _rebuild_with_replacements, is_pure_projection_expr, iter_child_exprs
 from .expressions import (
+    BindProcExpr,
+    GeneratedRelpathSeedExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
+    PhaseTargetExpr,
+    ProcRefLiteralExpr,
+    ProviderBundlePathExpr,
     CallExpr,
     CommandResultExpr,
     FieldAccessExpr,
@@ -230,9 +238,6 @@ def _procedure_private_body_valid(
         # Closed calls return evaluated values; the flat output-export seam is unused.
         return True
 
-    from .lowering.values import (
-        _procedure_signature_local_values,
-    )
 
     current_type_env = (
         procedure_type_envs.get(procedure.definition.name, type_env)
@@ -469,17 +474,10 @@ def _private_workflow_binding_local_value(
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
 
-    from .lowering.control import _binding_terminal_for_match_subject, _is_inline_let_binding_expr
-    from .lowering.values import (
-        _procedure_signature_local_values,
-        _resolve_inline_expr_value,
-    )
-    from .lowering.workflow_calls import _managed_write_root_binding_step
-
-    _ = _managed_write_root_binding_step
+    from .closed.command_templates import is_inline_let_binding_expr
 
     step_name = f"{binding_name}__{expr.step_name}" if isinstance(expr, CommandResultExpr) else binding_name
-    if _is_inline_let_binding_expr(expr):
+    if is_inline_let_binding_expr(expr):
         return _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(expr, WithPhaseExpr):
         return _private_workflow_binding_local_value(
@@ -543,7 +541,7 @@ def _private_workflow_binding_local_value(
     if binding_type is None:
         return None
     if isinstance(expr, MatchExpr):
-        if _binding_terminal_for_match_subject(expr.subject, local_values=local_values) is None:
+        if _control_binding_terminal_for_match_subject_impl(expr.subject, local_values=local_values) is None:
             return None
         if not _private_workflow_body_exports_step_backed_outputs(
             expr,
@@ -602,10 +600,6 @@ def _private_workflow_local_value_for_type(
 ) -> Any | None:
     """Build the local-value projection a structured step would expose."""
 
-    from .lowering.values import (
-        _build_output_step_local_value,
-        union_prompt_source_from_output_refs,
-    )
 
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         output_refs = {
@@ -646,10 +640,6 @@ def _private_workflow_body_exports_step_backed_outputs(
 ) -> bool:
     """Check that a private workflow body returns step-backed outputs."""
 
-    from .lowering.values import (
-        _procedure_signature_local_values,
-        _resolve_inline_expr_value,
-    )
 
     if is_pure_projection_expr(expr):
         return True
@@ -821,9 +811,7 @@ def _match_outputs_are_step_backed(
 ) -> bool:
     """Return whether every match arm exports step-backed outputs."""
 
-    from .lowering.control import _binding_terminal_for_inline_match, _match_arm_local_values
-    from .lowering.values import _resolve_inline_expr_value
-    binding_terminal = _binding_terminal_for_inline_match(
+    binding_terminal = _control_binding_terminal_for_inline_match_impl(
         _resolve_inline_expr_value(match_expr.subject, local_values=local_values)
     )
     if binding_terminal is None:
@@ -839,7 +827,7 @@ def _match_outputs_are_step_backed(
         _private_workflow_body_exports_step_backed_outputs(
             arm.body,
             return_type_ref=return_type_ref,
-            local_values=_match_arm_local_values(
+            local_values=_control_match_arm_local_values_impl(
                 local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
@@ -885,11 +873,6 @@ def _record_outputs_are_step_backed(
 ) -> bool:
     """Return whether all record return fields resolve to existing step refs."""
 
-    from .lowering.values import (
-        _flatten_boundary_leaf_paths,
-        _record_expr_value_at_path,
-        _render_existing_output_ref,
-    )
 
     if not isinstance(return_type_ref, RecordTypeRef):
         return False
@@ -910,13 +893,6 @@ def _union_variant_outputs_are_step_backed(
 ) -> bool:
     """Return whether one union variant can lower through a private workflow seam."""
 
-    from .lowering.values import (
-        _flatten_boundary_leaf_paths,
-        _normalize_union_field_path,
-        _render_existing_output_ref,
-        _resolve_inline_expr_value,
-        _union_variant_expr_value_at_path,
-    )
 
     if not isinstance(return_type_ref, UnionTypeRef):
         return False
@@ -949,11 +925,6 @@ def _inline_outputs_are_step_backed(
 ) -> bool:
     """Return whether one inline alias resolves to existing step-backed refs."""
 
-    from .lowering.values import (
-        _flatten_boundary_leaf_paths,
-        _flatten_inline_output_refs,
-        _resolve_inline_expr_value,
-    )
 
     output_refs = _flatten_inline_output_refs(_resolve_inline_expr_value(expr, local_values=local_values))
     if not output_refs:
@@ -1743,3 +1714,1217 @@ def discover_workflow_ref_specializations(
                 )
             discovered[final_name] = (identity, candidate)
     return tuple(candidate for _, candidate in discovered.values())
+
+
+_PROVIDER_BUNDLE_PATH_REF_KEY = "__provider_bundle_path_ref__"
+
+
+_PROVIDER_BUNDLE_PROJECTION_KEY = "__provider_bundle_projection__"
+
+
+@dataclass(frozen=True)
+class ProjectedPathRef:
+    """Inline lowered ref plus projection metadata for public output provenance."""
+
+    ref: str
+    projection: Mapping[str, Any]
+
+
+def _projected_provider_bundle_ref(value: Any) -> ProjectedPathRef | None:
+    if not isinstance(value, Mapping):
+        return None
+    path_ref = value.get(_PROVIDER_BUNDLE_PATH_REF_KEY)
+    projection = value.get(_PROVIDER_BUNDLE_PROJECTION_KEY)
+    if not isinstance(path_ref, str) or not isinstance(projection, Mapping):
+        return None
+    return ProjectedPathRef(ref=path_ref, projection=dict(projection))
+
+
+def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str, ...]) -> LispFrontendCompileError:
+    return LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=span,
+                form_path=form_path,
+                phase="lowering",
+            ),
+        )
+    )
+
+
+def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str, type_env: Any | None = None) -> dict[str, Any]:
+    """Represent a record parameter as nested refs to flattened inputs."""
+
+    local_value: dict[str, Any] = {}
+    for field in type_ref.definition.fields:
+        field_type = type_ref.field_types[field.name]
+        leaf_name = f"{generated_name}__{field.name}"
+        if isinstance(field_type, RecordTypeRef):
+            local_value[field.name] = _build_record_local_value(
+                field_type,
+                generated_name=leaf_name,
+                type_env=type_env,
+            )
+        elif isinstance(field_type, UnionTypeRef):
+            local_value[field.name] = _build_union_local_value(
+                field_type,
+                generated_name=leaf_name,
+                type_env=type_env,
+            )
+        else:
+            local_value[field.name] = f"inputs.{leaf_name}"
+    return local_value
+
+
+def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str, type_env: Any | None = None) -> dict[str, Any]:
+    """Represent a union parameter as nested refs to flattened inputs."""
+
+    local_value: dict[str, Any] = {}
+    for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name, type_env=type_env):
+        _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
+    return local_value
+
+
+def union_prompt_source_from_output_refs(
+    type_ref: UnionTypeRef,
+    *,
+    output_refs: Mapping[str, str],
+) -> dict[str, Any] | None:
+    """Preserve branch-specific terminal refs before local-value nesting."""
+
+    def field_source(field_type: TypeRef, prefix: str) -> dict[str, Any] | None:
+        if isinstance(field_type, RecordTypeRef):
+            fields: dict[str, Any] = {}
+            for name, nested_type in field_type.field_types.items():
+                child = field_source(nested_type, f"{prefix}__{name}")
+                if child is None:
+                    return None
+                fields[name] = child
+            return {"kind": "record", "fields": fields}
+        ref = output_refs.get(prefix) or output_refs.get(prefix.removeprefix("return__"))
+        return (
+            {"kind": "reference", "reference": ref}
+            if isinstance(ref, str)
+            else None
+        )
+
+    discriminant = output_refs.get("return__variant") or output_refs.get("variant")
+    if not isinstance(discriminant, str):
+        return None
+    variants: dict[str, Any] = {}
+    for variant_name, fields in type_ref.variant_field_types.items():
+        variant_sources: dict[str, Any] = {}
+        for field_name, field_type in fields.items():
+            source = field_source(field_type, f"return__{field_name}")
+            if source is None:
+                return None
+            variant_sources[field_name] = source
+        variants[variant_name] = variant_sources
+    return {
+        "kind": "union",
+        "discriminant": {"kind": "reference", "reference": discriminant},
+        "variants": variants,
+    }
+
+
+def _build_nested_record_step_local_value(
+    type_ref: RecordTypeRef,
+    *,
+    step_name: str,
+    artifact_prefix: tuple[str, ...],
+) -> dict[str, Any]:
+    """Represent a nested record result from step artifact refs."""
+
+    local_value: dict[str, Any] = {}
+    for field in type_ref.definition.fields:
+        field_type = type_ref.field_types[field.name]
+        next_prefix = artifact_prefix + (field.name,)
+        if isinstance(field_type, RecordTypeRef):
+            local_value[field.name] = _build_nested_record_step_local_value(
+                field_type,
+                step_name=step_name,
+                artifact_prefix=next_prefix,
+            )
+            continue
+        local_value[field.name] = f"root.steps.{step_name}.artifacts.{'__'.join(next_prefix)}"
+    return local_value
+
+
+def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -> dict[str, Any]:
+    """Represent a record result as nested refs to one step's artifacts."""
+
+    local_value: dict[str, Any] = {}
+    for field in type_ref.definition.fields:
+        field_type = type_ref.field_types[field.name]
+        artifact_name = field.name
+        if isinstance(field_type, RecordTypeRef):
+            local_value[field.name] = _build_nested_record_step_local_value(
+                field_type,
+                step_name=step_name,
+                artifact_prefix=(artifact_name,),
+            )
+            continue
+        local_value[field.name] = f"root.steps.{step_name}.artifacts.{artifact_name}"
+    return local_value
+
+
+def _procedure_signature_local_values(procedure: TypedProcedureDef, *, type_env: Any | None = None) -> dict[str, Any]:
+    """Seed local value refs from a private workflow procedure signature."""
+
+    local_values: dict[str, Any] = {}
+    for param_name, param_type in procedure.signature.params:
+        if isinstance(param_type, RecordTypeRef):
+            local_values[param_name] = _build_record_local_value(
+                param_type,
+                generated_name=param_name,
+                type_env=type_env,
+            )
+            continue
+        if isinstance(param_type, UnionTypeRef):
+            local_values[param_name] = _build_union_local_value(
+                param_type,
+                generated_name=param_name,
+                type_env=type_env,
+            )
+            continue
+        local_values[param_name] = f"inputs.{param_name}"
+    if procedure.specialization is not None:
+        local_values.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
+        local_values.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
+        local_values.update(dict(getattr(procedure.specialization, "value_bindings", {})))
+    return local_values
+
+
+def _signature_local_values(typed_workflow: Any, *, type_env: Any | None = None) -> dict[str, Any]:
+    """Seed local value refs from a workflow signature."""
+
+    signature = typed_workflow.signature
+    local_values: dict[str, Any] = {}
+    for param_name, param_type in signature.params:
+        if isinstance(param_type, RecordTypeRef):
+            local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name, type_env=type_env)
+        elif isinstance(param_type, UnionTypeRef):
+            local_values[param_name] = _build_union_local_value(param_type, generated_name=param_name, type_env=type_env)
+        else:
+            local_values[param_name] = f"inputs.{param_name}"
+    specialization = getattr(typed_workflow, "specialization", None)
+    if specialization is not None:
+        local_values.update(dict(getattr(specialization, "workflow_ref_bindings", {})))
+        local_values.update(dict(getattr(specialization, "proc_ref_bindings", {})))
+        local_values.update(dict(getattr(specialization, "value_bindings", {})))
+    return local_values
+
+
+def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:
+    """Follow a flattened field path through a nested local-value mapping."""
+
+    current = value
+    for field_name in field_path:
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(field_name)
+    return current
+
+
+def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
+    """Resolve simple name, field, and phase-target expressions from locals."""
+
+    if isinstance(expr, NameExpr):
+        return local_values.get(expr.name)
+    if isinstance(expr, FieldAccessExpr):
+        base_value = _resolve_expr_local_value(expr.base, local_values=local_values)
+        return _resolve_nested_local_value(base_value, tuple(expr.fields))
+    if isinstance(expr, PhaseTargetExpr):
+        return None
+    return None
+
+
+def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
+    for current_name, current_value in record_expr.fields:
+        if current_name == field_name:
+            return current_value
+    return None
+
+
+def _resolve_inline_field_value(
+    value: Any,
+    *,
+    field_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
+) -> Any:
+    """Resolve a nested field path through inline mappings or record expressions."""
+
+
+    current = value
+    for field_name in field_path:
+        if isinstance(current, RetainedExpressionFact):
+            current = current.tag if current.form == "union" and field_name == "variant" else dict(current.fields).get(field_name)
+            continue
+        if current is not None and not isinstance(current, (Mapping, RecordExpr, UnionVariantExpr)):
+            next_current = _resolve_inline_expr_value(current, local_values=local_values, retain_expression_facts=retain_expression_facts)
+            if next_current is current:
+                return None
+            current = next_current
+        if isinstance(current, Mapping):
+            current = current.get(field_name)
+            continue
+        if isinstance(current, RecordExpr):
+            current = _record_field_value(current, field_name)
+            current = _resolve_inline_expr_value(current, local_values=local_values, retain_expression_facts=retain_expression_facts)
+            continue
+        if isinstance(current, UnionVariantExpr):
+            current = _union_variant_expr_value_at_path(current, (field_name,), bound_record_fields=False)
+            current = _resolve_inline_expr_value(current, local_values=local_values, retain_expression_facts=retain_expression_facts)
+            continue
+        return None
+    return current
+
+
+def _retained_inline_child(value):
+    from orchestrator.workflow_lisp.expressions import ExprNode
+    from orchestrator.workflow_lisp.expression_traversal import is_pure_projection_expr
+
+    if isinstance(value, ExprNode) and not isinstance(value, LiteralExpr):
+        return RetainedExpressionFact("opaque", is_pure_projection_expr(value))
+    return value
+
+
+def _retained_inline_constructor(expr, *, local_values):
+    from orchestrator.workflow_lisp.expression_traversal import is_pure_projection_expr
+
+    fields = tuple((name, _retained_inline_child(_resolve_inline_expr_value(child,
+        local_values=local_values, retain_expression_facts=True))) for name, child in expr.fields)
+    tag = _union_variant_expr_value_at_path(expr, ("variant",), bound_record_fields=False)
+    return RetainedExpressionFact("union", is_pure_projection_expr(expr), fields, tag)
+
+
+def _resolve_inline_record(expr, *, local_values, retain_expression_facts):
+    from orchestrator.workflow_lisp.expression_traversal import is_pure_projection_expr
+
+    fields = []
+    for name, child in expr.fields:
+        value = _resolve_inline_expr_value(child, local_values=local_values,
+            retain_expression_facts=retain_expression_facts)
+        if value is None and not retain_expression_facts:
+            return expr
+        fields.append((name, _retained_inline_child(value) if retain_expression_facts else value))
+    if any(value is None for _, value in fields):
+        return RetainedExpressionFact("record", is_pure_projection_expr(expr), tuple(fields))
+    return dict(fields)
+
+
+def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any], retain_expression_facts: bool = False) -> Any:
+    """Resolve literals, names, fields, and record expressions for inline use."""
+
+    if isinstance(expr, RetainedExpressionFact):
+        return expr
+    if retain_expression_facts and isinstance(expr, UnionVariantExpr):
+        return _retained_inline_constructor(expr, local_values=local_values)
+
+
+    if isinstance(expr, LiteralExpr | GeneratedRelpathSeedExpr | WorkflowRefLiteralExpr):
+        return expr
+    if isinstance(expr, EnumMemberExpr):
+        return LiteralExpr(
+            value=expr.member_name,
+            literal_kind="string",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, ProcRefLiteralExpr | BindProcExpr):
+        return expr
+    if isinstance(expr, RecordExpr):
+        return _resolve_inline_record(expr, local_values=local_values,
+            retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, LoopStateSeedExpr):
+        return _loop_state_seed_inline_value(expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, LoopStateUpdateExpr):
+        return _loop_state_update_inline_value(expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, LetStarExpr):
+        child_locals = _resolve_inline_let_bindings(expr.bindings, local_values=local_values, retain_expression_facts=retain_expression_facts)
+        if child_locals is None:
+            return expr
+        return _resolve_inline_expr_value(expr.body, local_values=child_locals, retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, IfExpr):
+        condition_value = _resolve_inline_expr_value(expr.condition_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+        if isinstance(condition_value, LiteralExpr) and condition_value.literal_kind == "bool":
+            branch = expr.then_expr if condition_value.value else expr.else_expr
+            return _resolve_inline_expr_value(branch, local_values=local_values, retain_expression_facts=retain_expression_facts)
+        return expr
+    if isinstance(expr, ProviderBundlePathExpr):
+        source_value = _resolve_inline_expr_value(expr.source_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+        projected = _projected_provider_bundle_ref(source_value)
+        if projected is None:
+            return expr
+        return projected
+    resolved = _resolve_expr_local_value(expr, local_values=local_values)
+    if retain_expression_facts and isinstance(resolved, (RecordExpr, UnionVariantExpr)):
+        return _resolve_inline_expr_value(resolved, local_values=local_values, retain_expression_facts=True)
+    if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr, ProjectedPathRef)):
+        return resolved
+    if resolved is not None:
+        if resolved is expr:
+            return expr
+        return _resolve_inline_expr_value(resolved, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, NameExpr):
+        bound = local_values.get(expr.name)
+        if bound is None:
+            return None
+        if isinstance(bound, (str, Mapping)):
+            return bound
+        if bound is expr:
+            return expr
+        return _resolve_inline_expr_value(bound, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, FieldAccessExpr):
+        return _resolve_inline_field_value(
+            local_values.get(expr.base.name),
+            field_path=tuple(expr.fields),
+            local_values=local_values, retain_expression_facts=retain_expression_facts,
+        )
+    return expr
+
+
+def _resolve_inline_let_bindings(
+    bindings: tuple[tuple[str, Any], ...], *, local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve a suffix's aliases in order, without constructing another AST."""
+    child_locals = dict(local_values)
+    for name, expr in bindings:
+        value = _resolve_inline_expr_value(expr, local_values=child_locals, retain_expression_facts=retain_expression_facts)
+        if value is None:
+            return None
+        child_locals[name] = value
+    return child_locals
+
+
+def _loop_state_seed_inline_value(
+    expr: LoopStateSeedExpr,
+    *,
+    local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
+) -> Any:
+    inline_value: dict[str, Any] = {}
+    for field in expr.fields:
+        resolved_value = _resolve_inline_expr_value(field.value_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+        if resolved_value is None:
+            return expr
+        inline_value[field.name] = resolved_value
+    return inline_value
+
+
+def _loop_state_update_inline_value(
+    expr: LoopStateUpdateExpr,
+    *,
+    local_values: Mapping[str, Any],
+    retain_expression_facts: bool = False,
+) -> Any:
+    base_value = _resolve_inline_expr_value(expr.base_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if not isinstance(base_value, Mapping):
+        return expr
+    updated_value = {name: _clone_inline_value(value) for name, value in base_value.items()}
+    for field_name, field_expr in expr.overrides:
+        resolved_value = _resolve_inline_expr_value(field_expr, local_values=local_values, retain_expression_facts=retain_expression_facts)
+        if resolved_value is None:
+            return expr
+        updated_value[field_name] = resolved_value
+    return updated_value
+
+
+def _clone_inline_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: _clone_inline_value(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _build_output_step_local_value(
+    output_refs: Mapping[str, str],
+    *,
+    type_ref: RecordTypeRef | UnionTypeRef | None = None,
+    type_env: Any | None = None,
+) -> dict[str, Any]:
+    """Convert flattened terminal output refs into nested local-value shape."""
+
+    field_paths = (
+        dict(
+            _flatten_boundary_leaf_paths(
+                type_ref,
+                generated_name="return",
+                type_env=type_env,
+            )
+        )
+        if type_ref is not None
+        else {}
+    )
+    local_value: dict[str, Any] = {}
+    for output_name, ref in output_refs.items():
+        field_path = field_paths.get(
+            output_name,
+            tuple(output_name.removeprefix("return__").split("__")),
+        )
+        current = local_value
+        for field_name in field_path[:-1]:
+            next_current = current.get(field_name)
+            if not isinstance(next_current, dict):
+                next_current = {}
+                current[field_name] = next_current
+            current = next_current
+        current[field_path[-1]] = ref
+    return local_value
+
+
+def _flatten_inline_output_refs(local_value: Any) -> dict[str, str]:
+    """Flatten nested local-value mappings back into generated output refs."""
+
+    if not isinstance(local_value, Mapping):
+        return {}
+    output_refs: dict[str, str] = {}
+
+    def visit(value: Any, *, path: tuple[str, ...]) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if key in {
+                    "__lowering_returned_union_type",
+                    "__typed_union_prompt_source__",
+                }:
+                    continue
+                if isinstance(key, str):
+                    visit(item, path=path + (key,))
+            return
+        if isinstance(value, str):
+            output_refs[f"return__{'__'.join(path)}"] = value
+
+    visit(local_value, path=())
+    return output_refs
+
+
+def _flatten_boundary_leaf_paths(
+    type_ref: RecordTypeRef | UnionTypeRef,
+    *,
+    generated_name: str,
+    field_path: tuple[str, ...] = (),
+    type_env: Any | None = None,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Return generated boundary names paired with frontend field paths."""
+
+    if isinstance(type_ref, UnionTypeRef):
+        return tuple(
+            (field.generated_name, field_path + field.source_path[1:])
+            for field in derive_workflow_boundary_fields(
+                type_ref,
+                generated_name=generated_name,
+                source_path=(generated_name,),
+                span=type_ref.definition.span,
+                form_path=("workflow-lisp", "defunion", type_ref.name),
+                type_env=type_env,
+            )
+        )
+    flattened: list[tuple[str, tuple[str, ...]]] = []
+    for field in type_ref.definition.fields:
+        field_type = type_ref.field_types[field.name]
+        next_generated_name = f"{generated_name}__{field.name}"
+        next_field_path = field_path + (field.name,)
+        if isinstance(field_type, (RecordTypeRef, UnionTypeRef)):
+            flattened.extend(
+                _flatten_boundary_leaf_paths(
+                    field_type,
+                    generated_name=next_generated_name,
+                    field_path=next_field_path,
+                    type_env=type_env,
+                )
+            )
+            continue
+        flattened.append((next_generated_name, next_field_path))
+    return tuple(flattened)
+
+
+def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, ...]) -> Any:
+    """Read a nested field from an authored `record` expression."""
+
+    current: Any = record_expr
+    for field_name in field_path:
+        if isinstance(current, RecordExpr):
+            current = _record_field_value(current, field_name)
+            continue
+        if isinstance(current, UnionVariantExpr):
+            current = _union_variant_expr_value_at_path(current, (field_name,), bound_record_fields=False)
+            continue
+        if not isinstance(current, RecordExpr):
+            raise _value_compile_error(
+                code="workflow_return_not_exportable",
+                message=(
+                    f"record return field `{'__'.join(field_path)}` must lower from nested record or variant expressions "
+                    "when the workflow return type contains nested records"
+                ),
+                span=record_expr.span,
+                form_path=record_expr.form_path,
+            )
+    return current
+
+
+def _normalize_union_field_path(field_path: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for segment in field_path:
+        normalized.extend(part for part in segment.split("__") if part)
+    return tuple(normalized)
+
+
+def _union_variant_expr_value_at_path(
+    union_expr: UnionVariantExpr,
+    field_path: tuple[str, ...],
+    *,
+    bound_record_fields: bool,
+) -> Any:
+    """Read a field from one compiler-generated union variant literal.
+
+    `bound_record_fields` (target 2.33+) lets a nested record field populated
+    from a bound name lower as a field access; older targets reject it.
+    """
+
+    field_path = _normalize_union_field_path(field_path)
+    if not field_path:
+        return union_expr
+    field_name = field_path[0]
+    if field_name == "variant":
+        return LiteralExpr(
+            value=union_expr.variant_name,
+            literal_kind="string",
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+            expansion_stack=union_expr.expansion_stack,
+        )
+    for current_name, current_value in union_expr.fields:
+        if current_name != field_name:
+            continue
+        if len(field_path) == 1:
+            return current_value
+        if isinstance(current_value, (RecordExpr, UnionVariantExpr)):
+            return _record_expr_value_at_path(current_value, field_path[1:])
+        if bound_record_fields and isinstance(current_value, NameExpr):
+            # A nested record populated from a bound value: read the leaf
+            # through the same field access an author would write.
+            return FieldAccessExpr(
+                base=current_value,
+                fields=field_path[1:],
+                span=current_value.span,
+                form_path=current_value.form_path,
+                expansion_stack=current_value.expansion_stack,
+            )
+        if bound_record_fields and isinstance(current_value, FieldAccessExpr):
+            return replace(
+                current_value, fields=current_value.fields + field_path[1:],
+                shared_field_types=(
+                    current_value.shared_field_types + (None,) * len(field_path[1:])
+                    if current_value.shared_field_types else ()
+                ),
+            )
+        raise _value_compile_error(
+            code="workflow_return_not_exportable",
+            message=(
+                f"union return field `{'__'.join(field_path)}` must lower from nested record expressions "
+                "when the workflow return type contains nested records"
+            ),
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+        )
+    return None
+
+
+def _render_existing_output_ref(
+    expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+    context: Any | None = None,
+) -> str | None:
+    """Return a shared runtime ref when an expression already names one."""
+
+    if isinstance(expr, PhaseTargetExpr):
+        if context is None or context.phase_scope is None:
+            return None
+        return context.phase_scope.target_refs.get(expr.target_name)
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(value, ProjectedPathRef):
+        return value.ref
+    if not isinstance(value, str):
+        return None
+    if value.startswith(("root.steps.", "self.steps.", "parent.steps.", "inputs.")):
+        return value
+    return None
+
+
+def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ...], ref: str) -> None:
+    """Assign a flattened ref into a nested local-value mapping."""
+
+    current = target
+    for field_name in field_path[:-1]:
+        nested = current.get(field_name)
+        if not isinstance(nested, dict):
+            nested = {}
+            current[field_name] = nested
+        current = nested
+    current[field_path[-1]] = ref
+
+
+def inline_expr_projection_source(
+    expr: Any, *, field_path: tuple[str, ...], bound_record_fields: bool,
+) -> Any:
+    if isinstance(expr, RecordExpr):
+        return _record_expr_value_at_path(expr, field_path)
+    if isinstance(expr, UnionVariantExpr):
+        return _union_variant_expr_value_at_path(
+            expr, field_path, bound_record_fields=bound_record_fields,
+        )
+    return expr
+
+
+def inline_expr_field_value(
+    expr: Any, *, field_path: tuple[str, ...], local_values: Mapping[str, Any],
+    bound_record_fields: bool, phase_target_values: Mapping[str, Any] | None,
+    retain_expression_facts: bool = False,
+) -> Any:
+    """Pure projected-leaf resolution using explicit phase availability."""
+    selected = inline_expr_projection_source(
+        expr, field_path=field_path, bound_record_fields=bound_record_fields,
+    )
+    if isinstance(selected, PhaseTargetExpr) and phase_target_values is not None:
+        return phase_target_values.get(selected.target_name)
+    if isinstance(expr, LetStarExpr):
+        return inline_let_field_value(
+            expr.bindings, body=expr.body, field_path=field_path, local_values=local_values, retain_expression_facts=retain_expression_facts,
+        )
+    value = _resolve_inline_expr_value(selected, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if isinstance(expr, (RecordExpr, UnionVariantExpr)):
+        return value
+    return _resolve_nested_local_value(value, field_path) if field_path else value
+
+
+def inline_let_field_value(bindings: tuple[tuple[str, Any], ...], *, body: Any, field_path: tuple[str, ...], local_values: Mapping[str, Any], retain_expression_facts: bool = False) -> Any:
+    """Project a complete suffix using the same resolved-value path as a Let node."""
+    child_values = _resolve_inline_let_bindings(bindings, local_values=local_values, retain_expression_facts=retain_expression_facts)
+    if child_values is None:
+        return None
+    value = _resolve_inline_expr_value(body, local_values=child_values, retain_expression_facts=retain_expression_facts)
+    return _resolve_nested_local_value(value, field_path) if field_path else value
+
+
+def _resolve_procedure_lowering(
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    *,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    workflow_path: Path,
+    closed_program: bool = False,
+    type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+) -> Mapping[str, TypedProcedureDef]:
+
+    call_counts, lowerable_call_sites = _procedure_private_call_site_analysis(
+        typed_procedures,
+        typed_workflows=typed_workflows,
+        type_env=type_env,
+        procedure_type_envs=procedure_type_envs,
+    )
+    resolved: dict[str, TypedProcedureDef] = {}
+    typed_procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+    for procedure in typed_procedures:
+        requested = procedure.signature.requested_lowering_mode
+        boundary_valid = _procedure_private_boundary_valid(
+            procedure,
+            type_env=procedure_type_env_for(
+                procedure,
+                procedure_type_envs=procedure_type_envs,
+                default=type_env,
+            ),
+        )
+        procedure_type_env = procedure_type_env_for(
+            procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=type_env,
+        )
+        compile_time_proc_ref_template = (
+            bool(procedure.signature.type_params)
+            and target_dsl_supports_provider_context_values(
+                procedure_type_env.target_dsl_version
+            )
+        ) or any(
+            isinstance(type_ref, ProcRefTypeRef)
+            for _, type_ref in procedure.signature.params
+        )
+        body_valid = _procedure_private_body_valid(
+            procedure,
+            closed_program=closed_program,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
+        )
+        if (
+            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
+            and not boundary_valid
+            and not compile_time_proc_ref_template
+        ):
+            raise _value_compile_error(
+                code="proc_private_workflow_boundary_invalid",
+                message=f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3",
+                span=procedure.definition.span,
+                form_path=procedure.definition.form_path,
+            )
+        if (
+            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
+            and not body_valid
+            and not compile_time_proc_ref_template
+        ):
+            raise _value_compile_error(
+                code="proc_private_workflow_boundary_invalid",
+                message=(
+                    f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
+                    "because its body would not export step-backed outputs through the shared-validation seam"
+                ),
+                span=procedure.definition.span,
+                form_path=procedure.definition.form_path,
+            )
+        if (
+            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
+            and compile_time_proc_ref_template
+        ):
+            # The generic ProcRef-bearing definition is a compile-time
+            # specialization template, not a runtime workflow boundary.  Its
+            # authoritative monomorphic specializations are validated below
+            # after compiler fixed-point re-typechecking.
+            mode = ProcedureLoweringMode.INLINE
+        elif requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        elif (
+            requested == ProcedureLoweringMode.AUTO
+            and boundary_valid
+            and body_valid
+            and (
+                call_counts.get(procedure.definition.name, 0) > 1
+                or (
+                    procedure.specialization is not None
+                    and any(
+                        bool(getattr(procedure.specialization, field_name, {}))
+                        for field_name in (
+                            "type_bindings",
+                            "workflow_ref_bindings",
+                            "proc_ref_bindings",
+                        )
+                    )
+                )
+            )
+            and lowerable_call_sites.get(procedure.definition.name, True)
+        ):
+            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        else:
+            mode = ProcedureLoweringMode.INLINE
+        generated_name = None
+        if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            generated_name = f"%{workflow_path.stem}.{procedure.definition.name}.v1"
+        resolved[procedure.definition.name] = TypedProcedureDef(
+            definition=procedure.definition,
+            signature=procedure.signature,
+            typed_body=procedure.typed_body,
+            direct_effect_summary=procedure.direct_effect_summary,
+            transitive_effect_summary=procedure.transitive_effect_summary,
+            resolved_lowering_mode=mode,
+            generated_workflow_name=generated_name,
+            specialization=procedure.specialization,
+        )
+    return MappingProxyType(resolved)
+
+
+def _procedure_private_call_site_analysis(
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    *,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+) -> tuple[Mapping[str, int], Mapping[str, bool]]:
+    """Count procedure call sites and whether each can cross a workflow boundary."""
+
+
+    typed_procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+    distinct_call_sites: dict[str, set[tuple[SourceSpan, tuple[str, ...]]]] = {}
+    lowerable: dict[str, bool] = {}
+
+    def walk(
+        expr: Any,
+        *,
+        local_values: Mapping[str, Any],
+        current_type_env: FrontendTypeEnvironment,
+    ) -> None:
+        if isinstance(expr, ProcedureCallExpr):
+            distinct_call_sites.setdefault(expr.callee_name, set()).add((expr.span, expr.form_path))
+            call_site_lowerable = True
+            for arg in expr.args:
+                walk(arg, local_values=local_values, current_type_env=current_type_env)
+                if _resolve_expr_local_value(arg, local_values=local_values) is None:
+                    call_site_lowerable = False
+            lowerable[expr.callee_name] = lowerable.get(expr.callee_name, True) and call_site_lowerable
+            callee = typed_procedures_by_name.get(expr.callee_name)
+            if callee is not None:
+                child_locals = {}
+                for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
+                    child_locals[param_name] = _resolve_expr_local_value(arg_expr, local_values=local_values)
+                walk(
+                    callee.typed_body.expr,
+                    local_values=child_locals,
+                    current_type_env=procedure_type_env_for(
+                        callee,
+                        procedure_type_envs=procedure_type_envs,
+                        default=current_type_env,
+                    ),
+                )
+            return
+        if isinstance(expr, LetStarExpr):
+            child_locals = dict(local_values)
+            for binding_name, binding in expr.bindings:
+                walk(binding, local_values=child_locals, current_type_env=current_type_env)
+                resolved_binding = _resolve_expr_local_value(binding, local_values=child_locals)
+                if resolved_binding is not None:
+                    child_locals[binding_name] = resolved_binding
+                # schema1_compatibility: legacy local-value projection for covered provider results.
+                elif isinstance(binding, ProviderResultExpr):
+                    binding_type = current_type_env.resolve_type(
+                        binding.returns_type_name,
+                        span=binding.span,
+                        form_path=binding.form_path,
+                    )
+                    if isinstance(binding_type, RecordTypeRef):
+                        child_locals[binding_name] = _build_record_step_local_value(
+                            binding_type,
+                            step_name=binding_name,
+                        )
+            walk(expr.body, local_values=child_locals, current_type_env=current_type_env)
+            return
+        # schema1_compatibility: legacy procedure traversal for covered match forms.
+        if isinstance(expr, MatchExpr):
+            walk(expr.subject, local_values=local_values, current_type_env=current_type_env)
+            for arm in expr.arms:
+                walk(arm.body, local_values=local_values, current_type_env=current_type_env)
+            return
+        if isinstance(expr, RecordExpr):
+            for _, value in expr.fields:
+                walk(value, local_values=local_values, current_type_env=current_type_env)
+            return
+        if isinstance(expr, WithPhaseExpr):
+            walk(expr.ctx_expr, local_values=local_values, current_type_env=current_type_env)
+            walk(expr.body, local_values=local_values, current_type_env=current_type_env)
+            return
+        # schema1_compatibility: legacy procedure traversal for covered provider results.
+        if isinstance(expr, ProviderResultExpr):
+            walk(expr.provider, local_values=local_values, current_type_env=current_type_env)
+            walk(expr.prompt, local_values=local_values, current_type_env=current_type_env)
+            for value in expr.inputs:
+                walk(value, local_values=local_values, current_type_env=current_type_env)
+            return
+        # schema1_compatibility: legacy procedure traversal for covered command results.
+        if isinstance(expr, CommandResultExpr):
+            for value in expr.argv:
+                walk(value, local_values=local_values, current_type_env=current_type_env)
+            return
+        if isinstance(expr, CallExpr):
+            for _, value in expr.bindings:
+                walk(value, local_values=local_values, current_type_env=current_type_env)
+
+    for workflow in typed_workflows:
+        walk(
+            workflow.typed_body.expr,
+            local_values=_signature_local_values(workflow, type_env=type_env),
+            current_type_env=type_env,
+        )
+    return MappingProxyType(
+        {
+            callee_name: len(call_sites)
+            for callee_name, call_sites in distinct_call_sites.items()
+        }
+    ), MappingProxyType(lowerable)
+
+
+def resolved_surface_proc_ref(
+    value: Any, *, typed_procedures: Mapping[str, Any], local_values: Mapping[str, Any],
+    procedure_catalog: Any = None, expected_type: Any = None,
+) -> Any:
+    from orchestrator.workflow_lisp.expressions import BindProcExpr, ProcRefLiteralExpr
+    from orchestrator.workflow_lisp.procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
+    from orchestrator.workflow_lisp.procedures import ProcedureCatalog
+
+    if isinstance(value, ResolvedProcRefValue):
+        return value
+    if not isinstance(value, (NameExpr, ProcRefLiteralExpr, BindProcExpr)):
+        return None
+    if procedure_catalog is None:
+        procedure_catalog = ProcedureCatalog(
+            signatures_by_name={name: proc.signature for name, proc in typed_procedures.items()},
+            definitions_by_name={name: proc.definition for name, proc in typed_procedures.items()},
+            call_graph={},
+        )
+    return resolve_proc_ref_value(
+        value, procedure_catalog=procedure_catalog,
+        proc_ref_env={name: ref for name, ref in local_values.items() if isinstance(ref, ResolvedProcRefValue)},
+        expected_type=expected_type,
+    )
+
+
+def resolved_surface_workflow_ref(
+    value: Any, *, workflow_catalog: Any, typed_workflows: Mapping[str, Any],
+    expected_type: Any = None,
+) -> Any:
+    from orchestrator.workflow_lisp.expressions import EnumMemberExpr, WorkflowRefLiteralExpr
+    from orchestrator.workflow_lisp.workflow_refs import (
+        ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name,
+        workflow_ref_target_name,
+    )
+    from orchestrator.workflow_lisp.type_env import WorkflowRefTypeRef
+
+    if isinstance(value, ResolvedWorkflowRef):
+        return value
+    if isinstance(value, WorkflowRefLiteralExpr):
+        if expected_type is None:
+            signature = workflow_catalog.signatures_by_name.get(value.target_name)
+            if signature is None:
+                raise _value_compile_error(
+                    code="workflow_ref_unknown", message=f"unknown workflow ref `{value.target_name}`",
+                    span=value.span, form_path=value.form_path,
+                )
+            expected_type = WorkflowRefTypeRef(
+                name=f"WorkflowRef[{ ' '.join(type_ref.name for _, type_ref in signature.params) } -> {signature.return_type_ref.name}]",
+                param_type_refs=tuple(type_ref for _, type_ref in signature.params),
+                return_type_ref=signature.return_type_ref,
+            )
+        return resolve_workflow_ref_literal(
+            value, expected_type=expected_type, workflow_catalog=workflow_catalog,
+            typed_workflows_by_name=typed_workflows, allow_extern_rebinding=False,
+        )
+    if isinstance(value, (NameExpr, EnumMemberExpr)):
+        return resolve_workflow_ref_name(
+            workflow_ref_target_name(value), workflow_catalog=workflow_catalog,
+            span=value.span, form_path=value.form_path, expansion_stack=value.expansion_stack,
+            expected_type=expected_type, typed_workflows_by_name=typed_workflows,
+            allow_extern_rebinding=False,
+        )
+    return None
+
+
+def _surface_procedure_callee(
+    call: Any, *, local_values: Mapping[str, Any], typed_procedures: Mapping[str, Any],
+    procedure_catalog: Any,
+) -> Any:
+
+    if call.specialized_callee_name is not None:
+        name = call.specialized_callee_name
+        code = "procedure_lowering_unresolved"
+        message = f"compiler-owned specialization row `{name}` is missing during lowering"
+    else:
+        bound = resolved_surface_proc_ref(
+            local_values.get(call.callee_name), typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog, local_values=local_values,
+        )
+        if bound is not None:
+            name = bound.call_target_name
+            code = "procedure_lowering_unresolved"
+            message = f"compiler-owned bound ProcRef specialization row `{name}` is missing during lowering"
+        else:
+            name = call.callee_name
+            code = "procedure_call_unknown"
+            message = f"unknown procedure callee `{name}` during lowering"
+    procedure = typed_procedures.get(name)
+    if procedure is None:
+        raise _value_compile_error(code=code, message=message, span=call.span, form_path=call.form_path)
+    return procedure
+
+
+def _surface_procedure_actuals(
+    procedure: Any, args: tuple[Any, ...], *, local_values: Mapping[str, Any],
+    typed_procedures: Mapping[str, Any], procedure_catalog: Any,
+    workflow_catalog: Any, typed_workflows: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], tuple[Any, ...]]:
+    from orchestrator.workflow_lisp.expressions import EnumMemberExpr
+    from orchestrator.workflow_lisp.type_env import ProcRefTypeRef, WorkflowRefTypeRef
+
+    workflow_refs = {}
+    proc_refs = {}
+    residual = []
+    for arg, (name, param_type) in zip(args, procedure.signature.params, strict=True):
+        if isinstance(param_type, WorkflowRefTypeRef):
+            candidate = arg if isinstance(arg, EnumMemberExpr) else _resolve_inline_expr_value(arg, local_values=local_values) or arg
+            resolved = resolved_surface_workflow_ref(
+                candidate, workflow_catalog=workflow_catalog, typed_workflows=typed_workflows,
+                expected_type=param_type,
+            )
+            if resolved is None:
+                raise _value_compile_error(
+                    code="workflow_ref_literal_required",
+                    message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                    span=arg.span, form_path=arg.form_path,
+                )
+            workflow_refs[name] = resolved
+            continue
+        if isinstance(param_type, ProcRefTypeRef):
+            resolved = resolved_surface_proc_ref(
+                _resolve_inline_expr_value(arg, local_values=local_values) or arg,
+                typed_procedures=typed_procedures, procedure_catalog=procedure_catalog,
+                local_values=local_values, expected_type=param_type,
+            )
+            if resolved is not None:
+                proc_refs[name] = resolved
+                continue
+        residual.append(arg)
+    return workflow_refs, proc_refs, tuple(residual)
+
+
+def select_surface_procedure_call(
+    call: Any, *, local_values: Mapping[str, Any], typed_procedures: Mapping[str, Any],
+    procedure_catalog: Any, workflow_catalog: Any, typed_workflows: Mapping[str, Any],
+) -> tuple[Any, tuple[Any, ...]]:
+
+    procedure = _surface_procedure_callee(
+        call, local_values=local_values, typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog,
+    )
+    workflow_refs, proc_refs, residual = _surface_procedure_actuals(
+        procedure, call.args, local_values=local_values, typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog, workflow_catalog=workflow_catalog,
+        typed_workflows=typed_workflows,
+    )
+    if not (workflow_refs or proc_refs):
+        return procedure, call.args
+    rows = materialized_specialization_rows(
+        procedure, workflow_ref_bindings=workflow_refs, proc_ref_bindings=proc_refs,
+        typed_procedures=typed_procedures,
+    )
+    if len(rows) != 1:
+        raise _value_compile_error(
+            code="procedure_lowering_unresolved",
+            message="compiler-owned procedure specialization row with exact compile-time bindings is missing or ambiguous during lowering",
+            span=call.span, form_path=call.form_path,
+        )
+    return rows[0], residual
+
+
+def inline_procedure_bindings(
+    procedure: Any, *, caller_values: Mapping[str, Any], actual_values: tuple[Any, ...],
+) -> dict[str, Any]:
+    values = dict(caller_values)
+    values.update(procedure_specialization_bindings(procedure))
+    for value, (name, _) in zip(actual_values, procedure.signature.params, strict=True):
+        values[name] = value
+    return values
+
+
+def procedure_specialization_bindings(procedure: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    if procedure.specialization is not None:
+        for kind in ("workflow_ref_bindings", "proc_ref_bindings", "value_bindings"):
+            values.update(dict(getattr(procedure.specialization, kind, {})))
+    return values
+
+
+RUNTIME_REFERENCE = object()
+
+
+@dataclass(frozen=True)
+class RetainedExpressionFact:
+    """Closed-only constructor facts selected under their creation locals."""
+
+    form: Literal["record", "union", "opaque"]
+    projection_candidate: bool
+    fields: tuple[tuple[str, Any], ...] = ()
+    tag: LiteralExpr | None = None
+
+
+def schema1_iteration_private_override_applies(
+    procedure: Any, *, iteration_scope: Any, workflow_name: str,
+    default_type_env: Any, typed_procedures: Mapping[str, Any],
+    procedure_type_envs: Mapping[str, Any], workflow_signatures: Mapping[str, Any],
+) -> bool:
+    """Surface-only iteration override, with the existing private eligibility."""
+    from orchestrator.workflow_lisp.expression_traversal import walk_expr
+    from orchestrator.workflow_lisp.expressions import LoopRecurExpr
+    from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode, procedure_type_env_for
+
+    if not (
+        procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
+        and iteration_scope is not None
+        and not workflow_name.startswith("%composition.")
+        and not any(isinstance(node, LoopRecurExpr) for node in walk_expr(procedure.typed_body.expr))
+    ):
+        return False
+    procedure_type_env = procedure_type_env_for(
+        procedure, procedure_type_envs=procedure_type_envs, default=default_type_env,
+    )
+    return _procedure_private_boundary_valid(
+        procedure, type_env=procedure_type_env,
+    ) and _procedure_private_body_valid(
+        procedure, typed_procedures_by_name=typed_procedures,
+        type_env=procedure_type_env, procedure_type_envs=procedure_type_envs,
+        workflow_signatures_by_name=workflow_signatures,
+    )
+
+
+def _control_binding_terminal_for_match_subject_impl(
+    subject: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> Mapping[str, str] | None:
+    resolved_subject = _resolve_inline_expr_value(subject, local_values=local_values)
+    return _control_binding_terminal_for_inline_match_impl(resolved_subject)
+
+
+def _control_match_arm_local_values_impl(
+    *,
+    local_values: Mapping[str, Any],
+    binding_name: str,
+    binding_terminal: Mapping[str, str],
+    binding_type: TypeRef | None = None,
+) -> dict[str, Any]:
+    localized_output_refs = {
+        output_name: _match_subject_scope_value(output_ref)
+        for output_name, output_ref in binding_terminal.items()
+    }
+    if isinstance(binding_type, VariantCaseTypeRef):
+        allowed_field_names = {"variant", *(field.name for field in binding_type.definition.fields)}
+        localized_output_refs = {
+            output_name: output_ref
+            for output_name, output_ref in localized_output_refs.items()
+            if output_name == "return__variant"
+            or output_name.removeprefix("return__").split("__", 1)[0] in allowed_field_names
+        }
+    binding_value = _build_output_step_local_value(localized_output_refs)
+    if isinstance(binding_type, UnionTypeRef):
+        source = union_prompt_source_from_output_refs(
+            binding_type,
+            output_refs=localized_output_refs,
+        )
+        if source is not None:
+            binding_value["__typed_union_prompt_source__"] = source
+    return {
+        **local_values,
+        binding_name: binding_value,
+    }
+
+
+def _control_binding_terminal_for_inline_match_impl(local_value: Any) -> Mapping[str, str] | None:
+    output_refs = _flatten_inline_output_refs(local_value)
+    if "return__variant" not in output_refs:
+        return None
+    return output_refs
+
+
+def _match_subject_scope_value(value: Any) -> Any:
+    if isinstance(value, str):
+        if value.startswith("self.steps."):
+            return "parent.steps." + value.removeprefix("self.steps.")
+        return value
+    if isinstance(value, Mapping):
+        return {name: _match_subject_scope_value(item) for name, item in value.items()}
+    return value

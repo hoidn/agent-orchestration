@@ -465,7 +465,7 @@ class Builder:
 
     def _command_wcc_body(self, callable_def, source_program, *, type_env, value_env,
         compile_time_bindings=None, **preparation):
-        from ..lowering.command_control_summary import ControlFacts
+        from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
         from ..procedures import ProcedureCatalog
         from .command_templates import elaborate_command_scopes
         from .frontend import workflow_catalog_for
@@ -2823,7 +2823,11 @@ class Builder:
     @staticmethod
     def _abstract_preparation_value(value, *, type_ref=None, procedure=None, type_env=None):
         from ..expressions import LiteralExpr
-        from ..lowering.command_transport_decisions import RUNTIME_REFERENCE, RetainedExpressionFact, is_direct_reference
+        from orchestrator.workflow_lisp.procedure_specialization import (
+            RUNTIME_REFERENCE,
+            RetainedExpressionFact,
+        )
+        from orchestrator.workflow_lisp.closed.command_templates import is_direct_reference
 
         if value is RUNTIME_REFERENCE or is_direct_reference(value):
             return ["runtime"]
@@ -2919,7 +2923,9 @@ class Builder:
 
     @staticmethod
     def _command_inline_edge(procedure, context):
-        from ..lowering.command_transport_decisions import schema1_iteration_private_override_applies
+        from orchestrator.workflow_lisp.procedure_specialization import (
+            schema1_iteration_private_override_applies,
+        )
         from ..procedures import ProcedureLoweringMode
 
         facts = context.control
@@ -2931,7 +2937,9 @@ class Builder:
 
     @staticmethod
     def _procedure_compile_time_bindings(procedure, captures):
-        from ..lowering.command_control_decisions import procedure_specialization_bindings
+        from orchestrator.workflow_lisp.procedure_specialization import (
+            procedure_specialization_bindings,
+        )
 
         bindings = procedure_specialization_bindings(procedure)
         captured = {route[1] for capture in captures for route in capture.routes
@@ -2986,7 +2994,7 @@ class Builder:
 
     def _projection_leaves(self, fact, ref, *, procedure, type_env, path=(), targets=()):
         from ..expressions import LiteralExpr
-        from ..lowering.command_transport_decisions import RetainedExpressionFact
+        from orchestrator.workflow_lisp.procedure_specialization import (RetainedExpressionFact)
         from ..type_env import UnionTypeRef
 
         if isinstance(fact, LiteralExpr):
@@ -3037,7 +3045,7 @@ class Builder:
 
     def _prepare_command_procedure(self, procedure, source_program, call, d, captures,
         binding_facts, actual_values, command_context):
-        from ..lowering.command_control_decisions import inline_procedure_bindings
+        from orchestrator.workflow_lisp.procedure_specialization import (inline_procedure_bindings)
         from .command_interfaces import command_bearing, command_capture_routes, command_fact_demand
 
         inline = self._command_inline_edge(procedure, command_context)

@@ -49,7 +49,11 @@ from .phase_scope import (
     _typed_prompt_input_row_metadata,
     _uses_legacy_phase_prompt_input_prelude,
 )
-from .values import ProjectedPathRef, _record_output_refs, _resolve_inline_expr_value
+from orchestrator.workflow_lisp.procedure_specialization import (
+    ProjectedPathRef,
+    _resolve_inline_expr_value,
+)
+from .values import (_record_output_refs)
 from .workflow_calls import _render_argv_tail
 
 
@@ -198,7 +202,7 @@ def _provider_context_capture_output_refs(
 ) -> dict[str, str] | None:
     """Return the two whole runtime artifacts for a captured Contextual value."""
 
-    from .command_control_decisions import provider_capture_artifact_names
+    from orchestrator.workflow_lisp.closed.command_templates import provider_capture_artifact_names
 
     outputs = provider_capture_artifact_names(result_type, capture_context=capture_context)
     if outputs is None:

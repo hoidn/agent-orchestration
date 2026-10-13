@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectAtom, EffectSummary, parse_effect_clause, render_effect_set
@@ -1143,3 +1143,15 @@ def _raise_parse_error(
             ),
         )
     )
+
+
+@dataclass(frozen=True)
+class LowerableProcedureCall:
+    """Owner-level procedure-call payload shared by frontend and WCC lowering."""
+
+    callee_name: str
+    args: tuple[Any, ...]
+    span: Any
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
+    specialized_callee_name: str | None = None
