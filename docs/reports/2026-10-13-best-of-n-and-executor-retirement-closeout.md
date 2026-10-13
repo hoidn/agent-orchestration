@@ -29,7 +29,7 @@ Concurrent dirty main changes remain outside W and are preserved.
 | 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
 | 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
 | 2 other selected consumers | Bounded migration accepted | Four canonical consumers and independent contract/quality PASS; final retained-branch and retirement checks remain before R |
-| 3 cutoff / gate R | In progress | Public cutoff, native fixtures, typed imports/LSP separation, drain terminal coverage and human-input mutation cutoff verified; current-only consumer oracles, normative reconciliation and final R qualification remain |
+| 3 cutoff / gate R | In progress | Cutoff, native continuation, typed imports/LSP, retained consumers, normative reconciliation and family-specific recovery have evidence; independent R review leaves consumer request-data assertions and their recheck pending |
 | 4 physical deletion | Pending | No old executor/lowering deleted |
 | 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
 
@@ -432,3 +432,84 @@ The remaining flat fixture fails during its already-retired executable
 preparation at `dab2cdd1`; it is scheduled for deletion, not classified as a
 baseline failure or retained regression. These receipts close this bounded
 batch, not Gate R or physical deletion.
+
+## Final Cutoff Qualification Checks
+
+The current consumer owner now checks canonical evaluated sources against
+explicit values, artifacts, request policy and lineage, without running a flat
+reference workflow. Historical comparison data and helpers still needed by
+mixed owners remain available. Five pure proposal fixtures moved once to their
+existing source owner. `E/retirement-consumer-oracles-implementation.md` records
+the exact six-file scope and dispositions: **22 public cases passed**, **201
+collected**. The affected campaign was **187 passed, 19 failed**; the 19 exact
+nodes in `E/retirement-consumer-affected-dispositions.json` stop at retired
+reference executions before testing their current side. Task 4 must adapt those
+retained assertions; this is not a green affected suite or baseline exemption.
+
+The consumer contract review passed, but the independent quality review found
+that 14 parameter cases had lost checks of the actual task and preceding result
+fields delivered to providers. Policy, digest and dependency checks alone did
+not preserve that coverage. `E/retirement-consumer-oracles-quality-review.md`
+records the accepted correction; `E/retirement-gate-r-review.md` leaves R pending
+on those dataflow assertions and their independent recheck. No runtime defect
+is inferred from this test-coverage finding.
+
+Fresh evaluated lifecycle, child, invalidation, isolation and bounded parallel
+controls produced **364 passed, one failed** (`E/retirement-r-controls`). The
+failure was a provider-IO fixture indexing a removed executable-bundle result.
+Its replacement captures the original target-2.34 typed producer once, removes
+its sources, and changes only physical reader paths for relocation. Subsequent
+review found seven callers still expecting a bundle; they now use the existing
+reader-path helper. The final four-owner campaign passed **45 cases**, including
+the original isolation failure; the focused seven cases passed and collection
+found 38 provider cases. `E/retirement-provider-io-preparation.md` binds the three
+changed owners. The two retired target-2.24 child execution cases were explicitly
+excluded, not reported as retained passing coverage.
+
+Provider IO contract recheck and independent quality are PASS in
+`E/retirement-provider-io-contract-recheck.md` and
+`E/retirement-provider-io-quality-review.md`; the three owners were committed
+as `d7fa895c` after coordinator inspection.
+
+The retired flat `explain` view now returns `workflow_explain_retired` before
+reads or writes, replacing an AttributeError after typed-only build separation.
+Four public target cases passed, and the cutoff owner passed **57 cases**
+(`E/retirement-explain-implementation.md`). Its unreachable implementation stays
+only until Task 4's physical removal; no evaluated explain feature was added.
+Its contract and independent quality reviews passed; the bounded correction
+was committed as `a27a2f11`.
+
+Canonical plan/review/execute, design/review/execute, REPL, chess and compact
+search controls passed **32 cases** (`E/retirement-r-examples`). A separate public
+CLI smoke interrupted both `design_review_execute.orc` and `repl_feature.orc`
+after the draft commit, resumed to completion and resumed again. Each used four
+ordered deterministic provider requests, retained exact document lineage and
+bytes, and reported successfully without committed redispatch. Source and memo
+hashes are in `E/retirement-file-design-smoke.json`. These are transport/lifecycle
+checks, not a live provider-quality experiment.
+
+The normative CLI, DSL, IO, provider, state and versioning owners now distinguish
+current evaluated execution, old typed imports and read-only historical formats.
+Native prompt continuation remains independent. Seven documentation files have
+an independent specification PASS after three scope/target corrections
+(`E/retirement-normative-spec-recheck.md`); the bound snapshot records 17 inspected
+code/source owners and five receipts. All 102 checked links resolve, the documented
+compile test passed, and the canonical public dry-run exited zero. Wider routing
+and final-delivery labels remain Task 5 work.
+
+### Retained Interrupted Child Recovery
+
+The exact captured target-2.35 parent with a target-2.24 child recovered on its
+separately retained complete release/environment. Both
+`E/task4-retained-check-20261013T054816Z/legacy-flat-child-2.24/result.json` and
+the independent repeat under `...T064657Z/...` record retained resume/report
+exit zero, the expected terminal value and two run-reference commits. The
+capture and retained package identity match
+`sha256:7a97baa862cbf54ca3342c93b381c6ec9952e17bc1fbf77dfc6cdd56ce2630de`.
+Each check restored the original fixture. Their SHA-256 values are respectively
+`4bb9ca7271dcf83d2e5c3096365fa5c6131d411a785b33bca367460645244260`
+and `6c6078d54962035baa4903cbff41152b927d14975d4476762e8beaea72a8a42b`.
+The changed-package attempt correctly refused the changed program; it does not
+establish recovery on the new package. Completed target-2.28/2.15 parent captures
+prove read-only access/refusal, not interrupted parent recovery. No universal
+historical-run recovery claim follows from these family-specific receipts.
