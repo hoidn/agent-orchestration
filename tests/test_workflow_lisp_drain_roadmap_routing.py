@@ -1399,7 +1399,7 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     ):
         assert Path(path).name in index
     normalized_capability = _normalized_routing_text(capability_row)
-    assert "| historical |" in normalized_capability
+    assert "| retired |" in normalized_capability
     assert "direct won 3/3 against orc" in normalized_capability
     assert "orc in 1/3" in normalized_capability
     assert "exploratory only" in normalized_capability
