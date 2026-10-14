@@ -1,0 +1,1 @@
+Add the first release of a Workflow Lisp REPL to the orchestrator CLI: attach read-only to an evaluated run, capture its lexical environment from the memo, and evaluate pure expressions over it with the ordinary reader, typechecker, closed-program builder and evaluator.

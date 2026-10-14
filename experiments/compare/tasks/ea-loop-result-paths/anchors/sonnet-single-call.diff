@@ -1,0 +1,149 @@
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..095d38a 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -703,6 +703,8 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
++        state: Optional[Dict[str, Any]] = None,
++        step_name: str = "",
+     ) -> Optional[Dict[str, Any]]:
+         """Return loop-frame artifacts for an authored on_exhausted policy."""
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+@@ -713,6 +715,20 @@ class LoopExecutor:
+             return None
+         artifacts = dict(frame_artifacts)
+         artifacts.update(dict(overrides))
++        if state is not None and self.executor._workflow_version_at_least("2.29"):
++            # Compiler-emitted ref overrides (loop-state fields, inactive-variant
++            # placeholders) must be concrete before sibling-variant joins read them.
++            frame_prefix = f"root.steps.{step_name}.artifacts."
++            for name, value in overrides.items():
++                if not (isinstance(value, Mapping) and set(value) == {"ref"}):
++                    continue
++                ref = value["ref"]
++                if isinstance(ref, str) and ref.startswith(frame_prefix) and ref[len(frame_prefix):] in frame_artifacts:
++                    artifacts[name] = frame_artifacts[ref[len(frame_prefix):]]
++                    continue
++                resolved, error = self.executor._resolve_ref_value(ref, state)
++                if error is None:
++                    artifacts[name] = resolved
+         return artifacts
+ 
+     def _exhaustion_frame_artifacts(
+@@ -1417,7 +1433,9 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, state, step_name
++                )
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..ebed13e 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,15 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_workflow_lisp_loop_result_paths.py b/tests/test_workflow_lisp_loop_result_paths.py
+new file mode 100644
+index 0000000..48947a5
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_paths.py
+@@ -0,0 +1,75 @@
++"""Loop results with path fields in non-exhausted variants compile and run at 2.28 and 2.29+."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from orchestrator.state import StateManager
++from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
++from orchestrator.workflow.signatures import bind_workflow_inputs
++from orchestrator.workflow_lisp.compiler import compile_stage3_module
++from tests.workflow_bundle_helpers import bundle_context_dict
++
++SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{version}")
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow path-loop ((report Report) (finish Bool)) -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (if finish
++            (done (variant Outcome READY :report report :rounds state.round))
++            (continue (loop-state :like state :round (+ state.round 1))))))))
++"""
++
++
++def _run(tmp_path: Path, version: str, finish: bool):
++    module_path = tmp_path / "path_loop.orc"
++    module_path.write_text(SOURCE.format(version=version), encoding="utf-8")
++    report = tmp_path / "artifacts" / "review" / "r.md"
++    report.parent.mkdir(parents=True)
++    report.write_text("ok", encoding="utf-8")
++    bundle = next(
++        iter(
++            compile_stage3_module(
++                module_path, validate_shared=True, workspace_root=tmp_path
++            ).validated_bundles.values()
++        )
++    )
++    public_inputs = {
++        name: contract
++        for name, contract in workflow_runtime_input_contracts(bundle).items()
++        if not name.startswith("__write_root__")
++    }
++    state_manager = StateManager(workspace=tmp_path, run_id=f"r-{version}-{finish}")
++    state_manager.initialize(
++        str(module_path),
++        context=bundle_context_dict(bundle),
++        bound_inputs=bind_workflow_inputs(
++            public_inputs,
++            {"report": "artifacts/review/r.md", "finish": finish},
++            tmp_path,
++        ),
++    )
++    return WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
++        on_error="stop"
++    )
++
++
++@pytest.mark.parametrize("version", ["2.28", "2.29", "2.32"])
++@pytest.mark.parametrize("finish", [True, False])
++def test_loop_union_result_with_path_field_runs(tmp_path: Path, version: str, finish: bool) -> None:
++    state = _run(tmp_path, version, finish)
++
++    assert state["status"] == "completed"
++    outputs = state["workflow_outputs"]
++    assert outputs["return__rounds"] == (1 if finish else 2)

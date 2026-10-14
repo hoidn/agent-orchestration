@@ -1,0 +1,1 @@
+{"task": "Add slugify(title) to project/text.py: lowercase, words joined by single hyphens, no leading or trailing hyphen."}
