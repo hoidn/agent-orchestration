@@ -2,12 +2,14 @@
 
   summarize.py --pool P --criterion C [--python PY]
 
-Reads P/records/mapping.json (prepare.py pool) and, for every judge it lists, the one scoring run of
-experiments/compare/score.orc in that judge's state directory P/judges/<dir>/state/<run_id>/
-(run.json and memo.jsonl). Refuses unless every listed judge has exactly one completed scoring run
-that bound the criterion file's SHA-256 and the judge's model, and every batch's ratings line up with
-its clones. When the task package has hidden/ and hidden_tests.txt, runs each listed node id in a
-copy of every clone without .git, with hidden/ copied over it and PYTHONPATH at the copy.
+Reads P/records/mapping.json (prepare.py pool) and, for every judge it lists, the judge's scan
+(P/records/judges/<judge>/scan.json) and its one scoring run of experiments/compare/score.orc in its
+state directory P/judges/<dir>/state/<run_id>/ (run.json and memo.jsonl). Refuses a judge that is not
+scanned, whose scan predates calls, or whose hits have no verdict; leaves out a judge found
+contaminated. Refuses unless every other judge has exactly one completed scoring run that bound the
+criterion file's SHA-256 and the judge's model, and every batch's ratings line up with its clones.
+When the task package has hidden/ and hidden_tests.txt, runs each listed node id in a copy of every
+clone without .git, with hidden/ copied over it and PYTHONPATH at the copy.
 Writes P/records/results.json and P/records/results.md and prints the latter. Standard library only.
 """
 
@@ -27,6 +29,23 @@ SCORES = {"S0": 0, "S1": 1, "S2": 2}  # score.orc's Score enumeration
 CRITERIA = ("root_cause", "scope", "generality", "layering")
 OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt}
 NODE_TIMEOUT_SEC = 1800  # a hidden test that hangs counts as failed
+
+
+def judge_exclusion(pool, judge):
+    """Why the judge is left out (a contaminated verdict), or None; refuse an unscanned or unadjudicated judge."""
+    records = pool / "records" / "judges" / judge
+    command = f"prepare.py scan --pool {pool} --judge {judge}"
+    if not (records / "scan.json").is_file():
+        raise SystemExit(f"judge {judge} has not been scanned: {command} --hash SOL")
+    scan, calls = json.loads((records / "scan.json").read_text()), len(list((records / "calls").glob("*")))
+    if scan["calls"] != calls:
+        raise SystemExit(f"judge {judge}: the scan covers {scan['calls']} calls but {calls} were made: "
+                         f"{command} --hash SOL")
+    if scan["hits"] and scan["verdict"] is None:
+        raise SystemExit(f"judge {judge} has {len(scan['hits'])} scan hits and no verdict: {command} "
+                         "--verdict contaminated|cleared --reason TEXT")
+    verdict = scan["verdict"] or {}
+    return f"contaminated: {verdict['reason']}" if verdict.get("verdict") == "contaminated" else None
 
 
 def scoring_run(pool, judge, info, sha):
@@ -190,7 +209,8 @@ def run_table(rows):
 
 def markdown(results):
     """results.md: runs, measures, verdict per criterion entry, agreement, anchors, scan verdicts."""
-    lines = [f"Criterion sha256 `{results['criterion_sha256']}`; judges: {', '.join(results['judges'])}.", ""]
+    lines = [f"Criterion sha256 `{results['criterion_sha256']}`; judges: {', '.join(results['judges'])}."]
+    lines += [f"Judge {j} left out, {reason}." for j, reason in results["excluded_judges"].items()] + [""]
     lines += run_table(results["runs"]) + ["", "Measures:"]
     lines += [f"- {k}: {fmt(v)}" for k, v in results["measures"].items()] + ["", "Verdict:"]
     lines += [f"- {kind}: {e['measure']} {e['op']} {e['value']}: observed {fmt(e['observed'])}, met {e['met']}"
@@ -204,22 +224,36 @@ def markdown(results):
     return "\n".join(lines) + "\n"
 
 
+def judged_ratings(pool, mapping, sha):
+    """(left-out judges with reasons, ratings by judge of every other listed judge)."""
+    excluded = {judge: reason for judge in mapping["judges"] if (reason := judge_exclusion(pool, judge))}
+    ratings = {judge: join(*scoring_run(pool, judge, info, sha), mapping["batches"])
+               for judge, info in mapping["judges"].items() if judge not in excluded}
+    if not ratings:
+        raise SystemExit(f"every judge is excluded: {excluded}")
+    return excluded, ratings
+
+
+def hidden_fractions(pool, mapping, python):
+    task = Path(mapping["task"])
+    if not ((task / "hidden").is_dir() and (task / "hidden_tests.txt").is_file()):
+        return {}
+    return {cid: hidden_fraction(pool / "clones" / cid, task, python) for cid in mapping["clones"]}
+
+
 def summarize(pool, criterion, python=sys.executable):
     pool = Path(pool).resolve()
     mapping = json.loads((pool / "records" / "mapping.json").read_text())
     sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
-    ratings = {judge: join(*scoring_run(pool, judge, info, sha), mapping["batches"])
-               for judge, info in mapping["judges"].items()}
+    excluded, ratings = judged_ratings(pool, mapping, sha)
     totals = {judge: {cid: sum(r[c] for c in CRITERIA) for cid, r in rated.items()} for judge, rated in ratings.items()}
     clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid in mapping["clones"]}
-    task = Path(mapping["task"])
-    clone_hidden = {}
-    if (task / "hidden").is_dir() and (task / "hidden_tests.txt").is_file():
-        clone_hidden = {cid: hidden_fraction(pool / "clones" / cid, task, python) for cid in mapping["clones"]}
+    clone_hidden = hidden_fractions(pool, mapping, python)
     rows = run_rows(mapping, clone_scores, clone_hidden)
     m = measures(rows)
     results = {
-        "criterion_sha256": sha, "judges": sorted(ratings), "runs": rows, "measures": m,
+        "criterion_sha256": sha, "judges": sorted(ratings), "excluded_judges": excluded, "runs": rows,
+        "measures": m,
         "verdict": verdict(json.loads(Path(criterion).read_text()), m), "agreement": agreement(ratings),
         "anchors": anchor_scores(mapping, totals),
         "clones": {cid: {**clone, "score": clone_scores[cid], "hidden": clone_hidden.get(cid),

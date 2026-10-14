@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Transparent stand-in for the agent CLI it is named after (shim/codex links here). Runs the real
-# binary (the next one on PATH after this directory) with the same arguments and stdin, without
-# PYTHONPATH, tees stdout and stderr live, and records the call under $COMPARE_ROOT/calls/<n>/ with
-# every candidate's patch ($COMPARE_TREE/cand-*) against $COMPARE_BASE.
+# binary (the next one on PATH after this directory) with the same arguments and stdin, tees stdout
+# and stderr live, and records the call under $COMPARE_ROOT/calls/<n>/ with every candidate's patch
+# ($COMPARE_TREE/cand-*) against $COMPARE_BASE. The agent's environment loses PYTHONPATH, the
+# COMPARE_* variables and this directory on PATH: they name the frozen runtime and the records.
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
-here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0"); real=
+here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0"); real=; path=
 IFS=: read -ra dirs <<< "$PATH"
 for d in "${dirs[@]}"; do
   [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
-  [ -x "$d/$name" ] && { real="$d/$name"; break; }
+  path="${path:+$path:}$d"
+  [ -z "$real" ] && [ -x "$d/$name" ] && real="$d/$name"
 done
 [ -n "$real" ] || { echo "shim: no real $name on PATH outside $here" >&2; exit 127; }
 mkdir -p "$COMPARE_ROOT/calls"; n=1
@@ -19,13 +21,14 @@ done
 call="$COMPARE_ROOT/calls/$n"
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
+env -u PYTHONPATH -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$real" "$@" \
+  < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"
 shopt -s nullglob
 for repo in "$COMPARE_TREE"/cand-*; do
-  git -C "$repo" add -A -N . &&
-    git -C "$repo" diff --binary --no-ext-diff --no-color --no-textconv "$COMPARE_BASE" > "$call/patch-${repo##*/}.diff"
+  git -C "$repo" add -A -N . && git -C "$repo" diff --binary --no-ext-diff --no-color --no-textconv \
+    --src-prefix=a/ --dst-prefix=b/ "$COMPARE_BASE" > "$call/patch-${repo##*/}.diff"
   git -C "$repo" reset -q
 done
 exit "$status"

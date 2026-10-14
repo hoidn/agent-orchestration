@@ -1,24 +1,27 @@
-"""The blind scoring pool (design D4, D6, D8; rulings R18, R20, R21) and its integrity check.
+"""The blind scoring pool (design D4, D6, D8; rulings R18, R20, R21, R22) and its integrity checks.
 
 pool(task, criterion, out, judges, runs) builds P = out: P/clones/<id>/ applied-patch clones (what the
 judges read; P/clones is traversable but not listable), P/judges/<16 hex>/ one working and state
 directory per judge, and P/records/ with mapping.json (read by summarize.py and verify_pool only),
-patches/<id>.diff, score-inputs-<judge>.json and score-<judge>.sh. P and P/judges stay listable: the
-runtime opens every ancestor of a judge's working and state directory with O_RDONLY.
-verify_pool(out) restores any clone whose HEAD or patch a judge changed. Standard library only.
+patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, resume-<judge>.sh and judges/<judge>/
+(the judge's shim call records and scan.json). P and P/judges stay listable: the runtime opens every
+ancestor of a judge's working and state directory with O_RDONLY. Judges run behind the shims like
+agents. verify_pool(out) restores any clone a judge changed; scan_judge and adjudicate_judge are the
+judge-side contamination scan and verdict. Standard library only.
 """
 
 import random
 import re
 import secrets
-import shlex
-import sys
+import time
 from pathlib import Path
 
 try:
-    from .repos import HIDDEN_DIR, build_candidate, dump, git, guard, load, patch_of, sha256_file
+    from . import scan as contamination
+    from .repos import HIDDEN_DIR, build_candidate, dump, git, guard, load, patch_of, sha256_file, shim_commands
 except ImportError:
-    from repos import HIDDEN_DIR, build_candidate, dump, git, guard, load, patch_of, sha256_file
+    import scan as contamination
+    from repos import HIDDEN_DIR, build_candidate, dump, git, guard, load, patch_of, sha256_file, shim_commands
 
 STRIPPED = ("docs/design/", "artifacts/")  # D8: removed from every pooled patch
 ROW_KEYS = ("arm", "outcome", "failure", "calls", "wall_clock_sec", "selected", "variant")  # per run, in mapping.json
@@ -90,12 +93,15 @@ def add_clone(out, task, ref, patch, entry):
     return cid, entry
 
 
-def exclusion(path, scan):
-    """Why the run is excluded (a contaminated verdict), or None; refuse hits without a verdict (R20)."""
+def exclusion(scan, calls, adjudicate):
+    """Why a scanned run or judge is excluded (a contaminated verdict), or None. Refuses a scan that
+    covers another number of calls than were made (a resume after it), and hits without a verdict (R20)."""
+    if scan["calls"] != calls:
+        raise SystemExit(f"the scan covers {scan['calls']} calls but {calls} were made: {adjudicate} --hash SOL")
     hits, verdict = scan["hits"], scan["verdict"]
     if hits and verdict is None:
-        raise SystemExit(f"{path} has {len(hits)} scan hits and no verdict: "
-                         f"prepare.py scan --run {path} --verdict contaminated|cleared --reason TEXT")
+        raise SystemExit(f"{len(hits)} scan hits and no verdict: {adjudicate} --verdict contaminated|cleared "
+                         "--reason TEXT")
     return f"contaminated: {verdict['reason']}" if verdict and verdict["verdict"] == "contaminated" else None
 
 
@@ -105,7 +111,7 @@ def pool_runs(records):
     for path, rec in records.items():
         if "outcome" not in rec or "scan" not in rec:
             raise SystemExit(f"{path} has not been {'collected' if 'outcome' not in rec else 'scanned'}")
-        excluded = exclusion(path, rec["scan"])
+        excluded = exclusion(rec["scan"], rec["calls"], f"prepare.py scan --run {path}")
         rows[path] = {k: rec[k] for k in ROW_KEYS} | {
             "scan_hits": len(rec["scan"]["hits"]), "verdict": rec["scan"]["verdict"], "excluded": excluded}
         if rec["outcome"] == "completed" and not excluded:
@@ -143,6 +149,7 @@ def pool(task, criterion, out, judges, runs):
     clones, members = build_batches(out, task, ref, batches)
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
     mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
+               "main": ref["main"], "runtime": ref["runtime"], "created_at": time.time(),
                "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
                           for name, _, providers in (spec.partition("=") for spec in judges)},
                "runs": rows, "clones": clones, "batches": members}
@@ -155,8 +162,8 @@ def pool(task, criterion, out, judges, runs):
 
 
 def write_score_inputs(out, mapping, intent, runtime):
-    """Per judge: score.orc inputs with that judge's random clone order, a working and state directory
-    of its own, and the command (also in records/score-<judge>.sh)."""
+    """Per judge: score.orc inputs with that judge's random clone order, a working and state directory of
+    its own, and the command and resume script behind the shims (records/score-<judge>.sh, resume-<judge>.sh)."""
     rng = random.SystemRandom()
     for judge, info in mapping["judges"].items():
         inputs, home = out / "records" / f"score-inputs-{judge}.json", out / "judges" / info["dir"]
@@ -164,13 +171,42 @@ def write_score_inputs(out, mapping, intent, runtime):
                                   for ids in mapping["batches"]],
                       "intent": intent, "criterion_sha256": mapping["criterion_sha256"], "judge_model": judge})
         home.mkdir()
-        command = f"cd {shlex.quote(str(home))} && env PYTHONPATH={shlex.quote(str(runtime))} " + shlex.join([
-            sys.executable, "-P", "-m", "orchestrator", "run", str(runtime / "experiments/compare/score.orc"),
-            "--entry-workflow", "score::score", "--source-root", str(runtime / "experiments/compare"),
-            "--provider-externs-file", info["providers"], "--input-file", str(inputs),
-            "--state-dir", str(home / "state")])
+        (out / "records" / "judges" / judge).mkdir(parents=True)
+        command, resume = shim_commands(
+            home, runtime, {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
+                            "COMPARE_BASE": mapping["compare_base"]},
+            [str(runtime / "experiments/compare/score.orc"), "--entry-workflow", "score::score",
+             "--source-root", str(runtime / "experiments/compare"), "--provider-externs-file", info["providers"],
+             "--input-file", str(inputs)], home / "state")
         (out / "records" / f"score-{judge}.sh").write_text(command + "\n")
+        (out / "records" / f"resume-{judge}.sh").write_text(resume + "\n")
         print(command)
+
+
+def scan_judge(out, judge, solution, home=None):
+    """Record every contamination hit of a judge's calls and sessions in records/judges/<judge>/scan.json."""
+    out, home = out.resolve(), home or Path.home()
+    mapping = load(out / "records" / "mapping.json")
+    workdir, calls_root = out / "judges" / mapping["judges"][judge]["dir"], out / "records" / "judges" / judge
+    run_roots = sorted({str(Path(run).parents[1]) for run in mapping["runs"]})
+    compiled = contamination.patterns(
+        main=mapping["main"], runtime=mapping["runtime"], solution=solution, home=home,
+        others=contamination.siblings(workdir),
+        roots=[("this pool's records", out / "records", ""), *(("run records", root, "") for root in run_roots)])
+    hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled)
+    dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
+                                    "calls": len(list((calls_root / "calls").glob("*")))})
+    for hit in hits:
+        print(f"{hit['file']}:{hit['line']}: {hit['pattern']}: {hit['text']}")
+    return hits
+
+
+def adjudicate_judge(out, judge, verdict, reason):
+    path = out.resolve() / "records" / "judges" / judge / "scan.json"
+    if not path.is_file():
+        raise SystemExit(f"judge {judge} has not been scanned")
+    scan = load(path)
+    dump(path, scan | {"verdict": {"verdict": verdict, "reason": reason, "hits": len(scan["hits"])}})
 
 
 def changed_paths(recorded, current):

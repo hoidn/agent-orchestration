@@ -124,7 +124,7 @@ def write_memo(record, prompts, value, outcome="completed"):
     terminal = {"record": "terminal", "outcome": outcome}
     terminal |= {"value": value} if outcome == "completed" else {"code": "provider_timeout", "message": "t"}
     memo = Path(record["records"]) / "state" / "r1" / "memo.jsonl"
-    memo.parent.mkdir(parents=True)
+    memo.parent.mkdir(parents=True, exist_ok=True)
     memo.write_text("".join(json.dumps(row) + "\n" for row in [*rows, terminal]))
 
 

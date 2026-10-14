@@ -74,6 +74,11 @@ def test_run_refuses_a_runtime_under_the_main_checkout_prefix(world):
         start(world, "direct_task")
 
 
+def test_run_refuses_a_runtime_inside_the_work_root(world):
+    with pytest.raises(SystemExit, match="inside the work root"):
+        start(world, "direct_task", root=world.tmp)
+
+
 def test_agents_trees_have_unguessable_names_and_hold_only_candidates(world):
     _, record = start(world, "best_of_n", candidates=2)
     tree = Path(record["tree"])
@@ -119,6 +124,14 @@ def test_shim_forwards_to_the_real_cli_without_pythonpath(world):
     assert (done.returncode, "agent-said-hello" in done.stdout, "PYTHONPATH=unset" in done.stdout) == (3, True, True)
 
 
+def test_shim_hides_the_runtime_and_the_records_from_the_agent(world):
+    records, record = start(world, "direct_task")
+    env = dict(line.split("=", 1) for line in call(world, record, "env").stdout.splitlines()[1:] if "=" in line)
+    assert (sorted(k for k in env if k.startswith("COMPARE_") or k == "PYTHONPATH"),
+            [d for d in env["PATH"].split(":") if d.endswith("experiments/compare/shim")],
+            [k for k, v in env.items() if str(world.runtime) in v or str(records) in v]) == ([], [], [])
+
+
 def test_shim_passes_stderr_through_and_records_the_same_bytes(world):
     records, record = start(world, "direct_task")
     done = call(world, record, "for i in 1 2 3; do echo warning $i >&2; done")
@@ -140,12 +153,14 @@ def test_shim_records_each_call_with_a_patch_including_new_files(world):
 def test_patches_ignore_external_diff_and_colour_settings(world):
     records, record = start(world, "direct_task")
     cand = record["candidates"][0]
-    git(cand, "config", "diff.external", "false")
-    git(cand, "config", "color.diff", "always")
+    for key, value in (("diff.external", "false"), ("color.diff", "always"), ("diff.noprefix", "true"),
+                       ("diff.mnemonicPrefix", "true")):
+        git(cand, "config", key, value)
     call(world, record, edit("$PWD", "a + b"))
     patch = (records / "calls/1/patch-cand-1.diff").read_text()
     again = repos.patch_of(cand, record["compare_base"]).decode()
-    assert (patch.startswith("diff --git"), "\x1b[" in patch, again) == (True, False, patch)
+    assert (patch.startswith("diff --git a/"), "\n+++ b/" in patch, "\x1b[" in patch, again) == (
+        True, True, False, patch)
 
 
 def test_collect_takes_each_best_of_n_candidate_from_its_own_call(world):
@@ -223,7 +238,29 @@ def test_scan_counts_another_runs_agents_tree_as_a_hit(world):
     _, other = start(world, "direct_task")
     call(world, record, f"ls {Path(other['tree']).name}")
     assert [h["pattern"] for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
-        "other agents' tree"]
+        "other tree or judge"]
+
+
+def test_scan_counts_other_runs_records_and_pool_records_but_not_its_own_state(world):
+    records, record = start(world, "direct_task")
+    w = world.root.resolve()
+    lines = [f"{records}/state/r1/effects/x/attempt-1/result.json", "../../../records/direct_task/run-1/state/r1/a",
+             f"cat {w}/records/best_of_n/run-1/collected/cand-1.diff", "cat ../../../records/direct_task/run-2/state/x",
+             f"cat {records}/record.json", "cat /elsewhere/pools/p1/records/mapping.json", f"ls {w}/records"]
+    call(world, record, "".join(f"echo '{line}'\n" for line in lines))
+    hits = prepare.scan(records, world.solution, home=world.tmp / "home")
+    assert sorted((h["line"], h["pattern"]) for h in hits) == [
+        (4, "records layout"), (4, "records root"), (5, "records layout"), (6, "records layout"), (6, "records root"),
+        (7, "pool record files"), (8, "records root")]
+
+
+def test_scan_matches_paths_written_under_the_home_directory(world):
+    records, record = start(world, "direct_task")
+    lines = ["~/main/specs", "$HOME/main-repl/x", "${HOME}/runtime/orchestrator", "~/work/records", "main/specs"]
+    call(world, record, "".join(f"echo '{line}'\n" for line in lines))
+    hits = prepare.scan(records, world.solution, home=world.tmp)
+    assert sorted((h["line"], h["pattern"]) for h in hits) == [
+        (2, "main checkout prefix"), (3, "main checkout prefix"), (4, "frozen checkout"), (5, "records root")]
 
 
 def test_scan_records_hits_without_a_verdict_and_adjudicate_records_one(world):

@@ -30,7 +30,9 @@ before they run). Without both, hidden acceptance is skipped.
 The work root `W`, the pool `P` and the frozen runtime `RT` must not lie under the main checkout's
 path prefix (for `/home/ollie/Documents/agent-orchestration`, that includes every sibling such as
 `...-compare` or `...-repl`): those checkouts hold solutions, and the scan counts any mention of the
-prefix as a hit. `prepare.py` refuses such paths.
+prefix as a hit. `prepare.py` refuses such paths. The frozen runtime must also lie outside the work
+root `W`, where agents work, and `run` refuses one inside it. The live layout puts the runtime at
+`/home/ollie/compare-runtime` and the work root at `/home/ollie/compare-work`.
 
 | Path | Holds |
 | --- | --- |
@@ -38,6 +40,7 @@ prefix as a hit. `prepare.py` refuses such paths.
 | `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` |
+| `P/records/judges/<judge>/` | the judge's shim call records (`calls/<n>/`) and `scan.json` |
 | `P/records/` | `mapping.json`, `patches/`, `score-inputs-<judge>.json`, `score-<judge>.sh`, `results.json`, `results.md` |
 
 `P/clones` is mode 0311 (traversable, not listable: judges get absolute paths); `chmod u+r` it
@@ -81,7 +84,9 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
    `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). It passes
-   `--state-dir R/state`.
+   `--state-dir R/state`. The shims strip `PYTHONPATH`, the `COMPARE_*` variables and their own
+   directory from `PATH` before an agent starts, because these name the frozen runtime and the
+   records.
 
 2. **Run** in tmux. A run that stops on provider infrastructure is resumed with the same state
    directory, never relaunched.
@@ -109,9 +114,14 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    The patterns are:
    - the main checkout's prefix;
    - the frozen checkout;
+   - the records root `W/records`;
+   - the layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie, except the
+     run's own `state/`;
    - another run's tree name;
    - `github.com`, `gh ` and `git fetch`;
    - the solution hash.
+
+   A path also matches when it is written under `~`, `$HOME` or `${HOME}`.
 
    For a run with hits, the controller reads them and records a verdict. `pool` refuses a run
    with hits and no verdict, excludes contaminated runs (listed with the reason) and includes
@@ -142,15 +152,26 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
      --judge claude-opus-5-5 --judge gpt-6.1-sol=$H/providers/score_codex.json $W/records/best_of_n/run-* ...
    ```
 
-7. **Score** one judge after another. After each, `verify-pool` restores any clone the judge
-   changed, and exits non-zero if it had to.
+7. **Score** one judge after another, behind the shims, which record the judge's calls in
+   `P/records/judges/<judge>/`. After each judge, `verify-pool` restores any clone the judge
+   changed, and exits non-zero if it had to. A judge stopped by a provider failure is resumed with
+   `P/records/resume-<judge>.sh <run_id>` (the same `--state-dir`), never re-run. Then scan the
+   judge and adjudicate its hits, as for a run. The scan searches the judge's calls, sessions and
+   rollouts for this pool's records, the run records root, the records layout, another judge's
+   directory, the frozen runtime and the main checkout.
 
    ```bash
    bash $P/records/score-claude-opus-5-5.sh && $PY $H/prepare.py verify-pool --pool $P
+   bash $P/records/resume-claude-opus-5-5.sh <run_id>      # only after a stop; run_id under P/judges/<dir>/state
+   $PY $H/prepare.py scan --pool $P --judge claude-opus-5-5 --hash $SOL
+   $PY $H/prepare.py scan --pool $P --judge claude-opus-5-5 --verdict cleared --reason "<why>"
    bash $P/records/score-gpt-6.1-sol.sh && $PY $H/prepare.py verify-pool --pool $P
+   $PY $H/prepare.py scan --pool $P --judge gpt-6.1-sol --hash $SOL
    ```
 
-8. **Summarize.** It refuses in three cases:
+8. **Summarize.** It refuses in these cases:
+   - a judge not scanned, scanned before its last call, or with hits and no verdict (a judge found
+     contaminated is left out and listed);
    - a listed judge without exactly one completed scoring run;
    - a scoring run bound to another criterion hash;
    - a batch whose ratings do not line up with its clones.

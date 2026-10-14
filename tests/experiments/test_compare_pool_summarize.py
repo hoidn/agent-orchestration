@@ -6,6 +6,7 @@ where each judge's state directory holds them; see compare_harness_support.
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -29,8 +30,8 @@ def rating(path, clone, judge):
     return dict(zip(("root_cause", "scope", "generality", "layering"), tokens), clone=path, reason="r")
 
 
-def score(out, judge, mapping, *, tamper=None, sha=None, run_id="r1"):
-    """Write a completed scoring run where the judge's own --state-dir puts it."""
+def score(out, judge, mapping, home, *, tamper=None, sha=None, run_id="r1", scanned=True):
+    """Write a completed scoring run where the judge's own --state-dir puts it, then scan the judge."""
     inputs = json.loads((out / "records" / f"score-inputs-{judge}.json").read_text())
     value = [[rating(path, mapping["clones"][Path(path).name], judge) for path in batch["clones"]]
              for batch in inputs["batches"]]
@@ -41,6 +42,8 @@ def score(out, judge, mapping, *, tamper=None, sha=None, run_id="r1"):
     run.mkdir(parents=True)
     (run / "run.json").write_text(json.dumps({"bound_inputs": inputs}))
     (run / "memo.jsonl").write_text(json.dumps({"outcome": "completed", "record": "terminal", "value": value}) + "\n")
+    if scanned:
+        pooling.scan_judge(out, judge, "f" * 40, home=home)
 
 
 def test_pool_composes_batches_per_d4(pooled):  # each reviewed_change stage is drawn at random: two valid shapes
@@ -85,6 +88,15 @@ def test_each_judge_gets_its_own_inputs_working_and_state_directory(pooled, worl
         {j: (j, repos.sha256_file(world.criterion)) for j in judges}, 2)
 
 
+def test_pool_refuses_a_run_resumed_after_its_scan(world):
+    records, record = drive(world, "direct_task", ["true"], True)
+    call(world, record, "true")
+    write_memo(record, ["true", "true"], True)
+    prepare.collect(records)
+    with pytest.raises(SystemExit, match="the scan covers 1 calls but 2 were made"):
+        pooling.pool(world.task, world.criterion, world.tmp / "pool", ["j"], [records])
+
+
 def test_pool_refuses_an_unscanned_run(world):
     records, record = start(world, "direct_task")
     call(world, record, "true")
@@ -110,6 +122,55 @@ def test_pool_excludes_contaminated_runs_and_includes_cleared_ones(world):
         "contaminated: read the fix", sorted([str(cleared), str(clean)]))
 
 
+def run_judge_script(pooled, judge, script, *args):
+    command = f"bash {pooled.out / 'records' / f'{script}-{judge}.sh'} {' '.join(args)}"
+    return json.loads(subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=True).stdout)
+
+
+def test_judges_run_behind_the_shims_from_their_own_directory_and_state(pooled, world):
+    home = str(pooled.out / "judges" / pooled.mapping["judges"]["judge-a"]["dir"])
+    seen, resumed = run_judge_script(pooled, "judge-a", "score"), run_judge_script(pooled, "judge-a", "resume", "R1")
+    assert (seen["cwd"], seen["path0"], seen["env"]["COMPARE_ROOT"], seen["env"]["COMPARE_TREE"],
+            seen["argv"][-2:], resumed["argv"]) == (
+        home, str(world.runtime / "experiments/compare/shim"), str(pooled.out / "records" / "judges" / "judge-a"),
+        home, ["--state-dir", home + "/state"], ["resume", "R1", "--state-dir", home + "/state"])
+
+
+def judge_session(pooled, world, judge, command):
+    """A Claude CLI session file of the judge's working directory holding one shell action."""
+    home = str(pooled.out / "judges" / pooled.mapping["judges"][judge]["dir"])
+    project = world.tmp / "home" / ".claude" / "projects" / "".join(c if c.isalnum() else "-" for c in home)
+    project.mkdir(parents=True)
+    (project / "s.jsonl").write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "input": {"command": command}}]}}) + "\n")
+
+
+def test_judge_scan_finds_the_pool_records_and_other_judges(pooled, world):
+    other = pooled.mapping["judges"]["judge-b"]["dir"]
+    judge_session(pooled, world, "judge-a", f"cat {pooled.out}/records/mapping.json ../{other}/state")
+    hits = pooling.scan_judge(pooled.out, "judge-a", "f" * 40, home=world.tmp / "home")
+    assert sorted(h["pattern"] for h in hits) == ["other tree or judge", "pool record files", "this pool's records"]
+
+
+def test_summarize_refuses_judge_hits_without_a_verdict_and_leaves_out_a_contaminated_judge(pooled, world):
+    judge_session(pooled, world, "judge-a", f"cat {pooled.out}/records/mapping.json")
+    for judge in ("judge-a", "judge-b"):
+        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+    with pytest.raises(SystemExit, match="judge judge-a has 2 scan hits and no verdict: prepare.py scan --pool"):
+        summarize.summarize(pooled.out, world.criterion)
+    pooling.adjudicate_judge(pooled.out, "judge-a", "contaminated", "read the mapping")
+    results = summarize.summarize(pooled.out, world.criterion)
+    assert (results["judges"], results["excluded_judges"]) == (
+        ["judge-b"], {"judge-a": "contaminated: read the mapping"})
+
+
+def test_summarize_refuses_an_unscanned_judge(pooled, world):
+    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home", scanned=False)
+    with pytest.raises(SystemExit, match="judge judge-b has not been scanned"):
+        summarize.summarize(pooled.out, world.criterion)
+
+
 def test_verify_pool_restores_a_clone_a_judge_changed(pooled, capsys):
     cid = next(iter(pooled.mapping["clones"]))
     clone, base = pooled.out / "clones" / cid, pooled.mapping["compare_base"]
@@ -126,7 +187,7 @@ def test_verify_pool_restores_a_clone_a_judge_changed(pooled, capsys):
 @pytest.fixture
 def results(pooled, world):
     for judge in ("judge-a", "judge-b"):
-        score(pooled.out, judge, pooled.mapping)
+        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
     return summarize.summarize(pooled.out, world.criterion)
 
 
@@ -164,8 +225,8 @@ def test_results_md_holds_what_results_json_reports(results, pooled):
 
 
 def test_summarize_refuses_a_batch_with_a_missing_rating(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, tamper=lambda value: value[1].pop())
-    score(pooled.out, "judge-b", pooled.mapping)
+    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", tamper=lambda value: value[1].pop())
+    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
     with pytest.raises(SystemExit, match="batch 1"):
         summarize.summarize(pooled.out, world.criterion)
 
@@ -173,25 +234,26 @@ def test_summarize_refuses_a_batch_with_a_missing_rating(pooled, world):
 def test_summarize_refuses_a_copied_back_id_that_disagrees_with_its_position(pooled, world):
     def swap(value):
         value[0][0]["clone"], value[0][1]["clone"] = value[0][1]["clone"], value[0][0]["clone"]
-    score(pooled.out, "judge-a", pooled.mapping, tamper=swap)
-    score(pooled.out, "judge-b", pooled.mapping)
+    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", tamper=swap)
+    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
     with pytest.raises(SystemExit, match="batch 0 position 0"):
         summarize.summarize(pooled.out, world.criterion)
 
 
 def test_summarize_refuses_a_scoring_run_bound_to_another_criterion(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, sha="0" * 64)
-    score(pooled.out, "judge-b", pooled.mapping)
+    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", sha="0" * 64)
+    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
     with pytest.raises(SystemExit, match=f"{'0' * 64}.*{repos.sha256_file(world.criterion)}"):
         summarize.summarize(pooled.out, world.criterion)
 
 
 def test_summarize_refuses_unless_every_judge_has_exactly_one_scoring_run(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping)
+    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home")
+    pooling.scan_judge(pooled.out, "judge-b", "f" * 40, home=world.tmp / "home")
     with pytest.raises(SystemExit, match="judge judge-b: expected one scoring run.*found 0"):
         summarize.summarize(pooled.out, world.criterion)
-    score(pooled.out, "judge-b", pooled.mapping)
-    score(pooled.out, "judge-b", pooled.mapping, run_id="r2")
+    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home", run_id="r2")
     with pytest.raises(SystemExit, match="judge judge-b: expected one scoring run.*found 2"):
         summarize.summarize(pooled.out, world.criterion)
 
@@ -203,7 +265,7 @@ def test_summarize_runs_hidden_acceptance_in_an_untouched_copy_without_git(world
     records, _ = drive(world, "direct_task", [edit("$PWD", "a + b") + own_test], True, task=task)
     out = world.tmp / "pool-hidden"
     mapping = pooling.pool(task, world.criterion, out, ["judge-a"], [records])
-    score(out, "judge-a", mapping)
+    score(out, "judge-a", mapping, world.tmp / "home")
     results = summarize.summarize(out, world.criterion)
     pooling.verify_pool(out)
     assert results["measures"]["direct_task.hidden_mean"] == pytest.approx(3 / 4)

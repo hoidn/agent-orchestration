@@ -1,28 +1,53 @@
-"""Contamination scan (design D5 as amended by ruling R20): find every hit, decide nothing.
+"""Contamination scan (design D5 as amended by rulings R20, R22, R23): find every hit, decide nothing.
 
-find_hits(records, tree, main, runtime, solution, since, home) -> [{"file", "line", "pattern", "text"}]
+patterns(...) -> {name: regex}; find_hits(calls_root, tree, since, home, patterns) -> [{"file", "line",
+"pattern", "text"}]. The same scan serves an agent run (calls_root = its records directory, tree = its
+agents' tree) and a judge (calls_root = its records under the pool, tree = its working directory).
 
-Sources: the shims' calls/<n>/stdout.txt and stderr.txt under the run's records directory; the Claude
-CLI's session files (~/.claude/projects/<slug>, the slug being the path with every non-alphanumeric
-character as "-") for the agents' tree and every directory under it, tool_use inputs only; codex
-rollouts (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) modified since `since` whose session cwd lies
-in the tree, function, custom tool and shell call arguments only. Patterns: the main checkout's path
-as a prefix (sibling worktrees hold solutions), the frozen checkout's path bounded, the name of any
-other agents' tree beside this one (another run's work), github.com, the gh command, git fetch and
-the solution commit's first seven characters. Standard library only.
+Sources: the shims' calls/<n>/stdout.txt and stderr.txt under calls_root; the Claude CLI's session
+files (~/.claude/projects/<slug>, the slug being the path with every non-alphanumeric character as "-")
+for the tree and every directory under it, tool_use inputs only; codex rollouts
+(~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) modified since `since` whose session cwd lies in the
+tree, function, custom tool and shell call arguments only.
+
+Patterns: the main checkout's path as a prefix (sibling worktrees hold solutions); the frozen
+runtime's path, bounded; any named records root (the work root's records, a pool's records); the
+records layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie, except the
+run's own state directory, where its agent writes results; the name of any other tree or judge
+directory beside this one; github.com, the gh command, git fetch and the solution commit's first
+seven characters. Paths match as typed: absolute, or under ~, $HOME or ${HOME} (R23). Standard
+library only.
 """
 
 import json
 import re
 from pathlib import Path
 
+ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
+POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
 
-def patterns(main, runtime, solution, others):
-    found = {"main checkout prefix": re.escape(str(main)),
-             "frozen checkout": re.escape(str(runtime)) + r"(?![\w.-])",
+
+def spelled(path, home):
+    """A regex for `path` absolute, or written under ~, $HOME or ${HOME} when it lies in `home`."""
+    path, home = str(path), str(home).rstrip("/")
+    if path.startswith(home + "/"):
+        return r"(?:" + re.escape(home) + r"|~|\$HOME|\$\{HOME\})" + re.escape(path[len(home):])
+    return re.escape(path)
+
+
+def patterns(*, main, runtime, solution, home, others=(), roots=(), own_state=""):
+    """`roots` are (name, path, own suffix to leave out); `own_state` is the run's `<arm>/run-<k>/state/`."""
+    skip = rf"(?!{re.escape(own_state)})" if own_state else ""
+    found = {"main checkout prefix": spelled(main, home),
+             "frozen checkout": spelled(runtime, home) + r"(?![\w.-])",
+             "records layout": rf"records/{skip}(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
              "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
              "solution hash": re.escape(solution[:7])}
-    return found | ({"other agents' tree": "|".join(re.escape(name) for name in others)} if others else {})
+    for name, path, suffix in roots:
+        found[name] = spelled(path, home) + (rf"(?!/{re.escape(suffix)})" if suffix else "")
+    if others:
+        found["other tree or judge"] = "|".join(re.escape(name) for name in others)
+    return found
 
 
 def claude_actions(row):
@@ -54,9 +79,9 @@ def codex_cwd(path):
         return ((json.loads(handle.readline() or "{}").get("payload") or {}).get("cwd")) or ""
 
 
-def sources(records, tree, since, home):
-    """(file, line number, text) for every recorded output and structured agent action of the run."""
-    for path in sorted(records.glob("calls/*/std*.txt")):
+def sources(calls_root, tree, since, home):
+    """(file, line number, text) for every recorded output and structured agent action."""
+    for path in sorted(calls_root.glob("calls/*/std*.txt")):
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
             yield path, number, line
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
@@ -69,11 +94,13 @@ def sources(records, tree, since, home):
             yield from json_actions(path, codex_actions)
 
 
-def find_hits(records, tree, main, runtime, solution, since, home):
-    others = sorted(p.name for p in Path(tree).parent.iterdir() if p.name != Path(tree).name)
-    compiled = patterns(main, runtime, solution, others)
+def siblings(tree):
+    return sorted(p.name for p in Path(tree).parent.iterdir() if p.name != Path(tree).name)
+
+
+def find_hits(calls_root, tree, since, home, compiled):
     hits = []
-    for path, number, text in sources(Path(records), Path(tree), since, Path(home)):
+    for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
         for name, pattern in compiled.items():
             found = re.search(pattern, text)
             if found:

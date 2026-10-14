@@ -4,6 +4,7 @@
   prepare.py collect --run R
   prepare.py scan --run R --hash SOLUTION_COMMIT
   prepare.py scan --run R --verdict contaminated|cleared --reason TEXT
+  prepare.py scan --pool P --judge MODEL --hash SOLUTION_COMMIT   (and --verdict ... --reason ...)
   prepare.py pool --task T --criterion C --out P --judge MODEL[=PROVIDERS_JSON] [--judge ...] R [R ...]
   prepare.py verify-pool --pool P
 
@@ -20,19 +21,17 @@ Design: docs/design/orc_effectiveness_comparison_harness.md. Standard library on
 
 import argparse
 import json
-import shlex
 import shutil
-import sys
 import time
 from pathlib import Path
 
 try:
     from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
-    from .repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file
+    from .repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file, shim_commands
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
-    from repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file
+    from repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file, shim_commands
 
 # arm: (source, entry workflow, source root, providers file, typed inputs); paths in the runtime checkout.
 ARMS = {
@@ -74,20 +73,6 @@ def arm_inputs(task, arm, candidates, sets):
     return {f: values[f] for f in fields}
 
 
-def orchestrator_commands(arm, runtime, records, cwd, env):
-    """The run command and the resume script, both with the shims first on PATH and state under records."""
-    source, entry, source_root, providers, _ = ARMS[arm]
-    prefix = (f"cd {shlex.quote(str(cwd))} && env "
-              + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in {"PYTHONPATH": runtime, **env}.items())
-              + f' PATH={shlex.quote(str(runtime / "experiments/compare/shim"))}:"$PATH" ')
-    python = [sys.executable, "-P", "-m", "orchestrator"]  # -P: a candidate's orchestrator/ must not shadow it
-    state = ["--state-dir", str(records / "state")]
-    run = shlex.join([*python, "run", str(runtime / source), "--entry-workflow", entry,
-                      "--source-root", str(runtime / source_root), "--provider-externs-file", str(runtime / providers),
-                      "--input-file", str(records / "inputs.json"), *state])
-    return prefix + run, prefix + shlex.join([*python, "resume"]) + ' "$1" ' + shlex.join(state)
-
-
 def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     """Build the run's agents' tree and records directory, print the command; return the records directory."""
     count = candidates or (4 if arm == "best_of_n" else 1)
@@ -96,6 +81,8 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     task, runtime, root = task.resolve(), runtime.resolve(), root.resolve()
     main = main_checkout(runtime)
     guard(main, root, runtime)
+    if str(runtime).startswith(f"{root}/"):
+        raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
     base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
     arm_inputs(task, arm, [Path("/")], sets)  # refuse bad --set values before building anything
     records, tree = next_run_dir(root / "records" / arm), random_child(root / "agents")
@@ -107,8 +94,13 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     (tree / "tmp").mkdir()
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))
     cwd = tree if arm == "best_of_n" else cands[0]
-    command, resume = orchestrator_commands(arm, runtime, records, cwd, {
-        "COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"})
+    source, entry, source_root, providers, _ = ARMS[arm]
+    command, resume = shim_commands(
+        cwd, runtime, {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base,
+                       "TMPDIR": tree / "tmp"},
+        [str(runtime / source), "--entry-workflow", entry, "--source-root", str(runtime / source_root),
+         "--provider-externs-file", str(runtime / providers), "--input-file", str(records / "inputs.json")],
+        records / "state")
     (records / "command.sh").write_text(command + "\n")
     (records / "resume.sh").write_text(resume + "\n")
     dump(records / "record.json", {
@@ -201,12 +193,18 @@ def collect(records):
 
 
 def scan(records, solution, home=None):
-    """Record every contamination hit of the run (file, line, pattern, excerpt); any earlier verdict is dropped."""
-    records = records.resolve()
+    """Record every contamination hit of the run (file, line, pattern, excerpt) and the number of calls the
+    scan covers; any earlier verdict is dropped."""
+    records, home = records.resolve(), home or Path.home()
     record = load(records / "record.json")
-    hits = contamination.find_hits(records, record["tree"], record["main"], record["runtime"], solution,
-                                   record["created_at"], home or Path.home())
-    record["scan"] = {"solution": solution, "hits": hits, "verdict": None}
+    own = f"{record['arm']}/{records.name}/state/"  # where the run's agents write their results
+    compiled = contamination.patterns(
+        main=record["main"], runtime=record["runtime"], solution=solution, home=home,
+        others=contamination.siblings(record["tree"]), roots=[("records root", records.parents[1], own)],
+        own_state=own)
+    hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled)
+    record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
+                      "calls": len(list((records / "calls").glob("*")))}
     dump(records / "record.json", record)
     for hit in hits:
         print(f"{hit['file']}:{hit['line']}: {hit['pattern']}: {hit['text']}")
@@ -222,6 +220,17 @@ def adjudicate(records, verdict, reason):
     dump(records / "record.json", record)
 
 
+def scan_command(a):
+    if bool(a.run) == bool(a.pool and a.judge) or (a.verdict and not a.reason):
+        raise SystemExit("scan takes --run R or --pool P --judge MODEL, and --verdict needs --reason")
+    if a.verdict:
+        (adjudicate(a.run, a.verdict, a.reason) if a.run
+         else pooling.adjudicate_judge(a.pool, a.judge, a.verdict, a.reason))
+        return
+    hits = scan(a.run, a.hash) if a.run else pooling.scan_judge(a.pool, a.judge, a.hash)
+    print(f"{len(hits)} hits; record a verdict with --verdict when there are any")
+
+
 def parser():
     top = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = top.add_subparsers(dest="command", required=True)
@@ -232,8 +241,10 @@ def parser():
     run.add_argument("--candidates", type=int)
     run.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="other typed input")
     sub.add_parser("collect").add_argument("--run", type=Path, required=True, help="records directory")
-    scan_cmd = sub.add_parser("scan")
-    scan_cmd.add_argument("--run", type=Path, required=True, help="records directory")
+    scan_cmd = sub.add_parser("scan", help="a run (--run R) or a pool's judge (--pool P --judge MODEL)")
+    scan_cmd.add_argument("--run", type=Path, help="records directory")
+    scan_cmd.add_argument("--pool", type=Path)
+    scan_cmd.add_argument("--judge")
     action = scan_cmd.add_mutually_exclusive_group(required=True)
     action.add_argument("--hash", help="the solution commit: record every hit")
     action.add_argument("--verdict", choices=("contaminated", "cleared"), help="record the controller's verdict")
@@ -253,12 +264,8 @@ def main(argv=None):
         run_arm(a.task, a.arm, a.root, a.runtime, a.candidates, a.set)
     elif a.command == "collect":
         print(json.dumps(collect(a.run), indent=2))
-    elif a.command == "scan" and a.verdict:
-        if not a.reason:
-            raise SystemExit("--verdict needs --reason")
-        adjudicate(a.run, a.verdict, a.reason)
     elif a.command == "scan":
-        print(f"{len(scan(a.run, a.hash))} hits; record a verdict with --verdict when there are any")
+        scan_command(a)
     elif a.command == "pool":
         pooling.pool(a.task, a.criterion, a.out, a.judge, a.runs)
     else:

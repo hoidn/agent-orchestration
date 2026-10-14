@@ -10,13 +10,17 @@ import hashlib
 import json
 import os
 import secrets
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 SEED_COMMIT = ("-c", "user.name=compare", "-c", "user.email=compare@example.invalid",
                "commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "compare seed")
 SEED_DATES = {"GIT_AUTHOR_DATE": "2000-01-01T00:00:00+0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000"}
+# every harness diff (here and in shim/claude): a plain git patch whatever the repository's config says
+DIFF_FLAGS = ("--binary", "--no-ext-diff", "--no-color", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/")
 HIDDEN_DIR = 0o311  # traversable, not listable: only for directories no orchestrator run lives under
 
 
@@ -70,7 +74,7 @@ def build_candidate(source, base, seed, dest):
 def patch_of(repo, base):
     """The repository's changes against `base`, new files included, leaving new files intent-to-add."""
     git(repo, "add", "-A", "-N", ".")
-    patch = git(repo, "diff", "--binary", "--no-ext-diff", "--no-color", "--no-textconv", base, raw=True)
+    patch = git(repo, "diff", *DIFF_FLAGS, base, raw=True)
     git(repo, "reset", "-q")
     git(repo, "add", "-A", "-N", ".")
     return patch
@@ -83,3 +87,19 @@ def random_child(parent):
     child = parent / secrets.token_hex(8)
     child.mkdir()
     return child
+
+
+def shim_commands(cwd, runtime, env, run_args, state):
+    """(run command, resume script) run from `cwd` with the frozen runtime and the shims first on PATH.
+
+    `env` is the shims' COMPARE_ROOT, COMPARE_TREE and COMPARE_BASE plus anything else; the shims strip
+    them, PYTHONPATH and their own directory from the agent's environment. The resume script takes the
+    run id as $1 and uses the same --state-dir."""
+    prefix = (f"cd {shlex.quote(str(cwd))} && env "
+              + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in {"PYTHONPATH": runtime, **env}.items())
+              + f' PATH={shlex.quote(str(Path(runtime) / "experiments/compare/shim"))}:"$PATH" ')
+    python = [sys.executable, "-P", "-m", "orchestrator"]  # -P: a candidate's orchestrator/ must not shadow it
+    state_args = ["--state-dir", str(state)]
+    return (prefix + shlex.join([*python, "run", *run_args, *state_args]),
+            prefix + shlex.join([*python, "resume"]) + ' "$1" ' + shlex.join(state_args))
+
