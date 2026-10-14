@@ -207,8 +207,11 @@ Non-goals:
   the agents' tree and the codex rollouts started in it for: the main
   checkout's path prefix, matched unbounded so sibling worktrees, which also
   hold solutions, count; the frozen checkout; the records root and the
-  records layout (except the run's own state directory); another run's tree
-  name; `github.com`, `gh ` and `git fetch`; and the solution commit's hash.
+  records layout (a run's state lies in its working directory, so no records
+  path is legitimate); another run's tree name; other sessions' transcripts
+  and tmux sockets (`.claude/projects`, `.codex/sessions`, `.codex/history`,
+  `claude-tmux-sockets`), which stay readable; `github.com`, `gh ` and
+  `git fetch`; and the solution commit's hash.
   A path also matches when written under `~`, `$HOME` or `${HOME}`; a bare
   path fragment does not, to limit benign hits from file contents. The scan
   records every hit with its file, line and context and decides nothing:
@@ -217,10 +220,11 @@ Non-goals:
   hits and no verdict, and excludes contaminated runs; the report lists every
   hit, verdict and reason. Judges are scanned and adjudicated the same way
   (§Flow of one run). Some exposure is detection-only: an agent can list
-  sibling tree names and the records root (§Layout), and knows its own result
-  path under the run's state directory, whose `run.json` names the frozen
-  workflow file; the scan flags any use. This is detection,
-  not prevention, and is stated as a limit in every report. Whether the
+  sibling tree names and the records root (§Layout), and can read its own
+  run's state under its working directory, whose `run.json` names the frozen
+  workflow file, and home, other sessions' transcripts and the network, which
+  the sandbox leaves reachable (§The shim); the scan flags any use. This is
+  detection, not prevention, and is stated as a limit in every report. Whether the
   commits must postdate the models' training data, and from which date, is
   the owner's call (Q5).
 - **D6. Anchors are two real patches, blind.** The upstream commit's diff
@@ -274,17 +278,25 @@ A run's files are split between a records directory and an agents' tree
 under the work root (paths in
 [`experiments/compare/README.md`](../../experiments/compare/README.md)): the
 records directory holds the command, the inputs, the call records, the
-orchestrator's state (`--state-dir`) and the log; the agents' tree, under a
-random name, holds the candidates and the run's `TMPDIR`, so nothing an agent
-works in names the arm, the run or the records. A pool holds the clones, one
-working directory and state directory per judge under a random name, and a
-records directory with the mapping, the patches and the judges' call records.
+collected patches and the log; the agents' tree, under a random name, holds
+the candidates and the run's `TMPDIR` (its `/tmp` inside the sandbox), so
+nothing an agent works in names the arm, the run or the records. The
+orchestrator's state stays at the runtime's default, `.orchestrate/runs/`
+under the run's working directory, so every result path a provider prompt
+names lies inside the agent's workspace, the condition the maintained
+workflows were written for; a state root outside the workspace induced
+misplaced and missing result files. A pool holds the clones, one working
+directory per judge under a random name with the judge's state directory and
+`tmp/` inside it, and a records directory with the mapping, the patches and
+the judges' call records.
 Only the pool's `clones/` is mode 0311 (traversable, not listable; judges
 receive absolute paths): the runtime opens every ancestor of a workspace or
 state directory with `O_RDONLY`, so no ancestor of an agents' tree or a judge
 directory can be unlistable, and D5 detects what an agent can list. The work
 root and the frozen runtime lie outside the main checkout's path prefix, and
-the runtime outside the work root; `prepare.py` refuses otherwise.
+the runtime outside the work root; work roots and pools do not lie under
+`/tmp` or `/dev/shm`, which the sandbox replaces; `prepare.py` refuses
+otherwise.
 
 ### Flow of one run
 
@@ -294,9 +306,9 @@ the runtime outside the work root; `prepare.py` refuses otherwise.
    candidate, writes the arm's `inputs.json` in the run's records directory,
    installs the shim directory first on `PATH` for the run, sets `TMPDIR` to
    the tree's `tmp/`, and writes the `orchestrator run` command, run with
-   `python -P` from the frozen runtime checkout with `--state-dir` in the
-   records directory, and its resume script, with the working directory the
-   arm requires (§Contracts).
+   `python -P` from the frozen runtime checkout and no `--state-dir`, and its
+   resume script, which resumes from the same working directory; both use the
+   working directory the arm requires (§Contracts).
 2. The run executes the maintained workflow. On every agent call the shim
    writes, in the run's records directory, `calls/<n>/{prompt.txt,stdout.txt,stderr.txt,patch-cand-<k>.diff}`;
    each diff is taken after `git add -A -N .` so new files are included, and
@@ -316,8 +328,8 @@ the runtime outside the work root; `prepare.py` refuses otherwise.
    `mapping.json` to the pool's records directory.
 6. `orchestrator run experiments/compare/score.orc` once per judge, one judge
    after another, behind the shims, from the judge's own working directory
-   and state directory, with the batches, the intent, the judge model and
-   `criterion_sha256` as inputs. Judges run unrestricted on the same clones,
+   with its state directory inside it, with the batches, the intent, the
+   judge model and `criterion_sha256` as inputs. Judges run unrestricted on the same clones,
    so `prepare.py verify-pool` runs before each judge and after the last:
    every clone's diff must equal its pooled patch, and a clone that differs
    is restored and reported. Each judge is then scanned and adjudicated like
@@ -339,11 +351,18 @@ and records patches. It does not touch the result file: the evaluated route
 hands providers the absolute path of their pinned result file, and a missing
 file fails the effect with `provider_result_missing`, so the September
 wrapper's deletion of stale result files is obsolete. The shim is the only
-part of the harness in the treatment's path, and it changes one thing the
-agent sees: before the real CLI starts it removes `PYTHONPATH`, `OLDPWD`, the
+part of the harness in the treatment's path, and it changes two things the
+agent sees. Before the real CLI starts it removes `PYTHONPATH`, `OLDPWD`, the
 `COMPARE_*` variables and its own directory from `PATH`, because they name the
-frozen runtime, the launch directory and the records. The same shims run in
-front of every judge.
+frozen runtime, the launch directory and the records. It then runs the real
+CLI under bubblewrap with a private `/tmp` (the agents' tree's `tmp/`, shared
+by the run's candidates; a judge's own `tmp/`), a private `/dev/shm` and its
+own PID namespace, so hard-coded `/tmp` paths, tmux sockets and the process
+list do not cross runs or sessions, and any server or tmux session an agent
+starts ends with its call. The sandbox does not isolate the rest of the
+filesystem, home, other sessions' transcripts or the network; D5 detects
+reads there. The same shims run in front of every judge; the sandbox's mounts
+are in [`experiments/compare/README.md`](../../experiments/compare/README.md).
 
 ### `score.orc`
 
@@ -392,6 +411,19 @@ The criterion names which measure is primary.
 Each experiment's decisions in full, including judges, anchors, run
 floors, exclusions and E-B's qualification rule, are frozen in its criterion
 file under `experiments/compare/criteria/` (§Contracts).
+
+Deviation. Runs made under a harness defect are discarded as harness-invalid,
+never pooled, and listed in the report with the defect; all runs made under
+the defect are discarded, not only those that failed, because selecting on
+outcome would bias any partial reuse. This applies to the E-A runs made while
+run state lay outside the workspace and to the E-B qualification runs made
+before the agent sandbox, when shared `/tmp` paths and another session's tmux
+server exposed the solution to the agents' environment; those are not
+adjudicated as contamination, since the environment, not the agent, reached
+the solution. Reruns start in fresh work roots at the fixed runtime commit,
+and each criterion is amended (runtime commit, work roots, a deviation note
+naming the discarded runs) and re-hashed before any rerun, with the old hash
+cited in the amendment.
 
 **E-A, replication on the evaluated route.** The September task at base
 `468e7908` with its task package, tracked for the harness as
@@ -515,15 +547,14 @@ work root.
   timeout, non-zero exit) counts as a failed run of its arm, reported with
   its reason, and is never relaunched or replaced. A stop on provider
   infrastructure (rate limit, authentication, CLI crash before agent output)
-  is resumed with the same state directory instead. Runs are never excluded
-  to improve a mean; the only exclusion is a run adjudicated contaminated
+  is resumed from the same working directory, which holds its state,
+  instead. Runs are never excluded to improve a mean; the only exclusion is a run adjudicated contaminated
   under D5, listed with its hits and reason.
-- An agent that writes a file its result names by a workspace-relative path
-  somewhere else (for example beside the result file under the state
-  directory) fails the effect as an invalid result. That is a failed run of
-  its arm, as it would be in the default layout, not a harness defect; the
-  report names the failure mode and notes as a limit that a state directory
-  outside the workspace may contribute.
+- A result path outside the agent's workspace is a harness defect, not an
+  outcome: it changes the condition the maintained workflows were written for
+  and induces misplaced and missing result files. So is an environment shared
+  across runs or sessions (`/tmp`, `/dev/shm`, tmux servers, the process
+  list). Runs made under either are discarded and rerun (§Experiments).
 - A missing patch file for a call that should have produced one marks the run
   invalid; the cause (shim not first on `PATH`, provider environment not
   inheriting `PATH`) is a harness defect, not an outcome.
@@ -533,7 +564,8 @@ work root.
 ## Security, Operations, And Performance
 
 Unrestricted-workspace providers work in candidate repositories in an
-agents' tree apart from the records (§Layout), with no remote and no history past the base commit; they run
+agents' tree apart from the records (§Layout), under the shims' sandbox
+(§The shim), with no remote and no history past the base commit; they run
 with the user's CLI credentials and network access, which is why D5 scans
 rather than promises. Runs use a detached worktree of the recorded commit so
 edits to `main` cannot leak in (design lesson 5), outside the main checkout's
