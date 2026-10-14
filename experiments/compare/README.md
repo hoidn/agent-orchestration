@@ -9,7 +9,7 @@ criterion frozen before scoring.
 | --- | --- |
 | `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `verify-pool` |
 | `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
-| `shim/claude`, `shim/codex` | first on `PATH` during a run; forward to the real CLI without `PYTHONPATH`, record `calls/<n>/` |
+| `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list) with the bookkeeping variables stripped; record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
 | `control/direct_task.providers.json`, `providers/design_review_execute.json` | bindings for the control and the E-B treatment |
 | `score.orc`, `score.providers.json`, `providers/score_codex.json` | blind side-by-side ratings; a Claude and an OpenAI judge binding |
@@ -31,16 +31,30 @@ The work root `W`, the pool `P` and the frozen runtime `RT` must not lie under t
 path prefix (for `/home/ollie/Documents/agent-orchestration`, that includes every sibling such as
 `...-compare` or `...-repl`): those checkouts hold solutions, and the scan counts any mention of the
 prefix as a hit. `prepare.py` refuses such paths. The frozen runtime must also lie outside the work
-root `W`, where agents work, and `run` refuses one inside it. The live layout puts the runtime at
+root `W`, where agents work, and `run` refuses one inside it. `W` and `P` must not lie under `/tmp`
+or `/dev/shm`, since the shims' sandbox mounts private ones there and an agent would lose its working
+directory; `run` and `pool` refuse them. The live layout puts the runtime at
 `/home/ollie/compare-runtime` and the work root at `/home/ollie/compare-work`.
+
+What the sandbox isolates (R35):
+- each agent and judge CLI runs under `bwrap --dev-bind / / --bind <tree>/tmp /tmp --tmpfs /dev/shm
+  --unshare-pid --proc /proc --die-with-parent`;
+- hard-coded `/tmp` paths land in the tree's `tmp/` (a judge's own `tmp/` for judges), so they are
+  private, and so are `/tmp` tmux sockets;
+- `/dev/shm` is private, and the process list shows only the agent's own processes.
+
+What it does not isolate:
+- the rest of the filesystem, home and the network stay shared;
+- other sessions' transcripts (`~/.claude/projects`, `~/.codex/sessions`) stay readable;
+- the scan only detects reads there, it does not prevent them.
 
 | Path | Holds |
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
 | `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root` |
-| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR); `record.json` names the tree |
+| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR, and `/tmp` inside the sandbox); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
-| `P/judges/<16 hex>/` | one judge's working directory, with its `state/` |
+| `P/judges/<16 hex>/` | one judge's working directory, with its `state/` and `tmp/` (its `/tmp` inside the sandbox) |
 | `P/records/judges/<judge>/` | the judge's shim call records (`calls/<n>/`) and `scan.json` |
 | `P/records/` | `mapping.json`, `patches/`, `score-inputs-<judge>.json`, `score-<judge>.sh`, `resume-<judge>.sh`, `results.json`, `results.md` |
 
@@ -88,9 +102,11 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    `--state-dir`, so the state goes to the runtime's default `<cwd>/.orchestrate/runs` and every
    provider prompt names a result path inside the agent's workspace. A state root outside the
    workspace made the reviewer misplace its report, and once left `result.json` unwritten (R34).
-   The task bases' `.gitignore` covers `.orchestrate/` and `artifacts/`. Before an agent starts, the shims strip `PYTHONPATH`, `OLDPWD`, the
-   `COMPARE_*` variables and their own directory from `PATH`, because these name the frozen runtime,
-   the launch directory and the records.
+   The task bases' `.gitignore` covers `.orchestrate/` and `artifacts/`. Before an agent starts,
+   the shims strip `PYTHONPATH`, `OLDPWD`, the `COMPARE_*` variables and their own directory from
+   `PATH`, because these name the frozen runtime, the launch directory and the records. They then
+   run the agent's CLI in the bubblewrap sandbox described under Layout, which needs `bwrap` on
+   `PATH`.
 
 2. **Run** in tmux. A run that stops on provider infrastructure is resumed from the same working
    directory (`resume.sh` does this), never relaunched.

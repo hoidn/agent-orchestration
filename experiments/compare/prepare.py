@@ -30,11 +30,17 @@ from pathlib import Path
 
 try:
     from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
-    from .repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file, shim_commands
+    from .repos import (
+        build_candidate, dump, git, guard, load,
+        main_checkout, random_child, sha256_file, shim_commands, visible_in_sandbox,
+    )
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
-    from repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file, shim_commands
+    from repos import (
+        build_candidate, dump, git, guard, load,
+        main_checkout, random_child, sha256_file, shim_commands, visible_in_sandbox,
+    )
 
 # arm: (source, entry workflow, source root, providers file, typed inputs); paths in the runtime checkout.
 ARMS = {
@@ -86,6 +92,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     guard(main, root, runtime)
     if str(runtime).startswith(f"{root}/"):
         raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
+    visible_in_sandbox(root)
     base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
     arm_inputs(task, arm, [Path("/")], sets)  # refuse bad --set values before building anything
     records, tree = next_run_dir(root / "records" / arm), random_child(root / "agents")

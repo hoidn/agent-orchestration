@@ -18,10 +18,16 @@ from pathlib import Path
 
 try:
     from . import scan as contamination
-    from .repos import HIDDEN_DIR, build_candidate, dump, git, guard, load, patch_of, sha256_file, shim_commands
+    from .repos import (
+        HIDDEN_DIR, build_candidate, dump, git, guard,
+        load, patch_of, sha256_file, shim_commands, visible_in_sandbox,
+    )
 except ImportError:
     import scan as contamination
-    from repos import HIDDEN_DIR, build_candidate, dump, git, guard, load, patch_of, sha256_file, shim_commands
+    from repos import (
+        HIDDEN_DIR, build_candidate, dump, git, guard,
+        load, patch_of, sha256_file, shim_commands, visible_in_sandbox,
+    )
 
 STRIPPED = ("docs/design/", "artifacts/")  # D8: removed from every pooled patch
 ROW_KEYS = ("arm", "outcome", "failure", "calls", "wall_clock_sec", "selected", "variant")  # per run, in mapping.json
@@ -140,6 +146,7 @@ def pool(task, criterion, out, judges, runs):
     if {(r["task"], r["compare_base"]) for r in records.values()} != {(str(task), ref["compare_base"])}:
         raise SystemExit("runs in one pool must share the task and the seeded commit")
     guard(Path(ref["main"]), out)
+    visible_in_sandbox(out)
     rows, usable = pool_runs(records)
     batches = compose(usable)
     if not batches:
@@ -170,7 +177,7 @@ def write_score_inputs(out, mapping, intent, runtime):
         dump(inputs, {"batches": [{"clones": [str(out / "clones" / cid) for cid in rng.sample(ids, len(ids))]}
                                   for ids in mapping["batches"]],
                       "intent": intent, "criterion_sha256": mapping["criterion_sha256"], "judge_model": judge})
-        home.mkdir()
+        (home / "tmp").mkdir(parents=True)  # the judge's /tmp inside the shims' sandbox
         (out / "records" / "judges" / judge).mkdir(parents=True)
         command, resume = shim_commands(
             home, runtime, {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,

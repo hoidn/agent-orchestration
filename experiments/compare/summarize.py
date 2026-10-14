@@ -248,7 +248,8 @@ def summarize(pool, criterion, python=sys.executable):
     sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
     frozen = json.loads(Path(criterion).read_text())
     if sorted(frozen["judges"]) != sorted(mapping["judges"]):
-        raise SystemExit(f"the criterion names judges {sorted(frozen['judges'])} but the pool has {sorted(mapping['judges'])}")
+        raise SystemExit(f"the criterion names judges {sorted(frozen['judges'])} "
+                         f"but the pool has {sorted(mapping['judges'])}")
     excluded, ratings = judged_ratings(pool, mapping, sha)
     totals = {judge: {cid: sum(r[c] for c in CRITERIA) for cid, r in rated.items()} for judge, rated in ratings.items()}
     clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid in mapping["clones"]}

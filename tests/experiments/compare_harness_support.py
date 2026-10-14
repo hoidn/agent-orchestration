@@ -8,7 +8,9 @@ shim. memo.jsonl and run.json files are synthetic; no provider is called.
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -36,6 +38,7 @@ HIDDEN_TEST = (
     "def test_zero():\n    assert add(0, 0) == 0\n\n\ndef test_no_git():\n    assert not Path('.git').exists()\n"
 )
 READY = {"variant": "READY", "report": "artifacts/review/r.md", "rounds": 1}
+OUTSIDE_SANDBOX_MOUNTS = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "compare-harness-tests"
 
 
 def git(repo, *args):
@@ -89,14 +92,21 @@ def world(tmp_path):
         "secondary": [{"measure": "best_of_n.paired_gain_mean", "op": ">=", "value": 0}],
         "judges": ["judge-a", "judge-b"],
     }))
-    fakebin = tmp_path / "fakebin"
+    # agents' trees, pools and the stand-in CLIs must lie outside /tmp and /dev/shm, which the shims'
+    # sandbox replaces
+    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
+    outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
+    fakebin = outside / "fakebin"
     fakebin.mkdir()
     for name in ("claude", "codex"):
         (fakebin / name).write_text('#!/bin/sh\necho "PYTHONPATH=${PYTHONPATH-unset}"\nexec bash -c "$(cat)"\n')
         (fakebin / name).chmod(0o755)
     yield SimpleNamespace(tmp=tmp_path, main=main, old=old, base=base, solution=solution, runtime=runtime,
-                          task=tmp_path / "task", criterion=criterion, fakebin=fakebin, root=tmp_path / "work")
+                          task=tmp_path / "task", criterion=criterion, fakebin=fakebin, root=outside / "work",
+                          outside=outside)
     open_up(tmp_path)
+    open_up(outside)
+    shutil.rmtree(outside)
 
 
 def start(world, arm, candidates=None, sets=(), task=None, root=None):
@@ -165,7 +175,7 @@ def pooled(world):
         drive(world, "direct_task", [edit("$PWD", "b + a")], True)[0],
         drive(world, "direct_task", ["true"], None, outcome="failed")[0],
     ]
-    out = world.tmp / "pool"
+    out = world.outside / "pool"
     judges = ["judge-a", f"judge-b={REPO / 'experiments/compare/providers/score_codex.json'}"]
     mapping = pooling.pool(world.task, world.criterion, out, judges, runs)
     return SimpleNamespace(out=out, mapping=mapping, failed=runs[-1])

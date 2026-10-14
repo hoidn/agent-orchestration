@@ -94,7 +94,7 @@ def test_pool_refuses_a_run_resumed_after_its_scan(world):
     write_memo(record, ["true", "true"], True)
     prepare.collect(records)
     with pytest.raises(SystemExit, match="the scan covers 1 calls but 2 were made"):
-        pooling.pool(world.task, world.criterion, world.tmp / "pool", ["j"], [records])
+        pooling.pool(world.task, world.criterion, world.outside / "pool", ["j"], [records])
 
 
 def test_pool_refuses_an_unscanned_run(world):
@@ -103,20 +103,20 @@ def test_pool_refuses_an_unscanned_run(world):
     write_memo(record, ["true"], True)
     prepare.collect(records)
     with pytest.raises(SystemExit, match="scanned"):
-        pooling.pool(world.task, world.criterion, world.tmp / "pool", ["j"], [records])
+        pooling.pool(world.task, world.criterion, world.outside / "pool", ["j"], [records])
 
 
 def test_pool_refuses_a_run_with_hits_and_no_verdict(world):
     records, _ = drive(world, "direct_task", ["echo github.com"], True)
     with pytest.raises(SystemExit, match="1 scan hits and no verdict"):
-        pooling.pool(world.task, world.criterion, world.tmp / "pool", ["j"], [records])
+        pooling.pool(world.task, world.criterion, world.outside / "pool", ["j"], [records])
 
 
 def test_pool_excludes_contaminated_runs_and_includes_cleared_ones(world):
     dirty, _ = drive(world, "direct_task", ["echo github.com"], True, verdict=("contaminated", "read the fix"))
     cleared, _ = drive(world, "direct_task", ["echo github.com"], True, verdict=("cleared", "printed a URL"))
     clean, _ = drive(world, "direct_task", ["true"], True)
-    mapping = pooling.pool(world.task, world.criterion, world.tmp / "pool", ["j"], [dirty, cleared, clean])
+    mapping = pooling.pool(world.task, world.criterion, world.outside / "pool", ["j"], [dirty, cleared, clean])
     assert (mapping["runs"][str(dirty)]["excluded"],
             sorted({c["run"] for c in mapping["clones"].values() if c["run"]})) == (
         "contaminated: read the fix", sorted([str(cleared), str(clean)]))
@@ -277,7 +277,7 @@ def test_summarize_runs_hidden_acceptance_in_an_untouched_copy_without_git(world
     write_task(task, world.base, anchors=False, hidden=True)
     own_test = "mkdir -p tests && printf 'def test_missing():\\n    pass\\n' > tests/test_hidden.py"
     records, _ = drive(world, "direct_task", [edit("$PWD", "a + b") + own_test], True, task=task)
-    out, criterion = world.tmp / "pool-hidden", world.tmp / "criterion-one-judge.json"
+    out, criterion = world.outside / "pool-hidden", world.tmp / "criterion-one-judge.json"
     criterion.write_text(json.dumps({**json.loads(world.criterion.read_text()), "judges": ["judge-a"]}))
     mapping = pooling.pool(task, criterion, out, ["judge-a"], [records])
     score(out, "judge-a", mapping, world.tmp / "home")

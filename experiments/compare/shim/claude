@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Transparent stand-in for the agent CLI it is named after (shim/codex links here). Runs the real
-# binary (the next one on PATH after this directory) with the same arguments and stdin, tees stdout
-# and stderr live, and records the call under $COMPARE_ROOT/calls/<n>/ with every candidate's patch
-# ($COMPARE_TREE/cand-*) against $COMPARE_BASE. The agent's environment loses PYTHONPATH, OLDPWD
-# (the launch directory), the COMPARE_* variables and this directory on PATH: they name the frozen
-# runtime, the main checkout and the records.
+# Stand-in for the agent CLI it is named after (shim/codex links here): runs the next real one on
+# PATH with the same arguments and stdin, tees stdout and stderr live, records the call in
+# $COMPARE_ROOT/calls/<n>/ with each $COMPARE_TREE/cand-* patch against $COMPARE_BASE. The agent loses
+# PYTHONPATH, OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and
+# records) and runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), /dev/shm and process list;
+# the rest of the filesystem, home and network stay shared: reads there are only detected (R35).
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
+sandbox=$(command -v bwrap) || { echo "shim: bubblewrap (bwrap) is required on PATH" >&2; exit 127; }
+[ -d "$COMPARE_TREE/tmp" ] || { echo "shim: $COMPARE_TREE/tmp is missing (the agent's /tmp)" >&2; exit 70; }
 here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0"); real=; path=
 IFS=: read -ra dirs <<< "$PATH"
 for d in "${dirs[@]}"; do
@@ -22,8 +24,9 @@ done
 call="$COMPARE_ROOT/calls/$n"
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$real" "$@" \
-  < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$sandbox" \
+  --dev-bind / / --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --unshare-pid --proc /proc --die-with-parent \
+  "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"
 shopt -s nullglob

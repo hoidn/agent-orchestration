@@ -56,6 +56,15 @@ def guard(main, *paths):
             raise SystemExit(f"{path} lies under the main checkout prefix {main}; use a directory elsewhere")
 
 
+def visible_in_sandbox(*paths):
+    """Refuse agents' or judges' directories under /tmp or /dev/shm: the shims' sandbox mounts private
+    ones over them (R35), so the agent would not find its working directory."""
+    for path in paths:
+        if any(str(path) == root or str(path).startswith(root + "/") for root in ("/tmp", "/dev/shm")):
+            raise SystemExit(f"{path} lies under /tmp or /dev/shm, which the shims' sandbox replaces; "
+                             "use a directory elsewhere")
+
+
 def build_candidate(source, base, seed, dest):
     """Check out `base` alone at `dest` (no remote, no other refs), commit `seed` onto it; return that commit."""
     dest.mkdir(parents=True)

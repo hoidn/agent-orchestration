@@ -79,6 +79,11 @@ def test_run_refuses_a_runtime_inside_the_work_root(world):
         start(world, "direct_task", root=world.tmp)
 
 
+def test_run_refuses_a_work_root_the_sandbox_would_hide(world):
+    with pytest.raises(SystemExit, match="under /tmp or /dev/shm"):
+        start(world, "direct_task", root=world.tmp / "work")
+
+
 def test_agents_trees_have_unguessable_names_and_hold_only_candidates(world):
     _, record = start(world, "best_of_n", candidates=2)
     tree = Path(record["tree"])
@@ -137,6 +142,13 @@ def test_shim_hides_the_runtime_and_the_records_from_the_agent(world):
     assert (sorted(k for k in env if k.startswith("COMPARE_") or k == "PYTHONPATH"),
             [d for d in env["PATH"].split(":") if d.endswith("experiments/compare/shim")],
             [k for k, v in env.items() if str(world.runtime) in v or str(records) in v]) == ([], [], [])
+
+
+def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
+    _, record = start(world, "direct_task")
+    done = call(world, record, "echo probe > /tmp/probe.txt; ps -e --no-headers | wc -l")
+    assert ((Path(record["tree"]) / "tmp/probe.txt").read_text(), int(done.stdout.split()[-1]) <= 10) == (
+        "probe\n", True)
 
 
 def test_shim_passes_stderr_through_and_records_the_same_bytes(world):
@@ -261,13 +273,20 @@ def test_scan_counts_other_runs_records_and_pool_records_but_not_its_own_state(w
         (7, "pool record files"), (8, "records root")]
 
 
+def test_scan_counts_reads_of_other_sessions_transcripts(world):
+    records, record = start(world, "direct_task")
+    call(world, record, "echo 'cat ~/.claude/projects/-x/s.jsonl'")
+    assert [h["pattern"] for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
+        "other sessions' files"]
+
+
 def test_scan_matches_paths_written_under_the_home_directory(world):
     records, record = start(world, "direct_task")
-    lines = ["~/main/specs", "$HOME/main-repl/x", "${HOME}/runtime/orchestrator", "~/work/records", "main/specs"]
+    lines = ["~/main/specs", "$HOME/main-repl/x", "${HOME}/runtime/orchestrator", "main/specs"]
     call(world, record, "".join(f"echo '{line}'\n" for line in lines))
     hits = prepare.scan(records, world.solution, home=world.tmp)
     assert sorted((h["line"], h["pattern"]) for h in hits) == [
-        (2, "main checkout prefix"), (3, "main checkout prefix"), (4, "frozen checkout"), (5, "records root")]
+        (2, "main checkout prefix"), (3, "main checkout prefix"), (4, "frozen checkout")]
 
 
 def test_scan_records_hits_without_a_verdict_and_adjudicate_records_one(world):

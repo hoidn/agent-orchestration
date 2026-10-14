@@ -15,8 +15,9 @@ runtime's path, bounded; any named records root (the work root's records, a pool
 records layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie (a run's own
 state is in its tree's .orchestrate/runs, so no records path is legitimate); the name of any other tree or judge
 directory beside this one; github.com, the gh command, git fetch and the solution commit's first
-seven characters. Paths match as typed: absolute, or under ~, $HOME or ${HOME} (R23). Standard
-library only.
+seven characters; any mention of other sessions' transcripts or tmux sockets (.claude/projects,
+.codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths
+match as typed: absolute, or under ~, $HOME or ${HOME} (R23). Standard library only.
 """
 
 import json
@@ -41,7 +42,8 @@ def patterns(*, main, runtime, solution, home, others=(), roots=()):
              "frozen checkout": spelled(runtime, home) + r"(?![\w.-])",
              "records layout": rf"records/(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
              "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
-             "solution hash": re.escape(solution[:7])}
+             "solution hash": re.escape(solution[:7]),
+             "other sessions' files": r"\.claude/projects|\.codex/(?:sessions|history)|claude-tmux-sockets"}
     for name, path in roots:
         found[name] = spelled(path, home)
     if others:
