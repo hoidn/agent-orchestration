@@ -12,8 +12,8 @@ tree, function, custom tool and shell call arguments only.
 
 Patterns: the main checkout's path as a prefix (sibling worktrees hold solutions); the frozen
 runtime's path, bounded; any named records root (the work root's records, a pool's records); the
-records layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie, except the
-run's own state directory, where its agent writes results; the name of any other tree or judge
+records layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie (a run's own
+state is in its tree's .orchestrate/runs, so no records path is legitimate); the name of any other tree or judge
 directory beside this one; github.com, the gh command, git fetch and the solution commit's first
 seven characters. Paths match as typed: absolute, or under ~, $HOME or ${HOME} (R23). Standard
 library only.
@@ -35,16 +35,15 @@ def spelled(path, home):
     return re.escape(path)
 
 
-def patterns(*, main, runtime, solution, home, others=(), roots=(), own_state=""):
-    """`roots` are (name, path, own suffix to leave out); `own_state` is the run's `<arm>/run-<k>/state/`."""
-    skip = rf"(?!{re.escape(own_state)})" if own_state else ""
+def patterns(*, main, runtime, solution, home, others=(), roots=()):
+    """`roots` are (name, path) pairs matched as a prefix wherever the path is written."""
     found = {"main checkout prefix": spelled(main, home),
              "frozen checkout": spelled(runtime, home) + r"(?![\w.-])",
-             "records layout": rf"records/{skip}(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
+             "records layout": rf"records/(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
              "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
              "solution hash": re.escape(solution[:7])}
-    for name, path, suffix in roots:
-        found[name] = spelled(path, home) + (rf"(?!/{re.escape(suffix)})" if suffix else "")
+    for name, path in roots:
+        found[name] = spelled(path, home)
     if others:
         found["other tree or judge"] = "|".join(re.escape(name) for name in others)
     return found

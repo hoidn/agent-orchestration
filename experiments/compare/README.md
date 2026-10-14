@@ -36,7 +36,8 @@ root `W`, where agents work, and `run` refuses one inside it. The live layout pu
 
 | Path | Holds |
 | --- | --- |
-| `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `state/` (the orchestrator's `--state-dir`), `collected/`, `run.log` |
+| `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
+| `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root` |
 | `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` |
@@ -83,17 +84,20 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 
    The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
-   `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). It passes
-   `--state-dir R/state`. Before an agent starts, the shims strip `PYTHONPATH`, `OLDPWD`, the
+   `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). It passes no
+   `--state-dir`, so the state goes to the runtime's default `<cwd>/.orchestrate/runs` and every
+   provider prompt names a result path inside the agent's workspace. A state root outside the
+   workspace made the reviewer misplace its report, and once left `result.json` unwritten (R34).
+   The task bases' `.gitignore` covers `.orchestrate/` and `artifacts/`. Before an agent starts, the shims strip `PYTHONPATH`, `OLDPWD`, the
    `COMPARE_*` variables and their own directory from `PATH`, because these name the frozen runtime,
    the launch directory and the records.
 
-2. **Run** in tmux. A run that stops on provider infrastructure is resumed with the same state
-   directory, never relaunched.
+2. **Run** in tmux. A run that stops on provider infrastructure is resumed from the same working
+   directory (`resume.sh` does this), never relaunched.
 
    ```bash
    tmux new-session -d -s <name> "bash $R/command.sh > $R/run.log 2>&1"
-   tmux new-session -d -s <name> "bash $R/resume.sh <run_id> >> $R/run.log 2>&1"   # run_id: the name under R/state
+   tmux new-session -d -s <name> "bash $R/resume.sh <run_id> >> $R/run.log 2>&1"   # run_id: the name under <cwd>/.orchestrate/runs
    ```
 
 3. **Collect** pairs the memo's provider starts with `R/calls/<n>/` one to one. It copies the
@@ -115,8 +119,8 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    - the main checkout's prefix;
    - the frozen checkout;
    - the records root `W/records`;
-   - the layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie, except the
-     run's own `state/`;
+   - the layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie (a run's own
+     state is in its working directory, so no records path is legitimate);
    - another run's tree name;
    - `github.com`, `gh ` and `git fetch`;
    - the solution hash.

@@ -9,9 +9,11 @@
   prepare.py verify-pool --pool P
 
 `run` creates the records directory R = W/records/<arm>/run-<k>/ (record.json, inputs.json,
-command.sh, resume.sh, calls/<n>/ from the shims, state/ for the orchestrator, collected/<label>.diff)
-and the agents' tree W/agents/<16 hex>/ (cand-<k>/ and tmp/). Neither W nor the runtime may lie under
-the main checkout's path prefix. `collect` adds the
+command.sh, resume.sh, calls/<n>/ from the shims, collected/<label>.diff) and the agents' tree
+W/agents/<16 hex>/ (cand-<k>/ and tmp/). The orchestrator keeps the run's state in its default root
+<cwd>/.orchestrate/runs (cwd: the tree for best_of_n, its cand-1 otherwise), so the result path each
+provider prompt names lies inside the agent's workspace (R34; ignored by the task bases' .gitignore).
+Neither W nor the runtime may lie under the main checkout's path prefix. `collect` adds the
 outcome, call count, wall clock and patches to record.json; `scan` adds the hits and the controller's
 verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
 P/judges/<16 hex>/ (one working and state directory per judge) and P/records/ (mapping.json,
@@ -100,14 +102,14 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
         cwd, runtime, {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base,
                        "TMPDIR": tree / "tmp"},
         [str(runtime / source), "--entry-workflow", entry, "--source-root", str(runtime / source_root),
-         "--provider-externs-file", str(runtime / providers), "--input-file", str(records / "inputs.json")],
-        records / "state")
+         "--provider-externs-file", str(runtime / providers), "--input-file", str(records / "inputs.json")])
     (records / "command.sh").write_text(command + "\n")
     (records / "resume.sh").write_text(resume + "\n")
     dump(records / "record.json", {
         "arm": arm, "task": str(task), "runtime": str(runtime), "main": str(main), "base": base,
         "compare_base": compare_base, "records": str(records), "tree": str(tree),
-        "candidates": [str(c) for c in cands], "cwd": str(cwd), "command": command, "created_at": time.time(),
+        "candidates": [str(c) for c in cands], "cwd": str(cwd), "state_root": str(cwd / ".orchestrate" / "runs"),
+        "command": command, "created_at": time.time(),
     })
     print(f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")
     return records
@@ -154,11 +156,11 @@ def outcome_of(record, terminal, names):
     return out
 
 
-def finished_memo(records):
-    """The run's one orchestrator memo under records/state and its rows; it must end in a terminal row."""
-    memos = sorted((records / "state").glob("*/memo.jsonl"))
+def finished_memo(state_root):
+    """The run's one orchestrator memo under its state root and its rows; it must end in a terminal row."""
+    memos = sorted(Path(state_root).glob("*/memo.jsonl"))
     if len(memos) != 1:
-        raise SystemExit(f"{records}: expected one orchestrator run under state/, found {len(memos)}")
+        raise SystemExit(f"{state_root}: expected one orchestrator run, found {len(memos)}")
     rows = read_memo(memos[0])
     if not rows or rows[-1]["record"] != "terminal":
         raise SystemExit(f"{memos[0]}: no terminal record; finish or resume the run first")
@@ -179,7 +181,7 @@ def collect(records):
     """Pair the memo's provider effects with call directories and copy the comparator's patches."""
     records = records.resolve()
     record = load(records / "record.json")
-    memo, rows = finished_memo(records)
+    memo, rows = finished_memo(record.get("state_root", records / "state"))  # R/state: prepared before R34
     calls = paired_calls(records, rows)
     committed = [calls[(r["identity"], r["attempt"])] for r in rows
                  if r["record"] == "committed" and r["effect_class"] == "provider"]
@@ -198,11 +200,9 @@ def scan(records, solution, home=None):
     scan covers; any earlier verdict is dropped."""
     records, home = records.resolve(), home or Path.home()
     record = load(records / "record.json")
-    own = f"{record['arm']}/{records.name}/state/"  # where the run's agents write their results
     compiled = contamination.patterns(
         main=record["main"], runtime=record["runtime"], solution=solution, home=home,
-        others=contamination.siblings(record["tree"]), roots=[("records root", records.parents[1], own)],
-        own_state=own)
+        others=contamination.siblings(record["tree"]), roots=[("records root", records.parents[1])])
     hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled)
     record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
                       "calls": len(list((records / "calls").glob("*")))}

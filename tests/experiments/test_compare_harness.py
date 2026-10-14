@@ -91,7 +91,7 @@ def test_bookkeeping_lives_in_the_records_directory_not_in_the_agents_tree(world
     assert (records.parent, sorted(p.name for p in Path(record["tree"]).iterdir()),
             sorted(p.name for p in records.iterdir())) == (
         world.root.resolve() / "records" / "direct_task", ["cand-1", "tmp"],
-        ["calls", "collected", "command.sh", "inputs.json", "record.json", "resume.sh", "state"])
+        ["calls", "collected", "command.sh", "inputs.json", "record.json", "resume.sh"])
 
 
 def execute(command):
@@ -108,14 +108,21 @@ def test_printed_command_runs_the_frozen_runtime_inside_the_candidate(world, cap
          "COMPARE_BASE": record["compare_base"], "TMPDIR": str(tree / "tmp")},
         ["run", str(h / "control/direct_task.orc"), "--entry-workflow", "control/direct_task::direct-task",
          "--source-root", str(h), "--provider-externs-file", str(h / "control/direct_task.providers.json"),
-         "--input-file", str(records / "inputs.json"), "--state-dir", str(records / "state")])
+         "--input-file", str(records / "inputs.json")])
 
 
-def test_resume_script_resumes_with_the_runs_state_directory(world):
+def test_run_state_and_so_every_result_path_lies_inside_the_working_directory(world):
+    records, record = drive(world, "direct_task", [edit("$PWD", "a + b")], True)
+    memo = next(Path(record["state_root"]).glob("*/memo.jsonl"))
+    assert (Path(record["state_root"]), memo.is_relative_to(record["cwd"]),
+            json.loads((records / "record.json").read_text())["outcome"]) == (
+        Path(record["cwd"]) / ".orchestrate" / "runs", True, "completed")
+
+
+def test_resume_script_resumes_from_the_same_working_directory(world):
     records, record = start(world, "best_of_n", candidates=2)
     seen = execute(f"bash {records / 'resume.sh'} 20261014T000000Z-abc")
-    assert (seen["cwd"], seen["argv"]) == (
-        record["tree"], ["resume", "20261014T000000Z-abc", "--state-dir", str(records / "state")])
+    assert (seen["cwd"], seen["argv"]) == (record["tree"], ["resume", "20261014T000000Z-abc"])
 
 
 def test_shim_forwards_to_the_real_cli_without_pythonpath(world):
@@ -244,7 +251,7 @@ def test_scan_counts_another_runs_agents_tree_as_a_hit(world):
 def test_scan_counts_other_runs_records_and_pool_records_but_not_its_own_state(world):
     records, record = start(world, "direct_task")
     w = world.root.resolve()
-    lines = [f"{records}/state/r1/effects/x/attempt-1/result.json", "../../../records/direct_task/run-1/state/r1/a",
+    lines = [f"{record['state_root']}/r1/effects/x/attempt-1/result.json", ".orchestrate/runs/r1/effects/x/result.json",
              f"cat {w}/records/best_of_n/run-1/collected/cand-1.diff", "cat ../../../records/direct_task/run-2/state/x",
              f"cat {records}/record.json", "cat /elsewhere/pools/p1/records/mapping.json", f"ls {w}/records"]
     call(world, record, "".join(f"echo '{line}'\n" for line in lines))
