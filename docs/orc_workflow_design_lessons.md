@@ -34,6 +34,10 @@ add the step.
 
 ## Choosing A Pattern
 
+For current APIs, complete candidate-generation and selection examples, and
+execution prerequisites, use the [Workflow Lisp Library Reference](lisp_library_reference.md).
+The measurements below help choose a pattern; they do not define its API.
+
 | Pattern | Use when | Measured |
 | --- | --- | --- |
 | Generate several candidates, select one | single calls vary in quality and a stronger judge is available | +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs |

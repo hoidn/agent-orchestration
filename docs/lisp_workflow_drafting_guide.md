@@ -12,8 +12,11 @@ This guide explains how to author deterministic workflows using the Workflow
 Lisp frontend. It is about authoring choices, not runtime implementation.
 Normative DSL and runtime contracts live under `specs/`.
 
-Before choosing a review, revise, or select pattern, read
-[Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md).
+Before choosing a review, revise, or select pattern, use the
+[Workflow Lisp Library Reference](lisp_library_reference.md) for the task chooser,
+complete examples and operating limits, and read
+[Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md)
+for the design tradeoffs.
 
 Design references:
 
@@ -2120,201 +2123,31 @@ family's intended responsibilities and migration evidence.
 
 ### 13.7 `improve`
 
-`std/improve` runs a bounded review/revise loop and returns
-`Improvement[S F B]`: `APPROVED` (`value`, `evidence`), `BLOCKED` (`value`,
-`reason`), or `EXHAUSTED` (`value`, which may be an unreviewed final revision).
-`S` is the candidate record; `F` is feedback and `B` the blocker type.
-[Composition-first §3](design/workflow_lisp_composition_first.md#3-interface)
-owns outcome pairing and [§4](design/workflow_lisp_composition_first.md#4-loop-and-termination)
-owns the round limit. The value returned by the helper is the candidate to use
-downstream. Choosing a review loop remains a separate decision; see
-[design lessons](orc_workflow_design_lessons.md).
-
-The entry target chooses one API for the entire **source import graph**:
-
-| Entry target | Call | Hook signatures |
-| --- | --- | --- |
-| 2.35 | `(improve initial inputs review revise limit)` | `review(S I) -> Decision[F B]`; `revise(S I F) -> S` |
-| 2.36 | `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S` |
-
-Every source importer sees that API, even with an older defining-module target.
-Retargeting requires migrating five-argument source callers; compatible and
-type-only imports remain legal. Complete imported snapshots retain producer
-authority. The selected W3 helper still has source header 2.33. See
-[write-once §9](design/workflow_lisp_write_once.md#9-targets-and-compatibility)
-for old module identities, snapshot conflicts and resume guards.
-
-W3 is implemented at 2.36; the [closeout](reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns exact qualification and delivery evidence.
-The following two source forms have bounded public compile/run and
-committed-stop/resume/completed-replay evidence with deterministic provider
-shims in `tests/test_workflow_evaluated_consumers.py`. This does not qualify
-arbitrary compositions, package upgrades, all old checkpoints or evaluated LSP.
+`std/improve` reviews and revises a typed record under a bounded round limit,
+then returns the candidate with APPROVED, BLOCKED or EXHAUSTED. Use that returned
+candidate downstream; EXHAUSTED may contain an unreviewed final revision.
+The [library reference](lisp_library_reference.md#review-and-revise-with-stdimprove)
+owns the target-specific APIs, complete examples, dependencies, operating route
+and composition limits. Choose review/revise versus generating alternatives
+using the [task chooser](lisp_library_reference.md#choose-by-task).
 
 #### Target 2.36 local hooks
 
-The maintained
-[`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-uses inferred signatures and lexical captures. These are exact source excerpts;
-the omitted domain types, `propose` and `execute` are defined in that file:
-
-```lisp
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.36")
-  (defmodule improve_experiment_proposal)
-  (import std/improve :only (Decision improve))
-  (export run-experiment)
-...
-  (defworkflow run-experiment ((question String)) -> ExperimentRun
-    (let* ((brief (record ExperimentBrief :question question))
-           (initial (propose brief)))
-      (let-proc
-        ((review-proposal
-          (proposal)
-          (provider-result providers.proposal.review
-            :prompt prompts.proposal.review
-            :inputs (brief.question proposal.hypothesis proposal.parameters)
-            :returns Decision[ReviewNotes ReviewBlocker]))
-         (revise-proposal
-          (proposal review)
-          (provider-result providers.proposal.revise
-            :prompt prompts.proposal.revise
-            :inputs (brief.question proposal.hypothesis proposal.parameters review.notes)
-            :returns ExperimentProposal)))
-        (let* ((result (improve initial
-                                (proc-ref review-proposal)
-                                (proc-ref revise-proposal)
-                                3)))
-          (match result
-            ((APPROVED approved) (execute approved.value "approved" approved.evidence.notes))
-            ((BLOCKED blocked) (execute blocked.value "blocked" blocked.reason.issue))
-            ((EXHAUSTED exhausted) (execute exhausted.value "exhausted" ""))))))))
-```
-
-Both hooks capture the lexical `brief`; `ExperimentBrief` remains useful
-domain data for proposal construction and prompt inputs. Declared provider
-and prompt externs stay available in the local bodies and are not captures.
-Actual lexical Provider/Prompt parameters or aliases keep their existing
-admission limits; W3 adds no runtime capability transport.
-
-`initial` fixes the candidate type; the review result fixes feedback/blocker
-types and the revise parameter. Each incomplete local has exactly one authored
-direct consumer call site, the `improve` call. Several arguments of that call
-share the site; loop iterations do not add sites. Two authored calls, including
-alternative branches, need full signatures or distinct locals. Aliases,
-`bind-proc` and returned/conditional ProcRefs do not carry an outer call's
-expectation into an incomplete local. Full annotations preserve ordinary
-reuse. Sibling/self calls, nested local definitions and recursion remain
-outside W3; captures keep creator binding identity under later shadowing.
-
-The [reviewed-change fixture](../tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc)
-uses complete signatures and inferred lexical context. Exact excerpts retain
-both guards that prevent another revision on round three:
-
-```lisp
-        ((review-for-improve
-          ((state ReviewState))
-          -> Decision[Review Outcome]
-...
-              ((REQUEST_CHANGES r)
-               (if (= state.round 3)
-                 (variant Decision[Review Outcome] BLOCKED
-                   :reason (variant Outcome UNRESOLVED :reason r.summary :rounds state.round))
-                 (variant Decision[Review Outcome] REVISE :feedback review)))
-              ((WRONG_APPROACH w)
-               (if (= state.round 3)
-                 (variant Decision[Review Outcome] BLOCKED
-                   :reason (variant Outcome UNRESOLVED :reason w.reason :rounds state.round))
-                 (variant Decision[Review Outcome] REVISE :feedback review)))
-...
-         (revise-for-improve
-          ((state ReviewState) (review Review))
-          -> ReviewState
-...
-        (let* ((result (improve initial
-                                (proc-ref review-for-improve)
-                                (proc-ref revise-for-improve)
-                                3)))
-```
-
-The full fixture preserves `ReviewState`, reports, request lineage and
-domain outcomes. `repo`/`intent` belong to review's lexical context; `task`
-belongs to revise's. The historical hand-written
-[`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
-keeps its original target and is a different specimen.
+See the [complete local-hook example](lisp_library_reference.md#target-236-local-hooks)
+and its inference/capture limits.
 
 #### Compile, run and resume the maintained proposal
 
-Run from the repository root. The provider/prompt manifests resolve declared
-externs; the command manifest supplies the required `closure` declaration.
-Compilation validates that declaration without reading the launcher's bytes;
-dry-run also binds the typed inputs and does not certify command bytes.
-The input file supplies `question`. Compilation uses the maintained entry
-at 2.36 without rewriting its source:
-
-```bash
-python -m orchestrator compile workflows/examples/improve_experiment_proposal.orc \
-  --entry-workflow improve_experiment_proposal::run-experiment \
-  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
-  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
-  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json
-```
-
-Dry-run with its typed inputs:
-
-```bash
-python -m orchestrator run workflows/examples/improve_experiment_proposal.orc \
-  --entry-workflow improve_experiment_proposal::run-experiment \
-  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
-  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
-  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json \
-  --input-file workflows/examples/inputs/improve_experiment_proposal/inputs.json \
-  --dry-run
-```
-
-For execution, supply the configured providers and remove `--dry-run`.
-The workspace must contain `scripts/launch_experiment.py`; the command
-manifest declares it in `closure`, so its bytes participate in the pin.
-The launcher receives `--outcome`, `--note`, `--hypothesis` and `--parameters`
-(JSON), and writes `{"status": ...}` to `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
-It receives the helper's returned proposal in every outcome, with an empty
-note on `EXHAUSTED`; this script is workspace-owned, not supplied by the example.
-
-After an interrupted run, use the recorded run ID from that same workspace:
-
-```bash
-python -m orchestrator resume <run_id>
-python -m orchestrator resume <run_id>
-```
-
-The public fixture harness stops after a committed effect, resumes its memo
-prefix to completion and then replays the completed run without new dispatch
-or byte changes. That interruption is controlled by the test harness. Source,
-package or declared closure changes retain existing resume refusals; migrating
-or retargeting an old source does not promise compatible resume. The
-[evaluated lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate)
-and [CLI contract](../specs/cli.md#evaluated-execution-target-235) own operator
-behavior for both evaluated targets.
+See the [proposal operating route](lisp_library_reference.md#compile-run-and-resume-the-maintained-proposal),
+including the workspace-owned launcher requirement.
 
 #### Target 2.35 explicit inputs
 
-At 2.35 use the five-argument form with explicit domain inputs and complete
-hook signatures. The preserved
-[`improve_legacy/improve_experiment_proposal.orc`](../tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc)
-has an older source header; its name does not make the five-argument API
-unsupported at 2.35. For bounded evaluated consumer evidence and remaining
-composition limits, see
-[composition-first §11.4](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries).
+See the [explicit-input API](lisp_library_reference.md#target-235-explicit-inputs).
 
 #### `improve` rejections
 
-The [W3 contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-owns incomplete-local restrictions; the
-[evaluated composition boundary](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
-owns the remaining OPEN pure-helper, combined-capture and relay cases.
-Independent successful compositions do not close those fixtures. Retargeting
-a five-argument caller to 2.36 requires migration to its four-argument API;
-it does not promise compatible resume of an older run.
+See the [rejections and remaining composition limits](lisp_library_reference.md#improve-rejections).
 
 ## 14. Provider Prompt Guidance
 
@@ -2437,10 +2270,10 @@ visible:
   ad hoc audit paths, manual recovery steps, shell counters, or job
   resurrection scripts unless they are compatibility adapters with declared
   contracts and fixtures.
-- Use adjudicated providers where comparing provider candidates is part of the
-  workflow design. The selected structured result is what downstream state sees.
-  Do not expose candidate/evaluator internal logs as semantic state unless the
-  result type declares them.
+- Use explicit [candidate generation and selection](lisp_library_reference.md#generate-candidates-and-select)
+  when comparing alternatives. The maintained example returns a typed selection;
+  it requires separate clones and does not merge the winner. Declare evaluator
+  evidence in domain result types when downstream policy needs it.
 
 ## 16. Reuse And Modularity
 
