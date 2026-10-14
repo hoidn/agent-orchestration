@@ -652,11 +652,12 @@ Tasks, owners, parallelism and commands are in the
 
 - Q1 (owner). Delete the lean-pilot code and tests as in D1, or only mark the
   row Retired and leave the code. Recommendation: delete; the evidence is
-  frozen elsewhere and the treatment cannot run. Decided: delete (D1).
+  frozen elsewhere and the treatment cannot run. Ruled by the coordinator
+  while the owner was away (R1): delete (D1).
 - Q2 (owner). The E-B task, and the E-A2 task if funded, from the census in
   the plan. The REPL feature on branch `feature/orc-repl` is a further E-B
   candidate; its hidden tests were written by the agent that built it, which
-  makes them a weaker oracle. Decided: E-B is the REPL's first release, base
+  makes them a weaker oracle. Ruled by the coordinator (R5): E-B is the REPL's first release, base
   `47e85a9c` (the parent of the REPL design commit), task text from
   `experiments/orc_repl_feature/inputs.json` plus an appendix naming the
   public REPL forms and outputs the hidden tests drive, hidden set the node
@@ -666,18 +667,21 @@ Tasks, owners, parallelism and commands are in the
   reviewer model; another family is stronger. E-A treatments use an OpenAI
   judge or reviewer; E-B uses Anthropic for design and OpenAI for execution.
   Default proposal: Anthropic Opus 5.5 plus Google if its binding works, else
-  plus an OpenAI model distinct from the treatment's. Decided:
+  plus an OpenAI model distinct from the treatment's. Ruled by the
+  coordinator (R2):
   `claude-opus-5-5` plus an OpenAI model that is not the treatment's judge or
   reviewer, `gpt-6.1-sol` for E-A and `gpt-6-sol` for
   E-B; no Google judge (the `gemini` CLI is absent and its template has no
   model binding). The judges' shared families with treatment models are
   reported as a limit.
 - Q4 (owner). Spend approval for E-A and E-B at the budget above; whether E-B
-  runs four or six runs per arm; whether E-A2 runs. Decided: the budget
+  runs four or six runs per arm; whether E-A2 runs. Ruled by the coordinator
+  under the owner's instruction to run the experiments (R3, R32): the budget
   above; four E-B runs per arm; no E-A2; independent runs may run
-  concurrently, at most four live.
+  concurrently, and E-B may overlap E-A.
 - Q5 (owner). Whether task commits must postdate the models' training data,
   and from which date; and whether the task source may remain this
   repository given that the solution is public and on the same machine, or
-  should move to another repository for E-B. Decided: task commits after
+  should move to another repository for E-B. Ruled by the coordinator (R4):
+  task commits after
   2026-07-01; the task source stays this repository, with detection (D5).
