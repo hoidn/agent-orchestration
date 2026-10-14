@@ -499,6 +499,23 @@ class WccRunRefPayload:
         )
 
 
+def _validate_confined_policy(policy: object) -> None:
+    """Check the parsed `run_ref_confinement.v1` policy shape (values were parsed)."""
+
+    from ..expressions import RUN_REF_CONFINED_LIMITS, RunRefConfinedPolicy
+
+    if not isinstance(policy, RunRefConfinedPolicy):
+        raise TypeError("WCC confined run-ref policy must be a RunRefConfinedPolicy")
+    if (
+        not isinstance(policy.image, str)
+        or "@sha256:" not in policy.image
+        or policy.network not in {"none", "model-only"}
+        or tuple(name for name, _ in policy.limits) != RUN_REF_CONFINED_LIMITS
+        or any(type(value) is not int or value < 1 for _, value in policy.limits)
+    ):
+        raise ValueError("WCC confined run-ref policy is malformed")
+
+
 @dataclass(frozen=True, init=False)
 class WccRunRefWorkflowPayload:
     """Static facts of one confined `run-ref :program (:workflow ...)` site.
@@ -540,6 +557,7 @@ class WccRunRefWorkflowPayload:
             raise ValueError("WCC run-ref outcome identity is invalid")
         if type(allow_nested_structures) is not bool:
             raise TypeError("WCC run-ref nested-transport capability must be boolean")
+        _validate_confined_policy(policy)
         validate_run_ref_result_descriptor(
             result_descriptor,
             expected_generated_name=generated_result_type,

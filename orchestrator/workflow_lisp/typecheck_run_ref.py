@@ -686,6 +686,15 @@ def resolve_unique_run_ref_site_metadata(
             raise TypecheckSessionStateCollisionError(
                 "run-ref retained metadata has inconsistent checked type facts"
             )
+        outcome = retained.outcome_type_ref
+        if outcome is not None and (
+            outcome.name != f"RunRefOutcome${retained.site_digest[:16]}"
+            or set(outcome.variant_field_types) != {"COMPLETED", "FAILED"}
+            or outcome.variant_field_types["COMPLETED"].get("result") is not retained.type_ref
+        ):
+            raise TypecheckSessionStateCollisionError(
+                "run-ref retained outcome union does not match its site"
+            )
         origin = retained.type_ref.run_ref_origin
         if (
             not isinstance(origin, tuple)
@@ -858,8 +867,9 @@ def _typecheck_mode_one(expr, *, context, recurse):
         expr.program.workflow_name
     )
     if signature is None:
+        mode = "confined workflow-mode" if confined else "bundle"
         raise_error(
-            f"unknown run-ref bundle workflow `{expr.program.workflow_name}`",
+            f"unknown run-ref {mode} workflow `{expr.program.workflow_name}`",
             code="workflow_call_unknown",
             span=expr.span,
             form_path=expr.form_path,

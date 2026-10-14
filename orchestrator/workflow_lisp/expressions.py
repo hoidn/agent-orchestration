@@ -2044,9 +2044,10 @@ RUN_REF_CONFINED_LIMITS = (
     "workspace-mib",
     "output-mib",
 )
-# Profile scratch (256) + result (128) + process headroom (512) MiB above the
-# workspace quota (design D-d); one constant so a design revision changes one value.
-PROFILE_HEADROOM_MIB = 896
+# Profile scratch (256) + /dev/shm (64) + result (128) + process headroom (512)
+# MiB above the workspace quota (design D-d, R7); one constant so a design
+# revision changes one value.
+PROFILE_HEADROOM_MIB = 960
 _CONFINED_IMAGE = re.compile(
     r"(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*"
     r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[0-9a-f]{64}\Z"
@@ -2147,7 +2148,7 @@ def _parse_run_ref_confined_policy(
     bounds = dict(limits)
     if bounds["memory-mib"] < bounds["workspace-mib"] + PROFILE_HEADROOM_MIB:
         _run_ref_refuse(limit_sections[":memory-mib"], "`run-ref :memory-mib` must be at least "
-                        f":workspace-mib + {PROFILE_HEADROOM_MIB}", "run_ref_literal_required", form_path)
+                        f":workspace-mib + {PROFILE_HEADROOM_MIB}", "run_ref_environment_effect_unsupported", form_path)
     return RunRefConfinedPolicy(image=image.value, network=network.value[1:], limits=limits)
 
 

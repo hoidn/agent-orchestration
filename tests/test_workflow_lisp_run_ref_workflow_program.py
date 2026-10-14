@@ -7,6 +7,8 @@ surface syntax yet; that arrives with the syntax task).
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
@@ -20,6 +22,8 @@ from orchestrator.workflow_lisp.closed.build import Builder, build_closed_progra
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import RunsRefEffect, UsesCommandEffect, UsesProviderEffect
+from orchestrator.workflow_lisp.workflows import PromptExtern
+from tests.test_workflow_lisp_trial import _trial_source
 from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, PROMPTS, install
 
 HELPER = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
@@ -192,6 +196,9 @@ NESTED_HELPER = HELPER.replace("(export bump fetch Box)", "(export bump fetch Bo
   (defun bump''')
 
 
+TRIAL_RUBRIC = PromptExtern(name="trial-rubric", asset_file="rubrics/trial.md")
+
+
 def _confined(root: Path, *edits: tuple[str, str], extra: str = ""):
     source = CONFINED.replace("EXTRA", extra).replace("RUN_REF", RUN_REF)
     for old, new in edits:
@@ -200,8 +207,8 @@ def _confined(root: Path, *edits: tuple[str, str], extra: str = ""):
     install(root, {"helper.orc": NESTED_HELPER, "controller.orc": source})
     return compile_typed_program(
         root / "controller.orc", entry_workflow="controller::run", source_roots=(root,),
-        command_boundaries=BOUNDARIES, provider_externs={"providers.review": "probe-provider"},
-        prompt_externs={"prompts.base": PROMPTS["prompt"]}, workspace_root=root)
+        command_boundaries=BOUNDARIES, provider_externs={"providers.review": "probe-provider", "scorer": "probe-provider"},
+        prompt_externs={"prompts.base": PROMPTS["prompt"], "trial-rubric": TRIAL_RUBRIC}, workspace_root=root)
 
 
 def _refusal(root: Path, *edits: tuple[str, str], extra: str = "") -> str:
@@ -299,7 +306,7 @@ SHAPE_REFUSALS = {
     "unknown-limit": ((":output-mib 64", ":output-mib 64 :gpus 1"), "run_ref_shape_invalid"),
     "zero-limit": ((":cpus 2", ":cpus 0"), "run_ref_literal_required"),
     "dynamic-limit": ((":cpus 2", ":cpus seed"), "run_ref_literal_required"),
-    "headroom": ((":memory-mib 4096", ":memory-mib 2943"), "run_ref_literal_required"),
+    "headroom": ((":memory-mib 4096", ":memory-mib 3007"), "run_ref_environment_effect_unsupported"),
     "dynamic-repo": (('(:repo "file:///srv/project.git"', "(:repo revision"), "run_ref_literal_required"),
     "bad-commit-literal": ((":commit revision", ':commit "abc"'), "run_ref_literal_required"),
     "int-commit": ((":commit revision", ":commit seed"), "type_mismatch"),
@@ -317,9 +324,9 @@ def test_workflow_program_refuses_invalid_site(tmp_path, case):
 
 
 def test_workflow_program_headroom_boundary_is_admitted(tmp_path):
-    site = _site(_confined(tmp_path, (":memory-mib 4096", ":memory-mib 2944")))
+    site = _site(_confined(tmp_path, (":memory-mib 4096", ":memory-mib 3008")))
 
-    assert dict(site.program.policy.limits)["memory-mib"] == 2944
+    assert dict(site.program.policy.limits)["memory-mib"] == 3008
 
 
 def _child(name: str, body: str, *, params: str = "((seed Int))", result: str = "Int") -> str:
@@ -343,6 +350,13 @@ EFFECT_REFUSALS = {
         "(let* ((v (provider-result providers.review :prompt prompts.base :inputs (n) :returns Verdict)) "
         "(b (provider-bundle-path v :as Bundle))) n))" + _child("bad", "(look seed)"),
         "run_ref_child_transport_unsupported"),
+    "session-context-capture": (
+        _child("bad", "(let* ((c (provider-result providers.review :prompt prompts.base :inputs (seed) "
+                      ":capture-context :portable :returns Verdict))) seed)"),
+        "run_ref_environment_effect_unsupported"),
+    "trial": ('(defworkflow first () -> String "a") (defworkflow second () -> String "b")'
+              + _child("bad", f"(let* ((t {_trial_source()})) seed)"),
+              "run_ref_environment_effect_unsupported"),
     "parallel-map-through-call": (
         _child("fan", '(let* ((xs (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 '
                       ':workspace repo (call leaf :value repo)))) seed)') + _child("bad", "(call fan :seed seed)"),
@@ -470,3 +484,69 @@ def test_trial_arm_cannot_run_a_confined_workflow_child():
         parse_trial_expression(_expression(_trial_source(arm_a=arm)), target_dsl_version="2.38")
 
     assert refused.value.diagnostics[0].code == "run_ref_child_target_unavailable"
+
+
+def test_resource_form_in_child_is_an_unsupported_environment_effect():
+    from orchestrator.workflow_lisp.expressions import elaborate_expression
+    from orchestrator.workflow_lisp.typecheck_run_ref import _child_form_refusal
+    from tests.test_workflow_lisp_resource_stdlib import _expression_syntax
+
+    form = elaborate_expression(_expression_syntax(
+        "(resource-transition :transition write-drain-status :resource drain-run-state "
+        ':request (record DrainStatusRequest :status "BLOCKED"))'), bound_names=frozenset())
+
+    assert _child_form_refusal(form, network_none=False)[0] == "run_ref_environment_effect_unsupported"
+
+
+def test_in_memory_frontend_build_reports_child_refusal(tmp_path):
+    """The LSP and `_compile_entry` path compiles without the typed-program selector."""
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle_in_memory
+
+    source = CONFINED.replace("EXTRA", _child("bad", '(let* ((r (request-input "q"))) seed)')).replace(
+        "RUN_REF", RUN_REF).replace('(:workflow candidate-body) :inputs (:seed seed :task "t")',
+                                    "(:workflow bad) :inputs (:seed seed)")
+    install(tmp_path, {"helper.orc": NESTED_HELPER, "controller.orc": source})
+    boundaries = tmp_path / "boundaries.json"
+    boundaries.write_text(json.dumps({"fetch": {"kind": "external_tool", "stable_command": ["python", "probe.py"],
+                                                "closure": ["probe.py"]}}))
+    (tmp_path / "providers.json").write_text(json.dumps({"providers.review": "probe-provider"}))
+    (tmp_path / "prompts.json").write_text(json.dumps({"prompts.base": "inputs/prompt.md"}))
+
+    with pytest.raises(LispFrontendCompileError) as refused:
+        build_frontend_bundle_in_memory(FrontendBuildRequest(
+            source_path=tmp_path / "controller.orc", source_roots=(tmp_path,), entry_workflow="controller::run",
+            provider_externs_path=tmp_path / "providers.json", prompt_externs_path=tmp_path / "prompts.json",
+            command_boundaries_path=boundaries, workspace_root=tmp_path))
+
+    assert [row.code for row in refused.value.diagnostics] == ["run_ref_environment_effect_unsupported"]
+
+
+def test_workflow_payload_refuses_a_malformed_policy(tmp_path):
+    from dataclasses import fields as dataclass_fields
+    from orchestrator.workflow_lisp.wcc import WccRunRefWorkflowPayload
+
+    payload = _wcc_perform(_confined(tmp_path)).operation_payload
+    arguments = {field.name: getattr(payload, field.name) for field in dataclass_fields(payload)
+                 if not field.name.startswith("_")}
+    arguments.update(result_descriptor=payload.result_descriptor,
+                     input_type_descriptors=tuple(payload.input_type_descriptors),
+                     policy=replace(payload.policy, network="internet"))
+
+    with pytest.raises(ValueError):
+        WccRunRefWorkflowPayload(**arguments)
+
+
+def test_retained_outcome_must_match_its_site(tmp_path):
+    from orchestrator.workflow_lisp.typecheck_context import TypecheckSessionStateCollisionError
+    from orchestrator.workflow_lisp.typecheck_run_ref import resolve_unique_run_ref_site_metadata
+
+    typed = _confined(tmp_path)
+    site = _site(typed)
+    metadata = site.run_ref_metadata
+    forged = replace(metadata, outcome_type_ref=replace(metadata.outcome_type_ref, name="RunRefOutcome$" + "0" * 16))
+    session = typed.workflow_type_envs["controller::run"].session_state
+
+    assert resolve_unique_run_ref_site_metadata(site, session_state=session, prefer_retained=True) is metadata
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_unique_run_ref_site_metadata(replace(site, run_ref_metadata=forged), session_state=session,
+                                             prefer_retained=True)

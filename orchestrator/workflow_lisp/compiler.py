@@ -694,6 +694,10 @@ def compile_stage3_entrypoint(
     retained_non_promotable = _retained_non_promotable_diagnostics(diagnostics)
     typed_program = compile_result.entry_result.typed_program
     if typed_program is not None:
+        from .typecheck_run_ref import refuse_unsupported_confined_children
+
+        # Every entry compile path (CLI, closed build, LSP) passes here once.
+        refuse_unsupported_confined_children(typed_program)
         from .build_artifacts import _source_file_digests_from_trace
 
         source_file_digests = _source_file_digests_from_trace(
