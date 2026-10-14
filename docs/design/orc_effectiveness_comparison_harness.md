@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Title:** A small reusable harness for workflow-versus-single-call comparisons on the evaluated route, retirement of the apparatus that can no longer run, and two preregistered experiments
-- **Status:** draft, 2026-10-14, revised after one independent design review; owner decisions pending in §Open Questions
+- **Status:** draft, 2026-10-14, revised after one independent design review and again during implementation; owner decisions recorded in §Open Questions
 - **Kind:** operational design (experiment apparatus) with experiment preregistration
 - **Owner:** experiment and evaluated-runtime maintainers
 - **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
@@ -118,8 +118,8 @@ Goals:
 Non-goals:
 
 - General effectiveness claims. Each experiment reports one task class.
-- A trial SDK, run-ref, or any E-series revival. The harness is two scripts,
-  two shims and one `.orc`.
+- A trial SDK, run-ref, or any E-series revival. The harness is two command-line
+  scripts with their helper modules, two shims and two `.orc` files.
 - Token or cost metering beyond call counts and wall clock.
 - Parallel candidates. `list/map-effect` runs serially; target 2.37 parallel
   maps are registered, not admitted for this work.
@@ -138,15 +138,24 @@ Non-goals:
   `tests/test_workflow_lisp_closed_program_corpus.py`. Keep
   `experiments/orc_effectiveness/lean_pilot/` as frozen evidence with a notice,
   the reports, the external evidence directory and the digest-bound
-  owner-decision record. The matrix row becomes Historical. Owner approval
-  required (Q1).
-- **D2. One harness under `experiments/compare/`.** `prepare.py`,
-  `shim/claude` and `shim/codex`, `score.orc` with `score.providers.json`,
+  owner-decision record. The matrix row becomes Retired (removed from the live surface; its
+  references are provenance). Owner-approved (Q1).
+- **D2. One harness under `experiments/compare/`.** `prepare.py` with
+  its helper modules `repos.py`, `scan.py` and `pool.py`,
+  `shim/claude` and `shim/codex`, `score.orc` with `score.providers.json`
+  and `providers/score_codex.json`,
   `control/direct_task.orc` (the control, see D3; its module is
   `control/direct_task`, so it sits under `control/` and compiles with the
-  harness directory as source root), `summarize.py`,
-  `criterion.template.json`, `README.md`. Size budget: under 500 lines of
-  Python, under 40 lines of shell, under 80 lines of `.orc`.
+  harness directory as source root) with `control/direct_task.providers.json`,
+  `providers/design_review_execute.json`, `summarize.py`,
+  `criterion.template.json`, the frozen criteria under `criteria/`, the task
+  packages under `tasks/`, `README.md` (the operator contract). Task packages
+  are tracked there so the frozen runtime is a plain checkout of a recorded
+  commit; the test paths and the closed-program corpus roots exclude them.
+  Size: every Python module at most 500 lines and every function at most
+  cyclomatic complexity 12 (the repository rule; the earlier estimate of 500
+  lines of Python in total is not a constraint), under 40 lines of shell,
+  under 80 lines of `.orc`.
 - **D3. The paired baseline comes from the same run where the treatment's
   first call is an implementation.** For `best_of_n` every candidate is a
   single call and the first candidate is the paired baseline; the group mean
@@ -161,7 +170,7 @@ Non-goals:
   every arm is named in the criterion file and reported.
 - **D4. Scoring is side by side per batch, typed, in applied-patch clones.**
   Batches are built by `prepare.py` under random ids with the mapping written
-  outside the pool, and never reveal which patches belong together: for
+  to the pool's records directory, never an ancestor of the clones, and never reveal which patches belong together: for
   `best_of_n` a batch is one run's four independent candidates, one of the
   six single-call control patches (it looks like a fifth independent
   candidate, and the September second clause is then compared within the
@@ -194,10 +203,23 @@ Non-goals:
   seed files never appear in a diff and cannot mark a candidate. The repository is public and the
   agents are unrestricted: the solution exists on GitHub and in the frozen
   runtime checkout on the same machine. After every run the harness scans the
-  shim's call records, the Claude CLI's per-project session files for the
-  clone's directory, and the codex output for the main checkout path, the
-  frozen checkout path, `github.com`, `gh `, `git fetch` and the solution
-  commit's hash. A hit excludes the run and is reported. This is detection,
+  shims' stdout and stderr, the Claude CLI's per-project session files for
+  the agents' tree and the codex rollouts started in it for: the main
+  checkout's path prefix, matched unbounded so sibling worktrees, which also
+  hold solutions, count; the frozen checkout; the records root and the
+  records layout (except the run's own state directory); another run's tree
+  name; `github.com`, `gh ` and `git fetch`; and the solution commit's hash.
+  A path also matches when written under `~`, `$HOME` or `${HOME}`; a bare
+  path fragment does not, to limit benign hits from file contents. The scan
+  records every hit with its file, line and context and decides nothing:
+  the experimenter reads a run's hits and records a verdict, `contaminated`
+  or `cleared`, with a reason. `pool` refuses an unscanned run and a run with
+  hits and no verdict, and excludes contaminated runs; the report lists every
+  hit, verdict and reason. Judges are scanned and adjudicated the same way
+  (§Flow of one run). Some exposure is detection-only: an agent can list
+  sibling tree names and the records root (§Layout), and knows its own result
+  path under the run's state directory, whose `run.json` names the frozen
+  workflow file; the scan flags any use. This is detection,
   not prevention, and is stated as a limit in every report. Whether the
   commits must postdate the models' training data, and from which date, is
   the owner's call (Q5).
@@ -206,7 +228,11 @@ Non-goals:
   silences the symptom without fixing the cause. Both enter every batch under
   random ids with no scores in the prompt. Each judge's anchor scores are
   reported per batch; drift between batches and a low score for the real fix
-  are visible in the report instead of assumed away.
+  are visible in the report instead of assumed away. Where the task has no
+  upstream fix of record (E-A), the first anchor is one single call made
+  outside every arm, a drift reference. Each criterion freezes the anchors'
+  roles (`anchor_roles`) and what their scores may be used for
+  (`anchor_use`).
 - **D7. The E-B treatment is `workflows/examples/design_review_execute.orc`
   unchanged.** It is already task-agnostic: its prompts read the documents and
   code the task names, and it takes `task`, `planner_model` and
@@ -227,50 +253,83 @@ Non-goals:
 
 ```
 experiments/compare/
-  README.md                 recipe: prepare, run, collect, pool, score, summarize
-  prepare.py                candidate repositories, inputs.json per arm, shim install, collect, pool
+  README.md                 operator contract: layout, recipe, measures
+  prepare.py                command line: run, collect, scan, pool, verify-pool
+  repos.py, scan.py, pool.py  candidate builds and patches; contamination scan; blind pool and its check
   shim/claude, shim/codex   transparent wrappers; record prompt, stdout, stderr, patches per call
   score.orc                 blind side-by-side ratings per batch
-  score.providers.json      judge binding
+  score.providers.json      judge binding (Claude); providers/score_codex.json for an OpenAI judge
   control/direct_task.orc   the control: library direct_task plus :timeout-sec (source root: this directory)
+  control/direct_task.providers.json, providers/design_review_execute.json   arm bindings
   summarize.py              results.json, agreement, anchor scores, criterion verdict, markdown table
   criterion.template.json   fields to freeze before scoring
+  criteria/<experiment>.json  frozen criteria
+  tasks/<package>/          task.txt, intent.txt, base_commit, seed/, anchors/, optional hidden_tests.txt and hidden/
 tests/experiments/test_compare_harness.py
+tests/experiments/test_compare_pool_summarize.py
 tests/test_workflow_evaluated_compare_score.py
 ```
 
+A run's files are split between a records directory and an agents' tree
+under the work root (paths in
+[`experiments/compare/README.md`](../../experiments/compare/README.md)): the
+records directory holds the command, the inputs, the call records, the
+orchestrator's state (`--state-dir`) and the log; the agents' tree, under a
+random name, holds the candidates and the run's `TMPDIR`, so nothing an agent
+works in names the arm, the run or the records. A pool holds the clones, one
+working directory and state directory per judge under a random name, and a
+records directory with the mapping, the patches and the judges' call records.
+Only the pool's `clones/` is mode 0311 (traversable, not listable; judges
+receive absolute paths): the runtime opens every ancestor of a workspace or
+state directory with `O_RDONLY`, so no ancestor of an agents' tree or a judge
+directory can be unlistable, and D5 detects what an agent can list. The work
+root and the frozen runtime lie outside the main checkout's path prefix, and
+the runtime outside the work root; `prepare.py` refuses otherwise.
+
 ### Flow of one run
 
-1. `prepare.py run --task <task dir> --base <commit> --arm <name> --root <work root>`
-   builds `root/<arm>/<run>/cand-<k>/` from the base commit alone, commits
-   the package's `seed/` files onto it in every candidate, writes the arm's
-   `inputs.json`, installs the shim directory first on `PATH` for the run,
-   sets `TMPDIR` to a directory under the run root, and prints the
-   `orchestrator run` command to execute verbatim from the frozen runtime
-   checkout, with the working directory the arm requires (§Contracts).
+1. `prepare.py run --task <package> --arm <name> --root <work root> --runtime <frozen checkout>`
+   builds `cand-<k>/` in a new agents' tree from the package's
+   `base_commit` alone, commits the package's `seed/` files onto it in every
+   candidate, writes the arm's `inputs.json` in the run's records directory,
+   installs the shim directory first on `PATH` for the run, sets `TMPDIR` to
+   the tree's `tmp/`, and writes the `orchestrator run` command, run with
+   `python -P` from the frozen runtime checkout with `--state-dir` in the
+   records directory, and its resume script, with the working directory the
+   arm requires (§Contracts).
 2. The run executes the maintained workflow. On every agent call the shim
-   writes `calls/<n>/{prompt.txt,stdout.txt,stderr.txt,patch-cand-<k>.diff}`;
+   writes, in the run's records directory, `calls/<n>/{prompt.txt,stdout.txt,stderr.txt,patch-cand-<k>.diff}`;
    each diff is taken after `git add -A -N .` so new files are included, and
    the index is reset afterwards.
 3. `prepare.py collect` reads the run's `memo.jsonl`, pairs provider effects
    with call directories one to one, and copies every patch the arm's
-   comparator needs into the scoring pool: all candidates for `best_of_n`,
+   comparator needs into the run's `collected/`: all candidates for `best_of_n`,
    first and final for `reviewed_change`, the final patch for
-   `design_review_execute` and for the control.
-4. `prepare.py pool` builds one applied-patch clone per pooled patch under a
-   random id, with `git add -A -N .` so a judge's `git diff` shows new files,
+   `design_review_execute` and for the control. A failed run is recorded
+   with its reason and no patch.
+4. `prepare.py scan` runs the contamination scan of D5 over the run and
+   records its hits; the experimenter records a verdict for a run with hits.
+5. `prepare.py pool` takes the frozen criterion and the judges, builds one
+   applied-patch clone per pooled patch under a random id, with `git add -A -N .` so a judge's `git diff` shows new files,
    strips the paths in D8, adds the two anchors to every batch, writes the
-   batches as the scoring inputs, and writes `mapping.json` outside the pool.
-5. `orchestrator run experiments/compare/score.orc` once per judge, with the
-   batches, the intent, the judge model and `criterion_sha256` as inputs.
-6. `summarize.py --pool <pool> --criterion <criterion.json>` reads each
+   batches as one scoring inputs file and command per judge, and writes
+   `mapping.json` to the pool's records directory.
+6. `orchestrator run experiments/compare/score.orc` once per judge, one judge
+   after another, behind the shims, from the judge's own working directory
+   and state directory, with the batches, the intent, the judge model and
+   `criterion_sha256` as inputs. Judges run unrestricted on the same clones,
+   so `prepare.py verify-pool` runs before each judge and after the last:
+   every clone's diff must equal its pooled patch, and a clone that differs
+   is restored and reported. Each judge is then scanned and adjudicated like
+   a run.
+7. `summarize.py --pool <pool> --criterion <criterion.json>` reads each
    scoring run's `run.json` bound inputs and memo, refuses unless every
    scoring run bound the file's current hash, joins ratings to clones by
    position, refuses any batch whose list length or copied-back clone id
-   disagrees with the positions, and writes the table, the agreement counts,
-   the anchor scores and the verdict.
-7. `prepare.py scan` runs the contamination scan of D5 over the run and
-   appends its result to the run's record.
+   disagrees with the positions, refuses a criterion whose `judges` differ
+   from the pool's and a judge that is unscanned or has hits and no verdict,
+   leaves out and lists a judge adjudicated contaminated, and writes the
+   table, the agreement counts, the anchor scores and the verdict.
 
 ### The shim
 
@@ -280,8 +339,11 @@ and records patches. It does not touch the result file: the evaluated route
 hands providers the absolute path of their pinned result file, and a missing
 file fails the effect with `provider_result_missing`, so the September
 wrapper's deletion of stale result files is obsolete. The shim is the only
-part of the harness in the treatment's path, and it changes nothing the agent
-sees.
+part of the harness in the treatment's path, and it changes one thing the
+agent sees: before the real CLI starts it removes `PYTHONPATH`, `OLDPWD`, the
+`COMPARE_*` variables and its own directory from `PATH`, because they name the
+frozen runtime, the launch directory and the records. The same shims run in
+front of every judge.
 
 ### `score.orc`
 
@@ -317,16 +379,23 @@ effect runs; the summarizer reads it there. The memo holds the ratings.
 ### Completeness for E-B
 
 For tasks a single call may not finish, judge scores alone cannot separate
-"a better partial" from "done". `summarize.py` runs the hidden acceptance node
-ids in each applied-patch clone with the project interpreter,
-`PYTHONPATH` set to the clone (the editable install points elsewhere) and
-`-p no:cacheprovider`, and reports the pass fraction next to the judge score.
+"a better partial" from "done". `summarize.py` runs each node id listed in the
+package's `hidden_tests.txt`, alone, in a copy of each applied-patch clone
+without `.git` with the package's `hidden/` test files copied over it, with
+the interpreter given by `--python`, `PYTHONPATH` set to the copy (the
+editable install points elsewhere), `-p no:cacheprovider` and a time limit
+per node id, and reports the pass fraction next to the judge score.
 The criterion names which measure is primary.
 
 ### Experiments
 
+Each experiment's decisions in full, including judges, anchors, run
+floors, exclusions and E-B's qualification rule, are frozen in its criterion
+file under `experiments/compare/criteria/` (§Contracts).
+
 **E-A, replication on the evaluated route.** The September task at base
-`468e7908` with its tracked task package; treatments `best_of_n` (judge
+`468e7908` with its task package, tracked for the harness as
+`experiments/compare/tasks/ea-loop-result-paths/`; treatments `best_of_n` (judge
 `gpt-6-sol`) and `reviewed_change` (reviewer `gpt-6-sol`); six runs each;
 scoring per batch as in September. Primary criterion, both clauses as
 predeclared in September: `best_of_n` gain against the candidate-group mean
@@ -339,8 +408,10 @@ candidate for `best_of_n`. The only intended difference from
 September is the runtime; the judges differ (Q3), the scoring is typed, and
 the control's single calls receive the bare task text where September's
 selector-model calls used `best_of_n`'s implement prompt; the report lists
-all three. Contamination is a new risk here because the fix is now public
-(D5).
+all three. Contamination is a new risk here because later code on the same path is
+public (D5). No upstream fix of record exists for this task, so the first
+anchor is a drift reference (D6) and the scan's solution hash is `cdb60211`,
+the later target-2.33 route that touches the loop result path code.
 
 **E-A2, optional, a new task of the moderate class** from the census, same
 treatments, same criterion. Runs only when E-A has reported and the owner
@@ -365,63 +436,94 @@ about 7 to 10 hours; scoring, two judges times eight batches (six for
 four control runs, four treatment runs of four calls with the executor bounded
 at four hours, about 10 to 25 hours; scoring, one batch of up to ten clones
 per judge. All live runs happen in tmux from a detached worktree at a
-recorded commit.
+recorded commit, outside the main checkout's path prefix and outside the
+work root (§Layout).
 
 ## Contracts And Interfaces
 
-- `prepare.py run` arguments: `--task` (directory with `task.txt`,
-  `intent.txt`, `hidden_tests.txt`, `base_commit`, `seed/`, `anchors/`), `--arm`
+- `prepare.py run` arguments: `--task` (a package under
+  `experiments/compare/tasks/` with `task.txt`, `intent.txt`, `base_commit`,
+  `seed/`, `anchors/`, and optionally `hidden_tests.txt` with `hidden/`), `--arm`
   (`best_of_n`, `reviewed_change`, `design_review_execute`, `direct_task`),
-  `--candidates N`, `--root`. It writes `inputs.json` matching the arm's typed
+  `--candidates N`, `--root`, `--runtime` (the frozen checkout), and
+  `--set NAME=VALUE` for the other typed inputs. It writes `inputs.json` matching the arm's typed
   inputs: `best_of_n` takes `task`, `intent`, `repos`; `reviewed_change` takes
   `task`, `intent`, `repo`; `design_review_execute` takes `task`,
   `planner_model`, `reviewer_model`; `direct_task` takes `task`, `model`,
   `effort`.
-- Working directory per arm: `best_of_n` runs from the run root with absolute
+- Working directory per arm: `best_of_n` runs from the agents' tree with absolute
   `repos`; `reviewed_change`, `design_review_execute` and `direct_task` run
   from inside their single candidate, because their implement prompts have no
   repository fill and the agent edits where it starts; `repo` for
-  `reviewed_change` is that candidate's absolute path. `PYTHONPATH` names the
-  frozen runtime checkout in every arm, and `TMPDIR` a directory under the
-  run root, because task texts may name it.
-- Shim environment: `COMPARE_ROOT` (run directory), `COMPARE_BASE` (commit).
-  Everything else is the provider's own environment, including the user's
-  CLI credentials.
+  `reviewed_change` is that candidate's absolute path. The command runs
+  `python -P` with `PYTHONPATH` naming the frozen runtime checkout in every
+  arm, so a candidate's own `orchestrator/` cannot shadow it, and `TMPDIR` is
+  the tree's `tmp/`, because task texts may name it.
+- Shim environment: `COMPARE_ROOT` (the run's records directory),
+  `COMPARE_TREE` (the agents' tree), `COMPARE_BASE` (the seeded commit). The
+  shims remove these, `PYTHONPATH`, `OLDPWD` and their own `PATH` entry before
+  the real CLI starts; everything else is the provider's own environment,
+  including the user's CLI credentials.
 - `criterion.json`: `experiment`, `task`, `base_commit`, `arms`, `comparator`
   per arm, `primary` and `secondary` measures with thresholds, `judges`,
   `runs_per_arm`, `anchors` by name, `written_before_scoring: true`. Its
-  SHA-256 is the `criterion_sha256` input of every scoring run.
+  SHA-256 is the `criterion_sha256` input of every scoring run. Each
+  experiment's criterion is frozen as a file under
+  `experiments/compare/criteria/` and adds `claims` (the entries each claim
+  needs), `verdict_rules`, run floors as `primary` entries on `<arm>.runs`,
+  `exclusions`, `anchor_roles`, `anchor_use` and `judge_rules`.
+  `summarize.py` evaluates the `primary` and `secondary` entries
+  mechanically; the other fields bind how the report reads them. Measure
+  names are listed in `experiments/compare/README.md`.
 - `results.json`: per run and arm, every pooled patch's ratings per judge and
   criterion, anchor ratings per batch, hidden-acceptance fraction where
-  applicable, call count, wall clock, scan result, exclusions with reasons,
+  applicable, call count, wall clock, scan hits and verdicts, exclusions of runs and
+  judges with reasons,
   agreement counts, verdict.
 
 ## Dependencies And Sequencing
 
 Needs current `main`, the provider bindings the treatments already use
 (`claude_unrestricted_workspace`, `codex_unrestricted_workspace`, `codex`),
-a judge binding per chosen judge family (the `gemini` template's model and
-effort bindings are unverified; a binding compiles whether or not they exist,
-so the probe runs a stand-in `gemini` script on `PATH` that records its
-arguments and checks that the model reaches the CLI, before Google can be a
-default),
-access to the models named above, and tmux. Sequence: census and judge-binding
-probe, then the harness and D1 in parallel, then E-A, then E-B.
+a judge binding per chosen judge family (`score.providers.json` for Claude;
+`providers/score_codex.json` for OpenAI, because a judge's directory is not a
+git repository; no Google judge, since the `gemini` CLI is absent and its
+template has no model binding),
+access to the models named above, and tmux. Sequence: the E-B task's hidden
+set check, then the harness and D1 in parallel, then E-A. E-B's design and
+criterion do not depend on E-A's results, so E-B may run while E-A runs, from
+the same frozen runtime path (one path for the scan pattern) with its own
+work root.
 
 ## Invariants And Failure Modes
 
 - Treatments are byte-identical to their maintained files; the harness
   references them by path, and the control differs from the library file by
   its time-limit line only. A test asserts both.
-- Judges never see arm, stage, run or model; `mapping.json` lives outside the
-  pool and is read only by `summarize.py`; design artifacts are stripped (D8).
+- Judges never see arm, stage, run or model; `mapping.json` lives in the
+  pool's records directory, never an ancestor of the clones, and is read only
+  by `summarize.py` and `verify-pool`; a judge reading it is caught by its
+  scan (D5); design artifacts are stripped (D8); a clone a judge changed is
+  restored before the next judge (`verify-pool`).
 - Every scoring run binds the criterion hash as an input in its `run.json`;
   the summarizer refuses to evaluate when any bound hash differs from the
-  file's, and refuses any batch whose ratings do not line up with its clones.
-- A run whose effect fails (`provider_result_missing`, timeout, non-zero
-  exit) counts as a failed run of its arm, reported with its reason. Runs are
-  never excluded to improve a mean; the only exclusion is a contamination hit
-  under D5, and it is listed.
+  file's, and refuses any batch whose ratings do not line up with its clones, a
+  criterion whose judges differ from the pool's, and an unscanned or
+  unadjudicated judge; a judge adjudicated contaminated is left out and
+  listed.
+- A run whose effect fails (`provider_result_missing`, an invalid result,
+  timeout, non-zero exit) counts as a failed run of its arm, reported with
+  its reason, and is never relaunched or replaced. A stop on provider
+  infrastructure (rate limit, authentication, CLI crash before agent output)
+  is resumed with the same state directory instead. Runs are never excluded
+  to improve a mean; the only exclusion is a run adjudicated contaminated
+  under D5, listed with its hits and reason.
+- An agent that writes a file its result names by a workspace-relative path
+  somewhere else (for example beside the result file under the state
+  directory) fails the effect as an invalid result. That is a failed run of
+  its arm, as it would be in the default layout, not a harness defect; the
+  report names the failure mode and notes as a limit that a state directory
+  outside the workspace may contribute.
 - A missing patch file for a call that should have produced one marks the run
   invalid; the cause (shim not first on `PATH`, provider environment not
   inheriting `PATH`) is a harness defect, not an outcome.
@@ -430,11 +532,12 @@ probe, then the harness and D1 in parallel, then E-A, then E-B.
 
 ## Security, Operations, And Performance
 
-Unrestricted-workspace providers work in candidate repositories under a
-temporary root with no remote and no history past the base commit; they run
+Unrestricted-workspace providers work in candidate repositories in an
+agents' tree apart from the records (§Layout), with no remote and no history past the base commit; they run
 with the user's CLI credentials and network access, which is why D5 scans
 rather than promises. Runs use a detached worktree of the recorded commit so
-edits to `main` cannot leak in (design lesson 5). `list/map-effect` is
+edits to `main` cannot leak in (design lesson 5), outside the main checkout's
+path prefix and outside the work root. `list/map-effect` is
 serial: four candidates take four times one call. Judge calls read one batch
 each.
 
@@ -450,7 +553,7 @@ with measured columns after a report exists.
 ## Compatibility And Migration
 
 - D1 removes modules nothing else imports. The matrix and index entries that
-  route to the pilot become historical routes that say the apparatus was
+  route to the pilot become retired routes that say the apparatus was
   removed and where its evidence is.
 - `experiments/orc_vs_single_call/harness/` stays as the September report's
   provenance; the report links it. It is not used by the new harness.
@@ -480,7 +583,10 @@ with measured columns after a report exists.
   commit boundary and resumed with the call count compared; a stand-in judge
   scores a pool; `summarize.py` produces a verdict.
 - Live: one run per arm on the chosen task before any batch; its memo, call
-  directories and patches are inspected by hand.
+  directories and patches are inspected by hand. When the inspection finds no
+  harness defect and the runtime commit stays the same, these runs are the
+  first run of their arm in the batch; when a defect forces a runtime change,
+  they are discarded before the batch and reported as smoke.
 
 ## Declarative Acceptance / Integration Scenarios
 
@@ -491,7 +597,8 @@ with measured columns after a report exists.
 - S2. Pool one `best_of_n` run and one `reviewed_change` run with the two
   anchors, score with a stand-in judge: batches composed per D4, one `Rating`
   per clone per batch in the memo, joined by position; no arm, stage or
-  design-artifact path anywhere under the pool. A stand-in judge that returns
+  design-artifact path in anything a judge receives (scoring inputs, clone
+  ids, clones); the clones directory cannot be listed. A stand-in judge that returns
   one rating too few, or a copied-back id that disagrees with its position:
   the summarizer refuses that batch and names it.
 - S3. A scoring run whose bound `criterion_sha256` differs from the file's
@@ -500,7 +607,7 @@ with measured columns after a report exists.
   `provider_result_missing`; `results.json` lists a failed run with that
   reason; no mean is computed from it.
 - S5. After D1: `task_loop.orc` and `orchestrator/experiments/` do not exist;
-  the test suite collects; the matrix row reads Historical and links the
+  the test suite collects; the matrix row reads Retired and links the
   evidence.
 
 ## Success Criteria
@@ -517,7 +624,7 @@ with measured columns after a report exists.
 - The shim cannot see candidate repositories under a provider binding: revise
   D4's capture to a snapshot step in a harness-owned wrapper workflow rather
   than editing treatments; record the deviation.
-- Contamination found in more than one run of a task: change the task, or
+- More than one run of a task adjudicated contaminated: change the task, or
   move the task source to a repository that is not the runtime's own; the
   runs are reported as excluded.
 - Qualification for E-B fails on two tasks in a row: the class may not exist
@@ -527,7 +634,7 @@ with measured columns after a report exists.
 
 ## Documentation Impact
 
-- `docs/capability_status_matrix.md`: lean-pilot row to Historical with the
+- `docs/capability_status_matrix.md`: lean-pilot row to Retired with the
   removal commit; one new row for the comparison harness.
 - `docs/index.md` and `docs/design/README.md`: one entry each for this design
   and the plan; pilot entries say the apparatus was removed.
@@ -544,21 +651,33 @@ Tasks, owners, parallelism and commands are in the
 ## Open Questions
 
 - Q1 (owner). Delete the lean-pilot code and tests as in D1, or only mark the
-  row Historical and leave the code. Recommendation: delete; the evidence is
-  frozen elsewhere and the treatment cannot run.
+  row Retired and leave the code. Recommendation: delete; the evidence is
+  frozen elsewhere and the treatment cannot run. Decided: delete (D1).
 - Q2 (owner). The E-B task, and the E-A2 task if funded, from the census in
   the plan. The REPL feature on branch `feature/orc-repl` is a further E-B
   candidate; its hidden tests were written by the agent that built it, which
-  makes them a weaker oracle.
+  makes them a weaker oracle. Decided: E-B is the REPL's first release, base
+  `47e85a9c` (the parent of the REPL design commit), task text from
+  `experiments/orc_repl_feature/inputs.json` plus an appendix naming the
+  public REPL forms and outputs the hidden tests drive, hidden set the node
+  ids of `tests/test_workflow_evaluated_repl.py` that fail at the base and
+  pass at `fe49c1c4`. E-A2 does not run.
 - Q3 (owner). Scoring judges. They must not be the treatment's judge or
   reviewer model; another family is stronger. E-A treatments use an OpenAI
   judge or reviewer; E-B uses Anthropic for design and OpenAI for execution.
   Default proposal: Anthropic Opus 5.5 plus Google if its binding works, else
-  plus an OpenAI model distinct from the treatment's. The Google binding is
-  probed in the plan's first task.
+  plus an OpenAI model distinct from the treatment's. Decided:
+  `claude-opus-5-5` plus an OpenAI model that is not the treatment's judge or
+  reviewer, `gpt-6.1-sol` for E-A and `gpt-6-sol` for
+  E-B; no Google judge (the `gemini` CLI is absent and its template has no
+  model binding). The judges' shared families with treatment models are
+  reported as a limit.
 - Q4 (owner). Spend approval for E-A and E-B at the budget above; whether E-B
-  runs four or six runs per arm; whether E-A2 runs.
+  runs four or six runs per arm; whether E-A2 runs. Decided: the budget
+  above; four E-B runs per arm; no E-A2; independent runs may run
+  concurrently, at most four live.
 - Q5 (owner). Whether task commits must postdate the models' training data,
   and from which date; and whether the task source may remain this
   repository given that the solution is public and on the same machine, or
-  should move to another repository for E-B.
+  should move to another repository for E-B. Decided: task commits after
+  2026-07-01; the task source stays this repository, with detection (D5).
