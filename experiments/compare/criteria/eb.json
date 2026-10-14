@@ -1,0 +1,115 @@
+{
+  "experiment": "E-B: on a feature a single call does not finish, does the design-review-execute workflow (Fable plans and revises, gpt-6.1-sol reviews and executes) deliver more of the hidden acceptance tests than one gpt-6.1-sol call with the same task text and time limit?",
+  "task": "experiments/compare/tasks/eb-repl",
+  "base_commit": "47e85a9c7e452bfd367275a15d5e97b928efa5ca",
+  "arms": [
+    "design_review_execute",
+    "direct_task"
+  ],
+  "comparator": {
+    "design_review_execute": "direct_task runs in the same pool (hidden_minus_control primary; minus_control secondary)",
+    "direct_task": "none: the control, gpt-6.1-sol through the codex binding the treatment's executor uses, effort high, :timeout-sec 14400 like the executor"
+  },
+  "qualification": {
+    "runs": "records/direct_task/run-1 and run-2 under work_root, same inputs as the batch, collected, scanned and adjudicated before any batch run",
+    "measure": "summarize.hidden_fraction of each run's final patch applied to a clone of the seeded commit (prepare.py pool --out /home/ollie/compare-work-eb/qual-pool, no judge run), with the hidden_acceptance interpreter and the package at the summarize commit",
+    "rule": "qualifies iff each run passes at most 7 of 16 node ids; 8 of 16 does not qualify",
+    "failed_run": "infrastructure failures are resumed (R3); any other failure, including provider_timeout, has no collected patch and counts as below half",
+    "contaminated_run": "replaced once by the next run number; a second contaminated run stops E-B",
+    "fallback": "if eb-repl does not qualify this criterion is void; one census candidate (R5, R15) gets its own package and frozen criterion; if it fails too, E-B stops and is reported",
+    "isolation": "batch runs are direct_task run-3..run-6 and design_review_execute run-1..run-4 (shifted by one if a qualification run is replaced, recorded); qualification runs are never pooled for the batch"
+  },
+  "primary": [
+    {
+      "measure": "design_review_execute.hidden_minus_control",
+      "op": ">=",
+      "value": 0.3
+    },
+    {
+      "measure": "design_review_execute.runs",
+      "op": ">=",
+      "value": 3
+    },
+    {
+      "measure": "direct_task.runs",
+      "op": ">=",
+      "value": 3
+    }
+  ],
+  "secondary": [
+    {
+      "measure": "design_review_execute.minus_control",
+      "op": ">=",
+      "value": 0
+    }
+  ],
+  "scale": "hidden: a node id passes iff pytest exits 0 within 1800 s, run alone in a copy of the D8-stripped clone with hidden/ copied over it; a run's value is its final clone's passed/16; failed and contaminated runs have none. Judge score 0-8 as in E-A.",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
+  "runs_per_arm": {
+    "design_review_execute": 4,
+    "direct_task": 4
+  },
+  "anchors": [
+    "upstream-repl",
+    "stub-repl"
+  ],
+  "anchor_roles": {
+    "upstream-repl": "the repository's own first release without its tests (47e85a9c..fe49c1c4, tests excluded)",
+    "stub-repl": "low anchor: registers the command, answers :help and :quit, evaluates nothing"
+  },
+  "known_differences": [
+    "the task text appends a public-interface appendix naming the forms, output lines, diagnostic codes and exit statuses the hidden tests drive",
+    "the solution is public and present in sibling worktrees on this machine; detection by scan, adjudicated per run",
+    "design artifacts (docs/design/, artifacts/) are stripped from every pooled patch so judges cannot tell the arms apart",
+    "the treatment makes four calls (three of up to 3600 s before the 14400 s executor) against one; only the executor's limit is equalized; calls_mean and wall_clock_mean are reported",
+    "judges: gpt-6-sol shares the OpenAI family with the code author of both arms and the treatment's reviewer (gpt-6.1-sol); claude-opus-5-5 shares the Anthropic family with the planner, whose documents D8 strips",
+    "the task asks both arms for a docs/design/ document, which D8 strips from both; routing or comments naming it remain",
+    "failed runs carry no value: an executor or control timeout drops a run instead of scoring its partial patch, which flatters the arm that fails more",
+    "the E-B runs overlap the E-A batch in time on the same machine and accounts (R32); wall clock is reported, not used for the verdict"
+  ],
+  "exclusions": "Only runs the controller adjudicates as contaminated are excluded (R20; scan hash fe49c1c4ed4bb3f28b8701aa3be2767633e9d294), every verdict recorded before pool. Infrastructure failures (rate limit, auth, CLI crash before agent output; R3) are resumed. Every other failure, provider_timeout included, stays a failed run: never resumed, relaunched or replaced, never pooled. A contaminated run is not replaced. No run beyond four per arm; if budget or quota stops the batch before four per arm exist, the verdict is 'not evaluated'.",
+  "written_before_scoring": true,
+  "runtime": {
+    "path": "/home/ollie/compare-runtime",
+    "runs_commit": "aac25b7d",
+    "summarize_commit": "the same checkout advanced, after E-A is summarized, to a commit whose diff from aac25b7d touches only experiments/compare/criteria/, docs/reports/ and experiments/compare/tasks/eb-repl/hidden_tests.txt (first at 79bdccae); the report names it",
+    "why_one_checkout": "the scan's frozen-runtime pattern names this one path, and the checkout holds upstream-repl.diff"
+  },
+  "package_sha256": "585e057e3828b7eb7a9208ccb5188925949357737c03e156013096ceabcb5f61",
+  "package_sha256_method": "cd <runtime>/<task>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum (at the summarize commit; at aac25b7d hidden_tests.txt named the file and the hash was 63e7daaa...)",
+  "work_root": "/home/ollie/compare-work-eb",
+  "inputs": {
+    "design_review_execute": {
+      "planner_model": "claude-fable-5-1",
+      "reviewer_model": "gpt-6.1-sol"
+    },
+    "direct_task": {
+      "model": "gpt-6.1-sol",
+      "effort": "high"
+    }
+  },
+  "hidden_acceptance": "summarize.py --python /home/ollie/miniconda3/bin/python (the interpreter that gave upstream-repl 16/16 and stub-repl 0/16), run once; any rerun is reported beside the first, which stands.",
+  "reported": [
+    "design_review_execute.hidden_mean",
+    "direct_task.hidden_mean",
+    "design_review_execute.calls_mean",
+    "direct_task.calls_mean",
+    "design_review_execute.wall_clock_mean",
+    "direct_task.wall_clock_mean"
+  ],
+  "claims": {
+    "design_review_execute": [
+      "design_review_execute.hidden_minus_control",
+      "design_review_execute.runs",
+      "direct_task.runs"
+    ]
+  },
+  "verdict_rules": "The claim holds iff all its entries are met; a measure summarize does not emit counts as not met; secondary entries never change the verdict.",
+  "validity": "Void unless mapping.json's task is <runtime>/<task>, the package hash matches at the summarize commit, its judges equal `judges` (summarize refuses otherwise), the batch carries exactly the `anchors` stems, mapping.json lists no qualification run, and upstream-repl's hidden fraction is 1.0.",
+  "anchor_use": "Anchor judge scores and hidden fractions are reported; apart from the upstream-repl validity check nothing is adjusted, excluded or re-scored because of them.",
+  "judge_rules": "Judges bear only on the secondary entry. A judge is left out only by a contaminated scan verdict recorded, with its reason, before summarize; with one left the report says so; with none, summarize refuses and the verdict is not evaluated.",
+  "threshold_provenance": "+0.3 is the design's E-B threshold, set before any E-B data. It is not a power calculation: with four runs per arm it is about five node ids per run, and per-run values are reported."
+}
