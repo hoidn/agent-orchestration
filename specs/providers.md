@@ -339,6 +339,33 @@ schema notation, not authored workflow files.
     described as available until the launcher, state, CLI, resume, and
     attestation integration gates land.
 
+- Run-ref confined provider transport (proposed for target 2.38; unimplemented, not copy-safe)
+  - Status: proposed and not current admission; it changes no current
+    provider execution. Authority:
+    [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
+    (D7, F4 gate); the outer boundary is
+    [`run_ref_confinement.v1`](security.md).
+  - A confined child admits only portable provider calls; sessions and
+    context capture refuse at compile time. An interrupted tool-enabled
+    attempt takes the evaluated at-least-once rerun in the same clone; no
+    agent-session authority applies.
+  - Provider processes run as leaves inside the child's holder sandbox, from
+    profile-specific template variants over image executable pins with
+    base-URL and configuration injection. Host templates, host binaries and
+    an authenticated host SDK process are not alternatives, and CLI approval
+    bypass flags are not isolation.
+  - The provider environment is a per-attempt overlay, not a copy of the
+    controller environment, with telemetry and non-model traffic disabled.
+    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` takes the guest spelling of
+    [IO](io.md#proposed-run-ref-confined-child-io-target-238). Each provider
+    timeout is clamped at dispatch to the remaining child wall budget.
+  - `:model-only` traffic reaches the model only through the inference
+    gateway and per-leaf relay of the security profile; only API-key accounts
+    are admitted.
+  - Increment A: until provider transport qualifies (design gate F4), a
+    provider dispatch in a confined child refuses with
+    `run_ref_provider_transport_unavailable` before dispatch.
+
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
   - Minimal explicit-metadata shape:

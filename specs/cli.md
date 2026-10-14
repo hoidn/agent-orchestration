@@ -304,6 +304,12 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `[resume_preflight_failed] --run-ref-root must be a canonical absolute path`,
   exit `2`) and must equal the recorded root. A completed run resumes to its
   recorded terminal with exit `0` and no write, however often it is repeated.
+  - Proposed amendment for target 2.38 confined children (unimplemented,
+    not current behavior): a completed run that records a pending run-ref
+    workspace-cleanup obligation retries that cleanup on resume, records the
+    outcome, dispatches nothing and exits `0`; a completed run without one
+    keeps the no-write rule above
+    ([State](state.md#proposed-run-ref-confined-child-state-target-238)).
 - `invalidate RUN_ID IDENTITY [--state-dir DIR]` (also
   `python -m orchestrator invalidate ...`) uses the same path resolution as
   `resume` (`.orchestrate/runs/RUN_ID`, or `DIR/RUN_ID`); unlike `resume`,

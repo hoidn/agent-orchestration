@@ -89,6 +89,98 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     execution remains unrestricted until the production launcher, state,
     CLI/resume, and attestation integration is complete and verified.
 
+- Run-ref confinement profile `run_ref_confinement.v1` (proposed for target 2.38; unimplemented, not copy-safe)
+  - Status: proposed and not current admission. Nothing here changes the
+    process authority of current commands, providers or `run-ref` children
+    stated above. Authority:
+    [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
+    (D1, F3 deltas table); security acceptance also requires an independent
+    isolation review and the design's F3, F3b-channel and F3b-checkpoint
+    gates.
+  - The profile is a sibling of `provider_phase_isolation.v1` on the same
+    rootless Bubblewrap substrate (descriptor-bound root, cgroup v2
+    containment slots, `DurableLaunchReleaseGate`, result broker). It is not
+    registered as a provider-isolation backend and never selects, renames,
+    weakens or satisfies `provider_phase_isolation.v1`; a request for it
+    through that policy refuses as an unsupported backend. No container
+    engine, setuid helper or host execution fallback exists.
+  - Rootfs: the runtime imports the digest-pinned `:image` at installation
+    into a sealed content-addressed snapshot under the snapshot assembly
+    rules above, with empty mount points `/workspace`, `/result`, `/tmp`,
+    `/run`, `/dev` and `/proc` in its manifest. Image entrypoints never run.
+    Each holder launch rehashes the rootfs through a retained descriptor and
+    binds that descriptor. Provider executables, `/bin/sh`, `/usr/bin/env`,
+    `setsid` and the relay interpreter are image executable pins; no host
+    binary is bound, and host `PATH` pins or package-origin checks never
+    authorize them.
+  - Containment: each holder launch runs in its own transient delegated user
+    scope (`Delegate=yes`, `MemoryMax`, `MemorySwapMax=0`, `TasksMax`,
+    `CPUQuota`, `OOMPolicy=continue`) around a launcher released only by an
+    exact token after the scope's limits and policy read back equal to the
+    request and the scope root is verified empty. The scope holds a `holder`
+    slot, a `host` slot for host helpers and one slot per leaf. An
+    unavailable user manager, refused delegation, a missing controller or a
+    read-back mismatch refuses before release with
+    `run_ref_environment_unavailable`. The provider-isolation containment
+    root and this scope never share a path.
+  - Holder: one `bwrap` per child attempt and controller session with user,
+    IPC, PID, network, UTS and cgroup namespaces unshared,
+    `--disable-userns`, all capabilities dropped, `--clearenv`,
+    `--new-session` and `--die-with-parent`; size-bounded tmpfs at
+    `/workspace` (`:workspace-mib`), `/tmp` and HOME (256 MiB), `/dev/shm`
+    (64 MiB) and `/result` (128 MiB); `/dev` and `/run` read-only; no
+    `/sys`; the sanitized `.git` read-only at `/workspace/.git`. The
+    in-namespace holder processes hold only `/dev/null`, the two inherited
+    unix socketpairs and guest-owned objects. Leaves run serially under the
+    image's `setsid` in their own slots; the host trusts only cgroup
+    membership, whole-slot quiescence, its deadlines and its own bounded
+    reads. A foreign holder-slot member refuses with
+    `run_ref_environment_escape_rejected` and kills the scope; a holder
+    death fails the pending attempt with `run_ref_environment_lost`.
+    Admission records `kernel.yama.ptrace_scope >= 1`.
+  - Authority outside the clone: the child's control root (run header,
+    checked child artifact, memo, attempt ledger rows, attempt evidence, checkpoint
+    header, holder release gate) is outside the clone and every mount and
+    descriptor granted to the guest. The guest sees only the workspace
+    execution copy, bounded scratch, the result ingress and, for
+    `:model-only`, the relay socket. Host `/`, home, parent and peer
+    workspaces, the source mirror, credentials, SSH agents, engine sockets
+    and orchestration state are absent.
+  - Host Git materialization runs with no credential helpers, SSH agent,
+    global or system configuration or proxy environment, and leaves no
+    alternates, shared mutable objects, worktree links, executable hooks,
+    host-bearing remotes or parent links reachable from the clone;
+    submodules and LFS stay rejected. Delta collection never runs
+    repository-controlled hooks, filters, external diff or configuration.
+  - Host reads of candidate-controlled data: the holder tmpfs is read only
+    by the checkpoint copier and result import, through one root descriptor
+    per mount opened from `/proc/<holder>/root`, validated by holder-slot
+    membership and never reopened by path; traversal is component-wise with
+    `O_NOFOLLOW` and an `st_dev` pin, regular files and directories only,
+    symlink targets as strings, bounded bytes; `st_nlink > 1` is admitted on
+    the tmpfs only. Every other host read uses the existing descriptor-rooted
+    owner on the host clone after quiescence. Clone files named by
+    stable-command tokens, document fills and prompt dependencies are bound
+    by content at `started` through that no-follow reader: a symlinked token
+    binds its target string and never a host target, and refuses only when
+    the symlink is the executable token.
+  - Network: `:none` grants none. `:model-only` keeps the network namespace
+    unshared and binds one unix socket to a host-owned inference gateway that
+    admits only the selected provider/model API operations with byte limits,
+    an attempt-bound capability, expiry and installation-policy
+    token/cost/request ceilings, toward a fixed configured upstream; no
+    arbitrary URL, CONNECT, redirect authority, host tool, filesystem API or
+    credential read. A relay under an image executable pin runs inside each
+    provider leaf and dies with it; the capability is revoked when the
+    attempt stops and excluded from durable artifacts. Only API-key accounts
+    are admitted; OAuth credential-file passthrough is forbidden.
+  - Enforced resources: CPU, memory, process count, cumulative child wall
+    time including host-side work, workspace and scratch bytes, export
+    bytes, file count and depth, and bounded stdout/stderr; a post-run `du`
+    is insufficient. Protected evidence is charged to a separate
+    installation-policy evidence allowance, never to `:output-mib`.
+    Effective limits and kernel settings are retained in admission evidence.
+
 - Adjudicated provider child workspaces (v2.11)
   - Candidate workspaces are run-owned copies created from a fixed immutable baseline snapshot. They are isolation boundaries for orchestrator-managed output validation and promotion, not OS sandboxes.
   - Baseline copy policy `adjudicated_provider.baseline_copy.v1` excludes `.orchestrate/`, `.git/`, dependency/cache roots, common generated cache directories, local secret denylist entries such as `.env`, unsafe symlinks, broken symlinks, and symlinks whose resolved targets would escape or point into excluded paths.

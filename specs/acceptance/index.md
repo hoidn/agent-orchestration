@@ -320,3 +320,42 @@ remains mapped as follows:
 ## Future Acceptance (JSON Stdout Validation)
 
 1. Schema pass; 2. Schema fail with `json_schema_errors`; 3. Parse fail; 4. Parse allowed is incompatible with schema; 5. Require pointer exists; 6. Require equals; 7. Require type; 8. Multiple requirements; 9. Variable substitution in schema path; 10. Large JSON overflow behavior.
+
+## Future Acceptance (Run-Ref Confined Child Environments, target 2.38)
+
+Proposed and unimplemented; these scenarios are not current acceptance and
+admit nothing. The
+[design](../../docs/design/workflow_lisp_run_ref_expression_environments.md#verification-and-declarative-acceptance-scenarios)
+owns their full statements and the F1 to F6 gates (with F3b-channel and
+F3b-checkpoint); real-sandbox and real-provider cases skip when `bwrap`,
+`systemd-run` or a reachable user manager is missing.
+
+1. Normal tool-enabled flow: the design's complete module with three
+   candidates through public compile/run returns a typed selection, three
+   distinct child registrations and workspaces, ordinary provider attempts,
+   bounded delta/accounting, and an exported file under its declared root,
+   with no provisioning command in the workflow.
+2. Independent environments: children see no peer, parent or control
+   canaries; parent/home/socket/metadata-network access, fork, workspace
+   fill, `kill 0`, spawner signals and output floods are bounded by
+   enforcement; the exhausted candidate yields `FAILED` and the search
+   continues.
+3. Recovery across the commit gaps: public kills before the first child
+   commit, after a committed child effect, during a checkpoint, between a
+   checkpoint and its commit, after an unpersisted rerun, after
+   terminal/export preparation and after parent commit; a holder death
+   under a live controller yields `FAILED` without resume. After the first
+   commit resume keeps the child id and committed calls and reruns only the
+   pending attempt under §8.1.
+4. Typed export and retention: exact rebased values, alias identity,
+   no-overwrite writes, clone deletion followed by a dispatch-free completed
+   resume, cleanup-failure retry, and refusal of tampered export, traversal,
+   symlink, special file, reserved root, `:must-exist false`, incompatible
+   refinement and a candidate symlink to a host canary at the next `:doc`
+   read.
+5. Authority and compatibility: changed image, provider configuration,
+   child definition or declared input refuses before dispatch; source
+   relocation keeps identity; old path-child runs read unchanged; forged
+   headers/requests and injected parent descriptors refuse before release;
+   a request through `provider_phase_isolation.v1` refuses as an unsupported
+   backend.
