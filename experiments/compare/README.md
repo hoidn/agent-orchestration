@@ -35,6 +35,7 @@ root `W`, where agents work, and `run` refuses one inside it. `W` and `P` must n
 or `/dev/shm`, since the shims' sandbox mounts private ones there and an agent would lose its working
 directory; `run` and `pool` refuse them. The live layout puts the runtime at
 `/home/ollie/compare-runtime` and the work root at `/home/ollie/compare-work`.
+`run` refuses a task base whose candidates do not ignore `.orchestrate/`, where run state lives.
 
 What the sandbox isolates (R35):
 - each agent and judge CLI runs under `bwrap --dev-bind / / --bind <tree>/tmp /tmp --tmpfs /dev/shm
@@ -42,6 +43,9 @@ What the sandbox isolates (R35):
 - hard-coded `/tmp` paths land in the tree's `tmp/` (a judge's own `tmp/` for judges), so they are
   private, and so are `/tmp` tmux sockets;
 - `/dev/shm` is private, and the process list shows only the agent's own processes.
+- `/tmp` is private per run, not per agent: `best_of_n`'s implementers share the tree's `tmp/`;
+- the PID namespace ends with the call, so any server or tmux session an agent starts dies when
+  its call ends.
 
 What it does not isolate:
 - the rest of the filesystem, home and the network stay shared;

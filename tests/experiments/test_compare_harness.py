@@ -11,7 +11,7 @@ import pytest
 
 from experiments.compare import prepare, repos
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
-    READY, REPO, call, drive, edit, git, selects, start, world, write_memo,
+    READY, REPO, call, drive, edit, git, selects, start, world, write_memo, write_task,
 )
 
 
@@ -288,6 +288,21 @@ def test_scan_matches_paths_written_under_the_home_directory(world):
     assert sorted((h["line"], h["pattern"]) for h in hits) == [
         (2, "main checkout prefix"), (3, "main checkout prefix"), (4, "frozen checkout")]
 
+
+
+def test_scan_matches_the_records_root_written_under_the_home_directory(world):
+    records, record = start(world, "direct_task")
+    call(world, record, f"echo '~/{world.root.relative_to(world.outside)}/records'")
+    hits = prepare.scan(records, world.solution, home=world.outside)
+    assert [h["pattern"] for h in hits] == ["records root"]
+
+
+def test_run_refuses_a_base_that_does_not_ignore_run_state(world):
+    task = world.tmp / "task-no-ignore"
+    write_task(task, world.base)
+    (task / "seed" / ".gitignore").write_text("artifacts/\n")
+    with pytest.raises(SystemExit, match="does not ignore .orchestrate/"):
+        start(world, "direct_task", task=task)
 
 def test_scan_records_hits_without_a_verdict_and_adjudicate_records_one(world):
     records, _ = drive(world, "direct_task", ["echo github.com"], True)

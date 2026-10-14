@@ -25,6 +25,7 @@ Design: docs/design/orc_effectiveness_comparison_harness.md. Standard library on
 import argparse
 import json
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -101,6 +102,9 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     if len(seeded) != 1:
         raise SystemExit(f"candidates disagree on the seeded commit: {sorted(seeded)}")
     compare_base = seeded.pop()
+    for cand in cands:  # run state lives in the working directory; it must never enter a patch (R34)
+        if subprocess.run(["git", "-C", str(cand), "check-ignore", "-q", ".orchestrate/runs/x"]).returncode:
+            raise SystemExit(f"{cand} does not ignore .orchestrate/: run state would enter its patch; seed a .gitignore")
     (tree / "tmp").mkdir()
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))
     cwd = tree if arm == "best_of_n" else cands[0]
