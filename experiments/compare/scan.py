@@ -13,7 +13,7 @@ tree, function, custom tool and shell call arguments only.
 Patterns: the main checkout's path as a prefix (sibling worktrees hold solutions); the frozen
 runtime's path, bounded; any named records root (the work root's records, a pool's records); the
 records layout `records/<arm>/run-<k>` and a pool's record files, wherever they lie (a run's own
-state is in its tree's .orchestrate/runs, so no records path is legitimate); the name of any other tree or judge
+state is under its tree's .orchestrate/, so no records path is legitimate); the name of any other tree or judge
 directory beside this one; github.com, the gh command, git fetch and the solution commit's first
 seven characters; any mention of other sessions' transcripts or tmux sockets (.claude/projects,
 .codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths

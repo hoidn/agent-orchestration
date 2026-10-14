@@ -55,7 +55,7 @@ What it does not isolate:
 | Path | Holds |
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
-| `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root` |
+| `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root`. For `best_of_n` it is `<tree>/.orchestrate/best-of-n-runs/<run_id>/`, linked from every `cand-k/.orchestrate/` (R37) |
 | `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR, and `/tmp` inside the sandbox); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` and `tmp/` (its `/tmp` inside the sandbox) |
@@ -102,10 +102,14 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 
    The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
-   `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). It passes no
-   `--state-dir`, so the state goes to the runtime's default `<cwd>/.orchestrate/runs` and every
-   provider prompt names a result path inside the agent's workspace. A state root outside the
+   `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). Except for `best_of_n` it
+   passes no `--state-dir`, so the state goes to the runtime's default `<cwd>/.orchestrate/runs` and
+   every provider prompt names a result path inside the agent's workspace. A state root outside the
    workspace made the reviewer misplace its report, and once left `result.json` unwritten (R34).
+   `best_of_n`'s workspace is the tree, but its implementers work in `cand-k` and resolve the
+   tree-relative result path there; its state goes to `<tree>/.orchestrate/best-of-n-runs`, and each
+   candidate's `.orchestrate/best-of-n-runs` links to it, so the path resolves from either (R37). An
+   agent that deletes its candidate's `.orchestrate/` (for example `git clean -fdx`) loses the link.
    The task bases' `.gitignore` covers `.orchestrate/` and `artifacts/`. Before an agent starts,
    the shims strip `PYTHONPATH`, `OLDPWD`, the `COMPARE_*` variables and their own directory from
    `PATH`, because these name the frozen runtime, the launch directory and the records. They then
@@ -117,7 +121,7 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 
    ```bash
    tmux new-session -d -s <name> "bash $R/command.sh > $R/run.log 2>&1"
-   tmux new-session -d -s <name> "bash $R/resume.sh <run_id> >> $R/run.log 2>&1"   # run_id: the name under <cwd>/.orchestrate/runs
+   tmux new-session -d -s <name> "bash $R/resume.sh <run_id> >> $R/run.log 2>&1"   # run_id: the name under record.json's state_root
    ```
 
 3. **Collect** pairs the memo's provider starts with `R/calls/<n>/` one to one. It copies the

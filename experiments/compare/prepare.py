@@ -11,8 +11,9 @@
 `run` creates the records directory R = W/records/<arm>/run-<k>/ (record.json, inputs.json,
 command.sh, resume.sh, calls/<n>/ from the shims, collected/<label>.diff) and the agents' tree
 W/agents/<16 hex>/ (cand-<k>/ and tmp/). The orchestrator keeps the run's state in its default root
-<cwd>/.orchestrate/runs (cwd: the tree for best_of_n, its cand-1 otherwise), so the result path each
-provider prompt names lies inside the agent's workspace (R34; ignored by the task bases' .gitignore).
+<cwd>/.orchestrate/runs (cwd: cand-1), so the result path each provider prompt names lies inside the
+agent's workspace (R34; ignored by the task bases' .gitignore). best_of_n's cwd is the tree, its state
+is <tree>/.orchestrate/best-of-n-runs, linked from every candidate's .orchestrate/ (R37).
 Neither W nor the runtime may lie under the main checkout's path prefix. `collect` adds the
 outcome, call count, wall clock and patches to record.json; `scan` adds the hits and the controller's
 verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
@@ -107,7 +108,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
         raise SystemExit(f"candidates disagree on the seeded commit: {sorted(seeded)}")
     compare_base = seeded.pop()
     for cand in cands:  # run state lives in the working directory; it must never enter a patch (R34)
-        if subprocess.run(["git", "-C", str(cand), "check-ignore", "-q", ".orchestrate/runs/x"]).returncode:
+        if subprocess.run(["git", "-C", str(cand), "check-ignore", "-q", ".orchestrate/x"]).returncode:
             raise SystemExit(f"{cand} does not ignore .orchestrate/: run state would enter its patch; seed a .gitignore")
     (tree / "tmp").mkdir()
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))

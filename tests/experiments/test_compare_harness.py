@@ -140,6 +140,16 @@ def test_best_of_n_result_paths_resolve_from_the_tree_and_every_candidate(world)
         str(tree), ["resume", "R1", "--state-dir", str(state)], [state.resolve()] * 2, ["", ""])
 
 
+
+def test_best_of_n_result_written_from_a_candidate_lands_in_the_state_and_not_in_its_patch(world):
+    records, record = start(world, "best_of_n", candidates=2)
+    relative = Path(record["state_root"]).relative_to(record["tree"]) / "r1" / "result.json"
+    cand = Path(record["candidates"][0])
+    Path(record["state_root"]).mkdir(parents=True)  # the runtime creates it before the first call
+    call(world, record, f"cd {cand} && mkdir -p {relative.parent} && echo '{{}}' > {relative}")
+    patch = (records / "calls" / "1" / "patch-cand-1.diff").read_text()
+    assert ((Path(record["state_root"]) / "r1" / "result.json").read_text(), ".orchestrate" in patch) == ("{}\n", False)
+
 def test_shim_forwards_to_the_real_cli_without_pythonpath(world):
     _, record = start(world, "direct_task")
     done = call(world, record, "echo agent-said-hello; exit 3", binary="codex")
