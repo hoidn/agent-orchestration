@@ -1,0 +1,113 @@
+{
+  "experiment": "E-A: on the evaluated route, do generate-four-select-one and review-and-revise with a stronger reviewer from another family beat single calls on the September task, as they did on the flat route?",
+  "task": "experiments/compare/tasks/ea-loop-result-paths",
+  "base_commit": "468e79084b10ff7fdfaf2ac7b82902f5c94abdeb",
+  "arms": [
+    "best_of_n",
+    "reviewed_change",
+    "direct_task"
+  ],
+  "comparator": {
+    "best_of_n": "group mean of the run's own four candidates (group_gain, the September primary comparator); first candidate (paired_gain); six gpt-6-sol single calls, one scored in each best_of_n batch (minus_control, the September second clause)",
+    "reviewed_change": "the run's first implementer call (paired_gain)",
+    "direct_task": "none: the control, gpt-6-sol with the bare task text, effort high"
+  },
+  "primary": [
+    {
+      "measure": "best_of_n.group_gain_runs_positive",
+      "op": ">=",
+      "value": 5
+    },
+    {
+      "measure": "best_of_n.group_gain_mean",
+      "op": ">=",
+      "value": 0.75
+    },
+    {
+      "measure": "best_of_n.minus_control",
+      "op": ">=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.paired_gain_runs_negative",
+      "op": "<=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.paired_gain_mean",
+      "op": ">=",
+      "value": 0.5
+    },
+    {
+      "measure": "reviewed_change.runs",
+      "op": ">=",
+      "value": 5
+    },
+    {
+      "measure": "direct_task.runs",
+      "op": ">=",
+      "value": 5
+    }
+  ],
+  "secondary": [
+    {
+      "measure": "best_of_n.paired_gain_mean",
+      "op": ">=",
+      "value": 0
+    }
+  ],
+  "scale": "each clone scores 0-8: the sum of four rubric criteria rated 0-2, averaged over the judges not excluded; September used the same 8-point scale",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6.1-sol"
+  ],
+  "runs_per_arm": {
+    "best_of_n": 6,
+    "reviewed_change": 6,
+    "direct_task": 6
+  },
+  "anchors": [
+    "sonnet-single-call",
+    "silence-relpath-check"
+  ],
+  "anchor_roles": {
+    "sonnet-single-call": "drift reference: one Sonnet single call through best_of_n::implement-one outside every arm (no upstream fix exists for targets 2.29-2.32)",
+    "silence-relpath-check": "low anchor: deletes the relpath override check, weakening validation for authored workflows"
+  },
+  "known_differences_from_september": [
+    "runtime: evaluated route at 2.35 instead of the flat route at 2.28; the authored prompts drop the result-file sentence because the runtime supplies the result path, and September's wrapper that made that path absolute and removed stale results is gone",
+    "judges: claude-opus-5-5 and gpt-6.1-sol for every batch, instead of a fresh pair of Opus subagents per batch; gpt-6.1-sol shares a family with the selector, the reviewer and the control model gpt-6-sol",
+    "scoring: typed per-clone ratings; best_of_n in six batches of seven clones instead of one batch of 32 (24 candidates, 6 single calls, 2 anchors); a reviewed_change run's first and final patches sit in different batches instead of one batch of 15 that included intermediate patches; minus_control and reviewed_change.paired_gain therefore compare scores across batches",
+    "anchors: a Sonnet single call and a symptom-silencing patch, instead of candidate patches repeated from earlier batches",
+    "control: direct_task with the bare task text, effort high, through the codex binding; September's gpt-6-sol single calls used best_of_n's implement prompt through variant files not in the tree, effort unrecorded",
+    "candidates built from the base commit alone; the September candidates were worktrees of the main checkout with all refs",
+    "agent environment: the shims strip PYTHONPATH, OLDPWD and COMPARE_* (R6, R24); September agents had PYTHONPATH at the runner checkout",
+    "no fix of record exists for targets 2.29-2.32; public commit cdb60211 adds a 2.33 route in the same lowering code, the contamination risk"
+  ],
+  "exclusions": "Only runs whose scan hits the controller adjudicates as contaminated (R20; scan solution hash cdb60211a31db4659727a87c962d8272dbccba46, R27). Infrastructure failures are resumed, never relaunched or excluded (R3). Any other failure stays a failed run: never relaunched or replaced, means over the remaining runs. A contaminated run is not replaced. No run beyond six per arm is launched. If budget or quota stops the batch before six runs per arm exist, the verdict is 'not evaluated'.",
+  "written_before_scoring": true,
+  "runtime": {
+    "path": "/home/ollie/compare-runtime",
+    "commit": "aac25b7d"
+  },
+  "package_sha256": "5bb1487dadf33982af56170f351edad76bbfd3e31b35c85b67ab87d5d91302a3",
+  "package_sha256_method": "cd <runtime>/<task>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum",
+  "validity": "The evaluation is void unless mapping.json's task is <runtime>/<task>, the package hash matches, its judges equal `judges` (summarize refuses otherwise), and every batch carries exactly the `anchors` stems.",
+  "claims": {
+    "best_of_n": [
+      "best_of_n.group_gain_runs_positive",
+      "best_of_n.group_gain_mean",
+      "best_of_n.minus_control",
+      "direct_task.runs"
+    ],
+    "reviewed_change": [
+      "reviewed_change.paired_gain_runs_negative",
+      "reviewed_change.paired_gain_mean",
+      "reviewed_change.runs"
+    ]
+  },
+  "verdict_rules": "Each claim holds iff all its entries are met; E-A replicates iff both hold; a measure summarize does not emit (met null) counts as not met; secondary entries never change a primary verdict; a gain of exactly 0 is neither positive nor negative (September: 'beats', 'no run got worse').",
+  "anchor_use": "Anchor scores are reported per batch and judge only; no gain is adjusted and no batch, run or judge is excluded, rescaled or re-scored because of them.",
+  "judge_rules": "A judge is left out only by a contaminated scan verdict recorded, with its reason, before summarize runs. With one judge left the verdict uses that judge and the report says so; with none, not evaluated. Per-judge values are reported and never used for the verdict.",
+  "threshold_provenance": "best_of_n thresholds are September's preregistered confirmation criterion; reviewed_change thresholds are set just below September's observed result (no run worse, +0.58), which was not preregistered."
+}
