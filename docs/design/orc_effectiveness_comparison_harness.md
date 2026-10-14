@@ -285,7 +285,15 @@ orchestrator's state stays at the runtime's default, `.orchestrate/runs/`
 under the run's working directory, so every result path a provider prompt
 names lies inside the agent's workspace, the condition the maintained
 workflows were written for; a state root outside the workspace induced
-misplaced and missing result files. A pool holds the clones, one working
+misplaced and missing result files. `best_of_n` is the exception: its
+workspace is the tree while its implementers work in `cand-k` and resolve
+the workspace-relative result path there, so its state goes to
+`<tree>/.orchestrate/best-of-n-runs/` (`--state-dir`) and every candidate's
+own `.orchestrate/` (ignored by the task bases, never in a patch) holds the
+link `best-of-n-runs -> ../../.orchestrate/best-of-n-runs`, so the path
+resolves from either; an agent's own runs in `cand-k` keep
+`cand-k/.orchestrate/runs/`. A known limit: an agent that deletes its
+candidate's `.orchestrate/` loses the link. A pool holds the clones, one working
 directory per judge under a random name with the judge's state directory and
 `tmp/` inside it, and a records directory with the mapping, the patches and
 the judges' call records.
@@ -306,8 +314,8 @@ otherwise.
    candidate, writes the arm's `inputs.json` in the run's records directory,
    installs the shim directory first on `PATH` for the run, sets `TMPDIR` to
    the tree's `tmp/`, and writes the `orchestrator run` command, run with
-   `python -P` from the frozen runtime checkout and no `--state-dir`, and its
-   resume script, which resumes from the same working directory; both use the
+   `python -P` from the frozen runtime checkout and no `--state-dir` except
+   for `best_of_n` (§Layout), and its resume script, which resumes from the same working directory; both use the
    working directory the arm requires (§Contracts).
 2. The run executes the maintained workflow. On every agent call the shim
    writes, in the run's records directory, `calls/<n>/{prompt.txt,stdout.txt,stderr.txt,patch-cand-<k>.diff}`;
@@ -332,7 +340,10 @@ otherwise.
    judge model and `criterion_sha256` as inputs. Judges run unrestricted on the same clones,
    so `prepare.py verify-pool` runs before each judge and after the last:
    every clone's diff must equal its pooled patch, and a clone that differs
-   is restored and reported. Each judge is then scanned and adjudicated like
+   is restored and reported. A judge's provider failure (missing or invalid
+   result) is an instrument failure, not a datum: the judge is resumed with
+   its resume script and the same state directory, never re-run, and the
+   report lists the failure. Each judge is then scanned and adjudicated like
    a run.
 7. `summarize.py --pool <pool> --criterion <criterion.json>` reads each
    scoring run's `run.json` bound inputs and memo, refuses unless every
@@ -420,8 +431,14 @@ run state lay outside the workspace and to the E-B qualification runs made
 before the agent sandbox, when shared `/tmp` paths and another session's tmux
 server exposed the solution to the agents' environment; those are not
 adjudicated as contamination, since the environment, not the agent, reached
-the solution. Reruns start in fresh work roots at the fixed runtime commit,
-and each criterion is amended (runtime commit, work roots, a deviation note
+the solution. It applies as well to the `best_of_n` runs made before its
+candidates could resolve the result path from their own repository; runs
+of other arms stand when the fix touches only `best_of_n`. A defect the
+harness accommodates in a maintained workflow rather than introduces, such
+as `best_of_n`'s workspace-relative result path, is also reported as a
+finding about that workflow. Reruns run at the fixed runtime commit, in a
+fresh work root or, when the fix touches one arm only, under new run
+numbers, and each criterion is amended (runtime commit, work roots, a deviation note
 naming the discarded runs) and re-hashed before any rerun, with the old hash
 cited in the amendment.
 
@@ -547,14 +564,17 @@ work root.
   timeout, non-zero exit) counts as a failed run of its arm, reported with
   its reason, and is never relaunched or replaced. A stop on provider
   infrastructure (rate limit, authentication, CLI crash before agent output)
-  is resumed from the same working directory, which holds its state,
-  instead. Runs are never excluded to improve a mean; the only exclusion is a run adjudicated contaminated
-  under D5, listed with its hits and reason.
-- A result path outside the agent's workspace is a harness defect, not an
-  outcome: it changes the condition the maintained workflows were written for
+  is resumed with the same working directory and state instead. Runs are
+  never excluded to improve a mean; the only exclusion is a run adjudicated
+  contaminated under D5, listed with its hits and reason.
+- A result path outside the agent's workspace, or one the agent cannot
+  resolve from where it works, is a harness defect, not an outcome: it changes the condition the maintained workflows were written for
   and induces misplaced and missing result files. So is an environment shared
   across runs or sessions (`/tmp`, `/dev/shm`, tmux servers, the process
   list). Runs made under either are discarded and rerun (§Experiments).
+- A judge's provider failure (missing or invalid result) is an instrument
+  failure, not a datum: the judge is resumed, never re-run, and the report
+  lists the failure.
 - A missing patch file for a call that should have produced one marks the run
   invalid; the cause (shim not first on `PATH`, provider environment not
   inheriting `PATH`) is a harness defect, not an outcome.
