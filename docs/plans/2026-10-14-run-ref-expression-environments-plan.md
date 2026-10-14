@@ -70,13 +70,15 @@ At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibil
 
 **Files:** this plan; `docs/reports/run-ref-confinement-feasibility/README.md`. **Dependency:** none. No spec amendments in this task.
 
-- [ ] Record `git status --short`, `git rev-parse HEAD` and the dirty paths without modifying unrelated files. Use an isolated worktree if execution would collide with existing edits (`superpowers:using-git-worktrees`).
-- [ ] Run the existing narrow baseline: `pytest -q tests/test_workflow_lisp_closed_run_ref_placement.py tests/test_workflow_evaluated_run_ref.py tests/test_workflow_evaluated_run_ref_settlement.py tests/test_workflow_run_ref_config.py`. Record failures before interpreting later regressions.
-- [ ] Readiness probe, recorded with exact commands and output: `bwrap` present (it is, at `/usr/bin/bwrap`; `podman` is not installed on the reference host), unprivileged user namespaces, cgroup v2 delegation for the current user, a workspace quota mechanism, an image-import tool for a digest-pinned OCI image into a directory tree, and the provider CLI's base-URL/API-key override flags. A missing prerequisite is recorded as BLOCKED for the gate that needs it.
-- [ ] Reuse the existing path-mode oracles (`tests/e2e/test_e2e_workflow_evaluated_run_ref.py`, `test_closed_path_run_ref_placement_round_trip`) as the compatibility baseline; do not capture new fixtures.
-- [ ] Commit only the report and plan updates with explicit paths after reviewing `git diff --cached`: `docs: record run-ref confinement baseline and readiness`.
+- [x] Record `git status --short`, `git rev-parse HEAD` and the dirty paths without modifying unrelated files. Use an isolated worktree if execution would collide with existing edits (`superpowers:using-git-worktrees`).
+- [x] Run the existing narrow baseline: `pytest -q tests/test_workflow_lisp_closed_run_ref_placement.py tests/test_workflow_evaluated_run_ref.py tests/test_workflow_evaluated_run_ref_settlement.py tests/test_workflow_run_ref_config.py`. Record failures before interpreting later regressions.
+- [x] Readiness probe, recorded with exact commands and output: `bwrap` present (it is, at `/usr/bin/bwrap`; `podman` is not installed on the reference host), unprivileged user namespaces, cgroup v2 delegation for the current user, a workspace quota mechanism, an image-import tool for a digest-pinned OCI image into a directory tree, and the provider CLI's base-URL/API-key override flags. A missing prerequisite is recorded as BLOCKED for the gate that needs it.
+- [x] Reuse the existing path-mode oracles (`tests/e2e/test_e2e_workflow_evaluated_run_ref.py`, `test_closed_path_run_ref_placement_round_trip`) as the compatibility baseline; do not capture new fixtures.
+- [x] Commit only the report and plan updates with explicit paths after reviewing `git diff --cached`: `docs: record run-ref confinement baseline and readiness`.
 
 **Done:** baseline and readiness receipts exist in the report with no implementation claim.
+
+Evidence (2026-10-14, commit `0c156966`): baseline 260 passed, path-mode oracles 19 passed; `bwrap` 0.9.0, user and network namespaces, delegated cgroup v2 (`cpu memory pids`), size-limited tmpfs quota and Python registry v2 access are ready; the controller's own cgroup scope cannot enable child controllers (F3 must use a delegated scope); no API-key provider account, so the F4 upstream leg is BLOCKED. See [the feasibility report](../reports/run-ref-confinement-feasibility/README.md).
 
 ## Task 1: Feasibility F1-F4 in bounded vertical experiments
 
