@@ -477,6 +477,19 @@ treatment minus control, at least +0.3. Secondary: judge score, call count
 and wall clock per run. `plan_review_execute.orc` may be added as a second
 treatment when budget allows; it is not required.
 
+**Difficulty calibration for follow-on experiments (owner, 2026-10-14).** A
+task can show a workflow's value only when the work leaves something for the
+workflow to do. Later experiments raise task difficulty until the expected
+number of review blockers is at least one. Before any treatment run, the
+candidate task is measured on single-call patches made with the control's
+binding. Two quantities are measured: the single call's hidden-acceptance
+fraction, which must be below half, and the mean number of blocking findings
+the treatment's reviewer raises on those patches, which must be at least one.
+Both measurements and their thresholds are frozen in the criterion. A task
+that misses either one is replaced by a harder task, not run. Census commits
+of a few hundred lines are not candidates. The E-B qualification rule above
+is the first of the two checks.
+
 Budget, serial, approximate. E-A: six `best_of_n` runs of five calls, six
 `reviewed_change` runs of two to six calls and six single-call control runs,
 about 7 to 10 hours; scoring, two judges times eight batches (six for
