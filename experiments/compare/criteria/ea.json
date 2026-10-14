@@ -82,13 +82,16 @@
     "control: direct_task with the bare task text, effort high, through the codex binding; September's gpt-6-sol single calls used best_of_n's implement prompt through variant files not in the tree, effort unrecorded",
     "candidates built from the base commit alone; the September candidates were worktrees of the main checkout with all refs",
     "no fix of record exists for targets 2.29-2.32; public commit cdb60211 adds a 2.33 route in the same lowering code, the contamination risk",
-    "agent environment: the shims strip PYTHONPATH, OLDPWD and COMPARE_* (R6, R24) and run each CLI under bubblewrap with a private /tmp, /dev/shm and process list (R35); run state sits in the working directory (R34); September agents had PYTHONPATH at the runner checkout and no sandbox"
+    "agent environment: the shims strip PYTHONPATH, OLDPWD and COMPARE_* (R6, R24) and run each CLI under bubblewrap with a private /tmp, /dev/shm and process list (R35); run state sits in the working directory (R34); September agents had PYTHONPATH at the runner checkout and no sandbox",
+    "best_of_n's implementers resolve the result path from their own candidate through a link the harness adds (R37); September's runner made the result path absolute"
   ],
   "exclusions": "Only runs whose scan hits the controller adjudicates as contaminated (R20; scan solution hash cdb60211a31db4659727a87c962d8272dbccba46, R27). Infrastructure failures are resumed, never relaunched or excluded (R3). Any other failure stays a failed run: never relaunched or replaced, means over the remaining runs. A contaminated run is not replaced. No run beyond six per arm is launched. If budget or quota stops the batch before six runs per arm exist, the verdict is 'not evaluated'.",
   "written_before_scoring": true,
   "runtime": {
     "path": "/home/ollie/compare-runtime",
-    "commit": "1a77e0af"
+    "commit": "197e35ed",
+    "reviewed_change_and_direct_task_commit": "1a77e0af",
+    "note": "1a77e0af..197e35ed changes only best_of_n's state directory in prepare.py (R37); the other arms' runs at 1a77e0af ran under identical conditions and stand"
   },
   "package_sha256": "5bb1487dadf33982af56170f351edad76bbfd3e31b35c85b67ab87d5d91302a3",
   "package_sha256_method": "cd <runtime>/<task>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum",
@@ -114,5 +117,9 @@
   "amends": {
     "previous_sha256": "a495900a00cb5abf267cdd7cdfe2724d1a7b74ea8897004a489b93d9fddacbd4",
     "reason": "Amendment 1 (2026-10-14, before any run at this commit): the harness at aac25b7d had two defects found in the live smoke and first batch. R34: run state outside the agent's workspace gave result paths outside it, and agents misplaced relpath outputs (2 of 4 review calls, against 0 of 5 in three diagnostic runs with the default layout) or left the result unwritten. R35: agents shared /tmp, tmux servers and the process list with other runs and sessions; a stale tmux server carried PYTHONPATH at the main checkout. The fixed harness keeps run state under the working directory's .orchestrate/runs and runs every agent and judge CLI under bubblewrap with a private /tmp, /dev/shm and process list. Every run made at aac25b7d is discarded (none is pooled) and listed in the report with this reason; the reruns use a fresh work root. Discarded at aac25b7d: direct_task 1-5 completed; best_of_n 1, 2, 4 completed, 3 failed (result missing), 5 and 6 stopped; reviewed_change 3, 4 completed, 1, 2 failed (misplaced report), 5 and 6 stopped."
+  },
+  "amends_2": {
+    "previous_sha256": "6d1c4090a1b8d600e69360b2895f3e709a889bf0adb8dd9cd3c98c2c5c6bf989",
+    "reason": "Amendment 2 (2026-10-14, before any best_of_n run at 197e35ed): best_of_n's workspace is the tree while its implementers work in cand-k; with run state in the tree they resolved the tree-relative result path inside cand-k and the runtime found no result (best_of_n run-1 and run-2 at 1a77e0af failed at their first candidate). R37: best_of_n's state directory is linked from every candidate's .orchestrate/ so the path resolves from either. best_of_n runs 1-6 under /home/ollie/compare-work2 are discarded (1, 2 failed, 3 stopped, 4-6 never started); the six best_of_n runs are run-7..run-12 there. reviewed_change and direct_task runs 1-6 are unaffected and stand."
   }
 }
