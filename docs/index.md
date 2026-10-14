@@ -15,6 +15,7 @@ verified native prompt resume retain their scoped owners.
 
 | Need | Start Here | Why |
 | --- | --- | --- |
+| Review running a static named workflow in a runtime-prepared, confined candidate clone | [Run-ref confined child environments](design/workflow_lisp_run_ref_expression_environments.md) and [implementation plan](plans/2026-10-14-run-ref-expression-environments-plan.md) | Proposed, unimplemented: `:program (:workflow name)` children, explicit inputs, a Bubblewrap sibling confinement profile and §8.1-aligned child recovery. No new authoring permission or sandbox guarantee is implied. |
 | Understand the system at a high level | [Architecture Overview](architecture_overview.md) | Short conceptual front door before the fuller orchestration model. |
 | Find normative runtime behavior | [Master Spec](../specs/index.md) | Specs win when docs disagree. |
 | Check whether a workflow surface is implemented, partial, future, or legacy | [Capability Status Matrix](capability_status_matrix.md) | Status and copy-safety routing for common DSL and Workflow Lisp surfaces. |
@@ -916,6 +917,11 @@ and closure. The plan passed `L3_PLAN_SPEC_APPROVED` then
 **Description:** Deferred runtime-semantics boundary for principled closures, including sealed closure families, checked dynamic invocation, typed captures, capabilities, source maps, and replay/resume constraints.
 **Keywords:** lisp-frontend, closures, runtime-callable, executable-ir, replay, resume
 **Use this when:** Evaluating future runtime closure pressure without weakening `ProcRef` or `let-proc`.
+
+### [Workflow Lisp Run-Ref Confined Child Environments](design/workflow_lisp_run_ref_expression_environments.md)
+**Description:** Proposed extension of `run-ref` for static named-workflow children, runtime-prepared candidate clones, a Bubblewrap sibling confinement profile and effectful-child recovery aligned with evaluated execution §8.1. The [implementation plan](plans/2026-10-14-run-ref-expression-environments-plan.md) owns feasibility gates and delivery sequencing; the example is not current syntax.
+**Keywords:** run-ref, candidate, expression, clone, environment, isolation, resume
+**Use this when:** Designing candidate generation and evaluation without workflow-authored clone scripts; generated source evaluation remains a separate proposal.
 
 ### [Lisp ProcRef Partial Application Work Instructions](plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md)
 **Description:** Historical instructions for the implemented ProcRef / `bind-proc` tranche, preserving its original target/baseline separation.
