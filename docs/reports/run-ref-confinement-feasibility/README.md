@@ -225,7 +225,7 @@ Driver: `timeout 300 python3 experiments/run_ref_confinement_spike/f4_driver.py 
 | --- | --- | --- |
 | `tests/test_workflow_lisp_run_ref_workflow_program.py` | 6 | `pytest -q` -> `6 passed`; mutation RED `4 failed, 2 passed` |
 | `tests/test_workflow_run_ref_confinement.py` | 4 | first run RED `1 failed, 3 passed` (compile cache in the clone, recorded above), then `4 passed` |
-| `tests/e2e/test_e2e_run_ref_confined.py` | 5 (`@pytest.mark.e2e`, `skip_if_no_e2e`, `skip_if_no_cli("bwrap")`, `skip_if_no_cli("systemd-run")`) | `ORCHESTRATE_E2E=1 pytest -q` -> `5 passed`; without the variable `5 skipped`; mutation RED (no `--unshare-all`, `pids.max max`, `memory.max max`, no `--size`, no `ctl` leaf) -> all 5 fail |
+| `tests/e2e/test_e2e_run_ref_confined.py` | 5 (`@pytest.mark.e2e`, `skip_if_no_e2e`, `skip_if_no_cli("bwrap")`, `skip_if_no_cli("systemd-run")`) | `ORCHESTRATE_E2E=1 pytest -q` -> `5 passed`; without the variable `5 skipped`; mutation RED (no `--unshare-all`, `pids.max max`, `memory.max max`, no `--size`, no `ctl` leaf) -> all 5 fail. Fix round 1: the network probe is `python3` `connect_ex(("1.1.1.1", 53))` (host `/usr` bound) instead of a dash `/dev/tcp` redirect, which failed regardless of the namespace; GREEN gives `{"interfaces": ["lo"], "connect": "ENETUNREACH"}`, and mutation RED with `--share-net` gives `{"connect": 0, "interfaces": ["lo", "enp7s0"]}` (connected) |
 
 `pytest --collect-only -q` over the three modules collects 15 tests. Real launches ran in the foreground with `timeout` (each under 10 s), not in tmux. Image store left at `~/.cache/run-ref-spike-images` (125 MiB) for review reproduction.
 

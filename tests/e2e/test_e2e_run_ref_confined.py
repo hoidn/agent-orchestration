@@ -74,13 +74,17 @@ def test_controller_scope_needs_a_leaf_before_slots_can_carry_limits():
 
 
 def test_unshared_network_sandbox_has_only_loopback_and_no_route():
+    # connect_ex returns 0 when a route exists; the unshared namespace yields ENETUNREACH.
     facts = _in_delegated_scope('''
+        import errno
         done = sandbox("cat /proc/net/dev | tail -n +3 | cut -d: -f1 | tr -d ' '; "
-                       "(exec 3<>/dev/tcp/1.1.1.1/53) 2>/dev/null && echo CONNECTED || echo REFUSED")
-        print(json.dumps({"out": done.stdout.split()}))
+                       "python3 -c 'import socket; s = socket.socket(); s.settimeout(3); "
+                       "print(s.connect_ex((\\"1.1.1.1\\", 53)))'")
+        interfaces, code = done.stdout.split()[:-1], int(done.stdout.split()[-1])
+        print(json.dumps({"interfaces": interfaces, "connect": errno.errorcode.get(code, code)}))
     ''')
 
-    assert facts == {"out": ["lo", "REFUSED"]}
+    assert facts == {"interfaces": ["lo"], "connect": "ENETUNREACH"}
 
 
 def test_slot_pids_max_bounds_a_fork_loop_inside_the_sandbox():
