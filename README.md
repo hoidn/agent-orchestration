@@ -170,7 +170,6 @@ The repository records negative results next to positive ones.
 | Study | What was measured | Outcome |
 | --- | --- | --- |
 | [Workflows versus a single agent call](docs/reports/2026-09-28-orc-versus-single-call.md) | A real compiler defect, six runs per configuration, two blind model judges per batch, 8-point rubric | Generate-four-select-one with a stronger judge from another model family: +0.83 and +1.02 over the candidate-group mean. With the author's own model as reviewer or selector: between -0.5 and +0.44. Review-and-revise with a stronger reviewer from another family: +0.58 |
-| [Earlier pilot](docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md) | A PyTorch port task, direct call versus coordinator versus workflow | The direct call won all three blocks; the workflow was viable in one of three. Recorded as such |
 | [Language limitations found in use](docs/reports/2026-09-29-orc-language-limitations-and-solutions.md) | A search controller written five ways against the flat step runtime | Three refusals, one 361-node expression against a 256-node bound. This motivated evaluated execution, which now runs that controller with its source unchanged |
 | [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Independent candidates plus a judge with different knowledge than the author were the only measured sources of gain |
 
