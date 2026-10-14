@@ -35,14 +35,18 @@ prefix as a hit. `prepare.py` refuses such paths.
 | Path | Holds |
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `state/` (the orchestrator's `--state-dir`), `collected/`, `run.log` |
-| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR); `W/agents` cannot be listed; `record.json` names the tree |
+| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` |
 | `P/records/` | `mapping.json`, `patches/`, `score-inputs-<judge>.json`, `score-<judge>.sh`, `results.json`, `results.md` |
 
-`P`, `P/clones`, `P/judges` and `W/agents` are mode 0311: traversable, not listable. Before deleting
-them, `chmod u+r` them. The orchestrator still writes `.orchestrate/` (workspace lock, guard and a
-build cache) into the working directory, which is ignored by this repository's `.gitignore`.
+`P/clones` is mode 0311 (traversable, not listable: judges get absolute paths); `chmod u+r` it
+before deleting the pool. `W/agents`, `P` and `P/judges` must stay listable. The runtime opens every
+ancestor of a workspace or state directory one component at a time with `O_RDONLY`, and a 0311
+parent fails the run with `cannot open directory root component`. So an agent can list sibling
+trees and an ancestor's records. The scan counts any mention of another tree's name as a hit, and
+records live outside every tree. The orchestrator still writes `.orchestrate/` (workspace lock,
+guard and a build cache) into the working directory; this repository's `.gitignore` ignores it.
 
 ## Recipe
 
@@ -105,6 +109,7 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    The patterns are:
    - the main checkout's prefix;
    - the frozen checkout;
+   - another run's tree name;
    - `github.com`, `gh ` and `git fetch`;
    - the solution hash.
 

@@ -17,7 +17,7 @@ from pathlib import Path
 SEED_COMMIT = ("-c", "user.name=compare", "-c", "user.email=compare@example.invalid",
                "commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "compare seed")
 SEED_DATES = {"GIT_AUTHOR_DATE": "2000-01-01T00:00:00+0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000"}
-HIDDEN_DIR = 0o311  # traversable, not listable
+HIDDEN_DIR = 0o311  # traversable, not listable: only for directories no orchestrator run lives under
 
 
 def git(repo, *args, env=None, raw=False, stdin=None):
@@ -76,10 +76,10 @@ def patch_of(repo, base):
     return patch
 
 
-def hidden_child(parent):
-    """A fresh directory with a random name under `parent`, which agents may traverse but not list."""
+def random_child(parent):
+    """A fresh directory with an unguessable name under `parent`. The parent stays listable: the runtime
+    opens every ancestor of a workspace or state directory component by component with O_RDONLY."""
     parent.mkdir(parents=True, exist_ok=True)
-    parent.chmod(HIDDEN_DIR)
     child = parent / secrets.token_hex(8)
     child.mkdir()
     return child

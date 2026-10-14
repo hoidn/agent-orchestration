@@ -4,7 +4,6 @@ Behaviour on temporary git repositories with a stand-in agent CLI; see compare_h
 """
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -75,13 +74,11 @@ def test_run_refuses_a_runtime_under_the_main_checkout_prefix(world):
         start(world, "direct_task")
 
 
-def test_agents_trees_sit_under_a_parent_agents_cannot_list(world):
+def test_agents_trees_have_unguessable_names_and_hold_only_candidates(world):
     _, record = start(world, "best_of_n", candidates=2)
     tree = Path(record["tree"])
-    with pytest.raises(PermissionError):
-        os.listdir(world.root / "agents")
-    assert (tree.parent, len(tree.name), sorted(p.name for p in tree.iterdir())) == (
-        world.root.resolve() / "agents", 16, ["cand-1", "cand-2", "tmp"])
+    assert (tree.parent, len(tree.name), int(tree.name, 16) >= 0, sorted(p.name for p in tree.iterdir())) == (
+        world.root.resolve() / "agents", 16, True, ["cand-1", "cand-2", "tmp"])
 
 
 def test_bookkeeping_lives_in_the_records_directory_not_in_the_agents_tree(world):
@@ -208,6 +205,14 @@ def test_scan_counts_sibling_checkouts_of_main_as_hits_but_not_its_own_tree(worl
     call(world, record, f"echo {record['candidates'][0]}; echo going through; echo {world.main}-repl/orchestrator")
     assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
         (4, "main checkout prefix")]
+
+
+def test_scan_counts_another_runs_agents_tree_as_a_hit(world):
+    records, record = start(world, "direct_task")
+    _, other = start(world, "direct_task")
+    call(world, record, f"ls {Path(other['tree']).name}")
+    assert [h["pattern"] for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
+        "other agents' tree"]
 
 
 def test_scan_records_hits_without_a_verdict_and_adjudicate_records_one(world):

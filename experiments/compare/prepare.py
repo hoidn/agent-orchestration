@@ -9,12 +9,12 @@
 
 `run` creates the records directory R = W/records/<arm>/run-<k>/ (record.json, inputs.json,
 command.sh, resume.sh, calls/<n>/ from the shims, state/ for the orchestrator, collected/<label>.diff)
-and the agents' tree W/agents/<16 hex>/ (cand-<k>/ and tmp/); W/agents is traversable but not
-listable. Neither W nor the runtime may lie under the main checkout's path prefix. `collect` adds the
+and the agents' tree W/agents/<16 hex>/ (cand-<k>/ and tmp/). Neither W nor the runtime may lie under
+the main checkout's path prefix. `collect` adds the
 outcome, call count, wall clock and patches to record.json; `scan` adds the hits and the controller's
-verdict. `pool` creates P, P/clones/<id>/ (what judges read) and P/judges/<16 hex>/ (one working and
-state directory per judge), none of them listable, and P/records/ (mapping.json, patches/<id>.diff,
-score-inputs-<judge>.json, score-<judge>.sh, later results.json and results.md).
+verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
+P/judges/<16 hex>/ (one working and state directory per judge) and P/records/ (mapping.json,
+patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, later results.json and results.md).
 Design: docs/design/orc_effectiveness_comparison_harness.md. Standard library only; needs git on PATH.
 """
 
@@ -28,11 +28,11 @@ from pathlib import Path
 
 try:
     from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
-    from .repos import build_candidate, dump, git, guard, hidden_child, load, main_checkout, sha256_file
+    from .repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
-    from repos import build_candidate, dump, git, guard, hidden_child, load, main_checkout, sha256_file
+    from repos import build_candidate, dump, git, guard, load, main_checkout, random_child, sha256_file
 
 # arm: (source, entry workflow, source root, providers file, typed inputs); paths in the runtime checkout.
 ARMS = {
@@ -98,7 +98,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     guard(main, root, runtime)
     base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
     arm_inputs(task, arm, [Path("/")], sets)  # refuse bad --set values before building anything
-    records, tree = next_run_dir(root / "records" / arm), hidden_child(root / "agents")
+    records, tree = next_run_dir(root / "records" / arm), random_child(root / "agents")
     cands = [tree / f"cand-{k}" for k in range(1, count + 1)]
     seeded = {build_candidate(runtime, base, task / "seed", cand) for cand in cands}
     if len(seeded) != 1:

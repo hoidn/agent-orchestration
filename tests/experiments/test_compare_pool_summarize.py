@@ -66,14 +66,9 @@ def test_pool_keeps_arms_and_stages_out_of_what_judges_see(pooled):
     assert [w for w in words if w in inputs or any(w in cid for cid in pooled.mapping["clones"])] == []
 
 
-def test_pool_directories_judges_reach_cannot_be_listed(pooled):
-    refused = []
-    for directory in (pooled.out, pooled.out / "clones", pooled.out / "judges"):
-        try:
-            os.listdir(directory)
-        except PermissionError:
-            refused.append(directory.name)
-    assert refused == ["pool", "clones", "judges"]
+def test_judges_cannot_list_the_clones_directory(pooled):
+    with pytest.raises(PermissionError):
+        os.listdir(pooled.out / "clones")
 
 
 def test_each_judge_gets_its_own_inputs_working_and_state_directory(pooled, world):

@@ -7,8 +7,9 @@ CLI's session files (~/.claude/projects/<slug>, the slug being the path with eve
 character as "-") for the agents' tree and every directory under it, tool_use inputs only; codex
 rollouts (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) modified since `since` whose session cwd lies
 in the tree, function, custom tool and shell call arguments only. Patterns: the main checkout's path
-as a prefix (sibling worktrees hold solutions), the frozen checkout's path bounded, github.com, the
-gh command, git fetch and the solution commit's first seven characters. Standard library only.
+as a prefix (sibling worktrees hold solutions), the frozen checkout's path bounded, the name of any
+other agents' tree beside this one (another run's work), github.com, the gh command, git fetch and
+the solution commit's first seven characters. Standard library only.
 """
 
 import json
@@ -16,11 +17,12 @@ import re
 from pathlib import Path
 
 
-def patterns(main, runtime, solution):
-    return {"main checkout prefix": re.escape(str(main)),
-            "frozen checkout": re.escape(str(runtime)) + r"(?![\w.-])",
-            "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
-            "solution hash": re.escape(solution[:7])}
+def patterns(main, runtime, solution, others):
+    found = {"main checkout prefix": re.escape(str(main)),
+             "frozen checkout": re.escape(str(runtime)) + r"(?![\w.-])",
+             "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
+             "solution hash": re.escape(solution[:7])}
+    return found | ({"other agents' tree": "|".join(re.escape(name) for name in others)} if others else {})
 
 
 def claude_actions(row):
@@ -68,7 +70,8 @@ def sources(records, tree, since, home):
 
 
 def find_hits(records, tree, main, runtime, solution, since, home):
-    compiled = patterns(main, runtime, solution)
+    others = sorted(p.name for p in Path(tree).parent.iterdir() if p.name != Path(tree).name)
+    compiled = patterns(main, runtime, solution, others)
     hits = []
     for path, number, text in sources(Path(records), Path(tree), since, Path(home)):
         for name, pattern in compiled.items():

@@ -1,9 +1,10 @@
 """The blind scoring pool (design D4, D6, D8; rulings R18, R20, R21) and its integrity check.
 
 pool(task, criterion, out, judges, runs) builds P = out: P/clones/<id>/ applied-patch clones (what the
-judges read), P/judges/<16 hex>/ one working and state directory per judge, and P/records/ with
-mapping.json (read by summarize.py and verify_pool only), patches/<id>.diff, score-inputs-<judge>.json
-and score-<judge>.sh. P, P/clones and P/judges are traversable but not listable.
+judges read; P/clones is traversable but not listable), P/judges/<16 hex>/ one working and state
+directory per judge, and P/records/ with mapping.json (read by summarize.py and verify_pool only),
+patches/<id>.diff, score-inputs-<judge>.json and score-<judge>.sh. P and P/judges stay listable: the
+runtime opens every ancestor of a judge's working and state directory with O_RDONLY.
 verify_pool(out) restores any clone whose HEAD or patch a judge changed. Standard library only.
 """
 
@@ -147,8 +148,7 @@ def pool(task, criterion, out, judges, runs):
                "runs": rows, "clones": clones, "batches": members}
     dump(out / "records" / "mapping.json", mapping)
     write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
-    for directory in (out / "clones", out / "judges", out):
-        directory.chmod(HIDDEN_DIR)
+    (out / "clones").chmod(HIDDEN_DIR)
     print(f"# {len(clones)} clones in {len(members)} batches; run the judges one after another, "
           f"each followed by: prepare.py verify-pool --pool {out}")
     return mapping
