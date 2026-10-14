@@ -170,6 +170,7 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    ```
 
 8. **Summarize.** It refuses in these cases:
+   - a criterion whose `judges` differ from the pool's;
    - a judge not scanned, scanned before its last call, or with hits and no verdict (a judge found
      contaminated is left out and listed);
    - a listed judge without exactly one completed scoring run;

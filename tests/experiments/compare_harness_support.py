@@ -87,6 +87,7 @@ def world(tmp_path):
     criterion.write_text(json.dumps({
         "primary": [{"measure": "best_of_n.group_gain_mean", "op": ">=", "value": 0.75}],
         "secondary": [{"measure": "best_of_n.paired_gain_mean", "op": ">=", "value": 0}],
+        "judges": ["judge-a", "judge-b"],
     }))
     fakebin = tmp_path / "fakebin"
     fakebin.mkdir()

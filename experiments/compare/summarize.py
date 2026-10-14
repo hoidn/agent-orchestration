@@ -4,7 +4,8 @@
 
 Reads P/records/mapping.json (prepare.py pool) and, for every judge it lists, the judge's scan
 (P/records/judges/<judge>/scan.json) and its one scoring run of experiments/compare/score.orc in its
-state directory P/judges/<dir>/state/<run_id>/ (run.json and memo.jsonl). Refuses a judge that is not
+state directory P/judges/<dir>/state/<run_id>/ (run.json and memo.jsonl). Refuses a criterion whose
+`judges` differ from the pool's. Refuses a judge that is not
 scanned, whose scan predates calls, or whose hits have no verdict; leaves out a judge found
 contaminated. Refuses unless every other judge has exactly one completed scoring run that bound the
 criterion file's SHA-256 and the judge's model, and every batch's ratings line up with its clones.
@@ -245,6 +246,9 @@ def summarize(pool, criterion, python=sys.executable):
     pool = Path(pool).resolve()
     mapping = json.loads((pool / "records" / "mapping.json").read_text())
     sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
+    frozen = json.loads(Path(criterion).read_text())
+    if sorted(frozen["judges"]) != sorted(mapping["judges"]):
+        raise SystemExit(f"the criterion names judges {sorted(frozen['judges'])} but the pool has {sorted(mapping['judges'])}")
     excluded, ratings = judged_ratings(pool, mapping, sha)
     totals = {judge: {cid: sum(r[c] for c in CRITERIA) for cid, r in rated.items()} for judge, rated in ratings.items()}
     clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid in mapping["clones"]}
@@ -254,7 +258,7 @@ def summarize(pool, criterion, python=sys.executable):
     results = {
         "criterion_sha256": sha, "judges": sorted(ratings), "excluded_judges": excluded, "runs": rows,
         "measures": m,
-        "verdict": verdict(json.loads(Path(criterion).read_text()), m), "agreement": agreement(ratings),
+        "verdict": verdict(frozen, m), "agreement": agreement(ratings),
         "anchors": anchor_scores(mapping, totals),
         "clones": {cid: {**clone, "score": clone_scores[cid], "hidden": clone_hidden.get(cid),
                          "ratings": {j: ratings[j][cid] for j in sorted(ratings)}}

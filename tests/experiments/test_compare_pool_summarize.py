@@ -254,6 +254,13 @@ def test_summarize_refuses_a_scoring_run_bound_to_another_criterion(pooled, worl
         summarize.summarize(pooled.out, world.criterion)
 
 
+
+def test_summarize_refuses_a_criterion_naming_other_judges(pooled, world):
+    other = world.tmp / "other-judges.json"
+    other.write_text(json.dumps({**json.loads(world.criterion.read_text()), "judges": ["judge-a"]}))
+    with pytest.raises(SystemExit, match=r"criterion names judges \['judge-a'\] but the pool has"):
+        summarize.summarize(pooled.out, other)
+
 def test_summarize_refuses_unless_every_judge_has_exactly_one_scoring_run(pooled, world):
     score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home")
     pooling.scan_judge(pooled.out, "judge-b", "f" * 40, home=world.tmp / "home")
@@ -270,9 +277,10 @@ def test_summarize_runs_hidden_acceptance_in_an_untouched_copy_without_git(world
     write_task(task, world.base, anchors=False, hidden=True)
     own_test = "mkdir -p tests && printf 'def test_missing():\\n    pass\\n' > tests/test_hidden.py"
     records, _ = drive(world, "direct_task", [edit("$PWD", "a + b") + own_test], True, task=task)
-    out = world.tmp / "pool-hidden"
-    mapping = pooling.pool(task, world.criterion, out, ["judge-a"], [records])
+    out, criterion = world.tmp / "pool-hidden", world.tmp / "criterion-one-judge.json"
+    criterion.write_text(json.dumps({**json.loads(world.criterion.read_text()), "judges": ["judge-a"]}))
+    mapping = pooling.pool(task, criterion, out, ["judge-a"], [records])
     score(out, "judge-a", mapping, world.tmp / "home")
-    results = summarize.summarize(out, world.criterion)
+    results = summarize.summarize(out, criterion)
     pooling.verify_pool(out)
     assert results["measures"]["direct_task.hidden_mean"] == pytest.approx(3 / 4)
