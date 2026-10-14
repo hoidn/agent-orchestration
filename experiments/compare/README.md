@@ -7,12 +7,13 @@ criterion frozen before scoring.
 
 | File | Role |
 | --- | --- |
-| `prepare.py` | `run` (candidates, `inputs.json`, the command), `collect`, `scan`, `pool`, `verify-pool` |
+| `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `verify-pool` |
+| `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
 | `shim/claude`, `shim/codex` | first on `PATH` during a run; forward to the real CLI without `PYTHONPATH`, record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
-| `control/direct_task.providers.json`, `providers/design_review_execute.json` | provider bindings for the control and the E-B treatment |
-| `score.orc`, `score.providers.json` | blind side-by-side ratings per batch |
-| `summarize.py` | `results.json`, the per-run table, agreement, anchor scores, measures, verdict |
+| `control/direct_task.providers.json`, `providers/design_review_execute.json` | bindings for the control and the E-B treatment |
+| `score.orc`, `score.providers.json`, `providers/score_codex.json` | blind side-by-side ratings; a Claude and an OpenAI judge binding |
+| `summarize.py` | `results.json` and `results.md`: runs, measures, verdict, agreement, anchors, scan verdicts |
 | `criterion.template.json` | the fields to freeze, and hash, before scoring |
 
 ## Task package
@@ -21,24 +22,41 @@ criterion frozen before scoring.
 (what judges and reviewers receive), `base_commit`, `seed/` (files committed onto the base in every
 candidate and clone, so they never appear in a patch), `anchors/<name>.diff` (the two anchors, built
 against the seeded commit), and optionally `hidden_tests.txt` (node ids, one per line, or a file
-path for all its tests) with `hidden/` (test files copied over each clone before they run). Without
-both, hidden acceptance is skipped.
+path for all its tests) with `hidden/` (test files copied over a copy of each clone, without `.git`,
+before they run). Without both, hidden acceptance is skipped.
+
+## Layout
+
+The work root `W`, the pool `P` and the frozen runtime `RT` must not lie under the main checkout's
+path prefix (for `/home/ollie/Documents/agent-orchestration`, that includes every sibling such as
+`...-compare` or `...-repl`): those checkouts hold solutions, and the scan counts any mention of the
+prefix as a hit. `prepare.py` refuses such paths.
+
+| Path | Holds |
+| --- | --- |
+| `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `state/` (the orchestrator's `--state-dir`), `collected/`, `run.log` |
+| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR); `W/agents` cannot be listed; `record.json` names the tree |
+| `P/clones/<id>/` | applied-patch clones, what judges read |
+| `P/judges/<16 hex>/` | one judge's working directory, with its `state/` |
+| `P/records/` | `mapping.json`, `patches/`, `score-inputs-<judge>.json`, `score-<judge>.sh`, `results.json`, `results.md` |
+
+`P`, `P/clones`, `P/judges` and `W/agents` are mode 0311: traversable, not listable. Before deleting
+them, `chmod u+r` them. The orchestrator still writes `.orchestrate/` (workspace lock, guard and a
+build cache) into the working directory, which is ignored by this repository's `.gitignore`.
 
 ## Recipe
 
 Placeholders: `MAIN` the main checkout, `C` the recorded commit, `RT` the frozen runtime checkout,
-`W` the work root, `T` the task package inside `RT`, `RUN` a run directory, `POOL` a pool
-directory, `SOL` the solution commit. Every command runs with `PYTHONPATH=$RT`; the printed run
-commands set it themselves.
+`W` the work root, `T` the task package inside `RT`, `R` a records directory, `P` a pool, `SOL`
+the solution commit.
 
 ```bash
-git -C $MAIN worktree add --detach $RT $C        # 0. frozen runtime: edits to main cannot leak in
-export PYTHONPATH=$RT PY=/home/ollie/miniconda3/bin/python
-H=$RT/experiments/compare
+git -C $MAIN worktree add --detach $RT $C        # 0. frozen runtime outside MAIN's prefix
+PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 ```
 
-1. **Prepare** one run per invocation; it prints the command and writes it to `$RUN/command.sh`
-   (`RUN` is the `COMPARE_ROOT` in it, `W/<arm>/run-<k>`).
+1. **Prepare** one run per invocation. It prints the command, writes it to `R/command.sh` and
+   writes `R/resume.sh`.
 
    ```bash
    $PY $H/prepare.py run --task $T --arm best_of_n --root $W --runtime $RT [--candidates 4]
@@ -51,79 +69,103 @@ H=$RT/experiments/compare
 
    | arm | inputs | working directory of the command |
    | --- | --- | --- |
-   | `best_of_n` | `task`, `intent`, `repos` (absolute candidates) | the run root `RUN` |
-   | `reviewed_change` | `task`, `intent`, `repo` (absolute `RUN/cand-1`) | `RUN/cand-1` |
-   | `design_review_execute` | `task`, `planner_model`, `reviewer_model` | `RUN/cand-1` |
-   | `direct_task` | `task`, `model`, `effort` | `RUN/cand-1` |
+   | `best_of_n` | `task`, `intent`, `repos` (absolute candidates) | the agents' tree |
+   | `reviewed_change` | `task`, `intent`, `repo` (the tree's absolute `cand-1`) | the tree's `cand-1` |
+   | `design_review_execute` | `task`, `planner_model`, `reviewer_model` | the tree's `cand-1` |
+   | `direct_task` | `task`, `model`, `effort` | the tree's `cand-1` |
 
-   The command runs `python -P` so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH`,
-   puts `$H/shim` first on `PATH`, and sets `COMPARE_ROOT`, `COMPARE_BASE` (the seeded commit) and
-   `TMPDIR=$RUN/tmp`.
+   The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
+   It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
+   `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). It passes
+   `--state-dir R/state`.
 
-2. **Run** in tmux; a run that stops on provider infrastructure is resumed, never relaunched.
+2. **Run** in tmux. A run that stops on provider infrastructure is resumed with the same state
+   directory, never relaunched.
 
    ```bash
-   tmux new-session -d -s <name> "bash $RUN/command.sh > $RUN/run.log 2>&1"
-   sed -E 's/ -m orchestrator run .*/ -m orchestrator resume <run_id>/' $RUN/command.sh > $RUN/resume.sh
-   tmux new-session -d -s <name> "bash $RUN/resume.sh >> $RUN/run.log 2>&1"
+   tmux new-session -d -s <name> "bash $R/command.sh > $R/run.log 2>&1"
+   tmux new-session -d -s <name> "bash $R/resume.sh <run_id> >> $R/run.log 2>&1"   # run_id: the name under R/state
    ```
 
-3. **Collect** pairs the memo's provider starts with `calls/<n>/` one to one and copies the patches
-   the comparator needs into `$RUN/collected/`: every candidate for `best_of_n`, first and final
-   for `reviewed_change`, final otherwise. A failed run is recorded with its reason and no patch.
+3. **Collect** pairs the memo's provider starts with `R/calls/<n>/` one to one. It copies the
+   patches the comparator needs into `R/collected/`: every candidate for `best_of_n`, first and
+   final for `reviewed_change`, final otherwise. A failed run is recorded with its reason and no
+   patch.
 
    ```bash
-   $PY $H/prepare.py collect --run $RUN
+   $PY $H/prepare.py collect --run $R
    ```
 
-4. **Scan** for contamination (D5): the shim's stdout and stderr, the Claude CLI's session files
-   for the run's directories and the codex rollouts started there, searched for the main checkout,
-   the frozen checkout, `github.com`, `gh `, `git fetch` and the solution hash. A hit excludes the
-   run from the pool; it is detection, not prevention.
+4. **Scan, then adjudicate** (D5 as amended by R20). `scan` records every hit with its file, line,
+   pattern and an excerpt, and decides nothing. It searches:
+   - the shims' stdout and stderr;
+   - the Claude CLI's session files for the tree;
+   - the codex rollouts started in the tree.
+
+   The patterns are:
+   - the main checkout's prefix;
+   - the frozen checkout;
+   - `github.com`, `gh ` and `git fetch`;
+   - the solution hash.
+
+   For a run with hits, the controller reads them and records a verdict. `pool` refuses a run
+   with hits and no verdict, excludes contaminated runs (listed with the reason) and includes
+   cleared ones.
 
    ```bash
-   $PY $H/prepare.py scan --run $RUN --hash $SOL
+   $PY $H/prepare.py scan --run $R --hash $SOL
+   $PY $H/prepare.py scan --run $R --verdict contaminated --reason "<what the agent read>"
+   $PY $H/prepare.py scan --run $R --verdict cleared --reason "<why the hits are benign>"
    ```
 
-5. **Freeze the criterion** from `criterion.template.json` (measure names below) before pooling;
-   its SHA-256 becomes every scoring run's `criterion_sha256`.
+5. **Freeze the criterion** from `criterion.template.json` (measure names below) before pooling.
+   Its SHA-256 becomes every scoring run's `criterion_sha256`.
 
-6. **Pool** every run of one experiment at once. Batches follow D4: one per `best_of_n` run with
-   one `direct_task` patch each, two stage batches for `reviewed_change`, otherwise one batch of
-   all final patches; both anchors join every batch. Clones live in `$POOL/clones/<id>/`;
-   `mapping.json`, `patches/` and one `score-inputs-<judge>.json` per judge sit beside them.
+6. **Pool** every run of one experiment at once. Batches follow D4:
+   - one per `best_of_n` run, with one `direct_task` patch each;
+   - two stage batches for `reviewed_change`;
+   - otherwise one batch of all final patches.
+
+   Both anchors join every batch. `--judge MODEL` uses `score.providers.json`;
+   `--judge MODEL=FILE` uses another binding (`providers/score_codex.json` for an OpenAI judge,
+   because a judge's directory is not a git repository). The pool prints one command per judge
+   and writes it to `P/records/score-<judge>.sh`. Each judge has its own working directory and
+   `--state-dir` under `P/judges/`.
 
    ```bash
-   $PY $H/prepare.py pool --task $T --criterion <criterion.json> --out $POOL \
-     --judge claude-opus-5-5 --judge gpt-6.1-sol $W/best_of_n/run-* $W/direct_task/run-* ...
+   $PY $H/prepare.py pool --task $T --criterion <criterion.json> --out $P \
+     --judge claude-opus-5-5 --judge gpt-6.1-sol=$H/providers/score_codex.json $W/records/best_of_n/run-* ...
    ```
 
-7. **Score** once per judge, one after another, from `$POOL/clones` so the judge's directory holds
-   only clones. `score.providers.json` binds a Claude judge; for an OpenAI judge write
-   `{"providers.judge": "codex_unrestricted_workspace"}` to a file (the pool is not a git
-   repository, so the judge needs `--skip-git-repo-check`). After each judge, `verify-pool`
-   restores any clone the judge changed and exits non-zero if it had to.
+7. **Score** one judge after another. After each, `verify-pool` restores any clone the judge
+   changed, and exits non-zero if it had to.
 
    ```bash
-   cd $POOL/clones && $PY -P -m orchestrator run $H/score.orc --entry-workflow score::score \
-     --source-root $H --provider-externs-file <judge providers file> \
-     --input-file $POOL/score-inputs-<judge>.json
-   $PY $H/prepare.py verify-pool --pool $POOL
+   bash $P/records/score-claude-opus-5-5.sh && $PY $H/prepare.py verify-pool --pool $P
+   bash $P/records/score-gpt-6.1-sol.sh && $PY $H/prepare.py verify-pool --pool $P
    ```
 
-8. **Summarize**; it refuses a scoring run bound to another criterion hash and any batch whose
-   ratings do not line up with its clones, and writes `$POOL/results.json`.
+8. **Summarize.** It refuses in three cases:
+   - a listed judge without exactly one completed scoring run;
+   - a scoring run bound to another criterion hash;
+   - a batch whose ratings do not line up with its clones.
+
+   It writes `P/records/results.json` and `P/records/results.md`.
 
    ```bash
-   $PY $H/summarize.py --pool $POOL --criterion <criterion.json> > $POOL/results.md
+   $PY $H/summarize.py --pool $P --criterion <criterion.json>
    ```
 
 ## Measures
 
 `summarize.py` scores a clone as the judges' mean total of the four criteria (0 to 8). A run's
 value is its selected candidate (`best_of_n`) or its final patch. Measures per arm:
-`<arm>.runs`, `.mean`, `.calls_mean`, `.wall_clock_mean`, `.hidden_mean`; for `best_of_n` and
-`reviewed_change` `.paired_gain_mean`, `.paired_gain_runs_positive`, `.paired_gain_runs_negative`;
-for `best_of_n` the same three for `group_gain`; for every arm beside `direct_task`
-`.minus_control` and `.hidden_minus_control`. A criterion entry is `{"measure", "op", "value"}`
-with `op` one of `>=`, `<=`, `>`, `<`. Failed and excluded runs are listed and carry no value.
+
+- every arm: `<arm>.runs`, `.mean`, `.calls_mean`, `.wall_clock_mean`, `.hidden_mean`;
+- `best_of_n` and `reviewed_change`: `.paired_gain_mean`, `.paired_gain_runs_positive`,
+  `.paired_gain_runs_negative`;
+- `best_of_n`: the same three for `group_gain`;
+- every arm except `direct_task`: `.minus_control` and `.hidden_minus_control`.
+
+A criterion entry is `{"measure", "op", "value"}`, with `op` one of `>=`, `<=`, `>` or `<`.
+Failed and excluded runs are listed and carry no value.

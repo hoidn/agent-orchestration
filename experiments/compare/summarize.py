@@ -1,13 +1,14 @@
 """Summarize a scored pool: ratings joined by position, per-run values, measures, agreement, anchors, verdict.
 
-  summarize.py --pool D --criterion C [--python PY]
+  summarize.py --pool P --criterion C [--python PY]
 
-Reads D/mapping.json (prepare.py pool) and every scoring run of experiments/compare/score.orc
-launched from D/clones (D/clones/.orchestrate/runs/*/run.json and memo.jsonl). Refuses unless every
-scoring run bound the criterion file's SHA-256 and every batch's ratings line up with its clones.
-When the task package has hidden/ and hidden_tests.txt, runs each listed node id in a copy of every
-clone with hidden/ copied over it and PYTHONPATH at the copy. Writes D/results.json and prints a
-markdown table. Standard library only.
+Reads P/records/mapping.json (prepare.py pool) and, for every judge it lists, the one scoring run of
+experiments/compare/score.orc in that judge's state directory P/judges/<dir>/state/<run_id>/
+(run.json and memo.jsonl). Refuses unless every listed judge has exactly one completed scoring run
+that bound the criterion file's SHA-256 and the judge's model, and every batch's ratings line up with
+its clones. When the task package has hidden/ and hidden_tests.txt, runs each listed node id in a
+copy of every clone without .git, with hidden/ copied over it and PYTHONPATH at the copy.
+Writes P/records/results.json and P/records/results.md and prints the latter. Standard library only.
 """
 
 import argparse
@@ -28,23 +29,22 @@ OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt}
 NODE_TIMEOUT_SEC = 1800  # a hidden test that hangs counts as failed
 
 
-def scoring_runs(pool, sha):
-    """judge -> (run dir, bound batches, terminal value); refuse a wrong hash or an unfinished run."""
-    runs = {}
-    for header in sorted((pool / "clones" / ".orchestrate" / "runs").glob("*/run.json")):
-        bound = json.loads(header.read_text())["bound_inputs"]
-        if bound["criterion_sha256"] != sha:
-            raise SystemExit(f"{header.parent}: bound criterion_sha256 {bound['criterion_sha256']} "
-                             f"differs from the criterion file's {sha}")
-        rows = [json.loads(line) for line in (header.parent / "memo.jsonl").read_text().split("\n")[:-1]]
-        if not rows or rows[-1]["record"] != "terminal" or rows[-1]["outcome"] != "completed":
-            raise SystemExit(f"{header.parent}: scoring run has not completed")
-        if bound["judge_model"] in runs:
-            raise SystemExit(f"two scoring runs for judge {bound['judge_model']}: {runs[bound['judge_model']][0]}")
-        runs[bound["judge_model"]] = (header.parent, bound["batches"], rows[-1]["value"])
-    if not runs:
-        raise SystemExit(f"no scoring runs under {pool / 'clones' / '.orchestrate' / 'runs'}")
-    return runs
+def scoring_run(pool, judge, info, sha):
+    """(run dir, bound batches, terminal value) of the judge's one completed scoring run, or refuse."""
+    state = pool / "judges" / info["dir"] / "state"
+    headers = sorted(state.glob("*/run.json"))
+    if len(headers) != 1:
+        raise SystemExit(f"judge {judge}: expected one scoring run under {state}, found {len(headers)}")
+    run, bound = headers[0].parent, json.loads(headers[0].read_text())["bound_inputs"]
+    if bound["criterion_sha256"] != sha:
+        raise SystemExit(f"{run}: bound criterion_sha256 {bound['criterion_sha256']} differs from the criterion "
+                         f"file's {sha}")
+    if bound["judge_model"] != judge:
+        raise SystemExit(f"{run}: bound judge_model {bound['judge_model']!r} is not judge {judge!r}")
+    rows = [json.loads(line) for line in (run / "memo.jsonl").read_text().split("\n")[:-1]]
+    if not rows or rows[-1]["record"] != "terminal" or rows[-1]["outcome"] != "completed":
+        raise SystemExit(f"{run}: scoring run of judge {judge} has not completed")
+    return run, bound["batches"], rows[-1]["value"]
 
 
 def join(run, batches, value, members):
@@ -77,11 +77,11 @@ def passes(work, node, python):
 
 
 def hidden_fraction(clone, task, python):
-    """Passed / listed hidden node ids, run in a copy of the clone with the package's hidden/ files over it."""
+    """Passed / listed hidden node ids, run in a copy of the clone (no .git) with hidden/ copied over it."""
     nodes = [line.strip() for line in (task / "hidden_tests.txt").read_text().splitlines() if line.strip()]
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / clone.name
-        shutil.copytree(clone, work, symlinks=True)
+        shutil.copytree(clone, work, symlinks=True, ignore=shutil.ignore_patterns(".git"))
         shutil.copytree(task / "hidden", work, dirs_exist_ok=True)
         return sum(passes(work, node, python) for node in nodes) / len(nodes)
 
@@ -172,25 +172,44 @@ def verdict(criterion, m):
                    for entry in criterion.get(kind, [])] for kind in ("primary", "secondary")}
 
 
-def table(rows, m, judged):
-    fmt = lambda v: "" if v is None else (f"{v:.2f}" if isinstance(v, float) else str(v))  # noqa: E731
-    lines = [f"Judges: {', '.join(judged)}", "",
-             "| run | arm | outcome | value | paired gain | group gain | hidden | calls | wall clock s | excluded |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+def fmt(value):
+    return "" if value is None else (f"{value:.2f}" if isinstance(value, float) else str(value))
+
+
+def run_table(rows):
+    lines = ["| run | outcome | value | paired gain | group gain | hidden | calls | wall clock s | scan hits | "
+             "verdict | excluded or failure |", "|" + " --- |" * 11]
     for r in rows:
         reason = r["excluded"] or (r["failure"] or {}).get("code")
-        lines.append(f"| {Path(r['run']).name} | {r['arm']} | {r['outcome']} | {fmt(r['value'])} | "
+        lines.append(f"| {r['arm']}/{Path(r['run']).name} | {r['outcome']} | {fmt(r['value'])} | "
                      f"{fmt(r.get('paired_gain'))} | {fmt(r.get('group_gain'))} | {fmt(r.get('hidden_value'))} | "
-                     f"{fmt(r['calls'])} | {fmt(round(r['wall_clock_sec']))} | {fmt(reason)} |")
-    return "\n".join(lines + [""] + [f"- {k}: {fmt(v)}" for k, v in m.items()])
+                     f"{fmt(r['calls'])} | {fmt(round(r['wall_clock_sec']))} | {r['scan_hits']} | "
+                     f"{fmt((r['verdict'] or {}).get('verdict'))} | {fmt(reason)} |")
+    return lines
+
+
+def markdown(results):
+    """results.md: runs, measures, verdict per criterion entry, agreement, anchors, scan verdicts."""
+    lines = [f"Criterion sha256 `{results['criterion_sha256']}`; judges: {', '.join(results['judges'])}.", ""]
+    lines += run_table(results["runs"]) + ["", "Measures:"]
+    lines += [f"- {k}: {fmt(v)}" for k, v in results["measures"].items()] + ["", "Verdict:"]
+    lines += [f"- {kind}: {e['measure']} {e['op']} {e['value']}: observed {fmt(e['observed'])}, met {e['met']}"
+              for kind, entries in results["verdict"].items() for e in entries] + ["", "Agreement (all judges equal):"]
+    lines += [f"- {c}: {a['agree']}/{a['of']}" for c, a in results["agreement"].items()] + ["", "Anchors:"]
+    lines += [f"- batch {a['batch']}, {a['anchor']}, {a['judge']}: {a['total']}" for a in results["anchors"]]
+    lines += ["", "Scan verdicts:"] + [
+        f"- {r['arm']}/{Path(r['run']).name}: {r['scan_hits']} hits, "
+        f"{r['verdict']['verdict']}: {r['verdict']['reason']}"
+        for r in results["runs"] if r["verdict"]]
+    return "\n".join(lines) + "\n"
 
 
 def summarize(pool, criterion, python=sys.executable):
     pool = Path(pool).resolve()
-    mapping = json.loads((pool / "mapping.json").read_text())
+    mapping = json.loads((pool / "records" / "mapping.json").read_text())
     sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
-    ratings = {judge: join(run, batches, value, mapping["batches"])
-               for judge, (run, batches, value) in scoring_runs(pool, sha).items()}
+    ratings = {judge: join(*scoring_run(pool, judge, info, sha), mapping["batches"])
+               for judge, info in mapping["judges"].items()}
     totals = {judge: {cid: sum(r[c] for c in CRITERIA) for cid, r in rated.items()} for judge, rated in ratings.items()}
     clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid in mapping["clones"]}
     task = Path(mapping["task"])
@@ -207,8 +226,9 @@ def summarize(pool, criterion, python=sys.executable):
                          "ratings": {j: ratings[j][cid] for j in sorted(ratings)}}
                    for cid, clone in mapping["clones"].items()},
     }
-    (pool / "results.json").write_text(json.dumps(results, indent=2) + "\n")
-    print(table(rows, m, sorted(ratings)))
+    (pool / "records" / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+    (pool / "records" / "results.md").write_text(markdown(results))
+    print(markdown(results), end="")
     return results
 
 
