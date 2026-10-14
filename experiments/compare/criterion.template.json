@@ -1,0 +1,26 @@
+{
+  "experiment": "<E-A | E-B: one line naming the question>",
+  "task": "experiments/compare/tasks/<package>",
+  "base_commit": "<full hash of the task's base commit>",
+  "arms": ["best_of_n", "reviewed_change", "direct_task"],
+  "comparator": {
+    "best_of_n": "group mean of the run's own candidates (group_gain); first candidate (paired_gain); direct_task runs in the same pool (minus_control)",
+    "reviewed_change": "the run's first implementer call (paired_gain)",
+    "design_review_execute": "direct_task runs in the same pool (minus_control, hidden_minus_control)",
+    "direct_task": "none: the control"
+  },
+  "primary": [
+    {"measure": "best_of_n.group_gain_runs_positive", "op": ">=", "value": 5},
+    {"measure": "best_of_n.group_gain_mean", "op": ">=", "value": 0.75},
+    {"measure": "best_of_n.minus_control", "op": ">=", "value": 0},
+    {"measure": "reviewed_change.paired_gain_runs_negative", "op": "<=", "value": 0},
+    {"measure": "reviewed_change.paired_gain_mean", "op": ">=", "value": 0.5}
+  ],
+  "secondary": [
+    {"measure": "best_of_n.paired_gain_mean", "op": ">=", "value": 0}
+  ],
+  "judges": ["<judge model>", "<judge model>"],
+  "runs_per_arm": {"best_of_n": 6, "reviewed_change": 6, "direct_task": 6},
+  "anchors": ["<anchors/NAME.diff stem: the upstream fix without its tests>", "<stem: the symptom-silencing patch>"],
+  "written_before_scoring": true
+}

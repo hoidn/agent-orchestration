@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Transparent stand-in for the agent CLI it is named after (shim/codex links here).
+# Forwards arguments and stdin to the real binary (next on PATH after this directory)
+# without PYTHONPATH, tees stdout, and records the call under $COMPARE_ROOT/calls/<n>/
+# with every candidate's patch against $COMPARE_BASE.
+: "${COMPARE_ROOT:?COMPARE_ROOT must name the run directory}" "${COMPARE_BASE:?COMPARE_BASE must name the seeded commit}"
+here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0"); real=
+IFS=: read -ra dirs <<< "$PATH"
+for d in "${dirs[@]}"; do
+  [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
+  [ -x "$d/$name" ] && { real="$d/$name"; break; }
+done
+[ -n "$real" ] || { echo "shim: no real $name on PATH outside $here" >&2; exit 127; }
+mkdir -p "$COMPARE_ROOT/calls"; n=1
+until mkdir "$COMPARE_ROOT/calls/$n" 2>/dev/null; do
+  [ -d "$COMPARE_ROOT/calls/$n" ] || { echo "shim: cannot create $COMPARE_ROOT/calls/$n" >&2; exit 70; }
+  n=$((n + 1))
+done
+call="$COMPARE_ROOT/calls/$n"
+cat > "$call/prompt.txt"
+env -u PYTHONPATH "$real" "$@" < "$call/prompt.txt" 2> "$call/stderr.txt" | tee "$call/stdout.txt"
+status=${PIPESTATUS[0]}
+cat "$call/stderr.txt" >&2
+shopt -s nullglob
+for repo in "$COMPARE_ROOT"/cand-*; do
+  git -C "$repo" add -A -N . && git -C "$repo" diff --binary "$COMPARE_BASE" > "$call/patch-${repo##*/}.diff"
+  git -C "$repo" reset -q
+done
+exit "$status"
