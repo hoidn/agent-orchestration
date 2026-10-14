@@ -61,6 +61,10 @@ ARMS = {
                     ("task", "model", "effort")),
 }
 
+# best_of_n's state directory, also linked from every candidate's .orchestrate/ so the workspace-relative
+# result path resolves from the tree and from cand-k alike; an agent's own runs in cand-k stay in its runs/.
+BEST_OF_N_STATE = "best-of-n-runs"
+
 
 def next_run_dir(arm_dir):
     k = 1
@@ -108,18 +112,25 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     (tree / "tmp").mkdir()
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))
     cwd = tree if arm == "best_of_n" else cands[0]
+    state = None
+    if arm == "best_of_n":  # R37: candidates work in cand-k and resolve the tree-relative result path there
+        state = tree / ".orchestrate" / BEST_OF_N_STATE
+        for cand in cands:
+            (cand / ".orchestrate").mkdir()
+            (cand / ".orchestrate" / BEST_OF_N_STATE).symlink_to(Path("..", "..", ".orchestrate", BEST_OF_N_STATE))
     source, entry, source_root, providers, _ = ARMS[arm]
     command, resume = shim_commands(
         cwd, runtime, {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base,
                        "TMPDIR": tree / "tmp"},
         [str(runtime / source), "--entry-workflow", entry, "--source-root", str(runtime / source_root),
-         "--provider-externs-file", str(runtime / providers), "--input-file", str(records / "inputs.json")])
+         "--provider-externs-file", str(runtime / providers), "--input-file", str(records / "inputs.json")],
+        state=state)
     (records / "command.sh").write_text(command + "\n")
     (records / "resume.sh").write_text(resume + "\n")
     dump(records / "record.json", {
         "arm": arm, "task": str(task), "runtime": str(runtime), "main": str(main), "base": base,
         "compare_base": compare_base, "records": str(records), "tree": str(tree),
-        "candidates": [str(c) for c in cands], "cwd": str(cwd), "state_root": str(cwd / ".orchestrate" / "runs"),
+        "candidates": [str(c) for c in cands], "cwd": str(cwd), "state_root": str(state or cwd / ".orchestrate" / "runs"),
         "command": command, "created_at": time.time(),
     })
     print(f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")

@@ -125,9 +125,19 @@ def test_run_state_and_so_every_result_path_lies_inside_the_working_directory(wo
 
 
 def test_resume_script_resumes_from_the_same_working_directory(world):
-    records, record = start(world, "best_of_n", candidates=2)
+    records, record = start(world, "reviewed_change")
     seen = execute(f"bash {records / 'resume.sh'} 20261014T000000Z-abc")
-    assert (seen["cwd"], seen["argv"]) == (record["tree"], ["resume", "20261014T000000Z-abc"])
+    assert (seen["cwd"], seen["argv"]) == (record["cwd"], ["resume", "20261014T000000Z-abc"])
+
+
+def test_best_of_n_result_paths_resolve_from_the_tree_and_every_candidate(world):
+    records, record = start(world, "best_of_n", candidates=2)
+    state, tree = Path(record["state_root"]), Path(record["tree"])
+    seen = execute(f"bash {records / 'resume.sh'} R1")
+    relative = state.relative_to(tree)
+    assert (seen["cwd"], seen["argv"], [(Path(c) / relative).resolve() for c in record["candidates"]],
+            [git(Path(c), "status", "--porcelain") for c in record["candidates"]]) == (
+        str(tree), ["resume", "R1", "--state-dir", str(state)], [state.resolve()] * 2, ["", ""])
 
 
 def test_shim_forwards_to_the_real_cli_without_pythonpath(world):
