@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from experiments.compare import prepare
+from experiments.compare import prepare, repos
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     READY, REPO, call, drive, edit, git, selects, start, world, write_memo,
 )
@@ -135,6 +135,17 @@ def test_shim_records_each_call_with_a_patch_including_new_files(world):
             "bugs/report.md" in patch, sorted(p.name for p in (records / "calls").iterdir()),
             git(record["candidates"][0], "status", "--porcelain", "--", "pkg/extra.py")) == (
         script, True, True, False, ["1", "2"], "?? pkg/extra.py")
+
+
+def test_patches_ignore_external_diff_and_colour_settings(world):
+    records, record = start(world, "direct_task")
+    cand = record["candidates"][0]
+    git(cand, "config", "diff.external", "false")
+    git(cand, "config", "color.diff", "always")
+    call(world, record, edit("$PWD", "a + b"))
+    patch = (records / "calls/1/patch-cand-1.diff").read_text()
+    again = repos.patch_of(cand, record["compare_base"]).decode()
+    assert (patch.startswith("diff --git"), "\x1b[" in patch, again) == (True, False, patch)
 
 
 def test_collect_takes_each_best_of_n_candidate_from_its_own_call(world):
