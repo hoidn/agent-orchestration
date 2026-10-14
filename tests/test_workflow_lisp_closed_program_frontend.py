@@ -13,7 +13,6 @@ from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp import compiler as compiler_module
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
-    build_frontend_bundle,
     load_imported_workflow_bundle_manifest,
 )
 from orchestrator.workflow_lisp.build_manifest_io import ConfigurationReadTrace
@@ -28,8 +27,8 @@ from orchestrator.workflow_lisp.closed.artifact import _load_closed_imports
 from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, _sites_from_nodes
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
-from orchestrator.workflow_lisp.expressions import EnumMemberExpr, GeneratedRelpathSeedExpr
-from orchestrator.workflow_lisp.type_env import PathTypeRef, PrimitiveTypeRef
+from orchestrator.workflow_lisp.expressions import GeneratedRelpathSeedExpr
+from orchestrator.workflow_lisp.type_env import PathTypeRef
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "closed_program"
@@ -324,7 +323,7 @@ def test_a_program_the_flat_route_refuses_typechecks_into_a_typed_program(tmp_pa
     )
 
 
-def test_evaluated_graph_result_has_no_lowered_workflows(tmp_path: Path) -> None:
+def test_evaluated_graph_result_retains_only_typed_products(tmp_path: Path) -> None:
     entry = _install(tmp_path, "loop_in_branch")
 
     result = compile_stage3_entrypoint(
@@ -336,10 +335,8 @@ def test_evaluated_graph_result_has_no_lowered_workflows(tmp_path: Path) -> None
         lowering_route=None,
     )
 
-    assert (result.entry_result.lowered_workflows, result.entry_result.typed_program is not None) == (
-        (),
-        True,
-    )
+    assert result.entry_result.typed_program is not None
+    assert {field.name for field in fields(result.entry_result)}.isdisjoint({"lowered_workflows", "validated_bundles"})
 
 
 def test_typed_program_retains_procedure_specializations_and_owner_environments(
@@ -388,10 +385,6 @@ def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
         encoding="utf-8",
     )
 
-    def refuse_lowering(**_kwargs):
-        raise AssertionError("evaluated-entry graph reached flat lowering")
-
-    monkeypatch.setattr("orchestrator.workflow_lisp.compiler._lower_workflows_for_route", refuse_lowering)
     result = compile_stage3_entrypoint(
         entry,
         source_roots=(tmp_path,),
@@ -401,7 +394,7 @@ def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
         lowering_route=None,
     )
 
-    assert all(not item.lowered_workflows and not item.validated_bundles for item in result.compiled_results_by_name.values())
+    assert all(item.typed_workflows for item in result.compiled_results_by_name.values())
     helper = result.compiled_results_by_name["cp/loop_in_branch"]
     assert helper.typed_workflows[0].definition.name == "cp/loop_in_branch::run"
     assert helper.typed_workflows[0].typed_body is not None
@@ -669,7 +662,7 @@ def test_typed_entry_refuses_a_pre_evaluated_target_at_its_header(tmp_path: Path
         ),
     )
 
-    assert (code, path, line) == ("evaluated_execution_target_required", entry, 3)
+    assert (code, path, line) == ("workflow_execution_target_retired", entry, 3)
 
 
 def test_typed_entry_accepts_short_and_canonical_names_and_a_fixed_standalone_namespace(
@@ -1521,12 +1514,6 @@ def test_old_source_producer_retains_typed_snapshot_without_flat_bundles(
             stable_command=("python", "original.py"),
         )
     }
-    def forbidden(*args, **kwargs):
-        raise AssertionError("typed analysis must not emit or validate flat workflows")
-
-    for name in ("_lower_workflows_for_route", "validate_lowered_workflows",
-                 "_revalidate_stage3_executable_bundles", "_attach_typed_programs_to_source_bundles"):
-        monkeypatch.setattr(compiler_module, name, forbidden)
 
     result = compile_stage3_entrypoint(
         entry,
@@ -1549,9 +1536,6 @@ def test_old_source_producer_retains_typed_snapshot_without_flat_bundles(
     assert tuple(retained_boundaries) == ("original",)
     with pytest.raises(TypeError):
         retained_boundaries["mutate"] = caller_boundaries["original"]
-    assert not result.validated_bundles_by_name
-    assert not result.entry_result.validated_bundles
-    assert not result.entry_result.lowered_workflows
     assert result.entry_result.validation_profile is not None
     assert snapshot.procedures["cp/producer::private-inc"].typed_body is not None
     assert snapshot.source_file_digests["cp/producer"] == hashlib.sha256(
@@ -2125,8 +2109,6 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     seen_traces = []
     original_detector = compiler_module._syntax_module_uses_module_graph
     original_pipeline = compiler_module._run_stage3_validation_pipeline
-    lowered_targets = []
-    original_lowerer = compiler_module._lower_workflows_for_route
 
     def trace_detector(path: Path, *, source_read_trace: SourceReadTrace | None = None):
         seen_traces.append(source_read_trace)
@@ -2137,10 +2119,6 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
         entry.unlink()
         return result
 
-    def traced_lowerer(*args, **kwargs):
-        lowered_targets.append(kwargs["target_dsl_version"])
-        raise AssertionError("standalone typed analysis must not lower workflows")
-
     monkeypatch.setattr(
         compiler_module,
         "_syntax_module_uses_module_graph",
@@ -2150,11 +2128,6 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
         compiler_module,
         "_run_stage3_validation_pipeline",
         compile_then_delete,
-    )
-    monkeypatch.setattr(
-        compiler_module,
-        "_lower_workflows_for_route",
-        traced_lowerer,
     )
     result = compile_stage3_module(
         entry,
@@ -2181,9 +2154,6 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     assert snapshot.source_file_digests["producer"] == hashlib.sha256(
         source.encode("utf-8")
     ).hexdigest()
-    assert not result.validated_bundles
-    assert not result.lowered_workflows
-    assert lowered_targets == []
 
 
 @pytest.mark.parametrize(
@@ -2215,7 +2185,6 @@ def test_standalone_evaluated_source_producer_keeps_canonical_namespace(
     assert result.module.module_name == expected_module
     assert result.typed_program.entry_module == expected_module
     assert tuple(result.typed_program.workflows) == (f"{expected_module}::run",)
-    assert result.lowered_workflows == ()
 
 
 def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
@@ -2248,10 +2217,8 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     supplied_trace = SourceReadTrace()
     delegated_traces = []
     recorded_traces = []
-    lowered_targets = []
     original_entrypoint = compiler_module.compile_stage3_entrypoint
     original_record = SourceReadTrace._record
-    original_lowerer = compiler_module._lower_workflows_for_route
 
     def delegated_entrypoint(*args, **kwargs):
         delegated_traces.append(kwargs["source_read_trace"])
@@ -2261,21 +2228,12 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
         recorded_traces.append(trace)
         return original_record(trace, **kwargs)
 
-    def observed_lowerer(*args, **kwargs):
-        lowered_targets.append(kwargs["target_dsl_version"])
-        raise AssertionError("standalone typed analysis must not lower workflows")
-
     monkeypatch.setattr(
         compiler_module,
         "compile_stage3_entrypoint",
         delegated_entrypoint,
     )
     monkeypatch.setattr(SourceReadTrace, "_record", observed_record)
-    monkeypatch.setattr(
-        compiler_module,
-        "_lower_workflows_for_route",
-        observed_lowerer,
-    )
     result = compile_stage3_module(
         entry,
         entry_workflow="run",
@@ -2288,7 +2246,6 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     assert delegated_traces == [supplied_trace]
     assert recorded_traces
     assert all(trace is supplied_trace for trace in recorded_traces)
-    assert lowered_targets == []
 
 
 def test_graph_source_producer_rejects_conflicting_repeated_reads(
@@ -2396,7 +2353,6 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
     )
 
     assert result.typed_program is None
-    assert not result.lowered_workflows
     assert "run" in {workflow.definition.name for workflow in result.typed_workflows}
 
 
@@ -2993,12 +2949,6 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
 ) -> None:
     from orchestrator.workflow_lisp import build
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("typed analysis must not emit or validate flat workflows")
-
-    for name in ("_lower_workflows_for_route", "validate_lowered_workflows",
-                 "_revalidate_stage3_executable_bundles", "_attach_typed_programs_to_source_bundles"):
-        monkeypatch.setattr(compiler_module, name, forbidden)
     producer = tmp_path / "producer.orc"
     header = "" if standalone else "(defmodule producer) (export get)"
     producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
@@ -3027,7 +2977,6 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
     ))
     assert analysis.entry_selection.canonical_name == "consumer::run"
     assert analysis.compile_result.entry_result.typed_program.imported_programs["dep"].target == "2.34"
-    assert not analysis.compile_result.validated_bundles_by_name
     assert {producer, consumer} <= {path for path, _ in analysis.source_read_trace.revision_vector}
     assert manifest in dict(analysis.configuration_trace.revision_vector)
     from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle

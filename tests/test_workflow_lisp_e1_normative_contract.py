@@ -5,10 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,8 +41,6 @@ def test_ordinary_target_2_24_library_module_compiles_through_the_full_frontend(
     result = _compile(tmp_path, "2.24")
 
     assert result.entry_result.module.target_dsl_version == "2.24"
-    assert result.entry_result.lowered_workflows == ()
-    assert result.validated_bundles_by_name == {}
 
 
 def test_target_2_26_is_admitted(
@@ -53,8 +49,6 @@ def test_target_2_26_is_admitted(
     result = _compile(tmp_path, "2.26")
 
     assert result.entry_result.module.target_dsl_version == "2.26"
-    assert result.entry_result.lowered_workflows == ()
-    assert result.validated_bundles_by_name == {}
 
 
 def test_target_2_27_is_admitted(
@@ -63,8 +57,6 @@ def test_target_2_27_is_admitted(
     result = _compile(tmp_path, "2.27")
 
     assert result.entry_result.module.target_dsl_version == "2.27"
-    assert result.entry_result.lowered_workflows == ()
-    assert result.validated_bundles_by_name == {}
 
 
 def test_target_2_28_is_admitted(
@@ -73,8 +65,6 @@ def test_target_2_28_is_admitted(
     result = _compile(tmp_path, "2.28")
 
     assert result.entry_result.module.target_dsl_version == "2.28"
-    assert result.entry_result.lowered_workflows == ()
-    assert result.validated_bundles_by_name == {}
 
 
 def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:

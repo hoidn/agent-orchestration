@@ -13,7 +13,7 @@ from tests.workflow_evaluated_totality_helpers import (
     checked_run, compile_public,
 )
 from tests.workflow_lisp_closed_program_helpers import install
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
+from tests.test_workflow_evaluated_cli import _run_args, _run_argv
 from tests.test_workflow_evaluated_cli import _run_cli
 
 
@@ -95,28 +95,6 @@ def pause_context(files, monkeypatch, input_file=None):
     with monkeypatch.context() as adapted:
         adapted.setattr(totality, "public_run", public_context_run)
         return totality.pause_public(files, adapted, input_file)
-
-
-def legacy_carried_context(root, source, inputs, run_id):
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
-    from orchestrator.workflow.signatures import bind_workflow_inputs
-    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-    from tests.workflow_bundle_helpers import bundle_context_dict
-
-    path = install(root, source.replace('"2.35"', '"2.34"'))
-    bundle = compile_stage3_entrypoint(path, entry_workflow="entry", source_roots=(root,),
-        validate_shared=True, workspace_root=root).validated_bundles_by_name["context_probe::entry"]
-    contracts = {name: contract for name, contract in workflow_runtime_input_contracts(bundle).items()
-                 if not name.startswith("__write_root__")}
-    state = StateManager(workspace=root, run_id=run_id)
-    state.initialize(str(path), context=bundle_context_dict(bundle),
-                     bound_inputs=bind_workflow_inputs(contracts, inputs, root))
-    outcome = WorkflowExecutor(bundle, root, state, retry_delay_ms=0).execute(on_error="stop")
-    assert outcome["status"] == "completed"
-    return {name: outcome["workflow_outputs"]["return__" + name] for name in (
-        "run-id", "run-state", "run-artifacts", "phase", "state", "artifacts", "payload")}
 
 
 def prepare_public_producers(root):
@@ -211,7 +189,7 @@ def assert_selected_request(root, authority, entry, request, source_payload, ope
 def prepare_library_producers(root):
     """Independent in-memory maps; these have no reconstructing CLI manifest."""
     from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, _select_and_finalize_typed_program
     from orchestrator.workflow_lisp.closed.build import Builder, build_closed_program
     from orchestrator.workflow_lisp.workflows import ExternalToolBinding, PromptExtern
 
@@ -225,13 +203,13 @@ def prepare_library_producers(root):
                 stable_command=("python", side + ".py"), closure=(side + ".py",))},
             provider_externs={"provider": provider},
             prompt_externs={"prompt": PromptExtern(name="prompt", asset_file="prompt.md")})
-        imports[side] = compiled.validated_bundles_by_name[side + "/entry::get"]
+        imports[side] = _select_and_finalize_typed_program(compiled.entry_result, entry_path=path, entry_workflow=side + "/entry::get")
     (root / "consumer.py").write_text('from pathlib import Path\nPath("consumer-dispatched").touch()\nraise RuntimeError("unused consumer")\n')
     sentinel = root / "bin" / "claude"
     sentinel.write_text('#!' + sys.executable + '\nfrom pathlib import Path\nPath("consumer-provider-dispatched").touch()\nraise RuntimeError("unused consumer provider")\n')
     sentinel.chmod(0o700)
     typed = compile_typed_program(files["source"], entry_workflow="run", source_roots=(root,),
-        workspace_root=root, imported_workflow_bundles=imports,
+        workspace_root=root, imported_programs=imports,
         command_boundaries={"shared": ExternalToolBinding(name="shared",
             stable_command=("python", "consumer.py"), closure=("consumer.py",))},
         provider_externs={"provider": "claude"},
@@ -239,6 +217,8 @@ def prepare_library_producers(root):
     builder = Builder(typed)
     closed = build_closed_program(typed, builder=builder)
     program = ClosedProgram.from_artifact(closed.artifact())
+    for side in ("left", "right"):
+        (root / side / "entry.orc").unlink()
     for field in ("providers", "prompts", "commands", "imports"):
         files[field].unlink()
     return files["source"], program, builder.provider_io.bind(program)
@@ -342,31 +322,6 @@ def prepare_phase_provider(root, source, inputs):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("evidence\n")
     return files, input_file
-
-
-def legacy_phase_provider(files, inputs):
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
-    from orchestrator.workflow.signatures import bind_workflow_inputs
-    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-    from tests.workflow_bundle_helpers import bundle_context_dict
-
-    root = files["workspace"]
-    bundle = compile_stage3_entrypoint(files["source"], entry_workflow="run", source_roots=(root,),
-        provider_externs={"providers.execute": "codex"},
-        prompt_externs={"prompts.implementation.execute": "prompt.md"},
-        validate_shared=True, workspace_root=root).validated_bundles_by_name["main::run"]
-    contracts = {name: contract for name, contract in workflow_runtime_input_contracts(bundle).items()
-                 if not name.startswith("__write_root__")}
-    flattened = {outer + "__" + name: value for outer, record in inputs.items() for name, value in record.items()}
-    state = StateManager(workspace=root, run_id="old-named-x3")
-    state.initialize(str(files["source"]), context=bundle_context_dict(bundle),
-                     bound_inputs=bind_workflow_inputs(contracts, flattened, root))
-    outcome = WorkflowExecutor(bundle, root, state, retry_delay_ms=0).execute(on_error="stop")
-    assert outcome["status"] == "completed"
-    return {name: outcome["workflow_outputs"]["return__" + name] for name in (
-        "implementation_state", "implementation_state_bundle_path")}
 
 
 def assert_generic_hook_run(root, authority, snapshot, owner):

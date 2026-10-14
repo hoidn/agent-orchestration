@@ -14,7 +14,7 @@ from orchestrator.workflow_lisp.closed import build as closed_build
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
 from orchestrator.contracts.closed_program.program import ClosedProgram
-from orchestrator.contracts.closed_program.sites import _ast_nodes, _value_nodes
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expression_traversal import walk_expr

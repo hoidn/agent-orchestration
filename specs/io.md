@@ -2,8 +2,9 @@
 
 Execution scope follows the [CLI support boundary](cli.md#executable-support-boundary)
 and [evaluated IO](#evaluated-command-and-provider-io-target-235). The retirement
-cutoff is an implemented candidate pending gate R; old-profile IO/persistence
-details below are historical contracts, while shared validation and provider
+cutoff follows the selected retirement contract; implementation and delivery
+status live in the [closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md).
+Old-profile IO/persistence details below are historical contracts, while shared validation and provider
 services remain in use for admitted evaluated effects. Definitions of session,
 supervision, peers, phased or adjudicated IO do not admit those excluded
 workflow effects. Targets 2.35/2.36 retain current support; registered 2.37

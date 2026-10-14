@@ -9,19 +9,7 @@ from orchestrator.workflow_lisp.definitions import (
     UnionDef,
     UnionVariant,
 )
-from orchestrator.workflow_lisp.expressions import (
-    DoneExpr,
-    IfExpr,
-    ListExpr,
-    ListMapEffectExpr,
-    LetStarExpr,
-    LiteralExpr,
-    LoopRecurExpr,
-    ProcedureCallExpr,
-    TrialExpr,
-    elaborate_expression,
-    parse_trial_expression,
-)
+from orchestrator.workflow_lisp.expressions import IfExpr, ListExpr, ListMapEffectExpr, LetStarExpr, LiteralExpr, LoopRecurExpr, ProcedureCallExpr, TrialExpr, elaborate_expression, parse_trial_expression
 from orchestrator.workflow_lisp.form_registry import get_form_spec
 from orchestrator.workflow_lisp import expressions
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -1956,43 +1944,17 @@ def test_full_compiler_types_trial_in_exported_workflow_before_lowering(
         encoding="utf-8",
     )
 
-    class TypedFrontendReached(Exception):
-        pass
-
-    def capture_typed_frontend(**kwargs):
-        typed_entry = next(
-            workflow
-            for workflow in kwargs["typed_workflows"]
-            if workflow.definition.name == "compare"
-        )
-        assert isinstance(typed_entry.typed_body.expr, TrialExpr)
-        assert isinstance(typed_entry.typed_body.type_ref, RecordTypeRef)
-        assert typed_entry.typed_body.type_ref.name.startswith("TrialResult$")
-        assert typed_entry.signature.return_type_ref == typed_entry.typed_body.type_ref
-        assert (
-            kwargs["workflow_catalog"]
-            .signatures_by_name["compare"]
-            .return_type_ref
-            == typed_entry.typed_body.type_ref
-        )
-        assert RunsTrialEffect() in typed_entry.effect_summary.direct_effects
-        raise TypedFrontendReached
-
-    monkeypatch.setattr(
-        workflow_lisp_compiler,
-        "_lower_workflows_for_route",
-        capture_typed_frontend,
+    result = workflow_lisp_compiler.compile_stage3_module(
+        source_path, entry_workflow="compare", provider_externs={"scorer": "test-provider"},
+        prompt_externs={"trial-rubric": "rubrics/trial.md"}, workspace_root=tmp_path,
     )
-    with pytest.raises(TypedFrontendReached):
-        workflow_lisp_compiler.compile_stage3_module(
-            source_path,
-            entry_workflow="compare",
-            provider_externs={"scorer": "test-provider"},
-            prompt_externs={"trial-rubric": "rubrics/trial.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="legacy",
-        )
+    typed_entry = result.typed_program.workflows["compare"]
+    assert isinstance(typed_entry.typed_body.expr, TrialExpr)
+    assert isinstance(typed_entry.typed_body.type_ref, RecordTypeRef)
+    assert typed_entry.typed_body.type_ref.name.split("::")[-1].startswith("TrialResult$")
+    assert typed_entry.signature.return_type_ref == typed_entry.typed_body.type_ref
+    assert result.workflow_catalog.signatures_by_name["compare"].return_type_ref == typed_entry.typed_body.type_ref
+    assert RunsTrialEffect() in typed_entry.effect_summary.direct_effects
 
 
 @pytest.mark.parametrize("target_dsl_version", ("2.24", "2.25"))
@@ -2017,34 +1979,9 @@ def test_full_compiler_keeps_non_trial_value_return_signature(
         encoding="utf-8",
     )
 
-    class TypedFrontendReached(Exception):
-        pass
-
-    def capture_typed_frontend(**kwargs):
-        typed_entry = next(
-            workflow
-            for workflow in kwargs["typed_workflows"]
-            if workflow.definition.name == "passthrough"
-        )
-        assert typed_entry.signature.return_type_ref == PrimitiveTypeRef("Value")
-        assert (
-            kwargs["workflow_catalog"]
-            .signatures_by_name["passthrough"]
-            .return_type_ref
-            == PrimitiveTypeRef("Value")
-        )
-        raise TypedFrontendReached
-
-    monkeypatch.setattr(
-        workflow_lisp_compiler,
-        "_lower_workflows_for_route",
-        capture_typed_frontend,
+    result = workflow_lisp_compiler.compile_stage3_module(
+        source_path, entry_workflow="passthrough", workspace_root=tmp_path,
     )
-    with pytest.raises(TypedFrontendReached):
-        workflow_lisp_compiler.compile_stage3_module(
-            source_path,
-            entry_workflow="passthrough",
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="legacy",
-        )
+    typed_entry = result.typed_program.workflows["passthrough"]
+    assert typed_entry.signature.return_type_ref == PrimitiveTypeRef("Value")
+    assert result.workflow_catalog.signatures_by_name["passthrough"].return_type_ref == PrimitiveTypeRef("Value")

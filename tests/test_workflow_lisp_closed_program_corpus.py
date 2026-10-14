@@ -16,16 +16,7 @@ from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
-from tests.workflow_lisp_closed_program_corpus import (
-    Built,
-    Gap,
-    NotSynthesizable,
-    Refused,
-    corpus,
-    entry_with_target,
-    target_dsl_version,
-    try_build,
-)
+from tests.workflow_lisp_closed_program_corpus import Built, Gap, NotSynthesizable, Refused, corpus, target_dsl_version, try_build
 
 
 TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
@@ -97,7 +88,7 @@ EXPECTED = {
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::direct": Built(1),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::product-qa": Built(3),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::rich": Built(6),
-    "workflows/experiments/qa_placement_effectiveness/qa_placement_trial.orc::compare": Gap("trial"),
+    "workflows/experiments/qa_placement_effectiveness/qa_placement_trial.orc::compare": Refused("evaluated_execution_target_direction_invalid"),
     "workflows/experiments/repository_task_pilot/task_loop.orc::run-task": NotSynthesizable(("command 'pilot_product_manifest' is parameterized by workflow input 'controller_script', whose concrete script path, source bytes, and closure are missing",)),
     "workflows/library/control/direct_task.orc::direct-task": Built(1),
     "workflows/library/design_plan_impl_implementation_phase.orc::design-plan-impl-implementation-phase": Built(2),
@@ -130,8 +121,8 @@ EXPECTED = {
 
 EXPECTED_PARTITION = {
     "Built": 39,
-    "Gap": 10,
-    "Refused": 4,
+    "Gap": 9,
+    "Refused": 5,
     "NotSynthesizable": 1,
 }
 
@@ -560,7 +551,7 @@ def test_certified_adapter_preserves_its_authored_invocation_mode(
         command_boundaries=boundaries,
         validate_shared=True,
     )
-    assert "cp/certified_argv::run" in old_build.validated_bundles_by_name
+    assert "cp/certified_argv::run" in old_build.entry_result.typed_program.workflows
 
     source.write_text(_certified_adapter_source(TARGET, invocation), encoding="utf-8")
     typed = compile_typed_program(
@@ -626,30 +617,6 @@ def test_certified_adapter_preserves_its_authored_invocation_mode(
         "retirement_status": binding.retirement_status,
     }
     assert closed.tree["configuration"]["commands"][binding.name] == expected_configuration
-    (old_lowered,) = old_build.entry_result.lowered_workflows
-    (old_step,) = old_lowered.authored_mapping["steps"]
-    assert old_step["output_bundle"]["fields"] == [
-        {
-            "name": "schema_version",
-            "json_pointer": "/schema_version",
-            "type": "string",
-        },
-        {
-            "name": "items_path",
-            "json_pointer": "/items_path",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-    ]
-    if invocation == "argv":
-        assert old_step["command"] == [*binding.stable_command, "${inputs.items}"]
-    else:
-        assert old_step["command"] == [
-            *binding.stable_command,
-            '{"items_path":${inputs.items|json}}',
-        ]
-
     (effect,) = [
         node
         for node in _ast_nodes(closed.tree["body"])
@@ -659,7 +626,7 @@ def test_certified_adapter_preserves_its_authored_invocation_mode(
     assert effect["command"] == list(binding.stable_command)
     assert effect["closure"] == expected_configuration["closure"]
     assert effect["repeat"] == ("never" if binding.must_not_repeat else "rerun")
-    assert effect["contract"]["payload"]["fields"] == old_step["output_bundle"]["fields"]
+    assert [field["name"] for field in effect["contract"]["payload"]["fields"]] == ["schema_version", "items_path"]
     if invocation == "argv":
         assert len(effect["argv"]) == 1
         assert (effect["argv"][0]["k"], effect["argv"][0]["n"]) == ("name", "items")
@@ -732,23 +699,7 @@ print(json.dumps(request, sort_keys=True))
         command_boundaries=boundaries,
         validate_shared=True,
     )
-    assert "cp/signature_document::run" in old.validated_bundles_by_name
-    (old_lowered,) = old.entry_result.lowered_workflows
-    (old_step,) = old_lowered.authored_mapping["steps"]
-    assert old_step["command"][:-1] == list(binding.stable_command)
-    flat_payload = old_step["command"][-1]
-    replacements = {
-        "${inputs.items|json}": json.dumps("items.json"),
-        "${inputs.decision|json}": json.dumps("ship"),
-    }
-    for marker, value in replacements.items():
-        flat_payload = flat_payload.replace(marker, value)
-    flat_pairs = json.loads(flat_payload, object_pairs_hook=list)
-    expected_pairs = [("items_path", "items.json")]
-    if select_optional:
-        expected_pairs.append(("decision", "ship"))
-    assert flat_pairs == expected_pairs
-
+    assert "cp/signature_document::run" in old.entry_result.typed_program.workflows
     source.write_text(
         source.read_text(encoding="utf-8").replace('"2.34"', f'"{TARGET}"'),
         encoding="utf-8",
@@ -791,11 +742,11 @@ print(json.dumps(request, sort_keys=True))
     assert effect["repeat"] == "rerun"
     assert effect["argv"] == []
     assert [key for key, _value in effect["document"]] == [
-        key for key, _value in expected_pairs
+        "items_path", *(["decision"] if select_optional else [])
     ]
     expected_value_names = ["items", *(["decision"] if select_optional else [])]
     assert [value["n"] for _key, value in effect["document"]] == expected_value_names
-    assert effect["contract"]["payload"]["fields"] == old_step["output_bundle"]["fields"]
+    assert [field["name"] for field in effect["contract"]["payload"]["fields"]] == ["items_path"]
 
 
 @pytest.mark.parametrize("workflow", corpus(), ids=lambda workflow: workflow.key)
@@ -829,44 +780,6 @@ def test_every_shipped_workflow_has_a_pinned_closed_outcome(
     )
 
 
-@pytest.mark.parametrize(
-    "workflow",
-    [row for row in corpus() if row.key in ORIGINAL_TARGET_FLAT_OUTCOMES],
-    ids=lambda workflow: workflow.key,
-)
-def test_selected_refusals_keep_their_original_target_flat_outcomes(
-    tmp_path: Path, workflow
-) -> None:
-    result = try_build(workflow, tmp_path)
-    assert isinstance(result.outcome, Refused)
-    assert result.prepared is not None
-    original = workflow.source.read_text(encoding="utf-8")
-    assert result.prepared.entry.read_text(encoding="utf-8") == entry_with_target(
-        workflow.source, TARGET
-    )
-    assert target_dsl_version(workflow.source) != TARGET
-    result.prepared.entry.write_text(original, encoding="utf-8")
-    expected_flat = ORIGINAL_TARGET_FLAT_OUTCOMES[workflow.key]
-    try:
-        flat = compile_stage3_entrypoint(
-            result.prepared.entry,
-            entry_workflow=workflow.canonical_name,
-            source_roots=result.prepared.source_roots,
-            command_boundaries=result.prepared.commands,
-            provider_externs=result.prepared.providers,
-            prompt_externs=result.prepared.prompts,
-            workspace_root=result.prepared.workspace_root,
-            validate_shared=True,
-        )
-    except LispFrontendCompileError as flat_error:
-        assert isinstance(expected_flat, Refused)
-        assert flat_error.diagnostics[0].code == expected_flat.code
-    else:
-        assert expected_flat == "passed"
-        assert workflow.canonical_name in flat.validated_bundles_by_name
-        assert flat.entry_result.lowered_workflows
-    assert result.outcome.code == EXPECTED[workflow.key].code
-    assert result.outcome == EXPECTED[workflow.key]
 
 
 def _phase_reference_targets(row):
@@ -888,12 +801,6 @@ def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
     assert ClosedProgram.from_artifact(result.program.artifact()).tree == tree
 
 
-def test_contracts_and_prompt_inputs_equal_the_flat_routes_for_the_real_programs(
-    tmp_path: Path,
-) -> None:
-    from tests.workflow_lisp_closed_program_p3 import assert_p3_carriers
-
-    assert_p3_carriers(corpus(), tmp_path / "p3")
 
 
 def test_corpus_keys_and_pinned_partition_are_exact() -> None:

@@ -3,13 +3,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from orchestrator.cli.main import main
-from orchestrator.cli.commands.resume import resume_workflow
-from orchestrator.cli.commands.run import run_workflow
-from orchestrator.state import StateManager
 
 
 def _write_config(tmp_path: Path, workspace: Path) -> Path:
@@ -130,104 +125,3 @@ def test_monitor_missing_config_exits_nonzero(capsys):
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "failed to read monitor config" in captured.err
-
-
-def _run_args(workflow: Path) -> SimpleNamespace:
-    return SimpleNamespace(
-        workflow=str(workflow),
-        context=None,
-        context_file=None,
-        input=["approved=true", "status=ready"],
-        input_file=None,
-        clean_processed=False,
-        archive_processed=None,
-        debug=False,
-        stream_output=False,
-        dry_run=False,
-        backup_state=False,
-        state_dir=None,
-        on_error="stop",
-        max_retries=1,
-        retry_delay=1000,
-        quiet=False,
-        verbose=False,
-        log_level="info",
-        step_summaries=False,
-        summary_mode=None,
-        summary_provider="claude_sonnet_summary",
-        summary_timeout_sec=120,
-        summary_max_input_chars=12000,
-    )
-
-
-def _write_workflow(workspace: Path) -> Path:
-    workflow = workspace / "workflow.orc"
-    workflow.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
-                "  (defmodule workflow)",
-                "  (export orchestrate)",
-                "  (defrecord ResumeSummary",
-                "    (status String)",
-                "    (ready Bool))",
-                "  (defworkflow orchestrate",
-                "    ((approved Bool)",
-                "     (status String))",
-                "    -> ResumeSummary",
-                "    (record ResumeSummary",
-                "      :status status",
-                "      :ready approved)))",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    return workflow
-
-
-def test_run_workflow_writes_monitor_process_sidecar(tmp_path: Path, monkeypatch):
-    workspace = tmp_path / "repo"
-    workspace.mkdir()
-    workflow = _write_workflow(workspace)
-    monkeypatch.chdir(workspace)
-
-    assert run_workflow(_run_args(workflow)).exit_code == 0
-
-    run_roots = list((workspace / ".orchestrate" / "runs").iterdir())
-    assert len(run_roots) == 1
-    assert (run_roots[0] / "monitor_process.json").is_file()
-
-
-def test_run_workflow_sidecar_write_failure_is_nonfatal(tmp_path: Path, monkeypatch):
-    workspace = tmp_path / "repo"
-    workspace.mkdir()
-    workflow = _write_workflow(workspace)
-    monkeypatch.chdir(workspace)
-
-    with patch("orchestrator.cli.commands.run.write_process_metadata", side_effect=OSError("nope")):
-        assert run_workflow(_run_args(workflow)).exit_code == 0
-
-
-def test_resume_workflow_refreshes_monitor_process_sidecar(tmp_path: Path, monkeypatch):
-    workspace = tmp_path / "repo"
-    workspace.mkdir()
-    _write_workflow(workspace)
-    monkeypatch.chdir(workspace)
-    state_manager = StateManager(workspace=workspace, run_id="run-resume")
-    state_manager.initialize(
-        "workflow.orc",
-        {},
-        bound_inputs={"approved": True, "status": "ready"},
-    )
-    assert state_manager.state is not None
-    state_manager.state.status = "failed"
-    state_manager._write_state()
-
-    with patch("orchestrator.cli.commands.resume.WorkflowExecutor") as executor:
-        executor.return_value.execute.return_value = {"status": "completed"}
-        assert resume_workflow("run-resume") == 0
-
-    assert (state_manager.run_root / "monitor_process.json").is_file()

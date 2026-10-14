@@ -616,7 +616,8 @@ actually engaged for.
   unchanged.
 - **Guidance prose is tracked debt.** Each guidance line in a rendered
   contract block compensates for a missing mechanism and should name it.
-  Shipped examples: the relpath-spelling line and the schema-version
+  Shipped examples: the relpath-spelling line (on the evaluated route rendered
+  only when the contract carries a path type) and the schema-version
   exactness paragraph, both compensating for absent tolerant-but-loud
   boundary normalization. Extending guidance prose where a mechanism could
   exist is a defect under this principle.

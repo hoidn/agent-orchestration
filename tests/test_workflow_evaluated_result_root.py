@@ -30,7 +30,7 @@ from tests.test_workflow_evaluated_public_context import (
     PROVIDER_PATH_SOURCE, _assert_provider_commit, _provider_files,
 )
 from tests.test_workflow_evaluated_run_ref_root import _completed_run
-from tests.test_workflow_run_ref_child import _build_path_fixture
+from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture
 from tests.workflow_evaluated_context_helpers import public_context_run
 from tests.workflow_evaluated_totality_helpers import (
     checked_run, compile_public, pause_public, public_run,

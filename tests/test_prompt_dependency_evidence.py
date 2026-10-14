@@ -1170,7 +1170,8 @@ def _manager_with_allocations(tmp_path: Path, count: int = 3) -> StateManager:
         run_id=_scope().run_id,
         state_dir=tmp_path / "runs",
     )
-    manager.initialize("workflow.orc")
+    from tests.historical_state import write_historical_state
+    write_historical_state(manager, "workflow.orc")
     assert manager.state is not None
     manager.state.step_visits["Provider"] = 2
     manager.state.current_step = {
@@ -2032,9 +2033,9 @@ def test_runtime_ast_guard_rejects_aliased_offline_validator_import() -> None:
 
 def test_runtime_modules_do_not_import_or_call_offline_prompt_dependency_validator() -> None:
     paths = [
-        "orchestrator/workflow/executor.py",
+        "orchestrator/workflow/evaluated/providers.py",
         "orchestrator/workflow/prompting.py",
-        "orchestrator/workflow/adjudication_runtime.py",
+        "orchestrator/workflow/evaluated/runtime.py",
         "orchestrator/cli/commands/run.py",
         "orchestrator/cli/commands/resume.py",
     ]

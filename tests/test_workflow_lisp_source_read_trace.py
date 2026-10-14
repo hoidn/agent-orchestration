@@ -765,7 +765,7 @@ def test_stage3_single_file_traces_lowering_source_rereads(
     )
 
 
-def test_stage3_default_wcc_route_traces_source_dependent_lowering_reads(
+def test_stage3_default_wcc_analysis_traces_source_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -783,7 +783,7 @@ def test_stage3_default_wcc_route_traces_source_dependent_lowering_reads(
 
     def reject_orc_read_text(self: Path, *args, **kwargs) -> str:
         if self.suffix == ".orc":
-            raise AssertionError("WCC lowering must use the exact-byte trace seam")
+            raise AssertionError("WCC analysis must use the exact-byte trace seam")
         return real_read_text(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_bytes", counted_read_bytes)
@@ -802,7 +802,7 @@ def test_stage3_default_wcc_route_traces_source_dependent_lowering_reads(
         "entry",
         "helper",
     }
-    assert len(physical_orc_reads) >= 4
+    assert len(physical_orc_reads) >= 3
     assert tuple(record.canonical_path for record in trace.records) == tuple(
         physical_orc_reads
     )

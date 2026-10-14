@@ -578,3 +578,22 @@ def _iter_surface_steps(
         yield from _iter_surface_steps(step.for_each_steps)
         if step.repeat_until is not None:
             yield from _iter_surface_steps(step.repeat_until.steps)
+
+
+def public_restore_metadata(restore: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Project historical checkpoint metadata without private descriptors."""
+    from collections.abc import Sequence
+
+    restore_map = restore if isinstance(restore, Mapping) else {}
+    if not restore_map:
+        return {}
+
+    def sequence(value):
+        return value if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)) else ()
+
+    return {
+        "eligibility": list(sequence(restore_map.get("eligibility"))),
+        "binding_descriptor_digests": list(sequence(restore_map.get("binding_descriptor_digests"))),
+        "proof_descriptor_digests": list(sequence(restore_map.get("proof_descriptor_digests"))),
+        "loop_frame_descriptor_digest": restore_map.get("loop_frame_descriptor_digest"),
+    }

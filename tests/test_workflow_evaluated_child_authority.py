@@ -11,7 +11,7 @@ from orchestrator.workflow.run_ref import ledger, runtime
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 import pytest
 from tests import test_workflow_evaluated_run_ref_caller as caller
-from tests.test_workflow_run_ref_child import _build_path_fixture
+from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture
 from tests.test_workflow_evaluated_child_values import _checked_child_fixture, _commit_prepared
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from orchestrator.workflow.run_ref import evaluated_child
@@ -57,7 +57,7 @@ def test_child_terminal_proof_binds_exact_authority_bytes(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize("field,value", [("program_identity", 17), ("schema_version", []), ("schema_version", {})])
-def test_legacy_result_malformed_identity_has_controlled_refusal(tmp_path, field, value):
+def test_child_result_malformed_identity_has_controlled_refusal(tmp_path, field, value):
     def launch_invalid(launch):
         process = runtime._default_child_launcher(launch)
         assert process.returncode == 0
@@ -68,9 +68,14 @@ def test_legacy_result_malformed_identity_has_controlled_refusal(tmp_path, field
 
     with caller._checked_launch_fixture(tmp_path, allocate=False) as (request, _fixture, document, _owner):
         request = replace(request, parent_identity=document["parent_authority"]["identity"], parent_attempt=2)
-        with pytest.raises(runtime.RunRefRuntimeError, match="child_result_binding_invalid"):
+        parent_memo = (request.parent_run_root / "memo.jsonl").read_bytes()
+        expected = "evaluated_child_authority_invalid" if field == "program_identity" else "child_result_binding_invalid"
+        with pytest.raises(runtime.RunRefRuntimeError, match=expected) as caught:
             runtime.prepare_run_ref_settlement(request,
                 dependencies=runtime.RunRefRuntimeDependencies(launch_child=launch_invalid))
+        assert caught.value.code == "run_ref_child_result_invalid"
+        assert (request.parent_run_root / "memo.jsonl").read_bytes() == parent_memo
+        assert ledger.load_attempt_ledger(request.ledger_path, run_files=_owner).rows[-1].stage == "launched"
 
 
 @contextmanager

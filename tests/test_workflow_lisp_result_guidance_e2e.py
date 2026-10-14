@@ -1,293 +1,165 @@
-"""End-to-end acceptance for native v2.15 typed result guidance."""
+"""Typed result guidance survives public evaluated execution and completed resume."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import os
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
+import subprocess
+import sys
+from collections.abc import Mapping
 
-from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
-from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.state import StateManager
-from orchestrator.workflow.core_ast import workflow_core_ast_to_json
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
-from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
-from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.contracts.closed_program.sites import _ast_nodes
+from orchestrator.workflow.evaluated.machine import site_classes
+from orchestrator.workflow.evaluated.memo import read_memo
+from orchestrator.workflow_lisp.build import FrontendBuildRequest
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+from orchestrator.workflow_lisp.result_guidance import normalized_result_guidance_payload
 from tests.prompt_contract_test_helpers import parse_prompt_contract_document
-from tests.workflow_fixture_loader import WorkflowLoader
-from tests.workflow_bundle_helpers import _thaw, bundle_context_dict
-from tests.test_workflow_lisp_native_returns_e2e import (
-    _compile_guidance_runtime_bundle,
-    _execute_guidance_runtime_case,
-)
 
 
-FIXTURE = (
-    Path(__file__).parent
-    / "fixtures"
-    / "workflow_lisp"
-    / "valid"
-    / "native_bool_return_guidance.orc"
-)
-
-
-def _write_bool_command(workspace: Path, name: str) -> ExternalToolBinding:
-    scripts = workspace / "scripts"
-    scripts.mkdir(exist_ok=True)
-    script = scripts / f"{name}.py"
-    script.write_text(
-        "import os, pathlib\n"
-        'path = pathlib.Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])\n'
-        "path.parent.mkdir(parents=True, exist_ok=True)\n"
-        'path.write_text("true\\n", encoding="utf-8")\n'
-        'print("stdout is observability only")\n',
-        encoding="utf-8",
-    )
-    return ExternalToolBinding(name=name, stable_command=("python", f"scripts/{name}.py"))
-
-
-def _contract_document(prompt: str) -> dict:
-    return parse_prompt_contract_document(prompt)
-
-
-_GUIDANCE_KEYS = (
-    "description",
-    "format_hint",
-    "example",
-    "guidance_context",
-    "guidance_by_variant",
-)
+FIXTURE = Path(__file__).parent / "fixtures/workflow_lisp/valid/native_bool_return_guidance.orc"
+_GUIDANCE_KEYS = ("description", "format_hint", "example", "guidance_context", "guidance_by_variant")
+SHIM = '''import json, os, sys
+from pathlib import Path
+with Path("requests.jsonl").open("a") as stream:
+    stream.write(json.dumps({"prompt": sys.stdin.read()}) + "\\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(os.environ["GUIDANCE_RESULT"])
+print("observability output")
+'''
 
 
 def _guidance_payload(spec: Mapping[str, object]) -> dict[str, object]:
-    return {key: _thaw(spec[key]) for key in _GUIDANCE_KEYS if key in spec}
-
-
-def _count_mapping_key(value: object, key: str) -> int:
-    if isinstance(value, Mapping):
-        return int(key in value) + sum(
-            _count_mapping_key(item, key) for item in value.values()
-        )
-    if isinstance(value, (list, tuple)):
-        return sum(_count_mapping_key(item, key) for item in value)
-    return 0
+    return {key: spec[key] for key in _GUIDANCE_KEYS if key in spec}
 
 
 def _variant_guidance_projection(contract: Mapping[str, object]) -> dict[str, object]:
     guidance = contract.get("guidance")
-    shared_fields = contract.get("shared_fields", ())
-    variants = contract.get("variants", {})
     return {
         "guidance": _guidance_payload(guidance) if isinstance(guidance, Mapping) else {},
-        "shared_fields": {
-            field["name"]: _guidance_payload(field)
-            for field in shared_fields
-            if isinstance(field, Mapping)
-        },
-        "variants": {
-            variant_name: {
-                field["name"]: _guidance_payload(field)
-                for field in variant_spec.get("fields", ())
-                if isinstance(field, Mapping)
-            }
-            for variant_name, variant_spec in variants.items()
-            if isinstance(variant_spec, Mapping)
-        },
+        "shared_fields": {field["name"]: _guidance_payload(field)
+                          for field in contract.get("shared_fields", ())},
+        "variants": {variant: {field["name"]: _guidance_payload(field)
+                               for field in payload.get("fields", ())}
+                     for variant, payload in contract.get("variants", {}).items()},
     }
 
 
-def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_prompt_leak(
-    tmp_path: Path,
-) -> None:
-    module_path = tmp_path / FIXTURE.name
-    source = FIXTURE.read_text(encoding="utf-8")
-    module_path.write_text(source, encoding="utf-8")
-    assert "__result__" not in source
+def _fixture(root: Path, source: str, *, module: str, result: object, commands=False):
+    path = root / f"{module}.orc"
+    path.write_text(source)
+    (root / "prompt.md").write_text("Review the change.\n")
+    providers, prompts = root / "providers.json", root / "prompts.json"
+    providers.write_text(json.dumps({"providers.review": "codex"}))
+    prompts.write_text(json.dumps({"prompts.review": {"input_file": "prompt.md"}}))
+    command_manifest = None
+    if commands:
+        command_manifest = root / "commands.json"
+        scripts = root / "scripts"
+        scripts.mkdir()
+        bindings = {}
+        for name in ("record_approved", "record_revise"):
+            script = scripts / f"{name}.py"
+            script.write_text('import os\nfrom pathlib import Path\n'
+                              'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("true")\n')
+            bindings[name] = {"stable_command": ["python", f"scripts/{name}.py"],
+                              "closure": [f"scripts/{name}.py"]}
+        command_manifest.write_text(json.dumps(bindings))
+    binary = root / "bin/codex"
+    binary.parent.mkdir()
+    binary.write_text(f"#!{sys.executable}\n" + SHIM)
+    binary.chmod(0o700)
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1]),
+           "PYTHONDONTWRITEBYTECODE": "1", "GUIDANCE_RESULT": json.dumps(result),
+           "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]}
+    request = FrontendBuildRequest(source_path=path, source_roots=(root,), workspace_root=root,
+        provider_externs_path=providers, prompt_externs_path=prompts,
+        command_boundaries_path=command_manifest)
+    built = build_closed_program_bundle(request)
+    arguments = ["run", str(path), "--source-root", str(root),
+                 "--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts)]
+    if command_manifest is not None:
+        arguments += ["--command-boundaries-file", str(command_manifest)]
+    return built, arguments, env
 
-    prompts = tmp_path / "prompts"
-    prompts.mkdir()
-    (prompts / "review.md").write_text("Review the change.\n", encoding="utf-8")
 
-    compile_result = compile_stage3_entrypoint(
-        module_path,
-        source_roots=(tmp_path,),
-        provider_externs={"providers.review": "fake-review-provider"},
-        prompt_externs={"prompts.review": {"input_file": "prompts/review.md"}},
-        command_boundaries={
-            "record_approved": _write_bool_command(tmp_path, "record_approved"),
-            "record_revise": _write_bool_command(tmp_path, "record_revise"),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    bundle = next(
-        candidate
-        for name, candidate in compile_result.validated_bundles_by_name.items()
-        if name.endswith("::decide") or name == "decide"
-    )
+def _run_and_resume(root: Path, built, arguments, env):
+    first = subprocess.run([sys.executable, "-B", "-m", "orchestrator", *arguments],
+        cwd=root, env=env, capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    (run_root,) = (root / ".orchestrate/runs").iterdir()
+    memo = read_memo(run_root / "memo.jsonl", site_classes(built.program))
+    assert memo.terminal is not None and memo.terminal.data["outcome"] == "completed"
+    requests = (root / "requests.jsonl").read_bytes()
+    memo_bytes = (run_root / "memo.jsonl").read_bytes()
+    resumed = subprocess.run([sys.executable, "-B", "-m", "orchestrator", "resume", run_root.name],
+        cwd=root, env=env, capture_output=True, text=True)
+    assert resumed.returncode == 0, resumed.stderr
+    assert (root / "requests.jsonl").read_bytes() == requests
+    assert (run_root / "memo.jsonl").read_bytes() == memo_bytes
+    (request,) = [json.loads(line) for line in requests.splitlines()]
+    return memo, parse_prompt_contract_document(request["prompt"])
 
-    overall = dict(bundle.surface.result_guidance)
-    executable = workflow_executable_ir_to_json(bundle.ir)
-    provider_occurrence = next(
-        node for node in executable["nodes"].values() if node["kind"] == "provider"
-    )
-    occurrence_bundle = provider_occurrence["execution_config"]["common"]["output_bundle"]
-    occurrence_field = occurrence_bundle["fields"][0]
 
+def _provider(built):
+    bodies = [built.program.tree["body"],
+              *(row["body"] for row in built.program.tree["definitions"].values())]
+    (provider,) = [node for body in bodies for node in _ast_nodes(body)
+                  if node.get("class") == "provider"]
+    return provider
+
+
+def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_prompt_leak(tmp_path: Path) -> None:
+    source = FIXTURE.read_text().replace('(:target-dsl "2.15")', '(:target-dsl "2.35")')
+    built, arguments, env = _fixture(tmp_path, source,
+        module="native_bool_return_guidance", result=True, commands=True)
+    provider = _provider(built)
+    (occurrence,) = provider["contract"]["payload"]["fields"]
+    entry = built.typed_program.entry
+    overall = normalized_result_guidance_payload(entry.definition.return_spec.guidance,
+        expected_type=entry.signature.return_type_ref,
+        type_env=built.typed_program.workflow_type_env(entry.definition.name))
     assert overall
-    assert workflow_core_ast_to_json(bundle.core_workflow_ast)["result_guidance"] == overall
-    assert workflow_semantic_ir_to_json(bundle.semantic_ir)["workflows"][bundle.surface.name][
-        "result_guidance"
-    ] == overall
-    assert executable["result_guidance"] == overall
-    assert _count_mapping_key(executable, "result_guidance") == 1
-
-    state = StateManager(workspace=tmp_path, run_id="guided-bool")
-    bound_inputs = bind_workflow_inputs(
-        {
-            name: contract
-            for name, contract in workflow_runtime_input_contracts(bundle).items()
-            if not name.startswith("__write_root__")
-        },
-        {},
-        tmp_path,
-    )
-    state.initialize(
-        module_path.as_posix(),
-        context=bundle_context_dict(bundle),
-        bound_inputs=bound_inputs,
-    )
-    captured: dict[str, str] = {}
-
-    def _prepare(_self, *args, **kwargs):
-        captured["prompt"] = kwargs.get("prompt_content", "")
-        return SimpleNamespace(
-            input_mode="stdin",
-            prompt=captured["prompt"],
-            env=kwargs.get("env") or {},
-        ), None
-
-    def _execute(_self, invocation, **_kwargs):
-        path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("true\n", encoding="utf-8")
-        return SimpleNamespace(
-            exit_code=0,
-            stdout=b"stdout is observability only",
-            stderr=b"",
-            duration_ms=1,
-            error=None,
-            missing_placeholders=None,
-            invalid_prompt_placeholder=False,
-            raw_stdout=None,
-            normalized_stdout=None,
-            provider_session=None,
-        )
-
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare), patch.object(
-        ProviderExecutor, "execute", _execute
-    ):
-        result = WorkflowExecutor(bundle, tmp_path, state, retry_delay_ms=0).execute(
-            on_error="stop"
-        )
-
-    contract = _contract_document(captured["prompt"])
-    prompt_guidance = _guidance_payload(contract)
-    occurrence_guidance = _guidance_payload(occurrence_field)
-    assert contract["type"] == occurrence_field["type"]
-    assert prompt_guidance
-    assert occurrence_guidance
-    assert prompt_guidance == occurrence_guidance
-    assert prompt_guidance != overall
-    assert "result_guidance" not in contract
-    assert "guidance" not in contract
-    assert "result_guidance" not in occurrence_bundle
-    assert "guidance" not in occurrence_bundle
-    assert result["status"] == "completed"
-    assert result["workflow_outputs"] == {"__result__": True}
-    provider_step = result["steps"]["native_bool_return_guidance::decide__approved"]
-    assert provider_step["artifacts"] == {"__result__": True}
-    assert provider_step["output"] != json.dumps(True)
-
-    # The same completed contract is now public to ordinary loader entrypoints.
-    assert "2.15" in WorkflowLoader.SUPPORTED_VERSIONS
+    memo, prompt_contract = _run_and_resume(tmp_path, built, arguments, env)
+    assert prompt_contract["type"] == occurrence["type"] == "bool"
+    assert _guidance_payload(prompt_contract) == _guidance_payload(occurrence)
+    assert _guidance_payload(prompt_contract) != overall
+    assert "result_guidance" not in prompt_contract
+    assert "guidance" not in provider["contract"]["payload"]
+    commits = [entry.data for entry in memo.entries if entry.data["record"] == "committed"]
+    assert [row["effect_class"] for row in commits] == ["provider", "command"]
+    assert [row["value"] for row in commits] == [True, True]
+    assert memo.terminal.data["value"] is True
 
 
-def test_nested_union_guidance_renders_and_selected_variant_keeps_source_lineage(
-    tmp_path: Path,
-) -> None:
-    module_path, bundle, _ = _compile_guidance_runtime_bundle(
-        tmp_path,
-        guided=True,
-        lowering_route="wcc_m4",
-    )
-    variant_output = _thaw(
-        next(
-            node.execution_config.common.variant_output
-            for node in bundle.ir.nodes.values()
-            if node.execution_config is not None
-            and node.execution_config.common.variant_output
-        )
-    )
-    rendered = render_variant_output_contract_block(variant_output)
-    prompt_contract = _contract_document(rendered)
-    prompt_guidance = _variant_guidance_projection(prompt_contract)
-    occurrence_guidance = _variant_guidance_projection(variant_output)
-
-    assert prompt_guidance["guidance"]
-    assert any(
-        payload.get("guidance_by_variant")
-        for payload in prompt_guidance["shared_fields"].values()
-    )
-    assert any(
-        payload.get("guidance_context")
-        for fields in prompt_guidance["variants"].values()
-        for payload in fields.values()
-    )
-    assert prompt_guidance == occurrence_guidance
-
-    frozen_approved = next(
-        field for field in variant_output["shared_fields"] if field["name"] == "approved"
-    )
-    assert tuple(frozen_approved["source_map_subjects_by_variant"]) == (
-        "APPROVE",
-        "REVISE",
-    )
-    assert frozen_approved["source_map_subjects_by_variant"]["APPROVE"] == {
-        "subject_kind": "variant_output_field",
-        "subject_name": (
-            "guidance_runtime_neutrality::orchestrate__decision::"
-            "Decision::APPROVE::approved"
-        ),
-        "workflow_name": "guidance_runtime_neutrality::orchestrate",
-    }
-    frozen_score = next(
-        field
-        for field in variant_output["variants"]["APPROVE"]["fields"]
-        if field["name"].endswith("score")
-    )
-    assert frozen_score["source_map_subject"]["subject_name"].endswith(
-        "Decision::APPROVE::meta__score"
-    )
-
-    first, resumed = _execute_guidance_runtime_case(
-        tmp_path,
-        bundle,
-        module_path,
-        run_id="nested-union-guidance",
-    )
-    assert first["status"] == resumed["status"] == "completed"
-    decision = next(
-        step for name, step in resumed["steps"].items() if name.endswith("__decision")
-    )
-    assert decision["artifacts"] == {
-        "variant": "APPROVE",
-        "approved": True,
-        "meta__score": 0.9,
-    }
+def test_nested_union_guidance_renders_and_selected_variant_keeps_source_lineage(tmp_path: Path) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule guidance_runtime_neutrality) (export orchestrate)
+      (defrecord ReviewMeta (score Float :example 0.9))
+      (defunion Decision
+        (APPROVE (approved Bool :description "Approval branch flag." :example true)
+                 (meta ReviewMeta :description "Approval metrics context."))
+        (REVISE (approved Bool :description "Revision branch flag." :example false)
+                (reason String :example "fix tests")))
+      (defworkflow orchestrate () -> (result Decision :description "Completed routed review result.")
+        (provider-result providers.review :prompt prompts.review :inputs ()
+          :returns (result Decision :description "Choose the review route." :format-hint "Tagged decision object."))))'''
+    value = {"variant": "APPROVE", "approved": True, "meta": {"score": 0.9}}
+    built, arguments, env = _fixture(tmp_path, source,
+        module="guidance_runtime_neutrality", result=value)
+    provider = _provider(built)
+    contract = provider["contract"]["payload"]
+    subjects = provider["@"]["source_map_subject"]
+    approved = next(row for row in subjects if row["field"] == "source_map_subjects_by_variant")
+    assert tuple(approved["value"]) == ("APPROVE", "REVISE")
+    assert approved["value"]["APPROVE"]["subject_name"].endswith("Decision::APPROVE::approved")
+    assert approved["value"]["APPROVE"]["workflow_name"] == "workflow:guidance_runtime_neutrality::orchestrate"
+    assert any(row["value"].get("subject_name", "").endswith("Decision::APPROVE::meta__score")
+               for row in subjects)
+    memo, prompt_contract = _run_and_resume(tmp_path, built, arguments, env)
+    assert _variant_guidance_projection(prompt_contract) == _variant_guidance_projection(contract)
+    assert contract["guidance"]
+    assert any(field.get("guidance_by_variant") for field in contract["shared_fields"])
+    assert any(field.get("guidance_context") for variant in contract["variants"].values()
+               for field in variant["fields"])
+    assert memo.terminal.data["value"] == value

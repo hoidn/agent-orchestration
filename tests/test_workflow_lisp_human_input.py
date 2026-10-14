@@ -108,114 +108,12 @@ def test_request_input_requires_a_string_question() -> None:
     assert excinfo.value.diagnostics[0].code == "request_input_question_type_invalid"
 
 
-@pytest.mark.parametrize(
-    "body",
-    (
-        """  (defworkflow ask ((question String)) -> HumanReply
-    (request-input \"unused-question\"))""",
-        """  (defworkflow ask ((question String)) -> HumanReply
-    (let* ((prepared (string/concat question \"\")))
-      (request-input prepared)))""",
-    ),
-)
-def test_request_input_compiles_literal_and_pure_computed_questions(
-    tmp_path: Path,
-    body: str,
-) -> None:
-    result = _compile(
-        _write_module(tmp_path / "request_input.orc", body),
-        workspace=tmp_path,
-    )
-
-    bundle = result.validated_bundles["ask"]
-    steps = [
-        step
-        for step in bundle.surface.steps
-        if step.kind.value == "request_input"
-    ]
-    assert len(steps) == 1
-    assert set(steps[0].request_input) == {"question"}
 
 
-def test_request_input_materializes_an_effectful_string_before_the_host_step(
-    tmp_path: Path,
-) -> None:
-    result = _compile(
-        _write_module(
-            tmp_path / "effectful_question.orc",
-            """  (defproc ask-host ((question String)) -> HumanReply
-    :effects ((uses-provider providers.question) (host-input))
-    :lowering inline
-    (request-input
-      (provider-result providers.question
-        :prompt prompts.question
-        :inputs (question)
-        :returns String)))
-  (defworkflow ask ((question String)) -> HumanReply
-    (ask-host question))""",
-        ),
-        workspace=tmp_path,
-        provider_externs={"providers.question": "test-provider"},
-        prompt_externs={"prompts.question": "prompts/question.md"},
-        validate_shared=False,
-    )
-
-    steps = result.lowered_workflows[0].authored_mapping["steps"]
-    host_index, host_step = next(
-        (index, step)
-        for index, step in enumerate(steps)
-        if "request_input" in step
-    )
-    provider_index = next(
-        index for index, step in enumerate(steps) if "provider" in step
-    )
-    assert provider_index < host_index
-    assert set(host_step["request_input"]["question"]) == {"ref"}
 
 
-def test_request_input_compiles_selected_question(
-    tmp_path: Path,
-) -> None:
-    result = _compile(
-        _write_module(
-            tmp_path / "selected_reply.orc",
-            """  (defproc select-reply ((question String) (take_first Bool)) -> HumanReply
-    :effects ((host-input))
-    :lowering inline
-    (if take_first
-      (request-input (string/concat question ""))
-      (request-input question)))
-  (defworkflow ask ((question String) (take_first Bool)) -> HumanReply
-    (select-reply question take_first))""",
-        ),
-        workspace=tmp_path,
-    )
-
-    assert set(result.validated_bundles["ask"].surface.outputs) == {
-        "return__variant",
-        "return__text",
-    }
 
 
-def test_request_input_matches_the_fixed_reply_variants(
-    tmp_path: Path,
-) -> None:
-    result = _compile(
-        _write_module(
-            tmp_path / "matched_reply.orc",
-            """  (defproc reply-text ((question String)) -> String
-    :effects ((host-input))
-    :lowering inline
-    (match (request-input question)
-      ((ANSWERED reply) reply.text)
-      ((CANCELLED cancelled) "")))
-  (defworkflow ask ((question String)) -> String
-    (reply-text question))""",
-        ),
-        workspace=tmp_path,
-    )
-
-    assert set(result.validated_bundles["ask"].surface.outputs) == {"__result__"}
 
 
 def test_request_input_requires_a_matching_host_input_effect_declaration(
@@ -239,28 +137,3 @@ def test_request_input_requires_a_matching_host_input_effect_declaration(
         diagnostic.code == "procedure_effect_mismatch"
         for diagnostic in excinfo.value.diagnostics
     )
-
-
-def test_private_request_input_procedure_returns_the_fixed_reply(
-    tmp_path: Path,
-) -> None:
-    result = _compile(
-        _write_module(
-            tmp_path / "private_request_input.orc",
-            """  (defproc ask-host ((question String)) -> HumanReply
-    :effects ((host-input))
-    :lowering private-workflow
-    (request-input question))
-  (defworkflow ask ((question String)) -> HumanReply
-    (ask-host question))""",
-        ),
-        workspace=tmp_path,
-    )
-
-    request_steps = [
-        step
-        for bundle in result.validated_bundles.values()
-        for step in bundle.surface.steps
-        if step.kind.value == "request_input"
-    ]
-    assert len(request_steps) == 1

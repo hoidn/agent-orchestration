@@ -58,20 +58,6 @@ class ControlFacts:
     base_workflow_return_types: Mapping[str, Any] = field(default_factory=dict)
 
 
-def control_facts_for_context(context: Any) -> ControlFacts:
-    phase = context.phase_scope
-    return ControlFacts(
-        signature=context.signature, type_env=context.type_env,
-        local_type_bindings=context.local_type_bindings,
-        typed_procedures=context.typed_procedures, workflow_catalog=context.workflow_catalog,
-        workflows_by_name=context.workflows_by_name, procedure_type_envs=context.procedure_type_envs,
-        workflow_name=context.workflow_name, iteration_scope=context.iteration_scope,
-        phase_scope=phase, phase_target_values=None if phase is None else phase.target_refs,
-        procedure_catalog=getattr(context, "procedure_catalog", None),
-        active_procedure_calls=context.active_procedure_calls, lowered_callees=context.lowered_callees,
-    )
-
-
 def _direct_outputs_available(expr: Any, *, result_type: Any, facts: ControlFacts, local_values: Mapping[str, Any]) -> bool:
     fields = inline_output_boundary_fields(
         expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
@@ -135,14 +121,7 @@ def _with_phase_facts(expr: Any, *, facts: ControlFacts, local_values: Mapping[s
         _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values, retain_expression_facts=facts.closed_program),
         phase_name=expr.phase_name, ctx_expr=expr.ctx_expr, span=expr.span, form_path=expr.form_path,
     )
-    if facts.closed_program:
-        return replace(facts, phase_target_values=targets)
-    from ..lowering.context import _ActivePhaseScope
-
-    return replace(facts, phase_scope=_ActivePhaseScope(
-        scope=scope, bundle_path_ref=RUNTIME_REFERENCE, target_refs=targets,
-    ), phase_target_values=targets)
-
+    return replace(facts, phase_target_values=targets)
 
 def _leaf_output_names(expr: Any, *, result_type: Any, type_env: Any | None) -> tuple[str, ...]:
     if isinstance(expr, ex.ProviderResultExpr):
@@ -231,23 +210,14 @@ def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_va
             )
         if isinstance(value, ResolvedProcRefValue):
             type_ref = value.residual_type_ref
-        elif facts.closed_program:
-            type_ref = _closed_binding_type(expr, facts=facts, capture_source=capture_source)
         else:
-            from ..lowering.core import _infer_inline_binding_type
-
-            type_ref = _infer_inline_binding_type(expr, context=facts)
+            type_ref = _closed_binding_type(expr, facts=facts, capture_source=capture_source)
         return False, value, type_ref
     return _effectful_binding_control_fact(expr, name=name, facts=facts, local_values=local_values, capture_source=capture_source)
 
 
 def _effectful_binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_values: Mapping[str, Any], capture_source=None) -> tuple[bool, Any, Any]:
-    if facts.closed_program:
-        type_ref = _closed_binding_type(expr, facts=facts, capture_source=capture_source)
-    else:
-        from ..lowering.core import _resolve_lowering_expr_type
-
-        type_ref = _resolve_lowering_expr_type(expr, context=facts)
+    type_ref = _closed_binding_type(expr, facts=facts, capture_source=capture_source)
     if isinstance(expr, (ex.WithPhaseExpr, ex.ProviderResultExpr)):
         selected = "expression"
     else:

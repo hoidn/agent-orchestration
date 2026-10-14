@@ -11,7 +11,7 @@ from tests.workflow_lisp_totality_matrix_locality import axes
 from tests.test_workflow_lisp_closed_program_compile_cli import _compile
 from tests.workflow_evaluated_totality_helpers import exercise_placement, prepare_placement, prepare_restricted_placement
 from tests.test_workflow_lisp_closed_run_ref_placement import _PURE_REFUSALS
-from tests.test_workflow_lisp_generic_unions_runtime import _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import public_files
 
 

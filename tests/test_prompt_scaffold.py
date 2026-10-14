@@ -17,7 +17,9 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 import pytest
 from orchestrator.prompt_contract import (
-    RENDERER_VERSION, ContractField, ListType, PrimitiveType, SemanticContract,
+    RENDERER_VERSION,
+    PrimitiveType,
+    SemanticContract,
     canonical_json_bytes,
 )
 from orchestrator.prompt_scaffold import (
@@ -52,14 +54,12 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-
 def _admit(path) -> object:
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         return admit_conf_tree(fd)
     finally:
         os.close(fd)
-
 
 
 def _inputs(
@@ -82,13 +82,11 @@ def _inputs(
     )
 
 
-
 def _conf_for(provider: str):
     """Admit the packaged neutral conf for omp_conf; ambient providers need none."""
     if provider == "omp_conf":
         return _admit(CONF_DIR / "neutral")
     return None
-
 
 
 def _published_files(result) -> dict[str, bytes]:
@@ -97,7 +95,6 @@ def _published_files(result) -> dict[str, bytes]:
         for path in result.path.rglob("*")
         if path.is_file()
     }
-
 
 
 def test_manifest_files_are_exact_one_key_objects_plus_lf(tmp_path: Path) -> None:
@@ -117,7 +114,6 @@ def test_manifest_files_are_exact_one_key_objects_plus_lf(tmp_path: Path) -> Non
         )
 
 
-
 def test_identity_differs_across_providers_and_models(tmp_path: Path) -> None:
     identities = set()
     for provider in PUBLIC_PROVIDER_NAMES:
@@ -127,12 +123,10 @@ def test_identity_differs_across_providers_and_models(tmp_path: Path) -> None:
     assert identity_for(_inputs(b"p", model="model-a")) != identity_for(_inputs(b"p", model="model-b"))
 
 
-
 def test_scaffold_dir_name_uses_slug_and_identity_prefix(tmp_path: Path) -> None:
     result, inputs = _historical_scaffold(tmp_path, b"p")
     assert result.path.name == f"task-{result.identity[:12]}"
     assert scaffold_dir_name(inputs) == result.path.name
-
 
 
 def test_slugify_normalization(tmp_path: Path) -> None:
@@ -143,7 +137,6 @@ def test_slugify_normalization(tmp_path: Path) -> None:
     assert slugify("UPPER Case") == "upper-case"
     result, _ = _historical_scaffold(tmp_path, b"p", slug="!!!")
     assert result.path.name.startswith("prompt-")
-
 
 
 def test_omp_conf_root_input_and_conf_copy_only_for_omp_conf(tmp_path: Path) -> None:
@@ -162,7 +155,6 @@ def test_omp_conf_root_input_and_conf_copy_only_for_omp_conf(tmp_path: Path) -> 
         assert not (other.path / "conf").exists()
 
 
-
 def test_conf_files_copied_byte_for_byte_and_normalized_mode(tmp_path: Path) -> None:
     conf = _admit(CONF_DIR / "advised")
     result, _ = _historical_scaffold(tmp_path, b"p", provider="omp_conf", conf=conf)
@@ -171,7 +163,6 @@ def test_conf_files_copied_byte_for_byte_and_normalized_mode(tmp_path: Path) -> 
         published = (result.path / "conf" / relative).read_bytes()
         assert published == expected
         assert stat.S_IMODE(os.stat(result.path / "conf" / relative).st_mode) == 0o644
-
 
 
 def test_omp_no_tools_binds_neutral_conf_manifest(tmp_path: Path) -> None:
@@ -187,18 +178,15 @@ def test_omp_no_tools_binds_neutral_conf_manifest(tmp_path: Path) -> None:
     assert "conf" not in _published_files(result)
 
 
-
 def test_omp_no_tools_refuses_authored_conf_override(tmp_path: Path) -> None:
     conf = _admit(CONF_DIR / "advised")
     with pytest.raises(ValueError):
         _inputs(b"p", provider="omp_no_tools", conf=conf)
 
 
-
 def test_omp_conf_requires_authored_conf(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         _inputs(b"p", provider="omp_conf", conf=None)
-
 
 
 def test_binary_pin_is_identity_input(tmp_path: Path) -> None:
@@ -208,7 +196,6 @@ def test_binary_pin_is_identity_input(tmp_path: Path) -> None:
     baseline = identity_for(_inputs(b"p", provider="omp"))
     drifted_result = identity_for(_inputs(b"p", provider="omp", pin=drifted))
     assert baseline != drifted_result
-
 
 
 def test_provider_policy_table_is_closed_and_matches_launch_lanes() -> None:
@@ -224,14 +211,12 @@ def test_provider_policy_table_is_closed_and_matches_launch_lanes() -> None:
     assert OMP_PROVIDER_POLICY["omp_conf"]["lane"] == "conf"
 
 
-
 def test_identity_uses_closed_basis_object(tmp_path: Path) -> None:
     result, inputs = _historical_scaffold(tmp_path, b"p", provider="omp_conf", conf=_admit(CONF_DIR / "neutral"))
     manifest = json.loads((result.path / "scaffold.json").read_bytes())
     assert manifest["identity"] == result.identity
     assert len(result.identity) == 64
     assert all(ch in "0123456789abcdef" for ch in result.identity)
-
 
 
 def test_scaffold_manifest_rows_cover_all_files_without_extra_nodes(
@@ -262,7 +247,6 @@ def test_scaffold_manifest_rows_cover_all_files_without_extra_nodes(
     assert "scaffold.json" not in paths
 
 
-
 def test_scaffold_manifest_provider_binary_and_digests(tmp_path: Path) -> None:
     result, _ = _historical_scaffold(tmp_path, b"p", provider="omp")
     manifest = json.loads((result.path / "scaffold.json").read_bytes())
@@ -286,7 +270,6 @@ def test_scaffold_manifest_provider_binary_and_digests(tmp_path: Path) -> None:
     assert manifest["conf_manifest_sha256"] is None
 
 
-
 def test_prompt_drift_rejects_rerun(tmp_path: Path) -> None:
     result, _ = _historical_scaffold(tmp_path, b"p")
     drifted = _inputs(b"mutated", provider="omp")
@@ -296,7 +279,6 @@ def test_prompt_drift_rejects_rerun(tmp_path: Path) -> None:
             name=result.path.name,
             inputs=drifted,
         )
-
 
 
 def test_provider_drift_rejects_rerun(tmp_path: Path) -> None:
@@ -310,7 +292,6 @@ def test_provider_drift_rejects_rerun(tmp_path: Path) -> None:
         )
 
 
-
 def test_binary_pin_drift_rejects_rerun(tmp_path: Path) -> None:
     result, _ = _historical_scaffold(tmp_path, b"p", provider="omp")
     drifted = _inputs(b"p", provider="omp", pin=dataclasses.replace(
@@ -322,7 +303,6 @@ def test_binary_pin_drift_rejects_rerun(tmp_path: Path) -> None:
             name=result.path.name,
             inputs=drifted,
         )
-
 
 
 def test_conf_drift_rejects_rerun(tmp_path: Path) -> None:
@@ -349,7 +329,6 @@ def test_conf_drift_rejects_rerun(tmp_path: Path) -> None:
         )
 
 
-
 def test_verify_scaffold_captures_bytes_and_recomputes_identity(
     tmp_path: Path,
 ) -> None:
@@ -362,7 +341,6 @@ def test_verify_scaffold_captures_bytes_and_recomputes_identity(
     assert verification.files["prompt.md"] == b"p"
 
 
-
 def test_output_contract_json_closed_shape(tmp_path: Path) -> None:
     result, _ = _historical_scaffold(tmp_path, b"p", provider="omp", authoring={"mode": "default"})
     document = json.loads((result.path / "output-contract.json").read_bytes())
@@ -372,13 +350,11 @@ def test_output_contract_json_closed_shape(tmp_path: Path) -> None:
     assert document["authoring"] == {"mode": "default"}
 
 
-
 @pytest.mark.parametrize("provider", ["omp", "omp_unrestricted_workspace"])
 def test_ambient_providers_reject_conf_manifest(provider, tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(ValueError):
         _inputs(b"p", provider=provider, conf=_admit(CONF_DIR / "neutral"))
-
 
 
 def test_identity_basis_conf_manifest_is_exact_closed_object(tmp_path: Path) -> None:
@@ -422,7 +398,6 @@ def test_identity_basis_conf_manifest_is_exact_closed_object(tmp_path: Path) -> 
     assert identity_for(inputs) != _sha256(canonical_json_bytes(digest_keyed))
 
 
-
 def test_identity_basis_ambient_conf_manifest_null(tmp_path: Path) -> None:
     del tmp_path
     inputs = _inputs(b"p", provider="omp")
@@ -456,14 +431,12 @@ def test_identity_basis_ambient_conf_manifest_null(tmp_path: Path) -> None:
     assert identity_for(inputs) == _sha256(expected)
 
 
-
 @pytest.mark.parametrize("mode", [0o600, 0o777])
 def test_occupant_actual_mode_must_be_0644(mode, tmp_path: Path) -> None:
     result, inputs = _historical_scaffold(tmp_path, b"p", provider="omp")
     os.chmod(result.path / "prompt.md", mode)
     with pytest.raises(ScaffoldVerificationError):
         verify_scaffold(generated_root=result.path.parent, name=result.path.name, inputs=inputs)
-
 
 
 def test_occupant_noncanonical_manifest_rejected(tmp_path: Path) -> None:
@@ -490,7 +463,6 @@ def test_occupant_noncanonical_manifest_rejected(tmp_path: Path) -> None:
         verify_scaffold(generated_root=result.path.parent, name=result.path.name, inputs=inputs)
 
 
-
 def test_self_consistent_run_orc_tamper_rejected(tmp_path: Path) -> None:
     result, inputs = _historical_scaffold(tmp_path, b"p", provider="omp")
     occupied = result.path
@@ -504,7 +476,6 @@ def test_self_consistent_run_orc_tamper_rejected(tmp_path: Path) -> None:
     (occupied / "scaffold.json").write_bytes(canonical_json_bytes(manifest))
     with pytest.raises(ScaffoldVerificationError):
         verify_scaffold(generated_root=result.path.parent, name=result.path.name, inputs=inputs)
-
 
 
 def test_self_consistent_conf_tamper_rejected(tmp_path: Path) -> None:
@@ -523,13 +494,11 @@ def test_self_consistent_conf_tamper_rejected(tmp_path: Path) -> None:
         verify_scaffold(generated_root=result.path.parent, name=result.path.name, inputs=inputs)
 
 
-
 def test_extra_empty_directory_rejected(tmp_path: Path) -> None:
     result, inputs = _historical_scaffold(tmp_path, b"p", provider="omp")
     (result.path / "empty-dir").mkdir()
     with pytest.raises(ScaffoldVerificationError):
         verify_scaffold(generated_root=result.path.parent, name=result.path.name, inputs=inputs)
-
 
 
 def _fresh_interpreter_imports(stmt: str) -> None:
@@ -544,14 +513,12 @@ def _fresh_interpreter_imports(stmt: str) -> None:
     assert proc.returncode == 0, proc.stderr
 
 
-
 def test_direct_first_import_prompt_scaffold_fs() -> None:
     _fresh_interpreter_imports(
         "import orchestrator.prompt_scaffold_fs; "
         "import orchestrator.prompt_scaffold; "
         "assert orchestrator.prompt_scaffold.verify_scaffold is not None"
     )
-
 
 
 def test_direct_first_import_prompt_contract_authoring() -> None:
@@ -561,7 +528,6 @@ def test_direct_first_import_prompt_contract_authoring() -> None:
         "assert orchestrator.prompt_contract.validate_authoring("
         "{'mode': 'exact'}) == {'mode': 'exact'}"
     )
-
 
 
 def test_verification_captures_are_immutable(tmp_path: Path) -> None:
@@ -580,7 +546,6 @@ def test_verification_captures_are_immutable(tmp_path: Path) -> None:
         verification.manifest["identity"] = "0"
 
 
-
 def test_verification_retains_exact_manifest_bytes(tmp_path: Path) -> None:
     result, _ = _historical_scaffold(tmp_path, b"p", provider="omp")
     published_manifest = (result.path / "scaffold.json").read_bytes()
@@ -596,8 +561,6 @@ def test_verification_retains_exact_manifest_bytes(tmp_path: Path) -> None:
     assert "scaffold.json" not in verification.files
 
 
-
-
 @pytest.mark.parametrize(
     "bad_name", ["../evil", "a/b", "a\0b", "..", "."]
 )
@@ -607,7 +570,6 @@ def test_verify_scaffold_rejects_unsafe_name(bad_name, tmp_path: Path) -> None:
         verify_scaffold(
             generated_root=result.path.parent, name=bad_name, inputs=inputs
         )
-
 
 
 def test_forged_conf_content_hash_rejected() -> None:
@@ -642,7 +604,6 @@ def test_forged_conf_content_hash_rejected() -> None:
         _inputs(b"p", provider="omp_conf", conf=forged_snapshot)
 
 
-
 def test_forged_conf_manifest_hash_rejected() -> None:
     conf = _admit(CONF_DIR / "neutral")
     forged_snapshot = dataclasses.replace(conf, manifest_sha256="0" * 64)
@@ -652,7 +613,6 @@ def test_forged_conf_manifest_hash_rejected() -> None:
     forged_bytes = dataclasses.replace(conf, manifest_bytes="not-bytes")
     with pytest.raises(ValueError):
         _inputs(b"p", provider="omp_conf", conf=forged_bytes)
-
 
 
 def test_forged_conf_rows_disagree_with_records_rejected() -> None:
@@ -673,13 +633,11 @@ def test_forged_conf_rows_disagree_with_records_rejected() -> None:
         _inputs(b"p", provider="omp_conf", conf=forged_snapshot)
 
 
-
 def test_occupant_scaffold_json_actual_mode_enforced(tmp_path: Path) -> None:
     result, inputs = _historical_scaffold(tmp_path, b"p", provider="omp")
     (result.path / "scaffold.json").chmod(0o600)
     with pytest.raises(ScaffoldVerificationError):
         verify_scaffold(generated_root=result.path.parent, name=result.path.name, inputs=inputs)
-
 
 
 def test_verification_manifest_is_deeply_immutable(tmp_path: Path) -> None:
@@ -692,7 +650,6 @@ def test_verification_manifest_is_deeply_immutable(tmp_path: Path) -> None:
         row["size"] = 1
     with pytest.raises(TypeError):
         manifest["files"] = ()
-
 
 
 def test_malformed_inputs_raise_closed_errors() -> None:
@@ -716,7 +673,6 @@ def test_malformed_inputs_raise_closed_errors() -> None:
             conf_manifest=object(),  # type: ignore[arg-type]
             slug="task", pin=OMP_BINARY_PIN,
         )
-
 
 
 def test_conf_snapshot_mapping_captured_immutably(tmp_path: Path) -> None:

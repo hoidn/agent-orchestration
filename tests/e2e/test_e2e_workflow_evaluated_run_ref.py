@@ -13,10 +13,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from orchestrator.workflow.run_ref.source import canonical_source_request
 from orchestrator.contracts.closed_program.program import ClosedProgram
-from tests.e2e.test_e2e_workflow_lisp_run_ref import (
-    _assert_complete_evidence_manifest,
-    _git,
-)
+from tests.workflow_evaluated_run_ref_helpers import _assert_complete_evidence_manifest, _git
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
 from tests.workflow_evaluated_run_ref_helpers import _json_lines, _run_to_exit
 from tests.test_workflow_evaluated_run_ref import (
@@ -76,7 +73,7 @@ def _assert_child_contract(child, request):
     return compilation
 
 
-def _assert_bounded_delta(attempt_root, *, envelope, manifest, request, child_target):
+def _assert_bounded_delta(attempt_root, *, envelope, manifest, request):
     delta_bytes = (attempt_root / "workspace-delta.json").read_bytes()
     delta = json.loads(delta_bytes)
     assert set(delta) == {
@@ -86,7 +83,8 @@ def _assert_bounded_delta(attempt_root, *, envelope, manifest, request, child_ta
     revision = dict(request["materialized_source"]["repository_revision"])
     revision.pop("schema_version")
     assert delta["base"] == revision
-    untracked = _expected_untracked_delta(attempt_root, child_target)
+    assert not (attempt_root / "workspace" / "logs").exists()
+    untracked = []
     assert delta["changed_files"] == delta["deleted_files"] == []
     assert delta["untracked_files"] == untracked
     assert delta["declared_artifacts"] == []
@@ -100,17 +98,6 @@ def _assert_bounded_delta(attempt_root, *, envelope, manifest, request, child_ta
     assert envelope["workspace_delta"] == delta
     _assert_accounting(attempt_root, envelope, manifest, request)
     return delta_bytes
-
-
-def _expected_untracked_delta(attempt_root, child_target):
-    logs = attempt_root / "workspace" / "logs"
-    if child_target == "2.35":
-        assert not logs.exists()
-        return []
-    assert logs.is_dir() and not list(logs.iterdir())
-    return [{"path": "logs", "kind": "directory",
-             "mode": logs.stat().st_mode & 0o777, "size": 0,
-             "old_sha256": None, "new_sha256": None, "link_target": None}]
 
 
 def _assert_accounting(attempt_root, envelope, manifest, request):
@@ -145,7 +132,7 @@ def _assert_public_readonly_reuse(parent, refs, authority, identity, control):
     assert (_tree_bytes(parent), _tree_bytes(refs)) == before
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"], ids=["legacy", "evaluated"])
+@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
 def test_public_compile_run_resume_preserves_e1_pinned_evidence(tmp_path, child_target):
     first_root = tmp_path / "first"
     first_root.mkdir()
@@ -179,8 +166,7 @@ def test_public_compile_run_resume_preserves_e1_pinned_evidence(tmp_path, child_
             assert row.bindings.evidence_manifest_digest == canonical_sha256(manifest)
             child_identities.append(child_identity)
             deltas.append(_assert_bounded_delta(
-                attempt_root, envelope=commit.data["value"], manifest=manifest, request=request,
-                child_target=child_target
+                attempt_root, envelope=commit.data["value"], manifest=manifest, request=request
             ))
         _assert_public_readonly_reuse(parent, refs, authority, commit.data["identity"], control)
     assert child_identities == [child_identities[0]] * 4

@@ -32,8 +32,7 @@ from orchestrator.workflow.pure_expr import (
 from orchestrator.workflow.evaluated.values import LexicalEnvironment, evaluate_closed_value
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import NameExpr, PureOpExpr
-from orchestrator.workflow_lisp.lowering import core as lowering_core
-from orchestrator.workflow_lisp.lowering import pure_projection as lowering_pure_projection
+from orchestrator.workflow_lisp import result_guidance
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
@@ -158,7 +157,7 @@ def _evaluator(operator: str, operands: tuple[str, ...]) -> str:
     return _descriptor_name(result_type)
 
 
-def _lowering_inferences(operator: str, operands: tuple[str, ...]) -> dict[str, str | None]:
+def _retained_inferences(operator: str, operands: tuple[str, ...]) -> dict[str, str | None]:
     """The result type each lowering-time inference gives a well-typed application."""
 
     names = [f"x{index}" for index in range(len(operands))]
@@ -170,13 +169,11 @@ def _lowering_inferences(operator: str, operands: tuple[str, ...]) -> dict[str, 
     )
     types = {name: OPERAND_TYPES[operand][0] for name, operand in zip(names, operands)}
     type_env = FrontendTypeEnvironment({}, target_dsl_version="2.34")
-    context = SimpleNamespace(type_env=type_env, local_type_bindings=types)
     inferred = {
-        "lowering/pure_projection": lowering_pure_projection._infer_expr_type(expr, context=context, lexical_types=types),
+        "result_guidance": result_guidance._infer_expr_type(expr, type_env=type_env, source_read_trace=None, lexical_types=types),
         "wcc/elaborate": wcc_elaborate._infer_expr_type(
             expr, type_env=type_env, value_env=types, workflow_return_types={}, procedure_return_types={}
         ),
-        "lowering/core": lowering_core._resolve_pure_op_type(expr, context=context),
     }
     return {where: None if type_ref is None else type_ref.name for where, type_ref in inferred.items()}
 
@@ -196,15 +193,14 @@ def test_frontend_static_typing_and_evaluator_agree_on_every_generated_applicati
 
 
 @pytest.mark.parametrize("operator", OPERATORS)
-def test_lowering_inferences_agree_with_the_frontend_on_every_accepted_application(operator: str) -> None:
+def test_retained_inferences_agree_with_the_frontend_on_every_accepted_application(operator: str) -> None:
     inside, _ = _arities(operator)
     disagreements = []
     for operands in (operands for arity in inside for operands in _applications(arity)):
         frontend = _frontend(operator, operands, "2.34")
         if frontend.startswith("refused:"):
             continue
-        for where, inferred in _lowering_inferences(operator, operands).items():
-            # lowering/core answers only for the operators whose result it needs (None otherwise).
+        for where, inferred in _retained_inferences(operator, operands).items():
             if inferred is not None and inferred != frontend:
                 disagreements.append((operands, where, inferred, frontend))
 

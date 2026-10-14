@@ -87,3 +87,28 @@ def build(
 
 def with_blank_lines(source: str, count: int = 1) -> str:
     return "\n" * count + source
+
+
+def _wcc_body_nodes(body):
+    """Walk retained WCC body nodes without importing an emitter."""
+    from orchestrator.workflow_lisp.wcc.model import WccLet, WccCase, WccIf, WccJoin, WccRecJoin, WccParallelMap
+
+    yield body
+    if isinstance(body, WccLet):
+        yield from _wcc_body_nodes(body.body)
+    elif isinstance(body, WccCase):
+        for arm in body.arms:
+            yield from _wcc_body_nodes(arm.body)
+    elif isinstance(body, WccIf):
+        yield from _wcc_body_nodes(body.then_body)
+        yield from _wcc_body_nodes(body.else_body)
+    elif isinstance(body, WccJoin):
+        yield from _wcc_body_nodes(body.body)
+        yield from _wcc_body_nodes(body.continuation)
+    elif isinstance(body, WccRecJoin):
+        yield from _wcc_body_nodes(body.body)
+        if body.exhaustion is not None:
+            yield from _wcc_body_nodes(body.exhaustion)
+    elif isinstance(body, WccParallelMap):
+        yield from _wcc_body_nodes(body.workspace_body)
+        yield from _wcc_body_nodes(body.body)

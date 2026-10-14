@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from argparse import Namespace
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,30 @@ from orchestrator.cli.commands.evaluated import bind_program_inputs
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
+
+
+def _run_args(files: dict[str, Path], *, input_file: Path | None = None) -> Namespace:
+    return Namespace(
+        workflow=str(files["source"]), context=None, context_file=None, input=[], input_file=str(input_file) if input_file else None,
+        clean_processed=False, archive_processed=None, debug=False, stream_output=False,
+        dry_run=False, backup_state=False, state_dir=None, on_error="stop", max_retries=0,
+        retry_delay=0, quiet=True, verbose=False, log_level="error", step_summaries=False,
+        summary_mode=None, summary_provider="claude_sonnet_summary", summary_timeout_sec=120,
+        summary_max_input_chars=12000, summary_profile=None, live_agent_notes=False,
+        live_agent_note_provider=None, live_agent_note_interval_sec=15.0,
+        live_agent_note_timeout_sec=30, live_agent_note_max_tail_chars=6000,
+        entry_workflow="run", source_root=[str(files["source_root"])],
+        provider_externs_file=str(files["providers"]), prompt_externs_file=str(files["prompts"]),
+        imported_workflow_bundles_file=None, command_boundaries_file=None, emit_debug_yaml=True,
+    )
+
+
+def _run_argv(files: dict[str, Path]) -> list[str]:
+    return [
+        "orchestrator", "run", str(files["source"]), "--source-root", str(files["source_root"]),
+        "--entry-workflow", "run", "--provider-externs-file", str(files["providers"]),
+        "--prompt-externs-file", str(files["prompts"]), "--emit-debug-yaml",
+    ]
 
 
 PROGRAM = '''\

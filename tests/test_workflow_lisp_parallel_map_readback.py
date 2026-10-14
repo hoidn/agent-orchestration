@@ -6,7 +6,7 @@ import pytest
 
 from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
 from orchestrator.contracts.closed_program.sites import _ast_nodes
-from tests.test_workflow_lisp_parallel_map_closed import checked, MAP, COMMAND, maps, source
+from tests.test_workflow_lisp_parallel_map_closed import checked, MAP, COMMAND, source
 
 
 def refuse(tree):

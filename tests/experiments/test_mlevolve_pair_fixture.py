@@ -2,21 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import re
-import shutil
-from pathlib import Path
-
-import pytest
 
 from experiments.mlevolve_pair.search import run_search
-from tests.experiments.test_evaluated_execution_spike import build as build_spike
-from tests.experiments.test_evaluated_execution_spike import records, spike
-from tests.experiments.test_evaluated_execution_spike_programs import compact_controller
-from tests.test_workflow_lisp_generic_unions_runtime import _public_run
 
-ROOT = Path(__file__).resolve().parents[2]
-PAIR = ROOT / "experiments" / "mlevolve_pair"
 BUDGETS = (0, 1, 2, 3, 5, 6, 9, 12)
 
 
@@ -127,67 +115,6 @@ def _reference(scenario: dict, budget: int) -> tuple[dict, list[dict]]:
     return result, calls
 
 
-@pytest.fixture(scope="module")
-def compact_spike_program(tmp_path_factory):
-    build_root = tmp_path_factory.mktemp("mlevolve-compact")
-    sources, boundaries = compact_controller(build_root)
-    closed = build_spike(
-        build_root, sources, workflow="mlevolve_pair/search_compact::run-search", boundaries=boundaries
-    )
-    return sources, boundaries, closed
-
-
-def _run_spike_case(tmp_path: Path, scenario: dict, budget: int, program: tuple) -> tuple[dict, dict, list, list]:
-    sources, boundaries, closed = program
-    workspace = tmp_path / f"{scenario['name']}-{budget}"
-    leaves = workspace / "experiments" / "mlevolve_pair"
-    leaves.mkdir(parents=True)
-    (leaves / "answers.json").write_text(json.dumps(_scenario_answers(scenario)), encoding="utf-8")
-    (leaves / "leaves.py").write_text(_SCRIPTED_LEAVES, encoding="utf-8")
-    _, result = spike(
-        workspace, sources, inputs={"max_evaluations": budget, "target_score": 0.0}, closed=closed,
-        boundaries=boundaries, workflow="mlevolve_pair/search_compact::run-search",
-    )
-    expected, python_calls = _reference(scenario, budget)
-    call_log = leaves / "calls.jsonl"
-    spike_calls = [json.loads(line) for line in call_log.read_text(encoding="utf-8").splitlines()] if call_log.exists() else []
-    return expected, result.value, python_calls, spike_calls
-
-
-def _public_run_diagnostic(source_name: str, tmp_path: Path, caplog) -> tuple[int, list[tuple[str, str]]]:
-    source_dir = tmp_path / "experiments" / "mlevolve_pair"
-    source_dir.mkdir(parents=True)
-    source = source_dir / source_name
-    source.write_text(
-        ((ROOT / "tests/fixtures/workflow_lisp/mlevolve_pair_legacy/search_compact.orc")
-         if source_name == "search_compact.orc" else PAIR / source_name).read_text(encoding="utf-8").replace("run-search", "run"),
-        encoding="utf-8",
-    )
-    command_manifest = "commands_compact.json" if source_name == "search_compact.orc" else "commands.json"
-    shutil.copy2(PAIR / command_manifest, source_dir / "commands.json")
-    shutil.copy2(PAIR / "leaves.py", source_dir / "leaves.py")
-    providers, prompts = tmp_path / "providers.json", tmp_path / "prompts.json"
-    providers.write_text("{}", encoding="utf-8")
-    prompts.write_text("{}", encoding="utf-8")
-    files = {
-        "source": source,
-        "source_root": tmp_path / "experiments",
-        "providers": providers,
-        "prompts": prompts,
-        "commands": source_dir / "commands.json",
-    }
-
-    result = _public_run(files)
-    diagnostics = []
-    for record in caplog.records:
-        rendered = record.getMessage()
-        code = re.search(r"\[([a-z][a-z0-9_]*)\]", rendered)
-        form = re.search(r"^form: (.+)$", rendered, re.MULTILINE)
-        if code:
-            diagnostics.append((code.group(1), form.group(1) if form else ""))
-    return result.exit_code, diagnostics
-
-
 def test_python_reference_trace_records_each_decision_and_the_budget_spent() -> None:
     result = run_search(max_evaluations=12)
     trace = result["trace"]
@@ -257,41 +184,3 @@ def test_python_reference_reaches_each_scripted_leaf_outcome() -> None:
             if row["action"] == "improve" and row["accepted"]] == ["A"]
     assert traces["invalid_candidate_solved_score"][2]["evaluation"] == _evaluation(False, 0.0, "invalid-solved")
     assert results["invalid_candidate_solved_score"]["status"] != "solved"
-
-
-@pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda scenario: scenario["name"])
-@pytest.mark.parametrize("budget", BUDGETS)
-def test_compact_spike_matches_the_python_reference_for_each_leaf_answer(
-    tmp_path: Path, compact_spike_program: tuple, scenario: dict, budget: int
-) -> None:
-    expected, actual, python_calls, spike_calls = _run_spike_case(
-        tmp_path, scenario, budget, compact_spike_program
-    )
-    assert actual == expected, f"{scenario['name']} at budget {budget}"
-    assert spike_calls == python_calls, f"{scenario['name']} call inputs at budget {budget}"
-    workspace = tmp_path / f"{scenario['name']}-{budget}"
-    assert len(records(workspace)) == max(0, 2 * expected["evaluations"] - 2)
-
-
-def test_branch_expanded_controller_reports_its_current_diagnostic_code(
-    tmp_path: Path, monkeypatch, caplog
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    assert _public_run_diagnostic("search.orc", tmp_path, caplog) == (
-        2,
-        # Bound values are shared in the payload, so the state update passes the size bound.
-        # The form meets the next defect: a loop inside a branch, reported at its `:on-exhausted` value.
-        [("workflow_boundary_type_invalid", "workflow-lisp > defworkflow > run")],
-    )
-
-
-def test_legacy_compact_controller_preserves_its_original_diagnostic_code(
-    tmp_path: Path, monkeypatch, caplog
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    assert _public_run_diagnostic("search_compact.orc", tmp_path, caplog) == (
-        2,
-        [("workflow_return_not_exportable", "workflow-lisp > defproc > branch-step")],
-    )

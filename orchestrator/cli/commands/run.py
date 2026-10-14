@@ -1,13 +1,10 @@
 """Run command implementation with safety checks."""
 
-import copy
 import json
 import logging
 import os
 import shutil
-import traceback
 import zipfile
-from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,55 +13,21 @@ from typing import Dict, Any, Mapping, Optional
 from argparse import Namespace
 
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
-from orchestrator.state import StateManager
 from orchestrator.run_lock import (
     ReservedRunRootError,
     RunAlreadyActiveError,
     WorkspaceAlreadyActiveError,
-    reserved_run_writer_lock,
-    run_root_matches_fd,
-    run_writer_lock,
-    workspace_run_lock,
 )
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import (
-    LoadedWorkflowBundle,
-    workflow_bundle as loaded_workflow_bundle,
-    workflow_context,
-    workflow_public_input_contracts,
-)
-from orchestrator.workflow.linting import lint_workflow
-from orchestrator.workflow.calls import replay_profile_bundles
-from orchestrator.workflow.frontend_origins import workflow_node_origin
-from orchestrator.workflow.pure_result_replay import (
-    DERIVED_PURE_REPLAY_PROFILE,
-    PureReplayRuntime,
-    PureResultReplayIndexError,
-)
-from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
-from orchestrator.monitor.process import process_start_time_token, write_process_metadata
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
-from orchestrator.runtime_observability import close_executor_session, open_executor_session
-from orchestrator.runtime_observability import record_compiled_frontend_provenance
-from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.closed.target import (
     entry_target_dsl_version,
     refuse_retired_entry_target,
-    refuse_run_at_evaluated_execution_target,
 )
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
-    LispFrontendDiagnostic,
     render_diagnostic,
 )
-from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.syntax import (
-    target_dsl_refuses_non_finite_floats,
-    target_dsl_uses_evaluated_execution,
-)
-from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
 
@@ -111,111 +74,6 @@ def _deep_freeze(value: object) -> object:
     return value
 
 
-_ZERO_USAGE = {
-    "input": 0,
-    "output": 0,
-    "cacheRead": 0,
-    "cacheWrite": 0,
-    "totalTokens": 0,
-    "cost": {
-        "input": 0.0,
-        "output": 0.0,
-        "cacheRead": 0.0,
-        "cacheWrite": 0.0,
-        "total": 0.0,
-    },
-}
-
-
-def _provider_usage_record(provider_session: object) -> dict[str, object]:
-    """One normalized per-provider usage record from the step debug projection."""
-    if not isinstance(provider_session, dict):
-        return {}
-    record: dict[str, object] = {}
-    for key in ("session_id", "final_provider", "final_model",
-                "total_tokens", "total_cost"):
-        if key in provider_session:
-            record[key] = provider_session[key]
-    messages = provider_session.get("messages")
-    usage = None
-    if isinstance(messages, list):
-        for row in reversed(messages):
-            if isinstance(row, dict) and isinstance(row.get("usage"), dict):
-                usage = row["usage"]
-                break
-    if not isinstance(usage, dict):
-        record["usage"] = copy.deepcopy(_ZERO_USAGE)
-        return record
-    cost = usage.get("cost")
-    if not isinstance(cost, dict):
-        cost = {}
-    record["usage"] = {
-        "input": usage.get("input", 0),
-        "output": usage.get("output", 0),
-        "cacheRead": usage.get("cacheRead", 0),
-        "cacheWrite": usage.get("cacheWrite", 0),
-        "totalTokens": usage.get("totalTokens", 0),
-        "cost": {
-            "input": cost.get("input", 0.0),
-            "output": cost.get("output", 0.0),
-            "cacheRead": cost.get("cacheRead", 0.0),
-            "cacheWrite": cost.get("cacheWrite", 0.0),
-            "total": cost.get("total", 0.0),
-        },
-    }
-    return record
-
-
-def _normalize_usage(result: object) -> dict[str, dict[str, object]]:
-    """Best-effort usage normalization over finalized provider steps."""
-    if not isinstance(result, dict):
-        return {}
-    steps = result.get("steps")
-    if not isinstance(steps, dict):
-        return {}
-    usage: dict[str, dict[str, object]] = {}
-    for step_name, step in steps.items():
-        if not isinstance(step, dict):
-            continue
-        debug = step.get("debug")
-        if not isinstance(debug, dict):
-            continue
-        record = _provider_usage_record(debug.get("provider_session"))
-        if record.get("session_id"):
-            usage[step_name] = record
-    return usage
-
-
-def _run_result(
-    exit_code: int,
-    *,
-    state_manager: StateManager | None = None,
-    session_id: str | None = None,
-    session_status: str | None = None,
-    result: object = None,
-) -> RunWorkflowResult:
-    """Build one structured result; workflow outputs/usage are best-effort."""
-    run_id: str | None = None
-    run_root: Path | None = None
-    if state_manager is not None:
-        run_id = state_manager.run_id
-        run_root = state_manager.run_root
-    workflow_outputs: Mapping[str, object] = {}
-    if isinstance(result, dict):
-        outputs = result.get("workflow_outputs")
-        if isinstance(outputs, dict):
-            workflow_outputs = outputs
-    return RunWorkflowResult(
-        exit_code=exit_code,
-        run_id=run_id,
-        run_root=run_root,
-        workflow_outputs=workflow_outputs,
-        session_id=session_id,
-        session_status=session_status,
-        usage=_normalize_usage(result),
-    )
-
-
 def _workflow_path_for_state(workspace: Path, workflow_path: Path) -> str:
     """Persist a workflow path relative to the workspace when possible."""
 
@@ -242,85 +100,6 @@ def _state_root_symlink_error(workspace: Path) -> str | None:
         "example by moving the directory it points to into its place."
     )
 
-
-def _cli_exception_error(exc: BaseException) -> dict[str, object]:
-    return {
-        "type": "cli_unhandled_exception",
-        "message": str(exc),
-        "exception_type": type(exc).__name__,
-        "traceback": "".join(
-            traceback.format_exception(type(exc), exc, exc.__traceback__)
-        ),
-    }
-
-
-def render_replay_index_rejection(
-    exc: PureResultReplayIndexError, bundle: LoadedWorkflowBundle
-) -> str:
-    """Render a replay-index rejection as a frontend diagnostic at its authored form.
-
-    The rejection names its workflow and node (and, from ``--dry-run``, the call
-    sites that reach that workflow); ``bundle`` is the run's root, whose source
-    map covers every workflow of the build. The location only improves the
-    rejection: when it cannot be found, the diagnostic sits at the workflow file
-    without a line, and a note says why.
-    """
-    context = dict(exc.context)
-    path = context.pop("workflow_path", None) or bundle.provenance.workflow_path
-    call_sites = context.pop("call_sites", ())
-    source_map = bundle.provenance.frontend_source_trace_path
-    try:
-        if "workflow" not in context or "node_id" not in context:
-            raise LookupError("the rejection names no workflow node")
-        origin = workflow_node_origin(source_map, context["workflow"], context["node_id"])
-        path, line, column = origin["path"], origin["line"], origin["column"]
-        notes = list(origin.get("notes", ()))
-    except Exception as lookup_error:  # The lookup must never replace the rejection.
-        origin, line, column = {}, 1, 1
-        notes = [f"source location could not be determined: {_lookup_failure(lookup_error, source_map)}"]
-    for caller, node_id, step_name in call_sites:
-        try:
-            if not isinstance(step_name, str):
-                raise LookupError("the semantic call statement could not be determined")
-            site = workflow_node_origin(source_map, caller, node_id, step_name=step_name)
-            notes.append(f"workflow call site at {site['path']}:{site['line']}:{site['column']}")
-        except Exception as lookup_error:  # As above: a note, never a replacement.
-            notes.append(f"workflow call site in {caller} could not be located: {_lookup_failure(lookup_error, source_map)}")
-    position = SourcePosition(path=str(path), line=line, column=column, offset=0)
-    text = render_diagnostic(
-        LispFrontendDiagnostic(
-            code=exc.code,
-            message=str(exc),
-            span=SourceSpan(start=position, end=position),
-            form_path=tuple(origin.get("form_path", ())),
-            notes=(
-                *notes,
-                f"reason: {exc.reason}",
-                *(f"{key}: {value}" for key, value in context.items()),
-            ),
-        )
-    )
-    # Without an origin the file is known and the line is not: drop the placeholder.
-    return text if origin else text.replace(f"{path}:1:1: ", f"{path}: ", 1)
-
-
-def _call_site_step_name(bundle: LoadedWorkflowBundle, node_id: str) -> str | None:
-    """Resolve a call boundary to its semantic statement's exact source step name."""
-    workflow = bundle.semantic_ir.workflows.get(bundle.surface.name)
-    if workflow is None:
-        return None
-    matches = [
-        statement.step_name
-        for statement in workflow.statements.values()
-        if statement.step_kind == "call" and node_id in statement.executable_node_ids
-    ]
-    return matches[0] if len(matches) == 1 else None
-
-
-def _lookup_failure(error: Exception, source_map: Path | None) -> str:
-    if type(error) is LookupError:  # Raised with its own explanation.
-        return str(error)
-    return f"reading {source_map} raised {type(error).__name__}: {error}"
 
 
 def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
@@ -595,19 +374,13 @@ def run_workflow(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    state_manager: StateManager | None = None
-    writer_lock_stack = ExitStack()
-    session_id: str | None = None
-    session_status: str | None = None
-    reserved_fd: int | None = None
-
     try:
         # Determine workspace
         workspace = Path.cwd()
         state_root_error = _state_root_symlink_error(workspace)
         if state_root_error is not None:
             logger.error(state_root_error)
-            return _run_result(1)
+            return RunWorkflowResult(exit_code=1)
         state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
         run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
 
@@ -616,17 +389,17 @@ def run_workflow(
             logger.error(
                 ".orc required: authored workflows must use the Workflow Lisp frontend"
             )
-            return _run_result(1)
+            return RunWorkflowResult(exit_code=1)
         if not workflow_path.exists():
             logger.error(f"Workflow file not found: {workflow_path}")
-            return _run_result(1)
+            return RunWorkflowResult(exit_code=1)
 
         try:
             refuse_retired_entry_target(workflow_path)
         except LispFrontendCompileError as exc:
             for diagnostic in exc.diagnostics:
                 logger.error(render_diagnostic(diagnostic))
-            return _run_result(2)
+            return RunWorkflowResult(exit_code=2)
 
         source_read_trace = SourceReadTrace()
         try:
@@ -636,361 +409,40 @@ def run_workflow(
         except (LispFrontendCompileError, OSError, UnicodeError):
             selected_target = None
             source_read_trace = None
-        if (
-            selected_target is not None
-            and target_dsl_uses_evaluated_execution(selected_target)
-        ):
-            from orchestrator.cli.commands.evaluated import run_evaluated_workflow
+        from orchestrator.cli.commands.evaluated import run_evaluated_workflow
 
-            exit_code, evaluated_run_id, evaluated_run_root, outputs = (
-                run_evaluated_workflow(
-                    args,
-                    workspace=workspace,
-                    workflow_path=workflow_path,
-                    logical_workflow_path=logical_workflow_path,
-                    run_id=run_id,
-                    source_read_trace=source_read_trace,
-                    expected_run_identity=expected_run_identity,
-                    reserved_run_fd=reserved_run_fd,
-                )
-            )
-            return RunWorkflowResult(
-                exit_code=exit_code,
-                run_id=evaluated_run_id,
-                run_root=evaluated_run_root,
-                workflow_outputs=outputs,
-            )
-
-        if not args.dry_run:
-            state_manager = StateManager(
-                workspace=workspace,
-                backup_enabled=args.backup_state,
-                debug=getattr(args, "debug", False),
-                state_dir=state_dir_override,
-                run_id=run_id,
-            )
-            writer_lock_stack.enter_context(
-                workspace_run_lock(workspace, state_manager.run_id)
-            )
-
-        frontend_build = None
-        try:
-            refuse_run_at_evaluated_execution_target(workflow_path)
-            frontend_build = build_frontend_bundle(
-                FrontendBuildRequest(
-                    source_path=workflow_path,
-                    source_roots=tuple(
-                        resolve_path_preserving_fd(path)
-                        for path in (getattr(args, "source_root", None) or ())
-                    ),
-                    entry_workflow=getattr(args, "entry_workflow", None),
-                    provider_externs_path=resolve_path_preserving_fd(
-                        args.provider_externs_file)
-                    if getattr(args, "provider_externs_file", None) else None,
-                    prompt_externs_path=resolve_path_preserving_fd(
-                        args.prompt_externs_file)
-                    if getattr(args, "prompt_externs_file", None) else None,
-                    imported_workflow_bundles_path=resolve_path_preserving_fd(
-                        args.imported_workflow_bundles_file)
-                    if getattr(args, "imported_workflow_bundles_file", None) else None,
-                    command_boundaries_path=resolve_path_preserving_fd(
-                        args.command_boundaries_file)
-                    if getattr(args, "command_boundaries_file", None) else None,
-                    emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
-                    workspace_root=workspace,
-                )
-            )
-        except LispFrontendCompileError as e:
-            for diagnostic in e.diagnostics:
-                logger.error(render_diagnostic(diagnostic))
-                if diagnostic.cause is not None:
-                    logger.debug("internal exception behind this compiler defect", exc_info=diagnostic.cause)
-            return _run_result(2)
-        workflow = frontend_build.validated_bundle
-        bundle = loaded_workflow_bundle(workflow)
-        # Determine processed directory
-        if bundle is not None:
-            processed_root = bundle.surface.processed_dir or 'processed'
-        elif isinstance(workflow, dict):
-            processed_root = workflow.get('processed_dir', 'processed')
-        else:
-            processed_root = 'processed'
-        processed_dir = workspace / str(processed_root)
-
-        # Handle --clean-processed flag
-        if args.clean_processed:
-            validate_clean_processed(workflow_path, processed_dir)
-            if not args.dry_run:
-                clean_processed_directory(processed_dir)
-            else:
-                logger.info(f"[DRY RUN] Would clean processed directory: {processed_dir}")
-
-        # Validate archive destination if specified
-        archive_dest = None
-        if args.archive_processed:
-            if args.archive_processed.strip():
-                archive_dest = Path(args.archive_processed).resolve()
-            else:
-                # Default to RUN_ROOT/processed.zip; never rebind the service
-                # run id when a caller-selected id is in flight.
-                archive_run_id = run_id or datetime.now().strftime("%Y%m%dT%H%M%SZ")
-                runs_root = state_dir_override or (workspace / '.orchestrate' / 'runs')
-                run_root = runs_root / archive_run_id
-                archive_dest = run_root / 'processed.zip'
-
-            validate_archive_destination(processed_dir, archive_dest)
-
-            if args.dry_run:
-                logger.info(f"[DRY RUN] Would archive processed directory to: {archive_dest}")
-
-        raw_inputs = parse_inputs(args)
-        lint_warnings = lint_workflow(workflow)
-
-        bound_inputs = bind_workflow_inputs(
-            workflow_public_input_contracts(workflow),
-            raw_inputs,
+        exit_code, evaluated_run_id, evaluated_run_root, outputs = run_evaluated_workflow(
+            args,
             workspace=workspace,
-            finite_floats=bundle is not None and target_dsl_refuses_non_finite_floats(bundle.surface.version),
+            workflow_path=workflow_path,
+            logical_workflow_path=logical_workflow_path,
+            run_id=run_id,
+            source_read_trace=source_read_trace,
+            expected_run_identity=expected_run_identity,
+            reserved_run_fd=reserved_run_fd,
         )
-
-        if args.dry_run:
-            for warning in lint_warnings:
-                logger.warning(
-                    "[LINT] %s (%s at %s)",
-                    warning.get("message"),
-                    warning.get("code"),
-                    warning.get("path"),
-                )
-            # A run builds this runtime at its start and in each call frame it
-            # opens, before any effect there
-            # (WorkflowExecutor._configure_pure_replay_runtime). Building each
-            # here reports the same rejections; it reads only the bundles.
-            scope_path = ResumeScopePath.root(
-                _workflow_path_for_state(
-                    workspace, logical_workflow_path or workflow_path
-                )
-            )
-            for frame_bundle, call_path, reached_unconditionally in replay_profile_bundles(bundle):
-                try:
-                    # The scope path is only type-checked here; derivation
-                    # reads the bundle alone.
-                    PureReplayRuntime(bundle=frame_bundle, scope_path=scope_path)
-                except PureResultReplayIndexError as exc:
-                    rejection = PureResultReplayIndexError(
-                        exc.reason,
-                        str(exc),
-                        context={
-                            **exc.context,
-                            "call_sites": [
-                                (
-                                    caller.surface.name,
-                                    boundary.node_id,
-                                    _call_site_step_name(caller, boundary.node_id),
-                                )
-                                for caller, boundary in reversed(call_path)
-                            ],
-                        },
-                    )
-                    if reached_unconditionally:
-                        raise rejection from exc
-                    logger.warning(
-                        "%s\nnote: this run is refused only if it reaches this call.",
-                        render_replay_index_rejection(rejection, bundle),
-                    )
-            return _run_result(0)
-
-        # Parse context
-        context = parse_context(args, workflow_context=dict(workflow_context(workflow)))
-        if frontend_build is not None:
-            context = workflow_lisp_context_with_lowering_schema(
-                context,
-                frontend_build.manifest.lowering_schema_version,
-            )
-
-        observability = build_observability_config(args)
-
-        assert state_manager is not None
-        if run_id is not None and expected_run_identity is not None:
-            # R7: prompt callers acquire this lock before their first write
-            # and pass the retained authority through the whole lifecycle.
-            if reserved_run_fd is None:
-                reserved_fd = writer_lock_stack.enter_context(
-                    reserved_run_writer_lock(
-                        state_manager.run_root, expected_run_identity
-                    )
-                )
-            else:
-                reserved_fd = reserved_run_fd
-            if not run_root_matches_fd(
-                state_manager.run_root, reserved_fd
-            ):
-                logger.error(
-                    f"Reserved run root {state_manager.run_root} was swapped "
-                    "after the writer lock"
-                )
-                return _run_result(
-                    1,
-                    state_manager=state_manager,
-                    session_id=session_id,
-                    session_status=session_status,
-                )
-        else:
-            state_manager.run_root.mkdir(parents=True, exist_ok=True)
-            writer_lock_stack.enter_context(
-                run_writer_lock(state_manager.run_root)
-            )
-
-        run_state = state_manager.initialize(
-            _workflow_path_for_state(
-                workspace, logical_workflow_path or workflow_path
-            ),
-            context,
-            bound_inputs=bound_inputs,
-            observability=observability,
-            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
-            run_root_fd=reserved_fd,
+        return RunWorkflowResult(
+            exit_code=exit_code,
+            run_id=evaluated_run_id,
+            run_root=evaluated_run_root,
+            workflow_outputs=outputs,
         )
-        if reserved_fd is not None and not run_root_matches_fd(
-            state_manager.run_root, reserved_fd
-        ):
-            logger.error(
-                f"Reserved run root {state_manager.run_root} was swapped "
-                "during initialization"
-            )
-            return _run_result(1, state_manager=state_manager)
-        if getattr(args, "run_ref_root", None) is not None:
-            state_manager.bind_run_ref_root(run_ref_root)
-        if frontend_build is not None:
-            with state_manager.state_transaction() as transaction_state:
-                record_compiled_frontend_provenance(
-                    transaction_state,
-                    frontend_build.validated_bundle.provenance,
-                )
-            run_state = state_manager.state
-            assert run_state is not None
-        logger.info(f"Created new run: {run_state.run_id}")
-
-        try:
-            with state_manager.state_transaction() as transaction_state:
-                session_id = open_executor_session(
-                    transaction_state,
-                    entrypoint="run",
-                    process_start_time=process_start_time_token(os.getpid()),
-                )
-            session_status = "failed"
-            try:
-                write_process_metadata(
-                    state_manager.io_run_root,
-                    executor_session_id=session_id,
-                )
-            except OSError as exc:
-                logger.debug("Failed to write monitor process metadata: %s", exc)
-
-            # Execute workflow
-            executor = WorkflowExecutor(
-                workflow=workflow,
-                workspace=workspace,
-                state_manager=state_manager,
-                logs_dir=state_manager.logs_dir,
-                debug=args.debug if hasattr(args, 'debug') else False,
-                stream_output=args.stream_output if hasattr(args, 'stream_output') else False,
-                max_retries=args.max_retries,
-                retry_delay_ms=args.retry_delay,
-                observability=observability,
-                no_tools_conf_root=no_tools_conf_root,
-                no_tools_conf_identity=no_tools_conf_identity,
-                no_tools_conf_manifest_sha256=no_tools_conf_manifest_sha256,
-                profile_conf_fd=profile_conf_fd,
-            )
-
-            result = executor.execute(
-                run_id=run_state.run_id,
-                on_error=args.on_error,
-                max_retries=args.max_retries,
-                retry_delay_ms=args.retry_delay
-            )
-
-            run_completed = False
-            if isinstance(result, dict):
-                run_completed = result.get("status") == "completed"
-                run_succeeded = run_completed or result.get("status") == "suspended"
-            else:
-                run_completed = bool(result)
-                run_succeeded = run_completed
-            session_status = "completed" if run_succeeded else "failed"
-
-            # Archive processed directory on successful completion only; an
-            # archive failure marks the session failed, never stale completed.
-            if run_completed and archive_dest:
-                try:
-                    archive_processed_directory(processed_dir, archive_dest)
-                except Exception:
-                    session_status = "failed"
-                    raise
-
-            return _run_result(
-                0 if run_succeeded else 1,
-                state_manager=state_manager,
-                session_id=session_id,
-                session_status=session_status,
-                result=result,
-            )
-        finally:
-            if session_id is not None and state_manager.state is not None:
-                try:
-                    with state_manager.state_transaction() as transaction_state:
-                        close_executor_session(
-                            transaction_state,
-                            session_id=session_id,
-                            status=session_status or "failed",
-                        )
-                except Exception as exc:
-                    # Never return from the finally block: a close failure
-                    # must reach the outer handler so fail_run persists a
-                    # failed run state and the exact failed result returns
-                    # (a return here would suppress an active body exception
-                    # and leave the persisted run completed).
-                    logger.error(f"Failed to close executor session: {exc}")
-                    session_status = "failed"
-                    raise
 
     except WorkspaceAlreadyActiveError as e:
         logger.error(str(e))
-        return _run_result(2, state_manager=state_manager)
+        return RunWorkflowResult(exit_code=2, run_id=run_id)
     except RunAlreadyActiveError as e:
         logger.error(str(e))
-        return _run_result(
-            2, state_manager=state_manager, session_id=session_id,
-            session_status="failed" if session_id is not None else None)
+        return RunWorkflowResult(exit_code=2)
     except ReservedRunRootError as e:
         logger.error(str(e))
-        return _run_result(
-            1, state_manager=state_manager, session_id=session_id,
-            session_status="failed" if session_id is not None else None)
+        return RunWorkflowResult(exit_code=1, run_id=run_id, run_root=e.run_root)
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
-        return _run_result(
-            1, state_manager=state_manager, session_id=session_id,
-            session_status="failed" if session_id is not None else None)
-    except PureResultReplayIndexError as e:
-        # Raised by the replay-index build in --dry-run and at run start alike.
-        logger.error(render_replay_index_rejection(e, bundle))
-        return _run_result(
-            2, state_manager=state_manager, session_id=session_id,
-            session_status="failed" if session_id is not None else None)
+        return RunWorkflowResult(exit_code=1)
     except ValueError as e:
         logger.error(f"Validation error: {e}")
-        return _run_result(
-            2, state_manager=state_manager, session_id=session_id,
-            session_status="failed" if session_id is not None else None)
+        return RunWorkflowResult(exit_code=2)
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        if state_manager is not None and state_manager.state is not None:
-            state_manager.fail_run(_cli_exception_error(e))
-        return _run_result(
-            1, state_manager=state_manager, session_id=session_id,
-            session_status="failed" if session_id is not None else None)
-    finally:
-        if state_manager is not None:
-            state_manager.close()
-        writer_lock_stack.close()
+        return RunWorkflowResult(exit_code=1)

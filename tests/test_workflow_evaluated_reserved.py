@@ -7,15 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.cli.commands.prompt_run_service import run_namespace
+from orchestrator.cli.main import create_parser
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.run_lock import reserved_run_writer_lock
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
-from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.test_workflow_evaluated_cli import PROGRAM
-from tests.test_cli_prompt import fake_runtime, MODEL, TASK_TEXT
 
 
 @pytest.fixture
@@ -37,10 +35,10 @@ def reserved(tmp_path, monkeypatch):
     physical = replace(logical, source_path=physical_root / "inputs.orc",
         source_roots=(physical_root,), provider_externs_path=physical_root / "providers.json",
         prompt_externs_path=physical_root / "prompts.json")
-    args = run_namespace(workflow=str(physical.source_path), state_dir=str(root.parent),
-        source_root=[str(physical_root)], provider_externs_file=str(physical.provider_externs_path),
-        prompt_externs_file=str(physical.prompt_externs_path), input=["score=0.75"],
-        physical_build_request=physical, logical_build_request=logical, logical_input_file=None)
+    args = create_parser().parse_args(["run", str(physical.source_path), "--state-dir", str(root.parent),
+        "--source-root", str(physical_root), "--provider-externs-file", str(physical.provider_externs_path),
+        "--prompt-externs-file", str(physical.prompt_externs_path), "--input", "score=0.75"])
+    args.physical_build_request, args.logical_build_request, args.logical_input_file = physical, logical, None
     info = root.stat()
     try:
         with reserved_run_writer_lock(root, (info.st_dev, info.st_ino)) as fd:
@@ -160,7 +158,7 @@ def test_reserved_incoherent_pair_refuses_before_publication(reserved, change):
         "manifest": {"provider_externs_path": None},
         "source": {"source_path": snapshot / "different.orc"},
         "entry": {"entry_workflow": "run"},
-        "options": {"emit_debug_yaml": True},
+        "options": {"lint_profile": "strict"},
         "input": {},
     }
     args.logical_build_request = replace(args.logical_build_request, **changes[change])
@@ -275,8 +273,8 @@ def test_reserved_completed_public_resume_uses_same_recipe_without_writes(tmp_pa
     root.mkdir(parents=True)
     info = root.stat()
     request = FrontendBuildRequest(source_path=source, workspace_root=tmp_path)
-    args = run_namespace(workflow=str(source), state_dir=str(root.parent), input=["score=0.75"],
-        physical_build_request=request, logical_build_request=request, logical_input_file=None)
+    args = create_parser().parse_args(["run", str(source), "--state-dir", str(root.parent), "--input", "score=0.75"])
+    args.physical_build_request, args.logical_build_request, args.logical_input_file = request, request, None
     with reserved_run_writer_lock(root, (info.st_dev, info.st_ino)) as fd:
         assert run_workflow(args, run_id=root.name, expected_run_identity=(info.st_dev, info.st_ino),
             reserved_run_fd=fd).exit_code == 0
@@ -307,10 +305,10 @@ def test_reserved_internal_snapshot_resume_reopens_only_through_new_root_fd(tmp_
         workspace_root=tmp_path)
     physical = replace(logical, source_path=physical_root / "inputs.orc", source_roots=(physical_root,),
         provider_externs_path=physical_root / "providers.json", prompt_externs_path=physical_root / "prompts.json")
-    args = run_namespace(workflow=str(physical.source_path), state_dir=str(root.parent),
-        source_root=[str(physical_root)], provider_externs_file=str(physical.provider_externs_path),
-        prompt_externs_file=str(physical.prompt_externs_path), input_file=str(physical_root / "inputs.json"),
-        physical_build_request=physical, logical_build_request=logical, logical_input_file=snapshot / "inputs.json")
+    args = create_parser().parse_args(["run", str(physical.source_path), "--state-dir", str(root.parent),
+        "--source-root", str(physical_root), "--provider-externs-file", str(physical.provider_externs_path),
+        "--prompt-externs-file", str(physical.prompt_externs_path), "--input-file", str(physical_root / "inputs.json")])
+    args.physical_build_request, args.logical_build_request, args.logical_input_file = physical, logical, snapshot / "inputs.json"
     try:
         with reserved_run_writer_lock(root, (info.st_dev, info.st_ino)) as fd:
             assert run_workflow(args, run_id=root.name, expected_run_identity=(info.st_dev, info.st_ino), reserved_run_fd=fd).exit_code == 0
@@ -339,48 +337,3 @@ def test_reserved_internal_snapshot_resume_reopens_only_through_new_root_fd(tmp_
             guard.setattr(io, "open", reject_logical_io_open)
             assert resume_workflow(root.name) == 0
         assert _snapshot(root) == before
-
-
-def _assert_prompt_request_paths(args, kwargs):
-    assert isinstance(getattr(args, "physical_build_request", None), FrontendBuildRequest)
-    assert isinstance(getattr(args, "logical_build_request", None), FrontendBuildRequest)
-    physical, logical = args.physical_build_request, args.logical_build_request
-    assert physical.source_path == Path(args.workflow)
-    assert logical.source_path == kwargs["logical_workflow_path"]
-    assert physical.source_roots == (physical.source_path.parent,)
-    assert logical.source_roots == (logical.source_path.parent,)
-    assert physical.provider_externs_path == physical.source_path.parent / "providers.json"
-    assert logical.prompt_externs_path == logical.source_path.parent / "prompts.json"
-    return physical, logical
-
-
-def _assert_prompt_request_optional_fields(args, physical, logical):
-    assert physical.imported_workflow_bundles_path is logical.imported_workflow_bundles_path is None
-    assert physical.command_boundaries_path is logical.command_boundaries_path is None
-    assert physical.entry_workflow is logical.entry_workflow is None
-    assert args.input_file is args.logical_input_file is None
-
-
-def _assert_prompt_request_target_version(physical):
-    assert entry_target_dsl_version(physical.source_path) == "2.27"
-
-
-def test_both_prompt_callers_supply_complete_requests_at_target_227(tmp_path, monkeypatch, fake_runtime):
-    from orchestrator.cli.main import main
-    from orchestrator.cli.commands import prompt_run_service, prompt
-    seen = []
-
-    def record_request(args, **kwargs):
-        seen.append((args, kwargs))
-        physical, logical = _assert_prompt_request_paths(args, kwargs)
-        _assert_prompt_request_optional_fields(args, physical, logical)
-        _assert_prompt_request_target_version(physical)
-        return run_workflow(args, **kwargs)
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(prompt_run_service, "run_workflow", record_request)
-    monkeypatch.setattr(prompt, "run_workflow", record_request)
-    exit_code = main(["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools", "--model", MODEL, "--output", "a text greeting"])
-    assert exit_code == 0
-    assert len(seen) == 2
-    assert [Path(args.workflow).name for args, _ in seen] == ["infer-output-contract.orc", "run.orc"]

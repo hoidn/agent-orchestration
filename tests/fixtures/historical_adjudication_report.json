@@ -1,0 +1,243 @@
+{
+  "capture_commit": "23eb9c97",
+  "variants": {
+    "success": {
+      "state": {
+        "schema_version": "2.1",
+        "run_id": "run-1",
+        "workflow_file": "workflow.yaml",
+        "workflow_checksum": "sha256:6c78566672f8eefab71ede19a4f515b2c1489da2bdbc1ec1b6f52bb81c1de969",
+        "started_at": "2026-10-14T01:06:41.282345+00:00",
+        "updated_at": "2026-10-14T01:06:41.700190+00:00",
+        "status": "completed",
+        "context": {},
+        "bound_inputs": {},
+        "workflow_outputs": {},
+        "finalization": {},
+        "steps": {
+          "Draft": {
+            "status": "completed",
+            "name": "Draft",
+            "step_id": "root.draft",
+            "exit_code": 0,
+            "duration_ms": 237,
+            "artifacts": {
+              "result_path": "docs/plans/b.md"
+            },
+            "adjudication": {
+              "schema": "adjudicated_provider.state.v1",
+              "execution_frame_id": "root",
+              "call_frame_id": null,
+              "selected_candidate_id": "b",
+              "selected_score": 0.9,
+              "selection_reason": "highest_score",
+              "promotion_status": "committed",
+              "scorer_identity_hash": "sha256:ee7ebc262d575fa36b3446f61eb17bf4d830581310e7dde2ffa5a71b9374f331",
+              "evaluator_prompt_hash": "sha256:22dc76b06e9ebe6fea3d052afbf2e44e53c7f0420e920fd9593c35084f82e8b5",
+              "evidence_confidentiality": "same_trust_boundary",
+              "secret_detection_policy": "workflow_declared_secrets.v1",
+              "score_ledger_path": "artifacts/evaluations/draft_scores.jsonl",
+              "run_score_ledger_path": "@WORKSPACE@/.orchestrate/runs/run-1/adjudication/root/root.draft/1/candidate_scores.jsonl",
+              "scorer_snapshot_path": "@WORKSPACE@/.orchestrate/runs/run-1/adjudication/root/root.draft/1/scorer/metadata.json",
+              "promotion_manifest_path": "@WORKSPACE@/.orchestrate/runs/run-1/promotions/root/root.draft/1/manifest.json",
+              "candidates": {
+                "a": {
+                  "candidate_status": "output_valid",
+                  "score_status": "scored",
+                  "score": 0.4,
+                  "selected": false,
+                  "promotion_status": "not_selected",
+                  "candidate_root": ".orchestrate/runs/run-1/candidates/root/root.draft/1/a",
+                  "candidate_run_key": "sha256:0954b705c5ec7fbffbe38655c7d4948d487f18d7743911a63ca775a766e42816",
+                  "score_run_key": "sha256:c95bd9a7e2784caa5ba8871a1773a371ac92984d796255acdc9b092cc51f2639",
+                  "provider_exit_code": 0,
+                  "attempt_count": 1,
+                  "evaluator_attempt_count": 1,
+                  "failure_type": null,
+                  "failure_message": null,
+                  "scorer_resolution_failure_key": null,
+                  "evaluation_packet_hash": "sha256:b6023bad8df7ba138829fea7bc81151229c734f3e267752c613e54b278e6a5c3"
+                },
+                "b": {
+                  "candidate_status": "output_valid",
+                  "score_status": "scored",
+                  "score": 0.9,
+                  "selected": true,
+                  "promotion_status": "committed",
+                  "candidate_root": ".orchestrate/runs/run-1/candidates/root/root.draft/1/b",
+                  "candidate_run_key": "sha256:66fe60850a32bef1e2f686b9c19fb16d5f0ae89aae9ff4597ab58d7f1ee3324e",
+                  "score_run_key": "sha256:a33062628ba7d22cb8444de465dc339cf1619b4ba775741208b864f4696f70a6",
+                  "provider_exit_code": 0,
+                  "attempt_count": 1,
+                  "evaluator_attempt_count": 1,
+                  "failure_type": null,
+                  "failure_message": null,
+                  "scorer_resolution_failure_key": null,
+                  "evaluation_packet_hash": "sha256:c96acdb7b9cb33eae525224740e2c55c5e85237341a015a9db40de82ab15f7fd"
+                }
+              }
+            },
+            "skipped": false,
+            "outcome": {
+              "status": "completed",
+              "phase": "execution",
+              "class": "completed",
+              "retryable": false
+            },
+            "visit_count": 1
+          }
+        },
+        "for_each": {},
+        "repeat_until": {},
+        "call_frames": {},
+        "artifact_versions": {
+          "result_path": [
+            {
+              "version": 1,
+              "value": "docs/plans/b.md",
+              "producer": "root.draft",
+              "producer_name": "Draft",
+              "step_index": 0
+            }
+          ]
+        },
+        "artifact_consumes": {},
+        "private_artifact_versions": {},
+        "private_artifact_consumes": {},
+        "transition_count": 0,
+        "step_visits": {
+          "Draft": 1
+        },
+        "run_root": "@WORKSPACE@/.orchestrate/runs/run-1"
+      },
+      "bundle": {
+        "name": "adjudicated-runtime",
+        "version": "2.11",
+        "node_id": "root.draft",
+        "step_id": "root.draft",
+        "step_name": "Draft",
+        "display_name": "Draft",
+        "lexical_scope": [
+          "root",
+          "draft"
+        ],
+        "region": "body",
+        "kind": "adjudicated_provider",
+        "report_kind": "adjudicated_provider",
+        "compatibility_index": 0
+      },
+      "source_root": "@WORKSPACE@",
+      "workflow_path": "@WORKSPACE@/workflow.yaml"
+    },
+    "failure": {
+      "state": {
+        "schema_version": "2.1",
+        "run_id": "run-1",
+        "workflow_file": "workflow.yaml",
+        "workflow_checksum": "sha256:6e2b84dea6035d3266f49ab9a96ca40309932b0002073eb00f612ea9a0eee6c1",
+        "started_at": "2026-10-14T01:06:41.711267+00:00",
+        "updated_at": "2026-10-14T01:06:41.711286+00:00",
+        "status": "failed",
+        "context": {},
+        "bound_inputs": {},
+        "workflow_outputs": {},
+        "finalization": {},
+        "steps": {
+          "Draft": {
+            "status": "failed",
+            "exit_code": 2,
+            "duration_ms": 0,
+            "error": {
+              "type": "adjudication_partial_scoring_failed",
+              "message": "adjudication_partial_scoring_failed"
+            },
+            "outcome": {
+              "status": "failed",
+              "phase": "execution",
+              "class": "adjudication_partial_scoring_failed",
+              "retryable": false
+            },
+            "adjudication": {
+              "schema": "adjudicated_provider.state.v1",
+              "selected_candidate_id": null,
+              "selected_score": null,
+              "selection_reason": "none",
+              "promotion_status": "not_selected",
+              "run_score_ledger_path": "@WORKSPACE@/.orchestrate/runs/run-1/adjudication/root/root.draft/1/candidate_scores.jsonl",
+              "candidates": {
+                "a": {
+                  "candidate_status": "output_valid",
+                  "score_status": "evaluation_failed",
+                  "score": null,
+                  "selected": false,
+                  "promotion_status": "not_selected",
+                  "candidate_root": ".orchestrate/runs/run-1/candidates/root/root.draft/1/a",
+                  "candidate_run_key": "sha256:0954b705c5ec7fbffbe38655c7d4948d487f18d7743911a63ca775a766e42816",
+                  "score_run_key": "sha256:2fc04b8298272b6966caf740ec71578331c0a44d970cb74f3b72f1e86faf72f1",
+                  "provider_exit_code": 0,
+                  "attempt_count": 1,
+                  "evaluator_attempt_count": 1,
+                  "failure_type": "invalid_evaluator_json",
+                  "failure_message": "evaluator stdout must be strict JSON: Expecting value: line 1 column 1 (char 0)",
+                  "scorer_resolution_failure_key": null,
+                  "evaluation_packet_hash": "sha256:b6023bad8df7ba138829fea7bc81151229c734f3e267752c613e54b278e6a5c3"
+                },
+                "b": {
+                  "candidate_status": "output_valid",
+                  "score_status": "evaluation_failed",
+                  "score": null,
+                  "selected": false,
+                  "promotion_status": "not_selected",
+                  "candidate_root": ".orchestrate/runs/run-1/candidates/root/root.draft/1/b",
+                  "candidate_run_key": "sha256:66fe60850a32bef1e2f686b9c19fb16d5f0ae89aae9ff4597ab58d7f1ee3324e",
+                  "score_run_key": "sha256:6294d23301b3fd6332f107da59f0f69977b29adc0e2992ddffa6e8361df92df7",
+                  "provider_exit_code": 0,
+                  "attempt_count": 1,
+                  "evaluator_attempt_count": 1,
+                  "failure_type": "invalid_evaluator_json",
+                  "failure_message": "evaluator stdout must be strict JSON: Expecting value: line 1 column 1 (char 0)",
+                  "scorer_resolution_failure_key": null,
+                  "evaluation_packet_hash": "sha256:c96acdb7b9cb33eae525224740e2c55c5e85237341a015a9db40de82ab15f7fd"
+                }
+              }
+            },
+            "name": "Draft",
+            "step_id": "root.draft",
+            "visit_count": 1
+          }
+        },
+        "for_each": {},
+        "repeat_until": {},
+        "call_frames": {},
+        "artifact_versions": {},
+        "artifact_consumes": {},
+        "private_artifact_versions": {},
+        "private_artifact_consumes": {},
+        "transition_count": 0,
+        "step_visits": {
+          "Draft": 1
+        },
+        "run_root": "@WORKSPACE@/.orchestrate/runs/run-1",
+        "_resolved_consumes": {}
+      },
+      "bundle": {
+        "name": "adjudicated-runtime",
+        "version": "2.11",
+        "node_id": "root.draft",
+        "step_id": "root.draft",
+        "step_name": "Draft",
+        "display_name": "Draft",
+        "lexical_scope": [
+          "root",
+          "draft"
+        ],
+        "region": "body",
+        "kind": "adjudicated_provider",
+        "report_kind": "adjudicated_provider",
+        "compatibility_index": 0
+      },
+      "source_root": "@WORKSPACE@",
+      "workflow_path": "@WORKSPACE@/workflow.yaml"
+    }
+  }
+}

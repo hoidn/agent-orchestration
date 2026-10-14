@@ -9,18 +9,19 @@ from pathlib import Path
 import pytest
 
 from orchestrator.cli.commands.compile import compile_workflow
-from orchestrator.cli.commands.explain import explain_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.cli.main import create_parser, main
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CLI_FIXTURES = FIXTURES / "cli"
-ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc"
+ENTRYPOINT = CLI_FIXTURES / "current" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
-CALLABLE_ENTRYPOINT = FIXTURES / "modules" / "valid" / "callables" / "neurips" / "entry.orc"
 CALLABLE_SOURCE_ROOT = FIXTURES / "modules" / "valid" / "callables"
 KISS_ENTRYPOINT = REPO_ROOT / "workflows" / "examples" / "kiss_backlog_item.orc"
 KISS_PROVIDERS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "providers.json"
@@ -33,6 +34,15 @@ def _build_module():
     return importlib.import_module("orchestrator.workflow_lisp.build")
 
 
+def _write_current_inputs(tmp_path: Path) -> Path:
+    report = "artifacts/work/existing-report.md"
+    path = tmp_path / "inputs.json"
+    path.write_text(json.dumps({
+        "input": {"status": "ready", "report": report}, "report_path": report,
+    }))
+    return path
+
+
 def _orc_run_args(
     *,
     workflow: Path = ENTRYPOINT,
@@ -40,13 +50,14 @@ def _orc_run_args(
     imported_workflow_bundles_file: Path = CLI_FIXTURES / "imported_workflow_bundles.json",
     dry_run: bool = True,
     input_values: list[str] | None = None,
+    input_file: Path | None = None,
 ) -> Namespace:
     return Namespace(
         workflow=str(workflow),
         context=None,
         context_file=None,
         input=input_values,
-        input_file=None,
+        input_file=str(input_file) if input_file else None,
         clean_processed=False,
         archive_processed=None,
         debug=False,
@@ -76,39 +87,8 @@ def _orc_run_args(
         provider_externs_file=str(CLI_FIXTURES / "providers.json"),
         prompt_externs_file=str(CLI_FIXTURES / "prompts.json"),
         imported_workflow_bundles_file=str(imported_workflow_bundles_file),
-        command_boundaries_file=str(CLI_FIXTURES / "commands.json"),
+        command_boundaries_file=str(CLI_FIXTURES / "commands.closed.json"),
         emit_debug_yaml=False,
-    )
-
-
-def _orc_explain_args(
-    *,
-    workflow: Path = ENTRYPOINT,
-    source_root: Path = SOURCE_ROOT,
-    form: str | None = None,
-    imported_workflow_bundles_file: Path = CLI_FIXTURES / "imported_workflow_bundles.json",
-    emit_executable_ir: list[str | None] | None = None,
-    emit_core_ast: list[str | None] | None = None,
-    emit_runtime_plan: list[str | None] | None = None,
-    emit_semantic_ir: list[str | None] | None = None,
-    emit_source_map: list[str | None] | None = None,
-    emit_debug_yaml: list[str | None] | None = None,
-) -> Namespace:
-    return Namespace(
-        workflow=str(workflow),
-        form=form,
-        entry_workflow="orchestrate",
-        source_root=[str(source_root)],
-        provider_externs_file=str(CLI_FIXTURES / "providers.json"),
-        prompt_externs_file=str(CLI_FIXTURES / "prompts.json"),
-        imported_workflow_bundles_file=str(imported_workflow_bundles_file),
-        command_boundaries_file=str(CLI_FIXTURES / "commands.json"),
-        emit_executable_ir=emit_executable_ir or [],
-        emit_core_ast=emit_core_ast or [],
-        emit_runtime_plan=emit_runtime_plan or [],
-        emit_semantic_ir=emit_semantic_ir or [],
-        emit_source_map=emit_source_map or [],
-        emit_debug_yaml=emit_debug_yaml or [],
     )
 
 
@@ -119,7 +99,7 @@ def _orc_compile_args(
     provider_externs_file: Path = CLI_FIXTURES / "providers.json",
     prompt_externs_file: Path = CLI_FIXTURES / "prompts.json",
     imported_workflow_bundles_file: Path = CLI_FIXTURES / "imported_workflow_bundles.json",
-    command_boundaries_file: Path = CLI_FIXTURES / "commands.json",
+    command_boundaries_file: Path = CLI_FIXTURES / "commands.closed.json",
     emit_executable_ir: list[str | None] | None = None,
     emit_core_ast: list[str | None] | None = None,
     emit_runtime_plan: list[str | None] | None = None,
@@ -173,7 +153,7 @@ def _minimal_compile_source(*, return_type: str = "Result") -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.24")
+  (:target-dsl "2.35")
   (defmodule candidate)
   (export Result run)
   (defrecord Result
@@ -284,7 +264,7 @@ def test_parser_supports_compile_and_explain_subcommands() -> None:
             "--imported-workflow-bundles-file",
             str(CLI_FIXTURES / "imported_workflow_bundles.json"),
             "--command-boundaries-file",
-            str(CLI_FIXTURES / "commands.json"),
+            str(CLI_FIXTURES / "commands.closed.json"),
             "--emit-executable-ir",
             "--emit-core-ast",
             "--emit-runtime-plan",
@@ -314,7 +294,7 @@ def test_parser_supports_compile_and_explain_subcommands() -> None:
             "--imported-workflow-bundles-file",
             str(CLI_FIXTURES / "imported_workflow_bundles.json"),
             "--command-boundaries-file",
-            str(CLI_FIXTURES / "commands.json"),
+            str(CLI_FIXTURES / "commands.closed.json"),
             "--emit-debug-yaml",
             "--emit-executable-ir",
             "exports/executable_ir.json",
@@ -359,49 +339,10 @@ def test_compile_diagnostics_json_acceptance_is_one_closed_machine_document(
     assert result == 0
     assert captured.err == ""
     assert caplog.text == ""
-    assert set(payload) == {
-        "schema_version",
-        "status",
-        "selected_entry",
-        "normalized_program_identity",
-        "diagnostics",
-    }
-    assert payload["schema_version"] == "workflow_lisp_compile_diagnostics.v1"
+    assert set(payload) == {"status", "program_digest", "build_key"}
     assert payload["status"] == "accepted"
-    assert payload["diagnostics"] == []
-    assert set(payload["selected_entry"]) == {
-        "selected_name",
-        "canonical_name",
-        "signature",
-    }
-    assert payload["selected_entry"]["selected_name"] == "orchestrate"
-    assert payload["selected_entry"]["canonical_name"].endswith("::orchestrate")
-    assert set(payload["selected_entry"]["signature"]) == {
-        "parameters",
-        "return_type",
-        "input_contracts",
-        "output_contracts",
-    }
-    assert payload["selected_entry"]["signature"]["input_contracts"]
-    assert payload["selected_entry"]["signature"]["output_contracts"]
-    identity = payload["normalized_program_identity"]
-    assert set(identity) == {
-        "schema_version",
-        "digest",
-        "compiler_runtime_identity",
-        "module_source_revisions",
-        "compiler_source_revisions",
-        "imported_bundle_bindings",
-        "selected_entry_sha256",
-        "lowering_route",
-        "lowering_schema_version",
-        "configuration_payload_digests",
-        "configuration_revisions",
-    }
-    assert identity["schema_version"] == "workflow_lisp_program_identity.v1"
-    assert identity["digest"].startswith("sha256:")
-    assert identity["compiler_runtime_identity"].startswith("sha256:")
-    assert identity["module_source_revisions"]
+    assert payload["program_digest"].startswith("sha256:")
+    assert len(payload["build_key"]) == 16
 
 
 def test_compile_diagnostics_json_rejection_suppresses_human_rendering(
@@ -477,6 +418,7 @@ def test_compile_diagnostics_json_identity_is_clone_root_independent(
         root = tmp_path / name
         shutil.copytree(CALLABLE_SOURCE_ROOT, root)
         source = root / "neurips" / "entry.orc"
+        source.write_text(source.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
         monkeypatch.chdir(root)
 
         result = compile_workflow(
@@ -489,7 +431,7 @@ def test_compile_diagnostics_json_identity_is_clone_root_independent(
         payload = json.loads(capsys.readouterr().out)
 
         assert result == 0, payload
-        identities.append(payload["normalized_program_identity"])
+        identities.append({key: payload[key] for key in ("program_digest", "build_key")})
 
     assert identities[0] == identities[1]
 
@@ -503,25 +445,26 @@ def test_compile_diagnostics_json_accepts_absolute_source_outside_cwd_without_so
     cwd.mkdir()
     monkeypatch.chdir(cwd)
 
-    ordinary_args = _orc_compile_args(diagnostics_json=False)
+    source_root = tmp_path / "absolute-source"
+    shutil.copytree(SOURCE_ROOT, source_root)
+    source = source_root / "neurips" / "entry.orc"
+    source.write_text(source.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+    ordinary_args = _orc_compile_args(workflow=source, diagnostics_json=False)
     ordinary_args.source_root = None
     assert compile_workflow(ordinary_args) == 0
     capsys.readouterr()
 
-    machine_args = _orc_compile_args(diagnostics_json=True)
+    machine_args = _orc_compile_args(workflow=source, diagnostics_json=True)
     machine_args.source_root = None
     assert compile_workflow(machine_args) == 0
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["status"] == "accepted"
-    source_rows = payload["normalized_program_identity"][
-        "compiler_source_revisions"
-    ]
-    assert any(row["root_role"] == "entry_source_root" for row in source_rows)
-    assert all(not Path(row["relative_path"]).is_absolute() for row in source_rows)
+    assert payload["program_digest"].startswith("sha256:")
+    assert len(payload["build_key"]) == 16
 
 
-def test_compile_diagnostics_json_identity_binds_imported_bundle_source(
+def test_compile_diagnostics_json_build_key_binds_imported_source_bytes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -532,6 +475,8 @@ def test_compile_diagnostics_json_identity_binds_imported_bundle_source(
         source_root = root / "source"
         cli_root = root / "cli"
         shutil.copytree(SOURCE_ROOT, source_root)
+        entry = source_root / "neurips" / "entry.orc"
+        entry.write_text(entry.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
         shutil.copytree(CLI_FIXTURES, cli_root)
         if name == "changed-import":
             imported_source = cli_root / "imported_selector.orc"
@@ -550,16 +495,17 @@ def test_compile_diagnostics_json_identity_binds_imported_bundle_source(
                 imported_workflow_bundles_file=(
                     cli_root / "imported_workflow_bundles.json"
                 ),
-                command_boundaries_file=cli_root / "commands.json",
+                command_boundaries_file=cli_root / "commands.closed.json",
                 diagnostics_json=True,
             )
         )
         payload = json.loads(capsys.readouterr().out)
 
         assert result == 0, payload
-        identities.append(payload["normalized_program_identity"])
+        identities.append({key: payload[key] for key in ("program_digest", "build_key")})
 
-    assert identities[0] != identities[1]
+    assert identities[0]["program_digest"] == identities[1]["program_digest"]
+    assert identities[0]["build_key"] != identities[1]["build_key"]
 
 
 def test_compile_diagnostics_json_normalizes_absolute_imported_bundle_paths(
@@ -572,6 +518,8 @@ def test_compile_diagnostics_json_normalizes_absolute_imported_bundle_paths(
         root = tmp_path / name
         source_root = root / "source"
         shutil.copytree(SOURCE_ROOT, source_root)
+        entry = source_root / "neurips" / "entry.orc"
+        entry.write_text(entry.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
         imported_source = root / "imported_selector.orc"
         shutil.copy2(CLI_FIXTURES / "imported_selector.orc", imported_source)
         imported_manifest = root / "imports.json"
@@ -602,7 +550,7 @@ def test_compile_diagnostics_json_normalizes_absolute_imported_bundle_paths(
         payload = json.loads(capsys.readouterr().out)
 
         assert result == 0, payload
-        identities.append(payload["normalized_program_identity"])
+        identities.append({key: payload[key] for key in ("program_digest", "build_key")})
 
     assert identities[0] == identities[1]
 
@@ -617,7 +565,7 @@ def test_compile_diagnostics_json_closes_io_failures_as_machine_diagnostics(
     def fail_build(_request: object, **_kwargs: object) -> None:
         raise OSError("fixture I/O failure")
 
-    monkeypatch.setattr(compile_module, "build_frontend_bundle", fail_build)
+    monkeypatch.setattr(compile_module, "build_closed_program_bundle", fail_build)
 
     with caplog.at_level("ERROR"):
         result = compile_workflow(
@@ -651,7 +599,7 @@ def test_parser_accepts_orc_specific_run_flags() -> None:
             "--imported-workflow-bundles-file",
             str(CLI_FIXTURES / "imported_workflow_bundles.json"),
             "--command-boundaries-file",
-            str(CLI_FIXTURES / "commands.json"),
+            str(CLI_FIXTURES / "commands.closed.json"),
             "--dry-run",
         ]
     )
@@ -660,7 +608,7 @@ def test_parser_accepts_orc_specific_run_flags() -> None:
     assert args.source_root == [str(SOURCE_ROOT)]
     assert args.provider_externs_file == str(CLI_FIXTURES / "providers.json")
     assert args.imported_workflow_bundles_file == str(CLI_FIXTURES / "imported_workflow_bundles.json")
-    assert args.command_boundaries_file == str(CLI_FIXTURES / "commands.json")
+    assert args.command_boundaries_file == str(CLI_FIXTURES / "commands.closed.json")
     assert args.dry_run is True
 
 
@@ -673,119 +621,6 @@ def test_help_omits_retired_migration_generators_but_keeps_route_readiness() -> 
     assert "workflow-lisp-route-readiness" in help_text
 
 
-def test_build_service_infers_single_exported_entry_workflow(tmp_path: Path) -> None:
-    build = _build_module()
-    request_cls = getattr(build, "FrontendBuildRequest")
-    build_frontend_bundle = getattr(build, "build_frontend_bundle")
-
-    source_dir = tmp_path / "single"
-    source_dir.mkdir()
-    source_path = source_dir / "entry.orc"
-    source_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule single/entry)",
-                "  (export only)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord Out",
-                "    (report WorkReport))",
-                "  (defworkflow only",
-                "    ((report_path WorkReport))",
-                "    -> Out",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (report_path)",
-                "      :returns Out)))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    request = request_cls(
-        source_path=source_path,
-        source_roots=(tmp_path,),
-        entry_workflow=None,
-        provider_externs_path=CLI_FIXTURES / "providers.json",
-        prompt_externs_path=CLI_FIXTURES / "prompts.json",
-        imported_workflow_bundles_path=None,
-        command_boundaries_path=None,
-        emit_debug_yaml=False,
-        workspace_root=tmp_path,
-    )
-
-    result = build_frontend_bundle(request)
-
-    assert result.selected_workflow_name == "single/entry::only"
-    assert result.validated_bundle.surface.name.endswith("::only")
-
-
-def test_build_service_requires_entry_workflow_for_multi_workflow_module(tmp_path: Path) -> None:
-    build = _build_module()
-    request_cls = getattr(build, "FrontendBuildRequest")
-    build_frontend_bundle = getattr(build, "build_frontend_bundle")
-
-    source_dir = tmp_path / "multiple"
-    source_dir.mkdir()
-    source_path = source_dir / "entry.orc"
-    source_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule multiple/entry)",
-                "  (export alpha beta)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord Out",
-                "    (report WorkReport))",
-                "  (defworkflow alpha",
-                "    ((report_path WorkReport))",
-                "    -> Out",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (report_path)",
-                "      :returns Out))",
-                "  (defworkflow beta",
-                "    ((report_path WorkReport))",
-                "    -> Out",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (report_path)",
-                "      :returns Out)))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    request = request_cls(
-        source_path=source_path,
-        source_roots=(tmp_path,),
-        entry_workflow=None,
-        provider_externs_path=CLI_FIXTURES / "providers.json",
-        prompt_externs_path=CLI_FIXTURES / "prompts.json",
-        imported_workflow_bundles_path=None,
-        command_boundaries_path=None,
-        emit_debug_yaml=False,
-        workspace_root=tmp_path,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_frontend_bundle(request)
-
-    assert excinfo.value.diagnostics[0].code == "entry_workflow_required"
-
-
 def test_run_workflow_supports_orc_dry_run(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     report_path = tmp_path / "artifacts" / "work" / "existing-report.md"
@@ -794,11 +629,7 @@ def test_run_workflow_supports_orc_dry_run(tmp_path: Path, monkeypatch) -> None:
 
     result = run_workflow(
         _orc_run_args(
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ]
+            input_file=_write_current_inputs(tmp_path)
         )
     )
 
@@ -806,12 +637,13 @@ def test_run_workflow_supports_orc_dry_run(tmp_path: Path, monkeypatch) -> None:
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
-def test_run_workflow_orc_dry_run_requires_bound_inputs(tmp_path: Path, monkeypatch) -> None:
+def test_run_workflow_orc_dry_run_requires_bound_inputs(tmp_path: Path, monkeypatch, caplog) -> None:
     monkeypatch.chdir(tmp_path)
 
     result = run_workflow(_orc_run_args())
 
     assert result.exit_code == 2
+    assert "Workflow input binding failed" in caplog.text
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
@@ -827,6 +659,7 @@ def test_run_workflow_orc_public_binding_excludes_managed_write_roots(tmp_path: 
                         "python",
                         "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py",
                     ],
+                    "closure": [],
                 }
             },
             indent=2,
@@ -835,8 +668,10 @@ def test_run_workflow_orc_public_binding_excludes_managed_write_roots(tmp_path: 
         encoding="utf-8",
     )
 
+    current_entry = tmp_path / "cycle_guard_demo.orc"
+    current_entry.write_text(CYCLE_GUARD_ENTRYPOINT.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
     args = _orc_run_args(
-        workflow=CYCLE_GUARD_ENTRYPOINT,
+        workflow=current_entry,
         source_root=CYCLE_GUARD_SOURCE_ROOT,
         input_values=[
             "terminal_status=FAILED_CLOSED_BY_GUARD",
@@ -856,19 +691,22 @@ def test_run_workflow_orc_public_binding_excludes_managed_write_roots(tmp_path: 
 
 
 def test_run_workflow_kiss_backlog_item_dry_run_accepts_only_typed_backlog_inputs(
+    tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(REPO_ROOT)
-
-    result = run_workflow(
-        _kiss_run_args(
-            input_values=[
-                "backlog-inputs__backlog_item=docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md",
-                "backlog-inputs__work_instructions=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md",
-            ]
-        )
-    )
-
+    # New public consumer; std/phase and all original producer modules stay intact.
+    source = tmp_path / "kiss_backlog_item.orc"
+    source.write_text(KISS_ENTRYPOINT.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+    inputs = tmp_path / "backlog-inputs.json"
+    inputs.write_text(json.dumps({"backlog-inputs": {
+        "backlog_item": "docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md",
+        "work_instructions": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md",
+    }}))
+    args = _kiss_run_args()
+    args.workflow = str(source)
+    args.input_file = str(inputs)
+    result = run_workflow(args)
     assert result.exit_code == 0
 
 
@@ -884,93 +722,7 @@ def test_run_workflow_rejects_non_orc_before_creating_state(
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
-def test_explain_workflow_rejects_unknown_form(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = explain_workflow(_orc_explain_args(form="does-not-exist"))
-
-    assert result == 2
-
-
-def test_explain_workflow_selects_requested_form(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = explain_workflow(_orc_explain_args(form="provider-attempt"))
-    captured = capsys.readouterr()
-
-    assert result == 0
-    assert "Form: provider-attempt" in captured.out
-    assert '"workflow_name": "neurips/helper::provider-attempt"' in captured.out
-    assert '"workflow_name": "neurips/entry::orchestrate"' not in captured.out
-
-
-def test_explain_workflow_prints_core_ast_and_semantic_ir(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = explain_workflow(_orc_explain_args(form="orchestrate"))
-    captured = capsys.readouterr()
-
-    assert result == 0
-    assert "Deferred artifacts:" not in captured.out
-    assert "Core Workflow AST:" in captured.out
-    assert '"schema_version": "core_workflow_ast.v1"' in captured.out
-    assert "Semantic IR:" in captured.out
-    assert '"schema_version": "workflow_semantic_ir.v1"' in captured.out
-    assert '"workflow_name": "neurips/entry::orchestrate"' in captured.out
-    assert "Emitted artifacts:" not in captured.out
-
-
-def test_compile_workflow_exports_requested_artifacts_and_reports_them(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = compile_workflow(
-        _orc_compile_args(
-            emit_executable_ir=[None],
-            emit_core_ast=[None],
-            emit_runtime_plan=["exports/runtime_plan.snapshot.json"],
-            emit_semantic_ir=["exports/semantic_ir.snapshot.json"],
-            emit_source_map=[None],
-            emit_debug_yaml=[None],
-        )
-    )
-    captured = capsys.readouterr()
-    payload = json.loads(captured.out)
-
-    assert result == 0
-    assert captured.out == json.dumps(payload, indent=2, sort_keys=True) + "\n"
-    assert (tmp_path / "executable_ir.json").exists()
-    assert (tmp_path / "core_workflow_ast.json").exists()
-    assert (tmp_path / "exports" / "runtime_plan.snapshot.json").exists()
-    assert (tmp_path / "source_map.json").exists()
-    assert (tmp_path / "expanded.debug.yaml").exists()
-    assert (tmp_path / "exports" / "semantic_ir.snapshot.json").exists()
-    assert payload["artifact_paths"]["executable_ir"].endswith("/executable_ir.json")
-    assert payload["artifact_paths"]["core_workflow_ast"].endswith("/core_workflow_ast.json")
-    assert payload["exported_artifacts"] == {
-        "executable_ir": str((tmp_path / "executable_ir.json").resolve()),
-        "core_workflow_ast": str((tmp_path / "core_workflow_ast.json").resolve()),
-        "expanded_debug_yaml": str((tmp_path / "expanded.debug.yaml").resolve()),
-        "runtime_plan": str((tmp_path / "exports" / "runtime_plan.snapshot.json").resolve()),
-        "semantic_ir": str((tmp_path / "exports" / "semantic_ir.snapshot.json").resolve()),
-        "source_map": str((tmp_path / "source_map.json").resolve()),
-    }
-    assert payload["artifact_paths"]["executable_ir"] != payload["exported_artifacts"]["executable_ir"]
-    assert payload["artifact_paths"]["core_workflow_ast"] != payload["exported_artifacts"]["core_workflow_ast"]
-
-
-@pytest.mark.parametrize("command_name", ["compile", "explain", "run"])
+@pytest.mark.parametrize("command_name", ["compile", "run"])
 @pytest.mark.parametrize(
     "prompt_manifest",
     [
@@ -993,19 +745,12 @@ def test_prompt_extern_object_manifest_cli_commands_accept_explicit_source_fixtu
     if command_name == "compile":
         args = _orc_compile_args(prompt_externs_file=prompt_manifest)
         command = compile_workflow
-    elif command_name == "explain":
-        args = _orc_explain_args()
-        command = explain_workflow
     else:
         report_path = tmp_path / "artifacts" / "work" / "existing-report.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text("ok\n", encoding="utf-8")
         args = _orc_run_args(
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ]
+            input_file=_write_current_inputs(tmp_path)
         )
         command = run_workflow
 
@@ -1013,9 +758,18 @@ def test_prompt_extern_object_manifest_cli_commands_accept_explicit_source_fixtu
     result = command(args)
     capsys.readouterr()
     assert getattr(result, "exit_code", result) == 0
+    [artifact] = (tmp_path / ".orchestrate" / "build").glob("*/closed_program.json")
+    program = ClosedProgram.from_artifact(artifact.read_text())
+    effects = [node for definition in program.tree["definitions"].values()
+               for node in _ast_nodes(definition["body"])
+               if node.get("class") == "provider"]
+    assert len(effects) == 1
+    assert effects[0]["provider"] == "test-provider"
+    expected_kind = "input_file" if prompt_manifest.name == "prompts.input-file.json" else "asset_file"
+    assert effects[0]["prompt"]["source_kind"] == expected_kind
 
 
-@pytest.mark.parametrize("command_name", ["compile", "explain", "run"])
+@pytest.mark.parametrize("command_name", ["compile", "run"])
 def test_prompt_extern_object_entry_invalid_cli_commands_report_frontend_diagnostics(
     tmp_path: Path,
     command_name: str,
@@ -1040,22 +794,16 @@ def test_prompt_extern_object_entry_invalid_cli_commands_report_frontend_diagnos
 
     if command_name == "compile":
         args = _orc_compile_args()
-    elif command_name == "explain":
-        args = _orc_explain_args()
     else:
         report_path = tmp_path / "artifacts" / "work" / "existing-report.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text("ok\n", encoding="utf-8")
         args = _orc_run_args(
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ]
+            input_file=_write_current_inputs(tmp_path)
         )
     args.prompt_externs_file = str(manifest_path)
 
-    command = compile_workflow if command_name == "compile" else explain_workflow if command_name == "explain" else run_workflow
+    command = compile_workflow if command_name == "compile" else run_workflow
     with caplog.at_level("ERROR"):
         result = command(args)
 
@@ -1063,146 +811,6 @@ def test_prompt_extern_object_entry_invalid_cli_commands_report_frontend_diagnos
     assert "[workflow_lisp_manifest_invalid]" in caplog.text
     assert "prompt externs manifest entries" in caplog.text
     assert "Traceback" not in caplog.text
-
-
-def test_explain_workflow_exports_compilation_scoped_artifacts_for_selected_imported_target(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = explain_workflow(
-        _orc_explain_args(
-            form="selector-run",
-            emit_executable_ir=[None],
-            emit_core_ast=[None],
-            emit_runtime_plan=["exports/runtime_plan.json"],
-            emit_semantic_ir=["exports/semantic_ir.json"],
-        )
-    )
-    captured = capsys.readouterr()
-    exported_executable_ir = json.loads((tmp_path / "executable_ir.json").read_text(encoding="utf-8"))
-    exported_core_ast = json.loads((tmp_path / "core_workflow_ast.json").read_text(encoding="utf-8"))
-    exported_runtime_plan = json.loads((tmp_path / "exports" / "runtime_plan.json").read_text(encoding="utf-8"))
-    exported_semantic_ir = json.loads((tmp_path / "exports" / "semantic_ir.json").read_text(encoding="utf-8"))
-
-    assert result == 0
-    assert "Form: selector-run" in captured.out
-    assert "Emitted artifacts:" in captured.out
-    assert str((tmp_path / "executable_ir.json").resolve()) in captured.out
-    assert str((tmp_path / "core_workflow_ast.json").resolve()) in captured.out
-    assert str((tmp_path / "exports" / "runtime_plan.json").resolve()) in captured.out
-    assert str((tmp_path / "exports" / "semantic_ir.json").resolve()) in captured.out
-    assert exported_executable_ir["schema_version"] == "workflow_executable_ir.v1"
-    assert exported_core_ast["workflow_name"] == "neurips/entry::orchestrate"
-    assert exported_runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
-    assert exported_semantic_ir["workflows"]["neurips/entry::orchestrate"]["workflow_name"] == "neurips/entry::orchestrate"
-
-
-def test_compile_workflow_rejects_duplicate_emit_requests(
-    tmp_path: Path,
-    monkeypatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    with caplog.at_level("ERROR"):
-        result = compile_workflow(_orc_compile_args(emit_core_ast=[None, "exports/core.json"]))
-
-    assert result == 2
-    assert "requested more than once" in caplog.text
-    assert "core_workflow_ast" in caplog.text
-
-
-def test_compile_workflow_rejects_export_destination_directory(
-    tmp_path: Path,
-    monkeypatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    destination = tmp_path / "exports"
-    destination.mkdir()
-
-    with caplog.at_level("ERROR"):
-        result = compile_workflow(_orc_compile_args(emit_source_map=["exports"]))
-
-    assert result == 2
-    assert "existing directory" in caplog.text
-
-
-def test_compile_workflow_reports_export_copy_failure_without_removing_canonical_build(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    build = _build_module()
-    emitted_build_roots: list[Path] = []
-    original = getattr(build, "emit_requested_frontend_artifact_exports", None)
-
-    def _failing_export(*args, **kwargs):
-        result = kwargs["result"]
-        emitted_build_roots.append(result.build_root)
-        raise OSError("simulated export failure")
-
-    monkeypatch.setattr(
-        "orchestrator.cli.commands.compile.emit_requested_frontend_artifact_exports",
-        _failing_export,
-        raising=False,
-    )
-
-    with caplog.at_level("ERROR"):
-        result = compile_workflow(_orc_compile_args(emit_core_ast=[None]))
-    captured = capsys.readouterr()
-
-    assert result == 2
-    assert captured.out == ""
-    assert "simulated export failure" in caplog.text
-    assert emitted_build_roots
-    assert emitted_build_roots[0].exists()
-
-
-def test_explain_workflow_supports_imported_call_targets(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = explain_workflow(_orc_explain_args(form="selector-run"))
-    captured = capsys.readouterr()
-
-    assert result == 0
-    assert "Form: selector-run" in captured.out
-    assert '"canonical_key": "selector-run"' in captured.out
-    assert '"workflow_path":' in captured.out
-    assert '"executable_node_id": "root.neurips_entry_orchestrate__remote__call_selector_run"' in captured.out
-    assert "Expansion frames:" in captured.out
-
-
-def test_explain_workflow_supports_exported_procedures(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    result = explain_workflow(
-        _orc_explain_args(
-            workflow=CALLABLE_ENTRYPOINT,
-            source_root=CALLABLE_SOURCE_ROOT,
-            form="build-checks",
-        )
-    )
-    captured = capsys.readouterr()
-
-    assert result == 0
-    assert "Form: build-checks" in captured.out
-    assert '"procedure_name": "neurips/procedures::build-checks"' in captured.out
-    assert '"neurips_entry_orchestrate__checks__neurips_procedures_build_checks_1__run_checks"' in captured.out
-    assert '"defproc"' in captured.out
 
 
 def test_run_workflow_reports_missing_imported_bundle_key(
@@ -1227,11 +835,7 @@ def test_run_workflow_reports_missing_imported_bundle_key(
     result = run_workflow(
         _orc_run_args(
             imported_workflow_bundles_file=manifest_path,
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ],
+            input_file=_write_current_inputs(tmp_path),
         )
     )
 
@@ -1281,113 +885,9 @@ def test_compile_workflow_reports_missing_orc_path_as_frontend_diagnostic(
     assert "Traceback" not in caplog.text
 
 
-def test_explain_workflow_rejects_non_orc_inputs_with_frontend_diagnostic(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level("ERROR"):
-        result = explain_workflow(
-            Namespace(
-                workflow="legacy-workflow.yaml",
-                form=None,
-                entry_workflow=None,
-                source_root=None,
-                provider_externs_file=None,
-                prompt_externs_file=None,
-                imported_workflow_bundles_file=None,
-                command_boundaries_file=None,
-            )
-        )
-
-    assert result == 2
-    assert "[workflow_lisp_cli_input_unsupported]" in caplog.text
-
-
-def test_explain_workflow_reports_missing_orc_path_as_frontend_diagnostic(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level("ERROR"):
-        result = explain_workflow(
-            Namespace(
-                workflow="does/not/exist.orc",
-                form=None,
-                entry_workflow="orchestrate",
-                source_root=None,
-                provider_externs_file=None,
-                prompt_externs_file=None,
-                imported_workflow_bundles_file=None,
-                command_boundaries_file=None,
-            )
-        )
-
-    assert result == 2
-    assert "[workflow_lisp_cli_input_missing]" in caplog.text
-    assert "Traceback" not in caplog.text
-
-
-def test_explain_workflow_marks_canonical_entry_workflow_as_selected(
-    tmp_path: Path,
-    monkeypatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    args = _orc_explain_args(form="neurips/entry::orchestrate")
-    args.entry_workflow = "neurips/entry::orchestrate"
-
-    result = explain_workflow(args)
-    captured = capsys.readouterr()
-
-    assert result == 0
-    assert "Entry workflow: neurips/entry::orchestrate" in captured.out
-    assert '"workflow_name": "neurips/entry::orchestrate"' in captured.out
-    assert '"selected_entry_workflow": true' in captured.out
-
-
-@pytest.mark.parametrize(
-    ("manifest_flag", "manifest_path"),
-    [
-        ("provider_externs_file", Path("does/not/exist.providers.json")),
-        ("prompt_externs_file", Path("does/not/exist.prompts.json")),
-        ("imported_workflow_bundles_file", Path("does/not/exist.imported.json")),
-        ("command_boundaries_file", Path("does/not/exist.commands.json")),
-    ],
-)
-def test_build_service_reports_missing_manifest_files_as_frontend_diagnostics(
-    tmp_path: Path,
-    manifest_flag: str,
-    manifest_path: Path,
-) -> None:
-    build = _build_module()
-    build_frontend_bundle = getattr(build, "build_frontend_bundle")
-
-    compile_args = _orc_compile_args()
-    request = getattr(build, "FrontendBuildRequest")(
-        source_path=ENTRYPOINT,
-        source_roots=(SOURCE_ROOT,),
-        entry_workflow="orchestrate",
-        provider_externs_path=Path(compile_args.provider_externs_file),
-        prompt_externs_path=Path(compile_args.prompt_externs_file),
-        imported_workflow_bundles_path=Path(compile_args.imported_workflow_bundles_file),
-        command_boundaries_path=Path(compile_args.command_boundaries_file),
-        emit_debug_yaml=False,
-        workspace_root=tmp_path,
-    )
-    request = type(request)(
-        **{
-            **request.__dict__,
-            manifest_flag.replace("_file", "_path"): manifest_path,
-        }
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_frontend_bundle(request)
-
-    assert excinfo.value.diagnostics[0].code == "workflow_lisp_manifest_missing"
-    assert "does not exist" in excinfo.value.diagnostics[0].message
-
-
 @pytest.mark.parametrize(
     "command_name",
-    ["compile", "explain", "run"],
+    ["compile", "run"],
 )
 def test_orc_commands_report_missing_manifest_files_as_frontend_diagnostics(
     tmp_path: Path,
@@ -1403,18 +903,10 @@ def test_orc_commands_report_missing_manifest_files_as_frontend_diagnostics(
     if command_name == "compile":
         command = compile_workflow
         args = _orc_compile_args(provider_externs_file=Path("does/not/exist.providers.json"))
-    elif command_name == "explain":
-        command = explain_workflow
-        args = _orc_explain_args()
-        args.provider_externs_file = "does/not/exist.providers.json"
     else:
         command = run_workflow
         args = _orc_run_args(
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ]
+            input_file=_write_current_inputs(tmp_path)
         )
         args.provider_externs_file = "does/not/exist.providers.json"
 
@@ -1428,54 +920,8 @@ def test_orc_commands_report_missing_manifest_files_as_frontend_diagnostics(
 
 
 @pytest.mark.parametrize(
-    ("manifest_flag", "file_name"),
-    [
-        ("provider_externs_file", "providers.invalid.json"),
-        ("prompt_externs_file", "prompts.invalid.json"),
-        ("imported_workflow_bundles_file", "imported.invalid.json"),
-        ("command_boundaries_file", "commands.invalid.json"),
-    ],
-)
-def test_build_service_reports_malformed_manifest_files_as_frontend_diagnostics(
-    tmp_path: Path,
-    manifest_flag: str,
-    file_name: str,
-) -> None:
-    build = _build_module()
-    build_frontend_bundle = getattr(build, "build_frontend_bundle")
-
-    invalid_manifest = tmp_path / file_name
-    invalid_manifest.write_text("{bad json\n", encoding="utf-8")
-
-    compile_args = _orc_compile_args()
-    build_request = getattr(build, "FrontendBuildRequest")(
-        source_path=ENTRYPOINT,
-        source_roots=(SOURCE_ROOT,),
-        entry_workflow="orchestrate",
-        provider_externs_path=Path(compile_args.provider_externs_file),
-        prompt_externs_path=Path(compile_args.prompt_externs_file),
-        imported_workflow_bundles_path=Path(compile_args.imported_workflow_bundles_file),
-        command_boundaries_path=Path(compile_args.command_boundaries_file),
-        emit_debug_yaml=False,
-        workspace_root=tmp_path,
-    )
-    build_request = type(build_request)(
-        **{
-            **build_request.__dict__,
-            manifest_flag.replace("_file", "_path"): invalid_manifest,
-        }
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_frontend_bundle(build_request)
-
-    assert excinfo.value.diagnostics[0].code == "workflow_lisp_manifest_invalid_json"
-    assert "must contain valid JSON" in excinfo.value.diagnostics[0].message
-
-
-@pytest.mark.parametrize(
     "command_name",
-    ["compile", "explain", "run"],
+    ["compile", "run"],
 )
 def test_orc_commands_report_malformed_manifest_files_as_frontend_diagnostics(
     tmp_path: Path,
@@ -1493,18 +939,10 @@ def test_orc_commands_report_malformed_manifest_files_as_frontend_diagnostics(
     if command_name == "compile":
         command = compile_workflow
         args = _orc_compile_args(provider_externs_file=invalid_manifest)
-    elif command_name == "explain":
-        command = explain_workflow
-        args = _orc_explain_args()
-        args.provider_externs_file = str(invalid_manifest)
     else:
         command = run_workflow
         args = _orc_run_args(
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ]
+            input_file=_write_current_inputs(tmp_path)
         )
         args.provider_externs_file = str(invalid_manifest)
 
@@ -1555,7 +993,7 @@ def test_orc_commands_report_malformed_manifest_files_as_frontend_diagnostics(
 )
 @pytest.mark.parametrize(
     "command_name",
-    ["compile", "explain", "run"],
+    ["compile", "run"],
 )
 def test_orc_commands_report_invalid_manifest_entry_schema_as_frontend_diagnostics(
     tmp_path: Path,
@@ -1578,17 +1016,10 @@ def test_orc_commands_report_invalid_manifest_entry_schema_as_frontend_diagnosti
     if command_name == "compile":
         command = compile_workflow
         args = _orc_compile_args()
-    elif command_name == "explain":
-        command = explain_workflow
-        args = _orc_explain_args()
     else:
         command = run_workflow
         args = _orc_run_args(
-            input_values=[
-                "input__status=ready",
-                "input__report=artifacts/work/existing-report.md",
-                "report_path=artifacts/work/existing-report.md",
-            ]
+            input_file=_write_current_inputs(tmp_path)
         )
 
     setattr(args, manifest_flag, str(manifest_path))
@@ -1722,3 +1153,197 @@ def test_peer_cli_handler_maps_a_closed_endpoint_to_nonzero(
 
     assert peer_commands.peer_ready_workflow() == 2
     assert "peer request failed: closed" in capsys.readouterr().err
+
+
+def test_build_service_infers_single_exported_entry_workflow(tmp_path: Path) -> None:
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    source_dir = tmp_path / "single"
+    source_dir.mkdir()
+    source_path = source_dir / "entry.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.35")',
+                "  (defmodule single/entry)",
+                "  (export only)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Out",
+                "    (report WorkReport))",
+                "  (defworkflow only",
+                "    ((report_path WorkReport))",
+                "    -> Out",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (report_path)",
+                "      :returns Out)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    request = request_cls(
+        source_path=source_path,
+        source_roots=(tmp_path,),
+        entry_workflow=None,
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        workspace_root=tmp_path,
+    )
+
+    result = build_closed_program_bundle(request)
+
+    assert result.entry_workflow == "single/entry::only"
+    assert result.typed_program.entry.definition.name == result.entry_workflow
+
+
+def test_build_service_requires_entry_workflow_for_multi_workflow_module(tmp_path: Path) -> None:
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    source_dir = tmp_path / "multiple"
+    source_dir.mkdir()
+    source_path = source_dir / "entry.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.35")',
+                "  (defmodule multiple/entry)",
+                "  (export alpha beta)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Out",
+                "    (report WorkReport))",
+                "  (defworkflow alpha",
+                "    ((report_path WorkReport))",
+                "    -> Out",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (report_path)",
+                "      :returns Out))",
+                "  (defworkflow beta",
+                "    ((report_path WorkReport))",
+                "    -> Out",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (report_path)",
+                "      :returns Out)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    request = request_cls(
+        source_path=source_path,
+        source_roots=(tmp_path,),
+        entry_workflow=None,
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_closed_program_bundle(request)
+
+    assert excinfo.value.diagnostics[0].code == "entry_workflow_required"
+
+
+@pytest.mark.parametrize(
+    ("manifest_flag", "manifest_path"),
+    [
+        ("provider_externs_file", Path("does/not/exist.providers.json")),
+        ("prompt_externs_file", Path("does/not/exist.prompts.json")),
+        ("imported_workflow_bundles_file", Path("does/not/exist.imported.json")),
+        ("command_boundaries_file", Path("does/not/exist.commands.json")),
+    ],
+)
+def test_build_service_reports_missing_manifest_files_as_frontend_diagnostics(
+    tmp_path: Path,
+    manifest_flag: str,
+    manifest_path: Path,
+) -> None:
+    build = _build_module()
+
+    compile_args = _orc_compile_args()
+    request = getattr(build, "FrontendBuildRequest")(
+        source_path=ENTRYPOINT,
+        source_roots=(SOURCE_ROOT,),
+        entry_workflow="orchestrate",
+        provider_externs_path=Path(compile_args.provider_externs_file),
+        prompt_externs_path=Path(compile_args.prompt_externs_file),
+        imported_workflow_bundles_path=Path(compile_args.imported_workflow_bundles_file),
+        command_boundaries_path=Path(compile_args.command_boundaries_file),
+        workspace_root=tmp_path,
+    )
+    request = type(request)(
+        **{
+            **request.__dict__,
+            manifest_flag.replace("_file", "_path"): manifest_path,
+        }
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_closed_program_bundle(request)
+
+    assert excinfo.value.diagnostics[0].code == "workflow_lisp_manifest_missing"
+    assert "does not exist" in excinfo.value.diagnostics[0].message
+
+
+@pytest.mark.parametrize(
+    ("manifest_flag", "file_name"),
+    [
+        ("provider_externs_file", "providers.invalid.json"),
+        ("prompt_externs_file", "prompts.invalid.json"),
+        ("imported_workflow_bundles_file", "imported.invalid.json"),
+        ("command_boundaries_file", "commands.invalid.json"),
+    ],
+)
+def test_build_service_reports_malformed_manifest_files_as_frontend_diagnostics(
+    tmp_path: Path,
+    manifest_flag: str,
+    file_name: str,
+) -> None:
+    build = _build_module()
+
+    invalid_manifest = tmp_path / file_name
+    invalid_manifest.write_text("{bad json\n", encoding="utf-8")
+
+    compile_args = _orc_compile_args()
+    build_request = getattr(build, "FrontendBuildRequest")(
+        source_path=ENTRYPOINT,
+        source_roots=(SOURCE_ROOT,),
+        entry_workflow="orchestrate",
+        provider_externs_path=Path(compile_args.provider_externs_file),
+        prompt_externs_path=Path(compile_args.prompt_externs_file),
+        imported_workflow_bundles_path=Path(compile_args.imported_workflow_bundles_file),
+        command_boundaries_path=Path(compile_args.command_boundaries_file),
+        workspace_root=tmp_path,
+    )
+    build_request = type(build_request)(
+        **{
+            **build_request.__dict__,
+            manifest_flag.replace("_file", "_path"): invalid_manifest,
+        }
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_closed_program_bundle(build_request)
+
+    assert excinfo.value.diagnostics[0].code == "workflow_lisp_manifest_invalid_json"
+    assert "must contain valid JSON" in excinfo.value.diagnostics[0].message

@@ -15,16 +15,15 @@ from tests.workflow_evaluated_totality_helpers import (
     checked_run, compile_public, pause_public, public_run,
 )
 from tests.workflow_evaluated_context_helpers import (
-    assert_pure_public, pure_files, public_entry_cli, legacy_carried_context,
+    assert_pure_public, pure_files, public_entry_cli,
     prepare_public_producers, pause_context, assert_public_producer_commits,
     assert_public_producer_requests,
     prepare_library_producers, assert_library_configuration, pause_library_fourth,
     assert_library_requests, assert_library_replays,
-    prepare_phase_provider, legacy_phase_provider, public_context_run, assert_completed_resumes,
+    prepare_phase_provider, public_context_run, assert_completed_resumes,
     assert_library_command_inventory,
 )
 from tests.test_workflow_lisp_closed_program_elaboration import _BIND_PROC_CAPTURE_SOURCE
-from tests.test_workflow_evaluated_call_routes import _legacy_context_output
 from tests.test_workflow_evaluated_cli import _run_cli
 
 
@@ -225,7 +224,6 @@ def test_public_run_and_phase_context_match_existing_route(tmp_path, monkeypatch
         resumed = _resume_cli(tmp_path, run_id)
         assert resumed.returncode == 0, resumed.stderr
         assert _orchestrate_snapshot(tmp_path) == before
-    assert _legacy_context_output(tmp_path / "legacy", entry, inputs, run_id=run_id) == expected
 
 
 def test_public_generic_private_calls_keep_distinct_native_types(tmp_path, monkeypatch):
@@ -287,7 +285,6 @@ def test_public_item_carried_run_and_explicit_phase_keep_all_fields(tmp_path, ex
                 "artifacts": "artifacts/items/one" if explicit else "artifacts/child-phase", "payload": 7}
     assert snapshot.terminal.data["value"] == expected
     assert authority.header["run_id"] != expected["run-id"]
-    assert legacy_carried_context(tmp_path / "legacy", source, values, authority.header["run_id"]) == expected
 
 
 def test_public_imports_select_producer_assets_policies_and_argv(tmp_path, monkeypatch):
@@ -367,7 +364,7 @@ def _source_free_result(root, authority):
     return evaluate_closed_program(program, authority.header["bound_inputs"], run_id=authority.header["run_id"])
 
 
-def test_public_named_phase_targets_match_real_legacy_provider(tmp_path, monkeypatch):
+def test_public_named_phase_targets_reach_real_provider_in_named_order(tmp_path, monkeypatch):
     from tests.test_workflow_evaluated_phase_context import _FIXED_PHASE_TARGET_SOURCE
 
     source = _FIXED_PHASE_TARGET_SOURCE.replace("(defmodule phase_targets_swapped)", "(defmodule main)")
@@ -381,20 +378,18 @@ def test_public_named_phase_targets_match_real_legacy_provider(tmp_path, monkeyp
     payload = {"variant": "COMPLETED", "implementation_state": "COMPLETED",
                "execution_report_path": context["execution_report_target"]}
     monkeypatch.setenv("PROVIDER_SHIM_RESULT", json.dumps(payload))
-    outputs = []
-    for target in ("2.34", "2.35"):
-        root = tmp_path / target
-        files, input_file = prepare_phase_provider(root, source.replace("TARGET", target), inputs)
-        monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
-        monkeypatch.chdir(root)
-        if target == "2.34":
-            outputs.append(legacy_phase_provider(files, inputs))
-        else:
-            outputs.append(_paused_phase_provider_value(root, files, input_file, monkeypatch))
-        (request,) = _requests(root)
-        assert json.loads(request["prompt"].split("\n\n")[0]) == {"phase": "implementation"}
-        assert request["prompt"].index(context["progress_report_target"]) < request["prompt"].index(context["execution_report_target"])
-    assert outputs == [{"implementation_state": "COMPLETED", "implementation_state_bundle_path": context["implementation_state_bundle_path"]}] * 2
+    root = tmp_path / "2.35"
+    files, input_file = prepare_phase_provider(root, source.replace("TARGET", "2.35"), inputs)
+    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.chdir(root)
+    output = _paused_phase_provider_value(root, files, input_file, monkeypatch)
+    (request,) = _requests(root)
+    assert json.loads(request["prompt"].split("\n\n")[0]) == {"phase": "implementation"}
+    assert request["prompt"].index(context["progress_report_target"]) < request["prompt"].index(context["execution_report_target"])
+    for value in inputs["inputs"].values():
+        assert value in request["prompt"]
+    assert output == {"implementation_state": "COMPLETED", "implementation_state_bundle_path": context["implementation_state_bundle_path"]}
+
 
 
 @pytest.mark.parametrize("phase", ("work", "implementation"))

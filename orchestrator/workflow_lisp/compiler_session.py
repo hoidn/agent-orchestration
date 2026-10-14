@@ -120,16 +120,6 @@ class TypecheckSessionState:
 
 
 @dataclass
-class LoweringSessionState:
-    """Mutable lowering evidence owned by one compile."""
-
-    intrinsic_form_lowering_counts: dict[str, int] = field(
-        default_factory=dict
-    )
-    run_ref_compiler_runtime_identity_digest: str | None = None
-
-
-@dataclass
 class CompilerSession:
     """All mutable state for exactly one public compile attempt."""
 
@@ -142,4 +132,3 @@ class CompilerSession:
         default_factory=ElaborationSessionState
     )
     typecheck: TypecheckSessionState = field(default_factory=TypecheckSessionState)
-    lowering: LoweringSessionState = field(default_factory=LoweringSessionState)

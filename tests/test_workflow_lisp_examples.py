@@ -1,14 +1,11 @@
 from pathlib import Path
 
-import importlib
 import json
 
 from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
     compile_stage3_module as _compile_stage3_module,
 )
-from orchestrator.workflow_lisp.route_readiness import compile_registered_route_case
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,10 +59,6 @@ def compile_stage3_module(*args, **kwargs):
     return _compile_stage3_module(*args, **kwargs)
 
 
-def _write_module(path: Path, body: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body, encoding="utf-8")
-    return path
 
 
 def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
@@ -105,165 +98,17 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
         workspace_root=tmp_path,
     )
 
-    lowered_by_name = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping
-        for workflow in result.lowered_workflows
-    }
-
-    assert "kiss_backlog_item::run-backlog-item" in lowered_by_name
-    lowered = lowered_by_name["kiss_backlog_item::run-backlog-item"]
-    assert lowered["version"] == "2.14"
-    assert "return__summary_path" in lowered["outputs"]
-
-    def walk_steps(steps):
-        for step in steps:
-            yield step
-            if "repeat_until" in step:
-                yield from walk_steps(step["repeat_until"].get("steps", []))
-            if "match" in step:
-                for case in step["match"].get("cases", {}).values():
-                    yield from walk_steps(case.get("steps", []))
-
-    all_steps = [
-        step
-        for workflow in result.lowered_workflows
-        for step in walk_steps(workflow.authored_mapping["steps"])
-    ]
-    assert sum(1 for step in all_steps if "repeat_until" in step) == 2
-    assert {step.get("provider") for step in all_steps if step.get("provider")} == {
-        "fake-plan",
-        "fake-plan-review",
-        "fake-plan-fix",
-        "fake-implementation",
-        "fake-implementation-review",
-        "fake-implementation-fix",
-    }
 
 
-def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
-    result, _entry = compile_registered_route_case(
-        "workflows.examples.with_phase_composed_binding",
-        source_path=WORKFLOWS / "with_phase_composed_binding.orc",
-        repo_root=REPO_ROOT,
-        default_route_check=True,
-        compile_func=_compile_stage3_module,
-        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
-        provider_externs={
-            "providers.execute": "test-provider",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": (
-                "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-
-    assert (
-        result.lowered_workflows[0].typed_workflow.definition.name
-        == "with_phase_composed_binding::run-with-phase-composed-binding"
-    )
-    assert [step["name"] for step in lowered["steps"]] == [
-        "with_phase_composed_binding::run-with-phase-composed-binding__result",
-        "with_phase_composed_binding::run-with-phase-composed-binding__match_phase-result",
-    ]
-    assert lowered["steps"][0]["provider"] == "test-provider"
 
 
-def test_effectful_match_arm_normalization_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
-    result, _entry = compile_registered_route_case(
-        "workflows.examples.effectful_match_arm_normalization",
-        source_path=WORKFLOWS / "effectful_match_arm_normalization.orc",
-        repo_root=REPO_ROOT,
-        default_route_check=True,
-        compile_func=_compile_stage3_module,
-        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
-        provider_externs={
-            "providers.execute": "test-provider",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": (
-                "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-
-    assert result.lowered_workflows[0].typed_workflow.definition.name == "run-effectful-match-arm-normalization"
-    assert [step["name"] for step in lowered["steps"]] == [
-        "run-effectful-match-arm-normalization__attempt",
-        "run-effectful-match-arm-normalization__match_attempt",
-    ]
-    assert lowered["steps"][0]["provider"] == "test-provider"
-    assert lowered["steps"][1]["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
-    assert lowered["steps"][1]["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
 
 
-def test_effectful_let_star_normalization_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
-    result, _entry = compile_registered_route_case(
-        "workflows.examples.effectful_let_star_normalization",
-        source_path=WORKFLOWS / "effectful_let_star_normalization.orc",
-        repo_root=REPO_ROOT,
-        default_route_check=True,
-        compile_func=_compile_stage3_module,
-        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
-        provider_externs={
-            "providers.execute": "test-provider",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": (
-                "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-
-    assert result.lowered_workflows[0].typed_workflow.definition.name == "run-effectful-let-star-normalization"
-    assert [step.get("provider") if "provider" in step else "match" for step in lowered["steps"]] == [
-        "test-provider",
-        "match",
-        "test-provider",
-    ]
-    assert lowered["steps"][1]["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
-    assert lowered["steps"][1]["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
 
 
-def test_same_file_record_call_binding_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
-    result, _entry = compile_registered_route_case(
-        "workflows.examples.same_file_record_call_binding",
-        source_path=WORKFLOWS / "same_file_record_call_binding.orc",
-        repo_root=REPO_ROOT,
-        default_route_check=True,
-        compile_func=_compile_stage3_module,
-        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
 
-    lowered = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping
-        for workflow in result.lowered_workflows
-    }
 
-    assert set(lowered) == {"build-checks", "run-same-file-record-call-binding"}
-    assert lowered["run-same-file-record-call-binding"]["steps"][0]["with"]["input__report"] == {
-        "ref": "inputs.report_path"
-    }
+
 
 
 def test_review_revise_parametric_design_docs_example_remains_one_off_source_shape() -> None:
@@ -315,54 +160,6 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
     assert review_prompt.declaration.return_spec is not None
     assert review_prompt.declaration.return_spec.type_name == "ReviewDecision"
 
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
-    )
-    assert lowered.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
-    assert lowered.private_artifact_ids == ()
-    context_docs_contract = lowered.authored_mapping["inputs"]["context_docs"]
-    assert context_docs_contract == {
-        "kind": "collection",
-        "type": "list",
-        "items": {
-            "type": "relpath",
-            "under": "docs",
-            "must_exist_target": True,
-        },
-    }
-    assert "artifacts" not in lowered.authored_mapping
-    helper = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.endswith(
-            "::review-design-docs.v1"
-        )
-    )
-    review_step = helper.authored_mapping["steps"][0]
-    contract = review_step["compiler_prompt_fragment_contract"]
-    assert contract.schema_version == "compiler_prompt_fragment_contract.v2"
-    assert tuple(
-        dict(row.expected_output) for row in contract.output_positions
-    ) == (
-        {
-            "name": "review_report_target_path",
-            "path": "${inputs.inputs__review_report_target_path}",
-            "type": "string",
-            "required": True,
-        },
-    )
-    assert review_step["expected_outputs"] == [
-        {
-            "name": "review_report_target_path",
-            "path": "${inputs.inputs__review_report_target_path}",
-            "type": "string",
-            "required": True,
-        }
-    ]
-    assert "variant_output" in review_step
-    assert "output_bundle" not in review_step
 
 
 def test_review_revise_design_docs_exports_compile_for_same_target_importer(
@@ -402,10 +199,6 @@ def test_review_revise_design_docs_exports_compile_for_same_target_importer(
     assert FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL not in {
         source.path for source in result.graph.modules_by_name.values()
     }
-    assert (
-        "judgment_views/review_revise_design_docs_export_import::imported-review"
-        in result.validated_bundles_by_name
-    )
 
 
 def test_review_revise_design_docs_judgment_panel_compiles_from_current_owner(
@@ -472,134 +265,3 @@ def test_review_revise_design_docs_judgment_panel_compiles_from_current_owner(
     assert FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL not in {
         source.path for source in result.graph.modules_by_name.values()
     }
-    assert (
-        "review_revise_design_docs_judgment_panel"
-        "::review-revise-design-docs-judgment-panel"
-        in result.validated_bundles_by_name
-    )
-
-
-def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Path) -> None:
-    result = _compile_stage3_module(
-        DESIGN_DOCS_REVIEW_EXAMPLE,
-        provider_externs={
-            "providers.design-docs.review": "codex",
-            "providers.design-docs.fix": "codex",
-        },
-        prompt_externs={
-            "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    workflow_name = "review_revise_design_docs::review-revise-design-docs"
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == workflow_name
-    )
-    lowered_mapping = lowered.authored_mapping
-    helper_name = "%review_revise_design_docs.review_revise_design_docs::review-design-docs.v1"
-    helper = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == helper_name
-    )
-
-    def _walk_steps(steps):
-        for step in steps:
-            yield step
-            if "repeat_until" in step:
-                yield from _walk_steps(step["repeat_until"].get("steps", []))
-            if "match" in step:
-                for case in step["match"].get("cases", {}).values():
-                    yield from _walk_steps(case.get("steps", []))
-            if "for_each" in step:
-                yield from _walk_steps(step["for_each"].get("steps", []))
-
-    review_call = next(
-        step
-        for step in _walk_steps(lowered_mapping["steps"])
-        if step.get("call") == helper_name
-    )
-    helper_step = helper.authored_mapping["steps"][0]
-
-    assert helper.authored_mapping["inputs"]["completed__context_docs"] == {
-        "kind": "collection",
-        "type": "list",
-        "items": {
-            "type": "relpath",
-            "under": "docs",
-            "must_exist_target": True,
-        },
-    }
-    # The subject record is the sole owner of target/context docs; the inputs
-    # record no longer duplicates them into a second collection lane.
-    assert "inputs__context_docs" not in helper.authored_mapping["inputs"]
-    assert "inputs__target_doc" not in helper.authored_mapping["inputs"]
-    assert helper_step["provider"] == "codex"
-    assert "consumes" not in helper_step
-    assert review_call["with"]["completed__context_docs"]["ref"].endswith(
-        ".artifacts.state__completed__context_docs"
-    )
-    assert "inputs__context_docs" not in review_call["with"]
-
-
-def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Path) -> None:
-    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
-    request_cls = getattr(build_module, "FrontendBuildRequest")
-    module_path = _write_module(
-        tmp_path / "generic" / "module.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule generic/module)",
-                "  (export entry)",
-                "  (defrecord WorkflowInput",
-                "    (report String))",
-                "  (defproc apply-runner",
-                "    :forall (T)",
-                "    ((runner ProcRef[T -> T])",
-                "     (value T))",
-                "    -> T",
-                "    :effects ()",
-                "    :lowering inline",
-                "    (runner value))",
-                "  (defproc echo-input",
-                "    ((value WorkflowInput))",
-                "    -> WorkflowInput",
-                "    :effects ()",
-                "    :lowering inline",
-                "    (record WorkflowInput",
-                "      :report value.report))",
-                "  (defworkflow entry",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowInput",
-                "    (apply-runner (proc-ref echo-input) input)))",
-            ]
-        )
-        + "\n",
-    )
-
-    result = build_module.build_frontend_bundle(
-        request_cls(
-            source_path=module_path,
-            source_roots=(tmp_path,),
-            entry_workflow="entry",
-            provider_externs_path=Path("tests/fixtures/workflow_lisp/cli/providers.json"),
-            prompt_externs_path=Path("tests/fixtures/workflow_lisp/cli/prompts.json"),
-            imported_workflow_bundles_path=None,
-            command_boundaries_path=Path("tests/fixtures/workflow_lisp/cli/commands.json"),
-            emit_debug_yaml=False,
-            workspace_root=tmp_path,
-            lowering_route="legacy",
-        )
-    )
-
-    assert result.selected_workflow_name == "generic/module::entry"
-    assert result.validated_bundle.surface.name == "generic/module::entry"
-    assert result.validated_bundle.provenance.frontend_kind == "workflow_lisp"
-    assert result.artifact_paths["source_map"].is_file()

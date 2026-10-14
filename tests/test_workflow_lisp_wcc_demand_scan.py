@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-from orchestrator.workflow_lisp.wcc.defunctionalize import (
+from orchestrator.workflow_lisp.closed.command_templates import (
     _wcc_continuation_binding_demands,
 )
 from orchestrator.workflow_lisp.wcc.model import (

@@ -147,7 +147,6 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         command_boundaries_path=resolve_path_preserving_fd(
             request.command_boundaries_path)
         if request.command_boundaries_path else None,
-        emit_debug_yaml=request.emit_debug_yaml,
         workspace_root=workspace_root,
         lint_profile=request.lint_profile,
         lowering_route=request.lowering_route,

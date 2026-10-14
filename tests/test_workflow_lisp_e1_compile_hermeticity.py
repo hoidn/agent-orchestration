@@ -9,10 +9,8 @@ must normalize and bind.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -118,83 +116,8 @@ def _request(
     )
 
 
-def _normalize_paths(
-    value: Any,
-    root: Path,
-    *,
-    build_root: Path | None = None,
-    fingerprint: str | None = None,
-) -> Any:
-    """Normalize only clone-root spelling; retain every semantic payload."""
-
-    if isinstance(value, Mapping):
-        return {
-            str(key): _normalize_paths(
-                item,
-                root,
-                build_root=build_root,
-                fingerprint=fingerprint,
-            )
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-        }
-    if isinstance(value, (list, tuple)):
-        return [
-            _normalize_paths(
-                item,
-                root,
-                build_root=build_root,
-                fingerprint=fingerprint,
-            )
-            for item in value
-        ]
-    if isinstance(value, Path):
-        value = value.as_posix()
-    if isinstance(value, str):
-        if build_root is not None:
-            value = value.replace(
-                build_root.resolve().as_posix(),
-                "<AMBIENT_BUILD_ROOT>",
-            )
-        if fingerprint is not None:
-            value = value.replace(fingerprint, "<AMBIENT_FINGERPRINT>")
-        return value.replace(root.resolve().as_posix(), "<CLONE_ROOT>")
-    return value
 
 
-def _normalized_compiler_payload(
-    result: FrontendInMemoryBuildResult,
-    root: Path,
-) -> dict[str, Any]:
-    normalized = _normalize_paths(
-        {
-            "selected_workflow_name": result.selected_workflow_name,
-            "core_workflow_ast": result.core_workflow_ast_payload,
-            "semantic_ir": result.semantic_ir_payload,
-            "executable_ir": result.executable_ir_payload,
-            "runtime_plan": result.runtime_plan_payload,
-            "workflow_boundary_projection": (
-                result.workflow_boundary_projection_payload
-            ),
-            "persisted_surface": result.persisted_surface_payload,
-        },
-        root,
-        build_root=result.build_root,
-        fingerprint=result.fingerprint,
-    )
-    persisted_bytes = (
-        json.dumps(
-            normalized["persisted_surface"],
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-        + "\n"
-    ).encode("utf-8")
-    normalized["executable_ir"]["provenance"][
-        "frontend_persisted_surface_sha256"
-    ] = f"sha256:{hashlib.sha256(persisted_bytes).hexdigest()}"
-    return normalized
 
 
 def _normalized_revision_vector(
@@ -231,7 +154,6 @@ def test_same_canonical_paths_are_reread_after_source_bytes_change(
     request = _request(tmp_path, entry)
 
     first = build_frontend_bundle_in_memory(request)
-    first_payload = _normalized_compiler_payload(first, tmp_path)
     first_revisions = dict(first.source_read_trace.revision_vector)
 
     mutated_path = (
@@ -246,7 +168,6 @@ def test_same_canonical_paths_are_reread_after_source_bytes_change(
         )
 
     second = build_frontend_bundle_in_memory(request)
-    second_payload = _normalized_compiler_payload(second, tmp_path)
     second_revisions = dict(second.source_read_trace.revision_vector)
 
     assert first_revisions.keys() == second_revisions.keys()
@@ -256,7 +177,6 @@ def test_same_canonical_paths_are_reread_after_source_bytes_change(
     assert first.source_read_trace.revision_vector != (
         second.source_read_trace.revision_vector
     )
-    assert first_payload != second_payload
 
 
 def test_identical_trees_in_distinct_roots_compile_equivalently_after_root_normalization(
@@ -280,9 +200,6 @@ def test_identical_trees_in_distinct_roots_compile_equivalently_after_root_norma
         _request(second_root, second_entry, second_configuration)
     )
 
-    assert _normalized_compiler_payload(first, first_root) == (
-        _normalized_compiler_payload(second, second_root)
-    )
     assert _normalized_revision_vector(
         first.source_read_trace.revision_vector,
         first_root,
@@ -303,9 +220,6 @@ def test_identical_trees_in_distinct_roots_compile_equivalently_after_root_norma
         second_root,
     )
 
-    # The existing build fingerprint includes absolute source-root spelling.
-    # It is useful build-cache metadata, but is therefore not an E1 identity.
-    assert first.fingerprint != second.fingerprint
 
 
 def test_revision_vectors_exactly_enumerate_compiler_read_source_and_configuration(

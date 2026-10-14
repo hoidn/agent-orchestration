@@ -8,7 +8,7 @@ from orchestrator.workflow.run_ref import child, runtime
 from tests import test_workflow_evaluated_run_ref_caller as caller
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_resume import _resume_cli
-from tests.test_workflow_run_ref_child import _build_path_fixture
+from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture
 from tests.test_workflow_evaluated_path_compile import _closed_source, _typed_closed_launch
 
 

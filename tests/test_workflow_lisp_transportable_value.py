@@ -1,19 +1,14 @@
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 import orchestrator.workflow_lisp.syntax as syntax
+from orchestrator.observability.report import build_status_snapshot
+from tests.fixtures.historical_observability_bundles import HISTORICAL_OBSERVABILITY_BUNDLES
 from orchestrator.dashboard.models import RunRecord, WorkspaceRecord
 from orchestrator.dashboard.projection import RunProjector
-from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.observability.report import build_status_snapshot
-from orchestrator.workflow.dataflow import DataflowManager
-from orchestrator.workflow.executable_ir import (
-    ExecutableContract,
-    ProviderSupervisionStepConfig,
-)
+from orchestrator.workflow.executable_ir import ExecutableContract
 from orchestrator.workflow.provider_supervision.contracts import (
     derive_result_bundle_contract,
     derive_result_contract_identity,
@@ -32,20 +27,7 @@ from orchestrator.workflow_lisp.contracts import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
-from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
-    _binding_contract_matches_type_ref,
-    _type_ref_for_contract,
-    build_restore_metadata,
-    capture_restore_payload,
-    validate_restore_payload,
-)
-from orchestrator.workflow_lisp.lowering.phase_scope import (
-    _surface_contract_from_structured_field as _phase_scope_surface_contract,
-)
-from orchestrator.workflow_lisp.lowering.phase_stdlib import (
-    _surface_contract_from_structured_field as _phase_stdlib_surface_contract,
-)
-from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
+from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.result_guidance import (
     ResultGuidance,
     parse_return_spec,
@@ -75,7 +57,6 @@ from orchestrator.workflow_lisp.workflows import (
     ProviderExtern,
     WorkflowSignature,
 )
-from tests.workflow_fixture_loader import WorkflowLoader
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -418,41 +399,6 @@ def test_value_contract_derives_value_kind_at_workflow_boundary() -> None:
     assert projection.return_kind == "root"
 
 
-def test_value_contract_loader_requires_219_then_accepts_direct_root(
-    tmp_path: Path,
-) -> None:
-    def workflow(version: str) -> dict:
-        return {
-            "version": version,
-            "name": "value-contract-loader",
-            "steps": [
-                {
-                    "name": "Produce",
-                    "command": ["echo", "ok"],
-                    "output_bundle": {
-                        "path": "state/value.json",
-                        "fields": [
-                            {
-                                "name": "__result__",
-                                "json_pointer": "",
-                                "type": "value",
-                            }
-                        ],
-                    },
-                }
-            ],
-        }
-
-    loader = WorkflowLoader(tmp_path)
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        loader.load_mapping(workflow("2.18"))
-    assert any(
-        "value_contract_requires_dsl_2_19" in error.message
-        for error in excinfo.value.errors
-    )
-
-    loaded = loader.load_mapping(workflow("2.19"))
-    assert loaded.surface.steps[0].common.output_bundle is not None
 
 
 def test_value_contract_nested_descriptors_cover_collections_record_and_union() -> None:
@@ -565,101 +511,6 @@ def test_value_contract_transportability_keeps_nontransportable_types_and_refs_f
     )
 
 
-def test_value_contract_loader_covers_all_surfaces_and_rejects_invalid_pairs(
-    tmp_path: Path,
-) -> None:
-    def workflow(version: str) -> dict:
-        return {
-            "version": version,
-            "name": "value-contract-surfaces",
-            "inputs": {
-                "payload": {"kind": "value", "type": "value"},
-            },
-            "outputs": {
-                "result": {
-                    "kind": "value",
-                    "type": "value",
-                    "from": {
-                        "ref": "root.steps.Produce.artifacts.result",
-                    },
-                },
-            },
-            "artifacts": {
-                "stored": {"kind": "value", "type": "value"},
-            },
-            "steps": [
-                {
-                    "name": "Produce",
-                    "command": ["echo", "ok"],
-                    "output_bundle": {
-                        "path": "state/value.json",
-                        "fields": [
-                            {
-                                "name": "result",
-                                "json_pointer": "",
-                                "type": "value",
-                            }
-                        ],
-                    },
-                },
-            ],
-        }
-
-    loader = WorkflowLoader(tmp_path)
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        loader.load_mapping(workflow("2.18"))
-    assert any(
-        "value_contract_requires_dsl_2_19" in error.message
-        for error in excinfo.value.errors
-    )
-
-    loaded = loader.load_mapping(workflow("2.19"))
-    assert loaded.surface.inputs["payload"].kind == "value"
-    assert loaded.surface.outputs["result"].kind == "value"
-    assert loaded.surface.artifacts["stored"].kind == "value"
-    assert loaded.surface.steps[0].common.output_bundle is not None
-
-    legacy = workflow("2.19")
-    legacy["steps"][0].pop("output_bundle")
-    legacy["steps"][0]["expected_outputs"] = [
-        {
-            "name": "result",
-            "path": "state/value.json",
-            "type": "value",
-        }
-    ]
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        loader.load_mapping(legacy)
-    assert any(
-        "invalid expected_outputs type 'value'" in error.message
-        for error in excinfo.value.errors
-    )
-
-    for kind, value_type, expected_fragments in (
-        ("scalar", "value", ("kind 'scalar'",)),
-        ("value", "string", ("kind 'value'", "type 'value'")),
-    ):
-        invalid = workflow("2.19")
-        invalid["inputs"]["payload"] = {
-            "kind": kind,
-            "type": value_type,
-        }
-        with pytest.raises(WorkflowValidationError) as excinfo:
-            loader.load_mapping(invalid)
-        messages = tuple(error.message for error in excinfo.value.errors)
-        assert any(
-            all(fragment in message for fragment in expected_fragments)
-            for message in messages
-        ), messages
-
-    invalid_allowed = workflow("2.19")
-    invalid_allowed["inputs"]["payload"]["allowed"] = ["only"]
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        loader.load_mapping(invalid_allowed)
-    assert any(
-        "kind 'value' forbids 'allowed'" in error.message
-        for error in excinfo.value.errors
-    )
 
 
 def test_value_contract_fingerprint_preserves_literal_value_descriptor() -> None:
@@ -763,431 +614,29 @@ def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_
         workspace_root=tmp_path,
         lowering_route="wcc_m4",
     )
-    entry = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry"
-    )
-
-    assert entry.authored_mapping["inputs"]["payload"]["kind"] == "value"
-    assert entry.authored_mapping["inputs"]["payload"]["type"] == "value"
-    assert entry.authored_mapping["outputs"]["__result__"]["kind"] == "value"
-    assert entry.authored_mapping["outputs"]["__result__"]["type"] == "value"
-    assert "entry" in result.validated_bundles
+    entry = result.typed_program.workflows["entry"]
+    assert dict(entry.signature.params)["payload"] == VALUE_TYPE
+    assert entry.signature.return_type_ref == VALUE_TYPE
+    assert "child" in result.typed_program.workflows
 
 
-@pytest.mark.parametrize(
-    ("descriptor", "example"),
-    (
-        ({"type": "value"}, {"answer": True}),
-        (
-            {"type": "optional", "item": {"type": "value"}},
-            {"answer": True},
-        ),
-    ),
-    ids=("direct", "nested-optional"),
-)
-def test_value_contract_loader_rejects_field_guidance_examples_before_schema_validation(
-    tmp_path: Path,
-    descriptor: dict,
-    example: object,
-) -> None:
-    workflow = {
-        "version": "2.19",
-        "name": "value-guidance-example-loader",
-        "steps": [
-            {
-                "name": "Produce",
-                "command": ["echo", "ok"],
-                "output_bundle": {
-                    "path": "state/value.json",
-                    "fields": [
-                        {
-                            "name": "__result__",
-                            "json_pointer": "",
-                            **descriptor,
-                            "example": example,
-                        }
-                    ],
-                },
-            }
-        ],
-    }
-
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        WorkflowLoader(tmp_path).load_mapping(workflow)
-
-    messages = tuple(error.message for error in excinfo.value.errors)
-    assert any(
-        "value_guidance_example_unsupported" in message
-        for message in messages
-    )
-    assert not any(
-        "is invalid for the field schema" in message
-        for message in messages
-    )
 
 
-@pytest.mark.parametrize(
-    ("forbidden_key", "forbidden_value"),
-    (
-        ("allowed", ["only"]),
-        ("under", "state"),
-        ("must_exist_target", True),
-        ("item", {"type": "string"}),
-        ("items", {"type": "string"}),
-        ("keys", {"type": "string"}),
-        ("values", {"type": "string"}),
-    ),
-)
-def test_value_contract_loader_rejects_every_narrower_schema_key(
-    tmp_path: Path,
-    forbidden_key: str,
-    forbidden_value: object,
-) -> None:
-    workflow = {
-        "version": "2.19",
-        "name": "value-forbidden-schema-key",
-        "steps": [
-            {
-                "name": "Produce",
-                "command": ["echo", "ok"],
-                "output_bundle": {
-                    "path": "state/value.json",
-                    "fields": [
-                        {
-                            "name": "__result__",
-                            "json_pointer": "",
-                            "type": "value",
-                            forbidden_key: forbidden_value,
-                        }
-                    ],
-                },
-            }
-        ],
-    }
-
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        WorkflowLoader(tmp_path).load_mapping(workflow)
-
-    assert any(
-        f"type 'value' forbids '{forbidden_key}'" in error.message
-        for error in excinfo.value.errors
-    )
 
 
-def _compile_value_runtime_surfaces(tmp_path: Path):
-    path = _write_module(
-        tmp_path / "value_runtime_surfaces.orc",
-        "2.19",
-        "(defmodule value-runtime-surfaces)",
-        "(export entry)",
-        (
-            "(defworkflow entry ((payload Value)) -> Value "
-            "(provider-result providers.worker "
-            ":prompt prompts.worker :inputs (payload) :returns Value))"
-        ),
-    )
-    prompt_path = tmp_path / "prompts" / "worker.md"
-    prompt_path.parent.mkdir(parents=True)
-    prompt_path.write_text("Return one value.\n", encoding="utf-8")
-
-    return compile_stage3_module(
-        path,
-        entry_workflow="entry",
-        provider_externs={"providers.worker": "test-provider"},
-        prompt_externs={"prompts.worker": "prompts/worker.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
 
 
-def test_transportable_value_kind_compiler_surfaces_retain_declared_contract(
-    tmp_path: Path,
-) -> None:
-    result = _compile_value_runtime_surfaces(tmp_path)
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry"
-    )
-    bundle = result.validated_bundles["entry"]
-    node = next(iter(bundle.ir.nodes.values()))
-
-    assert lowered.authored_mapping["inputs"]["payload"] == {
-        "kind": "value",
-        "type": "value",
-    }
-    assert lowered.authored_mapping["outputs"]["__result__"]["kind"] == "value"
-    assert lowered.authored_mapping["outputs"]["__result__"]["type"] == "value"
-    assert bundle.surface.inputs["payload"].definition == {
-        "kind": "value",
-        "type": "value",
-    }
-    assert bundle.surface.outputs["__result__"].definition == {
-        "kind": "value",
-        "type": "value",
-        "from": {"ref": "root.steps.entry__result.artifacts.__result__"},
-    }
-    assert node.execution_config.common.output_bundle["fields"][0]["type"] == "value"
-    assert bundle.runtime_plan.schema_version == "workflow_runtime_plan.v1"
-    runtime_result = next(
-        artifact
-        for artifact in bundle.runtime_plan.artifacts
-        if artifact.contract_name == "__result__"
-    )
-    assert runtime_result.contract_kind == "value"
-    assert bundle.semantic_ir.schema_version == "workflow_semantic_ir.v1"
-    semantic_workflow = bundle.semantic_ir.workflows["entry"]
-    input_contract = bundle.semantic_ir.contracts[
-        semantic_workflow.input_contract_ids["payload"]
-    ]
-    input_type = bundle.semantic_ir.types[input_contract.type_id]
-    output_contract = bundle.semantic_ir.contracts[
-        semantic_workflow.output_contract_ids["__result__"]
-    ]
-    output_type = bundle.semantic_ir.types[output_contract.type_id]
-    assert (
-        input_contract.contract_kind,
-        input_contract.value_type,
-        dict(input_contract.definition),
-    ) == ("value", "value", {"kind": "value", "type": "value"})
-    assert (
-        input_type.type_kind,
-        input_type.value_type,
-        dict(input_type.definition),
-    ) == ("value", "value", {"kind": "value", "type": "value"})
-    assert (
-        output_contract.contract_kind,
-        output_contract.value_type,
-        dict(output_contract.definition),
-    ) == (
-        "value",
-        "value",
-        {
-            "kind": "value",
-            "type": "value",
-            "from": {"ref": "root.steps.entry__result.artifacts.__result__"},
-        },
-    )
-    assert (
-        output_type.type_kind,
-        output_type.value_type,
-        dict(output_type.definition),
-    ) == (
-        "value",
-        "value",
-        {
-            "kind": "value",
-            "type": "value",
-            "from": {"ref": "root.steps.entry__result.artifacts.__result__"},
-        },
-    )
 
 
-def _transportable_value_dataflow_manager(
-    tmp_path: Path,
-    violations: list[tuple[str, dict]],
-) -> DataflowManager:
-    return DataflowManager(
-        workspace=tmp_path,
-        artifact_registry={
-            "payload": {
-                "kind": "value",
-                "type": "value",
-            }
-        },
-        workflow_version="2.19",
-        uses_qualified_identities=lambda: True,
-        workflow_version_at_least=lambda version: True,
-        step_id_resolver=lambda step: str(step.get("step_id", "root.consume")),
-        contract_violation_result=lambda message, context: (
-            violations.append((message, context))
-            or {"exit_code": 1, "error": context}
-        ),
-        persist_state=lambda state: None,
-        substitute_path_template=lambda *args, **kwargs: (None, None),
-        resolve_workspace_path=lambda relpath: tmp_path / relpath,
-        current_step_index=lambda: 0,
-    )
 
 
-def test_transportable_value_dataflow_validates_and_preserves_opaque_payload(
-    tmp_path: Path,
-) -> None:
-    payload = {
-        "approved": True,
-        "items": [None, 3, "three", {"nested": [1.5, False]}],
-    }
-    violations: list[tuple[str, dict]] = []
-    manager = _transportable_value_dataflow_manager(tmp_path, violations)
-    state = {
-        "artifact_versions": {
-            "payload": [
-                {
-                    "version": 1,
-                    "producer": "root.produce",
-                    "value": payload,
-                }
-            ]
-        }
-    }
-    step = {
-        "step_id": "root.consume",
-        "consumes": [
-            {
-                "artifact": "payload",
-                "producers": ["root.produce"],
-                "freshness": "any",
-            }
-        ],
-    }
-
-    assert manager.enforce_consumes_contract(step, "Consume", state) is None
-    assert state["_resolved_consumes"]["root.consume"]["payload"] == payload
-    assert state["_resolved_consumes"]["root.consume"]["payload"] is payload
-    assert violations == []
-
-    invalid_state = {
-        "artifact_versions": {
-            "payload": [
-                {
-                    "version": 2,
-                    "producer": "root.produce",
-                    "value": {"bad": (1, 2)},
-                }
-            ]
-        }
-    }
-    violation = manager.enforce_consumes_contract(
-        step,
-        "Consume",
-        invalid_state,
-    )
-
-    assert violation is not None
-    assert violations[-1][1]["reason"] == "invalid_selected_value"
-    assert (
-        violations[-1][1]["violations"][0]["context"]["value_path"]
-        == "/bad"
-    )
 
 
-def test_transportable_value_dataflow_validates_publications_through_shared_contract(
-    tmp_path: Path,
-) -> None:
-    payload = {"approved": True, "items": [None, 3, "three"]}
-    violations: list[tuple[str, dict]] = []
-    manager = _transportable_value_dataflow_manager(tmp_path, violations)
-    step = {
-        "step_id": "root.produce",
-        "publishes": [{"artifact": "payload", "from": "result"}],
-    }
-    state: dict = {}
-
-    assert (
-        manager.record_published_artifacts(
-            step,
-            "Produce",
-            {"exit_code": 0, "artifacts": {"result": payload}},
-            state,
-        )
-        is None
-    )
-    assert state["artifact_versions"]["payload"][0]["value"] == payload
-    assert state["artifact_versions"]["payload"][0]["value"] is payload
-    assert violations == []
-
-    invalid_state: dict = {}
-    violation = manager.record_published_artifacts(
-        step,
-        "Produce",
-        {"exit_code": 0, "artifacts": {"result": {"bad": (1, 2)}}},
-        invalid_state,
-    )
-
-    assert violation is not None
-    assert violations[-1][1]["reason"] == "invalid_selected_value"
-    assert (
-        violations[-1][1]["violations"][0]["context"]["value_path"]
-        == "/bad"
-    )
-    assert invalid_state.get("artifact_versions", {}).get("payload") is None
 
 
-def test_transportable_value_checkpoint_identity_ignores_payload_shape(
-    tmp_path: Path,
-) -> None:
-    bundle = _compile_value_runtime_surfaces(tmp_path).validated_bundles["entry"]
-    contract = bundle.surface.inputs["payload"]
-    restore = build_restore_metadata(
-        binding_descriptors=(
-            {
-                "binding_name": "payload",
-                "binding_kind": "let_binding",
-                "type_ref": "Value",
-                "source_map_origin_key": "origin:value",
-                "value_document": {"ref": "root.inputs.payload"},
-            },
-        )
-    )
-    point = SimpleNamespace(
-        details={"restore": restore},
-        program_point_id="point:value",
-        step_id="root.value",
-        point_kind="pure_projection",
-        origin_key="origin:value",
-    )
-
-    assert _binding_contract_matches_type_ref(contract, "Value")
-    assert not _binding_contract_matches_type_ref(contract, "String")
-
-    payloads = ({"old": [1, 2]}, ["new", {"shape": True}])
-    records = []
-    for payload in payloads:
-        executor = SimpleNamespace(
-            state_manager=SimpleNamespace(
-                state=SimpleNamespace(to_dict=lambda: {}),
-            ),
-            _resolve_pure_projection_bindings=(
-                lambda value_document, run_state, payload=payload: (payload, None)
-            ),
-        )
-        record = capture_restore_payload(
-            executor=executor,
-            point=point,
-            execution_index=1,
-            loop_iteration=None,
-            completed_effect_refs=(),
-        )
-        assert record is not None
-        validate_restore_payload(record)
-        records.append(record)
-
-    first_binding = records[0]["bindings"][0]
-    second_binding = records[1]["bindings"][0]
-    assert records[0]["schema_version"] == records[1]["schema_version"]
-    assert first_binding["type_ref"] == second_binding["type_ref"] == "Value"
-    assert first_binding["schema_digest"] == second_binding["schema_digest"]
-    assert first_binding["value"] == payloads[0]
-    assert second_binding["value"] == payloads[1]
-    assert first_binding["value_digest"] != second_binding["value_digest"]
-    assert _type_ref_for_contract(contract, payloads[0]) == "Value"
-    assert _type_ref_for_contract(contract, payloads[1]) == "Value"
 
 
-def test_transportable_value_phase_surface_contract_helpers_preserve_value_kind() -> None:
-    field = {"type": "value"}
 
-    assert _phase_scope_surface_contract(field) == {
-        "kind": "value",
-        "type": "value",
-    }
-    assert _phase_stdlib_surface_contract(field) == {
-        "kind": "value",
-        "type": "value",
-    }
 
 
 @pytest.mark.parametrize(
@@ -1256,10 +705,6 @@ def test_transportable_value_provider_supervision_derives_recursive_contracts(
     assert derived_descriptor == descriptor
     if descriptor == {"kind": "primitive", "name": "Value"}:
         assert (contract.kind, contract.value_type) == ("scalar", "Value")
-        assert _binding_contract_matches_type_ref(contract, "Value")
-        assert not _binding_contract_matches_type_ref(contract, "String")
-        assert _type_ref_for_contract(contract, {"shape": [1, None]}) == "Value"
-        assert _type_ref_for_contract(contract, ["other", {"shape": True}]) == "Value"
 
 
 def test_transportable_value_typed_prompt_rendering_is_canonical_and_opaque() -> None:
@@ -1304,41 +749,11 @@ def test_transportable_value_typed_prompt_rendering_is_canonical_and_opaque() ->
     assert "rendered_bytes" not in evidence[0]
 
 
-def test_transportable_value_state_report_and_dashboard_preserve_payload(
+def test_transportable_value_report_and_dashboard_preserve_payload(
     tmp_path: Path,
 ) -> None:
-    bundle = WorkflowLoader(tmp_path).load_mapping(
-        {
-            "version": "2.19",
-            "name": "value-projection",
-            "outputs": {
-                "__result__": {
-                    "kind": "value",
-                    "type": "value",
-                    "from": {
-                        "ref": "root.steps.Produce.artifacts.__result__",
-                    },
-                }
-            },
-            "steps": [
-                {
-                    "name": "Produce",
-                    "command": ["true"],
-                    "output_bundle": {
-                        "path": "state/value.json",
-                        "fields": [
-                            {
-                                "name": "__result__",
-                                "json_pointer": "",
-                                "type": "value",
-                            }
-                        ],
-                    },
-                }
-            ],
-        }
-    )
-    [node_id] = bundle.projection.ordered_execution_node_ids()
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"]
+    [node_id, *_] = bundle.projection.ordered_execution_node_ids()
     presentation_name = bundle.projection.entries_by_node_id[node_id].presentation_key
     payload = {
         "decision": "APPROVE",
@@ -1379,55 +794,3 @@ def test_transportable_value_state_report_and_dashboard_preserve_payload(
     assert detail.steps[0].artifacts["__result__"] == payload
     assert detail.workflow_outputs["__result__"] == payload
     assert detail.state["steps"][presentation_name]["artifacts"]["__result__"] == payload
-
-
-def test_transportable_value_provider_supervision_consumes_generic_contract(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "value_supervision.orc",
-        "2.19",
-        "(defworkflow entry () -> Value "
-        "(with-live-providers "
-        "((worker "
-        "(provider-result providers.worker "
-        ":prompt prompts.worker :inputs () "
-        ":timeout-sec 30 :returns Value)) "
-        "(supervisor "
-        "(provider-result providers.supervisor "
-        ":prompt prompts.supervisor :inputs () "
-        ":timeout-sec 20 :returns ProviderSteeringDirective) "
-        ":observes worker)) "
-        "worker))",
-    )
-    for prompt_name in ("worker", "supervisor"):
-        prompt_path = tmp_path / "prompts" / f"{prompt_name}.md"
-        prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path.write_text("Prompt.\n", encoding="utf-8")
-
-    result = compile_stage3_module(
-        path,
-        entry_workflow="entry",
-        provider_externs={
-            "providers.worker": "codex",
-            "providers.supervisor": "supervisor-provider",
-        },
-        prompt_externs={
-            "prompts.worker": "prompts/worker.md",
-            "prompts.supervisor": "prompts/supervisor.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-    bundle = result.validated_bundles["entry"]
-    node = next(iter(bundle.ir.nodes.values()))
-
-    assert isinstance(node.execution_config, ProviderSupervisionStepConfig)
-    worker_contract = (
-        node.execution_config.worker.provider_config.common.output_bundle
-    )
-    assert worker_contract["fields"][0]["json_pointer"] == ""
-    assert worker_contract["fields"][0]["type"] == "value"
-    assert bundle.surface.outputs["__result__"].definition["kind"] == "value"
-    assert bundle.surface.outputs["__result__"].definition["type"] == "value"

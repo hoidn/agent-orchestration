@@ -34,7 +34,6 @@ FORBIDDEN_SOURCE_SHAPE_TOKENS = (
 SOURCE_SHAPE_GUARD_PATHS = (
     REPO_ROOT / "orchestrator" / "workflow_lisp" / "phase_family_boundary.py",
     REPO_ROOT / "orchestrator" / "workflow_lisp" / "workflows.py",
-    REPO_ROOT / "orchestrator" / "workflow_lisp" / "lowering" / "phase_scope.py",
 )
 
 

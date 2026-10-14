@@ -12,7 +12,7 @@ from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from tests.test_workflow_run_ref_child import _build_path_fixture, _git
+from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture, _git
 from tests.workflow_lisp_closed_program_helpers import install
 
 

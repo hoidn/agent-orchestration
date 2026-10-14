@@ -141,6 +141,18 @@ schema notation, not authored workflow files.
     ([State](state.md#memo-records)); commands, and every target through
     2.34, keep the workspace-relative spelling above. See
     [Step IO](io.md#evaluated-command-and-provider-io-target-235).
+  - On the evaluated route the output-contract block states the delivery the
+    runtime selected. A provider that receives `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`
+    gets the file action first, pointing at the `- path:` line that names its
+    attempt's result file (rendering `file/1`), and
+    the relpath guidance only when the contract carries a path type; a provider
+    bound to an `omp` template keeps the earlier rendering (`legacy`), whose text
+    includes the final-assistant-text branch that transport materializes. The
+    rendering an attempt used is recorded as the provider input part `delivery`
+    and replayed as recorded ([State](state.md#memo-records)). Authored prompts
+    carry no delivery instructions; a `provider_result_missing` failure names
+    the head of the provider's stdout in its error text
+    ([design](../docs/design/provider_result_delivery.md)).
   - For v2.15 contracts, provider prompt composition renders validated
     effect-boundary `guidance`, field guidance, ordered `guidance_context`, and
     discriminant-ordered `guidance_by_variant` as data in the output-contract

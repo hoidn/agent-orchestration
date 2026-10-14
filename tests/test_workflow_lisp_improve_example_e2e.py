@@ -30,9 +30,7 @@ from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.types import PreparedProviderPolicy
-from orchestrator.workflow.executor import WorkflowExecutor
-from tests.test_workflow_lisp_generic_unions_runtime import _PostCommitInterruption
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args
+from tests.test_workflow_evaluated_cli import _run_args
 from tests.workflow_lisp_improve_example_sources import (
     APPROVED_LAUNCH,
     EXHAUSTED_LAUNCH,
@@ -65,26 +63,26 @@ PROVIDERS = {
 
 
 def _approve(tag: str):
-    return lambda hook: {"variant": "APPROVE", "evidence": {"notes": f"{tag}:ok:{hook['proposal__hypothesis']}"}}
+    return lambda hook: {"variant": "APPROVE", "evidence": {"notes": f"{tag}:ok:{hook[1]}"}}
 
 
 def _block(tag: str):
-    return lambda hook: {"variant": "BLOCKED", "reason": {"issue": f"{tag}:blocked:{hook['proposal__hypothesis']}"}}
+    return lambda hook: {"variant": "BLOCKED", "reason": {"issue": f"{tag}:blocked:{hook[1]}"}}
 
 
 def _revise(tag: str):
-    return lambda hook: {"variant": "REVISE", "feedback": {"notes": f"{tag}:add-{len(hook['proposal__parameters'])}"}}
+    return lambda hook: {"variant": "REVISE", "feedback": {"notes": f"{tag}:add-{len(hook[2])}"}}
 
 
 def _first_draft(then):
     """Ask for one revision, then answer with `then`."""
 
-    return lambda hook: (then if "+r" in hook["proposal__hypothesis"] else _revise("methods"))(hook)
+    return lambda hook: (then if "+r" in hook[1] else _revise("methods"))(hook)
 
 
 def _reviser(hook: dict) -> dict:
-    parameters = [*hook["proposal__parameters"], {"name": hook["review__notes"], "value": len(hook["proposal__parameters"])}]
-    return {"hypothesis": hook["proposal__hypothesis"] + "+r", "parameters": parameters}
+    parameters = [*hook[2], {"name": hook[3], "value": len(hook[2])}]
+    return {"hypothesis": hook[1] + "+r", "parameters": parameters}
 
 
 # Workspace and public entry.
@@ -92,7 +90,7 @@ def _reviser(hook: dict) -> dict:
 
 def _install(root: Path, source: str) -> dict[str, Path]:
     source_path = root / "improve_experiment_proposal.orc"
-    source_path.write_text(source, encoding="utf-8")
+    source_path.write_text(source.replace('"2.33"', '"2.35"'), encoding="utf-8")
     shutil.copytree(EXAMPLE_PROMPTS, root / "prompts" / "workflows" / "improve_experiment_proposal")
     (root / "scripts").mkdir()
     (root / "scripts" / "launch_experiment.py").write_text(LAUNCH_PROBE, encoding="utf-8")
@@ -101,9 +99,13 @@ def _install(root: Path, source: str) -> dict[str, Path]:
         "source_root": root,
         "providers": root / "providers.json",
         "prompts": EXAMPLE_INPUTS / "prompts.json",
-        "commands": LEGACY_COMMANDS,
+        "commands": root / "commands.json",
         "inputs": root / "inputs.json",
     }
+    commands = json.loads(LEGACY_COMMANDS.read_text())
+    for binding in commands.values():
+        binding["closure"] = ["scripts/launch_experiment.py"]
+    files["commands"].write_text(json.dumps(commands))
     files["providers"].write_text(json.dumps(PROVIDERS), encoding="utf-8")
     files["inputs"].write_text(json.dumps({"question": QUESTION}), encoding="utf-8")
     return files
@@ -120,7 +122,7 @@ class _Agents:
         policy = PreparedProviderPolicy(
             provider_name=provider_name, model=None, effort=None, timeout_sec=None, input_mode="stdin"
         )
-        hook = {k: v for k, v in kwargs["context"]["inputs"].items() if not k.startswith("__")}
+        hook = self.bound_inputs
         prompt = str(kwargs.get("prompt_content", ""))
         invocation = SimpleNamespace(
             provider_name=provider_name, prompt=prompt, prepared_prompt=prompt, prepared_provider_policy=policy,
@@ -130,7 +132,7 @@ class _Agents:
 
     def execute(self, invocation, **_kwargs):
         hook = invocation.hook
-        self.calls.append((invocation.provider_name, hook["proposal__hypothesis"], hook.get("review__notes")))
+        self.calls.append((invocation.provider_name, hook[1], (hook[3] if len(hook) > 3 else None)))
         Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(
             json.dumps(self.answers[invocation.provider_name](hook)), encoding="utf-8"
         )
@@ -140,6 +142,12 @@ class _Agents:
         )
 
     def installed(self, stack: ExitStack) -> None:
+        from orchestrator.workflow.evaluated import effect_inputs
+        resolve = effect_inputs.resolve_provider_input
+        def observe_native_inputs(node, operands, **kwargs):
+            self.bound_inputs = tuple(value.json_value() for value in operands[:len(node["inputs"])])
+            return resolve(node, operands, **kwargs)
+        stack.enter_context(patch.object(effect_inputs, "resolve_provider_input", observe_native_inputs))
         stack.enter_context(patch.object(ProviderExecutor, "prepare_invocation", self.prepare_invocation))
         stack.enter_context(patch.object(ProviderExecutor, "execute", self.execute))
 
@@ -167,7 +175,8 @@ def _resume(root: Path, agents: _Agents) -> dict:
     with ExitStack() as stack:
         agents.installed(stack)
         assert resume_workflow(run_id=run_id, retry_delay_ms=0) == 0
-    return json.loads((root / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
+    from tests.workflow_evaluated_totality_helpers import checked_run
+    return checked_run(root)[1]
 
 
 def _launched(root: Path) -> list[dict]:
@@ -175,28 +184,8 @@ def _launched(root: Path) -> list[dict]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
 
 
-def _after_hook_commit(hook: str, iteration: int):
-    """Interrupt right after the call of `hook` in `iteration` is committed."""
-
-    original = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_nested_step_commit
-
-    def interrupt(self, **kwargs):
-        original(self, **kwargs)
-        if kwargs["iteration_index"] == iteration and kwargs["step"].get("name", "").endswith(f"::{hook}"):
-            raise _PostCommitInterruption
-
-    return patch.object(WorkflowExecutor, "_emit_lexical_checkpoint_shadow_after_nested_step_commit", interrupt)
 
 
-def _after_iteration_commit(iteration: int):
-    original = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_repeat_until_commit
-
-    def interrupt(self, step, progress):
-        original(self, step, progress)
-        if progress.get("last_condition_result") is False and progress.get("current_iteration") == iteration:
-            raise _PostCommitInterruption
-
-    return patch.object(WorkflowExecutor, "_emit_lexical_checkpoint_shadow_after_repeat_until_commit", interrupt)
 
 
 # Expected hook operations and executor inputs per scenario.
@@ -248,45 +237,36 @@ def test_executor_consumes_the_returned_proposal(workspace: Path, reviewer, call
     result = _run(files, agents)
 
     assert (result.exit_code, dict(result.workflow_outputs), agents.calls, _launched(workspace)) == (
-        0, {"return__status": status}, calls, [launched],
+        0, {"status": status}, calls, [launched],
     )
 
 
-@pytest.mark.parametrize(
-    ("interruption", "calls_before"),
-    [
-        (_after_hook_commit("review-proposal", 0), APPROVED_CALLS[:1]),
-        (_after_hook_commit("revise-proposal", 0), APPROVED_CALLS[:2]),
-    ],
-    ids=["after-committed-review", "after-committed-revision"],
-)
-def test_resume_reaches_the_same_consumer_without_repeating_provider_work(
-    workspace: Path, interruption, calls_before
-) -> None:
-    files = _install(workspace, EXAMPLE.read_text(encoding="utf-8"))
-    agents = _Agents({"methods": _first_draft(_approve("methods")), "reviser": _reviser})
-    with pytest.raises(_PostCommitInterruption):
-        _run(files, agents, interruption)
-    assert (agents.calls, _launched(workspace)) == (calls_before, [])
-
-    state = _resume(workspace, agents)
-
-    assert (state["status"], state["workflow_outputs"], agents.calls, _launched(workspace)) == (
-        "completed", {"return__status": "launched"}, APPROVED_CALLS, [APPROVED_LAUNCH],
-    )
 
 
 def test_resume_after_the_final_continue_projects_the_latest_proposal(workspace: Path) -> None:
     files = _install(workspace, EXAMPLE.read_text(encoding="utf-8"))
     agents = _Agents({"methods": _revise("methods"), "reviser": _reviser})
-    with pytest.raises(_PostCommitInterruption):
-        _run(files, agents, _after_iteration_commit(2))
+    from orchestrator.workflow.evaluated import runtime
+    class AfterLastProvider(BaseException):
+        pass
+    append = runtime.append_record
+    providers = []
+    def interrupt_after_last_provider(path, record, **kwargs):
+        result = append(path, record, **kwargs)
+        if record["record"] == "committed" and record["effect_class"] == "provider":
+            providers.append(record)
+            if len(providers) == len(EXHAUSTED_CALLS):
+                raise AfterLastProvider
+        return result
+    with patch.object(runtime, "append_record", interrupt_after_last_provider):
+        with pytest.raises(AfterLastProvider):
+            _run(files, agents)
     assert (agents.calls, _launched(workspace)) == (EXHAUSTED_CALLS, [])
 
     state = _resume(workspace, agents)
 
-    assert (state["status"], state["workflow_outputs"], agents.calls, _launched(workspace)) == (
-        "completed", {"return__status": "held"}, EXHAUSTED_CALLS, [EXHAUSTED_LAUNCH],
+    assert (state.terminal.data["outcome"], state.terminal.data["value"], agents.calls, _launched(workspace)) == (
+        "completed", {"status": "held"}, EXHAUSTED_CALLS, [EXHAUSTED_LAUNCH],
     )
 
 

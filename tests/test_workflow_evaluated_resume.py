@@ -109,7 +109,7 @@ def test_preflight_refusals_preserve_all_evidence(tmp_path, monkeypatch, caplog,
 
 def _configured_completed(tmp_path, monkeypatch):
     from orchestrator.cli.commands.run import run_workflow
-    from orchestrator.cli.commands.prompt_run_service import run_namespace
+    from orchestrator.cli.main import create_parser
     source, _ = _build(tmp_path)
     for name in ('providers', 'prompts', 'commands', 'imports'):
         (tmp_path / (name + '.json')).write_text('{}')
@@ -121,8 +121,8 @@ def _configured_completed(tmp_path, monkeypatch):
     source.write_text(source.read_text().replace('(export run)', '(import lib/helpers/math :only (noop)) (export run)'))
     file = tmp_path / 'inputs.json'
     file.write_text('{"score": 0.1, "threshold": 0.25}')
-    args = run_namespace(workflow=str(source), provider_externs_file='providers.json',
-                         prompt_externs_file='prompts.json', state_dir=None)
+    args = create_parser().parse_args(['run', str(source), '--provider-externs-file', 'providers.json',
+                                       '--prompt-externs-file', 'prompts.json'])
     args.source_root = ['lib', '.', 'evaluated', '.']
     args.entry_workflow = None
     args.imported_workflow_bundles_file = 'imports.json'
@@ -387,13 +387,13 @@ def test_force_restart_evaluated_is_an_explicit_refusal(tmp_path, monkeypatch, c
     '{"schema_version":"2.1","result_persistence_profile":null,"x":NaN}',
     '{"schema_version":"2.1","result_persistence_profile":null,"x":1e999}',
 ])
-def test_malformed_selector_cannot_fall_back_to_legacy(tmp_path, monkeypatch, selector):
+def test_malformed_selector_refuses_before_evaluated_dispatch(tmp_path, monkeypatch, selector):
     _, run_root = _completed(tmp_path)
     (run_root / 'run.json').write_text(selector)
     monkeypatch.chdir(tmp_path)
     def forbidden(*args, **kwargs):
-        pytest.fail('invalid selector reached legacy state')
-    monkeypatch.setattr('orchestrator.cli.commands.resume.StateManager', forbidden)
+        pytest.fail('invalid selector reached evaluated dispatch')
+    monkeypatch.setattr('orchestrator.cli.commands.evaluated.resume_evaluated_workflow', forbidden)
     before = _snapshot(tmp_path / '.orchestrate')
     assert resume_workflow(run_root.name) == 2
     assert _snapshot(tmp_path / '.orchestrate') == before

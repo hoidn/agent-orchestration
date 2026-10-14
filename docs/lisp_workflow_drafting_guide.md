@@ -58,8 +58,9 @@ at 2.36 for a `std/improve` review loop, or the
 [complete 2.35 lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate).
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
-retain their older targets as historical generate/select and hand-written
-review-loop patterns; they are not current evaluated copy targets.
+now target 2.35. Their [experiment recipe](../experiments/orc_vs_single_call/README.md)
+provides the manifests and prerequisites for serial candidate selection and
+the review/revise loop; historical comparison results keep their original scope.
 
 Use the retired [Workflow Drafting Guide](workflow_drafting_guide.md) only to
 translate or audit historical YAML/YML definitions and evidence. It is not an
@@ -69,11 +70,12 @@ Fresh workflow execution is ORC-only. `run` accepts a path whose suffix
 compares case-insensitively as `.orc` and rejects every other source with
 `.orc required` before creating state. The production YAML parser and PyYAML
 runtime dependency are removed. Persisted legacy runs retain state-only
-report/dashboard compatibility without source parsing. `resume` loads the
-selected persisted state, then every recorded non-`.orc` suffix fails closed
-with `.orc required`, regardless of run terminality or force-restart
-selection. Legacy state is viewable only through state-only report/dashboard
-observability.
+report/dashboard compatibility without source parsing. Old workflow profiles
+refuse `resume`, force-restart and invalidation with
+`workflow_execution_profile_retired` before changing retained run contents.
+Native `prompt resume` remains separate. The
+[executable support boundary](../specs/cli.md#executable-support-boundary)
+owns the exact refusal and retained-release limits.
 
 If new work needs a form that the current `.orc` frontend does not support, do
 not create a lower-level or YAML workflow as a workaround. Record a capability
@@ -138,12 +140,12 @@ remain deferred rather than approximated.
 
 Before copying a checked-in `.orc` example or fixture, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide
-the copy-safety and route/readiness classification: `wcc_default` is current
-WCC/schema-2 evidence, `legacy_schema1_compat` is compatibility evidence,
+the copy-safety and route/readiness classification: `wcc_default` records
+historical WCC/schema-2 evidence, `legacy_schema1_compat` is historical compatibility evidence,
 `evaluated_execution` is checked closed-program evidence for a registered
 evaluated entry target, `migration_candidate` is not a promotion claim, and
-`stale_needs_update` is not current guidance. Flat compiler/lowering tests
-pin `LoweringRoute` unless testing the default; evaluated evidence uses the
+`stale_needs_update` is not current guidance. Old flat entries are now `historical_negative` with no executable readiness
+or flat metadata; preserved route labels do not permit launch. Evaluated evidence uses the
 public CLI and checked closed artifact, with both flat lowering fields unset.
 The registry remains v1. Its label does not select runtime behavior or certify
 editor support; `copy_safety` and direct owner evidence still govern guidance. Leaf compile/runtime
@@ -382,7 +384,11 @@ Author new entry workflows at target **2.35** or **2.36**. Both select evaluated
 execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
 shown in [Section 13.7](#137-improve). An older module can still be imported
 when its own syntax gates and the evaluated graph's admission rules allow it.
-This guide's scope does not remove older runtime targets or convert their runs.
+Executable entries through 2.34 are retired; older typed imports do not select
+an old executor. No run conversion is performed. The
+[Phase 5 plan](plans/2026-10-07-evaluated-execution-phase-5-plan.md)
+owns bounded 2.37 parallel support and its remaining qualification; it is not
+general copy-safe guidance.
 
 Values are evaluated in lexical scope; they are not stored as generated steps.
 Effects execute in source order and are recorded in `memo.jsonl`. A committed
@@ -1390,20 +1396,23 @@ Provider context binding and capture are unavailable at targets 2.35/2.36 and
 refuse with `closed_program_gap`. Use typed results or artifact handoffs within
 the admitted provider subset. The
 [provider-context contract](design/workflow_lisp_provider_context_values.md)
-owns the separate context surface and its coverage limits.
+preserves the historical context/type contract and its coverage limits;
+its executable route is retired, with no evaluated capture port selected.
 
 ### Durable Host Input
 
 `request-input` is unavailable at targets 2.35/2.36 and refuses with
 `closed_program_gap`. The [human-input contract](../specs/dsl.md)
-owns the separate host-input lifecycle.
+preserves the historical host-input lifecycle; old-profile answer/cancel
+mutation is retired. No current executable host-input lane is available.
 
 ### Explicit OMP Session Publication
 
 Provider session artifacts are unavailable at targets 2.35/2.36 and refuse
 with `closed_program_gap`. The typed result bundle remains provider-result
 authority. See the [session publication contract](../specs/providers.md)
-and [OMP runbook](omp_upgrade_runbook.md) for the separate session surface.
+and [OMP runbook](omp_upgrade_runbook.md) for historical session publication and retained verified native `prompt resume`
+(including `--in-place`), without creating scaffolds or compiling old workflows.
 
 ### Provider Prompt Dependencies
 
@@ -1634,21 +1643,21 @@ older-profile snapshot evidence does not qualify evaluated readers.
 Phased provider delivery and materialization attempts are unavailable at
 2.35/2.36 and refuse with `closed_program_gap`. Use ordinary composed delivery
 for admitted calls. The [prompt-calculus contract](design/workflow_lisp_prompt_calculus.md)
-owns the separate phased lifecycle.
+preserves the historical phased lifecycle; no current executable port is selected.
 
 ## 8A. Bounded Live Provider Supervision
 
 `with-live-providers` is unavailable at targets 2.35/2.36 and refuses with
 `closed_program_gap`. See the
 [live-binding contract](design/workflow_lisp_provider_live_binding.md) for the
-separate one-worker/one-supervisor surface.
+historical one-worker/one-supervisor surface; its execution is retired.
 
 ## 8B. Recorded Provider Peer Groups
 
 `with-live-provider-peers` is unavailable at targets 2.35/2.36 and refuses with
 `closed_program_gap`. See the
 [peer-messaging contract](design/workflow_lisp_provider_peer_messaging.md) for
-the separate cooperative-provider surface.
+the historical cooperative-provider surface; its execution is retired.
 
 ## Pinned Child Runs And Trials
 
@@ -1665,9 +1674,9 @@ for source, pin and root requirements. The public lifecycle recipe above
 records the run-reference root used on resume.
 
 Bundle-mode run references and `trial` are unavailable at both evaluated
-targets and refuse with `closed_program_gap`. The `trial` CLI also refuses an
-evaluated entry with `evaluated_execution_unavailable`; it is not an execution
-route for these programs. The [DSL contract](../specs/dsl.md) and
+targets and refuse with `closed_program_gap`. The `trial` CLI and old trial SDK
+are retired; the CLI refuses with `workflow_execution_target_retired` before
+source reads or publication. The [DSL contract](../specs/dsl.md) and
 [CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.
 
 ## 9. Structured Command Results
@@ -1869,6 +1878,31 @@ Prefer `match` for exhaustive deconstruction; use typed discriminant `if` or
 `cond` when branch control is clearer. Current evaluated composition evidence,
 including nested native union values, is in
 [`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py).
+
+### 10.1 A Step That May Be Unable To Answer
+
+When a provider may be unable to do its task, give its result a variant that
+says so, instead of leaving it to invent a value or fail the attempt:
+
+```lisp
+(defunion MoveOutcome
+  (Moved (position String))
+  (Blocked (reason String)))
+
+(let* ((white (provider-result providers.white :prompt prompts.white
+                :inputs (state.position) :returns MoveOutcome)))
+  (match white
+    ((Moved w) (continue (loop-state :like state :position w.position)))
+    ((Blocked w)
+      (done (variant GameOutcome Blocked :side "White" :reason w.reason)))))
+```
+
+`Blocked` is an ordinary committed result; the runtime does not retry it, and
+`match` routes it to a typed outcome of the loop (here the workflow's own
+`GameOutcome` union). Authored prompts carry no transport instructions, such as
+result-file paths or environment variables: the runtime renders the delivery
+contract for the transport it selects. The full example is
+[`experiments/agent_chess/chess.orc`](../experiments/agent_chess/chess.orc).
 
 ## 11. Contexts And Derived State
 
@@ -2304,6 +2338,9 @@ Usually avoid:
 - variant proof mechanics;
 - runtime state path explanations;
 - duplicated generated output contracts;
+- result delivery instructions, such as result-file paths or
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`: the runtime renders the delivery contract
+  for the transport it selected (§10.1);
 - broad ambient doc globs;
 - instructions to echo session IDs or pointer paths.
 

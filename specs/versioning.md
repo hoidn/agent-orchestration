@@ -4,8 +4,9 @@
 
 Language versions govern syntax/types and remain registered for typed imports
 and analysis; they are distinct from executable support. The owner-selected
-2026-10-13 retirement cutoff is an implemented candidate pending [gate R
-qualification and delivery](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md).
+2026-10-13 retirement cutoff follows the CLI support boundary; the
+[closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+records implementation and delivery status.
 It admits evaluated entries/profiles at 2.35/2.36 and the registered bounded
 2.37 surface with its existing limits, not entries through 2.34. The
 [CLI support boundary](cli.md#executable-support-boundary) owns refusal
@@ -917,6 +918,27 @@ no new package version or universal recovery guarantee is inferred.
     no evaluated replacement. Sites/exits:
     [CLI](cli.md#diagnostics). Candidate cutoff evidence:
     `tests/test_executor_retirement_cutoff.py`; final qualification belongs to R.
+
+  - Provider result delivery rendering: on the evaluated route the output
+    contract block leads with the delivery the runtime selected (the attempt's
+    result file, rendering `file/1`), renders the relpath guidance only when
+    the contract carries a path type, and records the rendering as the
+    provider input part `delivery`; a committed effect replays with the
+    rendering it recorded, so a wording change never diverges it. Providers
+    bound to `omp` templates keep the earlier rendering (`legacy`). A
+    `provider_result_missing` failure carries the head of the provider's
+    stdout in its error text. The original through-2.34 flat prompt comparison
+    is historical retained-release/snapshot evidence; those executable entries
+    now refuse under the [CLI cutoff](cli.md#executable-support-boundary).
+    Preserving `legacy` for evaluated replay, OMP integration and retained
+    shared composition does not admit a flat executor. Evidence:
+    `tests/test_prompt_contract.py`,
+    `tests/test_workflow_evaluated_resume_replay.py`,
+    `tests/test_workflow_evaluated_provider_delivery.py`,
+    `tests/test_workflow_evaluated_providers.py` and the checked-in pre-change
+    run `tests/fixtures/provider_delivery_pre_change/`, whose public resume
+    fails if the `legacy` bytes drift
+    ([design](../docs/design/provider_result_delivery.md)).
 
 - v2.36 additions (W3)
   - Target 2.36 selects the existing evaluated route. The closed program's

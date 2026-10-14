@@ -20,17 +20,11 @@ import shutil
 import subprocess
 import sys
 import time
-from contextlib import ExitStack, chdir
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from orchestrator.cli.commands.run import run_workflow
-from orchestrator.providers.executor import ProviderExecutor
-from tests.test_workflow_lisp_generic_union_provider_results import _Provider
-from tests.test_workflow_lisp_generic_unions_runtime import _log, _public_run_files, _write_probe, _write_sources
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args
+from tests.workflow_evaluated_totality_helpers import _public_run_files, _write_probe, _write_sources
 from tests.test_workflow_resume_after_known_failure import SEQUENCE
 
 
@@ -92,20 +86,10 @@ def _run_target(files: dict[str, Path]) -> list[str]:
     ]
 
 
-def _orchestrator(workspace: Path, *argv: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        argv,
-        cwd=workspace, env=ENV, capture_output=True, text=True, timeout=120, check=False,
-    )
 
 
-def _target_run_ids(root: Path) -> list[str]:
-    return sorted(path.name for path in (root / ".orchestrate" / "runs").iterdir())
 
 
-def _target_status(root: Path) -> str:
-    [run_id] = _target_run_ids(root)
-    return json.loads((root / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))["status"]
 
 
 @pytest.fixture
@@ -135,25 +119,6 @@ def active_target(tmp_path: Path):
 # Watchdog workspace W.
 
 
-class _RepairAgent(_Provider):
-    """Does what the repair prompt asks: repair the fault, resume the target from its workspace, report."""
-
-    def __init__(self) -> None:
-        super().__init__(REPAIRED)
-        self.resumes: list[int] = []
-
-    def execute(self, invocation, **kwargs):
-        watch = json.loads(Path("state/watchdog/watch.json").read_text(encoding="utf-8"))
-        target = Path(watch["target_workspace"])
-        (target / "check.broken").unlink()
-        self.resumes.append(
-            _orchestrator(target, sys.executable, "-m", "orchestrator", "resume", watch["target_run_id"]).returncode
-        )
-        report = Path(REPAIRED["repair_report_path"])
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("# Repair report\n", encoding="utf-8")
-        report.with_name("repair-result.json").write_text(json.dumps(REPAIRED), encoding="utf-8")
-        return super().execute(invocation, **kwargs)
 
 
 def _install_watchdog(root: Path) -> Path:
@@ -163,89 +128,12 @@ def _install_watchdog(root: Path) -> Path:
     return root
 
 
-def _watchdog(workspace: Path, *, target: Path, agent: _Provider):
-    """The documented launch (workflows/README.md), run from `workspace`."""
-
-    library = _install_watchdog(workspace) / "workflows/library"
-    files = {
-        "source": library / "generic_run_watchdog/watchdog.orc",
-        "source_root": library,
-        "providers": Path(f"{EXTERNS}.providers.json"),
-        "prompts": Path(f"{EXTERNS}.prompts.json"),
-    }
-    inputs = workspace / "inputs.json"
-    inputs.write_text(
-        json.dumps(
-            {
-                "target_run_id": _target_run_ids(target)[0],
-                "target_workspace": str(target),
-                "state_root": "state/watchdog",
-                "evidence_root": "artifacts/work/watchdog",
-                "repair_result_target_path": "artifacts/work/watchdog/repair-result.json",
-            }
-        ),
-        encoding="utf-8",
-    )
-    args = _run_args(files, input_file=inputs)
-    args.entry_workflow = ENTRY
-    args.command_boundaries_file = f"{EXTERNS}.commands.json"
-    with ExitStack() as stack:
-        stack.enter_context(patch.dict(os.environ, {"PYTHONPATH": str(REPO_ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}))
-        stack.enter_context(chdir(workspace))
-        stack.enter_context(patch.object(ProviderExecutor, "prepare_invocation", agent.prepare_invocation))
-        stack.enter_context(patch.object(ProviderExecutor, "execute", agent.execute))
-        stack.enter_context(patch.object(sys, "argv", ["orchestrator", "run", str(files["source"])]))
-        return run_workflow(args)
 
 
-def test_a_watchdog_in_its_own_workspace_reports_an_active_target_as_running(tmp_path: Path, active_target) -> None:
-    agent = _Provider(REPAIRED)
-
-    result = _watchdog(tmp_path / "W", target=active_target["source_root"], agent=agent)
-
-    assert (result.exit_code, dict(result.workflow_outputs), agent.calls) == (
-        0,
-        {
-            "return__watch_status": "RUNNING_OK",
-            "return__repair_status": "NO_ACTION",
-            "return__recovery_action": "NONE",
-            "return__watchdog_result_path": "state/watchdog/watchdog-result.json",
-        },
-        0,
-    )
 
 
-def test_the_repair_resumes_a_failed_target_from_its_workspace_and_the_target_completes(tmp_path: Path) -> None:
-    target = _install_target(tmp_path / "T", marker="broken")
-    assert _orchestrator(target["source_root"], *_run_target(target)).returncode == 1
-    [target_run] = _target_run_ids(target["source_root"])
-    agent = _RepairAgent()
-
-    result = _watchdog(tmp_path / "W", target=target["source_root"], agent=agent)
-
-    assert {
-        "watchdog": (result.exit_code, result.workflow_outputs["return__repair_status"]),
-        "resumes": agent.resumes,
-        "target": (_target_status(target["source_root"]), _log(target["probe"])),
-        "runs in T": _target_run_ids(target["source_root"]),
-        "watchdog run in W": (tmp_path / "W/.orchestrate/runs" / result.run_id / "state.json").is_file(),
-    } == {
-        "watchdog": (0, "FIXED_AND_RESUMED"),
-        "resumes": [0],
-        "target": ("completed", ["prepare", "check", "check", "finish"]),
-        "runs in T": [target_run],
-        "watchdog run in W": True,
-    }
 
 
-def test_a_watchdog_started_in_the_target_workspace_while_the_target_is_active_is_refused(
-    tmp_path: Path, active_target, caplog: pytest.LogCaptureFixture
-) -> None:
-    agent = _Provider(REPAIRED)
-
-    result = _watchdog(active_target["source_root"], target=active_target["source_root"], agent=agent)
-
-    assert (result.exit_code, "workspace_run_already_active" in caplog.text, agent.calls) == (2, True, 0)
 
 
 @pytest.mark.parametrize(

@@ -625,26 +625,13 @@ def compile_typed_program_with_result(
     source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[TypedProgram, Stage3CompileResult]:
     from .. import compiler
-    from .target import _entry_target_header_from_tree
+    from .target import _entry_target_header_from_tree, _raise_retired_execution_target, refuse_compiled_retired_entry_target
 
     trace = source_read_trace or SourceReadTrace()
     parse_tree = read_sexpr_file(entry_path, source_read_trace=trace)
     target, target_span = _entry_target_header_from_tree(parse_tree)
     if not syntax.target_dsl_uses_evaluated_execution(target):
-        raise LispFrontendCompileError(
-            (
-                LispFrontendDiagnostic(
-                    code="evaluated_execution_target_required",
-                    message=(
-                        f"typed-program compilation requires target DSL "
-                        f"{syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION} or newer; "
-                        f"the entry declares {target}"
-                    ),
-                    span=target_span,
-                    phase="typecheck",
-                ),
-            )
-        )
+        _raise_retired_execution_target(target, target_span)
     source_syntax = syntax.build_syntax_module(parse_tree)
     result = compiler.compile_stage3_entrypoint(
         entry_path,
@@ -660,6 +647,9 @@ def compile_typed_program_with_result(
         lowering_route=None,
         source_read_trace=trace,
         _standalone_entry_namespace=(None if source_syntax.module_name is not None else "entry"),
+    )
+    refuse_compiled_retired_entry_target(
+        entry_path, result.entry_result.module.target_dsl_version, trace.raw_bytes_by_path,
     )
     typed_program = _select_and_finalize_typed_program(
         result.entry_result,
@@ -865,6 +855,84 @@ def resolve_workflow_target(source_program, owner, target_name, *, workflow_owne
     if caller_signature is None or caller_signature.name == workflow.signature.name:
         caller_signature = workflow.signature
     return caller_signature, workflow, target_program
+
+
+
+def _workflow_import_boundary_signature(source_program, workflow):
+    """Project admitted omitted contexts without changing native callable identity."""
+    from ..contracts import derive_workflow_boundary_fields, _dedupe_projection_fields
+    from ..phase import PHASE_CONTEXT_NAME, derived_private_child_context_eligibility
+    from ..workflows import _iter_workflow_call_sites
+    from .names import canonical_type_descriptor
+
+    memo = {}
+    active = set()
+
+    def project(program, native):
+        identity = (id(program), native.definition.name)
+        if identity in memo:
+            return memo[identity]
+        if identity in active:
+            raise LispFrontendCompileError((LispFrontendDiagnostic(
+                code="closed_program_gap",
+                message=f"recursive call of {native.definition.name!r}",
+                span=native.definition.span, form_path=native.definition.form_path,
+                phase="lowering",
+            ),))
+        active.add(identity)
+        signature = native.signature
+        params = dict(signature.params)
+        requirements = dict(signature.hidden_context_requirements)
+        allowed = signature.allowed_hidden_context_callees | signature.entry_hidden_context_callees
+        typed_definition = replace(native.definition, body=native.typed_body.expr)
+        for callee_name, supplied in _iter_workflow_call_sites(typed_definition):
+            resolved = resolve_workflow_target(program, native.definition.name, callee_name)
+            if resolved is None:
+                continue
+            caller_view, callee, callee_program = resolved
+            boundary = project(callee_program, callee)
+            native_formals = dict(callee.signature.params)
+            for formal, requirement in boundary.hidden_context_requirements.items():
+                if formal in supplied or formal in caller_view.param_defaults:
+                    continue
+                if formal in native_formals and caller_view.name not in allowed:
+                    continue
+                if (requirement.context_kind == PHASE_CONTEXT_NAME
+                    and derived_private_child_context_eligibility(signature, param_name=formal).allowed):
+                    continue
+                type_ref = dict(boundary.params)[formal]
+                if formal in params:
+                    if (requirements.get(formal) == requirement
+                        and canonical_type_descriptor(params[formal], typed=program)
+                        == canonical_type_descriptor(type_ref, typed=callee_program)):
+                        continue
+                    previous = requirements.get(formal)
+                    phase_conflict = (previous is not None
+                        and previous.context_kind == requirement.context_kind
+                        and previous.phase_name != requirement.phase_name)
+                    raise LispFrontendCompileError((LispFrontendDiagnostic(
+                        code=("promoted_entry_hidden_phase_ctx_ambiguous" if phase_conflict
+                              else "workflow_boundary_projection_collision"),
+                        message=f"conflicting imported hidden context boundary for `{formal}`",
+                        span=native.definition.span, form_path=native.definition.form_path,
+                        phase="typecheck",
+                    ),))
+                params[formal] = type_ref
+                requirements[formal] = requirement
+        boundary = replace(signature, params=tuple(params.items()),
+            hidden_context_requirements=requirements)
+        type_env = program._workflow_type_env_with_retained_nominal_names(native.definition.name)
+        fields = [field for formal, type_ref in boundary.params
+            for field in derive_workflow_boundary_fields(type_ref,
+                generated_name=formal, source_path=(formal,),
+                span=boundary.span, form_path=boundary.form_path,
+                allow_transportable_value=True, type_env=type_env)]
+        _dedupe_projection_fields(fields, span=boundary.span, form_path=boundary.form_path)
+        active.remove(identity)
+        memo[identity] = boundary
+        return boundary
+
+    return project(source_program, workflow)
 
 
 def workflow_import_is_admitted(source_program, owner, target_name, signature, workflow, target_program):

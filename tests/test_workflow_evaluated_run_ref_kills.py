@@ -15,7 +15,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
-from tests.test_workflow_evaluated_run_ref import _authority, _repeated_fixture
+from tests.test_workflow_evaluated_run_ref import _authority, _repeated_fixture, _assert_retired_child_refusal
 from tests.workflow_evaluated_run_ref_helpers import (
     _assert_no_child_resume, _json_lines, _kill_own_group, _run_to_exit,
     _start_cli, _wait_for_marker,
@@ -23,18 +23,15 @@ from tests.workflow_evaluated_run_ref_helpers import (
 
 
 def _assert_child_terminal(request, child_result, expected_input, child_target):
-    version = "v1" if child_target == "2.24" else "v2"
-    assert child_result["schema_version"] == f"run_ref_path_child_result.{version}"
+    assert child_target == "2.35"
+    assert child_result["schema_version"] == "run_ref_path_child_result.v2"
     assert child_result["workflow_outputs"] == {"__result__": expected_input}
     child_root = Path(request["child_state_dir"]) / request["child_run_id"]
-    if child_target == "2.24":
-        assert json.loads((child_root / "state.json").read_bytes())["status"] == "completed"
-    else:
-        child_authority = load_run_authority(child_root)
-        child_memo = read_memo(child_authority.memo_path, site_classes(child_authority.program))
-        assert child_memo.terminal.data == {
-            "record": "terminal", "outcome": "completed", "value": expected_input,
-        }
+    child_authority = load_run_authority(child_root)
+    child_memo = read_memo(child_authority.memo_path, site_classes(child_authority.program))
+    assert child_memo.terminal.data == {
+        "record": "terminal", "outcome": "completed", "value": expected_input,
+    }
 
 
 def _assert_attempt_manifest(attempt_root, manifest, bindings, request):
@@ -261,6 +258,10 @@ def _assert_completed_readonly(parent, refs, control, authority, orphan):
 @pytest.mark.parametrize("child_target", ["2.24", "2.35"], ids=["legacy", "evaluated"])
 @pytest.mark.parametrize("gap", ["pending", "memo"], ids=["pending-before-memo", "memo-before-finalize"])
 def test_kill_at_parent_settlement_gap_recovers(tmp_path, gap, child_target):
+    if child_target == "2.24":
+        parent, source, refs = _repeated_fixture(tmp_path, child_target=child_target)
+        _assert_retired_child_refusal(parent, source, refs)
+        return
     baseline_source, baseline_memo, baseline_request = _baseline(tmp_path / "baseline", child_target)
     parent = tmp_path / "interrupted" / "parent"
     parent.mkdir(parents=True)

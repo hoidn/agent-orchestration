@@ -5,12 +5,13 @@ Verifies that provider parameters support variable substitution in nested
 dicts and lists per specs/providers.md.
 """
 
-import pytest
 from pathlib import Path
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
-from orchestrator.providers.types import ProviderTemplate, ProviderParams, InputMode
-from orchestrator.variables.substitution import VariableSubstitutor
+from orchestrator.providers.types import (
+    ProviderTemplate,
+    InputMode,
+)
 
 
 def test_at44_nested_dict_substitution():
@@ -243,49 +244,3 @@ def test_at44_complex_pointer_resolution():
     import json
     assert substituted["data"]["combined"][0] == json.dumps(["line1", "line2"])
     assert substituted["data"]["combined"][1] == "additional"
-
-
-def test_at44_integration_with_workflow():
-    """AT-44: Integration test with full workflow context."""
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from orchestrator.state import StateManager
-
-    # Create a minimal workflow with nested provider params
-    workflow = {
-        "version": "1.1",
-        "name": "test_nested_params",
-        "providers": {
-            "test": {
-                "command": ["echo"],
-                "defaults": {
-                    "base_config": {
-                        "model": "default",
-                        "temperature": 0.5
-                    }
-                }
-            }
-        },
-        "context": {
-            "user_model": "gpt-4",
-            "user_temp": "0.8"
-        },
-        "steps": [
-            {
-                "name": "test_step",
-                "provider": "test",
-                "provider_params": {
-                    "base_config": {
-                        "model": "${context.user_model}",
-                        "temperature": "${context.user_temp}"
-                    },
-                    "additional": {
-                        "feature": "enabled"
-                    }
-                }
-            }
-        ]
-    }
-
-    # This test ensures the integration works end-to-end
-    # The actual execution would require full setup
-    assert workflow["steps"][0]["provider_params"]["base_config"]["model"] == "${context.user_model}"

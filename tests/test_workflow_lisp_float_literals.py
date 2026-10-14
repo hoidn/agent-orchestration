@@ -23,12 +23,9 @@ from orchestrator.workflow_lisp.syntax import (
     build_syntax_module,
     syntax_node_datum,
 )
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _compile,
-    _public_run,
-    _public_run_files,
-    _write_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _public_run_files, _write_sources
+from tests.workflow_evaluated_totality_helpers import _public_run
+from tests.test_workflow_lisp_generic_unions_runtime import _compile
 
 
 LITERALS = [
@@ -85,7 +82,7 @@ def test_literal_runs_in_position(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, literal: str, value: float, position: str
 ) -> None:
     result, body, expected = POSITIONS[position]
-    _write_sources(tmp_path, {"grt/entry.orc": _source(body.format(lit=literal), result=result)})
+    _write_sources(tmp_path, {"grt/entry.orc": _source(body.format(lit=literal), result=result, target="2.35")})
     monkeypatch.chdir(tmp_path)
 
     outcome = _public_run(_public_run_files(tmp_path, {}))
@@ -127,6 +124,9 @@ def test_target_233_keeps_todays_refusal(tmp_path: Path, literal: str, code: str
 def test_target_233_keeps_accepting_a_decimal_parameter_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = _source("x", target="2.33").replace("(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
     _write_sources(tmp_path, {"grt/entry.orc": source})
+    _compile(tmp_path)  # The original2.33 default remains a native frontend contract.
+    path = tmp_path / "grt" / "entry.orc"
+    path.write_text(source.replace('"2.33"', '"2.35"'))
     monkeypatch.chdir(tmp_path)
 
     outcome = _public_run(_public_run_files(tmp_path, {}))
@@ -181,7 +181,7 @@ def test_a_macro_template_may_hold_a_decimal_literal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, literal: str
 ) -> None:
     source = (
-        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.34")\n'
+        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
         "  (defmodule grt/entry)\n  (export run)\n"
         f"  (defmacro emit () {literal})\n"
         "  (defworkflow run () -> Float\n    (emit)))\n"

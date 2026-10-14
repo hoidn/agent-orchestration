@@ -749,18 +749,11 @@ class Builder:
         )
 
     def _context_group_matches(self, workflow: Any, source_program: Any, requirement: Any) -> bool:
-        facts = getattr(source_program, "_compiled_bundle_boundaries", {}).get(workflow.definition.name)
-        if not isinstance(facts, (tuple, list)) or len(facts) < 3:
-            return False
-        projection = facts[2]
-        for group in getattr(projection, "private_runtime_context_bindings", ()):
-            if (
-                group.context_family == getattr(requirement, "context_kind", None)
-                and group.derived_phase_identity == getattr(requirement, "phase_name", None)
-                and group.source_param_name == getattr(requirement, "param_name", None)
-            ):
-                return True
-        return False
+        from .frontend import _workflow_import_boundary_signature
+
+        signature = _workflow_import_boundary_signature(source_program, workflow)
+        candidate = signature.hidden_context_requirements.get(requirement.param_name)
+        return candidate is not None and self._context_requirement_matches(candidate, requirement)
 
     def _context_field_pairs(
         self,

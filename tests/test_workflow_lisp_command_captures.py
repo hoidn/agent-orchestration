@@ -13,7 +13,6 @@ from tests.test_workflow_lisp_command_scopes import _capture_rows, _compile, _wa
 
 def test_closed_workflow_ref_aliases_remain_compile_time_values(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_command_scopes import _compile, _walk
-    from orchestrator.workflow_lisp.lowering import core
     from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.wcc.model import WccLet
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
@@ -25,9 +24,6 @@ def test_closed_workflow_ref_aliases_remain_compile_time_values(tmp_path, monkey
         declarations='(defworkflow leaf () -> Result (record Result :i 7 :s "leaf"))')
     typed = summary.ControlFacts(**facts, closed_program=True,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
-    def reject_legacy(*args, **kwargs):
-        pytest.fail("closed compile-time workflow alias reached legacy inference")
-    monkeypatch.setattr(core, "_resolve_lowering_expr_type", reject_legacy)
     expr = program.entry.typed_body.expr
     _, value, type_ref = summary._binding_control_fact(expr.bindings[0][1],
         name="original", facts=typed, local_values={})
@@ -320,7 +316,6 @@ def test_forwarded_workflow_reference_is_not_a_runtime_command_root(tmp_path):
 def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path, monkeypatch, wrapped):
     from orchestrator.workflow_lisp.expression_traversal import walk_expr
     from orchestrator.workflow_lisp.expressions import LetStarExpr
-    from orchestrator.workflow_lisp.lowering import core
     from orchestrator.workflow_lisp.closed import command_templates as summary
     from orchestrator.workflow_lisp.wcc.elaborate import binding_type_for_elaboration
 
@@ -333,10 +328,6 @@ def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path,
         _assert_unwrapped_capture_keeps_its_type(program, inputs, facts)
     captures = _capture_rows(program.entry.typed_body.expr)
     assert captures
-    def reject_legacy(*args, **kwargs):
-        pytest.fail("closed capture reached legacy inference")
-    monkeypatch.setattr(core, "_infer_inline_binding_type", reject_legacy)
-    monkeypatch.setattr(core, "_resolve_lowering_expr_type", reject_legacy)
     typed = ControlFacts(**facts, closed_program=True,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
     _assert_capture_binding_uses_incoming_type(program, inputs, typed, captures, binding_type_for_elaboration, summary)

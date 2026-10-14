@@ -2650,3 +2650,37 @@ def test_native_return_type_not_transportable_fixture_rejected() -> None:
         )
 
     _assert_diagnostic_code(excinfo, "provider_result_return_type_invalid")
+
+
+@pytest.mark.parametrize(
+    "type_name, source, expected",
+    [
+        ("Int", "(let* ((base 2) (next (+ base 3))) (+ next next))", 10),
+        ("List[Int]", "(list/map ((item (list 1 2))) (let* ((next (+ item 1))) (+ next next)))", [4, 6]),
+        ("Float", "(if true 7.0 (/ 1.0 2.0))", 7.0),
+    ],
+)
+def test_guidance_constant_retains_lexical_bindings_and_lazy_branches(
+    type_name: str, source: str, expected: object,
+) -> None:
+    syntax_module = build_syntax_module(read_sexpr_text(
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.35"))',
+        source_path="guidance_constants.orc",
+    ))
+    env = FrontendTypeEnvironment.from_module(elaborate_definition_module(syntax_module))
+    node = _expression_syntax(source)
+    result_type = env.resolve_type(type_name, span=node.span, form_path=node.form_path)
+    expression = elaborate_expression(node, bound_names=frozenset(),
+        target_dsl_version=env.target_dsl_version)
+    typed = typecheck_expression(expression, type_env=env, value_env={})
+    constant = typed.expr
+    if type_name == "Float":
+        from dataclasses import replace
+
+        # A prechecked dead operand can fail at evaluation; the serializer keeps it lazy.
+        operand = replace(constant.else_expr.args[1], value=0.0)
+        constant = replace(constant, else_expr=replace(constant.else_expr,
+            args=(constant.else_expr.args[0], operand)))
+    assert result_guidance_module.evaluate_closed_pure_expr(
+        constant, result_type=result_type, type_env=env,
+    ) == expected

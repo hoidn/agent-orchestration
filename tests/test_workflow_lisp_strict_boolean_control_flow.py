@@ -18,28 +18,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     serialize_diagnostic,
 )
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs, walk_expr
-from orchestrator.workflow_lisp.expressions import (
-    CallExpr,
-    CommandResultExpr,
-    EnumMemberExpr,
-    FieldAccessExpr,
-    FunctionCallExpr,
-    IfExpr,
-    LetStarExpr,
-    ListMapEffectExpr,
-    ListMapExpr,
-    LiteralExpr,
-    LoopRecurExpr,
-    MatchExpr,
-    NameExpr,
-    ProviderResultExpr,
-    PureOpExpr,
-    UnionVariantTagExpr,
-    WithLiveProviderPeersExpr,
-    WithLiveProvidersExpr,
-    WithPhaseExpr,
-    elaborate_expression,
-)
+from orchestrator.workflow_lisp.expressions import CallExpr, CommandResultExpr, FieldAccessExpr, FunctionCallExpr, IfExpr, LetStarExpr, ListMapExpr, LiteralExpr, LoopRecurExpr, MatchExpr, NameExpr, ProviderResultExpr, PureOpExpr, UnionVariantTagExpr, WithLiveProviderPeersExpr, WithLiveProvidersExpr, WithPhaseExpr, elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -1330,42 +1309,6 @@ def test_strict_loop_body_and_exhaustion_normalize_in_scope(tmp_path: Path) -> N
     # Body `and` folds inside the loop body.
     assert isinstance(loops[0].body_expr, LetStarExpr)
 
-def test_strict_loop_body_list_map_handled_not_none_falloff(tmp_path: Path) -> None:
-    """A ``list/map`` value in a loop body is handled by the loop-body
-    normalizer (no implicit-``None`` dispatch fall-off), reaching Stage 3
-    lowering with a clean diagnostic."""
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typed_body(
-            "\n".join(
-                [
-                    "(workflow-lisp",
-                    '  (:language "0.1")',
-                    '  (:target-dsl "2.26")',
-                    "  (defmodule loop_list_map)",
-                    "  (export gate)",
-                    "  (defworkflow gate ((items List[Bool])) -> Bool",
-                    "    (if (loop/recur",
-                    "          :max 1",
-                    "          :state (loop-state (count Int 0) (done Bool false))",
-                    "          :on-exhausted true",
-                    "          (fn (state)",
-                    "            (let* ((flags (list/map ((f items)) f)))",
-                    "              (if (and (= state.count 0) (= state.done false))",
-                    "                  (done true)",
-                    "                  (continue (loop-state :like state :count 1 :done true))))))",
-                    "        (command-result yes",
-                    '          :argv ("python" "scripts/yes.py")',
-                    "          :returns Bool)",
-                    "        (command-result no",
-                    '          :argv ("python" "scripts/no.py")',
-                    "          :returns Bool))))",
-                ]
-            ),
-            tmp_path,
-            command_names=("yes", "no"),
-        )
-    assert excinfo.value.diagnostics[0].code == "workflow_return_not_exportable"
 
 def test_strict_command_traversal_includes_adapter_inputs() -> None:
     """The generic traversal covers certified adapter inputs, not only argv."""
@@ -2148,82 +2091,14 @@ _SHADOWED_ATTEMPT_MODULE = "\n".join(
 )
 
 
-def _compile_variant_proof_module(
-    tmp_path: Path,
-    source: str,
-    *,
-    provider_externs: dict[str, str] | None = None,
-    prompt_externs: dict[str, dict[str, str]] | None = None,
-    extra_command_boundaries: dict[str, ExternalToolBinding] | None = None,
-):
-    path = tmp_path / "variant_lowering.orc"
-    path.write_text(source, encoding="utf-8")
-    command_boundaries = {
-        "send": ExternalToolBinding(
-            name="send", stable_command=("python", "scripts/send.py")
-        ),
-        "skip": ExternalToolBinding(
-            name="skip", stable_command=("python", "scripts/skip.py")
-        ),
-    }
-    if extra_command_boundaries:
-        command_boundaries.update(extra_command_boundaries)
-    return compile_stage3_module(
-        path,
-        provider_externs=provider_externs or {},
-        prompt_externs=prompt_externs or {},
-        command_boundaries=command_boundaries,
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
 
 
-def test_strict_local_union_effectful_branch_lowers(tmp_path: Path) -> None:
-    """A let*-bound union narrowed and consumed in an effectful branch lowers."""
-
-    result = _compile_variant_proof_module(tmp_path, _LOCAL_UNION_MODULE)
-    assert result.lowered_workflows
 
 
-def test_strict_composed_discriminant_condition_lowers(tmp_path: Path) -> None:
-    """A `not`-composed discriminant condition lowers and guards its leaf."""
-
-    result = _compile_variant_proof_module(
-        tmp_path,
-        _COMPOSED_CONDITION_MODULE,
-        provider_externs={"providers.execute": "fake-execute"},
-        prompt_externs={"prompts.execute": {"input_file": "prompts/execute.md"}},
-    )
-    steps = result.lowered_workflows[0].authored_mapping["steps"]
-    if_step = next(step for step in steps if "if" in step)
-    send_step = next(
-        step for step in if_step["then"]["steps"] if step.get("name", "").endswith("__send")
-    )
-    assert send_step["requires_variant"] == {"step": "gate__attempt", "value": "COMPLETED"}
 
 
-def test_strict_two_union_shared_consumer_raises(tmp_path: Path) -> None:
-    """A leaf consuming two narrowed unions raises a guard conflict."""
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_variant_proof_module(
-            tmp_path,
-            _TWO_UNION_MODULE,
-            provider_externs={"providers.execute": "fake", "providers.review": "fake"},
-            prompt_externs={
-                "prompts.execute": {"input_file": "prompts/execute.md"},
-                "prompts.review": {"input_file": "prompts/review.md"},
-            },
-        )
-    assert excinfo.value.diagnostics[0].code == "variant_guard_consumer_conflict"
 
 
-def test_strict_shadowed_union_binding_stale_proof_skipped(tmp_path: Path) -> None:
-    """A shadowed union binding ignores a stale outer-identity singleton fact."""
-
-    result = _compile_variant_proof_module(tmp_path, _SHADOWED_ATTEMPT_MODULE)
-    assert result.lowered_workflows
 
 _VALUE_IF_MODULE = "\n".join(
     [
@@ -2250,24 +2125,6 @@ _VALUE_IF_MODULE = "\n".join(
 )
 
 
-def test_strict_pure_value_if_variant_narrowed_reports_diagnostic(
-    tmp_path: Path,
-) -> None:
-    """A pure value-position `if` narrowing a runtime union reports a clean
-    diagnostic instead of the raw WCC ``TypeError`` (variant_case narrowing in
-    the ``kind: "if"`` payload is a follow-up design revision)."""
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_variant_proof_module(
-            tmp_path,
-            _VALUE_IF_MODULE,
-            extra_command_boundaries={
-                "probe": ExternalToolBinding(
-                    name="probe", stable_command=("python", "scripts/probe.py")
-                ),
-            },
-        )
-    assert excinfo.value.diagnostics[0].code == "pure_expr_operand_type_mismatch"
 
 
 _NESTED_IF_CONDITION_MODULE = "\n".join(
@@ -2299,19 +2156,6 @@ _NESTED_IF_CONDITION_MODULE = "\n".join(
 )
 
 
-def test_strict_nested_if_condition_preserves_proof_context(tmp_path: Path) -> None:
-    """A nested `if` inside a strict condition keeps its branch proof contexts."""
-
-    result = _compile_variant_proof_module(
-        tmp_path,
-        _NESTED_IF_CONDITION_MODULE,
-        extra_command_boundaries={
-            "check": ExternalToolBinding(
-                name="check", stable_command=("python", "scripts/check.py")
-            ),
-        },
-    )
-    assert result.lowered_workflows
 _MATCH_ATTEMPT_MODULE = "\n".join(
     [
         "(workflow-lisp",
@@ -2337,36 +2181,6 @@ _MATCH_ATTEMPT_MODULE = "\n".join(
 )
 
 
-def test_strict_match_restore_descriptors_not_subject_name_coupled(
-    tmp_path: Path,
-) -> None:
-    """A ``match`` whose subject is not named ``decision`` still emits its
-    restore binding and proof descriptors (no ``__match_decision`` spelling)."""
-
-    result = _compile_variant_proof_module(
-        tmp_path,
-        _MATCH_ATTEMPT_MODULE,
-        extra_command_boundaries={
-            "probe": ExternalToolBinding(
-                name="probe", stable_command=("python", "scripts/probe.py")
-            ),
-            "emit": ExternalToolBinding(
-                name="emit", stable_command=("python", "scripts/emit.py")
-            ),
-        },
-    )
-    points = result.lowered_workflows[0].lexical_checkpoint_points
-    proofs = [
-        descriptor
-        for point in points
-        for descriptor in (point.get("restore", {}).get("proof_descriptors") or [])
-    ]
-    match_proofs = [
-        proof for proof in proofs if proof.get("subject_binding") == "attempt"
-    ]
-    assert match_proofs
-    assert match_proofs[0]["union_type"] == "BranchDecision"
-    assert match_proofs[0]["source_step_name"].endswith("__match_attempt")
 
 
 # ---------------------------------------------------------------------------
@@ -2652,7 +2466,60 @@ def test_cond_exhaustive_terminal_shadowed_discriminant_not_folded(
     assert len(completed) == 2
 
 
-def test_cond_mid_list_true_dead_terminal_body_not_emitted(tmp_path: Path) -> None:
+def test_strict_local_union_effectful_branch_typechecks(tmp_path: Path) -> None:
+    """A let*-bound union narrowed and consumed in an effectful branch typechecks."""
+
+    body = _typed_body(_LOCAL_UNION_MODULE, tmp_path, command_names=("send", "skip"))
+    assert isinstance(body, LetStarExpr)
+    branch = body.body
+    assert isinstance(branch, IfExpr)
+    assert isinstance(branch.then_expr, CommandResultExpr)
+    assert branch.then_expr.step_name == "send"
+    assert any(isinstance(n, FieldAccessExpr) and n.fields == ("execution_report",)
+               for n in walk_expr(branch.then_expr))
+
+
+def test_strict_nested_if_condition_preserves_proof_context(tmp_path: Path) -> None:
+    """A nested `if` inside a strict condition keeps its branch proof contexts."""
+
+    body = _typed_body(_NESTED_IF_CONDITION_MODULE, tmp_path,
+                       command_names=("check", "send", "skip"))
+    assert isinstance(body, LetStarExpr)
+    condition_binding = body.body
+    assert isinstance(condition_binding, LetStarExpr)
+    condition_name, condition_expr = condition_binding.bindings[0]
+    assert isinstance(condition_expr, IfExpr)
+    branch = condition_binding.body
+    assert isinstance(branch, IfExpr)
+    assert isinstance(branch.condition_expr, NameExpr)
+    assert branch.condition_expr.name == condition_name
+    assert any(isinstance(n, CommandResultExpr) and n.step_name == "check"
+               for n in walk_expr(condition_expr))
+    assert any(isinstance(n, FieldAccessExpr) and n.fields == ("execution_report",)
+               for n in walk_expr(condition_expr))
+    assert branch.then_expr.step_name == "send"
+    assert branch.else_expr.step_name == "skip"
+
+
+def test_strict_shadowed_union_binding_stale_proof_skipped(tmp_path: Path) -> None:
+    """A shadowed union binding ignores a stale outer-identity singleton fact."""
+
+    body = _typed_body(_SHADOWED_ATTEMPT_MODULE, tmp_path,
+                       command_names=("send", "skip"))
+    assert isinstance(body, LetStarExpr)
+    branch = body.body
+    assert isinstance(branch, IfExpr)
+    shadow = branch.then_expr
+    assert isinstance(shadow, LetStarExpr)
+    assert shadow.bindings[0][0] == "attempt"
+    assert isinstance(shadow.bindings[0][1], NameExpr)
+    assert shadow.bindings[0][1].name == "review"
+    assert isinstance(shadow.body, IfExpr)
+    assert isinstance(shadow.body.condition_expr, NameExpr)
+    assert shadow.body.condition_expr.name == "ready"
+
+
+def test_cond_mid_list_true_erases_dead_terminal_from_typed_body(tmp_path: Path) -> None:
     """A dead trailing clause after a mid-list `true` is erased, not emitted
     into the rewritten tree, so WCC never infers its unproved field access."""
 
@@ -2676,5 +2543,10 @@ def test_cond_mid_list_true_dead_terminal_body_not_emitted(tmp_path: Path) -> No
             "        ((= attempt.variant BLOCKED) attempt.blocker_reason)))))",
         ]
     )
-    result = _compile_variant_proof_module(tmp_path, source)
-    assert result.lowered_workflows
+    body = _typed_body(source, tmp_path)
+    assert isinstance(body, LetStarExpr)
+    assert isinstance(body.body, IfExpr)
+    assert isinstance(body.body.else_expr, NameExpr)
+    assert body.body.else_expr.name == "report"
+    assert not any(isinstance(n, FieldAccessExpr) and n.fields == ("blocker_reason",)
+                   for n in walk_expr(body))

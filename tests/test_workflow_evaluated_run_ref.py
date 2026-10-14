@@ -12,11 +12,7 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
-from tests.e2e.test_e2e_workflow_lisp_run_ref import (
-    _assert_complete_evidence_manifest,
-    _commit_candidate,
-    _git,
-)
+from tests.workflow_evaluated_run_ref_helpers import _assert_complete_evidence_manifest, _commit_candidate, _git
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_resume import _resume_cli
@@ -95,6 +91,19 @@ def test_public_legacy_parent_retains_child_target_boundary(tmp_path, child_targ
     assert "workflow_execution_target_retired" in result.stderr
     assert not (parent / ".orchestrate").exists()
     assert not refs.exists()
+
+
+def _assert_retired_child_refusal(parent, source, refs, *inputs):
+    result = _run_cli(parent, str(source), *inputs, "--run-ref-root", str(refs))
+    assert result.returncode == 1, result.stderr
+    authority, memo = _authority(parent)
+    assert memo.terminal.data["outcome"] == "failed"
+    assert memo.terminal.data["code"] == "trial_program_compile_rejected"
+    assert not memo.active_commits and not memo.settlements
+    assert not list(refs.rglob("run.json")) and not list(refs.rglob("state.json"))
+    (request_path,) = refs.rglob("child-request.json")
+    request = json.loads(request_path.read_bytes())
+    assert not (Path(request["child_state_dir"]) / request["child_run_id"]).exists()
 
 
 def _repeated_fixture(root, *, child_target="2.35", structure="direct", forwarding=False):

@@ -1,5 +1,11 @@
 # Two contracts, in ORC and in Python
 
+Scope: conceptual showcase recorded before the 2026-10-13
+[executor retirement](../../docs/design/workflow_lisp_executor_retirement.md).
+Old-header snippets remain syntax/type illustrations, not current executable
+recipes or measured equivalence. For runnable authoring use the
+[evaluated drafting guide](../../docs/lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today).
+
 The useful comparison is what connects an agent's instructions to the values
 and files a workflow can trust. These two conceptual showcases make that
 connection visible: a typed review result, then a prompt signature that also
@@ -70,7 +76,7 @@ Here are concrete structured answers and their consequences:
 | `{"variant":"REVISE","findings":["Clarify retries",7]}` | Wrong list element type; reject. |
 | `{"variant":"APPROVE","notes":"Fine","findings":[]}` | Field belonging to the inactive variant; reject. |
 
-Malformed JSON is also rejected. At the current target-2.34-and-earlier
+Malformed JSON is also rejected. At the historical target-2.34-and-earlier
 `variant_output` boundary, unrelated unknown keys are ignored: an additional
 `"debug":"x"` is not the same as including the other variant's `findings`.
 This is validation of the declared union, not a promise to reject every extra
@@ -397,10 +403,10 @@ For a complete ORC consumer, see
 and the library it uses,
 [`std/improve`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc).
 [`review_revise_design_docs.orc`](../../workflows/examples/review_revise_design_docs.orc)
-shows a real document-review prompt with an output position.
+is a historical document-review prompt/output-position reference; its entry
+is retired.
 
-The conceptual contracts above are implemented surfaces, but the current
-lowerer still restricts some combinations and expression positions. A valid
+The conceptual contracts above are implemented surfaces, but historical flat lowering and current evaluated admission are distinct. A valid
 fragment is not evidence that every surrounding program shape executes; use
 the [drafting guide's current program shapes](../../docs/lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today)
 and [capability matrix](../../docs/capability_status_matrix.md) before building

@@ -7,20 +7,29 @@
 > from the author. Tasks 1, 4 and 5 touch disjoint files and may run in
 > parallel; Task 2 follows Task 1; Task 3 follows Task 2; Task 6 follows all.
 
-**Status:** draft; no task selected. **Date:** 2026-10-13.
+**Status:** executed on 2026-10-13 on branch `feat/provider-result-delivery`; evidence in the [closeout](../reports/2026-10-13-provider-result-delivery-closeout.md). **Date:** 2026-10-13.
 **Design:** [provider result delivery](../design/provider_result_delivery.md).
 **Goal:** the evaluated route renders the delivery instruction for the file
 transport it selects, replays committed effects under the rendering they
 recorded, names the agent's reply in a missing-result failure, and gives
-authors a typed shape for inability; the flat route composes identical bytes.
+authors a typed shape for inability; the original flat-route byte comparison
+remains historical qualification against its retained release or snapshots.
 **Architecture:** one `delivery` keyword on the three structured-result
 renderers, one additive provider input part, one diagnostic string, one
 census script, one authoring recipe. No new target, header field, memo field,
 transport or retry policy.
 **Tech stack:** existing Python, Workflow Lisp, pytest, deterministic provider
 fixtures under `tests/`; no new dependency.
-**Tradeoff:** the `legacy` wording stays in the renderer for replay of
-evaluated runs committed before this change, after the flat route is gone.
+**Tradeoff:** `legacy` remains for earlier evaluated-effect replay, OMP
+integration and retained shared-composer contracts; it is not flat execution.
+
+Execution scope after integration: the [CLI cutoff](../../specs/cli.md#executable-support-boundary)
+rejects executable entries through 2.34 and old-profile resume/invalidation.
+Tasks below preserve the original delivery implementation/qualification sequence.
+Flat comparisons/captures use the original retained release/environment or stored
+byte oracles; no current test requires the removed flat executor. The shared
+`orchestrator/workflow/prompting.py` composer remains available for direct
+composition checks. The linked closeout retains the original results.
 
 ## Authorities And Selection
 
@@ -32,9 +41,9 @@ appended once), `specs/io.md` (provider request and attempt files),
 [design principle 30](../design/workflow_language_design_principles.md#30-provider-attention-is-a-bounded-resource-the-language-conserves).
 Paths are repository-root relative.
 
-Record an owner selection before Task 2 ships: the current rendering name
-(`file/1`) and the decision that omp-backed providers stay on `legacy` until
-their delivery is confirmed (design §Open Questions).
+Owner selection, recorded 2026-10-13: the current rendering name is
+`file/1`; providers bound to `omp` templates stay on `legacy` (their delivery
+is final assistant text materialized by the parent, `specs/providers.md`).
 
 ## Baseline And Evidence Location
 
@@ -59,8 +68,8 @@ evidence directory.
 
 - [ ] With the unmodified package, run a two-provider evaluated program through public `run` with deterministic fixture providers, interrupting after the first provider commits (reuse the kill helpers of `tests/test_workflow_evaluated_resume_kills.py`). Retain the run root as a test fixture: `memo.jsonl`, `closed_program.json`, `run.json`, the committed attempt directory.
 - [ ] Record the fixture's committed `input_parts` and confirm it has no `delivery` key.
-- [ ] Capture, with the same package, the composed prompt bytes of one flat-route step (target 2.34 or earlier) and of one evaluated provider effect for each renderer shape: non-record root, record, tagged union. Store them beside the fixture as byte oracles for Task 1's `legacy` check.
-- [ ] Run the baseline census (Task 4's script does not exist yet; use the pairing in the design's appendix) and store the table.
+- [ ] Original pre-retirement capture: with that retained release/environment, capture one through-2.34 flat-step prompt and one evaluated provider prompt for each renderer shape (non-record root, record, tagged union). Preserve the recorded byte oracles for Task 1's `legacy` check; current verification uses those snapshots and the shared composer, not old entry execution.
+- [ ] Run the baseline census (Task 4's script does not exist yet; use the pairing in the design's appendix) and store the table. Record when it was taken.
 
 **Done:** fixture and oracles exist with hashes recorded in the closeout.
 
@@ -74,7 +83,7 @@ evidence directory.
 - [ ] Add failing tests: for each of `render_output_bundle_contract_block`, `_render_root_output_bundle_contract_block` and `render_variant_output_contract_block`, `delivery="legacy"` equals the Task 0 oracle bytes for the same payload; `delivery="file"` contains the `- path:` line and the schema section, and contains the relpath guidance line iff the schema contains a `relpath` type (walk nested record fields, lists and variants). Assert structure and presence, not wording.
 - [ ] Implement `delivery: str = "legacy"` on the three renderers, a private `_schema_mentions_relpath(field)` predicate, and the `file` opening lines (action first, real path, environment variable as the same target, reply does not deliver). Keep `_RELPATH_GUIDANCE` unconditional under `legacy`.
 - [ ] Thread `delivery` through `_output_contract_prompt` and `assemble_provider_prompt` with default `legacy`; no caller opts in yet.
-- [ ] Adjust `tests/test_workflow_evaluated_prompts.py::*match_flat_executor*` so the comparison forces `legacy`, or compares everything except the structured-result block; state which in the test docstring.
+- [ ] Original flat-executor parity used `legacy` or excluded the structured-result block. Current `tests/test_workflow_evaluated_prompts.py` checks retained shared-composer/captured dataflow; preserve that comparison without restoring the old executor or its selectors.
 - [ ] Run narrow selectors, then `pytest -q tests/test_prompt_contract*.py tests/test_workflow_evaluated_prompts.py`.
 
 **Done:** both selectors render; the whole suite is unchanged because nothing opts in.
@@ -102,8 +111,8 @@ evidence directory.
 **Modify:** `orchestrator/workflow/evaluated/providers.py` (`provider_result`).
 **Tests:** `tests/test_workflow_evaluated_providers.py`, `tests/test_workflow_evaluated_views.py`.
 
-- [ ] Add failing tests: a fixture provider that prints a JSON string and exits 0 without writing the file fails with `provider_result_missing` whose `exit_info.error` contains the reply's head (bounded at 240 characters, whitespace collapsed); one that prints nothing has the unchanged message; `report` shows the error string. No result is committed; `resume` dispatches attempt 2.
-- [ ] Implement the excerpt read from the attempt's `stdout.txt` inside the existing `FileNotFoundError` branch. Memo row shape unchanged.
+- [ ] Add failing tests: a fixture provider that prints a JSON string and exits 0 without writing the file fails with `provider_result_missing` whose failure message (the failed terminal row's `message`, the view's `error.message`, `report`; memo `exit_info` stays `{}` per `specs/state.md`) contains the reply's head (bounded at 240 characters, whitespace collapsed); one that prints nothing has the unchanged message; `report` shows the error string. No result is committed; `resume` dispatches attempt 2.
+- [ ] Implement the excerpt read from the attempt's `stdout.txt` inside the existing `FileNotFoundError` branch, replacing non-printable characters before collapsing whitespace. Memo row shape unchanged.
 - [ ] Run the two modules.
 
 **Done:** scenario 2 of the design passes.
@@ -114,14 +123,14 @@ evidence directory.
 **Create:** `scripts/provider_delivery_census.py` (under 150 lines).
 **Tests:** `tests/test_provider_delivery_census.py` over a generated memo fixture.
 
-- [ ] Pair `started` rows with their `committed`/`failed` rows by identity and attempt; identify provider attempts by the presence of `prompt.txt` in the attempt directory; print per attempt: run, site (last identity segment), attempt, outcome (`committed`, `missing`, other failure code), delivery name from the part (absent → `legacy`), first 120 characters of `stdout.txt`; then counts by site and outcome. Accept several `--state-dir` arguments. Read-only.
-- [ ] Run it on the three baseline roots and store the table in the closeout; it must reproduce 4 missing of 67.
+- [ ] Pair `started` rows with their `committed`/`failed` rows by identity and attempt; identify provider attempts by the presence of `prompt.txt` in the attempt directory; print per attempt: run, site (last identity segment), attempt, outcome (`committed`, `missing`, other failure code), delivery name from the part (absent → `legacy`), first 120 characters of `stdout.txt`; then counts by site, delivery and outcome and a total broken down by delivery, so roots that hold both renderings (a run resumed across the change, an omp provider, the baseline runs) are never summed together. Accept several `--state-dir` arguments. Read-only; stdlib only.
+- [ ] Run it on the three baseline roots and store the table in the closeout; it must reproduce the 4 missing attempts (69 attempts, 64 committed, 1 open).
 
 **Done:** the baseline table is reproduced by the script.
 
 ## Task 5 — Authoring Recipe And Chess Example
 
-**Depends on:** nothing for the recipe; Task 1 for removing the prompt paragraphs.
+**Depends on:** nothing for the recipe; Task 2 for removing the prompt paragraphs (Task 1 switches no caller over, so a live game before Task 2 would meet the old block with no authored paragraph). Nothing from this task is merged or smoked before Task 2 lands.
 **Modify:** `docs/lisp_workflow_drafting_guide.md`,
 `experiments/agent_chess/{chess.orc,white.md,black.md,README.md}`.
 **Tests:** the chess example's existing compile check; a deterministic
@@ -173,6 +182,7 @@ Set `PYTHONPATH` to the checkout for every command run outside the repository
 root; the editable install points at a stale worktree.
 
 **Completion:** the design's success criteria hold with evidence in the
-closeout; the flat route's oracle bytes are unchanged; the pre-change fixture
+closeout; retained `legacy`/shared rendering matches the historical byte oracles
+without current flat execution; the pre-change evaluated fixture
 resumes without dispatching its committed effect; the chess example carries no
 transport prose and handles `Blocked`; reviews are PASS.

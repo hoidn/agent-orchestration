@@ -655,73 +655,30 @@ LSP messages.
 
 ### Shared read-only build core and imported bundles
 
-- V1 adds
-  `orchestrator.workflow_lisp.build.build_frontend_bundle_in_memory(request,
-  *, source_read_trace: SourceReadTrace | None = None) ->
-  FrontendInMemoryBuildResult` as the one public read-only core extracted from
-  `build_frontend_bundle`. It owns the existing `_resolve_request` and context
-  loaders, recursive `load_imported_workflow_bundle_manifest`, `_compile_entry`,
-  and a refactored `_select_and_reattach`. A caller-supplied collector is
-  threaded through every recursive imported `.orc` compile and the entry
-  compile; a caller that omits it gets one fresh collector for that build.
-  For a selected entry the result carries the compile result, selection,
-  reattached `LoadedWorkflowBundle`, imported bindings, fingerprint,
-  prospective build/provenance paths, `source_map_payload`,
-  workflow-boundary and persisted-surface payloads, canonical
-  semantic/Core-AST/executable payloads, the immutable compiler
-  `SourceReadTrace`, the separate configuration trace, and diagnostics. These
-  are values, not emitted artifacts.
-- `_select_and_reattach` becomes strictly in-memory. It serializes the source
-  map, computes the fingerprint and prospective
-  `<workspace>/.orchestrate/build/<fingerprint>` plus provenance paths,
-  reattaches that prospective provenance to the surface/Core AST/executable
-  IR, enriches the runtime plan from the in-memory source-map payload, derives
-  semantic IR from that same payload, and serializes every returned payload.
-  It must perform no `mkdir`, file read, file write, temporary emission, or
-  write-then-delete workaround.
-- The existing payload consumers gain one explicit optional parameter:
-  `orchestrator.workflow.core_ast.build_core_workflow_ast(...,
-  source_map_payload: Mapping[str, object] | None = None)`,
-  `orchestrator.workflow.lowering.build_loaded_workflow_bundle(...,
-  source_map_payload: Mapping[str, object] | None = None)`, and
-  `orchestrator.workflow.semantic_ir.derive_workflow_semantic_ir(...,
-  source_map_payload: Mapping[str, object] | None = None)`. The
-  `orchestrator.workflow_lisp.build._reattach_bundle_provenance` /
-  `_reattach_bundle_semantic_ir` path accepts and threads the same payload when
-  rebuilding/reattaching the selected Core AST, executable IR, runtime plan,
-  and semantic IR. A supplied payload, including an empty mapping, is
-  authoritative: none of these seams may inspect
-  `provenance.frontend_source_trace_path`.
-- `source_map_payload=None` retains the existing provenance-path read solely as
-  a compatibility fallback for a caller loading an already-persisted bundle
-  without an in-memory payload. The persistent build, LSP, and recursive
-  imported-manifest compilation paths always supply the payload and therefore
-  never take that fallback. This is not a second source-map interpretation:
-  both payload and legacy-path routes feed the same payload decoder and
-  Core-AST/semantic-IR constructors.
-- The existing persistent CLI/dashboard `build_frontend_bundle` becomes
-  `build_frontend_bundle_in_memory` followed by `_emit`. Only `_emit` creates
-  `build_root`, writes the authoritative `source_map_payload` as
-  `source_map.json`, and writes/validates the remaining artifacts and manifest.
-  The LSP calls only the in-memory core. The production imported-workflow
-  manifest loader recursively calls only that core for every compiled `.orc`
-  binding; it must not recurse through the persistent wrapper.
-- A library-only source with `entry_workflow=null` returns its full Stage-3
-  compile result/catalogs and no selection/bundle. Persistent builds continue
-  to require an exported selection exactly as today. An imported-manifest row
-  continues to require a selected bundle.
-- Given the same normalized request and byte-identical configuration, the
-  persistent path, LSP path, and recursive imported-manifest path must produce
-  canonical-identical entry selection, `LoadedWorkflowBundle`, semantic IR,
-  Core AST, executable IR and their serialized payloads, imported bindings,
-  build/import fingerprints, and prospective provenance paths before
-  persistence. The persistent result must remain identical after `_emit`
-  except that those prospective paths now exist. Only `_emit` may create or
-  mutate `.orchestrate/build`.
-- This is one extraction, not a second frontend: no LSP-specific parser,
-  compiler, manifest decoder, imported-bundle loader, selector, reattachment,
-  fingerprint, provenance calculator, source-map decoder, or defaulting
-  semantics are permitted.
+- `build_frontend_bundle_in_memory(request, *, source_read_trace=None)` returns
+  `FrontendInMemoryBuildResult`: `resolved_request`, `selected_workflow_name`,
+  `diagnostics`, `entry_selection`, `imported_workflow_bundles`, typed
+  `compile_result`, immutable `source_read_trace`, `configuration_trace` and
+  `compile_request_capture`.
+- The shared core resolves the request and configuration, loads admitted typed
+  imported manifests, captures their source/configuration evidence, then calls
+  `compile_stage3_entrypoint` once for the entry. The LSP remains one read-only
+  consumer of that analysis, without a parser, compiler or selection fallback.
+- Library-only analysis with `entry_workflow=null` returns typed catalogs without
+  selection. Selected analysis returns the same typed result with entry selection;
+  neither manufactures `LoadedWorkflowBundle`, flat IR, source-map artifacts,
+  prospective flat build paths or a runtime plan. Older-header analysis/imports
+  remain admitted independently of executable-target admission.
+- Persistent executable builds use the checked closed-program route. The LSP
+  never creates or mutates `.orchestrate/build`. Source spans/catalogs and exact
+  raw-byte source/configuration traces still govern diagnostics, navigation,
+  revision ownership and freshness.
+- The [retirement contract](workflow_lisp_executor_retirement.md) supersedes the
+  former `_select_and_reattach`/flat-payload extraction contract. L0/L1/L2/L3/L4/L5
+  implementation and verification records below retain their historical claims
+  and outcomes; references to flat payload parity in those records are historical
+  evidence, not obligations to restore the removed emitter. Evaluated navigation
+  qualification remains separately bounded; this change supplies no broader claim.
 
 ### Dependency revisions and reverse invalidation
 
@@ -1240,15 +1197,13 @@ Invariants that must hold after implementation:
    Neither workspace/root declarations nor that builtin root enter caller
    `source_roots`; that tuple contains exactly the ordered explicit
    `initializationOptions.source_roots`.
-9. **Build semantics have one owner.** Persistent build, LSP, and recursive
-   imported-manifest paths call the same compile/select/reattach core and
-   produce canonical-identical in-memory selection, bundle,
-   semantic/Core-AST/executable payloads, fingerprint, and prospective
-   provenance paths from the authoritative `source_map_payload`.
-10. **The LSP never writes to the workspace.** It and recursive imported
-    compilation use the read-only core; `_select_and_reattach` performs no
-    filesystem mutation or provenance-path read, and only the persistent build
-    wrapper may call `_emit` to create/write `.orchestrate/build`.
+9. **Build semantics have one owner.** LSP and recursive imported analysis use
+   the shared typed core: normalized request, entry selection, typed compile
+   result/catalogs, imported bindings and source/configuration traces. Executable
+   persistence checks the closed program through its ordinary build owner.
+10. **The LSP never writes to the workspace.** Read-only typed analysis neither
+    emits flat payloads nor creates `.orchestrate/build`; persistent executable
+    publication belongs to the checked closed-program build.
 11. **Stdout contains protocol frames only.** Logs, rendered compiler output,
    prints, and tracebacks cannot share the stdio transport stream.
 12. **Absence of the `lsp` extra changes nothing** for any other orchestrator
@@ -1334,15 +1289,10 @@ Failure behavior:
 - The CLI-parity check proves equality of the normalized pre-entry compile
   request first, then equality of the post-`with_diagnostic_metadata`
   structured diagnostic tuple. Codes-only parity is not sufficient evidence.
-- Shared-core evidence compares the persistent, LSP, and recursive imported
-  paths before `_emit`: selection, `LoadedWorkflowBundle`,
-  semantic/Core-AST/executable values and canonical payloads, imported
-  bindings, ordered `SourceReadTrace`, separate configuration trace,
-  fingerprints, and prospective provenance paths must be identical.
-  Payload-authority tests prove no source-map path is read when
-  `source_map_payload` is supplied; a distinct legacy test covers the
-  `None`/already-persisted fallback. A filesystem before/after proof
-  establishes zero writes for both read-only consumers.
+- Shared-core evidence compares normalized typed requests, selected entries,
+  compile catalogs, imported bindings and exact source/configuration traces.
+  Older-header imported analysis remains read-only. Filesystem before/after
+  checks prove zero writes; no flat-bundle/source-map parity is required.
 - Freshness evidence mutates raw bytes without LSP notifications and proves
   that the accepted vector hashes the exact `raw_bytes` whose strictly decoded
   text produced the parsed universal-newline view under `SourceReadTrace`,
@@ -2372,23 +2322,12 @@ not evidence that any L6 capability ships.
   - cursor positions elsewhere in the whole-form span, including arguments,
     return null. No test permits a whole-form fallback.
 - **Shared-core parity and zero writes:**
-  - for requests with no imports and with recursive imported manifests, the
-    persistent wrapper, LSP, and imported-manifest consumer return identical
-    selection, `LoadedWorkflowBundle`, semantic/Core-AST/executable values and
-    canonical payloads, imported bindings, ordered `SourceReadTrace`, separate
-    configuration trace, fingerprints, and prospective provenance paths before
-    `_emit`;
-  - a supplied `source_map_payload` remains authoritative when its prospective
-    provenance path is absent or contains different bytes; neither Core AST nor
-    semantic IR reads that path. A separate compatibility test proves
-    `source_map_payload=None` can still load one already-persisted bundle
-    through the legacy path fallback;
-  - tampering either consumer's normalized request or imported source/config
-    bytes breaks parity in both directions;
-  - LSP and recursive imported compilation leave the complete workspace tree,
-    including `.orchestrate/build`, byte-for-byte absent/unchanged; only the
-    persistent `_emit` creates the root and writes the source map and remaining
-    artifacts.
+  - LSP and recursively imported analysis share typed requests, selection,
+    compile catalogs and exact source/configuration evidence;
+  - changed requests or imported bytes break parity/freshness in either direction;
+  - both read-only consumers leave the workspace tree unchanged. Persistent
+    checked closed-program publication is a separate ordinary build operation.
+
 - **Integration (stdio, fixture workspace):**
   - exactly one initialized canonical root accepts contained entries; zero or
     multiple roots reject, an uncontained entry produces no state, and a
@@ -2557,9 +2496,9 @@ production compiler.
   pre-accept/navigation rechecks bind current workspace and builtin-stdlib
   bytes plus the frozen builtin-root identity. An arbitrary external
   dependency rejects.
-- Persistent, LSP, and recursive imported-manifest paths have exact in-memory
-  selection/bundle/semantic/Core-AST/executable/fingerprint/prospective-path
-  parity; read-only consumers write zero files and only `_emit` persists.
+- LSP and recursive imported analysis share exact typed request/selection,
+  catalogs and source/configuration evidence, with zero writes. Persistent
+  executable builds publish only the checked closed program.
 - Initialization configuration and its recursively imported source/config
   closure, single workspace root, and compiler-owned builtin-root identity are
   immutable: every change/missing/unreadable/root-set/identity case latches
@@ -2581,14 +2520,10 @@ production compiler.
   trace paths confined to those two roots → reject/stop; do not add any other
   external allowance, root arbitration, cross-root ownership, or per-root
   caches to v1.
-- The persistent, LSP, and recursive imported-manifest paths cannot share one
-  compile/select/reattach core with canonical-identical selection,
-  `LoadedWorkflowBundle`, semantic/Core-AST/executable payloads, fingerprint,
-  prospective provenance paths, and zero read-only writes → stop. In
-  particular, if `_select_and_reattach` or a payload-based Core AST /
-  semantic-IR seam still needs to create/read `source_map.json`, stop and
-  refactor that seam first; do not temporarily emit/delete files, remove
-  imported-bundle support, or duplicate loader semantics.
+- LSP and recursive imported analysis cannot share one typed core and exact
+  normalized requests, selection, catalogs and source/configuration traces with
+  zero writes → stop. Do not restore flat emission, emit/delete temporary files,
+  remove admitted typed imports or duplicate loader semantics.
 - A requested v1 lint/lowering override would require divergence from
   unchanged dry-run CLI configuration → reject the option and return it to a
   shared CLI/workspace-configuration design; do not add it to

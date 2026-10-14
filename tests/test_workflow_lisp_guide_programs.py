@@ -1,60 +1,32 @@
-"""Historical Workflow Lisp program-shape regression cases, run through the public entry.
+"""Guide-shape semantics on evaluated execution, with historical typed refusals.
 
-The original cases were introduced for the drafting guide's program-shapes section:
-`docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md`, Task 5. The fixtures remain
-useful historical coverage for target 2.29 and the 2.33/2.34 frontend, independent of current
-authoring guidance.
-
-Every program is a file of `tests/fixtures/workflow_lisp/guide_shapes/`. Each case runs one
-program at one target and asserts its recorded outcome:
-
-- `Runs`: exit 0, the workflow's value and the ordered command log;
-- `Refused`: exit 2 before any command ran, with the first diagnostic's code and location,
-  the stage that raised it (`STAGES`), and for the size bound the node count and the limit that
-  the diagnostic prints;
-- `FailsAtRunTime`: exit 1, the error code recorded in `state.json`, and the command log.
-
-A program is written at target 2.33; a case at another target rewrites that one header line.
-Commands are `probe.py`, which appends `<command> <n>` to `.orchestrate/guide-probe.log`.
+The original 2.29/2.33/2.34 outcomes remain as fixture provenance. Executable
+cases use 2.35 and native values; old lowering defects and payload limits are
+not current admission rules. Older language/type refusals still use typed
+analysis without dispatch or a flat backend.
 """
 
 from __future__ import annotations
 
 import json
-import logging
-import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from tests.test_workflow_lisp_generic_unions_runtime import _public_run
-from tests.test_workflow_lisp_totality_matrix import _record_diagnostic_origins
+from tests.workflow_evaluated_totality_helpers import public_run
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.build_manifest_io import _parse_command_boundaries_manifest
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = Path("tests/fixtures/workflow_lisp/guide_shapes")
 HEADER = '(:target-dsl "2.33")'
 
-_DIAGNOSTIC = re.compile(r"\.orc:(\d+):(\d+): \[([a-z0-9_]+)\]")
-_SIZE = re.compile(r"node_count=(\d+), max_nodes=(\d+)")
-
-# Where a refusal is raised: from the innermost frame outward, the first frame that holds a
-# fragment names the stage (the frames are recorded as the totality matrix records them).
-STAGES = (
-    ("/workflow_lisp/expressions.py:", "reader"),
-    ("/workflow_lisp/typecheck", "typecheck"),
-    ("/workflow/pure_expr.py:validate_pure_expr_payload", "payload validation"),
-    ("/workflow_lisp/wcc/elaborate.py:", "elaboration"),
-    ("/workflow_lisp/wcc/defunctionalize.py:", "defunctionalization"),
-    ("/workflow_lisp/lowering/origins.py:_remapped_shared_validation_diagnostic", "shared validation"),
-    ("/workflow_lisp/lowering/", "lowering"),
-)
-
-
 @dataclass(frozen=True)
 class Runs:
-    value: dict
+    value: object
     log: tuple[str, ...] = ()
 
 
@@ -238,6 +210,10 @@ def _install(root: Path, program: str, target: str) -> dict[str, Path]:
     }
     files["providers"].write_text("{}", encoding="utf-8")
     files["prompts"].write_text("{}", encoding="utf-8")
+    boundaries = json.loads(files["commands"].read_text())
+    for row in boundaries.values():
+        row["closure"] = [(SHAPES / "probe.py").as_posix()]
+    files["commands"].write_text(json.dumps(boundaries))
     return files
 
 
@@ -246,65 +222,92 @@ def _log(root: Path) -> tuple[str, ...]:
     return tuple(log.read_text(encoding="utf-8").splitlines()) if log.exists() else ()
 
 
-def _error_types(node: object) -> set[str]:
-    """Every `type` of an error mapping (one with a `message`) anywhere in `node`."""
 
-    if isinstance(node, dict):
-        found = {node["type"]} if isinstance(node.get("type"), str) and "message" in node else set()
-        return found.union(*(_error_types(value) for value in node.values()))
-    if isinstance(node, list):
-        return set().union(*(_error_types(item) for item in node))
-    return set()
+def _native(outcome: Runs) -> Runs:
+    fields = outcome.value
+    value = fields["__result__"] if "__result__" in fields else {
+        key.removeprefix("return__"): value for key, value in fields.items()
+    }
+    return Runs(value, outcome.log)
 
 
-def _stage(origins: list[tuple[str, list[str]]], code: str | None) -> str | None:
-    frames = next((frames for recorded, frames in origins if recorded == code), [])
-    return next((stage for frame in frames for fragment, stage in STAGES if fragment in frame), None)
+EVALUATED = {
+    case: _native(by_target["2.34"])
+    for case, (_, _, by_target) in CASES.items()
+    if isinstance(by_target.get("2.34"), Runs)
+}
+EVALUATED.update({
+    "loop_in_branch": Runs({"n": 3}, BUMPS_TO_3),
+    "loop_in_loop": Runs({"n": 4}, ("bump 0", "bump 1", "bump 0", "bump 1")),
+    "payload_too_large": Runs(300),
+    "map_effect_procedure_body": Runs([{"n": 3}, {"n": 1}, {"n": 2}], ("fetch 3", "fetch 1", "fetch 2")),
+    "helper_bound_in_loop": Runs({"a": 6, "b": 4, "turn": 4}, (*BUMPS_TO_3, "bump 3")),
+    "helper_literal_argument": Runs({"a": 6, "b": 4, "turn": 4}, (*BUMPS_TO_3, "bump 3")),
+    "if_over_lists": Runs({"n": 2, "parents": [{"n": 2}]}, ("fetch 2",)),
+    "if_over_records": Runs({"n": 4}, ("fetch 2",)),
+    "if_over_scalars": Runs({"n": 4}, ("fetch 2",)),
+    "effect_argument": Runs({"n": 27}, ("bump 26", "fetch 27")),
+    "on_exhausted_helper_in_branch": Runs({"n": 2, "status": "exhausted"}, ("bump 0", "bump 1")),
+    "on_exhausted_operator": Runs(6),
+    "on_exhausted_float_operator": Runs(2.5),
+    "on_exhausted_float_defun": Runs(2.5),
+    "decimal_arithmetic_zero_visits": FailsAtRunTime("pure_expr_division_by_zero", ()),
+})
+TYPED_REFUSALS = [
+    (case, target, outcome)
+    for case, (_, _, by_target) in CASES.items()
+    for target, outcome in by_target.items()
+    if isinstance(outcome, Refused) and outcome.stage in {"reader", "typecheck"}
+]
 
 
-def _observe(root: Path, monkeypatch, caplog, program: str, inputs: dict, target: str, outcome):
-    files = _install(root, program, target)
-    input_file = root / "inputs.json"
-    input_file.write_text(json.dumps(inputs), encoding="utf-8")
-    monkeypatch.chdir(root)
-    origins = _record_diagnostic_origins(monkeypatch)
-    with caplog.at_level(logging.ERROR):
-        result = _public_run(files, input_file=input_file)
-    if isinstance(outcome, Runs):
-        value = json.loads(json.dumps(dict(result.workflow_outputs), default=dict))  # read-only mappings
-        return Runs(value, _log(root)), result.exit_code
-    if isinstance(outcome, FailsAtRunTime):
-        (state,) = (root / ".orchestrate" / "runs").glob("*/state.json")
-        types = _error_types(json.loads(state.read_text(encoding="utf-8")).get("steps"))
-        code = outcome.code if outcome.code in types else sorted(types)
-        return FailsAtRunTime(code, _log(root)), result.exit_code
-    line, column, code = next(iter(_DIAGNOSTIC.findall(caplog.text)), ("0", "0", None))
-    size = next(iter(_SIZE.findall(caplog.text)), None)
-    size = tuple(map(int, size)) if outcome.size and size else None
-    refused = Refused(code, int(line), int(column), _stage(origins, code), size)
-    return (refused, _log(root)), result.exit_code
+@pytest.mark.parametrize("case", EVALUATED)
+def test_evaluated_program_outcomes(tmp_path, monkeypatch, case):
+    program, inputs, _history = CASES[case]
+    expected = EVALUATED[case]
+    files = _install(tmp_path, program, "2.35")
+    input_file = tmp_path / "inputs.json"
+    input_file.write_text(json.dumps(inputs))
+    monkeypatch.chdir(tmp_path)
+    result = public_run(files, input_file)
+    assert _log(tmp_path) == expected.log
+    (memo,) = (tmp_path / ".orchestrate" / "runs").glob("*/memo.jsonl")
+    terminal = json.loads(memo.read_text().splitlines()[-1])
+    if isinstance(expected, Runs):
+        assert result.exit_code == 0
+        assert terminal["outcome"] == "completed"
+        assert terminal["value"] == expected.value
+    else:
+        assert result.exit_code == 1
+        assert terminal["outcome"] == "failed"
+        assert terminal["code"] == expected.code
 
 
-EXIT_CODES = {Runs: 0, Refused: 2, FailsAtRunTime: 1}
-
-
-@pytest.mark.parametrize(
-    ("case", "target"),
-    [pytest.param(case, target, id=f"{case}@{target}") for case, (_, _, by_target) in CASES.items() for target in by_target],
-)
-def test_historical_program_outcomes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, case: str, target: str
-) -> None:
-    program, inputs, by_target = CASES[case]
-    outcome = by_target[target]
-
-    observed, exit_code = _observe(tmp_path, monkeypatch, caplog, program, inputs, target, outcome)
-
-    expected = (outcome, ()) if isinstance(outcome, Refused) else outcome
-    assert (exit_code, observed) == (EXIT_CODES[type(outcome)], expected), caplog.text[-3000:]
+@pytest.mark.parametrize(("case", "target", "expected"), TYPED_REFUSALS,
+                         ids=[f"{case}@{target}" for case, target, _ in TYPED_REFUSALS])
+def test_historical_language_refusal_still_has_authored_location(tmp_path, case, target, expected):
+    files = _install(tmp_path, CASES[case][0], target)
+    boundaries = _parse_command_boundaries_manifest(
+        json.loads(files["commands"].read_text()), manifest_path=files["commands"],
+    )
+    with pytest.raises(LispFrontendCompileError) as refused:
+        compile_stage3_entrypoint(
+            files["source"], source_roots=(files["source_root"],),
+            command_boundaries=boundaries, workspace_root=tmp_path,
+            validate_shared=False,
+        )
+    diagnostic = refused.value.diagnostics[0]
+    assert (diagnostic.code, diagnostic.span.start.line, diagnostic.span.start.column) == (
+        expected.code, expected.line, expected.column,
+    )
+    assert _log(tmp_path) == ()
+    assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
 def test_every_fixture_program_has_a_case() -> None:
     programs = {path.stem for path in (REPO / SHAPES).glob("*.orc")}
-
     assert programs == {program for program, _, _ in CASES.values()}
+    # argv record projection is retired; current structured command inputs have
+    # their public coverage in test_workflow_evaluated_input_documents.py.
+    covered = set(EVALUATED) | {case for case, _, _ in TYPED_REFUSALS}
+    assert set(CASES) - covered == {"record_command_input"}

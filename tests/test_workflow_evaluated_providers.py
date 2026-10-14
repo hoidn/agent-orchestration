@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from dataclasses import fields
 from unittest.mock import patch
 
 import pytest
@@ -20,8 +19,7 @@ from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
-from orchestrator.workflow_lisp.workflows import PromptExtern
-from tests.test_workflow_evaluated_prompts import _run_flat
+from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
 
 SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -39,6 +37,8 @@ with Path("requests.jsonl").open("a", encoding="utf-8") as out:
         "prompt": prompt.decode("utf-8"), "env": {key: os.environ.get(key)
         for key in ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY")}}) + "\n")
 mode = os.environ.get("PROVIDER_SHIM_MODE", "success")
+if mode == "silent": sys.exit(0)
+if mode == "nul": sys.stdout.buffer.write(b"I wrote it\x00 here \x1b[31mred\x1b[0m\n"); sys.exit(0)
 if mode != "empty":
     sys.stdout.buffer.write(b"complete stdout\n"); sys.stdout.buffer.flush()
     sys.stderr.buffer.write(b"complete stderr\n"); sys.stderr.buffer.flush()
@@ -208,6 +208,7 @@ def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tm
     (request,) = _requests(tmp_path)
     _assert_public_request_contract(tmp_path, run_root, commit.data, request)
     _assert_attempt_evidence(run_root, commit.data, request)
+    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
     from orchestrator.cli.commands.resume import resume_workflow
 
     monkeypatch.chdir(tmp_path)
@@ -300,16 +301,10 @@ def test_defprompt_output_position_is_validated_before_commit(tmp_path, output_e
 
 
 @pytest.mark.parametrize("source_kind", ["asset_file", "input_file"])
-def test_complete_provider_request_matches_real_flat_preparation(tmp_path, monkeypatch, source_kind):
+def test_complete_provider_request_preserves_preparation_and_dispatch_contract(tmp_path, monkeypatch, source_kind):
     from tests.test_workflow_evaluated_provider_lifecycle import _run, _execute
 
     with _run(tmp_path, monkeypatch, prompt_kind=source_kind) as (built, authority):
-        workflow = tmp_path / "main.orc"
-        workflow.write_text(SOURCE.replace('"2.35"', '"2.34"'))
-        flat = _run_flat(workflow, tmp_path, provider_externs={"providers.review": "codex"},
-            prompt_externs={"prompts.base": PromptExtern(name="prompts.base", **{source_kind: "prompt.md"})},
-            inputs={"message": "typed input"}, run_id="flat", result_bytes=b'{"ok":true}')
-        workflow.write_text(SOURCE)
         observed = {}
         real_prepare, real_execute = ProviderExecutor.prepare_invocation, ProviderExecutor.execute
 
@@ -326,43 +321,59 @@ def test_complete_provider_request_matches_real_flat_preparation(tmp_path, monke
         with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(ProviderExecutor, "execute", execute):
             code, value = _execute(tmp_path, built, authority)
             assert code == 0 and value == {"ok": True}
-            assert flat["flat_outputs"] == {"return__ok": value["ok"]}
-        flat_block, current_block = _assert_prepare_parity(observed, flat, built, tmp_path)
-        _assert_invocation_parity(observed["invocation"], flat["flat_invocation"], flat_block, current_block)
-        identity = next(iter(read_memo(authority.memo_path, site_classes(built.program)).active_commits))
-        _assert_execute_parity(observed, flat, tmp_path, identity)
+        snapshot = read_memo(authority.memo_path, site_classes(built.program))
+        (commit,) = snapshot.active_commits.values()
+        current = observed["prepare_kwargs"]
+        assert observed["prepare_args"] == ()
+        assert current["params"].params == {}
+        assert current["params"].input_file == ("prompt.md" if source_kind == "input_file" else None)
+        assert current["params"].output_file is None
+        bundle = current["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        assert current == {
+            "provider_name": "codex", "params": current["params"], "context": {},
+            "prompt_content": current["prompt_content"], "session_request": None,
+            "env": {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": bundle}, "secrets": None,
+            "timeout_sec": None, "provider_call_policy": {"model": "chosen-model", "effort": "low"},
+            "provider_session_dir": None, "provider_session_identity": None,
+        }
+        assert os.path.isabs(bundle) and Path(bundle) == authority.run_root / commit.data["result_path"]
+        node = next(row for row in built.program.tree["body"].values()
+            if isinstance(row, dict) and row.get("class") == "provider")
+        block = render_output_bundle_contract_block({**node["contract"]["payload"],
+            "path": workspace_relative(bundle, tmp_path)}, delivery="file")
+        assert block in current["prompt_content"]
+        assert current["prompt_content"].index("ASSET SOURCE") < current["prompt_content"].index("typed input")
+        invocation = observed["invocation"]
+        assert invocation.prompt == invocation.prepared_prompt == current["prompt_content"]
+        assert invocation.env == {**os.environ, **current["env"]}
+        assert invocation.command == ["codex", "exec", "--model", "chosen-model", "--config",
+            "model_reasoning_effort=low", "--dangerously-bypass-approvals-and-sandbox"]
+        assert invocation.input_mode == "stdin"
+        assert invocation.output_file is invocation.session_request is invocation.provider_session_dir is None
+        assert invocation.command_variant == "command" and invocation.turn_boundary_resume
+        assert invocation.timeout_sec is invocation.metadata_mode is invocation.omp_transport_expectation is None
+        assert invocation.metadata == {} and not invocation.terminate_process_tree
+        assert invocation.inherited_fds == () and invocation.inherited_fd_authority is None
+        policy = invocation.prepared_provider_policy
+        assert (policy.provider_name, policy.model, policy.effort, policy.timeout_sec, policy.input_mode) == (
+            "codex", "chosen-model", "low", None, "stdin")
+        assert len(observed["execute_args"]) == 1 and observed["execute_args"][0] is invocation
+        assert observed["execute_kwargs"] == {"cwd": tmp_path, "stream_output": False,
+            "session_runtime": None, "execution_env_overlay": {
+                "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY": "sha256:" + hashlib.sha256(commit.data["identity"].encode()).hexdigest()}}
+        (request,) = _requests(tmp_path)
+        assert request["prompt"] == current["prompt_content"]
+        assert request["cwd"] == str(tmp_path) and request["argv"] == invocation.command[1:]
+        _assert_attempt_evidence(authority.run_root, commit.data, request)
 
 
-def _assert_prepare_params_match(current, previous):
-    assert not [field.name for field in fields(current["params"])
-        if getattr(current["params"], field.name) != getattr(previous["params"], field.name)]
-
-
-def _assert_prepare_output_bundle_locations(current, previous):
-    assert set(current["env"]) == set(previous["env"]) == {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH"}
-    assert os.path.isabs(current["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
-    assert not os.path.isabs(previous["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
-
-
-def _assert_prepare_parity(observed, flat, built, workspace):
-    current, previous = observed["prepare_kwargs"], flat["flat_prepare_kwargs"]
-    assert observed["prepare_args"] == flat["flat_prepare_args"] == ()
-    assert current["context"] == {} and previous["context"]
-    assert set(current) == set(previous)
-    allowed = {"context", "env", "prompt_content", "params"}
-    assert {key: value for key, value in current.items() if key not in allowed} == {
-        key: value for key, value in previous.items() if key not in allowed}
-    _assert_prepare_params_match(current, previous)
-    _assert_prepare_output_bundle_locations(current, previous)
-    node = next(row for row in built.program.tree["body"].values()
-        if isinstance(row, dict) and row.get("class") == "provider")
-    return _assert_prompt_path_parity(node, current, previous, workspace)
-
-
-def _assert_prompt_path_parity(node, current, previous, workspace):
+def _assert_prompt_path_parity(node, current, previous, workspace, *, previous_delivery="legacy"):
+    """The prompts differ only in the contract block: the flat route renders `legacy`, a new evaluated attempt `file`."""
     payload, key = node["contract"]["payload"], "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
-    flat_block = render_output_bundle_contract_block({**payload, "path": workspace_relative(previous["env"][key], workspace)})
-    current_block = render_output_bundle_contract_block({**payload, "path": workspace_relative(current["env"][key], workspace)})
+    flat_block = render_output_bundle_contract_block(
+        {**payload, "path": workspace_relative(previous["env"][key], workspace)}, delivery=previous_delivery)
+    current_block = render_output_bundle_contract_block(
+        {**payload, "path": workspace_relative(current["env"][key], workspace)}, delivery="file")
     assert flat_block in previous["prompt_content"]
     assert current["prompt_content"] == previous["prompt_content"].replace(flat_block, current_block, 1)
     return flat_block, current_block
@@ -379,37 +390,7 @@ def _assert_retry_request_parity(program, current, previous):
         if isinstance(row, dict) and row.get("class") == "provider"]
     _assert_prompt_path_parity(node,
         {"env": current["env"], "prompt_content": current["prompt"]},
-        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"])
-
-
-def _assert_invocation_parity(current, previous, flat_block, current_block):
-    for field in fields(current):
-        current_value, previous_value = getattr(current, field.name), getattr(previous, field.name)
-        if field.name == "env":
-            assert not [key for key in set(current_value) | set(previous_value)
-                if key != "ORCHESTRATOR_OUTPUT_BUNDLE_PATH" and current_value.get(key) != previous_value.get(key)]
-        elif field.name in {"prompt", "prepared_prompt"}:
-            assert current_value == previous_value.replace(flat_block, current_block, 1)
-        else:
-            assert current_value == previous_value, field.name
-
-
-def _assert_execute_parity(observed, flat, workspace, identity):
-    assert len(observed["execute_args"]) == len(flat["flat_execute_args"]) == 1
-    assert observed["execute_args"][0] is observed["invocation"]
-    prior, current = flat["flat_execute_kwargs"], observed["execute_kwargs"]
-    assert set(current) - {"execution_env_overlay"} == set(prior) - {"execution_env_overlay"}
-    assert current["cwd"] == workspace and prior["cwd"] is None
-    allowed = {"cwd", "execution_env_overlay"}
-    assert {key: value for key, value in current.items() if key not in allowed} == {
-        key: value for key, value in prior.items() if key not in allowed}
-    prior_overlay, overlay = prior.get("execution_env_overlay"), current["execution_env_overlay"]
-    assert prior_overlay is None or isinstance(prior_overlay, dict)
-    assert isinstance(overlay, dict)
-    r5 = "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"
-    assert {key: value for key, value in overlay.items() if key != r5} == {
-        key: value for key, value in (prior_overlay or {}).items() if key != r5}
-    assert overlay[r5] == "sha256:" + hashlib.sha256(identity.encode()).hexdigest()
+        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"], previous_delivery="file")
 
 
 @pytest.mark.parametrize("document_kind", ["doc", "dependencies"])

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import replace
 
 from hashlib import sha256
 import json
@@ -13,7 +14,6 @@ from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
-from orchestrator.contracts.closed_program.names import key_type_descriptor
 from orchestrator.workflow_lisp.closed.names import (
     Renamer,
     _normalize_closed_value,
@@ -1120,17 +1120,15 @@ def test_legacy_snapshot_keeps_carrier_family_for_later_closed_import(
             validate_shared=True,
             workspace_root=tmp_path,
         )
-        producer_bundle = producer_result.validated_bundles_by_name[
-            "cp/producer::get"
-        ]
+        producer_snapshot = producer_result.entry_result.typed_program
     else:
         producer_result = compile_stage3_module(
             producer_path,
             validate_shared=True,
             workspace_root=tmp_path,
         )
-        producer_bundle = producer_result.validated_bundles["get"]
-    producer_snapshot = producer_bundle.typed_program
+        producer_snapshot = producer_result.typed_program
+    producer_snapshot = replace(producer_snapshot, entry=producer_snapshot.workflows["cp/producer::get" if producer_mode == "named" else "get"])
     carrier_rows = []
     for procedure in producer_snapshot.procedures.values():
         if getattr(procedure.specialization, "base_name", None) not in {

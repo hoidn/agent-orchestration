@@ -80,20 +80,13 @@ __all__ = [
     "ScaffoldSnapshotError",
     "ScaffoldVerificationError",
     "ScaffoldInputs",
-    "ScaffoldResult",
     "ScaffoldVerification",
-    "RunSnapshot",
     "identity_for",
     "resolve_concrete_model",
     "scaffold_dir_name",
     "slugify",
-    "generate_scaffold",
     "verify_scaffold",
     # Lazy fs facade services (resolved through the PEP 562 __getattr__).
-    "compile_snapshot",
-    "create_run_root",
-    "derive_compiled_contract",
-    "materialize_run_snapshot",
 ]
 
 
@@ -231,58 +224,8 @@ class ScaffoldVerification:
     manifest_bytes: bytes
 
 
-@dataclass(frozen=True, slots=True)
-class ScaffoldResult:
-    """One scaffold publication: identity, directory, reuse flag, and the
-    captured verification for run snapshot materialization."""
-
-    path: Path
-    identity: str
-    reused: bool
-    verification: ScaffoldVerification
 
 
-@dataclass(frozen=True, slots=True)
-class RunSnapshot:
-    """The run-owned private snapshot consumed by the runner (Task 8+).
-
-    ``provider`` is the verified provider bound at materialization;
-    ``compile_snapshot`` refuses any other provider. ``root_fd`` retains the
-    no-follow directory descriptor so compilation happens through a retained
-    descriptor path, never the mutable published/generated path. The caller
-    (Task 8) holds the snapshot as a context manager through compilation/run;
-    ``__exit__`` closes the descriptor, ``close()`` is idempotent, and the
-    finalizer backstop closes a snapshot that was never exited.
-    """
-
-    root: Path
-    run_orc: Path
-    prompt_md: Path
-    prompts_json: Path
-    providers_json: Path
-    output_contract_json: Path
-    conf_root: Path | None
-    provider: str
-    root_fd: int
-
-    def close(self) -> None:
-        """Close the retained root descriptor; idempotent and safe to repeat."""
-        fd = self.root_fd
-        if fd >= 0:
-            object.__setattr__(self, "root_fd", -1)
-            os.close(fd)
-
-    def __enter__(self) -> "RunSnapshot":
-        return self
-
-    def __exit__(self, exc_type, exc, traceback) -> None:
-        self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
 
 def resolve_concrete_model(provider: str, model: object) -> str:
@@ -329,84 +272,6 @@ def scaffold_dir_name(inputs: ScaffoldInputs) -> str:
 # --- publication API -----------------------------------------------------------
 
 
-def generate_scaffold(
-    *,
-    generated_root: Path,
-    inputs: ScaffoldInputs,
-    prompt_bytes: bytes,
-    authoring: object,
-) -> ScaffoldResult:
-    """Generate, compile-check, and exclusively publish one scaffold.
-
-    A same-identity concurrent publication serializes on the per-identity
-    lock; the loser re-verifies the winner's occupant and reuses it. A
-    mismatched occupant is refused (never deleted, replaced, or forced).
-
-    Closed gates run before any identity, lock, or filesystem work: prompt
-    bytes must be non-empty UTF-8 matching ``inputs.prompt_sha256``, authoring
-    must validate, and the binary pin must be the current ``OMP_BINARY_PIN``.
-    """
-    from orchestrator.prompt_scaffold_fs import (
-        acquire_scaffold_lock,
-        open_generated_root,
-        publish_scaffold,
-    )
-
-    if not isinstance(prompt_bytes, bytes) or not prompt_bytes:
-        raise ValueError("prompt_bytes must be non-empty bytes")
-    try:
-        prompt_bytes.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError("prompt_bytes must be valid UTF-8") from exc
-    if _sha256(prompt_bytes) != inputs.prompt_sha256:
-        raise ValueError("prompt_bytes do not match inputs.prompt_sha256")
-    validate_authoring(authoring)
-    if inputs.pin != OMP_BINARY_PIN:
-        raise ValueError(
-            "inputs.pin does not match the current OMP_BINARY_PIN"
-        )
-    identity = identity_for(inputs)
-    files, _conf = _scaffold_files(inputs, prompt_bytes, authoring)
-    rows = [
-        {
-            "path": relative,
-            "size": len(data),
-            "sha256": _sha256(data),
-            "mode": _FILE_MODE,
-        }
-        for relative, data in sorted(
-            files.items(), key=lambda item: item[0].encode("utf-8")
-        )
-    ]
-    files["scaffold.json"] = _manifest_bytes(inputs, identity, rows)
-    expected_files = {
-        path: data
-        for path, data in files.items()
-        if path not in ("prompt.md", "output-contract.json", "scaffold.json")
-    }
-
-    destination = Path(generated_root) / scaffold_dir_name(inputs)
-    root_fd = open_generated_root(Path(generated_root))
-    lock_fd = None
-    try:
-        lock_fd = acquire_scaffold_lock(root_fd, identity)
-        verification, reused = publish_scaffold(
-            root_fd,
-            generated_root=Path(generated_root),
-            destination_name=destination.name,
-            files=files,
-            identity=identity,
-            inputs=inputs,
-            expected_files=expected_files,
-        )
-    finally:
-        if lock_fd is not None:
-            os.close(lock_fd)
-        os.close(root_fd)
-    return ScaffoldResult(
-        path=destination, identity=identity, reused=reused,
-        verification=verification,
-    )
 
 
 def _require_single_component(name: object) -> None:
@@ -464,24 +329,3 @@ def verify_scaffold(
             os.close(scaffold_fd)
     finally:
         os.close(root_fd)
-
-
-# Public facade for the fs sibling's compile/snapshot services. The facade is
-# lazy (PEP 562) so a fresh interpreter importing the fs sibling first cannot
-# deadlock the module cycle.
-_FS_FACADE = (
-    "compile_snapshot",
-    "create_run_root",
-    "derive_compiled_contract",
-    "materialize_run_snapshot",
-)
-
-
-def __getattr__(name: str):
-    if name in _FS_FACADE:
-        from orchestrator import prompt_scaffold_fs
-
-        value = getattr(prompt_scaffold_fs, name)
-        globals()[name] = value
-        return value
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

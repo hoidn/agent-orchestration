@@ -13,7 +13,7 @@ from orchestrator.workflow_lisp import syntax
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGETS = ("2.34", syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION)
+TARGETS = (syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,)
 BUILD_COMPONENTS = ("orchestrate", "build", "build_key")
 
 
@@ -159,27 +159,6 @@ def test_compile_allows_build_root_symlinks_that_resolve_inside_workspace(
     assert list(destination.rglob("*.json"))
 
 
-@pytest.mark.parametrize("artifact", ("frontend_ast.json", "manifest.json"))
-def test_legacy_compile_rejects_artifact_file_symlink_to_outside(
-    tmp_path: Path, artifact: str
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    source, source_root = _write_workspace(workspace, "2.34")
-    key = _build_key(workspace, source, source_root)
-    shutil.rmtree(workspace / ".orchestrate")
-    build_root = workspace / ".orchestrate" / "build" / key
-    build_root.mkdir(parents=True)
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    sentinel = outside / artifact
-    sentinel.write_text("unchanged", encoding="utf-8")
-    (build_root / artifact).symlink_to(sentinel)
-
-    completed = _compile(workspace, source, source_root, diagnostics_json=True)
-
-    _assert_path_error(completed)
-    assert sentinel.read_text(encoding="utf-8") == "unchanged"
 
 
 def test_closed_compile_rejects_artifact_file_symlink_to_outside(

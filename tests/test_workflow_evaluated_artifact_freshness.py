@@ -1,12 +1,11 @@
 """Public freshness of artifact handoffs at 2.35: suffix invalidation, required result paths,
-pure replay of committed paths, and the verified drain's command requests against the old route.
+pure replay of committed paths, and the verified drain's command requests.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-import shutil
 
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from tests.test_workflow_evaluated_cli import _run_cli
@@ -202,7 +201,7 @@ def _templated(name: str, iteration: int) -> dict[str, str]:
     }[name]
 
 
-def _drain_route(root: Path, monkeypatch, *, current: bool) -> dict[str, list[list[str]]]:
+def _drain_route(root: Path, monkeypatch) -> dict[str, list[list[str]]]:
     """The continue-then-done drain on one route; the logged argv of each command, per command."""
     frontend = drain._fixture(root, monkeypatch, {"worker": ["CONTINUE", "DONE"], "iteration_review": ["APPROVE"],
                                                   "done_review": ["APPROVE"], "commit": [0]})
@@ -210,12 +209,7 @@ def _drain_route(root: Path, monkeypatch, *, current: bool) -> dict[str, list[li
         text = (root / script).read_text(encoding="utf-8")
         assert text.count(FUTURE) == 1
         (root / script).write_text(text.replace(FUTURE, FUTURE + EXEC_LOG), encoding="utf-8")
-    if current:
-        assert _cli(root, "compile", *frontend).returncode == 0
-    else:
-        source = root / drain.SOURCE
-        source.write_bytes((drain.ROOT / "tests/fixtures/workflow_lisp/verified_drain_legacy/verified_iteration_drain/drain.orc").read_bytes())
-        shutil.copyfile(drain.MANIFESTS / "verified_iteration_drain.commands.json", root / "manifests/commands.json")
+    assert _cli(root, "compile", *frontend).returncode == 0
     result = _run_cli(root, *frontend, *drain.INPUTS)
     assert result.returncode == 0, result.stderr
     return {name: jsonl(root / f"{script}.runs.jsonl") for name, script in SCRIPTS.items()}
@@ -230,20 +224,22 @@ def _assert_command_requests(name: str, argvs: list[list[str]], commits: list[di
         canonical_sha256(["python", *argv]) for argv in argvs]
 
 
-def test_public_drain_command_requests_match_the_old_route(tmp_path, monkeypatch):
+def test_public_drain_command_requests_bind_expected_operands_and_dependency_bytes(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_AUTHOR_DATE", "2026-01-01T00:00:00+00:00")
     monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00")
-    old = _drain_route(tmp_path / "old", monkeypatch, current=False)
-    new = _drain_route(tmp_path / "new", monkeypatch, current=True)
+    new = _drain_route(tmp_path / "new", monkeypatch)
     authority, snapshot = checked_run(tmp_path / "new")
     commits = [entry.data for entry in sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)]
 
-    assert old == new
     for name, argvs in new.items():
         _assert_command_requests(name, argvs, commits)
-    old_requests, new_requests = ([(row["role"], row["iteration"], row["decision"], row["files"])
-                                   for row in drain._requests(tmp_path / route)] for route in ("old", "new"))
-    assert old_requests == new_requests  # dependency bytes per request; prompts differ by R3 only
+    request_rows = drain._requests(tmp_path / "new")
+    new_requests = [(row["role"], row["iteration"], row["decision"]) for row in request_rows]
+    for request in request_rows:
+        assert request["files"]
+        for path, digest in request["files"].items():
+            assert digest == sha256((tmp_path / "new" / path).read_bytes()).removeprefix("sha256:")
+    drain._assert_two_captured_histories(tmp_path / "new", drain._history_reads(tmp_path / "new", authority.run_root, snapshot))
     assert [row[:3] for row in new_requests] == [("worker", "0", "CONTINUE"), ("iteration_review", "0", "APPROVE"),
                                                  ("worker", "1", "DONE"), ("done_review", "1", "APPROVE")]
     assert [row["prompt"] for row in drain._requests(tmp_path / "new")] == [

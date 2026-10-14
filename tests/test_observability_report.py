@@ -10,7 +10,7 @@ from types import MappingProxyType
 
 import pytest
 
-from tests.workflow_fixture_loader import WorkflowLoader
+from tests.fixtures.historical_observability_bundles import HISTORICAL_OBSERVABILITY_BUNDLES
 from orchestrator.observability.report import (
     build_status_snapshot,
     derive_status_projection,
@@ -19,36 +19,8 @@ from orchestrator.observability.report import (
 from orchestrator.monitor.process import process_start_time_token
 
 
-def _write_yaml(path: Path, payload: dict) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
-    return path
-
-
 def _sample_workflow_payload():
-    return {
-        "version": "1.3",
-        "name": "obs-test",
-        "steps": [
-            {
-                "name": "Prep",
-                "command": ["bash", "-lc", "echo prep"],
-                "consumes": [{"artifact": "plan_doc", "as": "plan"}],
-            },
-            {
-                "name": "DraftPlan",
-                "provider": "codex",
-                "expected_outputs": [
-                    {"name": "plan_path", "path": "state/plan_path.txt", "type": "relpath"}
-                ],
-            },
-        ],
-    }
-
-
-def _load_bundle(tmp_path: Path, payload: dict, *, filename: str = "workflow.yaml"):
-    workflow_path = _write_yaml(tmp_path / filename, payload)
-    return WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    return {"version": "1.3", "steps": []}
 
 
 def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
@@ -73,7 +45,7 @@ def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
 
     assert snapshot["progress"]["total"] == 2
     assert snapshot["progress"]["completed"] == 1
@@ -104,22 +76,11 @@ def test_prompt_context_and_judgment_views_loaded_report_have_exact_additive_emp
         "context": {"target_label": target_label},
         "steps": {},
     }
-    workflow = _load_bundle(tmp_path, _sample_workflow_payload())
-    if target_label in {"2.20", "2.21", "2.22", "2.23"}:
-        from tests.test_workflow_lisp_prompt_calculus_runtime import (
-            _compile_runtime_fragment,
-        )
-
-        _source_path, workflow = _compile_runtime_fragment(
-            tmp_path,
-            lowering_route=(
-                "wcc_m4"
-                if target_label in {"2.22", "2.23"}
-                else "legacy"
-            ),
-            target_dsl=target_label,
-            with_output_position=target_label in {"2.22", "2.23"},
-        )
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES[
+        f"prompt-{target_label}"
+        if target_label in {"2.20", "2.21", "2.22", "2.23"}
+        else "obs-test"
+    ]
 
     snapshot = build_status_snapshot(
         workflow,
@@ -168,7 +129,7 @@ def test_snapshot_contains_command_input_and_output_summary(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
     prep = snapshot["steps"][0]
 
     assert prep["input"]["command"] == ["bash", "-lc", "echo prep"]
@@ -204,7 +165,7 @@ def test_snapshot_surfaces_normalized_outcome_fields(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
     prep = snapshot["steps"][0]
 
     assert prep["output"]["outcome"] == {
@@ -219,24 +180,7 @@ def test_snapshot_marks_completed_for_each_summary_as_completed(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run-loop"
     (run_root / "logs").mkdir(parents=True)
 
-    workflow = {
-        "version": "1.3",
-        "name": "obs-loop",
-        "steps": [
-            {
-                "name": "Loop",
-                "for_each": {
-                    "items": ["one", "two"],
-                    "steps": [
-                        {
-                            "name": "Inner",
-                            "command": ["bash", "-lc", "echo inner"],
-                        }
-                    ],
-                },
-            }
-        ],
-    }
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-loop']
     state = {
         "run_id": "run-loop",
         "status": "completed",
@@ -251,7 +195,7 @@ def test_snapshot_marks_completed_for_each_summary_as_completed(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    snapshot = build_status_snapshot(workflow, state, run_root)
 
     assert snapshot["steps"][0]["status"] == "completed"
     assert snapshot["progress"]["running"] == 0
@@ -273,7 +217,7 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
         "steps": {},
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
     md = render_status_markdown(snapshot)
 
     assert "# Workflow Status" in md
@@ -347,7 +291,7 @@ def test_judgment_views_markdown_follows_prompt_context_without_full_content(
         },
     }
     snapshot = build_status_snapshot(
-        _load_bundle(tmp_path, _sample_workflow_payload()),
+        HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"],
         state,
         run_root,
     )
@@ -411,7 +355,7 @@ def test_status_snapshot_surfaces_typed_terminal_observability_summary(tmp_path:
         "workflow_outputs": {"status": "BLOCKED"},
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
 
     typed_terminal = snapshot["run"]["observability_summaries"]["typed_terminal"]
     assert typed_terminal["authority"] == "observability_only"
@@ -459,7 +403,7 @@ def test_snapshot_and_markdown_surface_active_runtime(tmp_path: Path):
     }
 
     snapshot = build_status_snapshot(
-        _load_bundle(tmp_path, _sample_workflow_payload()),
+        HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"],
         state,
         run_root,
         now=datetime(2026, 4, 29, 22, 20, tzinfo=timezone.utc),
@@ -477,34 +421,8 @@ def test_snapshot_and_markdown_surface_active_runtime(tmp_path: Path):
 def test_snapshot_recognizes_call_steps(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "call-run"
     (run_root / "logs").mkdir(parents=True)
-    _write_yaml(
-        tmp_path / "workflows" / "library" / "review_loop.yaml",
-        {
-            "version": "2.5",
-            "name": "review-loop",
-            "steps": [
-                {
-                    "name": "Finish",
-                    "command": ["bash", "-lc", "true"],
-                }
-            ],
-        },
-    )
 
-    workflow = {
-        "version": "2.5",
-        "name": "obs-call",
-        "imports": {
-            "review_loop": "workflows/library/review_loop.yaml",
-        },
-        "steps": [
-            {
-                "name": "RunReviewLoop",
-                "id": "run_review_loop",
-                "call": "review_loop",
-            }
-        ],
-    }
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-call']
     state = {
         "run_id": "call-run",
         "status": "completed",
@@ -528,7 +446,7 @@ def test_snapshot_recognizes_call_steps(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    snapshot = build_status_snapshot(workflow, state, run_root)
 
     assert snapshot["steps"][0]["kind"] == "call"
     assert snapshot["steps"][0]["output"]["call"]["call_frame_id"] == "root.run_review_loop::visit::1"
@@ -539,69 +457,7 @@ def test_snapshot_accepts_loaded_bundle_and_uses_projection_ordering(tmp_path: P
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.10",
-                "name": "bundle-report",
-                "artifacts": {
-                    "ready": {"kind": "scalar", "type": "bool"},
-                },
-                "steps": [
-                    {
-                        "name": "SetReady",
-                        "id": "set_ready",
-                        "set_scalar": {
-                            "artifact": "ready",
-                            "value": True,
-                        },
-                    },
-                    {
-                        "name": "RouteReady",
-                        "id": "route_ready",
-                        "if": {
-                            "artifact_bool": {
-                                "ref": "root.steps.SetReady.artifacts.ready",
-                            }
-                        },
-                        "then": {
-                            "id": "approve_path",
-                            "steps": [
-                                {
-                                    "name": "WriteApproved",
-                                    "id": "write_approved",
-                                    "command": ["bash", "-lc", "printf 'approved\\n'"],
-                                }
-                            ],
-                        },
-                        "else": {
-                            "id": "revise_path",
-                            "steps": [
-                                {
-                                    "name": "WriteRevision",
-                                    "id": "write_revision",
-                                    "command": ["bash", "-lc", "printf 'revise\\n'"],
-                                }
-                            ],
-                        },
-                    },
-                ],
-                "finally": {
-                    "id": "cleanup",
-                    "steps": [
-                        {
-                            "name": "WriteCleanupMarker",
-                            "id": "write_cleanup_marker",
-                            "command": ["bash", "-lc", "printf 'cleanup\\n'"],
-                        }
-                    ],
-                },
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES['bundle-report']
 
     snapshot = build_status_snapshot(
         bundle,
@@ -635,29 +491,7 @@ def test_snapshot_uses_projection_execution_order_when_ir_and_projection_order_d
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.10",
-                "name": "bundle-projection-order",
-                "steps": [
-                    {
-                        "name": "WriteOne",
-                        "id": "write_one",
-                        "command": ["bash", "-lc", "printf 'one\\n'"],
-                    },
-                    {
-                        "name": "WriteTwo",
-                        "id": "write_two",
-                        "command": ["bash", "-lc", "printf 'two\\n'"],
-                    },
-                ],
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES['bundle-projection-order']
     original_node_ids = tuple(bundle.ir.body_region)
     reversed_node_ids = tuple(reversed(original_node_ids))
     mutated_projection = replace(
@@ -699,42 +533,7 @@ def test_snapshot_uses_ir_node_metadata_when_bundle_legacy_steps_are_missing(tmp
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.10",
-                "name": "bundle-ir-metadata",
-                "steps": [
-                    {
-                        "name": "GenerateReport",
-                        "id": "generate_report",
-                        "command": ["bash", "-lc", "echo report"],
-                        "consumes": [{"artifact": "plan_doc", "as": "plan"}],
-                        "expected_outputs": [
-                            {
-                                "name": "report_path",
-                                "path": "state/report_path.txt",
-                                "type": "string",
-                            }
-                        ],
-                    }
-                ],
-                "finally": {
-                    "id": "cleanup",
-                    "steps": [
-                        {
-                            "name": "Cleanup",
-                            "id": "cleanup_step",
-                            "command": ["bash", "-lc", "echo cleanup"],
-                        }
-                    ],
-                },
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES['bundle-ir-metadata']
 
     snapshot = build_status_snapshot(
         bundle,
@@ -779,42 +578,8 @@ def test_snapshot_uses_projection_metadata_when_bundle_ir_raw_and_legacy_steps_a
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.10",
-                "name": "bundle-projection-metadata",
-                "steps": [
-                    {
-                        "name": "GenerateReport",
-                        "id": "generate_report",
-                        "command": ["bash", "-lc", "echo report"],
-                        "consumes": [{"artifact": "plan_doc", "as": "plan"}],
-                        "expected_outputs": [
-                            {
-                                "name": "report_path",
-                                "path": "state/report_path.txt",
-                                "type": "string",
-                            }
-                        ],
-                    }
-                ],
-                "finally": {
-                    "id": "cleanup",
-                    "steps": [
-                        {
-                            "name": "Cleanup",
-                            "id": "cleanup_step",
-                            "command": ["bash", "-lc", "echo cleanup"],
-                        }
-                    ],
-                },
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES['bundle-projection-metadata']
+    assert bundle.ir.nodes
     assert all(not hasattr(node, "raw") for node in bundle.ir.nodes.values())
 
     snapshot = build_status_snapshot(
@@ -854,59 +619,7 @@ def test_snapshot_resolves_current_step_from_projection_step_id(tmp_path: Path):
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.7",
-                "name": "bundle-report-current-step",
-                "artifacts": {
-                    "ready": {"kind": "scalar", "type": "bool"},
-                },
-                "steps": [
-                    {
-                        "name": "SetReady",
-                        "id": "set_ready",
-                        "set_scalar": {
-                            "artifact": "ready",
-                            "value": True,
-                        },
-                    },
-                    {
-                        "name": "RouteReady",
-                        "id": "route_ready",
-                        "if": {
-                            "artifact_bool": {
-                                "ref": "root.steps.SetReady.artifacts.ready",
-                            }
-                        },
-                        "then": {
-                            "id": "approve_path",
-                            "steps": [
-                                {
-                                    "name": "WriteApproved",
-                                    "id": "write_approved",
-                                    "command": ["bash", "-lc", "printf 'approved\\n'"],
-                                }
-                            ],
-                        },
-                        "else": {
-                            "id": "revise_path",
-                            "steps": [
-                                {
-                                    "name": "WriteRevision",
-                                    "id": "write_revision",
-                                    "command": ["bash", "-lc", "printf 'revise\\n'"],
-                                }
-                            ],
-                        },
-                    },
-                ],
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES['bundle-report-current-step']
 
     snapshot = build_status_snapshot(
         bundle,
@@ -942,53 +655,7 @@ def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "repeat-run"
     (run_root / "logs").mkdir(parents=True)
 
-    workflow = {
-        "version": "2.7",
-        "name": "obs-repeat",
-        "artifacts": {
-            "review_decision": {
-                "kind": "scalar",
-                "type": "enum",
-                "allowed": ["APPROVE", "REVISE"],
-            }
-        },
-        "steps": [
-            {
-                "name": "ReviewLoop",
-                "id": "review_loop",
-                "repeat_until": {
-                    "id": "iteration_body",
-                    "outputs": {
-                        "review_decision": {
-                            "kind": "scalar",
-                            "type": "enum",
-                            "allowed": ["APPROVE", "REVISE"],
-                            "from": {
-                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
-                            },
-                        }
-                    },
-                    "condition": {
-                        "compare": {
-                            "left": {"ref": "self.outputs.review_decision"},
-                            "op": "eq",
-                            "right": "APPROVE",
-                        }
-                    },
-                    "max_iterations": 4,
-                    "steps": [
-                        {
-                            "name": "WriteDecision",
-                            "set_scalar": {
-                                "artifact": "review_decision",
-                                "value": "APPROVE",
-                            },
-                        }
-                    ],
-                },
-            }
-        ],
-    }
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-repeat']
     state = {
         "run_id": "repeat-run",
         "status": "completed",
@@ -1012,7 +679,7 @@ def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    snapshot = build_status_snapshot(workflow, state, run_root)
 
     assert snapshot["steps"][0]["kind"] == "repeat_until"
     assert snapshot["steps"][0]["status"] == "completed"
@@ -1023,53 +690,7 @@ def test_snapshot_exposes_repeat_until_debug_progress_and_markdown(tmp_path: Pat
     run_root = tmp_path / ".orchestrate" / "runs" / "repeat-progress-run"
     (run_root / "logs").mkdir(parents=True)
 
-    workflow = {
-        "version": "2.7",
-        "name": "obs-repeat-progress",
-        "artifacts": {
-            "review_decision": {
-                "kind": "scalar",
-                "type": "enum",
-                "allowed": ["APPROVE", "REVISE"],
-            }
-        },
-        "steps": [
-            {
-                "name": "ReviewLoop",
-                "id": "review_loop",
-                "repeat_until": {
-                    "id": "iteration_body",
-                    "outputs": {
-                        "review_decision": {
-                            "kind": "scalar",
-                            "type": "enum",
-                            "allowed": ["APPROVE", "REVISE"],
-                            "from": {
-                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
-                            },
-                        }
-                    },
-                    "condition": {
-                        "compare": {
-                            "left": {"ref": "self.outputs.review_decision"},
-                            "op": "eq",
-                            "right": "APPROVE",
-                        }
-                    },
-                    "max_iterations": 4,
-                    "steps": [
-                        {
-                            "name": "WriteDecision",
-                            "set_scalar": {
-                                "artifact": "review_decision",
-                                "value": "REVISE",
-                            },
-                        }
-                    ],
-                },
-            }
-        ],
-    }
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-repeat-progress']
     state = {
         "run_id": "repeat-progress-run",
         "status": "running",
@@ -1100,7 +721,7 @@ def test_snapshot_exposes_repeat_until_debug_progress_and_markdown(tmp_path: Pat
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    snapshot = build_status_snapshot(workflow, state, run_root)
     review_loop = snapshot["steps"][0]
     markdown = render_status_markdown(snapshot)
 
@@ -1138,7 +759,7 @@ def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: P
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
 
     assert snapshot["run"]["status"] == "failed"
     assert snapshot["run"]["status_reason"] == "stale_running_without_current_step"
@@ -1220,7 +841,7 @@ def test_failed_projection_envelope_treats_unchanged_current_step_as_forensic(
     }
 
     snapshot = build_status_snapshot(
-        _load_bundle(tmp_path, _sample_workflow_payload()),
+        HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"],
         state,
         run_root,
     )
@@ -1252,26 +873,7 @@ def test_snapshot_preserves_historical_provider_session_quarantine_read_only_com
     metadata_path = run_root / "provider_sessions" / "root.askprovider__v1.json"
     transport_spool_path = run_root / "provider_sessions" / "root.askprovider__v1.transport.log"
 
-    workflow = {
-        "version": "2.10",
-        "name": "obs-provider-session",
-        "artifacts": {
-            "implementation_session_id": {
-                "kind": "scalar",
-                "type": "string",
-            }
-        },
-        "steps": [
-            {
-                "name": "AskProvider",
-                "provider": "codex",
-                "provider_session": {
-                    "mode": "fresh",
-                    "publish_artifact": "implementation_session_id",
-                },
-            }
-        ],
-    }
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-provider-session']
     state = {
         "run_id": "run-session",
         "status": "failed",
@@ -1305,7 +907,7 @@ def test_snapshot_preserves_historical_provider_session_quarantine_read_only_com
     state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
     state_bytes_before = state_file.read_bytes()
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    snapshot = build_status_snapshot(workflow, state, run_root)
     md = render_status_markdown(snapshot)
 
     assert state_file.read_bytes() == state_bytes_before
@@ -1343,7 +945,7 @@ def test_snapshot_exposes_looped_resume_current_and_last_completed_visit_counts(
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+    snapshot = build_status_snapshot(HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"], state, run_root)
     prep = snapshot["steps"][0]
 
     assert snapshot["run"]["status"] == "running"
@@ -1356,34 +958,7 @@ def test_snapshot_includes_finalization_progress_and_steps(tmp_path: Path):
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.3",
-                "name": "obs-finally",
-                "steps": [
-                    {
-                        "name": "Body",
-                        "id": "body",
-                        "command": ["bash", "-lc", "echo body"],
-                    }
-                ],
-                "finally": {
-                    "id": "cleanup",
-                    "steps": [
-                        {
-                            "name": "ReleaseLock",
-                            "id": "release_lock",
-                            "command": ["bash", "-lc", "echo cleanup"],
-                        }
-                    ],
-                },
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-finally']
     state = {
         "run_id": "run-finally",
         "status": "running",
@@ -1425,122 +1000,7 @@ def test_snapshot_includes_structured_helper_node_kinds(tmp_path: Path):
     (run_root / "logs").mkdir(parents=True)
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.6",
-                "name": "obs-structured",
-                "artifacts": {
-                    "ready": {
-                        "kind": "scalar",
-                        "type": "bool",
-                    },
-                    "decision": {
-                        "kind": "scalar",
-                        "type": "enum",
-                        "allowed": ["APPROVE", "REVISE"],
-                    },
-                },
-                "steps": [
-                    {
-                        "name": "SetReady",
-                        "id": "set_ready",
-                        "set_scalar": {
-                            "artifact": "ready",
-                            "value": True,
-                        },
-                    },
-                    {
-                        "name": "RouteReady",
-                        "id": "route_ready",
-                        "if": {
-                            "artifact_bool": {
-                                "ref": "root.steps.SetReady.artifacts.ready",
-                            }
-                        },
-                        "then": {
-                            "id": "approve_path",
-                            "outputs": {
-                                "decision": {
-                                    "kind": "scalar",
-                                    "type": "enum",
-                                    "allowed": ["APPROVE", "REVISE"],
-                                    "from": {
-                                        "ref": "self.steps.WriteApproved.artifacts.decision",
-                                    },
-                                }
-                            },
-                            "steps": [
-                                {
-                                    "name": "WriteApproved",
-                                    "id": "write_approved",
-                                    "set_scalar": {
-                                        "artifact": "decision",
-                                        "value": "APPROVE",
-                                    },
-                                }
-                            ],
-                        },
-                        "else": {
-                            "id": "revise_path",
-                            "outputs": {
-                                "decision": {
-                                    "kind": "scalar",
-                                    "type": "enum",
-                                    "allowed": ["APPROVE", "REVISE"],
-                                    "from": {
-                                        "ref": "self.steps.WriteRevision.artifacts.decision",
-                                    },
-                                }
-                            },
-                            "steps": [
-                                {
-                                    "name": "WriteRevision",
-                                    "id": "write_revision",
-                                    "set_scalar": {
-                                        "artifact": "decision",
-                                        "value": "REVISE",
-                                    },
-                                }
-                            ],
-                        },
-                    },
-                    {
-                        "name": "RouteDecision",
-                        "id": "route_decision",
-                        "match": {
-                            "ref": "root.steps.RouteReady.artifacts.decision",
-                            "cases": {
-                                "APPROVE": {
-                                    "id": "approve_path",
-                                    "steps": [
-                                        {
-                                            "name": "EchoApproved",
-                                            "id": "echo_approved",
-                                            "command": ["bash", "-lc", "printf 'approved\\n'"],
-                                        }
-                                    ],
-                                },
-                                "REVISE": {
-                                    "id": "revise_path",
-                                    "steps": [
-                                        {
-                                            "name": "EchoRevision",
-                                            "id": "echo_revision",
-                                            "command": ["bash", "-lc", "printf 'revise\\n'"],
-                                        }
-                                    ],
-                                },
-                            },
-                        },
-                    },
-                ],
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['obs-structured']
 
     state = {
         "run_id": "run-structured",
@@ -1595,22 +1055,7 @@ def test_snapshot_uses_typed_surface_metadata_without_raw_workflow_fallback(tmp_
     run_root = tmp_path / ".orchestrate" / "runs" / "typed-surface-metadata"
     (run_root / "logs").mkdir(parents=True)
 
-    bundle = _load_bundle(
-        tmp_path,
-        {
-            "version": "2.10",
-            "name": "typed-surface-report",
-            "max_transitions": 7,
-            "steps": [
-                {
-                    "name": "GenerateReport",
-                    "id": "generate_report",
-                    "command": ["bash", "-lc", "echo report"],
-                }
-            ],
-        },
-        filename="typed_surface_report.yaml",
-    )
+    bundle = HISTORICAL_OBSERVABILITY_BUNDLES['typed-surface-report']
     rawless_bundle = replace(
         bundle,
     )
@@ -1636,20 +1081,7 @@ def test_snapshot_and_markdown_surface_variant_and_snapshot_summaries(tmp_path: 
     run_root = tmp_path / ".orchestrate" / "runs" / "variant-snapshot-report"
     (run_root / "logs").mkdir(parents=True)
 
-    workflow = {
-        "version": "1.3",
-        "name": "variant-snapshot-report",
-        "steps": [
-            {
-                "name": "ExecuteImplementation",
-                "command": ["bash", "-lc", "echo execute"],
-            },
-            {
-                "name": "SelectImplementationOutcome",
-                "command": ["bash", "-lc", "echo select"],
-            },
-        ],
-    }
+    workflow = HISTORICAL_OBSERVABILITY_BUNDLES['variant-snapshot-report']
     state = {
         "run_id": "variant-snapshot-report",
         "status": "completed",
@@ -1697,7 +1129,7 @@ def test_snapshot_and_markdown_surface_variant_and_snapshot_summaries(tmp_path: 
         },
     }
 
-    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    snapshot = build_status_snapshot(workflow, state, run_root)
     steps = {entry["name"]: entry for entry in snapshot["steps"]}
 
     assert steps["ExecuteImplementation"]["output"]["snapshots"] == {

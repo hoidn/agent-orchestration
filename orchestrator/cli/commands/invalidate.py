@@ -23,7 +23,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import MemoError, invalidate_suffix, memo_writer_lock
 from orchestrator.workflow.evaluated.views import has_evaluated_authority
-from orchestrator.workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+from orchestrator.state import DERIVED_PURE_REPLAY_PROFILE
 
 
 def invalidate_run(run_id: str, identity: str, state_dir: str | None = None) -> dict[str, Any]:

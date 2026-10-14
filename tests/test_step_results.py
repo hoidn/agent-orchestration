@@ -3,25 +3,11 @@
 from dataclasses import dataclass
 
 from orchestrator.workflow import step_results
-from orchestrator.workflow.outcomes import OutcomeRecorder
 
 
 @dataclass
 class _NestedRuntimeValue:
     details: object
-
-
-def test_outcome_recorder_to_step_result_delegates_to_step_results(monkeypatch):
-    sentinel = object()
-    monkeypatch.setattr(
-        step_results,
-        "to_step_result",
-        lambda result, fallback_name: sentinel,
-    )
-
-    converted = OutcomeRecorder.to_step_result({}, "fallback")
-
-    assert converted is sentinel
 
 
 def test_json_safe_runtime_value_converts_nested_runtime_containers():

@@ -1,34 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
-from orchestrator.state import StateManager
-from orchestrator.providers import (
-    CallPolicyBinding,
-    InputMode,
-    ProviderTemplate,
-)
-from orchestrator.workflow.core_ast import _statement_to_json
-from orchestrator.workflow.executable_ir import (
-    ProviderStepConfig,
-    _json_value,
-    workflow_executable_ir_to_json,
-)
-from orchestrator.workflow.persisted_surface import (
-    serialize_persisted_workflow_surface_graph,
-)
-from orchestrator.workflow.runtime_step import RuntimeStep
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
-from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
-from orchestrator.workflow_lisp.build import _json_data
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import (
@@ -55,7 +33,6 @@ from orchestrator.workflow_lisp.functions import (
     normalize_function_calls,
 )
 from orchestrator.workflow_lisp.macros import collect_macro_catalog, expand_module_forms
-from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import (
     SyntaxIdentifier,
@@ -69,9 +46,6 @@ from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, Primiti
 from orchestrator.workflow_lisp.typecheck import TypedExpr, typecheck_expression
 from orchestrator.workflow_lisp.typecheck_effects import typecheck_provider_result_expr
 from orchestrator.workflow_lisp.workflows import build_extern_environment
-from orchestrator.workflow_lisp.wcc.defunctionalize import (
-    _frontend_expr_from_wcc_loop_binding_value,
-)
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
 from orchestrator.workflow_lisp.wcc.model import (
     WccBody,
@@ -117,36 +91,8 @@ def _compile_keyword_free():
     )
 
 
-def _keyword_free_representation_payload() -> dict[str, Any]:
-    result = _compile_keyword_free()
-    typed_expr = result.typed_workflows[0].typed_body.expr
-    assert isinstance(typed_expr, ProviderResultExpr)
-    typed_expr = replace(
-        typed_expr,
-        provider=replace(typed_expr.provider, span=CONSTANT_SPAN),
-        prompt=replace(typed_expr.prompt, span=CONSTANT_SPAN),
-        span=CONSTANT_SPAN,
-    )
-
-    bundle = result.validated_bundles[WORKFLOW_NAME]
-    assert len(bundle.core_workflow_ast.body) == 1
-    assert tuple(bundle.ir.nodes) == (NODE_ID,)
-    node = bundle.ir.nodes[NODE_ID]
-    assert isinstance(node.execution_config, ProviderStepConfig)
-
-    executable_node = workflow_executable_ir_to_json(bundle.ir)["nodes"][NODE_ID]
-    return {
-        "typed_provider_result": _json_data(typed_expr),
-        "core_provider_statement": _statement_to_json(bundle.core_workflow_ast.body[0]),
-        "executable_provider_config": executable_node["execution_config"],
-        "runtime_step": dict(
-            RuntimeStep(node=node, name=RUNTIME_NAME, step_id=RUNTIME_STEP_ID)
-        ),
-    }
 
 
-def _canonical_bytes(value: Any) -> bytes:
-    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
 def _compile_policy_fixture(path: Path, *, route: str = "wcc_m4"):
@@ -165,67 +111,12 @@ def _compile_policy_fixture(path: Path, *, route: str = "wcc_m4"):
     )
 
 
-def _compile_validated_policy_fixture():
-    return compile_stage3_module(
-        POLICY_FIXTURE.relative_to(REPO_ROOT),
-        entry_workflow="policy",
-        provider_externs=_load_manifest("providers.json"),
-        prompt_externs=_load_manifest("prompts.json"),
-        validate_shared=True,
-        workspace_root=REPO_ROOT,
-        lowering_route="wcc_m4",
-    )
 
 
-def _build_policy_source(tmp_path: Path, source: str, *, name: str):
-    source_path = tmp_path / name / "policy.orc"
-    source_path.parent.mkdir(parents=True, exist_ok=True)
-    source = source.replace(
-        '  (:target-dsl "2.15")\n',
-        '  (:target-dsl "2.15")\n  (defmodule policy)\n  (export policy)\n',
-        1,
-    )
-    source_path.write_text(source, encoding="utf-8")
-    prompt_path = source_path.parent / "tests/fixtures/workflow_lisp/provider_call_policy/prompt.md"
-    prompt_path.parent.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text("Return a WorkResult bundle.\n", encoding="utf-8")
-    return build_frontend_bundle(
-        FrontendBuildRequest(
-            source_path=source_path,
-            source_roots=(source_path.parent,),
-            entry_workflow="policy",
-            provider_externs_path=FIXTURE_ROOT / "providers.json",
-            prompt_externs_path=FIXTURE_ROOT / "prompts.json",
-            workspace_root=source_path.parent,
-            lowering_route="wcc_m4",
-        )
-    )
 
 
-def _provider_steps(value: Any) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    if isinstance(value, dict):
-        if "provider" in value:
-            found.append(value)
-        for item in value.values():
-            found.extend(_provider_steps(item))
-    elif isinstance(value, list):
-        for item in value:
-            found.extend(_provider_steps(item))
-    return found
 
 
-def _mappings_with_key(value: Any, key: str) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    if isinstance(value, dict):
-        if key in value:
-            found.append(value)
-        for item in value.values():
-            found.extend(_mappings_with_key(item, key))
-    elif isinstance(value, list):
-        for item in value:
-            found.extend(_mappings_with_key(item, key))
-    return found
 
 
 def _first_wcc_perform(body: WccBody, *, perform_kind: str) -> WccPerform:
@@ -270,12 +161,6 @@ def _elaborated_policy_perform(path: Path = POLICY_FIXTURE) -> WccPerform:
     return _first_wcc_perform(body, perform_kind="provider_result")
 
 
-def _contains_key(value: Any, key: str) -> bool:
-    if isinstance(value, dict):
-        return key in value or any(_contains_key(item, key) for item in value.values())
-    if isinstance(value, (list, tuple)):
-        return any(_contains_key(item, key) for item in value)
-    return False
 
 
 def _expression_syntax(source: str) -> SyntaxNode:
@@ -672,7 +557,7 @@ def test_public_run_displays_provider_timeout_value_and_minimum(
     entry = tmp_path / "grt" / "entry.orc"
     entry.parent.mkdir(parents=True, exist_ok=True)
     entry.write_text(
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.15\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
         "(defmodule grt/entry) (export run) "
         "(defworkflow run () -> Bool "
         "(provider-result providers.execute :prompt prompts.execute :inputs () "
@@ -814,197 +699,14 @@ def test_macro_hygiene_provider_call_policy_uses_keyword_roles_in_reordered_form
     assert sections[":timeout-sec"].value == 30
 
 
-def test_keyword_free_provider_result_matches_pre_feature_golden_bytes() -> None:
-    actual = _canonical_bytes(_keyword_free_representation_payload())
-
-    assert actual == KEYWORD_FREE_BASELINE.read_bytes()
 
 
-def test_legacy_provider_call_policy_projection_remains_policy_neutral() -> None:
-    result = _compile_validated_policy_fixture()
-    bundle = result.validated_bundles["policy"]
-    node_id = "root.policy__result"
-    runtime_plan = _json_data(bundle.runtime_plan)
-    semantic_ir = workflow_semantic_ir_to_json(bundle.semantic_ir)
-    persisted_graph = serialize_persisted_workflow_surface_graph(bundle)
-    source_map = _json_data(
-        build_source_map_document(
-            SimpleNamespace(
-                compiled_results_by_name={"__main__": result},
-                validated_bundles_by_name=result.validated_bundles,
-            ),
-            selected_name="policy",
-            display_name_resolver=lambda workflow_name: workflow_name,
-        )
-    )
-
-    assert runtime_plan["nodes"][node_id]["kind"] == "provider"
-    assert any(effect["effect_kind"] == "provider_call" for effect in semantic_ir["effects"].values())
-    persisted_steps = persisted_graph["nodes"]["policy"]["steps"]
-    assert [step["kind"] for step in persisted_steps] == ["provider"]
-    source_workflow = source_map["workflows"]["policy"]
-    assert [node["step_kind"] for node in source_workflow["core_nodes"]] == ["provider"]
-    assert [node["kind"] for node in source_workflow["executable_nodes"]] == ["provider"]
-    assert source_workflow["step_ids"]["policy__result"]["entity_kind"] == "step_id"
-    assert source_workflow["step_ids"]["policy__result"]["line"] == 11
-    assert not any(
-        subject["subject_ref"]["subject_kind"].startswith("provider_call_policy")
-        for subject in source_workflow["validation_subjects"]
-    )
-
-    assert not _contains_key(runtime_plan, "provider_call_policy")
-    assert not _contains_key(semantic_ir, "provider_call_policy")
-    assert not _contains_key(persisted_graph, "provider_call_policy")
-    assert not _contains_key(source_map, "provider_call_policy")
 
 
-def test_workflow_executor_passes_policy_separately_and_fails_before_launch(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    result = _build_policy_source(
-        tmp_path,
-        POLICY_FIXTURE.read_text(encoding="utf-8"),
-        name="runtime",
-    )
-    bundle = result.validated_bundle
-    source_path = tmp_path / "runtime/policy.orc"
-    state_manager = StateManager(tmp_path, run_id="unsupported-policy")
-    state_manager.initialize(
-        str(source_path),
-        bound_inputs={"model": "runtime-model", "effort": "runtime-effort"},
-    )
-    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor.provider_registry.register(
-        ProviderTemplate(
-            name="test-provider",
-            command=["tool", "${model}"],
-            input_mode=InputMode.STDIN,
-            call_policy_bindings={
-                "model": CallPolicyBinding(target_param="model")
-            },
-        )
-    )
-    captured: list[dict[str, Any]] = []
-    original_prepare = executor.provider_executor.prepare_invocation
-
-    def recording_prepare(*args, **kwargs):
-        captured.append(kwargs)
-        return original_prepare(*args, **kwargs)
-
-    monkeypatch.setattr(
-        executor.provider_executor,
-        "prepare_invocation",
-        recording_prepare,
-    )
-
-    def forbidden_launch(*args, **kwargs):
-        raise AssertionError("unsupported call policy reached provider execution")
-
-    monkeypatch.setattr(executor.provider_executor, "execute", forbidden_launch)
-
-    state = executor.execute(on_error="continue")
-
-    assert len(captured) == 1
-    assert captured[0]["params"].params == {}
-    assert captured[0]["provider_call_policy"] == {
-        "model": "${inputs.model}",
-        "effort": "${inputs.effort}",
-    }
-    assert captured[0]["timeout_sec"] == 7200
-    step_state = next(iter(state["steps"].values()))
-    assert state["status"] == "failed"
-    assert step_state["exit_code"] == 2
-    assert step_state["error"] == {
-        "type": "provider_call_policy_unsupported",
-        "message": "Provider call policy option is not supported",
-        "context": {"provider": "test-provider", "option": "effort"},
-    }
 
 
-def test_content_addressed_core_and_executable_artifacts_carry_provider_call_policy(
-    tmp_path: Path,
-) -> None:
-    result = _build_policy_source(
-        tmp_path,
-        POLICY_FIXTURE.read_text(encoding="utf-8"),
-        name="artifact-build",
-    )
-    core_payload = json.loads(
-        result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8")
-    )
-    executable_payload = json.loads(
-        result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
-    )
-
-    assert result.build_root.name == result.manifest.fingerprint
-    assert core_payload["body"][0]["provider_call_policy"] == {
-        "model": "${inputs.model}",
-        "effort": "${inputs.effort}",
-    }
-    assert len(executable_payload["nodes"]) == 1
-    node = next(iter(executable_payload["nodes"].values()))
-    assert node["execution_config"]["provider_call_policy"] == {
-        "model": "${inputs.model}",
-        "effort": "${inputs.effort}",
-    }
 
 
-def test_provider_call_policy_edits_change_existing_source_and_build_identities(
-    tmp_path: Path,
-) -> None:
-    base = POLICY_FIXTURE.read_text(encoding="utf-8")
-    literal = base.replace(":model model", ':model "gpt-5"')
-    without_effort = base.replace("      :effort effort\n", "")
-    cases = {
-        "literal": (literal, literal.replace('"gpt-5"', '"gpt-5.1"')),
-        "binding_expression": (
-            base,
-            base.replace(":model model", ":model effort"),
-        ),
-        "keyword_added": (without_effort, base),
-        "keyword_removed": (base, without_effort),
-    }
-    stable_root = tmp_path / "stable"
-    stable_source_path = stable_root / "policy.orc"
-    state_manager = StateManager(stable_root, run_id="provider-policy-identity")
-
-    def capture(source: str) -> dict[str, Any]:
-        result = _build_policy_source(tmp_path, source, name="stable")
-        program_identity = json.loads(
-            result.artifact_paths["lexical_checkpoint_points"].read_text(
-                encoding="utf-8"
-            )
-        )["program_identity"]
-        return {
-            "source_path": Path(result.manifest.source_path),
-            "source_roots": tuple(result.manifest.source_roots),
-            "source_digest": result.manifest.source_sha256,
-            "build_fingerprint": result.manifest.fingerprint,
-            "program_identity": program_identity,
-            "executable_ir_digest": hashlib.sha256(
-                result.artifact_paths["executable_ir"].read_bytes()
-            ).hexdigest(),
-            "workflow_checksum": state_manager.calculate_checksum(stable_source_path),
-        }
-
-    identical_first = capture(base)
-    identical_second = capture(base)
-    assert identical_first == identical_second
-    assert identical_first["source_path"] == stable_source_path
-    assert identical_first["source_roots"] == (str(stable_root),)
-
-    for before_source, after_source in cases.values():
-        before = capture(before_source)
-        after = capture(after_source)
-
-        assert before["source_path"] == after["source_path"] == stable_source_path
-        assert before["source_roots"] == after["source_roots"] == (str(stable_root),)
-        assert before["source_digest"] != after["source_digest"]
-        assert before["build_fingerprint"] != after["build_fingerprint"]
-        assert before["program_identity"] != after["program_identity"]
-        assert before["executable_ir_digest"] != after["executable_ir_digest"]
-        assert before["workflow_checksum"] != after["workflow_checksum"]
 
 
 def test_wcc_provider_call_policy_payload_preserves_present_operands() -> None:
@@ -1020,18 +722,6 @@ def test_wcc_provider_call_policy_payload_preserves_present_operands() -> None:
     assert perform.operation_payload["timeout_sec"].value == 7200
 
 
-def test_wcc_provider_call_policy_reconstruct_preserves_present_operands() -> None:
-    reconstructed = _frontend_expr_from_wcc_loop_binding_value(
-        _elaborated_policy_perform()
-    )
-
-    assert isinstance(reconstructed, ProviderResultExpr)
-    assert isinstance(reconstructed.model, NameExpr)
-    assert reconstructed.model.name == "model"
-    assert isinstance(reconstructed.effort, NameExpr)
-    assert reconstructed.effort.name == "effort"
-    assert isinstance(reconstructed.timeout_sec, LiteralExpr)
-    assert reconstructed.timeout_sec.value == 7200
 
 
 def test_wcc_provider_call_policy_payload_preserves_absence() -> None:
@@ -1049,270 +739,3 @@ def test_wcc_provider_call_policy_payload_preserves_absence() -> None:
 
     assert isinstance(perform.operation_payload, dict)
     assert not {"model", "effort", "timeout_sec"} & perform.operation_payload.keys()
-    reconstructed = _frontend_expr_from_wcc_loop_binding_value(perform)
-    assert isinstance(reconstructed, ProviderResultExpr)
-    assert reconstructed.model is None
-    assert reconstructed.effort is None
-    assert reconstructed.timeout_sec is None
-
-
-@pytest.mark.parametrize("route", ["wcc_m2", "wcc_m3", "wcc_m4"])
-def test_wcc_routes_preserve_provider_call_policy_lowering(route: str) -> None:
-    result = _compile_policy_fixture(POLICY_FIXTURE, route=route)
-    mapping = result.lowered_workflows[0].authored_mapping
-    provider_step = _provider_steps(mapping)[0]
-
-    assert provider_step["provider_call_policy"] == {
-        "model": "${inputs.model}",
-        "effort": "${inputs.effort}",
-    }
-    assert provider_step["timeout_sec"] == 7200
-
-
-def test_direct_wcc_provider_call_policy_lowering_matches() -> None:
-    provider_steps = {
-        route: _provider_steps(
-            _compile_policy_fixture(POLICY_FIXTURE, route=route)
-            .lowered_workflows[0]
-            .authored_mapping
-        )[0]
-        for route in ("legacy", "wcc_m4")
-    }
-
-    for field_name in ("provider_call_policy", "timeout_sec"):
-        assert provider_steps["legacy"][field_name] == provider_steps["wcc_m4"][field_name]
-
-
-def test_lowering_renders_literal_and_projected_provider_call_policy_values(
-    tmp_path: Path,
-) -> None:
-    source = POLICY_FIXTURE.read_text(encoding="utf-8")
-    source = source.replace(
-        "((model String)\n     (effort String))",
-        "((model String)\n     (effort String)\n     (config WorkResult))",
-    )
-    source = source.replace(":model model", ':model "gpt-5"')
-    source = source.replace(":effort effort", ":effort config.summary")
-    path = tmp_path / "literal_projected_policy.orc"
-    path.write_text(source, encoding="utf-8")
-
-    result = compile_stage3_module(
-        path,
-        entry_workflow="policy",
-        provider_externs=_load_manifest("providers.json"),
-        prompt_externs=_load_manifest("prompts.json"),
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-    provider_step = _provider_steps(result.lowered_workflows[0].authored_mapping)[0]
-
-    assert provider_step["provider_call_policy"] == {
-        "model": "gpt-5",
-        "effort": "${inputs.config__summary}",
-    }
-
-
-@pytest.mark.parametrize(
-    ("retained_line", "expected_policy"),
-    [
-        (":model model", {"model": "${inputs.model}"}),
-        (":effort effort", {"effort": "${inputs.effort}"}),
-    ],
-)
-def test_lowering_emits_only_authored_provider_call_policy_key(
-    tmp_path: Path,
-    retained_line: str,
-    expected_policy: dict[str, str],
-) -> None:
-    source = POLICY_FIXTURE.read_text(encoding="utf-8")
-    policy_lines = {
-        ":model model",
-        ":effort effort",
-    }
-    source = "\n".join(
-        line
-        for line in source.splitlines()
-        if line.strip() not in policy_lines or line.strip() == retained_line
-    ) + "\n"
-    path = tmp_path / "one_key_policy.orc"
-    path.write_text(source, encoding="utf-8")
-
-    result = compile_stage3_module(
-        path,
-        entry_workflow="policy",
-        provider_externs=_load_manifest("providers.json"),
-        prompt_externs=_load_manifest("prompts.json"),
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-    provider_step = _provider_steps(result.lowered_workflows[0].authored_mapping)[0]
-
-    assert provider_step["provider_call_policy"] == expected_policy
-
-
-def test_lowering_does_not_emit_empty_provider_call_policy() -> None:
-    mapping = _compile_keyword_free().lowered_workflows[0].authored_mapping
-    provider_step = _provider_steps(mapping)[0]
-
-    assert "provider_call_policy" not in provider_step
-    assert "timeout_sec" not in provider_step
-
-
-def test_procedure_policy_specialization_uses_caller_bound_inputs_through_loop() -> None:
-    result = _compile_policy_fixture(PROCEDURE_POLICY_FIXTURE)
-    mappings = [lowered.authored_mapping for lowered in result.lowered_workflows]
-    provider_steps = [
-        step
-        for mapping in mappings
-        for step in _provider_steps(mapping)
-        if "provider_call_policy" in step
-    ]
-
-    assert len(provider_steps) == 1
-    assert provider_steps[0]["provider_call_policy"] == {
-        "model": "${inputs.model}",
-        "effort": "${inputs.effort}",
-    }
-    assert provider_steps[0]["timeout_sec"] == 7200
-    root_mapping = result.lowered_workflows[0].authored_mapping
-    procedure_call = next(
-        step
-        for step in _mappings_with_key(root_mapping, "call")
-        if step["call"].endswith("invoke-provider.v1")
-    )
-    assert procedure_call["with"]["model"] == {"ref": "inputs.model"}
-    assert procedure_call["with"]["effort"] == {"ref": "inputs.effort"}
-    assert all(
-        not _contains_key(mapping, "provider_call_policy_specialization")
-        for mapping in mappings
-    )
-
-
-def test_provider_call_policy_survives_surface_core_executable_and_runtime_step() -> None:
-    result = _compile_validated_policy_fixture()
-    bundle = result.validated_bundles["policy"]
-    expected_policy = {
-        "model": "${inputs.model}",
-        "effort": "${inputs.effort}",
-    }
-
-    surface_step = bundle.surface.steps[0]
-    core_step = bundle.core_workflow_ast.body[0]
-    node = bundle.ir.nodes["root.policy__result"]
-    config = node.execution_config
-    assert isinstance(config, ProviderStepConfig)
-
-    assert dict(surface_step.provider_call_policy or {}) == expected_policy
-    assert dict(core_step.provider_call_policy or {}) == expected_policy
-    assert dict(config.provider_call_policy or {}) == expected_policy
-    with pytest.raises(TypeError):
-        surface_step.provider_call_policy["model"] = "mutated"  # type: ignore[index]
-    assert workflow_executable_ir_to_json(bundle.ir)["nodes"][node.node_id][
-        "execution_config"
-    ]["provider_call_policy"] == expected_policy
-    assert dict(RuntimeStep(node=node, name="Policy", step_id="policy"))[
-        "provider_call_policy"
-    ] == expected_policy
-    assert surface_step.common.timeout_sec == 7200
-    assert core_step.common.timeout_sec == 7200
-    assert config.common.timeout_sec == 7200
-
-
-def test_provider_call_policy_absence_is_none_and_omitted_from_typed_json() -> None:
-    result = _compile_keyword_free()
-    bundle = result.validated_bundles[WORKFLOW_NAME]
-    surface_step = bundle.surface.steps[0]
-    core_step = bundle.core_workflow_ast.body[0]
-    node = bundle.ir.nodes[NODE_ID]
-    config = node.execution_config
-    assert isinstance(config, ProviderStepConfig)
-
-    assert surface_step.provider_call_policy is None
-    assert core_step.provider_call_policy is None
-    assert config.provider_call_policy is None
-    assert "provider_call_policy" not in _statement_to_json(core_step)
-    assert "provider_call_policy" not in _json_value(config)
-    assert "provider_call_policy" not in dict(
-        RuntimeStep(node=node, name=RUNTIME_NAME, step_id=RUNTIME_STEP_ID)
-    )
-
-
-def test_provider_call_policy_serializers_use_field_local_model_effort_order() -> None:
-    result = _compile_validated_policy_fixture()
-    bundle = result.validated_bundles["policy"]
-    core_step = bundle.core_workflow_ast.body[0]
-    node = bundle.ir.nodes["root.policy__result"]
-    config = node.execution_config
-    assert isinstance(config, ProviderStepConfig)
-
-    expected_core = (
-        b'{"meta":{"id":"root.policy__result","step_id":"policy__result",'
-        b'"step_kind":"provider","display_name":"policy__result","lexical_scope":[],'
-        b'"origin_key":"policy::root.policy__result","generated_by":null},"common":'
-        b'{"on":null,"consumes":[],"consume_bundle":null,"publishes":[],'
-        b'"expected_outputs":[],"output_bundle":{"path":"${inputs.__write_root__policy__result__result_bundle}",'
-        b'"fields":[{"name":"approved","json_pointer":"/approved","type":"bool"},'
-        b'{"name":"summary","json_pointer":"/summary","type":"string"}]},'
-        b'"variant_output":null,"pre_snapshot":null,"requires_variant":null,'
-        b'"persist_artifacts_in_state":null,"provider_session":null,"max_visits":null,'
-        b'"retries":null,"env":null,"secrets":[],"timeout_sec":7200,'
-        b'"output_capture":null,"output_file":null,"allow_parse_error":null},'
-        b'"kind":"provider","provider":"test-provider","provider_params":null,'
-        b'"managed_jobs":null,"input_file":null,"asset_file":'
-        b'"tests/fixtures/workflow_lisp/provider_call_policy/prompt.md","depends_on":{},'
-        b'"asset_depends_on":[],"inject_output_contract":true,"inject_consumes":null,'
-        b'"prompt_consumes":null,"typed_prompt_inputs":[],"consumes_injection_position":null,'
-        b'"provider_call_policy":{"model":"m","effort":"e"}}'
-    )
-    expected_executable = (
-        b'{"common":{"on":{},"consumes":[],"consume_bundle":null,"publishes":[],'
-        b'"expected_outputs":[],"output_bundle":{"fields":[{"json_pointer":"/approved",'
-        b'"name":"approved","type":"bool"},{"json_pointer":"/summary","name":"summary",'
-        b'"type":"string"}],"path":"${inputs.__write_root__policy__result__result_bundle}"},'
-        b'"variant_output":null,"pre_snapshot":null,"requires_variant":null,'
-        b'"persist_artifacts_in_state":null,"provider_session":null,"max_visits":null,'
-        b'"retries":null,"env":null,"secrets":[],"timeout_sec":7200,'
-        b'"output_capture":null,"output_file":null,"allow_parse_error":null},'
-        b'"provider":"test-provider","provider_params":null,'
-        b'"provider_call_policy":{"model":"m","effort":"e"},"input_file":null,'
-        b'"asset_file":"tests/fixtures/workflow_lisp/provider_call_policy/prompt.md",'
-        b'"depends_on":{},"asset_depends_on":[],"inject_output_contract":true,'
-        b'"inject_consumes":null,"prompt_consumes":null,"typed_prompt_inputs":[],'
-        b'"consumes_injection_position":null,"managed_jobs":null}'
-    )
-
-    for policy in (
-        {"model": "m", "effort": "e"},
-        {"effort": "e", "model": "m"},
-    ):
-        core_bytes = json.dumps(
-            _statement_to_json(replace(core_step, provider_call_policy=policy)),
-            separators=(",", ":"),
-        ).encode("utf-8")
-        executable_bytes = json.dumps(
-            _json_value(replace(config, provider_call_policy=policy)),
-            separators=(",", ":"),
-        ).encode("utf-8")
-
-        assert core_bytes == expected_core
-        assert executable_bytes == expected_executable
-
-
-def test_provider_call_policy_serializer_rejects_unexpected_key() -> None:
-    result = _compile_validated_policy_fixture()
-    bundle = result.validated_bundles["policy"]
-    core_step = bundle.core_workflow_ast.body[0]
-    node = bundle.ir.nodes["root.policy__result"]
-    config = node.execution_config
-    assert isinstance(config, ProviderStepConfig)
-
-    with pytest.raises(ValueError, match="unexpected provider call policy key"):
-        _statement_to_json(
-            replace(core_step, provider_call_policy={"model": "m", "unknown": "x"})
-        )
-    with pytest.raises(ValueError, match="unexpected provider call policy key"):
-        _json_value(
-            replace(config, provider_call_policy={"model": "m", "unknown": "x"})
-        )

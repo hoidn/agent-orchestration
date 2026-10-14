@@ -1,6 +1,6 @@
 # Best Of N Migration And Executor Retirement Execution
 
-**Status:** in progress; no executable cutoff or code deletion delivered.
+**Status:** Tasks 0–5 accepted and complete in the commit containing this closeout. Physical deletion, retained-test migration and final independent reviews are PASS. The second full remains RED with 15 explicitly classified failures and no errors. The delivery receipt records the exact commit, main integration and preserved concurrent user changes.
 **Selection:** owner “proceed”, 2026-10-13, following the independently reviewed
 [design](../design/workflow_lisp_executor_retirement.md) and
 [plan](../plans/2026-10-13-best-of-n-and-executor-retirement-plan.md).
@@ -26,12 +26,12 @@ Concurrent dirty main changes remain outside W and are preserved.
 
 | Task | State | Evidence / remaining work |
 | --- | --- | --- |
-| 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification remains Task 3 |
-| 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign remains Task 5 |
-| 2 other selected consumers | Bounded migration accepted | Canonical lifecycle, terminal branches and current request-data assertions verified; exclusive retirement routing remains part of final delivery |
-| 3 cutoff / gate R | R accepted | Independent gate review's sole condition R1 closed by source-bound 14/22 PASS and independent quality recheck; coordinator accepted the gate on 2026-10-13; final deleted-tree checks still required |
-| 4 physical deletion | Pending | No old executor/lowering deleted |
-| 5 final verification / delivery | Pending | Fresh baseline full RED recorded; final affected/full and independent review required |
+| 0 finite inventory | Accepted | Finite source/generated-consumer/run dispositions recorded; independent inventory review PASS; implementation qualification is recorded in Task 3 |
+| 1 canonical serial best of N | Bounded implementation accepted | Four public cases and recovery census PASS; independent contract and quality PASS; final integrated campaign is recorded in Task 5 |
+| 2 other selected consumers | Bounded migration accepted | Canonical lifecycle, terminal branches and current request-data assertions verified; exclusive retirement routing is included in final delivery |
+| 3 cutoff / gate R | R accepted | Independent gate review's sole condition R1 closed by source-bound 14/22 PASS and independent quality recheck; coordinator accepted the gate on 2026-10-13; final deleted-tree checks are recorded in Tasks 4–5 |
+| 4 physical deletion | Accepted for selected scope | Exclusive paths absent; retained-test migration, R3/R4 restorations and the native delta have independent source/ledger PASS and second-full execution. Known compiler/environment limits remain explicit RED dispositions. |
+| 5 final verification / delivery | Complete in this delivery | Second full RED: 15,464 PASS / 15 FAIL / 28 SKIP / 2 XFAIL / 0 ERROR; all 15 have exact cause dispositions, no new unaccounted failures or source drift. Independent final reviews PASS; exact main integration and preservation are recorded in `E/retirement-main-delivery.json`. |
 
 ## Finite Consumer Decisions
 
@@ -98,9 +98,9 @@ header alone produces `closed_program_gap`; no provider was launched.
 The owner explicitly selected “Retirar run/import y conservar versión anterior”
 on 2026-10-13. Retire these new executions from the new package and preserve them
 in `E/retirement-retained-release`; no evaluated session port or sidecar metadata
-is selected. Task 0's contract choice is resolved; implementation and R remain
-pending. Tasks 3–4 must prove run/import refusal before scaffold/run/session
-writes or effects and preserve original data.
+is selected. This resolved Task 0's contract choice. The refusal and native
+continuation checks subsequently qualified gate R below; final deleted-tree
+verification and delivery remain Task 5.
 
 `prompt resume [--in-place]` remains the native TTY bridge with its existing
 pins, isolation, lineage and continuation publication. `verify_private_scaffold`
@@ -113,8 +113,9 @@ it does not resume retired workflows or establish universal old-run recovery.
 
 `E/retirement-inventory-review.md` records final Task 0 PASS after correcting
 the omitted generated consumer and fourteen stale decision labels. The original
-findings and pre-review JSON remain preserved. This accepts the finite scope,
-not the still-pending refusal, native-session or recovery checks of R.
+findings and pre-review JSON remain preserved. That review accepted the finite
+scope; the refusal, native-session and recovery evidence belongs to the
+subsequent gate R qualification below.
 
 ### Preserved Complete Release / Consumer Snapshot
 
@@ -474,8 +475,8 @@ as `d7fa895c` after coordinator inspection.
 The retired flat `explain` view now returns `workflow_explain_retired` before
 reads or writes, replacing an AttributeError after typed-only build separation.
 Four public target cases passed, and the cutoff owner passed **57 cases**
-(`E/retirement-explain-implementation.md`). Its unreachable implementation stays
-only until Task 4's physical removal; no evaluated explain feature was added.
+(`E/retirement-explain-implementation.md`). At that checkpoint its unreachable implementation remained until Task 4;
+it has now been physically removed in W. No evaluated explain feature was added.
 Its contract and independent quality reviews passed; the bounded correction
 was committed as `a27a2f11`.
 
@@ -557,3 +558,109 @@ case passed. Contract and independent quality are PASS in
 `E/retirement-reader-fixtures-{contract,quality}-review.md`; final source hash
 `d0c79db2b1c08dce94e80bcdee1c3fa4746addffd9ca02cb64f1a6c91d4d93cf`.
 Final import isolation after physical deletion remains a separate requirement.
+
+## Final Deleted-Tree Qualification And Delivery
+
+Tasks 0–3 and R are accepted; physical production deletion has independent
+contract/quality PASS. Task 4 retained-test migration is accepted on independent
+source/ledger PASS and the completed second full. Task 5 verification and routing
+are recorded with independent final review PASS. The commit containing this
+closeout completes the selected retirement; its delivery receipt records main
+integration and preservation. Earlier chronological receipts and RED results
+are preserved below their original scope; none is relabelled GREEN.
+
+Exclusive flat execution/replay/checkpoint/emitter, trial/SDK, selected ES/research
+execution and prompt run/import implementations are absent. Admitted evaluated
+2.35/2.36 and bounded 2.37, old-header typed imports/analysis/LSP, historical
+report/dashboard and native prompt resume remain. Shared `workflow/prompting.py`,
+renderers, native scaffold verification and required descriptors/read services
+are retained callers, not a flat fallback. Original data is untouched; a retained
+checkout is availability, not universal interrupted recovery. Exact family
+qualification remains in the recovery evidence above. No new watchdog/effect port,
+backend or representation conversion was added.
+
+The first final campaign used index tree `62639184fe2d907285a18eaac31a948de5b33883`
+after integrating committed main `fc497229896afb4c2ff54dc64b75d2c5ede07f11` into W.
+It is a source snapshot, not delivery. The original 130 independently reviewed production paths retain their hashes
+(`E/retirement-final-production-review-binding.json`). A newly changed 131st production path, the two-line
+`prompt_session_scaffold.py` correction catches `ScaffoldIdentityError` in both
+existing verification wrappers and maps it through the stable `PromptSessionError`
+domain to `prompt_resume_scaffold_invalid`. Authentic tamper checks went
+RED→GREEN; guards and resume admission were not weakened. This additional
+production delta has its own independent review/source binding in
+`E/retirement-final-test-disposition-review.json`, not the original PASS alone.
+That review also closes R3/R4 and all corrected test/source ledgers; final
+full-suite evidence is recorded below; final closeout review is independently PASS. The separate dirty-main rehearsal preserves user `file/2`
+and proposals; it is not code exercised by this campaign or a new selection.
+
+| Earlier bounded evidence in E | Actual result / limit |
+| --- | --- |
+| `retirement-frontend-owned-freeze.*` / final owner ledger | 5,208 PASS / 1 SKIP / 1 XFAIL over 197 modules before R3/R4. Historical 39-module/1,289-PASS evidence is not added: 1,281 IDs overlap and eight command-adapter nodes have final retire dispositions. Those eight are distinct from R4's restored positives. |
+| `retirement-nonfrontend-broad3.*`; `retirement-adjudication-reader-restored.*` | 1,933 PASS / 1 SKIP before R2; separate restored-reader 1 PASS. No later combined broad run is invented. |
+| `retirement-workflow-lisp-cli-broad-final.*` | 57 PASS. |
+| `retirement-final-routing-check.*`; `retirement-final-routing-corrections.*` | Initial 133 PASS / 3 FAIL, then those 3 PASS; bounded R1–R5 routing review PASS, separate from final closeout approval. |
+| `retirement-main-merge-affected.*`; `retirement-workspace-run-lock-narrow-fix.*` | 267 PASS integration; separate 12 PASS fixture/helper correction with assertions unchanged. |
+| `retirement-scope-final.*`; `retirement-scope-baseline-repros.json` | 200 PASS / 10 FAIL. Newly migrated/renamed positive tests expose existing target-2.35 compiler limits reproduced through public CLI at exact `23eb9c97`; these are not same-node baseline failures or suppressed tests. |
+
+These owner receipts overlap; do not sum them into a full execution count.
+The historical baseline full remains RED (217 FAIL), as does the historical
+extraction campaign (275 FAIL); changed test populations do not establish
+fewer defects from lower raw counts.
+
+**First final full:** `E/retirement-final-full.{json,log,xml}` is **RED**:
+15,363 PASS / 100 FAIL / 48 ERROR / 28 SKIP / 2 XFAIL, exit 1, from 15,541
+collected cases with zero collection errors. All 148 failures/errors have exact
+dispositions in `E/retirement-final-full-dispositions.json`; a disposition or a
+local repair does not make this campaign successful.
+
+| Post-first-full correction / evidence in E | Verified narrow / affected result |
+| --- | --- |
+| Pure/transition retained services and exclusive old recovery/execution tests (`retirement-pure-transition-{narrow,affected-v2}.*`) | 98 PASS / 457 PASS; production unchanged. The supplemental transition group is 17 mutation/execution tests plus two lookups solely used by retired recovery, not nineteen mutating tests. |
+| R3 report Value payload and R4 typed positives (`retirement-frontend-review-{collect,narrow,affected}.*`; `retirement-frontend-review-delta.json`) | R3 restores two report assertions; R4 restores eight original-header positive typed analyses. Nine restored-contract cases PASS; 251 affected PASS; collect and source delta recorded. The first full did not execute these restorations. Final independent ledger/source recheck is PASS in `E/retirement-final-test-disposition-review.json`; the second full below also executes the restorations. |
+| Temporary-root isolation (`retirement-isolation-trusted-tmp-affected.*`) | 23 failures under a refused group-writable ancestor; 72 affected PASS with the admitted private temp root. No source change or weakened guard. |
+| Child-target expectation (`retirement-e2e-current-child-{narrow,affected}.*`) | Retired child target migrated to admitted 2.36, retaining 2.35 and explicit old-target refusals; 2 narrow / 64 affected PASS. |
+| Packaging/durability test models (`runtime-new-failures-{green-narrow,affected}.*`) | 3 narrow / 9 affected PASS; production unchanged, exact baseline cause/correctness controls recorded. |
+| Prompt retirement / actual native readers | 32 cases collected; 24 reader checks and six grammar checks PASS, followed by 352 affected PASS in `retirement-prompt-integration-affected-final.*`. Two authentic tamper checks verify the new error-domain catch. Final independent source/ledger review PASS is distinct; the completed second full executes the retained cases. Ledger: 53 original functions / 59 expanded cases → 27 / 32; 26 retired, 24 migrated, three assertion ASTs unchanged; 101 HISTORY hashes unchanged. |
+
+**Second final full:** `E/retirement-final-full2.{json,log,xml}` is **RED**:
+15,464 PASS / 15 FAIL / 28 SKIP / 2 XFAIL / 0 ERROR from 15,509 cases,
+exit 1, 225 warnings; pytest 662.07 s, runner 663.200764 s. It used frozen
+index tree `53542f3ba43f596b25b740deeb3811e6927af9e6` with
+`pytest -q -n 16 --dist=worksteal`. Exact dispositions in
+`E/retirement-final-full2-dispositions.json` account for all 15 failures,
+with no new unaccounted failures and no source drift. All 15 have the same
+failure causes as the first full; that does not make either campaign GREEN.
+
+Ten newly migrated/renamed scope cases expose two prior target-2.35 compiler
+limits, reproduced identically through public CLI at exact `23eb9c97`; they
+are not same-node baseline failures. The other five have matching raw-trace
+baseline causes in `E/retirement-final-full-baseline-cause-check.json`: four
+missing external nanoBragg checkout/source failures and one growth inventory
+containing `None`. `E/retirement-final-full2-comparison.json` preserves this
+distinction. None is suppressed, and no lower raw count is a defect-reduction
+claim. The selected migration/deletion verification is bounded by these limits.
+
+| Final evidence | Actual evidence |
+| --- | --- |
+| Second full campaign and final dispositions | RED result above; `E/retirement-final-full2.json` SHA-256 `9bdd1d538e82dbc38c6674234b6b19c837dd80dff2f8b157d59a7db2d855020a`; dispositions SHA-256 `b47dc1bc4fa37b8e41e89252e2b4db83a87795fe02cfe0ddbbc1ee6caa5b42ea`; all receipt/log/XML hashes are in the external draft manifest. |
+| R3/R4 independent recheck and final source/ledger binding | CLOSED: actual R3/R4 sources/ledger, collect and 9/251 PASS independently approved in `E/retirement-final-test-disposition-review.json` (SHA-256 `e6d603fb32ed641cf2fb24f3b498bc8098058483836488822a1a0fb988b64e00`); the first full did not execute restored assertions; the second full does |
+| Second frozen source / measured LOC | `53542f3ba43f596b25b740deeb3811e6927af9e6`; `E/retirement-final-loc2.json`. Refresh only if later scoped edits invalidate this freeze |
+| Native scaffold error-domain correction review / ledger binding | PASS: `prompt_session_scaffold.py` SHA-256 `08bbbecd944f2dcbc673560c364e5ab8294b5b7006ac744cdea1db0901c7aaf4`; independent review as above; prompt ledger SHA-256 `e0557d7e4a3ba1c4bbdb9c3a06edb9f3f991803b43ce4a68b0861c7d42d26af9`, 101 historical asset hashes unchanged, 352 affected PASS; distinct from the original 130-path PASS |
+| Final independent code/evidence and design/closeout review | PASS in `E/retirement-final-test-disposition-review.json` and `E/retirement-final-closeout-draft-review.json`, with source hashes and the full-suite RED limits explicit. |
+| Integration/delivery and original dirty-main preservation | Delivery is the commit containing this closeout. `E/retirement-main-delivery.json` records the exact commit and main integration; the 44 original dirty tracked files and 6,841 untracked paths are preserved, with the nine retired dirty ES sources kept byte-identically in the retained release. Other user changes remain uncommitted. |
+
+Tracked `.py` physical lines include comments/blanks and committed-main
+integration, excluding generated/untracked files and scripts outside the two
+roots. Baseline `23eb9c97b57c3fbcc318a51a99302cd3bed2eb31`: production
+524 files / 358,531 lines → 447 / 254,937, **77 files and 103,594 lines removed
+(28.89%)**; tests 704 / 599,251 → 576 / 344,330, **128 files and 254,921 lines
+removed (42.54%)**, measured at the second frozen tree above. The two extra
+production lines are the explicit scaffold-error catch; the first freeze's
+103,596/253,316 reductions remain historical measurements. Second collection
+has **15,509 cases / zero errors / exit 0** (`E/retirement-final-collect3.*`),
+not the first campaign's 15,541. The completed second full and its remaining
+RED failure limits are recorded above. These measurements are physical size,
+not speed, effectiveness or correctness claims.
+The concurrent-user document changes remain separate from the delivery commit,
+with final retirement status reconciled while preserving authored `file/2` and
+unselected workstreams. The delivery receipt records the final merged bytes.

@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import (
-    _definition_only_syntax_module,
-    _validate_definition_module,
-    compile_stage1_module,
-    compile_stage3_entrypoint,
-    compile_stage3_module,
-)
+from orchestrator.workflow_lisp.compiler import _definition_only_syntax_module, _validate_definition_module, compile_stage1_module
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import build_syntax_module
@@ -30,13 +22,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccNameAtom,
     WccRecordAtom,
 )
-from orchestrator.workflow_lisp.workflows import (
-    ExternalToolBinding,
-    build_workflow_catalog,
-    elaborate_workflow_definitions,
-    typecheck_workflow_definitions,
-)
-from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
+from orchestrator.workflow_lisp.workflows import build_workflow_catalog, elaborate_workflow_definitions, typecheck_workflow_definitions
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -90,41 +76,10 @@ def _typed_workflow(path: Path, workflow_name: str):
     return next(workflow for workflow in typed_workflows if workflow.definition.name == workflow_name)
 
 
-def _load_imported_bundle_bindings(tmp_path: Path) -> dict[str, object]:
-    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
-    bindings = build_module.load_imported_workflow_bundle_manifest(
-        CLI_FIXTURES / "imported_workflow_bundles.json",
-        workspace_root=tmp_path,
-        source_roots=(MODULE_FIXTURES / "imported_bundle_mix",),
-        provider_externs_path=CLI_FIXTURES / "providers.json",
-        prompt_externs_path=CLI_FIXTURES / "prompts.json",
-        command_boundaries_path=CLI_FIXTURES / "commands.json",
-    )
-    return {binding.canonical_key: binding.bundle for binding in bindings}
 
 
-def _assert_wcc_route_unsupported(excinfo: pytest.ExceptionInfo[LispFrontendCompileError]) -> None:
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "wcc_lowering_route_unsupported"
-    assert diagnostic.phase == "lowering"
 
 
-def test_compile_stage3_module_defaults_to_legacy_route_for_unsupported_workflow(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        VALID_FIXTURES / "structured_results.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    assert result.lowered_workflows
 
 
 def test_wcc_model_instantiates_representative_nodes_with_stable_metadata() -> None:
@@ -406,203 +361,3 @@ def test_anf_generated_temporaries_preserve_authored_provenance_and_halt_with_at
     assert isinstance(normalized.body, WccLet)
     assert isinstance(normalized.body.body, WccHalt)
     assert isinstance(normalized.body.body.result, WccNameAtom)
-
-
-def test_wcc_m1_route_compiles_pure_value_workflow_and_validates_shared_bundle(tmp_path: Path) -> None:
-    fixture = VALID_FIXTURES / "wcc_m1_value_union_letstar.orc"
-
-    result = compile_stage3_module(
-        fixture,
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m1",
-    )
-
-    workflow_name = "value-union-letstar"
-    assert workflow_name in result.validated_bundles
-    assert result.lowered_workflows
-
-
-def test_compile_stage3_module_rejects_unsupported_wcc_m1_route_before_lowering(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            VALID_FIXTURES / "structured_results.orc",
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m1",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-
-
-def test_compile_stage3_entrypoint_supports_explicit_legacy_route_for_module_graph(tmp_path: Path) -> None:
-    result = compile_stage3_entrypoint(
-        MODULE_FIXTURES / "callables" / "neurips" / "entry.orc",
-        source_roots=(MODULE_FIXTURES / "callables",),
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        lowering_route="legacy",
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    assert result.entry_result.lowered_workflows
-
-
-def test_compile_stage3_entrypoint_rejects_unsupported_wcc_m1_route_for_module_graph(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "callables" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "callables",),
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m1",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-
-
-@pytest.mark.parametrize(
-    ("fixture_path", "compile_kwargs"),
-    (
-        (
-            VALID_FIXTURES / "structured_results.orc",
-            {
-                "provider_externs": {"providers.execute": "fake"},
-                "prompt_externs": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
-                "command_boundaries": {
-                    "run_checks": ExternalToolBinding(
-                        name="run_checks",
-                        stable_command=("python", "scripts/run_checks.py"),
-                    ),
-                },
-            },
-        ),
-        (
-            FIXTURES / "characterization" / "sources" / "wcc_m2_straight_line_effects.orc",
-            {
-                "provider_externs": {"providers.execute": "fake"},
-                "prompt_externs": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
-                "command_boundaries": {
-                    "run_checks": ExternalToolBinding(
-                        name="run_checks",
-                        stable_command=("python", "scripts/run_checks.py"),
-                    ),
-                },
-            },
-        ),
-        (
-            VALID_FIXTURES / "proc_ref_bind_proc_forwarding.orc",
-            {
-                "command_boundaries": {
-                    "run_checks": ExternalToolBinding(
-                        name="run_checks",
-                        stable_command=("python", "scripts/run_checks.py"),
-                    ),
-                },
-            },
-        ),
-        (
-            VALID_FIXTURES / "workflow_refs_same_file.orc",
-            {
-                "command_boundaries": {
-                    "run_checks": ExternalToolBinding(
-                        name="run_checks",
-                        stable_command=("python", "scripts/run_checks.py"),
-                    ),
-                },
-            },
-        ),
-        (
-            VALID_FIXTURES / "neurips_implementation_attempt.orc",
-            {
-                "provider_externs": {"providers.execute": "fake"},
-                "prompt_externs": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            },
-        ),
-        (
-            VALID_FIXTURES / "loop_recur_minimal.orc",
-            {
-                "provider_externs": {"providers.execute": "fake"},
-                "prompt_externs": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            },
-        ),
-        (
-            VALID_FIXTURES / "phase_stdlib_review_loop.orc",
-            {
-                "provider_externs": {
-                    "providers.review": "fake-review",
-                    "providers.fix": "fake-fix",
-                },
-                "prompt_externs": {
-                    "prompts.implementation.review": "prompts/implementation/review.md",
-                    "prompts.implementation.fix": "prompts/implementation/fix.md",
-                },
-                "command_boundaries": {
-                    "validate_review_findings_v1": validate_review_findings_v1_binding(),
-                },
-            },
-        ),
-    ),
-)
-def test_wcc_m1_route_rejects_unsupported_real_fixtures_before_lowering(
-    tmp_path: Path,
-    fixture_path: Path,
-    compile_kwargs: dict[str, object],
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            fixture_path,
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m1",
-            **compile_kwargs,
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-
-
-def test_wcc_m1_route_reaches_imported_bundle_mix_entrypoint_path_and_fails_early(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "imported_bundle_mix" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "imported_bundle_mix",),
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            imported_workflow_bundles=_load_imported_bundle_bindings(tmp_path),
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m1",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)

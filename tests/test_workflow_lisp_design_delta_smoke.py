@@ -179,36 +179,6 @@ def _write_smoke_family_profile(tmp_path: Path) -> Path:
     return profile_path
 
 
-def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
-    result = compile_stage3_entrypoint(
-        REPO_ROOT
-        / "workflows"
-        / "library"
-        / "lisp_frontend_design_delta"
-        / "drain.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
-        provider_externs=json.loads(
-            DESIGN_DELTA_PARENT_DRAIN_PROVIDERS.read_text(encoding="utf-8")
-        ),
-        prompt_externs=json.loads(
-            DESIGN_DELTA_PARENT_DRAIN_PROMPTS.read_text(encoding="utf-8")
-        ),
-        command_boundaries=_parse_command_boundaries_manifest(
-            json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8")),
-            manifest_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
-        ),
-        validate_shared=True,
-        workspace_root=tmp_path,
-        family_profile_catalog=load_workflow_family_profile_catalog(
-            (_write_smoke_family_profile(tmp_path),)
-        ),
-    )
-    lowered_by_name = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping
-        for compiled in result.compiled_results_by_name.values()
-        for workflow in compiled.lowered_workflows
-    }
-    return result, lowered_by_name
 
 
 def _design_delta_direct_fixture_command_boundaries(
@@ -254,34 +224,6 @@ PARENT_DRAIN_EVIDENCE_ROLES = (
 )
 
 
-def test_design_delta_parent_drain_smoke_compiles_production_entry(
-    tmp_path: Path,
-) -> None:
-    result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-
-    assert not result.diagnostics
-    assert result.entry_result.lowering_schema_version == 2
-    assert "lisp_frontend_design_delta/drain::drain" in (
-        result.entry_result.validated_bundles
-    )
-    assert "lisp_frontend_design_delta/drain::drain" in lowered_by_name
-    assert DESIGN_DELTA_PRODUCTION_MODULES.issubset(
-        result.compiled_results_by_name
-    )
-    selector = lowered_by_name["lisp_frontend_design_delta/selector::select-next-work"]
-    decision = next(step for step in selector["steps"] if "provider" in step)
-    subject = decision["typed_prompt_inputs"][0]["value_source"]["binding"]["subject"]
-    assert subject == {
-        name: {"ref": f"inputs.ctx__{field}"}
-        for name, field in (
-            ("steering", "steering_path"),
-            ("target_design", "target_design_path"),
-            ("baseline_design", "baseline_design_path"),
-            ("selector_manifest", "manifest"),
-            ("progress_ledger", "progress_ledger_path"),
-            ("existing_architecture_index", "existing_architecture_index_path"),
-        )
-    }
 
 
 @pytest.mark.parametrize(
@@ -318,7 +260,6 @@ def test_registered_design_delta_fixture_compiles_directly(
     )
 
     assert result.entry_result.lowering_schema_version == 2
-    assert expected_workflow in result.validated_bundles_by_name
 
 
 def test_let_proc_without_context_source_rejects_at_typecheck_like_authored_twin(
@@ -391,10 +332,6 @@ def test_design_delta_stdlib_payloads_compiles_directly(tmp_path: Path) -> None:
     )
 
     assert result.entry_result.lowering_schema_version == 2
-    assert (
-        "lisp_frontend_design_delta/stdlib_payloads::project-selected-item-payload"
-        in result.validated_bundles_by_name
-    )
 
 
 def test_design_delta_parent_drain_historical_parity_records_focused_smoke() -> None:

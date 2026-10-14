@@ -31,6 +31,10 @@ from .commands import CommandPerformerError, validate_effect_result
 from .prompts import assemble_provider_prompt, provider_expected_outputs
 
 
+DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file"}
+DELIVERY_NAMES_BY_DIGEST = {canonical_sha256(name): name for name in DELIVERY_SELECTORS}
+
+
 class ProviderPerformerError(RuntimeError):
     def __init__(self, code: str, message: str, *, exit_info=None, violations=None):
         self.code = code
@@ -161,8 +165,13 @@ def _snapshot_dependencies(node, values, workspace):
     )
 
 
-def resolve_provider_input(node, operands, *, workspace, reader, result_path, logical_workspace=False):
-    """Capture a reached provider's request and all content-bound input parts."""
+def resolve_provider_input(node, operands, *, workspace, reader, result_path, delivery_name, logical_workspace=False):
+    """Capture a reached provider's request and all content-bound input parts.
+
+    `delivery_name` (`legacy` or `file/1`) selects the contract rendering and is
+    recorded as the `delivery` part; None replays a row committed before the
+    part existed: it renders `legacy` and records no part.
+    """
     reads = resolve_provider_io(node, operands, workspace=workspace, reader=reader)
     values = [value.json_value() for value in operands]
     fills = node["prompt"].get("fills", ())
@@ -174,6 +183,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, lo
     prompt = assemble_provider_prompt(
         node, operands, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path, logical_workspace=logical_workspace,
+        delivery=DELIVERY_SELECTORS["legacy" if delivery_name is None else delivery_name],
     )
     dependency_rows = (
         [] if reads.dependency_snapshot is None
@@ -187,6 +197,8 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, lo
         "prompt": "sha256:" + sha256(prompt.encode("utf-8")).hexdigest(),
         "dependency_rows": canonical_sha256(dependency_rows),
     }
+    if delivery_name is not None:
+        parts["delivery"] = canonical_sha256(delivery_name)
     if reads.source_kind is not None:
         parts[f"source:{reads.source_kind}:{reads.source_path}"] = (
             reads.source_sha256 or canonical_sha256(None)
@@ -270,12 +282,22 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
     )
 
 
+def _reply_excerpt(attempt_files):
+    """`; reply began: <head>` from the attempt's stdout for operators, or "" when it is blank.
+
+    Non-printable characters (NUL, ANSI escapes) become spaces: the memo rejects a NUL in the terminal message.
+    """
+    reply = attempt_files.read("stdout.txt").decode("utf-8", errors="replace")
+    head = " ".join("".join(c if c.isprintable() else " " for c in reply).split())[:240]
+    return f"; reply began: {head}" if head else ""
+
+
 def provider_result(node, resolved, attempt_files, workspace_files, result_path):
     try:
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:
         raise ProviderPerformerError(
-            "provider_result_missing", f"provider did not create {result_path}"
+            "provider_result_missing", f"provider did not create {result_path}{_reply_excerpt(attempt_files)}"
         ) from exc
     except (OSError, ValueError) as exc:
         raise ProviderPerformerError("provider_result_unreadable", str(exc)) from exc

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from orchestrator.workflow_lisp.closed.build import build_closed_program
-from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, _select_and_finalize_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from tests.workflow_lisp_closed_program_helpers import TARGET, install
@@ -12,7 +14,7 @@ def test_imported_generic_specializations_and_local_proc_hooks_execute(
     tmp_path: Path,
 ) -> None:
     producer_paths = []
-    producer_bundles = {}
+    producer_programs = {}
     for module, workflow, formal, type_name, type_definition, alias in (
         ("int_producer", "keep", "number", "Int", "", "int-dep"),
         (
@@ -44,9 +46,7 @@ def test_imported_generic_specializations_and_local_proc_hooks_execute(
             workspace_root=producer_root,
         )
         producer_paths.append(producer_path)
-        producer_bundles[alias] = loaded.validated_bundles_by_name[
-            f"{module}::{workflow}"
-        ]
+        producer_programs[alias] = _select_and_finalize_typed_program(loaded.entry_result, entry_path=producer_path, entry_workflow=f"{module}::{workflow}")
     consumer_root = tmp_path / "consumer"
     consumer_root.mkdir()
     consumer_path = install(
@@ -65,7 +65,7 @@ def test_imported_generic_specializations_and_local_proc_hooks_execute(
         entry_workflow="consumer::run",
         source_roots=(consumer_root,),
         command_boundaries={},
-        imported_workflow_bundles=producer_bundles,
+        imported_programs=producer_programs,
         workspace_root=consumer_root,
     )
     compiled = build_closed_program(typed)
@@ -156,7 +156,7 @@ def test_captured_let_proc_calls_imported_workflow_after_readback(
         validate_shared=True,
         workspace_root=producer_root,
     )
-    bundle = producer.validated_bundles_by_name["producer::keep"]
+    producer_program = _select_and_finalize_typed_program(producer.entry_result, entry_path=producer_path, entry_workflow="producer::keep")
 
     consumer_root = tmp_path / "consumer"
     consumer_root.mkdir()
@@ -176,7 +176,7 @@ def test_captured_let_proc_calls_imported_workflow_after_readback(
         entry_workflow="consumer::run",
         source_roots=(consumer_root,),
         command_boundaries={},
-        imported_workflow_bundles={"dep": bundle},
+        imported_programs={"dep": producer_program},
         workspace_root=consumer_root,
     )
     producer_path.unlink()
@@ -285,14 +285,20 @@ def test_imported_context_captures_execute_after_artifact_readback(tmp_path: Pat
         entry_workflow="consumer::run",
         source_roots=(root,),
         command_boundaries={},
-        imported_workflow_bundles={
-            "dep": producer.validated_bundles_by_name["producer::entry"]
+        imported_programs={
+            "dep": _select_and_finalize_typed_program(producer.entry_result, entry_path=producer_path, entry_workflow="producer::entry")
         },
         workspace_root=root,
     )
     producer_path.unlink()
     consumer_path.unlink()
     program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
+    entry = next(row for row in program.tree["definitions"].values()
+        if row["key"][:3] == ["producer", "workflow", "entry"])
+    assert [route[1] for route in entry["key"][7][0]["routes"]] == [
+        [[["producer", "workflow", "run-phase"], 0]],
+        [[["producer", "workflow", "run-phase"], 2]],
+    ]
     context = {
         "run": {
             "run-id": "explicit-run",
@@ -311,3 +317,57 @@ def test_imported_context_captures_execute_after_artifact_readback(tmp_path: Pat
     )
 
     assert result.json_value() == 9
+
+
+@pytest.mark.parametrize("explicit_call", (False, True))
+def test_public_old_import_private_helper_keeps_context_override_and_default(tmp_path, explicit_call):
+    import json
+    import os
+    import subprocess
+    import sys
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from tests.workflow_evaluated_totality_helpers import checked_run
+    from tests.workflow_evaluated_context_helpers import assert_completed_resumes
+
+    binding = ':phase-ctx explicit' if explicit_call else ''
+    producer = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+      (defmodule producer) (import std/context :only (PhaseCtx))
+      (import std/phase :only (with-phase)) (export entry)
+      (defworkflow entry ((explicit PhaseCtx)) -> String (call helper {binding}))
+      (defworkflow helper ((phase-ctx PhaseCtx) (n Int :default 7)) -> String
+        (with-phase phase-ctx plan-gate-wrapper
+          (if (= n 7) (symbol/name phase-ctx.phase-name) "lost-default"))))''')
+    extra = '' if explicit_call else ':phase-ctx ctx'
+    consumer = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule consumer) (import std/context :only (PhaseCtx)) (export entry)
+      (defworkflow entry ((ctx PhaseCtx) (explicit PhaseCtx)) -> String
+        (call dep :explicit explicit {extra})))''')
+    manifest = tmp_path / 'imports.json'
+    manifest.write_text(json.dumps({'dep': {'kind': 'compiled', 'path': 'producer.orc', 'entry_workflow': 'entry'}}))
+    def context(name):
+        return {'run': {'run-id': name, 'state-root': 'state/' + name, 'artifact-root': 'artifacts/' + name},
+                'phase-name': name + '-phase', 'state-root': 'state/' + name + '-phase',
+                'artifact-root': 'artifacts/' + name + '-phase'}
+    inputs = {'ctx': context('captured'), 'explicit': context('explicit')}
+    input_file = tmp_path / 'inputs.json'
+    input_file.write_text(json.dumps(inputs))
+    env = {**os.environ, 'PYTHONPATH': str(Path(__file__).parents[1]), 'PYTHONDONTWRITEBYTECODE': '1'}
+    arguments = [str(consumer), '--source-root', str(tmp_path),
+                 '--imported-workflow-bundles-file', str(manifest)]
+    for command, flags in (('compile', []), ('run', ['--input-file', str(input_file)])):
+        result = subprocess.run([sys.executable, '-B', '-m', 'orchestrator', command, *arguments, *flags],
+                                cwd=tmp_path, env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+    authority, snapshot = checked_run(tmp_path)
+    selected = 'explicit' if explicit_call else 'captured'
+    expected = selected + '-phase'
+    assert snapshot.terminal.data['value'] == expected
+    assert_completed_resumes(tmp_path, authority.header['run_id'])
+    producer.unlink()
+    consumer.unlink()
+    restored = ClosedProgram.from_artifact(authority.program_path.read_text())
+    assert evaluate_closed_program(restored, inputs).json_value() == expected
+    helper = next(row for row in restored.tree['definitions'].values()
+                  if row['key'][:3] == ['producer', 'workflow', 'helper'])
+    assert helper['key'][7] == []
+    assert helper['params'][1][1]['name'] == 'Int'

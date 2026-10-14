@@ -7,7 +7,7 @@ A workflow is a program in Workflow Lisp (`.orc`). Its steps invoke coding
 agents and shell commands. The compiler checks, before anything runs, what
 each step must produce, what it may touch, and how its outcome routes the
 rest of the program. The runtime enforces those contracts on what the agents
-actually produce, commits nothing that fails them, and can resume any run
+actually produce, commits nothing that fails them, and can resume evaluated runs
 from its last committed effect. There is no service: a run is a directory
 under `.orchestrate/runs/<run_id>/` holding state, composed prompts, logs,
 and the source map back to the authored program.
@@ -153,9 +153,9 @@ Nothing routes on them.
   schema version; never from source spans, file paths, or formatting. Resume
   fails closed on a run whose schema it does not know instead of replaying
   into a program with a different meaning.
-- **Two authority lanes.** A semantic IR records what a workflow means: types,
-  effects, provenance. An executable IR is what runs. Reports and debug
-  projections are derived from them and are never parsed as authority.
+- **Program and effect authority.** The checked closed program is what runs.
+  The memo journal is the authority for committed effects. Reports and state
+  projections are derived views and are never parsed as execution authority.
 
 Deeper reading:
 [core calculus and middle end](docs/design/workflow_lisp_core_calculus_middle_end.md),
@@ -208,16 +208,15 @@ Statuses follow the
   ordinary compiler checks it against input and result types, permitted
   imports, an effect bound, and a budget fixed by the parent program; the
   ordinary runtime evaluates it. A rejected program returns located
-  diagnostics that feed a normal repair loop. See
-  [the design](docs/design/workflow_lisp_checked_program_evaluation.md).
+  diagnostics that feed a normal repair loop.
 - **Provider isolation** (versioned contract; run integration pending). The
   contract launches agents under `bubblewrap` from a sealed, digest-verified
   root filesystem snapshot, with the runtime's own state masked and every
   mismatch failing closed. The backend exists; `run` and `resume` do not use
   it yet. See [`specs/providers.md`](specs/providers.md).
-- **Human in the loop** (implemented, target 2.32). `request-input` suspends a
-  run on a text question; resume validates the reply and consumes it as a
-  typed `HumanReply`.
+- **Human in the loop** (historical, target 2.32). `request-input` is not
+  admitted by evaluated execution. Its former executor is retired; historical
+  input records remain readable.
 - **Editor support** (implemented). A read-only language server over the
   production compiler: diagnostics, definitions, symbols. Install with the
   `[lsp]` extra and run `python -m orchestrator.lsp`.
@@ -238,9 +237,9 @@ Compile a workflow without running any provider:
 
 ```bash
 python -m orchestrator compile \
-  workflows/examples/review_revise_design_docs.orc \
-  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
-  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json
+  workflows/examples/plan_review_execute.orc \
+  --entry-workflow plan_review_execute::run \
+  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
 ```
 
 Dry-run the example above with its provider bindings and a task:
@@ -269,7 +268,7 @@ Inspect a run:
 | Question | Where |
 | --- | --- |
 | What did each step produce, and what failed? | `.orchestrate/runs/<run_id>/state.json`; for evaluated targets, the effect memo `memo.jsonl` beside it, or `orchestrator repl --run-id <run_id>` |
-| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/prompt.txt` for evaluated targets; `logs/<Step>.prompt.txt` for earlier targets |
+| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/prompt.txt`; historical flat runs used `logs/<Step>.prompt.txt` |
 | Readable report | `python -m orchestrator report --run-id <run_id> --format md` |
 | Local read-only dashboard | `python -m orchestrator dashboard --workspace "$(pwd)"` |
 | Headless email alerts on completion, failure, or stall | `python -m orchestrator monitor`; see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md) |

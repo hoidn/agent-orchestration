@@ -11,29 +11,11 @@ import stat
 from typing import Any, Mapping
 
 from orchestrator.workflow.executable_ir import RunRefStepConfig
-from orchestrator.workflow_lisp.build import (
-    FrontendBuildRequest,
-    FrontendBuildResult,
-    build_frontend_bundle,
-)
 from orchestrator.workflow_lisp.compile_diagnostics import (
-    build_accepted_compile_diagnostics_document,
     build_rejected_compile_diagnostics_document,
-)
-from orchestrator.workflow_lisp.compiler import (
-    WorkflowBoundaryAdmissionProfile,
-    linked_module_type_environment,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import EffectAtom, EffectSummary, ProcedureCallEdge
-from orchestrator.workflow_lisp.normalized_type_descriptor import (
-    compiler_normalized_type_descriptor,
-)
-from orchestrator.workflow_lisp.workflows import TypedWorkflowDef
-from orchestrator.workflow_lisp.syntax import (
-    target_dsl_uses_evaluated_execution,
-)
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 from .config import (
     PathProgram,
@@ -56,36 +38,6 @@ _EFFECT_DIAGNOSTIC_CODES = frozenset(
 _CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
 
 
-@dataclass(frozen=True, slots=True)
-class AdmittedPathProgram:
-    """Immutable accepted full-compiler result and its path-free evidence."""
-
-    build_result: FrontendBuildResult
-    _diagnostics_json: bytes
-    _program_identity_json: bytes
-    _signature_json: bytes
-    _effect_facts_json: bytes
-    _evidence_json: bytes
-
-    @property
-    def diagnostics_document(self) -> dict[str, object]:
-        return json.loads(self._diagnostics_json)
-
-    @property
-    def program_identity(self) -> dict[str, object]:
-        return json.loads(self._program_identity_json)
-
-    @property
-    def signature(self) -> dict[str, object]:
-        return json.loads(self._signature_json)
-
-    @property
-    def effect_facts(self) -> dict[str, object]:
-        return json.loads(self._effect_facts_json)
-
-    @property
-    def evidence(self) -> dict[str, object]:
-        return json.loads(self._evidence_json)
 
 
 def _require_program_file(workspace: Path, program: PathProgram) -> Path:
@@ -113,30 +65,6 @@ def _require_program_file(workspace: Path, program: PathProgram) -> Path:
     return program_path
 
 
-def _compile(
-    materialized_source: MaterializedSource,
-    program: PathProgram,
-) -> tuple[FrontendBuildResult, dict[str, object]]:
-    source_path = _require_program_file(materialized_source.workspace_path, program)
-    request = FrontendBuildRequest(
-        source_path=source_path,
-        source_roots=(materialized_source.workspace_path,),
-        entry_workflow=program.entry_name,
-        boundary_admission_profile=(
-            WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD
-        ),
-        provider_externs_path=None,
-        prompt_externs_path=None,
-        imported_workflow_bundles_path=None,
-        command_boundaries_path=None,
-        workspace_root=materialized_source.workspace_path,
-        lowering_route=LoweringRoute.WCC_M4,
-    )
-    try:
-        result = build_frontend_bundle(request)
-    except LispFrontendCompileError as exc:
-        raise _compile_refusal(exc, program) from exc
-    return result, build_accepted_compile_diagnostics_document(result)
 
 
 def _compile_refusal(exc, program):
@@ -156,93 +84,10 @@ def _compile_refusal(exc, program):
         diagnostics=document,
     )
 
-def _selected_typed_workflow(result: FrontendBuildResult) -> TypedWorkflowDef:
-    canonical_name = result.entry_selection.canonical_name
-    selected_name = result.entry_selection.selected_name
-    signature = result.compile_result.entry_result.workflow_catalog.signatures_by_name.get(
-        canonical_name
-    )
-    if signature is None:
-        signature = result.compile_result.entry_result.workflow_catalog.signatures_by_name.get(
-            selected_name
-        )
-    compiled_results = (
-        result.compile_result.entry_result,
-        *result.compile_result.compiled_results_by_name.values(),
-    )
-    candidates_by_identity = {
-        id(workflow): workflow
-        for compiled in compiled_results
-        for workflow in compiled.typed_workflows
-        if workflow.signature is signature or workflow.signature == signature
-    }
-    candidates = tuple(
-        workflow
-        for workflow in candidates_by_identity.values()
-    )
-    if len(candidates) != 1 or type(candidates[0]) is not TypedWorkflowDef:
-        raise _refuse(
-            "trial_candidate_environment_not_admissible",
-            {"entry": canonical_name},
-            secondary_causes=("typed_workflow_summary_missing_or_ambiguous",),
-        )
-    return candidates[0]
 
 
-def _signature(
-    result: FrontendBuildResult,
-    workflow: TypedWorkflowDef,
-) -> dict[str, object]:
-    module_name = result.compile_result.graph.entry_module_name
-    type_env = linked_module_type_environment(result.compile_result, module_name)
-    inputs = [
-        {
-            "name": name,
-            "required": name not in workflow.signature.param_defaults,
-            "type": compiler_normalized_type_descriptor(type_ref, type_env=type_env),
-        }
-        for name, type_ref in workflow.signature.params
-    ]
-    return_descriptor = compiler_normalized_type_descriptor(
-        workflow.signature.return_type_ref,
-        type_env=type_env,
-    )
-    return {"inputs": inputs, "return": return_descriptor}
 
 
-def _admission_signature(
-    result: FrontendBuildResult,
-    workflow: TypedWorkflowDef,
-    signature: Mapping[str, object],
-    step_config: RunRefStepConfig,
-) -> Mapping[str, object]:
-    """Return the child signature that admission compares with the parent's claims.
-
-    Only an evaluated parent (target 2.35, the sole emitter of request v2)
-    states its claims with declaring-module nominal names. A legacy child's
-    frontend names stay bare for a path type declared in the same module or
-    locally, so under such a parent the comparison rebuilds the child's
-    descriptors with the canonical qualified builder. The recorded v1
-    signature, and every comparison under a legacy parent, are unchanged.
-    """
-    if not target_dsl_uses_evaluated_execution(step_config.run_ref.target_dsl_version):
-        return signature
-    from types import SimpleNamespace
-
-    from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
-
-    compile_result = result.compile_result
-    typed = SimpleNamespace(module_type_envs={
-        name: linked_module_type_environment(compile_result, name)
-        for name in compile_result.graph.topological_order
-    })
-    return {
-        "inputs": [
-            {**row, "type": canonical_type_descriptor(type_ref, typed=typed)}
-            for row, (_name, type_ref) in zip(signature["inputs"], workflow.signature.params, strict=True)
-        ],
-        "return": canonical_type_descriptor(workflow.signature.return_type_ref, typed=typed),
-    }
 
 
 def _canonical_field_value(value: object) -> object:
@@ -265,8 +110,6 @@ def _effect_atom_fact(atom: object) -> dict[str, object]:
     }
 
 
-def _effect_facts(workflow: TypedWorkflowDef) -> dict[str, object]:
-    return _effect_summary_facts(workflow.effect_summary)
 
 
 def _effect_summary_facts(summary: EffectSummary) -> dict[str, object]:
@@ -373,105 +216,6 @@ def _path_compile_evidence(materialized_source, step_config, local_compiler_iden
         verified_git_tree=materialized_source.verified_git_tree.value)
 
 
-def compile_and_admit_path_program(
-    *,
-    materialized_source: MaterializedSource,
-    step_config: RunRefStepConfig,
-) -> AdmittedPathProgram:
-    """Compile and admit one exact path-mode program without launching it."""
-
-    program, local_compiler_identity = _validate_path_compile_authority(materialized_source, step_config)
-
-    build_result, diagnostics = _compile(materialized_source, program)
-    workflow = _selected_typed_workflow(build_result)
-    signature = _signature(build_result, workflow)
-    mismatch_causes = _signature_mismatch_causes(
-        _admission_signature(build_result, workflow, signature, step_config),
-        step_config.run_ref.inputs,
-        program,
-        target_dsl_version=step_config.run_ref.target_dsl_version,
-    )
-    if mismatch_causes:
-        raise _refuse(
-            "trial_program_signature_mismatch",
-            {
-                "program": program.record,
-                "signature": signature,
-                "provided_inputs": [
-                    {"name": row.name, "type": row.type_descriptor}
-                    for row in step_config.run_ref.inputs
-                ],
-            },
-            secondary_causes=mismatch_causes,
-            diagnostics=diagnostics,
-        )
-
-    try:
-        effect_facts = _effect_facts(workflow)
-    except (TypeError, ValueError) as exc:
-        raise _refuse(
-            "trial_candidate_environment_not_admissible",
-            {"entry": build_result.entry_selection.canonical_name},
-            secondary_causes=("effect_summary_invalid",),
-            diagnostics=diagnostics,
-        ) from exc
-    if effect_facts["direct"] or effect_facts["transitive"]:
-        effect_kinds = sorted(
-            {
-                str(row["kind"])
-                for collection in (effect_facts["direct"], effect_facts["transitive"])
-                for row in collection
-            }
-        )
-        raise _refuse(
-            "trial_candidate_environment_not_admissible",
-            {
-                "environment": program.environment,
-                "effect_facts": effect_facts,
-            },
-            secondary_causes=tuple(f"effect:{kind}" for kind in effect_kinds),
-            diagnostics=diagnostics,
-        )
-
-    program_identity = diagnostics["normalized_program_identity"]
-    if not isinstance(program_identity, Mapping):
-        raise _refuse(
-            "trial_program_compile_rejected",
-            diagnostics,
-            secondary_causes=("program_identity_missing",),
-            diagnostics=diagnostics,
-        )
-    if (
-        program_identity.get("schema_version")
-        != "workflow_lisp_program_identity.v2"
-        or program_identity.get("boundary_admission_profile")
-        != WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD.value
-    ):
-        raise _refuse(
-            "trial_program_compile_rejected",
-            diagnostics,
-            secondary_causes=(
-                "program_identity_boundary_admission_profile_mismatch",
-            ),
-            diagnostics=diagnostics,
-        )
-    if program_identity.get("compiler_runtime_identity") != local_compiler_identity:
-        raise _refuse(
-            "trial_program_compile_rejected",
-            diagnostics,
-            secondary_causes=("program_identity_compiler_mismatch",),
-            diagnostics=diagnostics,
-        )
-    evidence = _path_compile_evidence(materialized_source, step_config, local_compiler_identity,
-                                      program_identity, signature, effect_facts, diagnostics)
-    return AdmittedPathProgram(
-        build_result=build_result,
-        _diagnostics_json=canonical_json_bytes(diagnostics),
-        _program_identity_json=canonical_json_bytes(program_identity),
-        _signature_json=canonical_json_bytes(signature),
-        _effect_facts_json=canonical_json_bytes(effect_facts),
-        _evidence_json=canonical_json_bytes(evidence),
-    )
 
 
 __all__ = [

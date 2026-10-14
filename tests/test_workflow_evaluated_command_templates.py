@@ -20,7 +20,6 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
-from tests.test_workflow_lisp_command_adapters import _typed_adapter_manifest_payload
 
 
 def _write_command_inputs(root: Path, values: dict) -> Path:
@@ -377,3 +376,94 @@ def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp
     _assert_two_public_resumes(
         tmp_path, tmp_path / "adapter-dispatches.jsonl", tmp_path / "adapter-document.bin"
     )
+
+
+def _typed_adapter_manifest_payload() -> dict[str, object]:
+    return {
+        "normalize_result": {
+            "kind": "certified_adapter",
+            "stable_command": ["python", "scripts/normalize_result.py"],
+            "input_contract": {"type": "object"},
+            "output_type_name": "ImplementationSummary",
+            "effects": ["structured_result"],
+            "path_safety": {"kind": "workspace_relpath"},
+            "source_map_behavior": "step",
+            "fixture_ids": ["normalize_result_ok"],
+            "negative_fixture_ids": ["normalize_result_bad"],
+            "behavior_class": "structured_result",
+            "input_signature": [
+                {
+                    "name": "execution_report",
+                    "type_name": "WorkReport",
+                    "required": True,
+                    "transport_key": "execution_report",
+                },
+                {
+                    "name": "review_report",
+                    "type_name": "WorkReport",
+                    "required": True,
+                    "transport_key": "review_report",
+                },
+            ],
+            "artifact_contracts": ["implementation_summary_report"],
+            "state_writes": [],
+            "error_codes": ["normalize_result_invalid_payload"],
+            "owner_module": "std/phase",
+            "replacement_path": None,
+            "invocation_protocol": "json_object_positional_arg",
+        },
+        "apply_resource_transition": {
+            "kind": "certified_adapter",
+            "stable_command": [
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.apply_resource_transition",
+            ],
+            "input_contract": {"type": "object"},
+            "output_type_name": "ResourceTransitionResult",
+            "effects": ["resource_transition", "ledger_update"],
+            "path_safety": {"kind": "workspace_relpath"},
+            "source_map_behavior": "step",
+            "fixture_ids": ["resource_transition_ok"],
+            "negative_fixture_ids": ["resource_transition_bad"],
+            "behavior_class": "resource_transition",
+            "input_signature": [
+                {
+                    "name": "resource_id",
+                    "type_name": "String",
+                    "required": True,
+                    "transport_key": "resource_id",
+                },
+                {
+                    "name": "from",
+                    "type_name": "Queue",
+                    "required": True,
+                    "transport_key": "from",
+                },
+                {
+                    "name": "to",
+                    "type_name": "Queue",
+                    "required": True,
+                    "transport_key": "to",
+                },
+                {
+                    "name": "new_path",
+                    "type_name": "BacklogInProgressPath",
+                    "required": True,
+                    "transport_key": "new_path",
+                },
+                {
+                    "name": "transition_id",
+                    "type_name": "String",
+                    "required": True,
+                    "transport_key": "transition_id",
+                },
+            ],
+            "artifact_contracts": ["resource_transition_result"],
+            "state_writes": ["state/resource-ledger.json"],
+            "error_codes": ["resource_transition_invalid"],
+            "owner_module": "std/resource",
+            "replacement_path": "resource-transition",
+            "invocation_protocol": "json_object_positional_arg",
+        },
+    }

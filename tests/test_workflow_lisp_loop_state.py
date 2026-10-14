@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
-from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
-from orchestrator.workflow_lisp.compiler import compile_stage1_module, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -41,14 +38,6 @@ def _write_module(path: Path, lines: list[str]) -> Path:
     return path
 
 
-def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
-    return compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=validate_shared,
-        workspace_root=tmp_path,
-    )
 
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
@@ -439,158 +428,3 @@ def test_typecheck_loop_state_rich_list_preserves_record_and_union_descriptors(
     assert tasks_type.item_type_ref.name == "Task"
     assert isinstance(outcomes_type, ListTypeRef)
     assert outcomes_type.item_type_ref.name == "TaskOutcome"
-
-
-def test_lowering_loop_state_seed_can_feed_loop_recur_state(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "loop_state_seed_loop.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord LoopResult",
-            "    (report WorkReport))",
-            "  (defworkflow loop-state-seed-loop",
-            "    ((report-path WorkReport))",
-            "    -> LoopResult",
-            "    (loop/recur",
-            "      :max 1",
-            "      :state (loop-state",
-            "               (report WorkReport report-path)",
-            "               (done Bool true))",
-            "      (fn (current)",
-            "        (if current.done",
-            "          (done (record LoopResult :report current.report))",
-            "          (continue current))))))",
-        ],
-    )
-
-    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
-    authored = result.lowered_workflows[0].authored_mapping
-    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
-
-    assert "state__report" in repeat_step["repeat_until"]["outputs"]
-    assert "state__done" in repeat_step["repeat_until"]["outputs"]
-
-
-def test_lowering_loop_state_update_can_feed_continue(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "loop_state_update_continue.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord LoopResult",
-            "    (report WorkReport))",
-            "  (defworkflow loop-state-update-continue",
-            "    ((report-path WorkReport))",
-            "    -> LoopResult",
-            "    (loop/recur",
-            "      :max 2",
-            "      :state (loop-state",
-            "               (report WorkReport report-path)",
-            "               (done Bool false))",
-            "      (fn (current)",
-            "        (if current.done",
-            "          (done (record LoopResult :report current.report))",
-            "          (continue (loop-state :like current :done true)))))))",
-        ],
-    )
-
-    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
-    authored = result.lowered_workflows[0].authored_mapping
-    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
-
-    assert repeat_step["repeat_until"]["max_iterations"] == 2
-
-
-def test_lowered_loop_state_generated_relpath_origin_tracks_authored_field_span(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "loop_state_origin_map.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defunion LoopResult",
-            "    (COMPLETED",
-            "      (report WorkReport)))",
-            "  (defworkflow loop-state-origin-map",
-            "    ((report-path WorkReport))",
-            "    -> LoopResult",
-            "    (loop/recur",
-            "      :max 1",
-            "      :state (loop-state",
-            "               (report WorkReport report-path)",
-            "               (done Bool true))",
-            "      (fn (current)",
-            "        (done (variant LoopResult COMPLETED :report current.report))))))",
-        ],
-    )
-
-    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
-    lowered = result.lowered_workflows[0]
-
-    assert lowered.origin_map.generated_path_spans
-    assert any(
-        origin.span.start.path.endswith("loop_state_origin_map.orc")
-        for origin in lowered.origin_map.generated_path_spans.values()
-    )
-
-
-def test_lowered_loop_state_artifacts_contain_no_type_param_or_proc_ref_leaks(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "loop_state_validated_surface.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord LoopResult",
-            "    (report WorkReport))",
-            "  (defworkflow loop-state-validated-surface",
-            "    ((report-path WorkReport))",
-            "    -> LoopResult",
-            "    (loop/recur",
-            "      :max 2",
-            "      :state (loop-state",
-            "               (report WorkReport report-path)",
-            "               (done Bool false))",
-            "      (fn (current)",
-            "        (if current.done",
-            "          (done (record LoopResult :report current.report))",
-            "          (continue (loop-state :like current :done true)))))))",
-        ],
-    )
-
-    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
-    lowered = result.lowered_workflows[0]
-    bundle = next(iter(result.validated_bundles.values()))
-    serialized_payloads = (
-        json.dumps(lowered.authored_mapping, sort_keys=True),
-        json.dumps(workflow_executable_ir_to_json(bundle.ir), sort_keys=True),
-        json.dumps(workflow_semantic_ir_to_json(bundle.semantic_ir), sort_keys=True),
-    )
-
-    for payload in serialized_payloads:
-        assert "TypeParamRef" not in payload
-        assert "ProcRef[" not in payload
-        assert "%loop-state." not in payload

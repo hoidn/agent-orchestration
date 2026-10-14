@@ -115,7 +115,8 @@ def test_generic_union_declaration_keeps_its_type_parameters(tmp_path: Path) -> 
 def test_concrete_applications_compile_through_shared_validation(tmp_path: Path) -> None:
     result = _compile(FIXTURES / "concrete_outcome.orc", tmp_path)
 
-    assert result.validated_bundles["entry"].surface.version == "2.33"
+    assert result.typed_program.target == "2.33"
+    assert "entry" in result.typed_program.workflows
 
 
 def _describe_through_procref(describe_param_type: str) -> str:
@@ -443,7 +444,7 @@ def test_application_in_record_field_is_rejected_by_definition_only_compile_at_2
 def test_imported_generic_union_resolves_to_its_defining_declaration(tmp_path: Path, entry: str) -> None:
     result = _compile_entrypoint(MODULE_ROOT / "gu" / entry, tmp_path)
 
-    assert result.entry_result.validated_bundles
+    assert result.entry_result.typed_program.workflows
 
 
 def test_same_short_name_declaration_from_another_module_is_distinct(tmp_path: Path) -> None:

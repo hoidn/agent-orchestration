@@ -1,53 +1,37 @@
-import ast
 import json
-import importlib
-import re
+from contextlib import closing
 from dataclasses import fields, is_dataclass
-from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
-import orchestrator.workflow_lisp.build as build_helpers
-from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
-from orchestrator.workflow.validation import WorkflowBoundaryValidationPolicy
-from orchestrator.workflow.loaded_bundle import (
-    workflow_boundary_projection,
-    workflow_managed_write_root_inputs,
-)
+from orchestrator.contracts.output_contract import OutputContractError
+from orchestrator.workflow.evaluated.commands import validate_effect_result
+from orchestrator.workflow.workspace_files import WorkspaceFiles
+from orchestrator.workflow_lisp.normalized_type_descriptor import compiler_normalized_type_descriptor
+from orchestrator.workflow_lisp.phase import derived_private_child_context_eligibility
+
+from orchestrator.workflow_lisp.closed.frontend import _select_and_finalize_typed_program
+from orchestrator.workflow_lisp.closed.build import Builder
+from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract, root_workflow_boundary_field
+from orchestrator.workflow_lisp.result_guidance import normalized_result_guidance_payload
+from orchestrator.workflow_lisp.expression_traversal import walk_expr
+from orchestrator.workflow_lisp.effects import UsesProviderEffect
+from orchestrator.workflow_lisp.typed_prompt_inputs import select_prompt_fragment_renderer
+from orchestrator.workflow_lisp.wcc.model import WccPerform
+
 from orchestrator.workflow_lisp.family_profiles import (
     load_workflow_family_profile_catalog,
 )
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
-    compile_stage3_entrypoint as _compile_stage3_entrypoint,
-    compile_stage3_module as _compile_stage3_module,
+    compile_stage3_entrypoint,
+    compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
-from orchestrator.workflow_lisp.expressions import (
-    CommandResultExpr,
-    FinalizeSelectedItemExpr,
-    NameExpr,
-    ProduceOneOfExpr,
-    ProcedureCallExpr,
-    ProviderResultExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
-    RunProviderPhaseExpr,
-    WithPhaseExpr,
-)
-from orchestrator.workflow_lisp.lowering import (
-    _managed_write_root_bindings,
-    _managed_write_root_requirements_for_callable,
-    _observed_statement_families,
-    _workflow_extern_requirements,
-    lower_workflow_definitions,
-    validate_lowered_workflows,
-)
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.expressions import ProviderResultExpr
 from orchestrator.workflow_lisp.loops import build_loop_lowering_plan
 from orchestrator.workflow_lisp.type_env import (
     PRELUDE_PATH_TYPES,
@@ -55,38 +39,20 @@ from orchestrator.workflow_lisp.type_env import (
     PathTypeRef,
     PrimitiveTypeRef,
 )
-from orchestrator.workflow_lisp.stdlib_contracts import (
-    STDLIB_LOWERING_CONTRACTS,
-    STDLIB_LOWERING_CONTRACTS_BY_FORM,
-    stdlib_contract_for_expr,
-)
 from orchestrator.workflow_lisp.workflows import (
-    CertifiedAdapterBinding,
-    CommandBoundaryEnvironment,
-    ExternEnvironment,
     ExternalToolBinding,
-    PromptExtern,
-    ProviderExtern,
     build_workflow_catalog,
-    elaborate_workflow_definitions,
-    typecheck_workflow_definitions,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import build_syntax_module
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
-PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
-COLLECTION_STRUCTURED_RESULT_FIXTURE = FIXTURES / "valid" / "collection_structured_result.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
-WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
-PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
-LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 TYPED_PROMPT_INPUT_FIXTURE = FIXTURES / "valid" / "typed_prompt_input_phase.orc"
 GENERIC_FAMILY_PROFILE_FIXTURE = (
     FIXTURES / "family_profiles" / "generic_phase_family_profile.json"
@@ -94,28 +60,9 @@ GENERIC_FAMILY_PROFILE_FIXTURE = (
 LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE = (
     FIXTURES / "valid" / "typed_prompt_input_local_request_record.orc"
 )
-LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
-LOOP_RECUR_UNION_RESULT_FIXTURE = FIXTURES / "valid" / "loop_recur_union_result.orc"
-LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
-LOOP_RECUR_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
-LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE = (
-    FIXTURES / "valid" / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
-)
-LOOP_RECUR_UNION_RESULT_COMPUTED_FIELD_FIXTURE = (
-    FIXTURES / "invalid" / "loop_recur_union_result_computed_field.orc"
-)
 LOOP_RECUR_UNION_RESULT_MISSING_ACTIVE_FIELD_FIXTURE = (
     FIXTURES / "invalid" / "loop_recur_union_result_missing_active_field.orc"
 )
-LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE = (
-    FIXTURES / "invalid" / "loop_recur_on_exhausted_non_scalar_override.orc"
-)
-LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_COMPUTED_VALUE_FIXTURE = (
-    FIXTURES / "invalid" / "loop_recur_on_exhausted_scalar_frame_computed_value.orc"
-)
-MODULE_FIXTURES = FIXTURES / "modules"
-IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
-PROMOTED_ENTRY_BOOTSTRAP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
 ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
     FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
 )
@@ -141,40 +88,6 @@ DERIVED_PHASE_CONTEXT_REREAD_INVALID_FIXTURE = (
     FIXTURES / "invalid" / "derived_phase_context_reread_invalid.orc"
 )
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.commands.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_PROVIDERS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.providers.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_PROMPTS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.prompts.json"
-)
-
-
-def compile_stage3_entrypoint(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
-    return _compile_stage3_entrypoint(*args, **kwargs)
-
-
-def compile_stage3_module(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
-    return _compile_stage3_module(*args, **kwargs)
 
 
 def _design_delta_parent_drain_family_profile_catalog(tmp_path: Path):
@@ -214,123 +127,22 @@ def _design_delta_parent_drain_family_profile_catalog(tmp_path: Path):
     return load_workflow_family_profile_catalog((profile_path,))
 
 
-def _design_delta_parent_drain_command_boundaries():
-    return build_helpers._parse_command_boundaries_manifest(
-        json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8")),
-        manifest_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
-    )
-
-
-def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
-    return _compile_stage3_entrypoint(
-        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
-        provider_externs=json.loads(
-            DESIGN_DELTA_PARENT_DRAIN_PROVIDERS.read_text(encoding="utf-8")
-        ),
-        prompt_externs=json.loads(
-            DESIGN_DELTA_PARENT_DRAIN_PROMPTS.read_text(encoding="utf-8")
-        ),
-        command_boundaries=_design_delta_parent_drain_command_boundaries(),
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-
-def _extern_environment(prompt_binding: PromptExtern | None = None) -> ExternEnvironment:
-    return ExternEnvironment(
-        bindings_by_name={
-            "providers.execute": ProviderExtern(
-                name="providers.execute",
-                provider_id="test-provider",
-            ),
-            "prompts.implementation.execute": prompt_binding
-            or PromptExtern(
-                name="prompts.implementation.execute",
-                asset_file="prompts/implementation/execute.md",
-            ),
-        }
-    )
-
-
-def _command_boundary_environment() -> CommandBoundaryEnvironment:
-    return CommandBoundaryEnvironment(
-        bindings_by_name={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        }
-    )
-
-
-def _drain_command_boundaries(*, gap_output_type_name: str = "GapResult") -> dict[str, CertifiedAdapterBinding]:
-    return {
-        "select_next_item": CertifiedAdapterBinding(
-            name="select_next_item",
-            stable_command=("python", "scripts/select_next_item.py"),
-            input_contract={"type": "object"},
-            output_type_name="SelectionResult",
-            effects=("structured_result",),
-            path_safety={"kind": "workspace_relpath"},
-            source_map_behavior="step",
-            fixture_ids=("select_next_item_ok",),
-            negative_fixture_ids=("select_next_item_bad",),
-        ),
-        "execute_selected_item": CertifiedAdapterBinding(
-            name="execute_selected_item",
-            stable_command=("python", "scripts/execute_selected_item.py"),
-            input_contract={"type": "object"},
-            output_type_name="SelectedItemResult",
-            effects=("structured_result",),
-            path_safety={"kind": "workspace_relpath"},
-            source_map_behavior="step",
-            fixture_ids=("execute_selected_item_ok",),
-            negative_fixture_ids=("execute_selected_item_bad",),
-        ),
-        "draft_gap_item": CertifiedAdapterBinding(
-            name="draft_gap_item",
-            stable_command=("python", "scripts/draft_gap_item.py"),
-            input_contract={"type": "object"},
-            output_type_name=gap_output_type_name,
-            effects=("structured_result",),
-            path_safety={"kind": "workspace_relpath"},
-            source_map_behavior="step",
-            fixture_ids=("draft_gap_item_ok",),
-            negative_fixture_ids=("draft_gap_item_bad",),
-        ),
-    }
-
-
-def _compiler_module():
-    return importlib.import_module("orchestrator.workflow_lisp.compiler")
-
-
-def _workflow_generated_path_allocations(bundle):
-    helper = getattr(loaded_bundle_helpers, "workflow_generated_path_allocations")
-    return helper(bundle)
-
-
-def _allocation_field(allocation, field_name: str):
-    if isinstance(allocation, dict):
-        return allocation[field_name]
-    return getattr(allocation, field_name)
+def _walk_dataclass_values(node: object):
+    yield node
+    if is_dataclass(node):
+        for field in fields(node):
+            yield from _walk_dataclass_values(getattr(node, field.name))
+    elif isinstance(node, (tuple, list)):
+        for value in node:
+            yield from _walk_dataclass_values(value)
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _walk_dataclass_values(value)
 
 
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
-
-
-def _link_fixture_module_into_source_root(path: Path, *, tmp_path: Path) -> Path:
-    source = path.read_text(encoding="utf-8")
-    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
-    assert module_match is not None, f"fixture is missing defmodule: {path}"
-    resolved_module_name = module_match.group(1)
-    module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
-    module_path.parent.mkdir(parents=True, exist_ok=True)
-    module_path.write_text(source, encoding="utf-8")
-    return module_path
 
 
 def _write_provider_bundle_projection_module(
@@ -444,107 +256,6 @@ def _write_provider_bundle_projection_module(
             ]
         )
     return _write_module(tmp_path / f"{module_name.replace('/', '_')}.orc", body + "\n")
-
-
-def _compile_imported_entrypoint(
-    path: Path,
-    *,
-    source_root: Path,
-    tmp_path: Path,
-    validate_shared: bool = False,
-):
-    return compile_stage3_entrypoint(
-        path,
-        source_roots=(source_root,),
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=validate_shared,
-        workspace_root=tmp_path,
-    )
-
-
-def _validated_bundle_by_local_name(result, expected: str):
-    for name, bundle in result.validated_bundles.items():
-        if name == expected or name.endswith(f"::{expected}"):
-            return bundle
-    raise KeyError(expected)
-
-
-def _compile_item_ctx_child_phase_reuse(tmp_path: Path):
-    return compile_stage3_entrypoint(
-        ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
-        source_roots=(FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
-        provider_externs={
-            "providers.plan.draft": "fake-plan-draft",
-            "providers.plan.review": "fake-plan-review",
-            "providers.plan.fix": "fake-plan-fix",
-            "providers.implementation.execute": "fake-implementation-execute",
-            "providers.implementation.review": "fake-implementation-review",
-            "providers.implementation.fix": "fake-implementation-fix",
-        },
-        prompt_externs={
-            "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-            "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
-            "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
-            "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
-            "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
-            "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
-        },
-        command_boundaries={
-            "run_neurips_backlog_checks": ExternalToolBinding(
-                name="run_neurips_backlog_checks",
-                stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
-                retirement_class="genuine_system",
-                retirement_label="keep_certified_system",
-                replacement_surface="bounded repo-local checks",
-                bridge_owner="workflow-lisp",
-                expiry_condition="test-run_neurips_backlog_checks-metadata",
-                evidence_refs=("run_neurips_backlog_checks_evidence",),
-            ),
-        },
-        validate_shared=False,
-        lowering_route=LoweringRoute.WCC_M4.value,
-        workspace_root=tmp_path,
-    ).entry_result
-
-
-def _compile_item_ctx_child_phase_reuse_branching_terminal_reprojection(tmp_path: Path):
-    return compile_stage3_entrypoint(
-        ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
-        source_roots=(FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
-        provider_externs={
-            "providers.plan.draft": "fake-plan-draft",
-            "providers.plan.review": "fake-plan-review",
-            "providers.plan.fix": "fake-plan-fix",
-            "providers.implementation.execute": "fake-implementation-execute",
-            "providers.implementation.review": "fake-implementation-review",
-            "providers.implementation.fix": "fake-implementation-fix",
-        },
-        prompt_externs={
-            "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-            "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
-            "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
-            "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
-            "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
-            "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
-        },
-        command_boundaries={
-            "run_neurips_backlog_checks": ExternalToolBinding(
-                name="run_neurips_backlog_checks",
-                stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
-                retirement_class="genuine_system",
-                retirement_label="keep_certified_system",
-                replacement_surface="bounded repo-local checks",
-                bridge_owner="workflow-lisp",
-                expiry_condition="test-run_neurips_backlog_checks-metadata",
-                evidence_refs=("run_neurips_backlog_checks_evidence",),
-            ),
-        },
-        validate_shared=False,
-        lowering_route=LoweringRoute.WCC_M4.value,
-        workspace_root=tmp_path,
-        entry_workflow="design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection",
-    ).entry_result
 
 
 def _write_item_ctx_child_phase_reuse_leak_probe_module(
@@ -717,7 +428,7 @@ def _compile_item_ctx_child_phase_reuse_leak_probe(
             ),
         },
         validate_shared=False,
-        lowering_route=LoweringRoute.WCC_M4.value,
+
         workspace_root=tmp_path,
         entry_workflow=entry_workflow,
     )
@@ -744,672 +455,15 @@ def _walk_lowered_steps(steps: list[dict[str, object]]):
                     yield from _walk_lowered_steps(case.get("steps", []))
 
 
-def _lowering_source_path() -> Path:
-    lowering_path = Path(importlib.import_module("orchestrator.workflow_lisp.lowering").__file__)
-    if lowering_path.name != "__init__.py":
-        pytest.fail(
-            "expected orchestrator.workflow_lisp.lowering to be a package facade with __init__.py"
-        )
-    source_path = lowering_path.with_name("core.py")
-    assert source_path.is_file()
-    return source_path
-
-
-def _lowering_owner_source_path(name: str) -> Path:
-    source_path = _lowering_source_path().with_name(f"{name}.py")
-    assert source_path.is_file()
-    return source_path
-
-
-def _typecheck_source_path() -> Path:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
-    assert source_path.is_file()
-    return source_path
-
-
-def _procedure_lowering_source_path() -> Path:
-    procedures_path = Path(importlib.import_module("orchestrator.workflow_lisp.lowering.procedures").__file__)
-    assert procedures_path.is_file()
-    return procedures_path
-
-
-def _top_level_function_counts(path: Path, *names: str) -> dict[str, int]:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return {
-        name: sum(
-            1 for node in module.body if isinstance(node, ast.FunctionDef) and node.name == name
-        )
-        for name in names
-    }
-
-
-def _top_level_definition_counts(path: Path, *names: str) -> dict[str, int]:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return {
-        name: sum(
-            1
-            for node in module.body
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name == name
-        )
-        for name in names
-    }
-
-
-def _module_mentions_symbol(path: Path, symbol: str) -> bool:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in ast.walk(module):
-        if isinstance(node, ast.Name) and node.id == symbol:
-            return True
-        if isinstance(node, ast.Attribute) and node.attr == symbol:
-            return True
-        if isinstance(node, ast.ImportFrom):
-            if any(alias.name == symbol or alias.asname == symbol for alias in node.names):
-                return True
-        if isinstance(node, ast.Import):
-            if any(alias.asname == symbol or alias.name.rsplit(".", 1)[-1] == symbol for alias in node.names):
-                return True
-        if isinstance(node, ast.ClassDef) and node.name == symbol:
-            return True
-        if isinstance(node, ast.FunctionDef) and node.name == symbol:
-            return True
-    return False
-
-
-def _function_imports_from_module(path: Path, function_name: str, module_name: str) -> bool:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in module.body:
-        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
-            continue
-        for child in ast.walk(node):
-            if isinstance(child, ast.ImportFrom) and child.module == module_name:
-                return True
-    return False
-
-
-def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in module.body:
-        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
-            continue
-        for child in ast.walk(node):
-            if isinstance(child, ast.Name) and child.id == symbol:
-                return True
-            if isinstance(child, ast.Attribute) and child.attr == symbol:
-                return True
-            if isinstance(child, ast.ImportFrom):
-                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
-                    return True
-    return False
-
-
-def _physical_line_count(path: Path) -> int:
-    with path.open("r", encoding="utf-8") as handle:
-        return sum(1 for _ in handle)
-
-
-def test_lowering_facade_exports_current_test_surface() -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
-
-    for name in (
-        "_managed_write_root_bindings",
-        "_managed_write_root_requirements_for_callable",
-        "_observed_statement_families",
-        "_workflow_extern_requirements",
-        "lower_workflow_definitions",
-        "validate_lowered_workflows",
-    ):
-        assert hasattr(lowering_module, name)
-
-
-def test_lowering_facade_source_defines_preflight_helpers_exactly_once() -> None:
-    lowering_path = _lowering_source_path()
-    procedure_lowering_path = _procedure_lowering_source_path()
-    assert _top_level_function_counts(
-        procedure_lowering_path.parent.parent / "procedure_specialization.py",
-        "_resolve_procedure_lowering",
-    ) == {"_resolve_procedure_lowering": 1}
-
-    assert _top_level_function_counts(
-        lowering_path,
-        "_origin_for_workflow",
-        "_definition_only_module",
-    ) == {
-        "_origin_for_workflow": 1,
-        "_definition_only_module": 1,
-    }
-    assert _top_level_function_counts(
-        procedure_lowering_path,
-        "_resolve_procedure_lowering",
-        "_lower_procedure_call_expr",
-        "_private_workflow_from_procedure",
-        "_procedure_provenance_notes",
-    ) == {
-        "_resolve_procedure_lowering": 0,
-        "_lower_procedure_call_expr": 1,
-        "_private_workflow_from_procedure": 1,
-        "_procedure_provenance_notes": 1,
-    }
-
-
-def test_lowering_owner_split_moves_selected_helpers_out_of_core() -> None:
-    assert _top_level_function_counts(
-        _lowering_source_path(),
-        "_resolve_procedure_lowering",
-        "_lower_procedure_call_expr",
-        "_private_workflow_from_procedure",
-        "_procedure_provenance_notes",
-    ) == {
-        "_resolve_procedure_lowering": 0,
-        "_lower_procedure_call_expr": 0,
-        "_private_workflow_from_procedure": 0,
-        "_procedure_provenance_notes": 0,
-    }
-
-
-def test_lowering_owner_split_creates_context_and_origins_modules() -> None:
-    for name in ("context", "origins"):
-        assert _lowering_owner_source_path(name).is_file()
-
-
-def test_lowering_family_owner_modules_exist_across_full_target_map() -> None:
-    for name in (
-        "context",
-        "origins",
-        "values",
-        "effects",
-        "control",
-        "workflow_calls",
-        "phase_stdlib",
-    ):
-        assert _lowering_owner_source_path(name).is_file()
-    core_source = _lowering_source_path().read_text(encoding="utf-8")
-    control_loops_source = _lowering_owner_source_path(
-        "control_loops"
-    ).read_text(encoding="utf-8")
-    run_ref_source = _lowering_owner_source_path("run_ref").read_text(
-        encoding="utf-8"
-    )
-    for helper_name in (
-        "_capture_generated_repeat_until_on_exhausted_refs",
-        "_iter_authored_step_mappings",
-        "_capture_compiler_owned_repeat_until_metadata",
-        "_capture_compiler_owned_nested_if_step_ids",
-    ):
-        assert f"def {helper_name}(" not in core_source
-        assert f"def {helper_name}(" in control_loops_source
-    assert "def _shared_validation_source_map_payload(" not in core_source
-    assert "def _shared_validation_source_map_payload(" in run_ref_source
-    assert _physical_line_count(_lowering_source_path()) < 2600
-
-
-def test_lowering_second_level_owner_modules_exist_for_control_and_phase_families() -> None:
-    for name in (
-        "control_dispatch",
-        "control_match",
-        "control_loops",
-        "phase_scope",
-        "phase_flow",
-        "phase_resource",
-    ):
-        assert _lowering_owner_source_path(name).is_file()
-
-
-def test_lowering_owner_split_moves_context_and_origins_out_of_core() -> None:
-    assert _top_level_definition_counts(
-        _lowering_source_path(),
-        "LoweringOrigin",
-        "_raise_remapped_validation_error",
-        "_LoweringContext",
-    ) == {
-        "LoweringOrigin": 0,
-        "_raise_remapped_validation_error": 0,
-        "_LoweringContext": 0,
-    }
-
-
-def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core() -> None:
-    assert _top_level_definition_counts(
-        _lowering_source_path(),
-        "LoweringOrigin",
-        "_raise_remapped_validation_error",
-        "_LoweringContext",
-        "_lower_provider_result",
-        "_lower_command_result",
-        "_lower_expression",
-        "_lower_let_star",
-        "_lower_match_expr",
-        "_lower_loop_recur",
-        "_lower_call_expr",
-        "_managed_write_root_binding_step",
-        "_build_output_step_local_value",
-        "_flatten_boundary_leaf_paths",
-        "_inline_expr_field_value",
-        "_phase_target_inline_ref",
-        "_lower_record_expr",
-        "_lower_union_variant_expr",
-        "_render_existing_output_ref",
-        "_union_variant_materialize_source",
-        "_boundary_placeholder_literals",
-        "_lower_with_phase",
-        "_lower_run_provider_phase",
-        "_lower_produce_one_of",
-        "_lower_resume_or_start",
-        "_lower_resource_transition",
-        "_lower_finalize_selected_item",
-    ) == {
-        "LoweringOrigin": 0,
-        "_raise_remapped_validation_error": 0,
-        "_LoweringContext": 0,
-        "_lower_provider_result": 0,
-        "_lower_command_result": 0,
-        "_lower_expression": 0,
-        "_lower_let_star": 0,
-        "_lower_match_expr": 0,
-        "_lower_loop_recur": 0,
-        "_lower_call_expr": 0,
-        "_managed_write_root_binding_step": 0,
-        "_build_output_step_local_value": 0,
-        "_flatten_boundary_leaf_paths": 0,
-        "_inline_expr_field_value": 0,
-        "_phase_target_inline_ref": 0,
-        "_lower_record_expr": 0,
-        "_lower_union_variant_expr": 0,
-        "_render_existing_output_ref": 0,
-        "_union_variant_materialize_source": 0,
-        "_boundary_placeholder_literals": 0,
-        "_lower_with_phase": 0,
-        "_lower_run_provider_phase": 0,
-        "_lower_produce_one_of": 0,
-        "_lower_resume_or_start": 0,
-        "_lower_resource_transition": 0,
-        "_lower_finalize_selected_item": 0,
-    }
-    assert not _function_imports_from_module(
-        _lowering_owner_source_path("effects"),
-        "_lower_provider_result",
-        "core",
-    )
-    assert not _function_imports_from_module(
-        _lowering_owner_source_path("effects"),
-        "_lower_command_result",
-        "core",
-    )
-    assert not _function_imports_from_module(
-        _lowering_owner_source_path("workflow_calls"),
-        "_managed_write_root_requirements_for_callable",
-        "core",
-    )
-    assert not _function_imports_from_module(
-        _lowering_owner_source_path("workflow_calls"),
-        "_managed_write_root_bindings",
-        "core",
-    )
-    assert not _function_imports_from_module(
-        _lowering_owner_source_path("workflow_calls"),
-        "_lower_call_expr",
-        "core",
-    )
-    for function_name in (
-        "_lower_with_phase",
-        "_lower_run_provider_phase",
-        "_lower_produce_one_of",
-        "_lower_resume_or_start",
-        "_lower_resource_transition",
-        "_lower_finalize_selected_item",
-    ):
-        assert not _function_imports_from_module(
-            _lowering_owner_source_path("phase_stdlib"),
-            function_name,
-            "core",
-        )
-
-
-def test_lowering_provenance_owner_split_gives_origins_real_ownership() -> None:
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("origins"),
-        "LoweringOrigin",
-        "LoweringOriginMap",
-        "_raise_remapped_validation_error",
-    ) == {
-        "LoweringOrigin": 1,
-        "LoweringOriginMap": 1,
-        "_raise_remapped_validation_error": 1,
-    }
-
-
-def test_lowering_value_owner_receives_remaining_projection_helpers() -> None:
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("values"),
-        "_inline_expr_field_value",
-        "_phase_target_inline_ref",
-        "_lower_record_expr",
-        "_lower_union_variant_expr",
-        "_render_existing_output_ref",
-        "_union_variant_materialize_source",
-        "_boundary_placeholder_literals",
-    ) == {
-        "_inline_expr_field_value": 1,
-        "_phase_target_inline_ref": 1,
-        "_lower_record_expr": 1,
-        "_lower_union_variant_expr": 1,
-        "_render_existing_output_ref": 0,
-        "_union_variant_materialize_source": 1,
-        "_boundary_placeholder_literals": 1,
-    }
-
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("values").parent.parent / "procedure_specialization.py",
-        "_render_existing_output_ref",
-    ) == {"_render_existing_output_ref": 1}
-
-
-def test_lowering_full_family_owners_receive_real_implementations() -> None:
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_stdlib"),
-        "_lower_with_phase",
-        "_lower_run_provider_phase",
-        "_lower_produce_one_of",
-        "_lower_resume_or_start",
-        "_lower_resource_transition",
-        "_lower_finalize_selected_item",
-    ) == {
-        "_lower_with_phase": 1,
-        "_lower_run_provider_phase": 1,
-        "_lower_produce_one_of": 1,
-        "_lower_resume_or_start": 1,
-        "_lower_resource_transition": 1,
-        "_lower_finalize_selected_item": 1,
-    }
-
-
-def test_lowering_control_and_phase_facades_stop_being_large_owner_sinks() -> None:
-    control_path = _lowering_owner_source_path("control")
-    phase_impl_path = _lowering_owner_source_path("phase_impl")
-
-    assert _physical_line_count(control_path) < 2000
-    assert _physical_line_count(phase_impl_path) < 500
-    assert _top_level_definition_counts(
-        phase_impl_path,
-        "_phase_stdlib_lower_with_phase_impl",
-        "_phase_stdlib_lower_run_provider_phase_impl",
-        "_phase_stdlib_lower_produce_one_of_impl",
-        "_phase_stdlib_lower_resume_or_start_impl",
-        "_phase_stdlib_lower_resource_transition_impl",
-        "_phase_stdlib_lower_finalize_selected_item_impl",
-    ) == {
-        "_phase_stdlib_lower_with_phase_impl": 0,
-        "_phase_stdlib_lower_run_provider_phase_impl": 0,
-        "_phase_stdlib_lower_produce_one_of_impl": 0,
-        "_phase_stdlib_lower_resume_or_start_impl": 0,
-        "_phase_stdlib_lower_resource_transition_impl": 0,
-        "_phase_stdlib_lower_finalize_selected_item_impl": 0,
-    }
-
-
-def test_lowering_split_owner_modules_receive_real_control_and_phase_implementations() -> None:
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("control_dispatch"),
-        "_lower_expression",
-        "_lower_let_star",
-        "_lower_if_expr",
-    ) == {
-        "_lower_expression": 1,
-        "_lower_let_star": 1,
-        "_lower_if_expr": 1,
-    }
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("control_match"),
-        "_lower_match_expr",
-        "_build_match_projection_anchor_step",
-        "_binding_terminal_for_match_subject",
-        "_binding_terminal_for_inline_match",
-        "_match_arm_local_values",
-    ) == {
-        "_lower_match_expr": 1,
-        "_build_match_projection_anchor_step": 1,
-        "_binding_terminal_for_match_subject": 1,
-        "_binding_terminal_for_inline_match": 1,
-        "_match_arm_local_values": 1,
-    }
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("control_loops"),
-        "_lower_loop_recur",
-    ) == {
-        "_lower_loop_recur": 1,
-    }
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_scope"),
-        "_lower_with_phase",
-        "_lower_composed_with_phase",
-        "_build_phase_prompt_input_prelude",
-        "_build_phase_stdlib_prompt_input_prelude",
-        "_flatten_phase_stdlib_prompt_inputs",
-    ) == {
-        "_lower_with_phase": 1,
-        "_lower_composed_with_phase": 1,
-        "_build_phase_prompt_input_prelude": 1,
-        "_build_phase_stdlib_prompt_input_prelude": 1,
-        "_flatten_phase_stdlib_prompt_inputs": 1,
-    }
-
-
-def test_review_loop_lowering_quarantine_stays_in_phase_stdlib_owner_only() -> None:
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_stdlib"),
-        "review_loop_result_case_outputs",
-        "review_loop_result_output_contracts",
-    ) == {
-        "review_loop_result_case_outputs": 1,
-        "review_loop_result_output_contracts": 1,
-    }
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_scope"),
-        "_review_loop_result_case_outputs",
-        "_review_loop_result_output_contracts",
-    ) == {
-        "_review_loop_result_case_outputs": 0,
-        "_review_loop_result_output_contracts": 0,
-    }
-
-
-def test_phase_scope_extern_owner_uses_shared_iter_child_exprs() -> None:
-    source_path = _lowering_owner_source_path("phase_scope")
-
-    assert _function_body_mentions_symbol(source_path, "_workflow_extern_requirements", "iter_child_exprs")
-
-
-def test_workflow_extern_requirements_descend_through_with_phase_inside_same_file_procedure() -> None:
-    expr_span = SourceSpan(
-        start=SourcePosition(path="phase_scope_test.orc", line=1, column=1, offset=0),
-        end=SourcePosition(path="phase_scope_test.orc", line=1, column=2, offset=1),
-    )
-    provider_expr = ProviderResultExpr(
-        provider=NameExpr(
-            name="providers.execute",
-            span=expr_span,
-            form_path=("workflow-lisp", "defproc", "helper"),
-        ),
-        prompt=NameExpr(
-            name="prompts.implementation.execute",
-            span=expr_span,
-            form_path=("workflow-lisp", "defproc", "helper"),
-        ),
-        inputs=(),
-        returns_type_name="ChecksResult",
-        span=expr_span,
-        form_path=("workflow-lisp", "defproc", "helper"),
-    )
-    helper_proc = SimpleNamespace(
-        definition=SimpleNamespace(name="helper"),
-        typed_body=SimpleNamespace(
-            expr=WithPhaseExpr(
-                ctx_expr=NameExpr(
-                    name="ctx",
-                    span=expr_span,
-                    form_path=("workflow-lisp", "defproc", "helper"),
-                ),
-                phase_name="implementation",
-                body=provider_expr,
-                span=expr_span,
-                form_path=("workflow-lisp", "defproc", "helper"),
-            )
-        ),
-    )
-    workflow = SimpleNamespace(
-        typed_body=SimpleNamespace(
-            expr=ProcedureCallExpr(
-                callee_name="helper",
-                args=(),
-                span=expr_span,
-                form_path=("workflow-lisp", "defworkflow", "entry"),
-            )
-        )
-    )
-
-    provider_names, prompt_names = _workflow_extern_requirements(
-        workflow,
-        typed_procedures={"helper": helper_proc},
-    )
-
-    assert provider_names == {"providers.execute"}
-    assert prompt_names == {"prompts.implementation.execute"}
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_flow"),
-        "_lower_run_provider_phase",
-        "_lower_produce_one_of",
-        "_lower_resume_or_start",
-    ) == {
-        "_lower_run_provider_phase": 1,
-        "_lower_produce_one_of": 1,
-        "_lower_resume_or_start": 1,
-    }
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_resource"),
-        "_lower_resource_transition",
-        "_lower_finalize_selected_item",
-    ) == {
-        "_lower_resource_transition": 1,
-        "_lower_finalize_selected_item": 1,
-    }
-def test_lowering_control_impl_is_no_longer_a_real_owner_sink() -> None:
-    control_impl_path = _lowering_owner_source_path("control_impl")
-
-    assert _physical_line_count(control_impl_path) < 500
-    assert _top_level_definition_counts(
-        control_impl_path,
-        "_lower_expression",
-        "_lower_let_star",
-        "_lower_if_expr",
-        "_is_inline_let_binding_expr",
-        "_lower_match_expr",
-        "_build_match_projection_anchor_step",
-        "_binding_terminal_for_match_subject",
-        "_binding_terminal_for_inline_match",
-        "_match_arm_local_values",
-        "_lower_loop_recur",
-        "_materialize_values_step",
-        "_conditional_case_ref",
-        "_inline_procedure_step_prefix",
-    ) == {
-        "_lower_expression": 0,
-        "_lower_let_star": 0,
-        "_lower_if_expr": 0,
-        "_is_inline_let_binding_expr": 0,
-        "_lower_match_expr": 0,
-        "_build_match_projection_anchor_step": 0,
-        "_binding_terminal_for_match_subject": 0,
-        "_binding_terminal_for_inline_match": 0,
-        "_match_arm_local_values": 0,
-        "_lower_loop_recur": 0,
-        "_materialize_values_step": 0,
-        "_conditional_case_ref": 0,
-        "_inline_procedure_step_prefix": 0,
-    }
-
-
-def test_lowering_phase_helpers_is_no_longer_a_real_owner_sink() -> None:
-    phase_helpers_path = _lowering_owner_source_path("phase_helpers")
-
-    assert _physical_line_count(phase_helpers_path) < 500
-    assert _top_level_definition_counts(
-        phase_helpers_path,
-        "_phase_stdlib_lower_with_phase_impl",
-        "_lower_composed_with_phase",
-        "_build_phase_prompt_input_prelude",
-        "_build_phase_stdlib_prompt_input_prelude",
-        "_flatten_phase_stdlib_prompt_inputs",
-        "_phase_stdlib_lower_run_provider_phase_impl",
-        "_phase_stdlib_lower_produce_one_of_impl",
-        "_phase_stdlib_lower_resume_or_start_impl",
-        "_phase_stdlib_lower_resource_transition_impl",
-        "_phase_stdlib_lower_finalize_selected_item_impl",
-    ) == {
-        "_phase_stdlib_lower_with_phase_impl": 0,
-        "_lower_composed_with_phase": 0,
-        "_build_phase_prompt_input_prelude": 0,
-        "_build_phase_stdlib_prompt_input_prelude": 0,
-        "_flatten_phase_stdlib_prompt_inputs": 0,
-        "_phase_stdlib_lower_run_provider_phase_impl": 0,
-        "_phase_stdlib_lower_produce_one_of_impl": 0,
-        "_phase_stdlib_lower_resume_or_start_impl": 0,
-        "_phase_stdlib_lower_resource_transition_impl": 0,
-        "_phase_stdlib_lower_finalize_selected_item_impl": 0,
-    }
-
-
-def test_typecheck_does_not_import_review_loop_expr() -> None:
-    assert not _module_mentions_symbol(_typecheck_source_path(), "ReviewReviseLoopExpr")
-
-
-def test_lowering_does_not_import_review_loop_expr() -> None:
-    assert not _module_mentions_symbol(_lowering_source_path(), "ReviewReviseLoopExpr")
-
-
-def test_lowering_denylist_keeps_review_loop_expr_out_of_legacy_owner_sinks() -> None:
-    assert not _module_mentions_symbol(_typecheck_source_path(), "ReviewReviseLoopExpr")
-    assert not _module_mentions_symbol(_lowering_source_path(), "ReviewReviseLoopExpr")
-
-
-def test_runtime_erasure_rejects_compile_time_only_proc_ref_values() -> None:
-    from orchestrator.workflow_lisp.lowering.procedures import _assert_runtime_erasure
-    from orchestrator.workflow_lisp.procedure_refs import ProcRefAuthoritySource, ResolvedProcRefValue
-    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-    from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _assert_runtime_erasure(
-            ResolvedProcRefValue(
-                procedure_name="helper",
-                signature_params=(("arg", PrimitiveTypeRef(name="String")),),
-                return_type_ref=PrimitiveTypeRef(name="String"),
-                authority_source=ProcRefAuthoritySource(kind="local", procedure_name="helper"),
-            ),
-            span=SourceSpan(
-                start=SourcePosition(path="runtime_erasure.orc", line=1, column=1, offset=0),
-                end=SourcePosition(path="runtime_erasure.orc", line=1, column=10, offset=9),
-            ),
-            form_path=("workflow-lisp", "defworkflow", "entry"),
-        )
-
-    assert excinfo.value.diagnostics[0].code == "proc_runtime_erasure_failed"
-
-
-def test_parametric_specialization_rejects_leaked_type_params_before_runtime_lowering() -> None:
-    from orchestrator.workflow_lisp.lowering.procedures import _assert_runtime_erasure
-    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-    from orchestrator.workflow_lisp.type_env import TypeParamRef
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _assert_runtime_erasure(
-            {"return_type": TypeParamRef(name="T")},
-            span=SourceSpan(
-                start=SourcePosition(path="runtime_erasure.orc", line=1, column=1, offset=0),
-                end=SourcePosition(path="runtime_erasure.orc", line=1, column=10, offset=9),
-            ),
-            form_path=("workflow-lisp", "defworkflow", "entry"),
-        )
-
-    assert excinfo.value.diagnostics[0].code == "proc_runtime_erasure_failed"
+def test_typed_effect_inference_descends_through_phase_inside_same_file_procedure(tmp_path: Path) -> None:
+    path = _write_module(tmp_path / "phase_procedure.orc", '(workflow-lisp\n  (:language "0.1") (:target-dsl "2.15")\n  (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))\n  (defrecord PhaseCtx (run RunCtx) (phase-name Symbol) (state-root Path.state-root) (artifact-root Path.artifact-root))\n  (defproc helper ((ctx PhaseCtx)) -> Bool\n    :effects ((uses-provider providers.execute)) :lowering inline\n    (with-phase ctx implementation\n      (provider-result providers.execute :prompt prompts.execute :inputs () :returns Bool)))\n  (defworkflow run ((ctx PhaseCtx)) -> Bool (helper ctx)))\n')
+    result = compile_stage3_module(path, provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"}, workspace_root=tmp_path)
+    effects = result.typed_workflows[0].typed_body.effect_summary.transitive_effects
+    assert UsesProviderEffect(subject=("providers", "execute")) in effects
+    helper = next(row for row in result.typed_procedures if row.definition.name.endswith("helper"))
+    provider = next(node for node in walk_expr(helper.typed_body.expr) if isinstance(node, ProviderResultExpr))
+    assert provider.prompt.name == "prompts.execute"
 
 
 def _write_workflow_param_default_module(path: Path) -> Path:
@@ -1450,438 +504,11 @@ def _compile_definition_module(path: Path):
     return module
 
 
-def _workflow_public_input_contracts(bundle):
-    helper = getattr(
-        loaded_bundle_helpers,
-        "workflow_public_input_contracts",
-        loaded_bundle_helpers.workflow_input_contracts,
-    )
-    return helper(bundle)
-
-
-def _workflow_runtime_input_contracts(bundle):
-    helper = getattr(
-        loaded_bundle_helpers,
-        "workflow_runtime_input_contracts",
-        loaded_bundle_helpers.workflow_input_contracts,
-    )
-    return helper(bundle)
-
-
-def _typed_fixture_workflows():
-    module = _compile_definition_module(STRUCTURED_RESULTS_FIXTURE)
-    type_env = FrontendTypeEnvironment.from_module(module)
-    syntax_module = build_syntax_module(read_sexpr_file(STRUCTURED_RESULTS_FIXTURE))
-    workflow_defs = elaborate_workflow_definitions(syntax_module)
-    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
-    typed_workflows = typecheck_workflow_definitions(
-        workflow_defs,
-        type_env=type_env,
-        workflow_catalog=workflow_catalog,
-        extern_environment=_extern_environment(),
-        command_boundary_environment=_command_boundary_environment(),
-    )
-    return typed_workflows, workflow_catalog
-
-
-def _assert_contract_matches_observed_families(contract, *, steps) -> set[str]:
-    observed = set(_observed_statement_families(steps))
-    assert set(contract.required_statement_families).issubset(observed)
-    for alternatives in contract.alternative_statement_family_sets:
-        matches = observed.intersection(alternatives)
-        assert len(matches) == 1
-    return observed
-
-
-def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
-    expected_forms = {
-        "provider-result",
-        "command-result",
-        "run-provider-phase",
-        "produce-one-of",
-        "review-revise-loop",
-        "resume-or-start",
-        "resource-transition",
-        "finalize-selected-item",
-        "backlog-drain",
-    }
-    expected_expr_types = {
-        ProviderResultExpr,
-        CommandResultExpr,
-        RunProviderPhaseExpr,
-        ProduceOneOfExpr,
-        ResumeOrStartExpr,
-        ResourceTransitionExpr,
-        FinalizeSelectedItemExpr,
-    }
-
-    assert len(STDLIB_LOWERING_CONTRACTS) == 9
-    assert {contract.form_name for contract in STDLIB_LOWERING_CONTRACTS} == expected_forms
-    assert set(STDLIB_LOWERING_CONTRACTS_BY_FORM) == expected_forms
-    assert expected_expr_types <= {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS}
-    assert all(
-        contract.expr_type is None or contract.expr_type.__name__ != "StdlibSpecializationExpr"
-        for contract in STDLIB_LOWERING_CONTRACTS
-    )
-
-    review_loop_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["review-revise-loop"]
-    assert review_loop_contract.expr_type is ProcedureCallExpr
-    assert "phase_stdlib" not in review_loop_contract.helper_owner_modules
-
-    imported_drain_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["backlog-drain"]
-    assert imported_drain_contract.expr_type is None
-    assert imported_drain_contract.helper_owner_modules == (
-        "stdlib_modules/std/drain.orc",
-    )
-    assert imported_drain_contract.primary_diagnostics == (
-        "parametric_constraint_unsatisfied",
-        "workflow_call_signature_erased",
-    )
-
-    for expr_type in {
-        contract.expr_type
-        for contract in STDLIB_LOWERING_CONTRACTS
-        if contract.expr_type is not None
-    }:
-        contract = stdlib_contract_for_expr(expr_type)
-        assert contract.expr_type is expr_type
-        assert STDLIB_LOWERING_CONTRACTS_BY_FORM[contract.form_name] is contract
-
-
-def test_structured_result_family_contract_matches_lowered_provider_and_command_forms() -> None:
-    typed_workflows, workflow_catalog = _typed_fixture_workflows()
-    lowered = lower_workflow_definitions(
-        typed_workflows,
-        workflow_path=STRUCTURED_RESULTS_FIXTURE,
-        workflow_catalog=workflow_catalog,
-        extern_environment=_extern_environment(),
-        command_boundary_environment=_command_boundary_environment(),
-    )
-    authored_by_name = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping for workflow in lowered
-    }
-
-    command_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["command-result"]
-    assert command_contract.family == "structured_result_producer"
-    assert set(command_contract.backend_kinds) == {"external_tool", "certified_adapter"}
-    assert command_contract.required_statement_families == ("command_step",)
-    assert command_contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
-    assert command_contract.delegated_statement_family_policy == "none"
-    assert command_contract.state_root_policies == ("generated_hidden_bundle_input",)
-    assert command_contract.authority_model == "validated_structured_result_bundle"
-    assert command_contract.proof_model == "contract_validated_bundle"
-    assert command_contract.source_map_expectations == (
-        "high_level_form_origin",
-        "generated_step_span",
-        "generated_hidden_input_span",
-        "generated_hidden_path_span",
-        "adapter_command_step_origin",
-    )
-    command_observed = _assert_contract_matches_observed_families(
-        command_contract,
-        steps=authored_by_name["command_checks"]["steps"],
-    )
-    assert command_observed.intersection({"output_bundle", "variant_output"}) == {"output_bundle"}
-
-    provider_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["provider-result"]
-    assert provider_contract.family == "structured_result_producer"
-    assert provider_contract.backend_kinds == ("provider",)
-    assert provider_contract.required_statement_families == ("provider_step",)
-    assert provider_contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
-    assert provider_contract.delegated_statement_family_policy == "none"
-    assert provider_contract.state_root_policies == (
-        "generated_hidden_bundle_input",
-        "active_phase_bundle",
-    )
-    assert provider_contract.authority_model == "validated_structured_result_bundle"
-    assert provider_contract.proof_model == "contract_validated_bundle"
-    assert provider_contract.source_map_expectations == (
-        "high_level_form_origin",
-        "generated_step_span",
-        "generated_hidden_input_span",
-        "generated_hidden_path_span",
-    )
-    provider_observed = _assert_contract_matches_observed_families(
-        provider_contract,
-        steps=authored_by_name["provider_attempt"]["steps"],
-    )
-    assert provider_observed.intersection({"output_bundle", "variant_output"}) == {"variant_output"}
-
-
-def test_lowering_same_file_workflow_call_uses_managed_write_root_boundary_projection() -> None:
-    typed_workflows, workflow_catalog = _typed_fixture_workflows()
-    lowered = lower_workflow_definitions(
-        typed_workflows,
-        workflow_path=STRUCTURED_RESULTS_FIXTURE,
-        workflow_catalog=workflow_catalog,
-        extern_environment=_extern_environment(),
-        command_boundary_environment=_command_boundary_environment(),
-    )
-
-    assert [workflow.typed_workflow.definition.name for workflow in lowered] == [
-        "command_checks",
-        "provider_attempt",
-        "orchestrate",
-    ]
-
-    command_checks = next(workflow for workflow in lowered if workflow.typed_workflow.definition.name == "command_checks")
-    provider_attempt = next(
-        workflow for workflow in lowered if workflow.typed_workflow.definition.name == "provider_attempt"
-    )
-    orchestrate = next(workflow for workflow in lowered if workflow.typed_workflow.definition.name == "orchestrate")
-
-    assert isinstance(command_checks.authored_mapping, dict)
-    assert command_checks.authored_mapping["version"] == "2.14"
-    assert "imports" not in orchestrate.authored_mapping
-    assert "__write_root__command_checks__run_checks__result_bundle" in command_checks.authored_mapping["inputs"]
-    assert "__write_root__provider_attempt__attempt__result_bundle" in provider_attempt.authored_mapping["inputs"]
-    assert "providers" not in provider_attempt.authored_mapping
-
-    assert [step["id"] for step in provider_attempt.authored_mapping["steps"]] == [
-        "provider_attempt__attempt",
-        "provider_attempt__match_attempt",
-    ]
-
-    provider_step = provider_attempt.authored_mapping["steps"][0]
-    assert provider_step["provider"] == "test-provider"
-    assert provider_step["asset_file"] == "prompts/implementation/execute.md"
-    assert provider_step["inject_output_contract"] is True
-    assert "variant_output" in provider_step
-
-    match_step = provider_attempt.authored_mapping["steps"][1]
-    assert tuple(provider_attempt.authored_mapping["outputs"]) == ("return__report",)
-    completed_case = match_step["match"]["cases"]["COMPLETED"]
-    assert completed_case["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.execution_report")
-    assert completed_case["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(".artifacts.execution_report")
-    assert (
-        completed_case["steps"][0]["assert"]["compare"]["left"]
-        == completed_case["steps"][0]["assert"]["compare"]["right"]
-    )
-    blocked_case = match_step["match"]["cases"]["BLOCKED"]
-    assert blocked_case["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.progress_report")
-    assert blocked_case["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(".artifacts.progress_report")
-    assert blocked_case["steps"][0]["assert"]["compare"]["left"] == blocked_case["steps"][0]["assert"]["compare"]["right"]
-
-    command_step = command_checks.authored_mapping["steps"][0]
-    assert command_step["command"] == ["python", "scripts/run_checks.py", "${inputs.report_path}"]
-    assert "output_bundle" in command_step
-
-    call_step = orchestrate.authored_mapping["steps"][0]
-    assert call_step["call"] == "provider_attempt"
-    managed_inputs = _managed_write_root_requirements_for_callable(
-        lowered_callee=provider_attempt,
-        imported_bundle=None,
-        span=provider_attempt.typed_workflow.definition.body.span,
-        form_path=provider_attempt.typed_workflow.definition.body.form_path,
-    )
-    expected_bindings = _managed_write_root_bindings(
-        caller_workflow_name="orchestrate",
-        call_step_name=call_step["name"],
-        callee_name="provider_attempt",
-        managed_inputs=managed_inputs,
-    )
-    assert managed_inputs == ("__write_root__provider_attempt__attempt__result_bundle",)
-    assert call_step["with"]["__write_root__provider_attempt__attempt__result_bundle"] == expected_bindings[
-        "__write_root__provider_attempt__attempt__result_bundle"
-    ]
-
-
-def test_prompt_extern_lowers_asset_file() -> None:
-    typed_workflows, workflow_catalog = _typed_fixture_workflows()
-
-    lowered = lower_workflow_definitions(
-        typed_workflows,
-        workflow_path=STRUCTURED_RESULTS_FIXTURE,
-        workflow_catalog=workflow_catalog,
-        extern_environment=_extern_environment(),
-        command_boundary_environment=_command_boundary_environment(),
-    )
-
-    provider_attempt = next(workflow for workflow in lowered if workflow.typed_workflow.definition.name == "provider_attempt")
-    provider_step = provider_attempt.authored_mapping["steps"][0]
-
-    assert provider_step["asset_file"] == "prompts/implementation/execute.md"
-    assert "input_file" not in provider_step
-
-
-def test_prompt_extern_lowers_input_file(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        PHASE_FIXTURE,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": {"input_file": "prompts/workspace/implementation/execute.md"}},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    provider_step = lowered["steps"][0]
-
-    assert provider_step["input_file"] == "prompts/workspace/implementation/execute.md"
-    assert "asset_file" not in provider_step
-
-
-def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: Path) -> None:
-    typed_workflows, workflow_catalog = _typed_fixture_workflows()
-    lowered = lower_workflow_definitions(
-        typed_workflows,
-        workflow_path=STRUCTURED_RESULTS_FIXTURE,
-        workflow_catalog=workflow_catalog,
-        extern_environment=_extern_environment(),
-        command_boundary_environment=_command_boundary_environment(),
-    )
-
-    validated = validate_lowered_workflows(lowered, workspace_root=tmp_path)
-
-    assert tuple(validated) == ("command_checks", "provider_attempt", "orchestrate")
-    orchestrate_bundle = validated["orchestrate"]
-    assert "provider_attempt" in orchestrate_bundle.surface.imports
-    assert "imports" not in next(
-        workflow for workflow in lowered if workflow.typed_workflow.definition.name == "orchestrate"
-    ).authored_mapping
-    assert workflow_managed_write_root_inputs(validated["provider_attempt"]) == (
-        "__write_root__provider_attempt__attempt__result_bundle",
-    )
-    assert "__write_root__provider_attempt__attempt__result_bundle" not in _workflow_public_input_contracts(
-        validated["provider_attempt"]
-    )
-    assert "__write_root__provider_attempt__attempt__result_bundle" in _workflow_runtime_input_contracts(
-        validated["provider_attempt"]
-    )
-
-
-def test_command_result_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    bundle = _validated_bundle_by_local_name(result, "command_checks")
-    allocation = next(
-        item
-        for item in _workflow_generated_path_allocations(bundle)
-        if _allocation_field(item, "semantic_role") == "command_result_bundle"
-    )
-
-    assert _allocation_field(allocation, "privacy") == "private_generated"
-    assert _allocation_field(allocation, "resume_scope") == "step_visit"
-    assert _allocation_field(allocation, "generated_input_name") == (
-        "__write_root__command_checks__run_checks__result_bundle"
-    )
-    assert _allocation_field(allocation, "concrete_path_template") == (
-        "${inputs.__write_root__command_checks__run_checks__result_bundle}"
-    )
-    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
-    assert "command_checks" in _allocation_field(allocation, "stable_identity")
-    assert "run_checks" in _allocation_field(allocation, "stable_identity")
-
-
-def test_provider_result_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    bundle = _validated_bundle_by_local_name(result, "provider_attempt")
-    allocation = next(
-        item
-        for item in _workflow_generated_path_allocations(bundle)
-        if _allocation_field(item, "semantic_role") == "provider_result_bundle"
-    )
-
-    assert _allocation_field(allocation, "privacy") == "private_generated"
-    assert _allocation_field(allocation, "resume_scope") == "step_visit"
-    assert _allocation_field(allocation, "generated_input_name") == (
-        "__write_root__provider_attempt__attempt__result_bundle"
-    )
-    assert _allocation_field(allocation, "concrete_path_template") == (
-        "${inputs.__write_root__provider_attempt__attempt__result_bundle}"
-    )
-    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
-    assert "provider_attempt" in _allocation_field(allocation, "stable_identity")
-    assert "attempt" in _allocation_field(allocation, "stable_identity")
-
-
-def test_provider_result_native_bool_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
-    """A let*-bound native `Bool` provider result binds `root.steps.<step>.artifacts.__result__`."""
-    workflow_path = _write_module(
-        tmp_path / "native_bool_provider_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithFlag",
-                "    (report WorkReport)",
-                "    (approved Bool))",
-                "  (defworkflow native-bool-provider-binding",
-                "    ((report_path WorkReport))",
-                "    -> SummaryWithFlag",
-                "    (let* ((approved",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns Bool)))",
-                "      (record SummaryWithFlag",
-                "        :report report_path",
-                "        :approved approved))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    provider_step = next(step for step in lowered["steps"] if "provider" in step)
-    assert provider_step["output_bundle"]["fields"][0]["name"] == "__result__"
-    assert provider_step["output_bundle"]["fields"][0]["json_pointer"] == ""
-    assert provider_step["output_bundle"]["fields"][0]["type"] == "bool"
-
-    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
-    approved_value = next(
-        value
-        for value in materialize_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__approved"
-    )
-    assert approved_value["source"] == {
-        "ref": f"root.steps.{provider_step['name']}.artifacts.__result__"
-    }
-
-
-@pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])
-def test_compiled_root_guidance_survives_provider_and_command_lowering_routes(
+def test_typed_root_guidance_preserves_provider_and_command_contracts(
     tmp_path: Path,
-    lowering_route: str,
 ) -> None:
     workflow_path = _write_module(
-        tmp_path / f"compiled_root_guidance_{lowering_route}.orc",
+        tmp_path / "compiled_root_guidance_typed.orc",
         "\n".join(
             [
                 "(workflow-lisp",
@@ -1904,7 +531,7 @@ def test_compiled_root_guidance_survives_provider_and_command_lowering_routes(
         ),
     )
 
-    result = _compile_stage3_module(
+    result = compile_stage3_module(
         workflow_path,
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={
@@ -1916,59 +543,31 @@ def test_compiled_root_guidance_survives_provider_and_command_lowering_routes(
                 stable_command=("python", "scripts/decide.py"),
             )
         },
-        lowering_route=lowering_route,
         validate_shared=False,
         workspace_root=tmp_path,
     )
 
-    lowered_by_name = {
-        lowered.typed_workflow.definition.name: lowered.authored_mapping
-        for lowered in result.lowered_workflows
-    }
-    provider_mapping = lowered_by_name["guided-provider"]
-    provider_step = next(step for step in provider_mapping["steps"] if "provider" in step)
-    assert provider_step["output_bundle"]["fields"][0] == {
-        **provider_step["output_bundle"]["fields"][0],
-        "description": "Provider must decide.",
-        "format_hint": "JSON boolean.",
-        "example": True,
-    }
-    assert provider_mapping["result_guidance"] == {
-        "description": "Public provider decision.",
-        "example": True,
-    }
-    assert "description" not in provider_mapping["outputs"]["__result__"]
-    assert "example" not in provider_mapping["outputs"]["__result__"]
-    assert provider_mapping["outputs"]["__result__"]["from"] == {
-        "ref": f"root.steps.{provider_step['name']}.artifacts.__result__"
-    }
-
-    command_mapping = lowered_by_name["guided-command"]
-    command_step = next(step for step in command_mapping["steps"] if "command" in step)
-    assert command_step["output_bundle"]["fields"][0] == {
-        **command_step["output_bundle"]["fields"][0],
-        "description": "Command must decide.",
-        "format_hint": "JSON boolean.",
-        "example": False,
-    }
-    assert command_mapping["result_guidance"] == {
-        "description": "Public command decision.",
-        "example": False,
-    }
-    assert "description" not in command_mapping["outputs"]["__result__"]
-    assert "example" not in command_mapping["outputs"]["__result__"]
-    assert command_mapping["outputs"]["__result__"]["from"] == {
-        "ref": f"root.steps.{command_step['name']}.artifacts.__result__"
-    }
+    for workflow, example, public, effect in (
+        (result.typed_workflows[0], True, "Public provider decision.", "Provider must decide."),
+        (result.typed_workflows[1], False, "Public command decision.", "Command must decide."),
+    ):
+        assert normalized_result_guidance_payload(workflow.definition.return_spec.guidance,
+            expected_type=workflow.signature.return_type_ref, type_env=result.typed_program.type_env) == {
+                "description": public, "example": example}
+        expr = workflow.typed_body.expr
+        contract = derive_prompt_guided_structured_result_contract(workflow.signature.return_type_ref,
+            workflow_name=workflow.definition.name, step_id="result", type_env=result.typed_program.type_env,
+            span=expr.span, form_path=expr.form_path, guidance=expr.return_spec.guidance)
+        field = contract.payload["fields"][0]
+        assert {key: field[key] for key in ("description", "format_hint", "example")} == {
+            "description": effect, "format_hint": "JSON boolean.", "example": example}
 
 
-@pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])
-def test_compiled_root_guidance_covers_record_union_and_private_procedure_workflows(
+def test_typed_root_guidance_covers_record_union_and_private_procedures(
     tmp_path: Path,
-    lowering_route: str,
 ) -> None:
     workflow_path = _write_module(
-        tmp_path / f"compiled_root_guidance_shapes_{lowering_route}.orc",
+        tmp_path / "compiled_root_guidance_shapes_typed.orc",
         "\n".join(
             [
                 "(workflow-lisp",
@@ -2008,7 +607,7 @@ def test_compiled_root_guidance_covers_record_union_and_private_procedure_workfl
         ),
     )
 
-    result = _compile_stage3_module(
+    result = compile_stage3_module(
         workflow_path,
         command_boundaries={
             "decide": ExternalToolBinding(
@@ -2016,582 +615,36 @@ def test_compiled_root_guidance_covers_record_union_and_private_procedure_workfl
                 stable_command=("python", "scripts/decide.py"),
             )
         },
-        lowering_route=lowering_route,
         validate_shared=False,
         workspace_root=tmp_path,
     )
-    mappings = {
-        lowered.typed_workflow.definition.name: lowered.authored_mapping
-        for lowered in result.lowered_workflows
-    }
     expected = {
-        "guided-record": {
-            "description": "Public review result.",
-            "example": {"approved": True},
-        },
-        "guided-union": {
-            "description": "Public decision result.",
-            "example": {"variant": "APPROVE", "approved": True},
-        },
-        "%compiled_root_guidance_shapes_"
-        f"{lowering_route}.build-review.v1": {
-            "description": "Private review result.",
-            "format_hint": "Complete review object.",
-            "example": {"approved": True},
-        },
+        "guided-record": {"description": "Public review result.", "example": {"approved": True}},
+        "guided-union": {"description": "Public decision result.", "example": {"variant": "APPROVE", "approved": True}},
+        "build-review": {"description": "Private review result.", "format_hint": "Complete review object.", "example": {"approved": True}},
     }
-    private_name = next(name for name in mappings if name.startswith("%") and "build-review" in name)
-    expected_private = expected.pop(
-        "%compiled_root_guidance_shapes_" f"{lowering_route}.build-review.v1"
-    )
-    expected[private_name] = expected_private
-
-    for workflow_name, guidance in expected.items():
-        mapping = mappings[workflow_name]
-        assert mapping["result_guidance"] == guidance
-        assert set(mapping["result_guidance"]) <= {
-            "description",
-            "format_hint",
-            "example",
-        }
-        for output in mapping["outputs"].values():
-            assert not {
-                "guidance",
-                "description",
-                "format_hint",
-                "example",
-            } & output.keys()
-        assert all("from" in output for output in mapping["outputs"].values())
-
-    assert mappings["guided-record"]["outputs"]["return__approved"]["from"] == {
-        "ref": "root.steps.guided-record__decide.artifacts.approved"
-    }
-    assert {
-        name: output["from"]["ref"]
-        for name, output in mappings["guided-union"]["outputs"].items()
-    } == {
-        "return__variant": "root.steps.guided-union__decide.artifacts.variant",
-        "return__approved": "root.steps.guided-union__decide.artifacts.approved",
-        "return__reason": "root.steps.guided-union__decide.artifacts.reason",
-    }
-    assert mappings[private_name]["outputs"]["return__approved"]["from"] == {
-        "ref": f"root.steps.{private_name}__decide.artifacts.approved"
-    }
-
-def test_command_result_native_int_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
-    """A let*-bound native `Int` command result binds `root.steps.<step>.artifacts.__result__`."""
-    workflow_path = _write_module(
-        tmp_path / "native_int_command_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithCount",
-                "    (report WorkReport)",
-                "    (count Int))",
-                "  (defworkflow native-int-command-binding",
-                "    ((report_path WorkReport))",
-                "    -> SummaryWithCount",
-                "    (let* ((count",
-                "             (command-result count_things",
-                '               :argv ("python" "scripts/count_things.py" report_path)',
-                "               :returns Int)))",
-                "      (record SummaryWithCount",
-                "        :report report_path",
-                "        :count count))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        command_boundaries={
-            "count_things": ExternalToolBinding(
-                name="count_things",
-                stable_command=("python", "scripts/count_things.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    command_step = next(step for step in lowered["steps"] if "command" in step)
-    assert command_step["output_bundle"]["fields"][0]["name"] == "__result__"
-    assert command_step["output_bundle"]["fields"][0]["json_pointer"] == ""
-    assert command_step["output_bundle"]["fields"][0]["type"] == "integer"
-
-    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
-    count_value = next(
-        value
-        for value in materialize_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__count"
-    )
-    assert count_value["source"] == {
-        "ref": f"root.steps.{command_step['name']}.artifacts.__result__"
-    }
+    callables = (*result.typed_workflows, *result.typed_procedures)
+    for row in callables:
+        name = row.definition.name.rsplit("::", 1)[-1]
+        if name in expected:
+            assert normalized_result_guidance_payload(row.definition.return_spec.guidance,
+                expected_type=row.signature.return_type_ref, type_env=result.typed_program.type_env) == expected[name]
+    assert set(expected) <= {row.definition.name.rsplit("::", 1)[-1] for row in callables}
 
 
-def test_if_native_bool_effectful_arms_bind_root_result_artifact(tmp_path: Path) -> None:
-    """Both arms of a root-valued `if` join through `__result__`, not `return`."""
-    workflow_path = _write_module(
-        tmp_path / "native_bool_if_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithFlag",
-                "    (report WorkReport)",
-                "    (approved Bool))",
-                "  (defworkflow native-bool-if-binding",
-                "    ((report_path WorkReport) (flag Bool))",
-                "    -> SummaryWithFlag",
-                "    (let* ((approved",
-                "             (if flag",
-                "               (provider-result providers.execute",
-                "                 :prompt prompts.implementation.execute",
-                "                 :inputs (report_path)",
-                "                 :returns Bool)",
-                "               (provider-result providers.execute",
-                "                 :prompt prompts.implementation.execute",
-                "                 :inputs (report_path)",
-                "                 :returns Bool))))",
-                "      (record SummaryWithFlag",
-                "        :report report_path",
-                "        :approved approved))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    if_step = next(step for step in lowered["steps"] if "if" in step)
-    for branch_name in ("then", "else"):
-        branch_outputs = if_step[branch_name]["outputs"]
-        assert list(branch_outputs) == ["__result__"]
-        assert branch_outputs["__result__"]["from"]["ref"].endswith(".artifacts.__result__")
-
-    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
-    approved_value = next(
-        value
-        for value in materialize_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__approved"
-    )
-    assert approved_value["source"] == {
-        "ref": f"root.steps.{if_step['name']}.artifacts.__result__"
-    }
-
-
-def test_wcc_if_literal_bool_arm_materializes_root_result_bundle(tmp_path: Path) -> None:
-    """A literal `Bool` arm materializes one `__result__` root bundle, no `/result` pointer."""
-    workflow_path = _write_module(
-        tmp_path / "native_bool_if_literal.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithFlag",
-                "    (report WorkReport)",
-                "    (approved Bool))",
-                "  (defworkflow native-bool-if-literal",
-                "    ((report_path WorkReport) (flag Bool))",
-                "    -> SummaryWithFlag",
-                "    (let* ((approved",
-                "             (if flag",
-                "               (provider-result providers.execute",
-                "                 :prompt prompts.implementation.execute",
-                "                 :inputs (report_path)",
-                "                 :returns Bool)",
-                "               false)))",
-                "      (record SummaryWithFlag",
-                "        :report report_path",
-                "        :approved approved))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    if_step = next(step for step in lowered["steps"] if "if" in step)
-    assert list(if_step["then"]["outputs"]) == ["__result__"]
-    assert list(if_step["else"]["outputs"]) == ["__result__"]
-    literal_projection = next(
-        step
-        for step in if_step["else"]["steps"]
-        if "pure_projection" in step
-    )
-    bundle_fields = literal_projection["output_bundle"]["fields"]
-    assert bundle_fields == [
-        {"name": "__result__", "json_pointer": "", "kind": "scalar", "type": "bool"}
-    ]
-    assert list(literal_projection["pure_projection"]["output_contracts"]) == ["__result__"]
-
-
-def test_output_contracts_for_type_root_parity_across_lowering_lanes() -> None:
-    """Both lowering lanes derive identical root `__result__` contracts per type."""
-    core_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    pure_projection_module = importlib.import_module(
-        "orchestrator.workflow_lisp.lowering.pure_projection"
-    )
-    span = SourceSpan(
-        start=SourcePosition(path="lane_parity.orc", line=1, column=1, offset=0),
-        end=SourcePosition(path="lane_parity.orc", line=1, column=2, offset=1),
-    )
-    root_type_refs = (
-        PrimitiveTypeRef(name="Bool"),
-        PrimitiveTypeRef(name="Int"),
-        PrimitiveTypeRef(name="String"),
-        PathTypeRef(
-            name="Path.state-root",
-            definition=PRELUDE_PATH_TYPES["Path.state-root"],
-        ),
-    )
-    context = SimpleNamespace(
-        type_env=FrontendTypeEnvironment({}, target_dsl_version="2.25")
-    )
-
-    for type_ref in root_type_refs:
-        core_contracts = core_module._output_contracts_for_type(
-            type_ref,
-            context=context,
-            span=span,
-            form_path=(),
-        )
-        pure_contracts = pure_projection_module._output_contracts_for_type(
-            type_ref,
-            context=context,
-            span=span,
-            form_path=(),
-        )
-        assert pure_contracts == core_contracts, type_ref
-
-
-def test_wcc_optional_bool_root_binding_binds_result_artifact(tmp_path: Path) -> None:
-    """A let*-bound `Optional[Bool]` root value binds through `artifacts.__result__`."""
-    workflow_path = _write_module(
-        tmp_path / "native_optional_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithFlag",
-                "    (report WorkReport)",
-                "    (approved Bool))",
-                "  (defworkflow native-optional-binding",
-                "    ((report_path WorkReport))",
-                "    -> SummaryWithFlag",
-                "    (let* ((maybe",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns Optional[Bool]))",
-                "           (approved (or-else maybe true)))",
-                "      (record SummaryWithFlag",
-                "        :report report_path",
-                "        :approved approved))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    provider_step = next(step for step in lowered["steps"] if "provider" in step)
-    assert provider_step["output_bundle"]["fields"][0]["name"] == "__result__"
-    assert provider_step["output_bundle"]["fields"][0]["json_pointer"] == ""
-    assert provider_step["output_bundle"]["fields"][0]["type"] == "optional"
-
-    projection_steps = [step for step in lowered["steps"] if "pure_projection" in step]
-    binding_refs = json.dumps(
-        [step["pure_projection"]["binding_refs"] for step in projection_steps]
-    )
-    assert f"root.steps.{provider_step['name']}.artifacts.__result__" in binding_refs
-
-
-def test_provider_result_list_root_binding_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
-    """A let*-bound `List[Int]` root value binds `artifacts.__result__` into a record field."""
-    workflow_path = _write_module(
-        tmp_path / "native_list_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithItems",
-                "    (report WorkReport)",
-                "    (items List[Int]))",
-                "  (defworkflow native-list-binding",
-                "    ((report_path WorkReport))",
-                "    -> SummaryWithItems",
-                "    (let* ((items",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns List[Int])))",
-                "      (record SummaryWithItems",
-                "        :report report_path",
-                "        :items items))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    provider_step = next(step for step in lowered["steps"] if "provider" in step)
-    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
-    items_value = next(
-        value
-        for value in materialize_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__items"
-    )
-    assert items_value["source"] == {
-        "ref": f"root.steps.{provider_step['name']}.artifacts.__result__"
-    }
-
-
-def test_provider_bundle_path_projection_explicit_output_bundle(tmp_path: Path) -> None:
-    workflow_path = _write_provider_bundle_projection_module(
-        tmp_path,
-        module_name="provider_bundle_projection_explicit",
-        workflow_name="project-phase",
-        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
-        phase_scoped=True,
-        path_under="artifacts/work",
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "project-phase"
-        or workflow.typed_workflow.definition.name.endswith("::project-phase")
-    )
-
-    selection_bundle_output = lowered["outputs"]["return__selection_bundle_path"]
-
-    assert selection_bundle_output["kind"] == "relpath"
-    assert selection_bundle_output["type"] == "relpath"
-    assert selection_bundle_output["under"] == "artifacts/work"
-    assert selection_bundle_output["must_exist_target"] is False
-    assert selection_bundle_output["from"] == {"ref": "inputs.phase-ctx__implementation_state_bundle_path"}
-    assert selection_bundle_output["projection"]["projection_class"] == "provider_bundle_path_projection"
-
-
-def test_provider_bundle_path_projection_generated_bundle(tmp_path: Path) -> None:
-    workflow_path = _write_provider_bundle_projection_module(
-        tmp_path,
-        module_name="provider_bundle_projection_generated",
-        workflow_name="project-generated",
-        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
-        phase_scoped=False,
-        path_under="state",
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "project-generated"
-        or workflow.typed_workflow.definition.name.endswith("::project-generated")
-    )
-    output_ref = lowered["outputs"]["return__selection_bundle_path"]["from"]["ref"]
-
-    assert output_ref.startswith("inputs.__write_root__project_generated__decision__result_bundle")
-    assert lowered["outputs"]["return__selection_bundle_path"]["projection"]["generated_input_name"].startswith(
-        "__write_root__project_generated__decision__result_bundle"
-    )
-
-
-def test_provider_bundle_path_projection_rejects_mismatched_output_ref(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
-
-    result = compile_stage3_entrypoint(
-        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
-        provider_externs={"providers.selector": "codex"},
-        prompt_externs={
-            "prompts.selector.select-next-work": (
-                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    lowered = result.entry_result.lowered_workflows[0]
-    broken_outputs = dict(lowered.authored_mapping["outputs"])
-    broken_selection_bundle = dict(broken_outputs["return__selection_bundle_path"])
-    broken_selection_bundle["from"] = {"ref": "inputs.manifest"}
-    broken_outputs["return__selection_bundle_path"] = broken_selection_bundle
-    broken_workflow = replace(
-        lowered,
-        authored_mapping={**dict(lowered.authored_mapping), "outputs": broken_outputs},
-    )
-    captured_errors: list[ValidationError] = []
-
-    def capture_errors(lowered_workflow, errors):
-        del lowered_workflow
-        captured_errors.extend(errors)
-        raise RuntimeError("captured shared validation errors")
-
-    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
-
-    with pytest.raises(RuntimeError, match="captured shared validation errors"):
-        validate_one(
-            broken_workflow,
-            workspace_root=tmp_path,
-            imported_bundles={},
-            workflow_is_imported=False,
-            boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-        )
-
-    assert [error.message for error in captured_errors] == [
-        (
-            "outputs.return__selection_bundle_path.from must match "
-            "projection.bundle_path_ref for provider bundle projections"
-        ),
-    ]
-    assert [
-        tuple(
-            (ref.subject_kind, ref.subject_name, ref.workflow_name)
-            for ref in error.subject_refs
-        )
-        for error in captured_errors
-    ] == [
-        (("generated_output", "return__selection_bundle_path", "lisp_frontend_design_delta/selector::select-next-work"),),
-    ]
-
-
-def test_provider_bundle_path_projection_rejects_mismatched_bundle_identity(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
-
-    result = compile_stage3_entrypoint(
-        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
-        provider_externs={"providers.selector": "codex"},
-        prompt_externs={
-            "prompts.selector.select-next-work": (
-                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    lowered = result.entry_result.lowered_workflows[0]
-    broken_outputs = dict(lowered.authored_mapping["outputs"])
-    broken_selection_bundle = dict(broken_outputs["return__selection_bundle_path"])
-    broken_projection = dict(broken_selection_bundle["projection"])
-    broken_selection_bundle["from"] = {"ref": "inputs.ctx__manifest"}
-    broken_projection["bundle_path_ref"] = "inputs.ctx__manifest"
-    broken_selection_bundle["projection"] = broken_projection
-    broken_outputs["return__selection_bundle_path"] = broken_selection_bundle
-    broken_workflow = replace(
-        lowered,
-        authored_mapping={**dict(lowered.authored_mapping), "outputs": broken_outputs},
-    )
-    captured_errors: list[ValidationError] = []
-
-    def capture_errors(lowered_workflow, errors):
-        del lowered_workflow
-        captured_errors.extend(errors)
-        raise RuntimeError("captured shared validation errors")
-
-    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
-
-    with pytest.raises(RuntimeError, match="captured shared validation errors"):
-        validate_one(
-            broken_workflow,
-            workspace_root=tmp_path,
-            imported_bundles={},
-            workflow_is_imported=False,
-            boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-        )
-
-    assert len(captured_errors) == 1
-    assert "requires bundle_path_ref to match the provider bundle identity" in captured_errors[0].message
-    assert [
-        tuple(
-            (ref.subject_kind, ref.subject_name, ref.workflow_name)
-            for ref in error.subject_refs
-        )
-        for error in captured_errors
-    ] == [
-        (("step_id", "root.lisp_frontend_design_delta_selector_select_next_work__decision", "lisp_frontend_design_delta/selector::select-next-work"),),
-    ]
+def test_shared_root_contracts_preserve_transportable_return_types() -> None:
+    span = SourceSpan(start=SourcePosition(path="contracts.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="contracts.orc", line=1, column=2, offset=1))
+    type_env = FrontendTypeEnvironment({}, target_dsl_version="2.25")
+    for type_ref, kind, wire_type in ((PrimitiveTypeRef(name="Bool"), "scalar", "bool"),
+        (PrimitiveTypeRef(name="Int"), "scalar", "integer"),
+        (PrimitiveTypeRef(name="String"), "scalar", "string"),
+        (PathTypeRef(name="Path.state-root", definition=PRELUDE_PATH_TYPES["Path.state-root"]), "relpath", "relpath")):
+        field = root_workflow_boundary_field(type_ref, span=span, form_path=(), type_env=type_env)
+        assert field.generated_name == "__result__"
+        assert field.source_path == ("return",)
+        assert field.contract_definition["kind"] == kind
+        assert field.contract_definition["type"] == wire_type
 
 
 def test_provider_bundle_path_projection_invalid_source(tmp_path: Path) -> None:
@@ -2707,84 +760,7 @@ def test_provider_bundle_path_projection_path_escape(tmp_path: Path) -> None:
         )
 
 
-def test_provider_bundle_path_projection_rejects_incompatible_target_root(tmp_path: Path) -> None:
-    workflow_path = _write_provider_bundle_projection_module(
-        tmp_path,
-        module_name="provider_bundle_projection_wrong_root",
-        workflow_name="project-wrong-root",
-        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
-        phase_scoped=False,
-        path_under="docs",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_boundary_type_invalid"
-    assert "provider bundle projection" in diagnostic.message
-    assert "must remain under `state`" in diagnostic.message
-
-
-def test_variant_projection_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        PHASE_STDLIB_FIXTURE,
-        provider_externs={
-            "providers.execute": "fake-execute",
-            "providers.review": "fake-review",
-            "providers.fix": "fake-fix",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-            "prompts.implementation.review": "prompts/implementation/review.md",
-            "prompts.implementation.fix": "prompts/implementation/fix.md",
-        },
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-            "resolve_plan_gate": ExternalToolBinding(
-                name="resolve_plan_gate",
-                stable_command=("python", "scripts/resolve_plan_gate.py"),
-            ),
-            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
-                name="load_canonical_phase_result__ChecksResult",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
-                ),
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    bundle = _validated_bundle_by_local_name(result, "produce-one-of-demo")
-    allocation = next(
-        item
-        for item in _workflow_generated_path_allocations(bundle)
-        if _allocation_field(item, "semantic_role") == "variant_projection_bundle"
-    )
-
-    assert _allocation_field(allocation, "privacy") == "private_generated"
-    assert _allocation_field(allocation, "resume_scope") == "step_visit"
-    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
-    assert "produce-one-of-demo" in _allocation_field(allocation, "stable_identity")
-    assert "select_variant" in _allocation_field(allocation, "stable_identity")
-    assert _allocation_field(allocation, "concrete_path_template").startswith(
-        "${inputs.phase-ctx__state-root}/phases/implementation/"
-    )
-
-
-def test_typed_prompt_input_fixture_lowers_provider_step_with_private_typed_prompt_inputs(
+def test_typed_provider_phase_preserves_prompt_input_types(
     tmp_path: Path,
 ) -> None:
     result = compile_stage3_module(
@@ -2800,17 +776,17 @@ def test_typed_prompt_input_fixture_lowers_provider_step_with_private_typed_prom
         ),
     )
 
-    bundle = _validated_bundle_by_local_name(result, "run-typed-prompt-phase-demo")
-    provider_step = next(step for step in bundle.surface.steps if step.kind.name == "PROVIDER")
+    program = _select_and_finalize_typed_program(result, entry_path=TYPED_PROMPT_INPUT_FIXTURE,
+        entry_workflow='run-typed-prompt-phase-demo')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    assert providers[0].positional_args
+    assert [row.metadata.type_ref.name for row in providers[0].positional_args] == ["PhaseCtx", "PromptContext"]
 
-    assert getattr(provider_step, "typed_prompt_inputs")
-    assert not any(
-        step.kind.name == "MATERIALIZE_ARTIFACTS" and "prompt_inputs" in step.step_id
-        for step in bundle.surface.steps
-    )
 
-
-def test_provider_result_typed_prompt_inputs_lower_with_implicit_renderers_without_profile_rows(
+def test_typed_provider_inputs_preserve_binding_order_types_and_default_renderers(
     tmp_path: Path,
 ) -> None:
     module_path = tmp_path / "typed_carriage.orc"
@@ -2864,41 +840,21 @@ def test_provider_result_typed_prompt_inputs_lower_with_implicit_renderers_witho
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = next(
-        bundle
-        for name, bundle in result.validated_bundles_by_name.items()
-        if name == "run" or name.endswith("::run")
-    )
-    provider_steps = [
-        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
-    ]
-    phase_two = next(
-        step for step in provider_steps if step.provider == "phase-two-provider"
-    )
-    typed_inputs = [dict(entry) for entry in phase_two.typed_prompt_inputs]
-
-    assert [entry["binding_name"] for entry in typed_inputs] == [
-        "allowed_value",
-        "allowed_path",
-    ]
-    assert [entry["value_type_name"] for entry in typed_inputs] == [
-        "String",
-        "TaskFile",
-    ]
-    assert [entry["renderer"]["renderer_id"] for entry in typed_inputs] == [
-        "canonical-json",
-        "posix-path-line",
-    ]
-    assert all(entry["source_map_origin_key"] == "typed_carriage::run" for entry in typed_inputs)
-    assert all("u0_row_id" not in entry and "c0_row_id" not in entry for entry in typed_inputs)
-    assert not any(
-        step.kind.name == "MATERIALIZE_ARTIFACTS"
-        and "prompt_inputs" in step.step_id
-        for step in bundle.surface.steps
-    )
+    program = _select_and_finalize_typed_program(result.entry_result, entry_path=module_path,
+        entry_workflow='run')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    phase_two = next(row for row in providers if row.target_name == "providers.phase-two")
+    values = phase_two.positional_args
+    assert [row.fields[-1] for row in values] == ["allowed_value", "allowed_path"]
+    assert [row.metadata.type_ref.name for row in values] == ["String", "TaskFile"]
+    assert [select_prompt_fragment_renderer(row.metadata.type_ref, kind=kind, target_dsl_version=program.target)
+        for row, kind in zip(values, ("value", "path"), strict=True)] == ["canonical-json", "posix-path-line"]
 
 
-def test_provider_result_record_typed_prompt_input_uses_canonical_default_without_profile(
+def test_typed_provider_record_input_uses_canonical_default_renderer(
     tmp_path: Path,
 ) -> None:
     module_path = tmp_path / "typed_record_carriage.orc"
@@ -2934,28 +890,21 @@ def test_provider_result_record_typed_prompt_input_uses_canonical_default_withou
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = next(
-        bundle
-        for name, bundle in result.validated_bundles_by_name.items()
-        if name == "run" or name.endswith("::run")
-    )
-    provider_step = next(
-        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
-    )
-    typed_inputs = [dict(entry) for entry in provider_step.typed_prompt_inputs]
-
-    assert [entry["binding_name"] for entry in typed_inputs] == ["request"]
-    assert typed_inputs[0]["value_type_name"] == "PromptRequest"
-    assert typed_inputs[0]["renderer"] == {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value",
-    }
-    assert "u0_row_id" not in typed_inputs[0]
-    assert "c0_row_id" not in typed_inputs[0]
+    program = _select_and_finalize_typed_program(result.entry_result, entry_path=module_path,
+        entry_workflow='run')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    values = providers[0].positional_args
+    assert len(values) == 1
+    assert values[0].name == "request"
+    assert values[0].metadata.type_ref.name == "PromptRequest"
+    assert select_prompt_fragment_renderer(values[0].metadata.type_ref,
+        kind="value", target_dsl_version=program.target) == "canonical-json"
 
 
-def test_provider_result_mixed_unsupported_shape_carries_supported_bindings_without_profile(
+def test_typed_provider_inputs_preserve_types_with_distinct_renderer_eligibility(
     tmp_path: Path,
 ) -> None:
     module_path = tmp_path / "mixed_typed_carriage.orc"
@@ -2989,27 +938,22 @@ def test_provider_result_mixed_unsupported_shape_carries_supported_bindings_with
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = next(
-        bundle
-        for name, bundle in result.validated_bundles_by_name.items()
-        if name == "run" or name.endswith("::run")
-    )
-    provider_step = next(
-        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
-    )
-
-    assert [
-        (
-            entry["binding_name"],
-            entry["value_type_name"],
-            entry["renderer"]["renderer_id"],
-            entry["injection_order"],
-        )
-        for entry in provider_step.typed_prompt_inputs
-    ] == [("count", "Int", "canonical-json", 0)]
+    program = _select_and_finalize_typed_program(result.entry_result, entry_path=module_path,
+        entry_workflow='run')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    values = providers[0].positional_args
+    assert [row.name for row in values] == ["count", "items"]
+    assert [row.metadata.type_ref.name for row in values] == ["Int", "List[RunId]"]
+    assert select_prompt_fragment_renderer(values[0].metadata.type_ref,
+        kind="value", target_dsl_version=program.target) == "canonical-json"
+    assert select_prompt_fragment_renderer(values[1].metadata.type_ref,
+        kind="value", target_dsl_version=program.target) is None
 
 
-def test_provider_result_literal_inputs_get_structural_types_and_unique_positions(
+def test_typed_provider_literal_inputs_preserve_types_values_and_order(
     tmp_path: Path,
 ) -> None:
     module_path = tmp_path / "literal_typed_carriage.orc"
@@ -3042,31 +986,20 @@ def test_provider_result_literal_inputs_get_structural_types_and_unique_position
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    bundle = next(
-        bundle
-        for name, bundle in result.validated_bundles_by_name.items()
-        if name == "run" or name.endswith("::run")
-    )
-    provider_step = next(
-        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
-    )
-
-    assert [
-        (
-            entry["binding_name"],
-            entry["value_type_name"],
-            entry["value_source"]["binding"],
-            entry["injection_order"],
-        )
-        for entry in provider_step.typed_prompt_inputs
-    ] == [
-        ("inputs__0", "Bool", True, 0),
-        ("inputs__1", "Int", 42, 1),
-        ("inputs__2", "String", "focus", 2),
-    ]
+    program = _select_and_finalize_typed_program(result.entry_result, entry_path=module_path,
+        entry_workflow='run')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    values = providers[0].positional_args
+    assert [row.metadata.type_ref.name for row in values] == ["Bool", "Int", "String"]
+    assert [row.value for row in values] == [True, 42, "focus"]
+    assert all(select_prompt_fragment_renderer(row.metadata.type_ref,
+        kind="value", target_dsl_version=program.target) == "canonical-json" for row in values)
 
 
-def test_provider_result_profile_route_retains_list_typed_input(
+def test_typed_provider_profile_configuration_retains_list_input(
     tmp_path: Path,
 ) -> None:
     module_path = tmp_path / "profile_list_carriage.orc"
@@ -3136,38 +1069,21 @@ def test_provider_result_profile_route_retains_list_typed_input(
             (profile_path,)
         ),
     )
-    bundle = next(
-        bundle
-        for name, bundle in result.validated_bundles_by_name.items()
-        if name == "run" or name.endswith("::run")
-    )
-    provider_step = next(
-        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
-    )
-
-    assert [dict(entry) for entry in provider_step.typed_prompt_inputs] == [
-        {
-            "schema_version": "workflow_lisp_typed_prompt_input.v1",
-            "binding_name": "items",
-            "renderer": {
-                "renderer_id": "canonical-json",
-                "renderer_version": 1,
-                "accepted_shape": "any_pure_value",
-            },
-            "value_source": {
-                "kind": "typed_binding_ref",
-                "binding": {"ref": "inputs.items"},
-            },
-            "value_type_name": "List[Int]",
-            "source_map_origin_key": "profile_list_carriage::run",
-            "u0_row_id": "u0.fixture.items",
-            "c0_row_id": "c0.fixture.items",
-            "injection_order": 0,
-        }
-    ]
+    program = _select_and_finalize_typed_program(result.entry_result, entry_path=module_path,
+        entry_workflow='run')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    values = providers[0].positional_args
+    assert len(values) == 1
+    assert values[0].name == "items"
+    assert values[0].metadata.type_ref.name == "List[Int]"
+    assert select_prompt_fragment_renderer(values[0].metadata.type_ref,
+        kind="value", target_dsl_version=program.target) == "canonical-json"
 
 
-def test_phase_stdlib_fixture_uses_generic_typed_prompt_inputs_without_profile_rows(
+def test_typed_phase_stdlib_preserves_provider_input_operands(
     tmp_path: Path,
 ) -> None:
     result = compile_stage3_module(
@@ -3204,19 +1120,17 @@ def test_phase_stdlib_fixture_uses_generic_typed_prompt_inputs_without_profile_r
         workspace_root=tmp_path,
     )
 
-    bundle = _validated_bundle_by_local_name(result, "run-provider-phase-demo")
-    provider_step = next(step for step in bundle.surface.steps if step.kind.name == "PROVIDER")
+    program = _select_and_finalize_typed_program(result, entry_path=PHASE_STDLIB_FIXTURE,
+        entry_workflow='run-provider-phase-demo')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    assert providers[0].positional_args
 
-    assert not any(
-        step.kind.name == "MATERIALIZE_ARTIFACTS" and "prompt_inputs" in step.step_id
-        for step in bundle.surface.steps
-    )
-    assert getattr(provider_step, "typed_prompt_inputs", ())
 
-
-def test_local_request_record_fixture_preserves_one_typed_request_binding(
+def test_typed_phase_request_preserves_one_typed_prompt_input_binding(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = compile_stage3_module(
         LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE,
@@ -3231,20 +1145,21 @@ def test_local_request_record_fixture_preserves_one_typed_request_binding(
         ),
     )
 
-    bundle = _validated_bundle_by_local_name(result, "run-local-request-record-demo")
-    provider_step = next(step for step in bundle.surface.steps if step.kind.name == "PROVIDER")
-    typed_prompt_inputs = [dict(entry) for entry in getattr(provider_step, "typed_prompt_inputs")]
+    program = _select_and_finalize_typed_program(result, entry_path=LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE,
+        entry_workflow='run-local-request-record-demo')
+    body = Builder(program)._workflow_wcc_body(program.entry, program)
+    providers = [row for row in _walk_dataclass_values(body)
+        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
+    assert providers
+    values = providers[0].positional_args[1:]
+    assert len(values) == 1
+    assert values[0].name == "request"
+    assert values[0].metadata.type_ref.name == "ImplementationRequest"
+    assert select_prompt_fragment_renderer(values[0].metadata.type_ref,
+        kind="value", target_dsl_version=program.target) == "canonical-json"
 
-    assert [entry["binding_name"] for entry in typed_prompt_inputs] == ["request"]
-    assert [entry["value_type_name"] for entry in typed_prompt_inputs] == [
-        "ImplementationRequest"
-    ]
-    assert {entry["c0_row_id"] for entry in typed_prompt_inputs} == {
-        "c0.fixture.request"
-    }
 
-
-def test_compile_stage3_module_returns_lowered_workflows_and_optional_bundles(tmp_path: Path) -> None:
+def test_stage3_analysis_preserves_typed_workflow_names_across_profiles(tmp_path: Path) -> None:
     no_validation = compile_stage3_module(
         STRUCTURED_RESULTS_FIXTURE,
         provider_externs={"providers.execute": "test-provider"},
@@ -3267,45 +1182,25 @@ def test_compile_stage3_module_returns_lowered_workflows_and_optional_bundles(tm
         "provider_attempt",
         "orchestrate",
     ]
-    assert len(no_validation.lowered_workflows) == 3
-    assert no_validation.validated_bundles == {}
-    assert tuple(validated.validated_bundles) == ("command_checks", "provider_attempt", "orchestrate")
+    assert [row.definition.name for row in validated.typed_workflows] == [
+        row.definition.name for row in no_validation.typed_workflows]
 
 
-def test_validate_lowered_workflows_attach_authored_defaults_to_public_input_contracts(tmp_path: Path) -> None:
+def test_typed_workflow_signature_preserves_authored_param_defaults(tmp_path: Path) -> None:
     result = compile_stage3_module(
         _write_workflow_param_default_module(tmp_path / "workflow_param_defaults.orc"),
         validate_shared=True,
         workspace_root=tmp_path,
     )
 
-    public_inputs = _workflow_public_input_contracts(_validated_bundle_by_local_name(result, "defaults"))
-    assert public_inputs["message"]["default"] == "hello"
-    assert public_inputs["count"]["default"] == 3
-    assert public_inputs["score"]["default"] == 0.5
-    assert public_inputs["enabled"]["default"] is True
-    assert public_inputs["status"]["default"] == "ready"
-    assert public_inputs["report_path"]["default"] == "default.md"
+    defaults = result.typed_workflows[0].signature.param_defaults
+    assert {name: value.normalized_value for name, value in defaults.items()} == {
+        "message": "hello", "count": 3, "score": 0.5, "enabled": True,
+        "status": "ready", "report_path": "default.md"}
+    assert defaults["enabled"].normalized_value is True
 
 
-def test_compile_stage3_module_materializes_input_backed_record_returns(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        _write_workflow_param_default_module(tmp_path / "workflow_param_defaults.orc"),
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "defaults"
-    )
-
-    assert [step["id"] for step in lowered["steps"]] == ["defaults"]
-    assert lowered["outputs"]["return__report"]["from"]["ref"] == "root.steps.defaults.artifacts.report"
-
-
-def test_build_workflow_catalog_reconstructs_imported_workflow_param_defaults_from_bundle(tmp_path: Path) -> None:
+def test_build_workflow_catalog_reconstructs_imported_param_defaults_from_typed_program(tmp_path: Path) -> None:
     compiled = compile_stage3_module(
         _write_module(
             tmp_path / "workflow_param_defaults_imported.orc",
@@ -3337,6 +1232,8 @@ def test_build_workflow_catalog_reconstructs_imported_workflow_param_defaults_fr
         validate_shared=True,
         workspace_root=tmp_path,
     )
+    assert compiled.typed_program.target == "2.14"
+    assert compiled.typed_program.entry_module == "workflow_param_defaults_imported"
     caller_types = _write_module(
         tmp_path / "caller_types.orc",
         "\n".join(
@@ -3361,7 +1258,8 @@ def test_build_workflow_catalog_reconstructs_imported_workflow_param_defaults_fr
         _compile_definition_module(caller_types),
         (),
         FrontendTypeEnvironment.from_module(_compile_definition_module(caller_types)),
-        imported_workflow_bundles={"defaults": _validated_bundle_by_local_name(compiled, "defaults")},
+        imported_programs={"defaults": _select_and_finalize_typed_program(compiled,
+            entry_path=tmp_path / "workflow_param_defaults_imported.orc", entry_workflow="defaults")},
     )
 
     defaults = workflow_catalog.signatures_by_name["defaults"].param_defaults
@@ -3372,203 +1270,7 @@ def test_build_workflow_catalog_reconstructs_imported_workflow_param_defaults_fr
     assert defaults["report_path"].normalized_value == "default.md"
 
 
-def test_lower_workflow_definitions_supports_union_returning_same_file_calls(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "union_call_projection.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware",
-                "    roadmap_conflict",
-                "    external_dependency_outside_authority",
-                "    user_decision_required",
-                "    unrecoverable_after_fix_attempt)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord ImplementationSummary",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow helper",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationState",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (input report_path)",
-                "      :returns ImplementationState))",
-                "  (defworkflow entry",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (let* ((attempt",
-                "             (call helper",
-                "               :input input",
-                "               :report_path report_path)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (record ImplementationSummary",
-                "           :report completed.execution_report))",
-                "        ((BLOCKED blocked)",
-                "         (record ImplementationSummary",
-                "           :report blocked.progress_report))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    authored = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry"
-    )
-    helper = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "helper"
-    )
-
-    assert any(step.get("call") == "helper" for step in authored["steps"])
-    assert any("match" in step for step in authored["steps"])
-    assert helper.boundary_projection.return_kind == "union"
-    assert [field.generated_name for field in helper.boundary_projection.flattened_outputs] == [
-        "return__variant",
-        "return__execution_report",
-        "return__progress_report",
-        "return__blocker_class",
-    ]
-    assert set(helper.origin_map.authored_input_spans) == {"input__status", "input__report", "report_path"}
-    assert set(helper.origin_map.internal_input_spans) == {
-        "__write_root__helper__result__result_bundle",
-    }
-    assert set(helper.origin_map.generated_input_spans) == {
-        "input__status",
-        "input__report",
-        "report_path",
-        "__write_root__helper__result__result_bundle",
-    }
-
-
-def test_compile_stage3_module_preserves_macro_provenance_in_origin_maps(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        FIXTURES / "valid" / "macro_workflow_alias.orc",
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    command_checks = next(
-        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    origin = command_checks.origin_map.step_spans["command_checks__run_checks"]
-
-    assert origin.expansion_stack[0].macro_name == "defworkflow-alias"
-    assert origin.expansion_stack[0].expansion_id == "m0001"
-
-
-def test_lowering_loop_recur_uses_repeat_until_with_typed_outputs(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_MINIMAL_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
-    )
-
-    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
-    assert repeat_step["name"] == "loop-recur-minimal__loop"
-    assert repeat_step["repeat_until"]["condition"]["compare"]["right"] == "DONE"
-    assert "state__variant" in repeat_step["repeat_until"]["outputs"]
-    assert "result__status" in repeat_step["repeat_until"]["outputs"]
-    assert "result__report" in repeat_step["repeat_until"]["outputs"]
-
-
-def test_lowering_loop_recur_preserves_origin_map_for_generated_steps(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_MINIMAL_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
-    )
-
-    assert set(lowered.origin_map.step_spans) >= {
-        "loop-recur-minimal__seed",
-        "loop-recur-minimal__loop",
-        "loop-recur-minimal__result",
-    }
-    assert set(lowered.origin_map.generated_output_spans) >= {
-        "return__status",
-        "return__report",
-    }
-    assert any(
-        "__write_root__loop_recur_minimal__attempt__result_bundle" in path
-        for path in lowered.origin_map.generated_path_spans
-    )
-
-
-def test_lowering_loop_recur_emits_repeat_until_on_exhausted_outputs(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-record"
-    )
-    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
-
-    assert repeat_step["repeat_until"]["on_exhausted"]["outputs"] == {
-        "result__status": "exhausted",
-        "status": "DONE",
-    }
-    assert "result__report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
-
-
-def test_lowering_rich_list_preserves_root_and_nested_loop_descriptors(tmp_path: Path) -> None:
-    """Task 3 preserves rich descriptors; renamed/nested exits are Task 4."""
-
+def test_typed_loop_plans_preserve_root_and_nested_collection_descriptors(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "rich_list_loop_lowering.orc",
         "\n".join(
@@ -3608,136 +1310,32 @@ def test_lowering_rich_list_preserves_root_and_nested_loop_descriptors(tmp_path:
 
     result = compile_stage3_module(
         workflow_path,
-        lowering_route="wcc_m4",
         validate_shared=True,
         workspace_root=tmp_path,
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
     )
 
-    lowered = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping
-        for workflow in result.lowered_workflows
-    }
-    root_repeat = next(step for step in lowered["root-loop"]["steps"] if "repeat_until" in step)
-    nested_repeat = next(step for step in lowered["nested-loop"]["steps"] if "repeat_until" in step)
-    union_repeat = next(
-        step for step in lowered["union-provider-loop"]["steps"] if "repeat_until" in step
-    )
-
-    for field_name in ("state", "result"):
-        assert root_repeat["repeat_until"]["outputs"][field_name]["kind"] == "collection"
-        assert root_repeat["repeat_until"]["outputs"][field_name]["items"]["type"] == "record"
-    assert root_repeat["repeat_until"]["on_exhausted"]["outputs"]["result"]["ref"].endswith(
-        ".artifacts.state"
-    )
-
-    nested_outputs = nested_repeat["repeat_until"]["outputs"]
-    for field_name in ("state__tasks", "result__tasks"):
-        assert nested_outputs[field_name]["kind"] == "collection"
-        assert nested_outputs[field_name]["items"]["type"] == "record"
-    assert set(nested_repeat["repeat_until"]["on_exhausted"]["outputs"]) >= {
-        "result__tasks",
-    }
-    for field_name in ("state", "result"):
-        assert union_repeat["repeat_until"]["outputs"][field_name]["items"]["type"] == "union"
-    assert union_repeat["repeat_until"]["on_exhausted"]["outputs"]["result"]["ref"].endswith(
-        ".artifacts.state"
-    )
-
-    type_env = FrontendTypeEnvironment.from_module(_compile_definition_module(workflow_path))
+    type_env = result.typed_program.type_env
     span = SourceSpan(
         start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
         end=SourcePosition(path=str(workflow_path), line=1, column=2, offset=1),
     )
-    union_list = type_env.resolve_type(
-        "List[TaskOutcome]",
-        span=span,
-        form_path=("workflow-lisp", "defworkflow", "root-loop"),
-    )
-    union_plan = build_loop_lowering_plan(
-        step_name_prefix="rich-list-union",
-        state_type_ref=union_list,
-        result_type_ref=union_list,
-        span=span,
-        form_path=("workflow-lisp", "defworkflow", "root-loop"),
-        type_env=type_env,
-    )
-    for projection in (union_plan.state_projection, union_plan.result_projection):
-        assert projection.flattened_fields[0].contract_definition["kind"] == "collection"
-        assert projection.flattened_fields[0].contract_definition["items"]["type"] == "union"
-
-
-@pytest.mark.parametrize(
-    ("item_type", "expected_item_type"),
-    [("Task", "record"), ("TaskOutcome", "union")],
-)
-def test_lowering_rich_list_on_exhausted_packages_renamed_nested_return(
-    tmp_path: Path,
-    item_type: str,
-    expected_item_type: str,
-) -> None:
-    """Target 2.29 preserves nested record and union list returns at exhaustion."""
-
-    workflow_path = _write_module(
-        tmp_path / f"rich_list_{item_type.lower()}_exhaustion.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
-                "  (defrecord Task (task_id String))",
-                "  (defunion TaskOutcome",
-                "    (PENDING (task Task))",
-                "    (BLOCKED (reason String)))",
-                f"  (defrecord Progress (remaining List[{item_type}]) (label String))",
-                f"  (defrecord Summary (work List[{item_type}]) (note String))",
-                "  (defunion Outcome",
-                "    (INCOMPLETE (summary Summary))",
-                "    (COMPLETE (note String)))",
-                "  (defworkflow nested-rich-list-loop ((finish Bool)) -> Outcome",
-                "    (let* ((outcomes",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs ()",
-                f"               :returns List[{item_type}])))",
-                "      (loop/recur :max 1",
-                "        :state (record Progress :remaining outcomes :label \"state\")",
-                "        :on-exhausted",
-                "          (variant Outcome INCOMPLETE",
-                "            :summary (record Summary :work state.remaining :note \"exhausted\"))",
-                "        (fn (state)",
-                "          (if finish",
-                "              (done (variant Outcome COMPLETE :note \"done\"))",
-                "              (continue state))))))",
-                ")",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "nested-rich-list-loop"
-    )
-    output = lowered["outputs"]["return__summary__work"]
-    assert output["kind"] == "collection"
-    assert output["type"] == "list"
-    assert output["items"]["type"] == expected_item_type
-    assert output["from"]["ref"].endswith(".artifacts.return__summary__work")
-    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
-    assert repeat_step["repeat_until"]["on_exhausted"]["outputs"][
-        "result__summary__work"
-    ]["ref"].endswith(".artifacts.state__remaining")
+    for type_name, field_name, item_type in (
+        ("List[Task]", "", "record"),
+        ("Progress", "tasks", "record"),
+        ("List[TaskOutcome]", "", "union"),
+    ):
+        type_ref = type_env.resolve_type(type_name, span=span,
+            form_path=("workflow-lisp", "defworkflow", "root-loop"))
+        plan = build_loop_lowering_plan(step_name_prefix="rich-list",
+            state_type_ref=type_ref, result_type_ref=type_ref, span=span,
+            form_path=("workflow-lisp", "defworkflow", "root-loop"), type_env=type_env)
+        for root, projection in (("state", plan.state_projection), ("result", plan.result_projection)):
+            field = projection.flattened_fields[0]
+            assert field.source_path == ((root, field_name) if field_name else (root,))
+            assert field.contract_definition["kind"] == "collection"
+            assert field.contract_definition["items"]["type"] == item_type
 
 
 def test_lowering_rich_list_union_exhaustion_return_remains_unavailable_before_229(
@@ -3780,7 +1378,7 @@ def test_lowering_rich_list_union_exhaustion_return_remains_unavailable_before_2
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             workflow_path,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
             provider_externs={"providers.execute": "test-provider"},
@@ -3788,85 +1386,6 @@ def test_lowering_rich_list_union_exhaustion_return_remains_unavailable_before_2
         )
 
     assert excinfo.value.diagnostics[0].code == "workflow_boundary_type_invalid"
-
-
-def test_lowering_nested_exhaustion_literal_remains_unavailable_before_229(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "nested_exhaustion_literal_old_target.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.28")',
-                "  (defrecord Progress (remaining String))",
-                "  (defrecord Summary (work String) (note String))",
-                "  (defunion Outcome",
-                "    (INCOMPLETE (summary Summary))",
-                "    (COMPLETE (note String)))",
-                "  (defworkflow nested-exhaustion-literal ((finish Bool)) -> Outcome",
-                "    (loop/recur :max 1",
-                "      :state (record Progress :remaining \"state\")",
-                "      :on-exhausted",
-                "        (variant Outcome INCOMPLETE",
-                "          :summary (record Summary :work state.remaining :note \"exhausted\"))",
-                "      (fn (state)",
-                "        (if finish",
-                "            (done (variant Outcome COMPLETE :note \"done\"))",
-                "            (continue state)))))",
-                ")",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            lowering_route="wcc_m4",
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == "workflow_return_not_exportable"
-
-
-def test_lowering_nested_exhaustion_literal_is_admitted_at_229(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "nested_exhaustion_literal_target_229.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
-                "  (defrecord Progress (remaining String))",
-                "  (defrecord Summary (work String) (note String))",
-                "  (defunion Outcome",
-                "    (INCOMPLETE (summary Summary))",
-                "    (COMPLETE (note String)))",
-                "  (defworkflow nested-exhaustion-literal ((finish Bool)) -> Outcome",
-                "    (loop/recur :max 1",
-                "      :state (record Progress :remaining \"state\")",
-                "      :on-exhausted",
-                "        (variant Outcome INCOMPLETE",
-                "          :summary (record Summary :work state.remaining :note \"exhausted\"))",
-                "      (fn (state)",
-                "        (if finish",
-                "            (done (variant Outcome COMPLETE :note \"done\"))",
-                "            (continue state)))))",
-                ")",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert result.lowered_workflows[0].typed_workflow.definition.name == "nested-exhaustion-literal"
 
 
 @pytest.mark.parametrize(
@@ -3913,141 +1432,21 @@ def test_lowering_outer_record_exhaustion_variant_is_target_gated(
     if expected_error is None:
         result = compile_stage3_module(
             workflow_path,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
         )
-        assert result.lowered_workflows[0].typed_workflow.definition.name == "outer-record-exhaustion"
+        assert result.typed_workflows[0].definition.name == "outer-record-exhaustion"
         return
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             workflow_path,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
         )
     assert excinfo.value.diagnostics[0].code == expected_error
-
-
-def test_lowering_outer_record_exhaustion_omits_inactive_nested_union_fields(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "outer_record_exhaustion_disjoint_union_229.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
-                "  (defrecord Task (task_id String))",
-                "  (defrecord Progress (remaining List[Task]) (label String))",
-                "  (defrecord Summary (work List[Task]) (note String))",
-                "  (defunion Outcome",
-                "    (INCOMPLETE (summary Summary))",
-                "    (COMPLETE (note String)))",
-                "  (defrecord Result (outcome Outcome))",
-                "  (defworkflow outer-record-disjoint-exhaustion",
-                "    ((tasks List[Task]) (finish Bool)) -> Result",
-                "    (loop/recur :max 1",
-                "      :state (record Progress :remaining tasks :label \"state\")",
-                "      :on-exhausted",
-                "        (record Result",
-                "          :outcome (variant Outcome INCOMPLETE",
-                "            :summary (record Summary",
-                "              :work state.remaining",
-                "              :note state.label)))",
-                "      (fn (state)",
-                "        (if finish",
-                "            (done (record Result",
-                "              :outcome (variant Outcome COMPLETE :note \"done\")))",
-                "            (continue state)))))",
-                ")",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert result.lowered_workflows[0].typed_workflow.definition.name == "outer-record-disjoint-exhaustion"
-    lowered = result.lowered_workflows[0].authored_mapping
-    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
-    exhausted_outputs = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
-    assert "projection" not in repeat_step["repeat_until"]["outputs"][
-        "result__outcome__note"
-    ]
-    assert exhausted_outputs["result__outcome__note"] == ""
-    assert exhausted_outputs["result__outcome__summary__work"]["ref"].endswith(
-        ".artifacts.state__remaining"
-    )
-    normalization_step = next(
-        step for step in lowered["steps"] if step["name"].endswith("__result")
-    )
-    note_value = next(
-        value
-        for value in normalization_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__outcome__note"
-    )
-    assert note_value["contract"]["projection"] == {
-        "projection_class": "union_workflow_boundary",
-        "return_kind": "union",
-        "union_output_group": "return__outcome",
-        "discriminant_output": "return__outcome__variant",
-        "field_role": "variant",
-        "active_variants": ["COMPLETE"],
-    }
-    body_step = next(
-        step
-        for step in repeat_step["repeat_until"]["steps"]
-        if step["name"] == "outer-record-disjoint-exhaustion__body"
-    )
-    pure_result_step = next(
-        step
-        for step in body_step["then"]["steps"]
-        if step["name"] == "outer-record-disjoint-exhaustion__body__then__result"
-    )
-    pure_pointers = {
-        field["name"]: field["json_pointer"]
-        for field in pure_result_step["output_bundle"]["fields"]
-    }
-    assert pure_pointers["result__outcome__summary__work"] == "/result/outcome/summary/work"
-    assert pure_pointers["result__outcome__summary__note"] == "/result/outcome/summary/note"
-
-
-def test_lowering_root_rich_state_can_package_into_named_return_field_at_229(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "root_rich_state_named_return_229.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
-                "  (defrecord Task (task_id String))",
-                "  (defrecord Remaining (tasks List[Task]))",
-                "  (defworkflow root-rich-state ((tasks List[Task]) (finish Bool)) -> Remaining",
-                "    (loop/recur :max 1 :state tasks",
-                "      :on-exhausted (record Remaining :tasks state)",
-                "      (fn (state) (if finish (done (record Remaining :tasks state)) (continue state)))))",
-                ")",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert result.lowered_workflows[0].typed_workflow.definition.name == "root-rich-state"
 
 
 @pytest.mark.parametrize(
@@ -4085,7 +1484,7 @@ def test_lowering_legacy_nested_rich_loop_state_remains_refused(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             workflow_path,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
         )
@@ -4129,7 +1528,7 @@ def test_lowering_rich_return_admission_retains_unsupported_leaf_refusals(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             workflow_path,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
         )
@@ -4137,7 +1536,7 @@ def test_lowering_rich_return_admission_retains_unsupported_leaf_refusals(
     assert excinfo.value.diagnostics[0].code == expected_code
 
 
-def test_build_workflow_catalog_reconstructs_imported_rich_union_return_at_229(
+def test_build_workflow_catalog_reconstructs_imported_typed_rich_union_return_at_229(
     tmp_path: Path,
 ) -> None:
     imported_source = _write_module(
@@ -4165,10 +1564,11 @@ def test_build_workflow_catalog_reconstructs_imported_rich_union_return_at_229(
     )
     imported = compile_stage3_module(
         imported_source,
-        lowering_route="wcc_m4",
         validate_shared=True,
         workspace_root=tmp_path,
     )
+    assert imported.typed_program.target == "2.29"
+    assert imported.typed_program.entry_module == "imported_rich_union_return"
     caller_types = _write_module(
         tmp_path / "caller_rich_union_return_types.orc",
         "\n".join(
@@ -4193,113 +1593,13 @@ def test_build_workflow_catalog_reconstructs_imported_rich_union_return_at_229(
         caller_module,
         (),
         FrontendTypeEnvironment.from_module(caller_module),
-        imported_workflow_bundles={
-            "imported-rich-return": _validated_bundle_by_local_name(
-                imported,
-                "imported-rich-return",
-            ),
-        },
+        imported_programs={"imported-rich-return": _select_and_finalize_typed_program(imported,
+            entry_path=imported_source, entry_workflow="imported-rich-return")},
     )
 
     assert workflow_catalog.signatures_by_name[
         "imported-rich-return"
     ].return_type_ref.name == "Outcome"
-
-
-def test_lowering_target_229_preserves_done_payload_over_same_variant_exhaustion_state(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "same_variant_done.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
-                "  (defrecord LoopState (message String))",
-                "  (defunion Outcome (COMPLETE (message String)))",
-                "  (defworkflow preserve-done ((finish Bool)) -> Outcome",
-                "    (loop/recur :max 1",
-                '      :state (record LoopState :message "state")',
-                "      :on-exhausted (variant Outcome COMPLETE :message state.message)",
-                "      (fn (state)",
-                '        (if finish (done (variant Outcome COMPLETE :message "done")) (continue state))))))',
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    lowered = result.lowered_workflows[0].authored_mapping
-    result_step = next(step for step in lowered["steps"] if step["name"].endswith("__result"))
-    message_ref = result_step["match"]["cases"]["COMPLETE"]["outputs"]["return__message"][
-        "from"
-    ]["ref"]
-
-    assert message_ref.endswith(".artifacts.result__message")
-
-
-def test_lowering_loop_recur_exports_active_union_variant_fields(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_UNION_RESULT_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    assert result.lowering_schema_version == 2
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-union-result"
-    )
-    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
-
-    assert set(lowered["outputs"]) >= {
-        "return__variant",
-        "return__attempt_count",
-        "return__execution_report",
-        "return__completion_status",
-        "return__progress_report",
-        "return__blocker_class",
-    }
-    assert set(repeat_step["repeat_until"]["outputs"]) >= {
-        "result__variant",
-        "result__attempt_count",
-        "result__execution_report",
-        "result__completion_status",
-        "result__progress_report",
-        "result__blocker_class",
-    }
-
-
-def test_lowering_loop_recur_rejects_computed_active_union_field(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            LOOP_RECUR_UNION_RESULT_COMPUTED_FIELD_FIXTURE,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m4",
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert diagnostic.span.start.path.endswith("loop_recur_union_result_computed_field.orc")
-    assert diagnostic.form_path == (
-        "workflow-lisp",
-        "defworkflow",
-        "loop-recur-union-result-computed-field",
-    )
 
 
 def test_lowering_loop_recur_rejects_missing_active_union_field(tmp_path: Path) -> None:
@@ -4310,7 +1610,7 @@ def test_lowering_loop_recur_rejects_missing_active_union_field(tmp_path: Path) 
             prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
             validate_shared=False,
             workspace_root=tmp_path,
-            lowering_route="wcc_m4",
+
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -4324,318 +1624,7 @@ def test_lowering_loop_recur_rejects_missing_active_union_field(tmp_path: Path) 
     )
 
 
-def test_lowering_loop_recur_emits_scalar_loop_frame_refs_for_union_on_exhausted_outputs(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
-        lowering_route="wcc_m4",
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    assert result.lowering_schema_version == 2
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-scalar-frame-carriage"
-    )
-    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
-    outputs = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
-
-    assert outputs == {
-        "result__variant": "EXHAUSTED",
-        "result__attempt_count": {
-            "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__attempt_count"
-        },
-        "result__reason": {
-            "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__exhaustion_reason"
-        },
-        "status": "DONE",
-    }
-
-
-def test_lowering_loop_recur_rejects_computed_scalar_on_exhausted_value(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_COMPUTED_VALUE_FIXTURE,
-            lowering_route="wcc_m4",
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert diagnostic.span.start.path.endswith("loop_recur_on_exhausted_scalar_frame_computed_value.orc")
-    assert diagnostic.form_path == (
-        "workflow-lisp",
-        "defworkflow",
-        "loop-recur-on-exhausted-scalar-frame-computed-value",
-    )
-
-
-def test_lowering_loop_recur_rejects_non_scalar_on_exhausted_override(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert diagnostic.span.start.path.endswith("loop_recur_on_exhausted_non_scalar_override.orc")
-    assert diagnostic.span.start.line == 31
-    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "loop-recur-on-exhausted-non-scalar-override")
-
-
-def test_lowering_loop_recur_rejects_mismatched_state_field_on_exhausted_override(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "loop_recur_on_exhausted_mismatched_state_field.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord LoopState",
-                "    (report WorkReport)",
-                "    (other_report WorkReport)",
-                "    (done Bool))",
-                "  (defrecord ImplementationSummary",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defworkflow loop-recur-on-exhausted-mismatched-state-field",
-                "    ((report_path WorkReport)",
-                "     (other_report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (loop/recur",
-                "      :max 1",
-                "      :state (record LoopState",
-                "               :report report_path",
-                "               :other_report other_report_path",
-                "               :done false)",
-                "      :on-exhausted (record ImplementationSummary",
-                '                      :status "exhausted"',
-                "                      :report state.other_report)",
-                "      (fn (state)",
-                "        (if state.done",
-                "          (done",
-                "            (record ImplementationSummary",
-                '              :status "done"',
-                "              :report state.report))",
-                "          (continue state))))))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert diagnostic.span.start.path.endswith("loop_recur_on_exhausted_mismatched_state_field.orc")
-    assert diagnostic.span.start.line == 27
-    assert diagnostic.form_path == (
-        "workflow-lisp",
-        "defworkflow",
-        "loop-recur-on-exhausted-mismatched-state-field",
-    )
-
-
-def test_lowering_loop_recur_on_exhausted_preserves_origin_map_for_generated_steps(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_ON_EXHAUSTED_UNION_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-union"
-    )
-    loop_expr = lowered.typed_workflow.typed_body.expr
-    on_exhausted = loop_expr.on_exhausted_result_expr
-    assert on_exhausted is not None
-
-    assert set(lowered.origin_map.step_spans) >= {
-        "loop-recur-on-exhausted-union__seed",
-        "loop-recur-on-exhausted-union__loop",
-        "loop-recur-on-exhausted-union__result",
-    }
-    loop_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-union__loop"]
-    result_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-union__result"]
-    reason_origin = lowered.origin_map.generated_output_spans["return__reason"]
-
-    assert loop_origin.span == on_exhausted.span
-    assert loop_origin.form_path == on_exhausted.form_path
-    assert result_origin.span == on_exhausted.span
-    assert result_origin.form_path == on_exhausted.form_path
-    assert reason_origin.span == on_exhausted.span
-    assert reason_origin.form_path == on_exhausted.form_path
-
-
-def test_lowering_loop_recur_scalar_frame_carriage_preserves_origin_map_for_generated_steps(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
-        lowering_route="wcc_m4",
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-scalar-frame-carriage"
-    )
-    loop_expr = lowered.typed_workflow.typed_body.expr
-    on_exhausted = loop_expr.on_exhausted_result_expr
-    assert on_exhausted is not None
-
-    loop_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-scalar-frame-carriage__loop"]
-    result_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-scalar-frame-carriage__result"]
-    attempt_origin = lowered.origin_map.generated_output_spans["return__attempt_count"]
-    reason_origin = lowered.origin_map.generated_output_spans["return__reason"]
-
-    assert loop_origin.span == on_exhausted.span
-    assert loop_origin.form_path == on_exhausted.form_path
-    assert result_origin.span == on_exhausted.span
-    assert result_origin.form_path == on_exhausted.form_path
-    assert attempt_origin.span == on_exhausted.span
-    assert attempt_origin.form_path == on_exhausted.form_path
-    assert reason_origin.span == on_exhausted.span
-    assert reason_origin.form_path == on_exhausted.form_path
-
-
-def test_lowering_imported_loop_recur_on_exhausted_helper_preserves_origin_map(
-    tmp_path: Path,
-) -> None:
-    source_root = MODULE_FIXTURES / "valid" / "imported_loop_recur_on_exhausted"
-    result = _compile_imported_entrypoint(source_root / "entry.orc", source_root=source_root, tmp_path=tmp_path)
-
-    helper = next(
-        workflow
-        for workflow in result.compiled_results_by_name["helper"].lowered_workflows
-        if workflow.typed_workflow.definition.name == "helper::project-exhausted"
-    )
-    loop_expr = helper.typed_workflow.typed_body.expr
-    on_exhausted = loop_expr.on_exhausted_result_expr
-    assert on_exhausted is not None
-
-    loop_origin = helper.origin_map.step_spans["helper::project-exhausted__loop"]
-    result_origin = helper.origin_map.step_spans["helper::project-exhausted__result"]
-    reason_origin = helper.origin_map.generated_output_spans["return__reason"]
-
-    assert loop_origin.span == on_exhausted.span
-    assert loop_origin.form_path == on_exhausted.form_path
-    assert result_origin.span == on_exhausted.span
-    assert result_origin.form_path == on_exhausted.form_path
-    assert reason_origin.span == on_exhausted.span
-    assert reason_origin.form_path == on_exhausted.form_path
-
-
-def test_lowering_if_bool_literal_emits_shared_if_step(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "if_bool_literal.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ImplementationSummary",
-                "    (report WorkReport))",
-                "  (defworkflow choose-report",
-                "    ((report_path WorkReport)",
-                "     (fallback_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (if true",
-                "      (record ImplementationSummary :report report_path)",
-                "      (record ImplementationSummary :report fallback_path))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    if_step = lowered["steps"][0]
-
-    assert "if" in if_step
-    assert if_step["if"]["compare"]["left"] is True
-    assert if_step["if"]["compare"]["right"] is True
-    assert "then" in if_step
-    assert "else" in if_step
-
-
-def test_lowering_if_bool_ref_emits_artifact_bool_predicate(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        IF_MINIMAL_FIXTURE,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    if_step = lowered["steps"][0]
-
-    assert if_step["if"] == {
-        "artifact_bool": {
-            "ref": "inputs.ready",
-        }
-    }
-
-
-def test_lowering_if_projects_branch_outputs_for_record_result(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        IF_MINIMAL_FIXTURE,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    if_step = lowered["steps"][0]
-
-    assert lowered["outputs"]["return__report"]["from"]["ref"] == (
-        "root.steps.choose-report.artifacts.return__report"
-    )
-    assert if_step["then"]["outputs"]["return__report"]["from"]["ref"] == "inputs.report_path"
-    assert if_step["else"]["outputs"]["return__report"]["from"]["ref"] == "inputs.fallback_path"
-
-
-def test_workflow_extern_requirements_descend_through_if_expr(tmp_path: Path) -> None:
+def test_typed_effect_inference_descends_through_if_expr(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "if_provider_requirements.orc",
         "\n".join(
@@ -4675,1809 +1664,10 @@ def test_workflow_extern_requirements_descend_through_if_expr(tmp_path: Path) ->
     )
 
     typed_workflow = result.typed_workflows[0]
-    provider_names, prompt_names = _workflow_extern_requirements(
-        typed_workflow,
-        typed_procedures={procedure.definition.name: procedure for procedure in result.typed_procedures},
-    )
-
-    assert provider_names == {"providers.execute"}
-    assert prompt_names == {"prompts.implementation.execute"}
-
-
-def test_compile_stage3_module_includes_generated_private_procedure_workflow(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        FIXTURES / "valid" / "defproc_private_workflow.orc",
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-
-    assert "%defproc_private_workflow.build-checks.v1" in lowered_names
-
-
-def test_compile_stage3_module_supports_terminal_record_projection_returns(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "terminal_record_projection.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord ImplementationSummary",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defworkflow provider_attempt",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (input report_path)",
-                "               :returns ImplementationSummary)))",
-                "      (record ImplementationSummary",
-                "        :status attempt.status",
-                "        :report attempt.report))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    assert [step["id"] for step in lowered["steps"]] == ["provider_attempt__attempt"]
-    assert lowered["outputs"]["return__status"]["from"]["ref"].endswith(".artifacts.status")
-    assert lowered["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.report")
-
-def test_lower_workflow_definitions_supports_generic_match_outputs(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "generic_match_outputs.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord AttemptReport",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow provider_attempt",
-                "    ((report_path WorkReport))",
-                "    -> AttemptReport",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationState)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (record AttemptReport :report completed.execution_report))",
-                "        ((BLOCKED blocked)",
-                "         (record AttemptReport :report blocked.progress_report))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered_workflow = result.lowered_workflows[0]
-    lowered = lowered_workflow.authored_mapping
-    assert "providers" not in lowered
-    assert tuple(lowered["outputs"]) == ("return__report",)
-    assert [field.generated_name for field in lowered_workflow.boundary_projection.flattened_outputs] == [
-        "return__report"
-    ]
-    match_step = lowered["steps"][1]
-    completed_outputs = match_step["match"]["cases"]["COMPLETED"]["outputs"]
-    assert completed_outputs["return__report"]["from"]["ref"].endswith(".artifacts.execution_report")
-    assert (
-        match_step["match"]["cases"]["COMPLETED"]["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(
-            ".artifacts.execution_report"
-        )
-    )
-    assert (
-        match_step["match"]["cases"]["BLOCKED"]["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(
-            ".artifacts.progress_report"
-        )
-    )
-
-
-def test_cross_union_match_translation_normalizes_three_named_result_mappings(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "cross_union_match_translation.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    external_dependency_outside_authority)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ReviewLoopResult",
-                "    (APPROVED",
-                "      (execution_report WorkReport))",
-                "    (EXHAUSTED",
-                "      (last_review_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defunion ImplementationPhaseResult",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (REVIEW_EXHAUSTED",
-                "      (review_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (let* ((review",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ReviewLoopResult)))",
-                "      (match review",
-                "        ((APPROVED approved)",
-                "         (variant ImplementationPhaseResult COMPLETED",
-                "           :execution_report approved.execution_report))",
-                "        ((EXHAUSTED exhausted)",
-                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
-                "           :review_report exhausted.last_review_report))",
-                "        ((BLOCKED blocked)",
-                "         (variant ImplementationPhaseResult BLOCKED",
-                "           :progress_report blocked.progress_report",
-                "           :blocker_class blocked.blocker_class))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    match_step = lowered["steps"][1]
-
-    completed_bundle = match_step["match"]["cases"]["APPROVED"]["steps"][0]
-    assert completed_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "COMPLETED"}
-    assert match_step["match"]["cases"]["APPROVED"]["outputs"]["return__variant"]["from"]["ref"].endswith(
-        ".artifacts.variant"
-    )
-    assert (
-        match_step["match"]["cases"]["APPROVED"]["outputs"]["return__execution_report"]["from"]["ref"].endswith(
-            ".artifacts.execution_report"
-        )
-    )
-
-    exhausted_bundle = match_step["match"]["cases"]["EXHAUSTED"]["steps"][0]
-    assert exhausted_bundle["materialize_artifacts"]["values"][0]["source"] == {
-        "literal": "REVIEW_EXHAUSTED"
-    }
-    assert (
-        match_step["match"]["cases"]["EXHAUSTED"]["outputs"]["return__review_report"]["from"]["ref"].endswith(
-            ".artifacts.review_report"
-        )
-    )
-
-    blocked_bundle = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
-    assert blocked_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "BLOCKED"}
-    assert (
-        match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__progress_report"]["from"]["ref"].endswith(
-            ".artifacts.progress_report"
-        )
-    )
-    assert (
-        match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__blocker_class"]["from"]["ref"].endswith(
-            ".artifacts.blocker_class"
-        )
-    )
-
-
-def test_returned_variant_union_normalization_preserves_same_union_match_passthrough(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "same_union_match_passthrough.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    external_dependency_outside_authority)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ImplementationPhaseResult",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationPhaseResult)))",
-                "      (match attempt",
-                "        ((COMPLETED completed) attempt)",
-                "        ((BLOCKED blocked) attempt)))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    match_step = lowered["steps"][1]
-    completed_bundle = match_step["match"]["cases"]["COMPLETED"]["steps"][0]
-    blocked_bundle = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
-
-    assert completed_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "COMPLETED"}
-    assert (
-        match_step["match"]["cases"]["COMPLETED"]["outputs"]["return__execution_report"]["from"]["ref"].endswith(
-            ".artifacts.execution_report"
-        )
-    )
-    assert blocked_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "BLOCKED"}
-    assert (
-        match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__progress_report"]["from"]["ref"].endswith(
-            ".artifacts.progress_report"
-        )
-    )
-
-
-def test_cross_union_match_translation_allows_same_target_call_passthrough(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "cross_union_match_translation_same_target_call.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    external_dependency_outside_authority)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ReviewLoopResult",
-                "    (APPROVED",
-                "      (execution_report WorkReport))",
-                "    (EXHAUSTED",
-                "      (last_review_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defunion ImplementationPhaseResult",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (REVIEW_EXHAUSTED",
-                "      (review_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow helper",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (provider-result providers.review",
-                "      :prompt prompts.review",
-                "      :inputs (report_path)",
-                "      :returns ImplementationPhaseResult))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (let* ((review",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ReviewLoopResult)))",
-                "      (match review",
-                "        ((APPROVED approved)",
-                "         (call helper :report_path approved.execution_report))",
-                "        ((EXHAUSTED exhausted)",
-                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
-                "           :review_report exhausted.last_review_report))",
-                "        ((BLOCKED blocked)",
-                "         (variant ImplementationPhaseResult BLOCKED",
-                "           :progress_report blocked.progress_report",
-                "           :blocker_class blocked.blocker_class))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={
-            "providers.execute": "test-provider",
-            "providers.review": "review-provider",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-            "prompts.review": "prompts/review.md",
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry"
-    )
-    match_step = lowered["steps"][1]
-    approved_case = match_step["match"]["cases"]["APPROVED"]
-    approved_steps = approved_case["steps"]
-    approved_call = approved_steps[0]
-
-    assert not any("materialize_artifacts" in step for step in approved_steps)
-    assert approved_call["call"] == "helper"
-    assert approved_case["outputs"]["return__variant"]["from"]["ref"].endswith(
-        f".{approved_call['name']}.artifacts.return__variant"
-    )
-    assert approved_case["outputs"]["return__execution_report"]["from"]["ref"].endswith(
-        f".{approved_call['name']}.artifacts.return__execution_report"
-    )
-
-
-def test_cross_union_match_translation_allows_same_target_let_bound_call_passthrough(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "cross_union_match_translation_same_target_let_bound_call.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    external_dependency_outside_authority)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ReviewLoopResult",
-                "    (APPROVED",
-                "      (execution_report WorkReport))",
-                "    (EXHAUSTED",
-                "      (last_review_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defunion ImplementationPhaseResult",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (REVIEW_EXHAUSTED",
-                "      (review_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow helper",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (provider-result providers.review",
-                "      :prompt prompts.review",
-                "      :inputs (report_path)",
-                "      :returns ImplementationPhaseResult))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (let* ((review",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ReviewLoopResult)))",
-                "      (match review",
-                "        ((APPROVED approved)",
-                "         (let* ((attempt",
-                "                  (call helper :report_path approved.execution_report)))",
-                "           attempt))",
-                "        ((EXHAUSTED exhausted)",
-                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
-                "           :review_report exhausted.last_review_report))",
-                "        ((BLOCKED blocked)",
-                "         (variant ImplementationPhaseResult BLOCKED",
-                "           :progress_report blocked.progress_report",
-                "           :blocker_class blocked.blocker_class))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={
-            "providers.execute": "test-provider",
-            "providers.review": "review-provider",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-            "prompts.review": "prompts/review.md",
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry"
-    )
-    match_step = lowered["steps"][1]
-    approved_case = match_step["match"]["cases"]["APPROVED"]
-    approved_steps = approved_case["steps"]
-    approved_call = approved_steps[0]
-
-    assert not any("materialize_artifacts" in step for step in approved_steps)
-    assert approved_call["call"] == "helper"
-    assert approved_case["outputs"]["return__variant"]["from"]["ref"].endswith(
-        f".{approved_call['name']}.artifacts.return__variant"
-    )
-    assert approved_case["outputs"]["return__execution_report"]["from"]["ref"].endswith(
-        f".{approved_call['name']}.artifacts.return__execution_report"
-    )
-
-
-def test_union_return_variant_ambiguous_cross_union_match_translation_reports_owned_diagnostic(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "union_return_variant_ambiguous.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ReviewLoopResult",
-                "    (APPROVED",
-                "      (execution_report WorkReport))",
-                "    (EXHAUSTED",
-                "      (last_review_report WorkReport)))",
-                "  (defunion ImplementationPhaseResult",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (REVIEW_EXHAUSTED",
-                "      (review_report WorkReport)))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (let* ((review",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ReviewLoopResult)))",
-                "      (match review",
-                "        ((APPROVED approved)",
-                "         (let* ((attempt",
-                "                  (provider-result providers.review",
-                "                    :prompt prompts.review",
-                "                    :inputs (approved.execution_report)",
-                "                    :returns ImplementationPhaseResult)))",
-                "           attempt))",
-                "        ((EXHAUSTED exhausted)",
-                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
-                "           :review_report exhausted.last_review_report))))))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            provider_externs={
-                "providers.execute": "test-provider",
-                "providers.review": "review-provider",
-            },
-            prompt_externs={
-                "prompts.implementation.execute": "prompts/implementation/execute.md",
-                "prompts.review": "prompts/review.md",
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "union_return_variant_ambiguous"
-    assert diagnostic.span.start.path.endswith("union_return_variant_ambiguous.orc")
-    assert "ImplementationPhaseResult" in diagnostic.message
-    assert "ReviewLoopResult" in diagnostic.message
-    assert "APPROVED" in diagnostic.message
-    assert "opaque" in diagnostic.message
-
-
-def test_union_return_variant_incompatible_explicit_target_union_reports_owned_diagnostic(
-    tmp_path: Path,
-) -> None:
-    from orchestrator.workflow_lisp.lowering.control_match import _normalize_union_match_case_terminal
-    from orchestrator.workflow_lisp.lowering.context import _TerminalResult
-
-    result_type = compile_stage3_module(
-        _write_module(
-            tmp_path / "tmp_union_return_variant_incompatible_probe.orc",
-            "\n".join(
-                [
-                    "(workflow-lisp",
-                    '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
-                    "  (defenum BlockerClass",
-                    "    missing_resource)",
-                    "  (defpath WorkReport",
-                    "    :kind relpath",
-                    '    :under "artifacts/work"',
-                    "    :must-exist true)",
-                    "  (defunion ImplementationPhaseResult",
-                    "    (COMPLETED",
-                    "      (execution_report WorkReport))",
-                    "    (BLOCKED",
-                    "      (progress_report WorkReport)",
-                    "      (blocker_class BlockerClass)))",
-                    "  (defworkflow entry",
-                    "    ((report_path WorkReport))",
-                    "    -> ImplementationPhaseResult",
-                    "    (let* ((attempt",
-                    "             (provider-result providers.execute",
-                    "               :prompt prompts.implementation.execute",
-                    "               :inputs (report_path)",
-                    "               :returns ImplementationPhaseResult)))",
-                    "      attempt)))",
-                ]
-            ),
-        ),
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    ).lowered_workflows[0].typed_workflow.signature.return_type_ref
-
-    span = SourceSpan(
-        start=SourcePosition(path="incompatible_union_return.orc", line=23, column=10, offset=0),
-        end=SourcePosition(path="incompatible_union_return.orc", line=23, column=25, offset=15),
-    )
-    context = SimpleNamespace(
-        workflow_name="entry",
-        step_spans={},
-        generated_path_spans={},
-        origin_notes=(),
-        signature=SimpleNamespace(form_path=("workflow-lisp", "defworkflow", "entry")),
-    )
-
-    incompatible_cases = (
-        (
-            _TerminalResult(
-                step_name="entry__approved",
-                step_id="entry__approved",
-                output_refs={"return__execution_report": "root.steps.entry__approved.artifacts.execution_report"},
-                output_kind="step",
-                hidden_inputs={},
-                returned_union_type_name="DifferentResult",
-                returned_union_variant_name="APPROVED",
-            ),
-            "explicit",
-        ),
-        (
-            _TerminalResult(
-                step_name="entry__approved_passthrough",
-                step_id="entry__approved_passthrough",
-                output_refs={
-                    "return__variant": "root.steps.entry__approved_passthrough.artifacts.return__variant",
-                    "return__execution_report": (
-                        "root.steps.entry__approved_passthrough.artifacts.return__execution_report"
-                    ),
-                },
-                output_kind="call",
-                hidden_inputs={},
-            ),
-            "pass-through",
-        ),
-    )
-
-    for case_terminal, terminal_mode in incompatible_cases:
-        if terminal_mode == "pass-through":
-            case_terminal.passthrough_union_type_name = "DifferentResult"
-        with pytest.raises(LispFrontendCompileError) as excinfo:
-            _normalize_union_match_case_terminal(
-                case_name="entry__match_attempt__approved",
-                case_steps=[],
-                case_terminal=case_terminal,
-                result_type=result_type,
-                source_variant_name="COMPLETED",
-                subject_union_type=None,
-                shared_bundle_input_name="__write_root__entry__match_attempt__result_bundle",
-                shared_bundle_path="artifacts/work/entry_match_result.json",
-                context=context,
-                span=span,
-                form_path=("workflow-lisp", "defworkflow", "entry"),
-            )
-
-        diagnostic = excinfo.value.diagnostics[0]
-
-        assert diagnostic.code == "union_return_variant_incompatible"
-        assert "ImplementationPhaseResult" in diagnostic.message
-        assert "DifferentResult" in diagnostic.message
-        assert terminal_mode in diagnostic.message
-
-
-def test_compile_stage3_module_lowers_effectful_match_arm_provider_branches(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "effectful_match_arm_provider_branches.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord AttemptReport",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow provider_attempt",
-                "    ((report_path WorkReport))",
-                "    -> AttemptReport",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationState)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (provider-result providers.execute",
-                "           :prompt prompts.implementation.execute",
-                "           :inputs (completed.execution_report)",
-                "           :returns AttemptReport))",
-                "        ((BLOCKED blocked)",
-                "         (provider-result providers.execute",
-                "           :prompt prompts.implementation.execute",
-                "           :inputs (blocked.progress_report)",
-                "           :returns AttemptReport))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    match_step = lowered["steps"][1]
-
-    assert [step["name"] for step in lowered["steps"]] == [
-        "provider_attempt__attempt",
-        "provider_attempt__match_attempt",
-    ]
-    completed_provider = match_step["match"]["cases"]["COMPLETED"]["steps"][0]
-    blocked_provider = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
-    assert completed_provider["provider"] == "test-provider"
-    assert blocked_provider["provider"] == "test-provider"
-    assert [
-        (
-            row["binding_name"],
-            row["value_type_name"],
-            row["renderer"]["renderer_id"],
-        )
-        for row in completed_provider["typed_prompt_inputs"]
-    ] == [("execution_report", "WorkReport", "posix-path-line")]
-    assert [
-        (
-            row["binding_name"],
-            row["value_type_name"],
-            row["renderer"]["renderer_id"],
-        )
-        for row in blocked_provider["typed_prompt_inputs"]
-    ] == [("progress_report", "WorkReport", "posix-path-line")]
-    assert match_step["match"]["cases"]["COMPLETED"]["outputs"]["return__report"]["from"]["ref"].endswith(
-        ".artifacts.report"
-    )
-    assert match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__report"]["from"]["ref"].endswith(
-        ".artifacts.report"
-    )
-
-
-def test_compile_stage3_module_lowers_effectful_match_arm_let_star_branches(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "effectful_match_arm_let_star_branches.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord AttemptReport",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow provider_attempt",
-                "    ((report_path WorkReport))",
-                "    -> AttemptReport",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationState)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (let* ((summary",
-                "                  (provider-result providers.execute",
-                "                    :prompt prompts.implementation.execute",
-                "                    :inputs (completed.execution_report)",
-                "                    :returns AttemptReport)))",
-                "           summary))",
-                "        ((BLOCKED blocked)",
-                "         (let* ((summary",
-                "                  (provider-result providers.execute",
-                "                    :prompt prompts.implementation.execute",
-                "                    :inputs (blocked.progress_report)",
-                "                    :returns AttemptReport)))",
-                "           summary))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    match_step = lowered["steps"][1]
-
-    assert [step["name"] for step in lowered["steps"]] == [
-        "provider_attempt__attempt",
-        "provider_attempt__match_attempt",
-    ]
-    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["name"].endswith("__summary")
-    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["name"].endswith("__summary")
-    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
-    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
-
-
-def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "literal_match_exports.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ImplementationSummary",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                    "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow provider_attempt",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationState)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (record ImplementationSummary",
-                '           :status "completed"',
-                "           :report completed.execution_report))",
-                "        ((BLOCKED blocked)",
-                "         (record ImplementationSummary",
-                '           :status "blocked"',
-                "           :report blocked.progress_report))))))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert "status" in diagnostic.message
-
-
-def test_compile_stage3_module_accepts_effectful_match_arm_with_exportable_projection(tmp_path: Path) -> None:
-    workflow_source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-            "    missing_resource",
-            "    unavailable_hardware)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord AttemptReport",
-            "    (status String)",
-            "    (report WorkReport))",
-            "  (defunion ImplementationState",
-            "    (COMPLETED",
-            "      (execution_report WorkReport))",
-            "    (BLOCKED",
-            "      (progress_report WorkReport)",
-            "      (blocker_class BlockerClass)))",
-            "  (defworkflow provider_attempt",
-            "    ((report_path WorkReport))",
-            "    -> AttemptReport",
-            "    (let* ((attempt",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (report_path)",
-            "               :returns ImplementationState)))",
-            "      (match attempt",
-            "        ((COMPLETED completed)",
-            "         (let* ((summary",
-            "                  (provider-result providers.execute",
-            "                    :prompt prompts.implementation.execute",
-            "                    :inputs (completed.execution_report)",
-            "                    :returns AttemptReport)))",
-            "           (record AttemptReport",
-            '             :status "completed"',
-            "             :report summary.report)))",
-            "        ((BLOCKED blocked)",
-            "         (let* ((summary",
-            "                  (provider-result providers.execute",
-            "                    :prompt prompts.implementation.execute",
-            "                    :inputs (blocked.progress_report)",
-            "                    :returns AttemptReport)))",
-            "           (record AttemptReport",
-            '             :status "blocked"',
-            "             :report summary.report)))))))",
-        ]
-    )
-    workflow_path = _write_module(tmp_path / "non_exportable_effectful_match_arm.orc", workflow_source)
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    bundle = _validated_bundle_by_local_name(result, "provider_attempt")
-    assert bundle is not None
-
-
-def test_compile_stage3_module_accepts_effectful_match_arm_with_authored_site_metadata(
-    tmp_path: Path,
-) -> None:
-    workflow_source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-            "    missing_resource",
-            "    unavailable_hardware)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord AttemptReport",
-            "    (status String)",
-            "    (report WorkReport))",
-            "  (defunion ImplementationState",
-            "    (COMPLETED",
-            "      (execution_report WorkReport))",
-            "    (BLOCKED",
-            "      (progress_report WorkReport)",
-            "      (blocker_class BlockerClass)))",
-            "  (defworkflow provider_attempt",
-            "    ((report_path WorkReport))",
-            "    -> AttemptReport",
-            "    (let* ((attempt",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (report_path)",
-            "               :returns ImplementationState)))",
-            "      (match attempt",
-            "        ((COMPLETED completed)",
-            "         (let* ((summary",
-            "                  (provider-result providers.execute",
-            "                    :prompt prompts.implementation.execute",
-            "                    :inputs (completed.execution_report)",
-            "                    :returns AttemptReport)))",
-            "           (record AttemptReport",
-            '             :status "completed"',
-            "             :report summary.report)))",
-            "        ((BLOCKED blocked)",
-            "         (let* ((summary",
-            "                  (provider-result providers.execute",
-            "                    :prompt prompts.implementation.execute",
-            "                    :inputs (blocked.progress_report)",
-            "                    :returns AttemptReport)))",
-            "           (record AttemptReport",
-            '             :status "blocked"',
-            "             :report summary.report)))))))",
-        ]
-    )
-    workflow_path = _write_module(tmp_path / "effectful_match_arm_diagnostic_remap.orc", workflow_source)
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert _validated_bundle_by_local_name(result, "provider_attempt") is not None
-
-
-def test_lower_workflow_definitions_accepts_same_file_call_field_bindings(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "field_bound_call.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defworkflow command_checks",
-                "    ((report_path WorkReport))",
-                "    -> ChecksResult",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" report_path)',
-                "      :returns ChecksResult))",
-                "  (defworkflow orchestrate",
-                "    ((input ChecksResult))",
-                "    -> ChecksResult",
-                "    (call command_checks",
-                "      :report_path input.report)))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "orchestrate"
-    )
-    assert lowered["steps"][0]["with"]["report_path"] == {"ref": "inputs.input__report"}
-
-
-def test_compile_stage3_module_lowers_same_file_call_with_direct_record_expr(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "direct_record_call.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defworkflow build-checks",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" input.report)',
-                "      :returns WorkflowOutput))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> WorkflowOutput",
-                "    (call build-checks",
-                "      :input (record WorkflowInput :report report_path))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
-    )
-
-    assert lowered["steps"][0]["call"] == "build-checks"
-    assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
-
-
-def test_compile_stage3_module_lowers_same_file_call_with_local_record_alias(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "local_record_alias_call.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defworkflow build-checks",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" input.report)',
-                "      :returns WorkflowOutput))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> WorkflowOutput",
-                "    (let* ((input (record WorkflowInput :report report_path)))",
-                "      (call build-checks :input input))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
-    )
-
-    assert lowered["steps"][0]["call"] == "build-checks"
-    assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
-
-
-def test_compile_stage3_module_omits_same_file_defaulted_call_bindings(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "same_file_default_call.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defworkflow helper",
-                '    ((required_path WorkReport)',
-                '     (optional_report WorkReport :default "default.md"))',
-                "    -> WorkflowOutput",
-                "    (record WorkflowOutput :report required_path))",
-                "  (defworkflow entry",
-                "    ((required_path WorkReport))",
-                "    -> WorkflowOutput",
-                "    (call helper",
-                "      :required_path required_path)))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = next(
-        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
-    )
-
-    assert lowered["steps"][0]["call"] == "helper"
-    assert lowered["steps"][0]["with"]["required_path"] == {"ref": "inputs.required_path"}
-    assert "optional_report" not in lowered["steps"][0]["with"]
-
-
-def test_compile_stage3_entrypoint_omits_imported_defaulted_call_bindings(tmp_path: Path) -> None:
-    source_root = tmp_path / "defaults_pkg"
-    source_root.mkdir(parents=True, exist_ok=True)
-    types_path = _write_module(
-        source_root / "types.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule defaults_pkg/types)",
-                "  (export WorkReport WorkflowOutput)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport)))",
-            ]
-        ),
-    )
-    del types_path
-    helper_path = _write_module(
-        source_root / "helper.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule defaults_pkg/helper)",
-                "  (import defaults_pkg/types :only (WorkReport WorkflowOutput))",
-                "  (export helper)",
-                "  (defworkflow helper",
-                '    ((required_path WorkReport)',
-                '     (optional_report WorkReport :default "default.md"))',
-                "    -> WorkflowOutput",
-                "    (record WorkflowOutput :report required_path)))",
-            ]
-        ),
-    )
-    del helper_path
-    entry_path = _write_module(
-        source_root / "entry.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule defaults_pkg/entry)",
-                "  (import defaults_pkg/types :only (WorkReport WorkflowOutput))",
-                "  (import defaults_pkg/helper :as helper :only (helper))",
-                "  (export entry)",
-                "  (defworkflow entry",
-                "    ((required_path WorkReport))",
-                "    -> WorkflowOutput",
-                "    (call helper.helper",
-                "      :required_path required_path)))",
-            ]
-        ),
-    )
-
-    compile_entrypoint = getattr(_compiler_module(), "compile_stage3_entrypoint")
-    result = compile_entrypoint(
-        entry_path,
-        source_roots=(tmp_path,),
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="legacy",
-    )
-
-    lowered = next(
-        workflow.authored_mapping
-        for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "defaults_pkg/entry::entry"
-    )
-
-    assert lowered["steps"][0]["call"] == "defaults_pkg/helper::helper"
-    assert lowered["steps"][0]["with"]["required_path"] == {"ref": "inputs.required_path"}
-    assert "optional_report" not in lowered["steps"][0]["with"]
-
-
-def test_compile_stage3_entrypoint_same_file_later_helper_emits_hidden_context_call_bindings(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "same_file_promoted_entry.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule same_file_promoted_entry)",
-                "  (import std/phase :only (with-phase))",
-                "  (export promoted-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defrecord RunCtx",
-                "    (run-id RunId)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord PhaseCtx",
-                "    (run RunCtx)",
-                "    (phase-name Symbol)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord ResumeInputs",
-                "    (report_path WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report_path WorkReport))",
-                "  (defworkflow promoted-entry",
-                "    ((inputs ResumeInputs))",
-                "    -> WorkflowOutput",
-                "    (call helper",
-                "      :inputs inputs))",
-                "  (defworkflow helper",
-                "    ((phase-ctx PhaseCtx)",
-                "     (inputs ResumeInputs))",
-                "    -> WorkflowOutput",
-                "    (with-phase phase-ctx plan-gate-wrapper",
-                "      (record WorkflowOutput",
-                "        :report_path inputs.report_path))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_entrypoint(
-        workflow_path,
-        source_roots=(tmp_path,),
-        validate_shared=False,
-        workspace_root=tmp_path,
-    ).entry_result
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "same_file_promoted_entry::promoted-entry"
-    )
-    call_step = next(step for step in lowered.authored_mapping["steps"] if step.get("call"))
-
-    assert call_step["call"] == "same_file_promoted_entry::helper"
-    assert {
-        name: call_step["with"][name]
-        for name in (
-            "phase-ctx__run__run-id",
-            "phase-ctx__run__state-root",
-            "phase-ctx__run__artifact-root",
-            "phase-ctx__phase-name",
-            "phase-ctx__state-root",
-            "phase-ctx__artifact-root",
-        )
-    } == {
-        "phase-ctx__run__run-id": {"ref": "inputs.phase-ctx__run__run-id"},
-        "phase-ctx__run__state-root": {"ref": "inputs.phase-ctx__run__state-root"},
-        "phase-ctx__run__artifact-root": {"ref": "inputs.phase-ctx__run__artifact-root"},
-        "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__phase-name"},
-        "phase-ctx__state-root": {"ref": "inputs.phase-ctx__state-root"},
-        "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__artifact-root"},
-    }
-
-
-def test_compile_stage3_entrypoint_promoted_entry_emits_hidden_context_call_bindings(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_entrypoint(
-        PROMOTED_ENTRY_BOOTSTRAP_FIXTURE,
-        source_roots=(FIXTURES / "valid",),
-        command_boundaries={
-            "resolve_plan_gate": ExternalToolBinding(
-                name="resolve_plan_gate",
-                stable_command=("python", "scripts/resolve_plan_gate.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    ).entry_result
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name
-        == (
-            "phase_stdlib_resume_or_start_promoted_entry_bootstrap::"
-            "promoted-entry-resume-plan-gate-wrapper"
-        )
-    )
-    call_step = next(step for step in lowered.authored_mapping["steps"] if step.get("call"))
-
-    assert {
-        item.generated_name: item.reason
-        for item in lowered.boundary_projection.generated_internal_inputs
-    } == {
-        "phase-ctx__run__run-id": "runtime_owned_context",
-        "phase-ctx__run__state-root": "runtime_owned_context",
-        "phase-ctx__run__artifact-root": "runtime_owned_context",
-        "phase-ctx__phase-name": "runtime_owned_context",
-        "phase-ctx__state-root": "runtime_owned_context",
-        "phase-ctx__artifact-root": "runtime_owned_context",
-    }
-    assert {
-        name: call_step["with"][name]
-        for name in (
-            "phase-ctx__run__run-id",
-            "phase-ctx__run__state-root",
-            "phase-ctx__run__artifact-root",
-            "phase-ctx__phase-name",
-            "phase-ctx__state-root",
-            "phase-ctx__artifact-root",
-        )
-    } == {
-        "phase-ctx__run__run-id": {"ref": "inputs.phase-ctx__run__run-id"},
-        "phase-ctx__run__state-root": {"ref": "inputs.phase-ctx__run__state-root"},
-        "phase-ctx__run__artifact-root": {"ref": "inputs.phase-ctx__run__artifact-root"},
-        "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__phase-name"},
-        "phase-ctx__state-root": {"ref": "inputs.phase-ctx__state-root"},
-        "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__artifact-root"},
-    }
-
-
-def test_compile_stage3_entrypoint_imported_union_call_preserves_variant_proof_artifacts(
-    tmp_path: Path,
-) -> None:
-    package_dir = tmp_path / "proof_pkg"
-    package_dir.mkdir(parents=True)
-    (package_dir / "child.orc").write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule proof_pkg/child)",
-                "  (export ChildResult make-result)",
-                "  (defunion ChildResult",
-                "    (APPROVED (summary String))",
-                "    (BLOCKED (reason String)))",
-                "  (defworkflow make-result",
-                "    ((allow Bool))",
-                "    -> ChildResult",
-                "    (if allow",
-                "      (variant ChildResult APPROVED :summary \"ok\")",
-                "      (variant ChildResult BLOCKED :reason \"no\")))",
-                ")",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    entry_path = package_dir / "entry.orc"
-    entry_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule proof_pkg/entry)",
-                "  (import proof_pkg/child :only (ChildResult make-result))",
-                "  (export EntryResult finish-approved finish-blocked entry)",
-                "  (defrecord EntryResult",
-                "    (status String))",
-                "  (defworkflow finish-approved",
-                "    ((summary String))",
-                "    -> EntryResult",
-                "    (record EntryResult :status summary))",
-                "  (defworkflow finish-blocked",
-                "    ((reason String))",
-                "    -> EntryResult",
-                "    (record EntryResult :status reason))",
-                "  (defworkflow entry",
-                "    ((allow Bool))",
-                "    -> EntryResult",
-                "    (let* ((result",
-                "             (call make-result :allow allow)))",
-                "      (match result",
-                "        ((APPROVED approved)",
-                "         (call finish-approved :summary approved.summary))",
-                "        ((BLOCKED blocked)",
-                "         (call finish-blocked :reason blocked.reason)))))",
-                ")",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_entrypoint(
-        entry_path,
-        source_roots=(tmp_path,),
-        validate_shared=True,
-        workspace_root=tmp_path,
-        entry_workflow="proof_pkg/entry::entry",
-    ).entry_result
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "proof_pkg/entry::entry"
-    )
-    steps = lowered.authored_mapping["steps"]
-    call_step = next(step for step in steps if step.get("call") == "proof_pkg/child::make-result")
-    match_step = next(step for step in steps if "match" in step)
-
-    assert call_step["call"] == "proof_pkg/child::make-result"
-    assert match_step["match"]["ref"] == (
-        f"root.steps.{call_step['name']}.artifacts.return__variant"
-    )
-    assert tuple(match_step["match"]["cases"]) == ("APPROVED", "BLOCKED")
-
-
-def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings(
-    tmp_path: Path,
-) -> None:
-    result = _compile_item_ctx_child_phase_reuse(tmp_path)
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name
-        == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first"
-    )
-    call_steps = [
-        step
-        for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
-        if step.get("call")
-        in {
-            "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-            "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-        }
-    ]
-
-    assert {step["call"] for step in call_steps} == {
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-    }
-    expected_bindings_by_call = {
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
-            "phase-ctx__run__run-id": {"ref": "inputs.item-ctx__run__run-id"},
-            "phase-ctx__run__state-root": {"ref": "inputs.item-ctx__run__state-root"},
-            "phase-ctx__run__artifact-root": {"ref": "inputs.item-ctx__run__artifact-root"},
-            "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__plan__phase-name"},
-            "phase-ctx__state-root": {"ref": "inputs.phase-ctx__plan__state-root"},
-            "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__plan__artifact-root"},
-        },
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase": {
-            "phase-ctx__run__run-id": {"ref": "inputs.item-ctx__run__run-id"},
-            "phase-ctx__run__state-root": {"ref": "inputs.item-ctx__run__state-root"},
-            "phase-ctx__run__artifact-root": {"ref": "inputs.item-ctx__run__artifact-root"},
-            "phase-ctx__phase-name": {
-                "ref": "inputs.phase-ctx__implementation__phase-name"
-            },
-            "phase-ctx__state-root": {
-                "ref": "inputs.phase-ctx__implementation__state-root"
-            },
-            "phase-ctx__artifact-root": {
-                "ref": "inputs.phase-ctx__implementation__artifact-root"
-            },
-        },
-    }
-    for call_step in call_steps:
-        expected_bindings = expected_bindings_by_call[call_step["call"]]
-        assert {name: call_step["with"][name] for name in expected_bindings} == expected_bindings
-    assert {
-        binding.binding_id: binding.projection_hints
-        for binding in lowered.private_exec_context_bindings
-    } == {
-        "phase-ctx__implementation": {
-            "context_binding_schema_version": 1,
-            "context_input_roles": {
-                "phase-ctx__implementation__run__run-id": "run_anchor:run-id",
-                "phase-ctx__implementation__run__state-root": "run_anchor:state-root",
-                "phase-ctx__implementation__run__artifact-root": "run_anchor:artifact-root",
-                "phase-ctx__implementation__phase-name": "compile_time_default",
-                "phase-ctx__implementation__state-root": "compile_time_default",
-                "phase-ctx__implementation__artifact-root": "compile_time_default",
-            },
-            "carried_input_sources": {
-                "phase-ctx__implementation__run__run-id": ("item-ctx", "run", "run-id"),
-                "phase-ctx__implementation__run__state-root": (
-                    "item-ctx",
-                    "run",
-                    "state-root",
-                ),
-                "phase-ctx__implementation__run__artifact-root": (
-                    "item-ctx",
-                    "run",
-                    "artifact-root",
-                ),
-            },
-        },
-        "phase-ctx__plan": {
-            "context_binding_schema_version": 1,
-            "context_input_roles": {
-                "phase-ctx__plan__run__run-id": "run_anchor:run-id",
-                "phase-ctx__plan__run__state-root": "run_anchor:state-root",
-                "phase-ctx__plan__run__artifact-root": "run_anchor:artifact-root",
-                "phase-ctx__plan__phase-name": "compile_time_default",
-                "phase-ctx__plan__state-root": "compile_time_default",
-                "phase-ctx__plan__artifact-root": "compile_time_default",
-            },
-            "carried_input_sources": {
-                "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
-                "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
-                "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
-            },
-        },
-        "item-ctx": {
-            "context_binding_schema_version": 1,
-            "context_input_roles": {
-                "item-ctx__run__run-id": "run_anchor:run-id",
-                "item-ctx__run__state-root": "run_anchor:state-root",
-                "item-ctx__run__artifact-root": "run_anchor:artifact-root",
-            },
-            "carried_input_sources": {
-                "item-ctx__run__run-id": ("item-ctx", "run", "run-id"),
-                "item-ctx__run__state-root": ("item-ctx", "run", "state-root"),
-                "item-ctx__run__artifact-root": ("item-ctx", "run", "artifact-root"),
-                "item-ctx__item-id": ("item-ctx", "item-id"),
-                "item-ctx__state-root": ("item-ctx", "state-root"),
-                "item-ctx__artifact-root": ("item-ctx", "artifact-root"),
-                "item-ctx__ledger": ("item-ctx", "ledger"),
-            },
-        },
-    }
-
-
-def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_branching_terminal_reprojection_emits_derived_phase_context_bindings_and_nested_finalize_steps(
-    tmp_path: Path,
-) -> None:
-    result = _compile_item_ctx_child_phase_reuse_branching_terminal_reprojection(tmp_path)
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name
-        == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
-    )
-    call_steps = [
-        step
-        for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
-        if step.get("call")
-        in {
-            "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-            "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-            "lisp_frontend_design_delta/projections::classify-work-item-terminal",
-        }
-    ]
-    lowered_step_names = {
-        step.get("name", "")
-        for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
-        if isinstance(step, dict)
-    }
-
-    assert {step["call"] for step in call_steps} == {
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-        "lisp_frontend_design_delta/projections::classify-work-item-terminal",
-    }
-    expected_bindings_by_call = {
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
-            "phase-ctx__run__run-id": {"ref": "inputs.item-ctx__run__run-id"},
-            "phase-ctx__run__state-root": {"ref": "inputs.item-ctx__run__state-root"},
-            "phase-ctx__run__artifact-root": {"ref": "inputs.item-ctx__run__artifact-root"},
-            "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__plan__phase-name"},
-            "phase-ctx__state-root": {"ref": "inputs.phase-ctx__plan__state-root"},
-            "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__plan__artifact-root"},
-        },
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase": {
-            "phase-ctx__run__run-id": {"ref": "inputs.item-ctx__run__run-id"},
-            "phase-ctx__run__state-root": {"ref": "inputs.item-ctx__run__state-root"},
-            "phase-ctx__run__artifact-root": {"ref": "inputs.item-ctx__run__artifact-root"},
-            "phase-ctx__phase-name": {
-                "ref": "inputs.phase-ctx__implementation__phase-name"
-            },
-            "phase-ctx__state-root": {
-                "ref": "inputs.phase-ctx__implementation__state-root"
-            },
-            "phase-ctx__artifact-root": {
-                "ref": "inputs.phase-ctx__implementation__artifact-root"
-            },
-        },
-    }
-    for call_step in call_steps:
-        expected_bindings = expected_bindings_by_call.get(call_step["call"])
-        if expected_bindings is not None:
-            assert {name: call_step["with"][name] for name in expected_bindings} == expected_bindings
-    assert any("finalize_selected_item_proc" in name for name in lowered_step_names)
-
-
-def test_compile_stage3_entrypoint_same_file_item_ctx_child_phase_reuse_carries_derived_phase_context_bindings(
-    tmp_path: Path,
-) -> None:
-    result = _compile_item_ctx_child_phase_reuse(tmp_path)
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name
-        == "design_delta_item_ctx_child_phase_reuse::bootstrap-item-ctx"
-    )
-    call_step = next(step for step in lowered.authored_mapping["steps"] if step.get("call"))
-
-    assert call_step["call"] == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first"
-    assert {
-        name: call_step["with"][name]
-        for name in (
-            "selection__baseline_design_path",
-            "selection__progress_ledger_path",
-            "selection__steering_path",
-            "selection__target_design_path",
-            "selection__work_item_bootstrap__architecture_path",
-            "selection__work_item_bootstrap__check_commands__commands",
-            "selection__work_item_bootstrap__plan_target_path",
-            "selection__work_item_bootstrap__work_item_id",
-            "selection__work_item_bootstrap__work_item_source",
-        )
-    } == {
-        "selection__baseline_design_path": {"ref": "inputs.baseline_design_path"},
-        "selection__progress_ledger_path": {"ref": "inputs.progress_ledger_path"},
-        "selection__steering_path": {"ref": "inputs.steering_path"},
-        "selection__target_design_path": {"ref": "inputs.target_design_path"},
-        "selection__work_item_bootstrap__architecture_path": {
-            "ref": "inputs.work_item_bootstrap__architecture_path"
-        },
-        "selection__work_item_bootstrap__check_commands__commands": {
-            "ref": "inputs.work_item_bootstrap__check_commands__commands"
-        },
-        "selection__work_item_bootstrap__plan_target_path": {
-            "ref": "inputs.work_item_bootstrap__plan_target_path"
-        },
-        "selection__work_item_bootstrap__work_item_id": {
-            "ref": "inputs.work_item_bootstrap__work_item_id"
-        },
-        "selection__work_item_bootstrap__work_item_source": {
-            "ref": "inputs.work_item_bootstrap__work_item_source"
-        },
-    }
-    assert "steering_path" not in call_step["with"]
-    assert "target_design_path" not in call_step["with"]
-    assert "baseline_design_path" not in call_step["with"]
-    assert "progress_ledger_path" not in call_step["with"]
-    assert {
-        name: call_step["with"][name]
-        for name in (
-            "phase-ctx__plan__run__run-id",
-            "phase-ctx__plan__run__state-root",
-            "phase-ctx__plan__run__artifact-root",
-            "phase-ctx__plan__state-root",
-            "phase-ctx__plan__artifact-root",
-            "phase-ctx__implementation__run__run-id",
-            "phase-ctx__implementation__run__state-root",
-            "phase-ctx__implementation__run__artifact-root",
-            "phase-ctx__implementation__state-root",
-            "phase-ctx__implementation__artifact-root",
-        )
-        } == {
-            "phase-ctx__plan__run__run-id": {"ref": "inputs.phase-ctx__run__run-id"},
-            "phase-ctx__plan__run__state-root": {"ref": "inputs.phase-ctx__run__state-root"},
-            "phase-ctx__plan__run__artifact-root": {
-                "ref": "inputs.phase-ctx__run__artifact-root"
-            },
-            "phase-ctx__plan__state-root": {"ref": "inputs.phase-ctx__plan__state-root"},
-            "phase-ctx__plan__artifact-root": {
-                "ref": "inputs.phase-ctx__plan__artifact-root"
-            },
-            "phase-ctx__implementation__run__run-id": {
-                "ref": "inputs.phase-ctx__run__run-id"
-            },
-            "phase-ctx__implementation__run__state-root": {
-                "ref": "inputs.phase-ctx__run__state-root"
-            },
-            "phase-ctx__implementation__run__artifact-root": {
-                "ref": "inputs.phase-ctx__run__artifact-root"
-            },
-            "phase-ctx__implementation__state-root": {
-                "ref": "inputs.phase-ctx__implementation__state-root"
-            },
-            "phase-ctx__implementation__artifact-root": {
-                "ref": "inputs.phase-ctx__implementation__artifact-root"
-            },
-        }
+    effects = typed_workflow.typed_body.effect_summary.transitive_effects
+    assert UsesProviderEffect(subject=("providers", "execute")) in effects
+    provider = next(node for node in walk_expr(typed_workflow.typed_body.expr) if isinstance(node, ProviderResultExpr))
+    assert provider.prompt.name == "prompts.implementation.execute"
 
 
 def test_compile_stage3_entrypoint_rejects_missing_derived_phase_context_source(
@@ -6499,7 +1689,6 @@ def test_compile_stage3_entrypoint_rejects_missing_derived_phase_context_source(
             },
             command_boundaries={},
             validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
             family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
@@ -6509,36 +1698,37 @@ def test_compile_stage3_entrypoint_rejects_missing_derived_phase_context_source(
     assert "phase-ctx" in diagnostic.message
 
 
-def test_compile_stage3_entrypoint_rejects_direct_entry_derived_phase_context_omission(
+def test_derived_phase_context_eligibility_refuses_direct_entry_signature(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            DERIVED_PHASE_CONTEXT_DIRECT_ENTRY_INVALID_FIXTURE,
-            source_roots=(FIXTURES / "invalid", REPO_ROOT / "workflows" / "library"),
-            provider_externs={
-                "providers.plan.draft": "fake-plan-draft",
-                "providers.plan.review": "fake-plan-review",
-                "providers.plan.fix": "fake-plan-fix",
-            },
-            prompt_externs={
-                "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-                "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
-                "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
-            },
-            command_boundaries={},
-            validate_shared=True,
-            lowering_route=LoweringRoute.WCC_M4.value,
-            workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
-        )
+    result = compile_stage3_entrypoint(
+        DERIVED_PHASE_CONTEXT_DIRECT_ENTRY_INVALID_FIXTURE,
+        source_roots=(FIXTURES / "invalid", REPO_ROOT / "workflows" / "library"),
+        provider_externs={
+            "providers.plan.draft": "fake-plan-draft",
+            "providers.plan.review": "fake-plan-review",
+            "providers.plan.fix": "fake-plan-fix",
+        },
+        prompt_externs={
+            "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+            "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
+            "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
+        },
+        command_boundaries={},
+        validate_shared=True,
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "derived_phase_context_binding_invalid"
-    assert "phase-ctx" in diagnostic.message
+        workspace_root=tmp_path,
+        family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
+    )
+    caller = _select_and_finalize_typed_program(result.entry_result,
+        entry_path=Path(result.entry_result.module.span.start.path), entry_workflow="run-entry")
+    diagnostic = derived_private_child_context_eligibility(caller.entry.signature, param_name="phase-ctx")
+    assert not diagnostic.allowed
+    assert diagnostic.diagnostic_code == "derived_phase_context_binding_invalid"
+    assert "phase-ctx" in diagnostic.diagnostic_message
 
 
-def test_compile_stage3_entrypoint_rejects_generic_child_phase_context_without_item_ctx(
+def test_derived_phase_context_eligibility_refuses_generic_caller_without_item_ctx(
     tmp_path: Path,
 ) -> None:
     fixture = tmp_path / "generic_child_phase_context_without_item_ctx.orc"
@@ -6606,20 +1796,21 @@ def test_compile_stage3_entrypoint_rejects_generic_child_phase_context_without_i
         encoding="utf-8",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            fixture,
-            source_roots=(tmp_path,),
-            command_boundaries={},
-            validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
-            workspace_root=tmp_path,
-            family_profile_catalog=load_workflow_family_profile_catalog((profile_path,)),
-        )
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(tmp_path,),
+        command_boundaries={},
+        validate_shared=False,
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "derived_phase_context_binding_invalid"
-    assert "item-context-first route" in diagnostic.message
+        workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog((profile_path,)),
+    )
+    caller = _select_and_finalize_typed_program(result.entry_result,
+        entry_path=Path(result.entry_result.module.span.start.path), entry_workflow="entry")
+    diagnostic = derived_private_child_context_eligibility(caller.entry.signature, param_name="phase-ctx")
+    assert not diagnostic.allowed
+    assert diagnostic.diagnostic_code == "derived_phase_context_binding_invalid"
+    assert "item-context-first route" in diagnostic.diagnostic_message
 
 
 def test_compile_stage3_entrypoint_rejects_non_item_ctx_root_derived_phase_context_omission(
@@ -6641,7 +1832,6 @@ def test_compile_stage3_entrypoint_rejects_non_item_ctx_root_derived_phase_conte
             },
             command_boundaries={},
             validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
             family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
@@ -6670,7 +1860,6 @@ def test_compile_stage3_entrypoint_rejects_ambiguous_derived_phase_context(
             },
             command_boundaries={},
             validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
             family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
@@ -6699,7 +1888,6 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_public_run_leav
             },
             command_boundaries={},
             validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
             family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
@@ -6728,7 +1916,6 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_from_compatibil
             },
             command_boundaries={},
             validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
             family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
@@ -6757,7 +1944,6 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_reread(
             },
             command_boundaries={},
             validate_shared=False,
-            lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
             family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
@@ -6765,92 +1951,6 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_reread(
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "derived_phase_context_binding_invalid"
     assert "item-ctx" in diagnostic.message
-
-
-def test_compile_stage3_entrypoint_private_exec_context_records_phase_binding_metadata(
-    tmp_path: Path,
-) -> None:
-    fixture = tmp_path / "private_exec_context_phase_entry.orc"
-    fixture.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule private_exec_context_phase_entry)",
-                "  (import std/phase :only (with-phase))",
-                "  (export entry run-phase)",
-                "  (defrecord RunCtx",
-                "    (run-id RunId)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord PhaseCtx",
-                "    (run RunCtx)",
-                "    (phase-name Symbol)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord Result",
-                "    (label String)",
-                "    (phase_name Symbol))",
-                "  (defworkflow entry",
-                "    ((label String))",
-                "    -> Result",
-                "    (call run-phase",
-                "      :label label))",
-                "  (defworkflow run-phase",
-                "    ((phase-ctx PhaseCtx)",
-                "     (label String))",
-                "    -> Result",
-                "    (with-phase phase-ctx plan-gate-wrapper",
-                "      (record Result",
-                "        :label label",
-                "        :phase_name phase-ctx.phase-name)))",
-                ")",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_entrypoint(
-        fixture,
-        source_roots=(tmp_path,),
-        validate_shared=False,
-        workspace_root=tmp_path,
-    ).entry_result
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "private_exec_context_phase_entry::entry"
-    )
-
-    assert len(lowered.private_exec_context_bindings) == 1
-    binding = lowered.private_exec_context_bindings[0]
-    assert binding.binding_id == "phase-ctx"
-    assert binding.context_family == "PhaseCtx"
-    assert binding.bridge_class == "runtime_owned_context"
-    assert binding.required_capabilities == ("run",)
-    assert binding.derived_phase_identity == "plan-gate-wrapper"
-    assert set(binding.generated_input_names) == {
-        "phase-ctx__run__run-id",
-        "phase-ctx__run__state-root",
-        "phase-ctx__run__artifact-root",
-        "phase-ctx__phase-name",
-        "phase-ctx__state-root",
-        "phase-ctx__artifact-root",
-    }
-    assert binding.projection_hints == {
-        "context_binding_schema_version": 1,
-        "context_input_roles": {
-            "phase-ctx__run__run-id": "run_anchor:run-id",
-            "phase-ctx__run__state-root": "run_anchor:state-root",
-            "phase-ctx__run__artifact-root": "run_anchor:artifact-root",
-            "phase-ctx__phase-name": "compile_time_default",
-            "phase-ctx__state-root": "compile_time_default",
-            "phase-ctx__artifact-root": "compile_time_default",
-        },
-    }
 
 
 def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_exported_workflow(
@@ -7249,21 +2349,6 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated
     assert "explicit_entry_bootstrap_eligibility" in denial_note
 
 
-def test_compile_stage3_entrypoint_allows_unrelated_exported_sibling_after_project_selected_compat_bridge_retirement(
-    tmp_path: Path,
-) -> None:
-    result = _compile_item_ctx_child_phase_reuse_leak_probe(
-        tmp_path,
-        entry_workflow="item_ctx_child_phase_reuse_leak_probe::unrelated-entry",
-        include_unrelated_hidden_context_entry=False,
-        include_unrelated_bridge_entry=True,
-    )
-    compat_bundle = result.validated_bundles_by_name[
-        "lisp_frontend_design_delta/branching_terminal_reprojection_support::project-selected-compat"
-    ]
-    assert workflow_boundary_projection(compat_bundle).private_compatibility_bridge_inputs == ()
-
-
 def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_transitive_proof_wrapper(
     tmp_path: Path,
 ) -> None:
@@ -7281,579 +2366,24 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_transitiv
     assert "phase-ctx" in diagnostic.message
 
 
-def test_compile_stage3_entrypoint_allows_transitive_proof_wrapper_after_project_selected_compat_bridge_retirement(
-    tmp_path: Path,
-) -> None:
-    result = _compile_item_ctx_child_phase_reuse_leak_probe(
-        tmp_path,
-        entry_workflow="item_ctx_child_phase_reuse_leak_probe::proof-wrapper-bridge-entry",
-        include_unrelated_hidden_context_entry=False,
-        include_unrelated_bridge_entry=False,
-        include_wrapper_bridge_entry=True,
-    )
-    compat_bundle = result.validated_bundles_by_name[
-        "lisp_frontend_design_delta/branching_terminal_reprojection_support::project-selected-compat"
-    ]
-    assert workflow_boundary_projection(compat_bundle).private_compatibility_bridge_inputs == ()
-
-
-def test_carry_callee_private_exec_context_bindings_preserves_full_projection_metadata_for_prebound_inputs() -> None:
-    workflow_calls = importlib.import_module(
-        "orchestrator.workflow_lisp.lowering.workflow_calls"
-    )
-    surface_ast = importlib.import_module("orchestrator.workflow.surface_ast")
-
-    binding = surface_ast.PrivateExecContextBinding(
-        binding_id="ctx",
-        source_param_name="ctx",
-        context_family="DrainCtx",
-        bridge_class="imported_adapter_carried_context",
-        generated_input_names=(
-            "ctx__run__run-id",
-            "ctx__run__state-root",
-            "ctx__run__artifact-root",
-            "ctx__run_state_path",
-        ),
-        projection_hints={
-            "context_binding_schema_version": 1,
-            "context_input_roles": {
-                "ctx__run__run-id": "run_anchor:run-id",
-                "ctx__run__state-root": "run_anchor:state-root",
-                "ctx__run__artifact-root": "run_anchor:artifact-root",
-            },
-            "carried_input_sources": {
-                "ctx__run__run-id": ("ctx", "run", "run-id"),
-                "ctx__run__state-root": ("ctx", "run", "state-root"),
-                "ctx__run__artifact-root": ("ctx", "run", "artifact-root"),
-                "ctx__run_state_path": ("ctx", "run_state_path"),
-            },
-        },
-    )
-    lowered_callee = SimpleNamespace(
-        private_exec_context_bindings=(binding,),
-        boundary_projection=SimpleNamespace(
-            flattened_inputs=tuple(
-                SimpleNamespace(
-                    generated_name=name,
-                    contract_definition={"type": "string"},
-                )
-                for name in binding.generated_input_names
-            )
-        ),
-        authored_mapping={"inputs": {}},
-    )
-    source_expr = SimpleNamespace(
-        span=SourceSpan(
-            start=SourcePosition(
-                path="carry_private_exec_context_bindings.orc",
-                line=12,
-                column=4,
-                offset=0,
-            ),
-            end=SourcePosition(
-                path="carry_private_exec_context_bindings.orc",
-                line=12,
-                column=18,
-                offset=14,
-            ),
-        ),
-        form_path=("workflow-lisp", "defworkflow", "caller", "call"),
-    )
-    context = SimpleNamespace(
-        workflow_name="caller::entry",
-        origin_notes=(),
-        internal_generated_input_contracts={},
-        generated_input_spans={},
-        internal_generated_input_reasons={},
-        private_exec_context_bindings=[],
-    )
-
-    carried_bindings = workflow_calls._carry_callee_private_exec_context_bindings(
-        context=context,
-        source_expr=source_expr,
-        lowered_callee=lowered_callee,
-        imported_bundle=None,
-        already_bound={
-            "ctx__run__run-id",
-            "ctx__run__state-root",
-            "ctx__run__artifact-root",
-        },
-    )
-
-    assert carried_bindings == {
-        "ctx__run_state_path": {"ref": "inputs.ctx__run_state_path"}
-    }
-    assert context.internal_generated_input_contracts == {
-        "ctx__run_state_path": {"type": "string"}
-    }
-    assert len(context.private_exec_context_bindings) == 1
-    carried_binding = context.private_exec_context_bindings[0]
-    assert carried_binding.generated_input_names == ("ctx__run_state_path",)
-    assert carried_binding.projection_hints == binding.projection_hints
-
-
-def test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings(
-    tmp_path: Path,
-) -> None:
-    result = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-
-    run_item = result.validated_bundles_by_name[
-        "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
-    ]
-    boundary = workflow_boundary_projection(run_item)
-    lowered = next(
-        workflow
-        for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "lisp_frontend_design_delta/drain::drain"
-    )
-    call_step = next(
-        step
-        for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
-        if step.get("call")
-        == "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
-    )
-
-    runtime_owned_ref = (
-        "parent.steps.lisp_frontend_design_delta/drain::drain__runtime-owned__call_"
-        "lisp_frontend_design_delta/drain::build-drain-runtime-owned.artifacts.return__run__"
-    )
-    for phase_name in ("plan", "implementation"):
-        for field_name in ("run-id", "state-root", "artifact-root"):
-            assert call_step["with"][f"phase-ctx__{phase_name}__run__{field_name}"] == {
-                "ref": f"{runtime_owned_ref}{field_name}"
-            }
-    assert {
-        binding.binding_id: binding.projection_hints
-        for binding in boundary.private_runtime_context_bindings
-    } == {
-        "phase-ctx__implementation": {
-            "context_binding_schema_version": 1,
-            "context_input_roles": {
-                "phase-ctx__implementation__run__run-id": "run_anchor:run-id",
-                "phase-ctx__implementation__run__state-root": "run_anchor:state-root",
-                "phase-ctx__implementation__run__artifact-root": "run_anchor:artifact-root",
-                "phase-ctx__implementation__phase-name": "compile_time_default",
-                "phase-ctx__implementation__state-root": "compile_time_default",
-                "phase-ctx__implementation__artifact-root": "compile_time_default",
-            },
-            "carried_input_sources": {
-                "phase-ctx__implementation__run__run-id": ("item-ctx", "run", "run-id"),
-                "phase-ctx__implementation__run__state-root": (
-                    "item-ctx",
-                    "run",
-                    "state-root",
-                ),
-                "phase-ctx__implementation__run__artifact-root": (
-                    "item-ctx",
-                    "run",
-                    "artifact-root",
-                ),
-            },
-        },
-        "phase-ctx__plan": {
-            "context_binding_schema_version": 1,
-            "context_input_roles": {
-                "phase-ctx__plan__run__run-id": "run_anchor:run-id",
-                "phase-ctx__plan__run__state-root": "run_anchor:state-root",
-                "phase-ctx__plan__run__artifact-root": "run_anchor:artifact-root",
-                "phase-ctx__plan__phase-name": "compile_time_default",
-                "phase-ctx__plan__state-root": "compile_time_default",
-                "phase-ctx__plan__artifact-root": "compile_time_default",
-            },
-            "carried_input_sources": {
-                "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
-                "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
-                "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
-            },
-        },
-    }
-
-
-def test_compile_stage3_module_rejects_same_file_call_record_leaf_without_ref(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "record_call_literal_leaf.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defworkflow build-checks",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" input.report)',
-                "      :returns WorkflowOutput))",
-                "  (defworkflow entry",
-                "    ((report_path WorkReport))",
-                "    -> WorkflowOutput",
-                "    (call build-checks",
-                '      :input (record WorkflowInput :status "pending" :report report_path))))',
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                )
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_signature_mismatch"
-    assert "input.status" in diagnostic.message
-
-
-def test_compile_stage3_module_remaps_shared_validation_failures() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            REMAP_FIXTURE,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={"run_checks": ExternalToolBinding(name="run_checks", stable_command=("python", "scripts/run_checks.py"))},
-            validate_shared=True,
-            workspace_root=Path.cwd(),
-        )
-
-    diagnostics = excinfo.value.diagnostics
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "path_definition_invalid",
-        "path_definition_invalid",
-        "path_definition_invalid",
-    ]
-    assert all(diagnostic.span.start.path.endswith("shared_validation_remap.orc") for diagnostic in diagnostics)
-    assert all("parent directory traversal" in diagnostic.message for diagnostic in diagnostics)
-    assert all(diagnostic.validation_pass == "shared_validation" for diagnostic in diagnostics)
-    assert all(diagnostic.authority_layer == "shared_validation" for diagnostic in diagnostics)
-    assert "id must match" not in diagnostics[0].message
-
-
-def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    validation_module = importlib.import_module("orchestrator.workflow.validation")
-    baseline = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    command_checks = next(
-        workflow
-        for workflow in baseline.lowered_workflows
-        if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    generated_step_id = next(iter(command_checks.origin_map.step_spans))
-
-    calls = []
-
-    def fail_executable_checkpoint(*args, **kwargs):
-        del args, kwargs
-        calls.append("shared coordinator")
-        raise WorkflowValidationError(
-            [
-                ValidationError(
-                    message=(
-                        "executable_ir_invalid: "
-                        f"node `{generated_step_id}` fallthrough target references unknown node id `missing`"
-                    )
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        validation_module,
-        "build_loaded_workflow_bundle",
-        fail_executable_checkpoint,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            STRUCTURED_RESULTS_FIXTURE,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                )
-            },
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "executable_ir_invalid"
-    assert diagnostic.validation_pass == "shared_validation"
-    assert diagnostic.authority_layer == "shared_validation"
-    assert diagnostic.span.start.path.endswith("structured_results.orc")
-    assert "unknown node id `missing`" in diagnostic.message
-    assert calls == ["shared coordinator"]
-
-
-def test_compile_stage3_module_validates_hyphenated_workflow_names(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "hyphenated_workflow.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defworkflow run-checks",
-                "    ((report_path WorkReport))",
-                "    -> ChecksResult",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" report_path)',
-                "      :returns ChecksResult)))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    assert lowered["name"] == "run-checks"
-    assert lowered["steps"][0]["id"] == "run_checks__run_checks"
-    assert tuple(result.validated_bundles) == ("run-checks",)
-
-
-def test_compile_stage3_module_validates_hyphenated_provider_and_call_workflow_names(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "hyphenated_provider_and_call.orc",
-        "\n".join(
-            [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord ImplementationSummary",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow provider-attempt",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (input report_path)",
-                "      :returns ImplementationSummary))",
-                "  (defworkflow orchestrate-run",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (call provider-attempt",
-                "      :input input",
-                "      :report_path report_path))",
-                ")",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    provider_attempt = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "provider-attempt"
-    )
-    orchestrate = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate-run"
-    )
-
-    assert [step["id"] for step in provider_attempt["steps"]] == ["provider_attempt__result"]
-    assert orchestrate["steps"][0]["id"] == "orchestrate_run__call_provider_attempt"
-    assert tuple(result.validated_bundles) == ("provider-attempt", "orchestrate-run")
-
-
-def test_compile_stage3_module_supports_nested_record_workflow_boundaries(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "nested_boundary.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord InnerSummary",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord OuterSummary",
-                "    (summary InnerSummary))",
-                "  (defworkflow summarize",
-                "    ((input OuterSummary))",
-                "    -> OuterSummary",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" input.summary.report)',
-                "      :returns OuterSummary))",
-                "  (defworkflow orchestrate",
-                "    ((input OuterSummary))",
-                "    -> OuterSummary",
-                "    (call summarize :input input)))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    summarize = next(
-        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "summarize"
-    )
-    orchestrate = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
-    )
-
-    assert tuple(summarize["inputs"]) == (
-        "input__summary__status",
-        "input__summary__report",
-        "__write_root__summarize__run_checks__result_bundle",
-    )
-    assert tuple(summarize["outputs"]) == ("return__summary__status", "return__summary__report")
-    assert summarize["steps"][0]["output_bundle"]["fields"] == [
-        {"name": "summary__status", "json_pointer": "/summary/status", "type": "string"},
-        {
-            "name": "summary__report",
-            "json_pointer": "/summary/report",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-    ]
-    assert orchestrate["steps"][0]["with"]["input__summary__status"] == {"ref": "inputs.input__summary__status"}
-    assert orchestrate["steps"][0]["with"]["input__summary__report"] == {"ref": "inputs.input__summary__report"}
-
-
-def test_compile_stage3_module_lowers_recursive_collection_structured_results(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        COLLECTION_STRUCTURED_RESULT_FIXTURE,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    orchestrate = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
-    )
-    provider_step = orchestrate["steps"][0]
-    fields_by_name = {
-        field["name"]: field for field in provider_step["output_bundle"]["fields"]
-    }
-
-    assert fields_by_name["owner"] == {
-        "name": "owner",
-        "json_pointer": "/owner",
-        "type": "optional",
-        "item": {"type": "string"},
-    }
-    assert fields_by_name["attempt_ids"] == {
-        "name": "attempt_ids",
-        "json_pointer": "/attempt_ids",
-        "type": "list",
-        "items": {"type": "integer"},
-    }
-    assert fields_by_name["reports"] == {
-        "name": "reports",
-        "json_pointer": "/reports",
-        "type": "map",
-        "keys": {"type": "string"},
-        "values": {
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-    }
-    assert fields_by_name["review_states"] == {
-        "name": "review_states",
-        "json_pointer": "/review_states",
-        "type": "list",
-        "items": {
-            "type": "optional",
-            "item": {
-                "type": "enum",
-                "allowed": ["APPROVE", "REVISE"],
-            },
-        },
-    }
+def test_evaluated_result_boundary_rejects_authored_path_under_escape(tmp_path: Path) -> None:
+    result = compile_stage3_module(REMAP_FIXTURE,
+        command_boundaries={"run_checks": ExternalToolBinding(name="run_checks", stable_command=("python", "scripts/run_checks.py"))},
+        workspace_root=tmp_path)
+    workflow = result.typed_workflows[0]
+    type_env = result.typed_program.workflow_type_env(workflow.definition.name)
+    contract = derive_prompt_guided_structured_result_contract(workflow.signature.return_type_ref,
+        workflow_name=workflow.definition.name, step_id="result", type_env=type_env,
+        span=workflow.definition.span, form_path=("workflow-lisp", "defworkflow"))
+    report = next(field for field in contract.payload["fields"] if field["name"] == "report")
+    assert report["under"] == "../escape"
+    node = {"class": "command", "contract": {"kind": contract.contract_kind, "payload": dict(contract.payload)},
+        "result": compiler_normalized_type_descriptor(workflow.signature.return_type_ref, type_env=type_env)}
+    with closing(WorkspaceFiles(tmp_path)) as files:
+        with pytest.raises(OutputContractError) as excinfo:
+            validate_effect_result(node, b'{"status":"ok","report":"report.md"}', "result.json", files)
+    assert excinfo.value.violations[0]["type"] == "invalid_under_root"
+    assert excinfo.value.violations[0]["context"]["under"] == "../escape"
 
 
 @pytest.mark.parametrize(
@@ -7873,7 +2403,7 @@ def test_compile_stage3_module_lowers_recursive_collection_structured_results(tm
         ),
     ],
 )
-def test_compile_stage3_module_rejects_unsupported_collection_element_types(
+def test_shared_result_contract_rejects_unsupported_collection_element_types(
     tmp_path: Path,
     field_defs: tuple[str, ...],
     field_type: str,
@@ -7903,167 +2433,6 @@ def test_compile_stage3_module_rejects_unsupported_collection_element_types(
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == "collection_element_type_unsupported"
-
-
-def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scoped_bundle_path(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        PHASE_FIXTURE,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    assert tuple(lowered["outputs"]) == (
-        "return__implementation_state",
-        "return__implementation_state_bundle_path",
-    )
-    assert "artifacts" not in lowered
-    assert "providers" not in lowered
-    assert "__write_root__run_implementation_attempt__attempt__result_bundle" not in lowered["inputs"]
-
-    provider_step = lowered["steps"][0]
-    assert provider_step["provider"] == "fake"
-    assert provider_step["asset_file"] == "prompts/implementation/execute.md"
-    assert [row["binding_name"] for row in provider_step["typed_prompt_inputs"]] == [
-        "design",
-        "plan",
-        "execution_report_target",
-        "progress_report_target",
-    ]
-    assert {
-        row["renderer"]["renderer_id"]
-        for row in provider_step["typed_prompt_inputs"]
-    } == {"posix-path-line"}
-    assert "consumes" not in provider_step
-    assert "prompt_consumes" not in provider_step
-    assert "variant_output" in provider_step
-    assert provider_step["variant_output"]["path"] == "${inputs.phase-ctx__implementation_state_bundle_path}"
-
-    match_step = lowered["steps"][1]
-    assert (
-        match_step["match"]["ref"]
-        == "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.variant"
-    )
-    completed_outputs = match_step["match"]["cases"]["COMPLETED"]["outputs"]
-    blocked_outputs = match_step["match"]["cases"]["BLOCKED"]["outputs"]
-    assert completed_outputs["return__implementation_state"]["from"]["ref"].endswith(".artifacts.implementation_state")
-    assert blocked_outputs["return__implementation_state"]["from"]["ref"].endswith(".artifacts.implementation_state")
-    assert completed_outputs["return__implementation_state_bundle_path"] == {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "artifacts/work",
-        "must_exist_target": False,
-        "from": {"ref": "inputs.phase-ctx__implementation_state_bundle_path"},
-    }
-    assert blocked_outputs["return__implementation_state_bundle_path"] == {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "artifacts/work",
-        "must_exist_target": False,
-        "from": {"ref": "inputs.phase-ctx__implementation_state_bundle_path"},
-    }
-
-
-def test_compile_stage3_module_lowers_with_phase_let_binding_to_step_backed_outputs(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "with_phase_let_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule with_phase_let_binding)",
-                "  (import std/phase :only (with-phase))",
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware",
-                "    roadmap_conflict",
-                "    external_dependency_outside_authority",
-                "    user_decision_required",
-                "    unrecoverable_after_fix_attempt)",
-                "  (defenum ImplementationStateTag",
-                "    COMPLETED",
-                "    BLOCKED)",
-                "  (defpath DesignDocPath",
-                "    :kind relpath",
-                '    :under "docs/design"',
-                "    :must-exist true)",
-                "  (defpath PlanDocPath",
-                "    :kind relpath",
-                '    :under "docs/plans"',
-                "    :must-exist true)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defpath WorkReportTarget",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defpath ImplementationStateBundlePath",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defrecord ImplementationAttemptInputs",
-                "    (design DesignDocPath)",
-                "    (plan PlanDocPath))",
-                "  (defrecord ImplementationAttemptPhaseCtx",
-                "    (implementation_state_bundle_path ImplementationStateBundlePath)",
-                "    (execution_report_target WorkReportTarget)",
-                "    (progress_report_target WorkReportTarget))",
-                "  (defunion ImplementationAttempt",
-                "    (COMPLETED",
-                "      (implementation_state ImplementationStateTag)",
-                "      (execution_report_path WorkReport))",
-                "    (BLOCKED",
-                "      (implementation_state ImplementationStateTag)",
-                "      (progress_report_path WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defrecord ImplementationAttemptSurfaceResult",
-                "    (implementation_state ImplementationStateTag)",
-                "    (implementation_state_bundle_path ImplementationStateBundlePath))",
-                "  (defworkflow entry",
-                "    ((phase-ctx ImplementationAttemptPhaseCtx)",
-                "     (inputs ImplementationAttemptInputs))",
-                "    -> ImplementationAttemptSurfaceResult",
-                "    (let* ((phase-result",
-                "             (with-phase phase-ctx implementation",
-                "               (provider-result providers.execute",
-                "                 :prompt prompts.implementation.execute",
-                "                 :inputs (inputs.design",
-                "                          inputs.plan",
-                "                          (phase-target execution-report)",
-                "                          (phase-target progress-report))",
-                "                 :returns ImplementationAttempt))))",
-                "      (match phase-result",
-                "        ((COMPLETED completed)",
-                "         (record ImplementationAttemptSurfaceResult",
-                "           :implementation_state completed.implementation_state",
-                "           :implementation_state_bundle_path phase-ctx.implementation_state_bundle_path))",
-                "        ((BLOCKED blocked)",
-                "         (record ImplementationAttemptSurfaceResult",
-                "           :implementation_state blocked.implementation_state",
-                "           :implementation_state_bundle_path phase-ctx.implementation_state_bundle_path))))))",
-            ]
-        ),
-    )
-
     result = compile_stage3_module(
         workflow_path,
         provider_externs={"providers.execute": "fake"},
@@ -8071,272 +2440,20 @@ def test_compile_stage3_module_lowers_with_phase_let_binding_to_step_backed_outp
         validate_shared=False,
         workspace_root=tmp_path,
     )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    step_names = [step["name"] for step in lowered["steps"]]
-
-    assert step_names == [
-        "with_phase_let_binding::entry__phase-result",
-        "with_phase_let_binding::entry__match_phase-result",
-    ]
-    assert lowered["steps"][0]["provider"] == "fake"
-    assert (
-        lowered["steps"][1]["match"]["ref"]
-        == "root.steps.with_phase_let_binding::entry__phase-result.artifacts.variant"
-    )
-    assert lowered["outputs"]["return__implementation_state"]["from"]["ref"].endswith(
-        ".artifacts.return__implementation_state"
-    )
-    assert lowered["outputs"]["return__implementation_state_bundle_path"]["from"]["ref"].endswith(
-        ".artifacts.return__implementation_state_bundle_path"
-    )
-
-
-def test_compile_stage3_module_rejects_non_exportable_composed_with_phase_binding(
-    tmp_path: Path,
-) -> None:
-    workflow_source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defmodule with_phase_non_exportable)",
-            "  (import std/phase :only (with-phase))",
-            "  (defpath WorkReportTarget",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist false)",
-            "  (defrecord RunCtx",
-            "    (run-id RunId)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord PhaseCtx",
-            "    (run RunCtx)",
-            "    (phase-name Symbol)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord ReportTargetOnly",
-            "    (report_path WorkReportTarget))",
-            "  (defworkflow entry",
-            "    ((phase-ctx PhaseCtx))",
-            "    -> ReportTargetOnly",
-            "    (let* ((report-path",
-            "             (with-phase phase-ctx implementation",
-            "               (phase-target execution-report))))",
-            "      (record ReportTargetOnly :report_path report-path))))",
-        ]
-    )
-    workflow_path = _write_module(tmp_path / "with_phase_non_exportable.orc", workflow_source)
-
+    workflow = result.typed_workflows[0]
+    provider = next(node for node in walk_expr(workflow.typed_body.expr) if isinstance(node, ProviderResultExpr))
+    type_env = result.typed_program.workflow_type_env(workflow.definition.name)
+    result_type = type_env.resolve_type(provider.returns_type_name, span=provider.span, form_path=provider.form_path)
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
+        derive_prompt_guided_structured_result_contract(result_type, workflow_name=workflow.definition.name,
+            step_id="result", type_env=type_env, span=provider.span, form_path=provider.form_path)
     diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert "PhaseTargetExpr" in diagnostic.message
-    assert "WithPhaseExpr" not in diagnostic.message
-
-
-def test_compile_stage3_module_remaps_composed_with_phase_diagnostic_to_authored_binding_site(
-    tmp_path: Path,
-) -> None:
-    workflow_source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defmodule with_phase_diagnostic_remap)",
-            "  (import std/phase :only (with-phase))",
-            "  (defpath WorkReportTarget",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist false)",
-            "  (defrecord RunCtx",
-            "    (run-id RunId)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord PhaseCtx",
-            "    (run RunCtx)",
-            "    (phase-name Symbol)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord ReportTargetOnly",
-            "    (report_path WorkReportTarget))",
-            "  (defworkflow entry",
-            "    ((phase-ctx PhaseCtx))",
-            "    -> ReportTargetOnly",
-            "    (let* ((report-path",
-            "             (with-phase phase-ctx implementation",
-            "               (phase-target execution-report))))",
-            "      (record ReportTargetOnly :report_path report-path))))",
-        ]
-    )
-    expected_line = workflow_source.splitlines().index(
-        "               (phase-target execution-report))))"
-    ) + 1
-    workflow_path = _write_module(tmp_path / "with_phase_diagnostic_remap.orc", workflow_source)
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert diagnostic.span.start.path.endswith("with_phase_diagnostic_remap.orc")
-    assert diagnostic.span.start.line == expected_line
-    assert diagnostic.span.end.line == expected_line
-    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "entry")
+    assert diagnostic.code == "collection_element_type_unsupported"
+    assert diagnostic.span == provider.span
+    assert diagnostic.form_path == provider.form_path
 
 
-def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path: Path) -> None:
-    workflow_path = _write_module(
-        tmp_path / "phase_targets_swapped.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule phase_targets_swapped)",
-                "  (import std/phase :only (with-phase))",
-                "  (defenum BlockerClass",
-                "    missing_resource)",
-                "  (defenum ImplementationStateTag",
-                "    COMPLETED",
-                "    BLOCKED)",
-                "  (defpath DesignDocPath",
-                "    :kind relpath",
-                '    :under "docs/design"',
-                "    :must-exist true)",
-                "  (defpath PlanDocPath",
-                "    :kind relpath",
-                '    :under "docs/plans"',
-                "    :must-exist true)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defpath WorkReportTarget",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defpath ImplementationStateBundlePath",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist false)",
-                "  (defrecord ImplementationAttemptInputs",
-                "    (design DesignDocPath)",
-                "    (plan PlanDocPath))",
-                "  (defrecord ImplementationAttemptPhaseCtx",
-                "    (implementation_state_bundle_path ImplementationStateBundlePath)",
-                "    (execution_report_target WorkReportTarget)",
-                "    (progress_report_target WorkReportTarget))",
-                "  (defunion ImplementationAttempt",
-                "    (COMPLETED",
-                "      (implementation_state ImplementationStateTag)",
-                "      (execution_report_path WorkReport))",
-                "    (BLOCKED",
-                "      (implementation_state ImplementationStateTag)",
-                "      (progress_report_path WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defrecord ImplementationAttemptSurfaceResult",
-                "    (implementation_state ImplementationStateTag)",
-                "    (implementation_state_bundle_path ImplementationStateBundlePath))",
-                "  (defworkflow run-implementation-attempt",
-                "    ((phase-ctx ImplementationAttemptPhaseCtx)",
-                "     (inputs ImplementationAttemptInputs))",
-                "    -> ImplementationAttemptSurfaceResult",
-                "    (with-phase phase-ctx implementation",
-                "      (let* ((attempt",
-                "               (provider-result providers.execute",
-                "                 :prompt prompts.implementation.execute",
-                "                 :inputs (inputs.design",
-                "                          inputs.plan",
-                "                          (phase-target progress-report)",
-                "                          (phase-target execution-report))",
-                "                 :returns ImplementationAttempt)))",
-                "        (match attempt",
-                "          ((COMPLETED completed)",
-                "           (record ImplementationAttemptSurfaceResult",
-                "             :implementation_state completed.implementation_state",
-                "             :implementation_state_bundle_path",
-                "               phase-ctx.implementation_state_bundle_path))",
-                "          ((BLOCKED blocked)",
-                "           (record ImplementationAttemptSurfaceResult",
-                "             :implementation_state blocked.implementation_state",
-                "             :implementation_state_bundle_path",
-                "               phase-ctx.implementation_state_bundle_path)))))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        workflow_path,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    typed_inputs = result.lowered_workflows[0].authored_mapping["steps"][0][
-        "typed_prompt_inputs"
-    ]
-    typed_by_name = {value["binding_name"]: value for value in typed_inputs}
-
-    assert typed_by_name["execution_report_target"]["value_source"] == {
-        "kind": "typed_binding_ref",
-        "binding": {"ref": "inputs.phase-ctx__execution_report_target"},
-    }
-    assert typed_by_name["progress_report_target"]["value_source"] == {
-        "kind": "typed_binding_ref",
-        "binding": {"ref": "inputs.phase-ctx__progress_report_target"},
-    }
-
-
-def test_compile_stage3_module_labels_phase_prompt_hidden_inputs_distinct_from_write_roots(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        PHASE_STDLIB_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered_by_name = {
-        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]: workflow
-        for workflow in result.lowered_workflows
-    }
-
-    for workflow_name in ("run-provider-phase-demo", "produce-one-of-demo"):
-        lowered = lowered_by_name[workflow_name]
-        projection = lowered.boundary_projection
-        qualified_name = lowered.typed_workflow.definition.name
-        assert projection.generated_internal_inputs
-        phase_prompt_inputs = {
-            item.generated_name: item.reason
-            for item in projection.generated_internal_inputs
-            if item.reason == "phase_prompt_transport"
-        }
-        assert phase_prompt_inputs == {
-            f"__phase_prompt__{qualified_name}__attempt__execution_report_target": "phase_prompt_transport",
-            f"__phase_prompt__{qualified_name}__attempt__progress_report_target": "phase_prompt_transport",
-        }
-
-
-def test_compile_stage3_entrypoint_coexists_with_explicit_imported_bundles(tmp_path: Path) -> None:
-    compile_entrypoint = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
-    assert callable(compile_entrypoint), "compile_stage3_entrypoint is missing"
-
+def test_stage3_entrypoint_coexists_with_explicit_imported_typed_program(tmp_path: Path) -> None:
     imported_bundle_source = tmp_path / "selector_run.orc"
     imported_bundle_source.write_text(
         "\n".join(
@@ -8371,348 +2488,23 @@ def test_compile_stage3_entrypoint_coexists_with_explicit_imported_bundles(tmp_p
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
         validate_shared=True,
         workspace_root=tmp_path,
-    ).validated_bundles["selector-run"]
+    )
+    imported_program = _select_and_finalize_typed_program(imported_bundle,
+        entry_path=imported_bundle_source, entry_workflow="selector-run")
 
     source_root = MODULE_FIXTURES / "valid" / "imported_bundle_mix"
-    result = compile_entrypoint(
+    result = compile_stage3_entrypoint(
         source_root / "neurips" / "entry.orc",
         source_roots=(source_root,),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        imported_workflow_bundles={"selector-run": imported_bundle},
+        imported_programs={"selector-run": imported_program},
         validate_shared=True,
         workspace_root=tmp_path,
     )
 
     assert "selector-run" in result.entry_result.workflow_catalog.signatures_by_name
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
-
-
-def test_origin_map_assigns_stable_origin_keys_and_validation_subject_bindings(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    command_checks = next(
-        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    origin_map = command_checks.origin_map
-
-    assert origin_map.workflow_origin.origin_key
-    assert all(origin.origin_key for origin in origin_map.step_spans.values())
-    assert all(origin.origin_key for origin in origin_map.authored_input_spans.values())
-    assert all(origin.origin_key for origin in origin_map.internal_input_spans.values())
-    assert all(origin.origin_key for origin in origin_map.generated_output_spans.values())
-    assert all(origin.origin_key for origin in origin_map.generated_path_spans.values())
-    assert {
-        binding.subject_ref.subject_kind for binding in origin_map.validation_subject_bindings
-    } >= {"workflow", "step_id", "generated_input", "generated_output", "generated_path"}
-
-
-def test_source_map_remap_prefers_structured_validation_subject_refs(tmp_path: Path) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
-
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    command_checks = next(
-        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    report_path_origin = next(
-        origin
-        for name, origin in command_checks.origin_map.authored_input_spans.items()
-        if name.endswith("report_path")
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        raise_remapped(
-            command_checks,
-            [
-                ValidationError(
-                    "structured subject ref should win even when the message has no generated names",
-                    subject_refs=(
-                        ValidationSubjectRef(
-                            subject_kind="generated_input",
-                            subject_name=next(
-                                name
-                                for name in command_checks.origin_map.authored_input_spans
-                                if name.endswith("report_path")
-                            ),
-                            workflow_name=command_checks.typed_workflow.definition.name,
-                        ),
-                    ),
-                )
-            ],
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.span == report_path_origin.span
-    assert diagnostic.form_path == report_path_origin.form_path
-    assert diagnostic.diagnostic_kind == "validation"
-    assert diagnostic.validation_pass == "shared_validation"
-    assert diagnostic.authority_layer == "shared_validation"
-
-
-def test_source_map_remap_adds_compatibility_note_for_message_fallback(tmp_path: Path) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
-
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    command_checks = next(
-        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    generated_step_id = next(iter(command_checks.origin_map.step_spans))
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        raise_remapped(
-            command_checks,
-            [
-                ValidationError(
-                    f"Step '{generated_step_id}': workflow_call_version_mismatch for imported workflow boundary",
-                )
-            ],
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_call_version_mismatch"
-    assert diagnostic.validation_pass == "shared_validation"
-    assert diagnostic.authority_layer == "shared_validation"
-    assert any("message text fallback" in note for note in diagnostic.notes)
-
-
-def test_source_map_remap_reports_missing_structured_subject_bindings(tmp_path: Path) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
-
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        raise_remapped(
-            next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"),
-            [
-                ValidationError(
-                    "subject ref is present but should not silently fall back to the workflow origin",
-                    subject_refs=(
-                        ValidationSubjectRef(
-                            subject_kind="generated_input",
-                            subject_name="missing_input",
-                            workflow_name="command_checks",
-                        ),
-                    ),
-                )
-            ],
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "source_map_validation_ref_missing"
-    assert diagnostic.validation_pass == "source_map"
-    assert diagnostic.authority_layer == "frontend"
-
-
-def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_refs_from_loader(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
-
-    result = compile_stage3_module(
-        REMAP_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    lowered = result.lowered_workflows[0]
-    captured_errors: list[ValidationError] = []
-
-    def capture_errors(lowered_workflow, errors):
-        del lowered_workflow
-        captured_errors.extend(errors)
-        raise RuntimeError("captured shared validation errors")
-
-    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
-
-    with pytest.raises(RuntimeError, match="captured shared validation errors"):
-        validate_one(
-            lowered,
-            workspace_root=tmp_path,
-            imported_bundles={},
-            workflow_is_imported=False,
-            boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-        )
-
-    assert [error.message for error in captured_errors] == [
-        "inputs.report_path.under: parent directory traversal ('..') not allowed",
-        "Step 'escaped-summary__run_checks': output_bundle.fields[1] under: parent directory traversal ('..') not allowed",
-        "outputs.return__report.under: parent directory traversal ('..') not allowed",
-    ]
-    assert [
-        tuple(
-            (ref.subject_kind, ref.subject_name, ref.workflow_name)
-            for ref in error.subject_refs
-        )
-        for error in captured_errors
-    ] == [
-        (("generated_input", "report_path", "escaped-summary"),),
-        (("step_id", "escaped-summary__run_checks", "escaped-summary"),),
-        (("generated_output", "return__report", "escaped-summary"),),
-    ]
-
-
-def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_refs_for_output_refs(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
-
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    command_checks = next(
-        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    broken_outputs = dict(command_checks.authored_mapping["outputs"])
-    broken_report = dict(broken_outputs["return__report"])
-    broken_report["from"] = {"ref": "bad.ref"}
-    broken_outputs["return__report"] = broken_report
-    broken_workflow = replace(
-        command_checks,
-        authored_mapping={**dict(command_checks.authored_mapping), "outputs": broken_outputs},
-    )
-    captured_errors: list[ValidationError] = []
-
-    def capture_errors(lowered_workflow, errors):
-        del lowered_workflow
-        captured_errors.extend(errors)
-        raise RuntimeError("captured shared validation errors")
-
-    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
-
-    with pytest.raises(RuntimeError, match="captured shared validation errors"):
-        validate_one(
-            broken_workflow,
-            workspace_root=tmp_path,
-            imported_bundles={},
-            workflow_is_imported=False,
-            boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-        )
-
-    assert [error.message for error in captured_errors] == [
-        "outputs.return__report.from must reference root.steps.*",
-    ]
-    assert [
-        tuple(
-            (ref.subject_kind, ref.subject_name, ref.workflow_name)
-            for ref in error.subject_refs
-        )
-        for error in captured_errors
-    ] == [
-        (("generated_output", "return__report", "command_checks"),),
-    ]
-
-
-def test_validate_one_lowered_workflow_preserves_compatibility_bridge_inputs(
-    tmp_path: Path,
-) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
-
-    result = compile_stage3_module(
-        STRUCTURED_RESULTS_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    lowered = replace(
-        result.lowered_workflows[0],
-        compatibility_bridge_inputs=("compatibility__legacy_state_root",),
-    )
-
-    bundle = validate_one(
-        lowered,
-        workspace_root=tmp_path,
-        imported_bundles={},
-        workflow_is_imported=False,
-        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-    )
-    boundary = loaded_bundle_helpers.workflow_boundary_projection(bundle)
-
-    assert bundle.provenance.compatibility_bridge_inputs == (
-        "compatibility__legacy_state_root",
-    )
-    assert boundary.private_compatibility_bridge_inputs == (
-        "compatibility__legacy_state_root",
-    )
 
 
 def test_compile_stage3_module_normalizes_function_calls_before_lowering(tmp_path: Path) -> None:
@@ -8722,17 +2514,8 @@ def test_compile_stage3_module_normalizes_function_calls_before_lowering(tmp_pat
         workspace_root=tmp_path,
     )
 
-    def walk(node: object):
-        yield node
-        if is_dataclass(node):
-            for field in fields(node):
-                yield from walk(getattr(node, field.name))
-            return
-        if isinstance(node, tuple):
-            for item in node:
-                yield from walk(item)
-
-    assert all(type(node).__name__ != "FunctionCallExpr" for node in walk(result.typed_workflows[0].typed_body))
+    assert all(type(node).__name__ != "FunctionCallExpr"
+        for node in _walk_dataclass_values(result.typed_workflows[0].typed_body))
 
 
 def test_compile_stage3_module_supports_helper_match_after_provider_binding(tmp_path: Path) -> None:
@@ -8846,415 +2629,6 @@ def test_compile_stage3_module_supports_helper_alias_then_match_lowering(tmp_pat
     assert result.typed_workflows[0].definition.name == "orchestrate"
 
 
-def test_compile_stage3_module_supports_match_binding_followed_by_effectful_binding(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "match_binding_then_effectful_binding.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord AttemptReport",
-                "    (report WorkReport))",
-                "  (defrecord FinalReport",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow orchestrate",
-                "    ((report_path WorkReport))",
-                "    -> FinalReport",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationState))",
-                "            (alias attempt)",
-                "            (attempt-report",
-                "             (match alias",
-                "               ((COMPLETED completed)",
-                "                (provider-result providers.execute",
-                "                  :prompt prompts.implementation.execute",
-                "                  :inputs (completed.execution_report)",
-                "                  :returns AttemptReport))",
-                "               ((BLOCKED blocked)",
-                "                (provider-result providers.execute",
-                "                  :prompt prompts.implementation.execute",
-                "                  :inputs (blocked.progress_report)",
-                "                  :returns AttemptReport))))",
-                "            (final-report",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (attempt-report.report)",
-                "               :returns FinalReport)))",
-                "      final-report)))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-
-    assert [step.get("provider") if "provider" in step else "match" for step in lowered["steps"]] == [
-        "test-provider",
-        "match",
-        "test-provider",
-    ]
-    assert lowered["steps"][1]["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
-    assert lowered["steps"][1]["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
-    assert lowered["steps"][2]["provider"] == "test-provider"
-    assert lowered["steps"][2]["output_bundle"]["fields"][0]["name"] == "report"
-
-
-def test_compile_stage3_module_rejects_match_binding_without_step_backed_subject(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "match_binding_requires_step_backed_subject.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord AttemptReport",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass)))",
-                "  (defworkflow orchestrate",
-                "    ((report_path WorkReport)",
-                "     (reuse_attempt Bool))",
-                "    -> AttemptReport",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report_path)",
-                "               :returns ImplementationState))",
-                "            (attempt-report",
-                "             (match (if reuse_attempt attempt attempt)",
-                "               ((COMPLETED completed)",
-                "                (provider-result providers.execute",
-                  "                  :prompt prompts.implementation.execute",
-                "                  :inputs (completed.execution_report)",
-                "                  :returns AttemptReport))",
-                "               ((BLOCKED blocked)",
-                "                (provider-result providers.execute",
-                "                  :prompt prompts.implementation.execute",
-                "                  :inputs (blocked.progress_report)",
-                "                  :returns AttemptReport)))))",
-                "      attempt-report)))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_return_not_exportable"
-    assert "step-backed let* bindings" in diagnostic.message
-
-
-def test_lower_workflow_definitions_specialize_same_file_workflow_ref_calls(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        WORKFLOW_REF_FIXTURE,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
-    call_step = entry.authored_mapping["steps"][0]
-
-    assert call_step["call"] != "call-runner"
-    assert call_step["call"].startswith("call-runner")
-
-
-def test_lower_workflow_definitions_reuse_workflow_ref_specialized_procedure_private_workflow_calls(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "workflow_ref_private_procedure.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defworkflow echo-helper",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" input.report)',
-                "      :returns WorkflowOutput))",
-                "  (defproc invoke-runner",
-                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
-                "     (input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    :effects ((calls-workflow runner))",
-                "    :lowering auto",
-                "    (call runner",
-                "      :input input))",
-                "  (defworkflow first",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (invoke-runner echo-helper input))",
-                "  (defworkflow second",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (invoke-runner echo-helper input)))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    private_workflows = [
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.startswith("%workflow_ref_private_procedure.")
-    ]
-    assert len(private_workflows) == 1
-
-    private_name = private_workflows[0].typed_workflow.definition.name
-    assert "invoke-runner__spec__runner__echo_helper" in private_name
-
-    first = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "first")
-    second = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "second")
-
-    assert first.authored_mapping["steps"][0]["call"] == private_name
-    assert second.authored_mapping["steps"][0]["call"] == private_name
-
-
-def test_lower_workflow_definitions_eliminate_unresolved_proc_ref_targets(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        PROC_REF_BIND_PROC_FIXTURE,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
-    assert not any(step.get("call") == "runner" for step in entry.authored_mapping["steps"])
-    assert "runner" not in entry.authored_mapping["inputs"]
-
-
-def test_lowering_let_proc_reuses_generated_hidden_procedure_path(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        LET_PROC_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    generated = next(
-        procedure for procedure in result.typed_procedures if procedure.definition.name.startswith("%let-proc.")
-    )
-
-    assert all(
-        generated.definition.name != step.get("call")
-        for workflow in result.lowered_workflows
-        for step in workflow.authored_mapping.get("steps", [])
-    )
-
-
-def test_lower_workflow_definitions_reuse_proc_ref_specialized_private_workflows(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "proc_ref_private_reuse.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defproc helper",
-                "    ((fixed String)",
-                "     (input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    :effects ((uses-command run_checks))",
-                "    :lowering private-workflow",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" input.report fixed)',
-                "      :returns WorkflowOutput))",
-                "  (defworkflow first",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (let* ((runner (bind-proc (proc-ref helper)",
-                "                      :fixed \"same\")))",
-                "      (runner input)))",
-                "  (defworkflow second",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (let* ((runner (bind-proc (proc-ref helper)",
-                "                      :fixed \"same\")))",
-                "      (runner input))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    first = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "first")
-    second = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "second")
-    private_name = first.authored_mapping["steps"][0]["call"]
-
-    assert private_name == second.authored_mapping["steps"][0]["call"]
-    assert private_name.startswith("%")
-
-
-def test_lower_workflow_definitions_reuse_proc_ref_specializations_regardless_of_keyword_order(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "proc_ref_private_reuse_keyword_order.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defproc helper",
-                "    ((prefix String)",
-                "     (suffix String)",
-                "     (input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    :effects ((uses-command run_checks))",
-                "    :lowering private-workflow",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py" prefix input.report suffix)',
-                "      :returns WorkflowOutput))",
-                "  (defworkflow first",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (let* ((runner (bind-proc (proc-ref helper)",
-                '                      :prefix "pre"',
-                '                      :suffix "post")))',
-                "      (runner input)))",
-                "  (defworkflow second",
-                "    ((input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (let* ((runner (bind-proc (proc-ref helper)",
-                '                      :suffix "post"',
-                '                      :prefix "pre")))',
-                "      (runner input))))",
-            ]
-        ),
-    )
-
-    result = compile_stage3_module(
-        path,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    first = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "first")
-    second = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "second")
-    private_name = first.authored_mapping["steps"][0]["call"]
-    proc_ref_specializations = [
-        procedure.definition.name
-        for procedure in result.typed_procedures
-        if procedure.definition.name.startswith("%proc-ref.helper.")
-    ]
-
-    assert private_name == second.authored_mapping["steps"][0]["call"]
-    assert len(proc_ref_specializations) == 1
-
-
 def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with_shared_lexical_names(
     tmp_path: Path,
 ) -> None:
@@ -9337,137 +2711,3 @@ def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with
 
     assert len(forwarded_specializations) == 2
     assert bound_runner_targets == {"helper-a", "helper-b"}
-
-
-def test_lower_workflow_definitions_preserve_proc_ref_provenance_notes(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        PROC_REF_BIND_PROC_FIXTURE,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
-    notes = tuple(
-        note
-        for origin in entry.origin_map.step_spans.values()
-        for note in origin.notes
-    )
-
-    assert any("proc-ref" in note for note in notes)
-    assert any("bind-proc" in note for note in notes)
-
-
-def test_lower_workflow_definitions_preserve_let_proc_provenance_notes(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        LET_PROC_FIXTURE,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
-    notes = tuple(note for origin in entry.origin_map.step_spans.values() for note in origin.notes)
-
-    assert any("let-proc" in note for note in notes)
-    assert any("signature" in note and "WorkflowInput" in note and "WorkflowOutput" in note for note in notes)
-    assert any("(proc-ref run-local)" in note for note in notes)
-
-
-def test_compile_stage3_module_renders_helper_provenance_notes_for_shared_validation_errors(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "helper_shared_validation_remap.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath EscapedReport",
-                "    :kind relpath",
-                '    :under "../escape"',
-                "    :must-exist true)",
-                "  (defrecord EscapedSummary",
-                "    (report EscapedReport))",
-                "  (defun summarize",
-                "    ((report_path EscapedReport))",
-                "    -> EscapedSummary",
-                "    (record EscapedSummary",
-                "      :report report_path))",
-                "  (defworkflow orchestrate",
-                "    ((report_path EscapedReport))",
-                "    -> EscapedSummary",
-                "    (summarize report_path)))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    rendered = render_diagnostic(excinfo.value.diagnostics[0])
-
-    assert "helper call site at" in rendered
-    assert "helper definition at" in rendered
-
-
-def test_lowered_mapping_version_follows_source_module_target_dsl(tmp_path: Path) -> None:
-    """Compiled executable mappings carry the source module's target DSL version."""
-    workflow_path = _write_module(
-        tmp_path / "target_dsl_215_minimal.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ImplementationSummary",
-                "    (report WorkReport))",
-                "  (defworkflow choose-report",
-                "    ((ready Bool)",
-                "     (report_path WorkReport)",
-                "     (fallback_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (if ready",
-                "      (record ImplementationSummary",
-                "        :report report_path)",
-                "      (record ImplementationSummary",
-                "        :report fallback_path))))",
-            ]
-        ),
-    )
-
-    classic_result = compile_stage3_module(
-        workflow_path,
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    wcc_result = compile_stage3_module(
-        workflow_path,
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route=LoweringRoute.WCC_M4,
-    )
-
-    assert classic_result.lowered_workflows[0].authored_mapping["version"] == "2.15"
-    assert wcc_result.lowered_workflows[0].authored_mapping["version"] == "2.15"

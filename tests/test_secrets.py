@@ -3,17 +3,14 @@ Tests for secrets handling system.
 Validates AT-41,42,54,55: Secrets handling, masking, and precedence.
 """
 
-import json
 import os
-import pytest
-from pathlib import Path
 from unittest.mock import Mock, patch
 
-from orchestrator.security.secrets import SecretsManager, SecretsContext, SecretsMaskingFilter
+from orchestrator.security.secrets import (
+    SecretsManager,
+    SecretsMaskingFilter,
+)
 from orchestrator.exec.step_executor import StepExecutor
-from tests.workflow_fixture_loader import WorkflowLoader
-from orchestrator.exceptions import WorkflowValidationError
-from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
 class TestSecretsManager:
@@ -231,137 +228,4 @@ class TestStepExecutorWithSecrets:
             assert 'original' not in result.capture_result.output
 
 
-class TestWorkflowLoaderSecrets:
-    """Test workflow loader validation for secrets."""
-
-    def test_workflow_accepts_secrets_field(self, tmp_path):
-        """Test that workflow loader accepts secrets field."""
-        loader = WorkflowLoader(tmp_path)
-
-        workflow = {
-            'version': '1.1',
-            'name': 'test',
-            'secrets': ['DB_PASSWORD', 'API_KEY'],
-            'steps': [
-                {'name': 'step1', 'command': 'echo test'}
-            ]
-        }
-
-        # Write workflow
-        workflow_path = tmp_path / 'workflow.yaml'
-        with open(workflow_path, 'w') as f:
-            json.dump(workflow, f)
-
-        # Should load without errors
-        loaded = loader.load(workflow_path)
-        assert thaw_surface_workflow(loaded)['secrets'] == ['DB_PASSWORD', 'API_KEY']
-
-    def test_secrets_validation_rejects_non_list(self, tmp_path):
-        """Test that secrets must be a list."""
-        loader = WorkflowLoader(tmp_path)
-
-        workflow = {
-            'version': '1.1',
-            'name': 'test',
-            'secrets': 'not_a_list',  # Invalid
-            'steps': [
-                {'name': 'step1', 'command': 'echo test'}
-            ]
-        }
-
-        # Write workflow
-        workflow_path = tmp_path / 'workflow.yaml'
-        with open(workflow_path, 'w') as f:
-            json.dump(workflow, f)
-
-        # Should fail validation
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            loader.load(workflow_path)
-        assert exc_info.value.exit_code == 2
-
-    def test_secrets_validation_rejects_empty_names(self, tmp_path):
-        """Test that secret names cannot be empty."""
-        loader = WorkflowLoader(tmp_path)
-
-        workflow = {
-            'version': '1.1',
-            'name': 'test',
-            'secrets': ['VALID_SECRET', ''],  # Empty string invalid
-            'steps': [
-                {'name': 'step1', 'command': 'echo test'}
-            ]
-        }
-
-        # Write workflow
-        workflow_path = tmp_path / 'workflow.yaml'
-        with open(workflow_path, 'w') as f:
-            json.dump(workflow, f)
-
-        # Should fail validation
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            loader.load(workflow_path)
-        assert exc_info.value.exit_code == 2
-
-
 # Integration test demonstrating full flow
-def test_integration_secrets_workflow(tmp_path):
-    """Integration test: workflow with secrets through full execution."""
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executor import WorkflowExecutor
-
-    # Setup environment with some secrets
-    with patch.dict(os.environ, {'DB_PASSWORD': 'secret_db', 'API_KEY': 'key123'}):
-        # Create workflow with secrets
-        workflow = {
-            'version': '1.1',
-            'name': 'secrets_test',
-            'secrets': ['DB_PASSWORD', 'API_KEY'],
-            'steps': [
-                {
-                    'name': 'use_secrets',
-                    'command': 'echo "Connecting with $DB_PASSWORD and $API_KEY"'
-                }
-            ]
-        }
-
-        # Write workflow to file
-        workflow_file = 'test_workflow.yaml'
-        workflow_path = tmp_path / workflow_file
-        with open(workflow_path, 'w') as f:
-            json.dump(workflow, f)
-
-        # Initialize components
-        state_manager = StateManager(tmp_path, backup_enabled=False)
-        state_manager.initialize(workflow_file)
-
-        loaded = WorkflowLoader(tmp_path).load(workflow_path)
-        loaded_workflow = thaw_surface_workflow(loaded)
-        executor = WorkflowExecutor(
-            workflow=loaded,
-            workspace=tmp_path,
-            state_manager=state_manager
-        )
-
-        # Execute step
-        step = loaded_workflow['steps'][0]
-        result = executor.step_executor.execute_command(
-            step_name=step['name'],
-            command=step['command'],
-            secrets=loaded_workflow.get('secrets', [])
-        )
-
-        # Verify execution succeeded
-        assert result.exit_code == 0
-
-        # Verify output is masked
-        assert 'secret_db' not in result.capture_result.output
-        assert 'key123' not in result.capture_result.output
-
-        # Update state (would normally be done by executor)
-        state_manager.update_step(step['name'], result.to_state_dict())
-
-        # Verify state doesn't contain unmasked secrets
-        state = state_manager.state
-        state_str = str(state)
-        assert 'secret_db' not in state_str
-        assert 'key123' not in state_str

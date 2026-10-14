@@ -373,28 +373,6 @@ def test_older_helper_nested_enum_union_and_containers_preserve_source_owners(tm
     assert evaluate_closed_program(restored, {}, effect_handler=command).value == {"status": "seed"}
 
 
-def test_wcc_frontend_reconstruction_retains_aligned_segment_facts(tmp_path):
-    from dataclasses import replace
-    from orchestrator.workflow_lisp.expression_traversal import walk_expr
-    from orchestrator.workflow_lisp.expressions import FieldAccessExpr
-    from orchestrator.workflow_lisp.wcc.model import WccNodeMetadata, WccNameAtom, WccFieldAccessAtom
-    from orchestrator.workflow_lisp.wcc.lower import _inline_expr_from_wcc_value
-    from orchestrator.workflow_lisp.wcc.elaborate import _frontend_expr_from_wcc_value
-    from orchestrator.workflow_lisp.wcc.defunctionalize import _frontend_expr_from_wcc_value_with_env
-    typed = _imported_typed(tmp_path)
-    procedure = next(p for p in typed.procedures.values() if p.specialization is not None)
-    field = next(n for n in walk_expr(procedure.typed_body.expr) if isinstance(n, FieldAccessExpr))
-    metadata = WccNodeMetadata(node_id="field", scope_id="scope", type_ref=procedure.signature.params[0][1],
-                               source_span=field.span, form_path=field.form_path)
-    base = WccNameAtom(metadata=metadata, name=field.base.name)
-    atom = WccFieldAccessAtom(metadata=metadata, base=base, fields=field.fields, shared_field_types=field.shared_field_types)
-    for restored in (_inline_expr_from_wcc_value(atom, {}), _frontend_expr_from_wcc_value(atom),
-                     _frontend_expr_from_wcc_value_with_env(atom, {})):
-        assert restored.shared_field_types == field.shared_field_types
-    prefix = replace(field, base=replace(field.base, name="envelope"), fields=("choice",), shared_field_types=())
-    combined = _frontend_expr_from_wcc_value_with_env(atom, {field.base.name: prefix})
-    assert combined.fields == ("choice", "selection", "item-id")
-    assert combined.shared_field_types == (None, field.shared_field_types[0], None)
 
 
 @pytest.mark.parametrize("flag,expected", [(True, 7), (False, 9)])

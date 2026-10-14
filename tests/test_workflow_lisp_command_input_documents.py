@@ -9,7 +9,6 @@ import pytest
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
-from orchestrator.workflow_lisp.wcc.defunctionalize import _frontend_expr_from_wcc_loop_binding_value
 from orchestrator.workflow_lisp.wcc.model import WccPerform
 from tests.test_workflow_lisp_closed_program_elaboration import _compile_and_elaborate, _let_chain, _walk_wcc
 
@@ -35,16 +34,9 @@ def _perform(body):
 def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields):
     body = _compile_and_elaborate(tmp_path, source=_source(f'(command-result emit :argv ("python" "emit.py") {inputs} :returns String)'), commands=_commands(tmp_path))
     perform = _perform(body)
-    expr = _frontend_expr_from_wcc_loop_binding_value(perform)
-    assert expr.inputs_present is present
     assert perform.operation_payload.get("inputs_present", False) is present
     assert tuple(name for name, _ in perform.operation_payload["adapter_inputs"]) == fields
     assert tuple(arg.value for arg in perform.positional_args) == ("python", "emit.py")
-    assert replace(expr, step_name="copied").inputs_present is present
-    from orchestrator.workflow_lisp.build_manifest_io import _json_data
-    serialized = _json_data(expr)
-    assert serialized.get("inputs_present", False) is present
-    assert ("operand_order" in serialized) is present
 
 
 @pytest.mark.parametrize("first", ["argv", "inputs"])
@@ -61,7 +53,7 @@ def test_operand_effects_follow_reordered_sections_once(tmp_path, first):
     expected = ["number", "text"] if first == "argv" else ["text", "number"]
     assert [call.callee_name.rsplit("::", 1)[-1] for call in calls] == expected
     assert len(calls) == 2
-    assert _frontend_expr_from_wcc_loop_binding_value(_perform(body)).operand_order == (first, "inputs" if first == "argv" else "argv")
+    assert _perform(body).operation_payload["operand_order"] == (first, "inputs" if first == "argv" else "argv")
 
 
 @pytest.mark.parametrize("inputs", ["7", "(message)", '((message "one" "two"))', '((message "one") (message "two"))', '(("" "one"))', '((() "one"))'])
@@ -89,7 +81,7 @@ def test_external_documents_preserve_target_and_mode_refusals(tmp_path, target, 
 
 
 def _adapter_commands(tmp_path, type_name="String"):
-    from tests.test_workflow_lisp_command_adapters import _typed_adapter_manifest_payload
+    from tests.test_workflow_evaluated_command_templates import _typed_adapter_manifest_payload
 
     payload = _typed_adapter_manifest_payload()["normalize_result"]
     payload.update(output_type_name="String", input_signature=[
@@ -115,9 +107,9 @@ def test_checked_recursive_inputs_use_existing_transport_types(tmp_path, type_na
     mode = ':adapter emit' if certified else ':argv ("python" "emit.py")'
     commands = _adapter_commands(tmp_path, type_name) if certified else _commands(tmp_path)
     body = _compile_and_elaborate(tmp_path, source=_source(f'(command-result emit {mode} :inputs ((payload value)) :returns String)', params=f'(value {type_name})', declarations=declarations), commands=commands)
-    expr = _frontend_expr_from_wcc_loop_binding_value(_perform(body))
-    assert tuple(name for name, _ in expr.adapter_inputs) == ("payload",)
-    assert expr.adapter_name == ("emit" if certified else None)
+    payload = _perform(body).operation_payload
+    assert tuple(name for name, _ in payload["adapter_inputs"]) == ("payload",)
+    assert payload["adapter_name"] == ("emit" if certified else None)
 
 
 @pytest.mark.parametrize("certified", [False, True])
@@ -317,7 +309,7 @@ def test_recursive_document_keeps_existing_proc_ref_storage_refusal(tmp_path):
 def _colliding_input_commands(tmp_path, certified):
     if not certified:
         return _commands(tmp_path, ("emit", "one", "two"))
-    from tests.test_workflow_lisp_command_adapters import _typed_adapter_manifest_payload
+    from tests.test_workflow_evaluated_command_templates import _typed_adapter_manifest_payload
 
     payload = _typed_adapter_manifest_payload()["normalize_result"]
     payload.update(output_type_name="String", input_signature=[

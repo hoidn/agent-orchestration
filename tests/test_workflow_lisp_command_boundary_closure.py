@@ -27,8 +27,6 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
 from orchestrator.workflow_lisp.workflows import PromptExtern, ProviderExtern
-from tests.test_workflow_lisp_target_234 import _build as _build_target_234
-from tests.test_workflow_lisp_target_234 import _write_program as _write_target_234_program
 
 
 REVIEW_LOOP_FIXTURE = (
@@ -449,34 +447,4 @@ def test_closure_stays_out_of_legacy_serialization_repr_and_fingerprint() -> Non
     )
     assert _json_data({"closure": ["raw-manifest-data"]}) == {
         "closure": ["raw-manifest-data"]
-    }
-
-
-def test_234_build_artifacts_ignore_an_explicit_closure_manifest_field(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "program"
-    root.mkdir()
-    files = _write_target_234_program(root, "2.34")
-    key_without_closure, without_closure = _build_target_234(
-        files,
-        tmp_path / "out-without-closure",
-    )
-    manifest = json.loads(files["commands"].read_text(encoding="utf-8"))
-    (binding_name,) = manifest
-    manifest[binding_name]["closure"] = ["unused/closure.py"]
-    files["commands"].write_text(json.dumps(manifest), encoding="utf-8")
-    key_with_closure, with_closure = _build_target_234(
-        files,
-        tmp_path / "out-with-closure",
-    )
-
-    assert key_without_closure != key_with_closure
-    assert set(without_closure) == set(with_closure)
-    assert {
-        name: content.replace(key_without_closure.encode(), b"<build-key>")
-        for name, content in without_closure.items()
-    } == {
-        name: content.replace(key_with_closure.encode(), b"<build-key>")
-        for name, content in with_closure.items()
     }

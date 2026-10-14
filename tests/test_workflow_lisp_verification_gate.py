@@ -314,7 +314,7 @@ def test_checked_in_gate_counted_and_later_tranche_suites_are_disjoint() -> None
     assert counted.isdisjoint(later)
 
 
-def test_checked_in_gate_phase_stdlib_counted_suite_names_owner_lane_self_hosting_proof() -> None:
+def test_checked_in_gate_phase_stdlib_retains_typed_import_owner() -> None:
     gate_module = _verification_gate_module()
     gate = gate_module.load_verification_gate(GATE_PATH)
 
@@ -322,9 +322,8 @@ def test_checked_in_gate_phase_stdlib_counted_suite_names_owner_lane_self_hostin
         row for row in gate.counted_suites if row.suite == "tests/test_workflow_lisp_phase_stdlib.py"
     )
 
-    assert "std/phase" in phase_stdlib_row.reason
-    assert "owner-lane" in phase_stdlib_row.reason
-    assert "self-hosting" in phase_stdlib_row.reason
+    assert phase_stdlib_row.scope_class == "tranche_owned_shared"
+    _assert_stage1_compiles("std/phase")
 
 
 def test_checked_in_gate_declares_allowed_value_classes() -> None:
@@ -406,9 +405,10 @@ def test_checked_in_gate_counted_suites_do_not_reference_pending_builtins() -> N
 
 
 def test_iter_checked_in_orc_fixtures_resolves_nested_module_paths() -> None:
-    source = (REPO_ROOT / "tests/test_workflow_lisp_generic_stdlib_composition.py").read_text(
-        encoding="utf-8"
-    )
+    source = '''
+ENTRY = "generic_stdlib_composition/entry.orc"
+HELPER = "generic_stdlib_composition/helper.orc"
+'''
 
     resolved = {path.relative_to(REPO_ROOT).as_posix() for path in _iter_checked_in_orc_fixtures(source)}
 

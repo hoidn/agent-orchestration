@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Callable
@@ -44,6 +45,9 @@ BUGGY = "def add(a, b):\n    return a - b\n"
 CANDIDATES = ("candidates/alpha", "candidates/beta")
 BUNDLE = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"  # R2: differs between routes by rule
 SITE = "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"  # R5: differs between routes by rule
+# The structured-result block's lines before its `- path:` line: the flat route renders the `legacy`
+# delivery, a new evaluated attempt `file/1` (docs/design/provider_result_delivery.md).
+DELIVERY = re.compile(r"^(## (?:Variant )?Output Contract\n)(?:(?!- ).*\n)*(?=- path: )", re.MULTILINE)
 FUTURE = "from __future__ import annotations\n"
 
 SHIM = r'''import json, os, sys
@@ -299,9 +303,10 @@ def r2(request: dict) -> str:
 
 
 def r3(request: dict) -> str:
-    """The prompt with the request's own R2 path, which R3 places in it once, named."""
+    """The prompt with the request's own R2 path, which R3 places in it once, and the delivery
+    lines of its structured-result block, which the routes render differently, named."""
     assert request["prompt"].count(r2(request)) == 1
-    return request["prompt"].replace(r2(request), "<R2>")
+    return DELIVERY.sub(r"\1<delivery>\n", request["prompt"].replace(r2(request), "<R2>"))
 
 
 def request_view(route: Route) -> list[tuple]:

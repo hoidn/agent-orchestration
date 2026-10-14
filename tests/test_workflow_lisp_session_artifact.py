@@ -118,17 +118,6 @@ def _typecheck_session(
     )
 
 
-def _provider_steps(value):
-    found = []
-    if isinstance(value, dict):
-        if "provider" in value:
-            found.append(value)
-        for item in value.values():
-            found.extend(_provider_steps(item))
-    elif isinstance(value, list):
-        for item in value:
-            found.extend(_provider_steps(item))
-    return found
 
 
 def _write_prompt(workspace: Path) -> None:
@@ -186,8 +175,6 @@ def _compile_source(
     )
 
 
-def _workflow_mapping(result):
-    return result.entry_result.lowered_workflows[0].authored_mapping
 
 
 # --- Step 6.1: syntax and typecheck REDs -------------------------------------
@@ -332,57 +319,12 @@ def test_traversal_does_not_visit_session_artifact_spec() -> None:
 # --- Step 6.2: lowering and workflow-level REDs ------------------------------
 
 
-def test_stage3_omitted_clause_remains_transient(tmp_path: Path) -> None:
-    source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.27\") "
-        "(defmodule transient) (export run) "
-        "(defworkflow run () -> String "
-        "(provider-result providers.session :prompt prompts.session "
-        ":inputs () :returns String)))"
-    )
-    result = _compile_source(tmp_path, source, name="transient.orc")
-    mapping = _workflow_mapping(result)
-    provider_step = _provider_steps(mapping)[0]
-    assert "provider_session" not in provider_step
-    assert "artifacts" not in mapping
 
 
-def test_stage3_root_placement_emits_scalar_artifact_and_session_block() -> None:
-    result = _compile_fixture("root.orc")
-    mapping = _workflow_mapping(result)
-    assert mapping["artifacts"] == {
-        "omp_session": {"kind": "scalar", "type": "string"}
-    }
-    provider_step = _provider_steps(mapping)[0]
-    assert provider_step["provider_session"] == {
-        "mode": "fresh",
-        "publish_artifact": "omp_session",
-    }
 
 
-def test_stage3_two_root_sequential_declarations_remain_distinct() -> None:
-    result = _compile_fixture("root_two.orc")
-    mapping = _workflow_mapping(result)
-    assert mapping["artifacts"] == {
-        "omp_session": {"kind": "scalar", "type": "string"},
-        "omp_session_2": {"kind": "scalar", "type": "string"},
-    }
-    publishes = sorted(
-        step["provider_session"]["publish_artifact"]
-        for step in _provider_steps(mapping)
-    )
-    assert publishes == ["omp_session", "omp_session_2"]
 
 
-def test_stage3_collision_rejected_before_registry_mutation() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_fixture("root_collision.orc")
-    diagnostics = excinfo.value.diagnostics
-    assert diagnostics[0].code == "session_artifact_collision"
-    assert diagnostics[0].phase == "lowering"
-    # The first declaration committed; the collision points at the SECOND
-    # declaration (line 15) and no partial registry change is emitted.
-    assert diagnostics[0].span.start.line == 15
 
 
 def test_stage3_target_2_26_rejected() -> None:
@@ -536,28 +478,8 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
     )
 
 
-def test_stage3_unsupported_provider_fails_existing_session_validator() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_fixture(
-            "root.orc",
-            validate_shared=True,
-            provider_externs={"providers.session": "no-such-provider"},
-        )
-    message = excinfo.value.diagnostics[0].message
-    assert "known provider template" in message
 
 
-def test_stage3_wcc_route_lowers_session_artifact() -> None:
-    result = _compile_fixture("root.orc", lowering_route="wcc_m4")
-    mapping = _workflow_mapping(result)
-    assert mapping["artifacts"] == {
-        "omp_session": {"kind": "scalar", "type": "string"}
-    }
-    provider_step = _provider_steps(mapping)[0]
-    assert provider_step["provider_session"] == {
-        "mode": "fresh",
-        "publish_artifact": "omp_session",
-    }
 
 
 def test_stage3_function_placement_rejected_by_purity_enforcement(
@@ -690,71 +612,8 @@ def test_stage3_live_provider_boundary_placement_rejected(
     )
 
 
-def test_stage3_sole_exported_entry_is_eligible_with_prior_private_helper(
-    tmp_path: Path,
-) -> None:
-    source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
-            "  (defmodule entry_selection)",
-            "  (export run)",
-            "  (defworkflow helper () -> String",
-            "    (provider-result providers.session",
-            "      :prompt prompts.session",
-            "      :inputs ()",
-            "      :returns String))",
-            "  (defworkflow run () -> String",
-            "    (provider-result providers.session",
-            "      :prompt prompts.session",
-            "      :inputs ()",
-            "      :session-artifact omp_session",
-            "      :returns String)))",
-        ]
-    )
-    result = _compile_source(tmp_path, source, name="entry_selection.orc")
-    run_mapping = next(
-        lowered.authored_mapping
-        for lowered in result.entry_result.lowered_workflows
-        if lowered.typed_workflow.definition.name.endswith("::run")
-    )
-    assert run_mapping["artifacts"] == {
-        "omp_session": {"kind": "scalar", "type": "string"}
-    }
-    provider_step = next(
-        step for step in run_mapping["steps"] if "provider" in step
-    )
-    assert provider_step["provider_session"] == {
-        "mode": "fresh",
-        "publish_artifact": "omp_session",
-    }
 
 
-def test_stage3_zero_exported_workflows_uses_legacy_fallback(
-    tmp_path: Path,
-) -> None:
-    source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
-            "  (defmodule export_record_only)",
-            "  (export SessionOutcome)",
-            "  (defrecord SessionOutcome (summary String))",
-            "  (defworkflow run () -> String",
-            "    (provider-result providers.session",
-            "      :prompt prompts.session",
-            "      :inputs ()",
-            "      :session-artifact omp_session",
-            "      :returns String)))",
-        ]
-    )
-    result = _compile_source(tmp_path, source, name="export_record_only.orc")
-    mapping = _workflow_mapping(result)
-    assert mapping["artifacts"] == {
-        "omp_session": {"kind": "scalar", "type": "string"}
-    }
 
 
 def test_stage3_two_exports_never_get_implicit_selection(

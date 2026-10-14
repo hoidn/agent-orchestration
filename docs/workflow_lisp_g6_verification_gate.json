@@ -4,42 +4,42 @@
     {
       "suite": "tests/test_workflow_lisp_generic_stdlib_composition.py",
       "scope_class": "proving_surface",
-      "reason": "G5A imported generic stdlib effectful composition proof consumed by G6."
+      "reason": "G5A retained typed imported generic stdlib composition analysis. Original WCC runtime proof is historical; excluded effects gain no evaluated admission."
     },
     {
       "suite": "tests/test_workflow_lisp_procedures.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Cross-cutting defproc, specialization, and lowering guarantees that G6 stdlib procedures compile through."
+      "reason": "Cross-cutting retained defproc, specialization and typed procedure contracts; historical flat lowering/runtime cases are retired."
     },
     {
       "suite": "tests/test_workflow_lisp_modules.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Import/export and builtin stdlib resolution behavior that G6 imported and stdlib modules depend on."
+      "reason": "Retained import/export and builtin stdlib resolution; old-header typed imports do not select a flat executor."
     },
     {
       "suite": "tests/test_workflow_lisp_phase_stdlib.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Landed std/phase review/revise behavior plus the owner-lane self-hosting proof that later phase-form migration and runtime-native drain work consume."
+      "reason": "Retained std/phase typed contracts. Historical owner-lane self-hosting proof remains provenance, not an executable entry or restore requirement."
     },
     {
       "suite": "tests/test_workflow_lisp_macros.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Macro expansion and hygiene guarantees required by stdlib form wrappers."
+      "reason": "Retained macro expansion and hygiene required by typed stdlib form wrappers."
     },
     {
       "suite": "tests/test_workflow_lisp_drain_stdlib.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Parent-owned generic std/drain boundary proof covering the inline repeat_until route, parent terminal reprojection over imported backlog-drain, branch-local omitted-field terminal contract alignment, shared terminal-finalization parity, rich gap-drafter payload carriage, and the preserved imported-route record-only second-parameter contract."
+      "reason": "Retained typed std/drain generic/import boundary and terminal contract alignment. Historical inline repeat_until/checkpoint/runtime reprojection is not current executable evidence."
     },
     {
       "suite": "tests/test_workflow_lisp_resource_stdlib.py",
       "scope_class": "proving_surface",
-      "reason": "G6 std/resource runtime-native finalize route and contract evidence."
+      "reason": "Retained typed std/resource declarations and serialization/service contracts. The runtime-native flat finalize route is retired; no evaluated effect port is selected."
     },
     {
       "suite": "tests/test_workflow_lisp_stdlib_form_migration.py",
       "scope_class": "proving_surface",
-      "reason": "G6 bridge metadata, imported shadowing, and route-accounting evidence for stdlib phase/resource/drain forms."
+      "reason": "Retained stdlib bridge metadata, imported shadowing and typed form resolution. Original flat route-accounting/runtime evidence is historical."
     }
   ],
   "builtin_stdlib_inventory": [

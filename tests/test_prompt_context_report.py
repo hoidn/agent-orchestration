@@ -6,6 +6,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import os
 from typing import Any, Callable
 
 import pytest
@@ -15,7 +16,6 @@ from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 
 REPORT_SCHEMA = "workflow_prompt_context_report.v1"
 V1_SCHEMA = "workflow_prompt_fragment_snapshot.functional.v1"
-V2_SCHEMA = "workflow_prompt_fragment_snapshot.functional.v2"
 PREPARATION_FAILURE_SCHEMA = (
     "workflow_prompt_fragment_preparation_failure.functional.v1"
 )
@@ -36,18 +36,21 @@ def _fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[dict[str, Any], Path, ProviderAttemptScope, dict[str, Any]]:
-    from tests.test_workflow_lisp_prompt_identity_runtime import (
-        _actual_v2_schema_record_and_manager,
+    retained = json.loads(
+        (Path(__file__).parent / "fixtures" / "historical_prompt_identity.json")
+        .read_text(encoding="utf-8")
+        .replace("@WORKSPACE@", str(tmp_path))
     )
-
-    record, manager = _actual_v2_schema_record_and_manager(
-        tmp_path,
-        monkeypatch,
-    )
-    state = manager._read_state_from_disk().to_dict()
-    allocation = next(iter(state["provider_attempt_allocations"].values()))
-    scope = ProviderAttemptScope.from_dict(allocation["scope"])
-    return state, manager.run_root, scope, deepcopy(record)
+    state, record = retained["state"], retained["record"]
+    scope = ProviderAttemptScope.from_dict(record["attempt"]["scope"])
+    root = tmp_path / ".orchestrate" / "runs" / scope.run_id
+    authority = next(iter(state["provider_attempt_allocations"].values()))[
+        "prompt_fragment_identity_schema_version"
+    ]
+    _reset_scope(state, scope, authority=authority)
+    record = _with_ordinal(record, scope, 1)
+    _publish(state, root, scope, 1, record)
+    return state, root, scope, deepcopy(record)
 
 
 def _seal(record: dict[str, Any]) -> dict[str, Any]:
@@ -1088,14 +1091,12 @@ def test_loaded_and_state_only_reports_share_exact_prompt_projection(
 ) -> None:
     from orchestrator.cli.commands.report import _state_only_snapshot
     from orchestrator.observability.report import build_status_snapshot
-    from tests.test_workflow_lisp_prompt_identity_runtime import (
-        _runtime_q3_fixture,
-    )
+    from dataclasses import replace
+    from orchestrator.workflow.state_projection import WorkflowStateProjection
+    from tests.test_persisted_workflow_surface import _bundle
 
     state, root, _scope_value, _v2 = _fixture(tmp_path, monkeypatch)
-    loaded_root = tmp_path / "loaded"
-    loaded_root.mkdir()
-    bundle, _unused_manager = _runtime_q3_fixture(loaded_root)
+    bundle = replace(_bundle("historical"), projection=WorkflowStateProjection({}))
 
     loaded = build_status_snapshot(bundle, state, root)
     state_only = _state_only_snapshot(state, root)
@@ -1150,50 +1151,30 @@ def test_execution_and_resume_do_not_call_prompt_context_projection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from orchestrator.providers.executor import ProviderExecutor
+    from orchestrator.cli.commands.resume import resume_workflow
+    from orchestrator.cli.commands.run import run_workflow
     from orchestrator.workflow import prompt_context_report
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from tests.test_workflow_lisp_prompt_identity_runtime import (
-        _prepared_invocation,
-        _runtime_q3_fixture,
-        _successful_execution,
-    )
+    from tests.test_workflow_evaluated_cli import _run_args
+    from tests.test_workflow_evaluated_providers import _fixture as provider_fixture
 
-    bundle, manager = _runtime_q3_fixture(tmp_path)
-    monkeypatch.setattr(
-        prompt_context_report,
-        "project_prompt_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("runtime must not call report projection")
-        ),
-    )
-    monkeypatch.setattr(
-        ProviderExecutor,
-        "prepare_invocation",
-        lambda _self, *_args, **kwargs: (
-            _prepared_invocation(
-                kwargs["prompt_content"],
-                kwargs.get("env") or {},
-            ),
-            None,
-        ),
-    )
-    monkeypatch.setattr(
-        ProviderExecutor,
-        "execute",
-        lambda _self, invocation, **_kwargs: _successful_execution(
-            tmp_path,
-            invocation,
-        ),
-    )
-    executor = WorkflowExecutor(
-        bundle,
-        tmp_path,
-        manager,
-        retry_delay_ms=0,
-    )
+    source, providers, prompts, _request = provider_fixture(tmp_path)
+    args = _run_args({
+        "source": source, "source_root": tmp_path,
+        "providers": providers, "prompts": prompts,
+    })
+    args.emit_debug_yaml = False
+    args.input = ["message=typed input"]
+    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
 
-    assert executor.execute(on_error="stop")["status"] == "completed"
-    assert executor.execute(resume=True, on_error="stop")["status"] == (
-        "completed"
-    )
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("runtime must not call report projection")
+
+    for name in ("project_prompt_context", "project_prompt_context_v2"):
+        monkeypatch.setattr(prompt_context_report, name, forbidden)
+    monkeypatch.chdir(tmp_path)
+    result = run_workflow(args, run_id="report-independent")
+    assert result.exit_code == 0
+    requests = (tmp_path / "requests.jsonl").read_bytes()
+    assert len(requests.splitlines()) == 1
+    assert resume_workflow("report-independent") == 0
+    assert (tmp_path / "requests.jsonl").read_bytes() == requests

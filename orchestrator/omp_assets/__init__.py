@@ -14,7 +14,6 @@ import os
 
 __all__ = [
     "PRESET_CONF_NAMES",
-    "inference_output_contract_path",
     "neutral_config_path",
     "preset_conf_root",
     "preset_conf_roots",
@@ -44,8 +43,3 @@ def preset_conf_root(name: str) -> str:
 def preset_conf_roots() -> dict[str, str]:
     """All admitted preset conf packages keyed by preset name."""
     return {name: preset_conf_root(name) for name in PRESET_CONF_NAMES}
-
-
-def inference_output_contract_path() -> str:
-    """Absolute path of the ``--output`` inference workflow resource."""
-    return _package_path("infer-output-contract.orc")

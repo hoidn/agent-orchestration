@@ -16,7 +16,6 @@ import hashlib
 import json
 
 import pytest
-from pathlib import Path
 
 from orchestrator.prompt_contract import (
     MAX_TYPE_DEPTH,
@@ -533,54 +532,95 @@ def test_validate_type_node_enforces_max_depth() -> None:
     validate_type_node(admissible)
 
 
-# --- packaged inference workflow: typed task-prompt/output-request inputs ---
+# --- output contract delivery rendering (orchestrator.contracts.prompt_contract) ---
+
+from orchestrator.contracts.prompt_contract import (  # noqa: E402
+    _RELPATH_GUIDANCE,
+    render_output_bundle_contract_block,
+    render_variant_output_contract_block,
+)
+
+_RESULT_PATH = ".orchestrate/runs/run-1/effects/abc/attempt-1/result.json"
+_PATH_LINE = f"- path: {_RESULT_PATH}"
+_RELPATH = {"type": "relpath", "under": "artifacts/work"}
+_SCHEMAS = {
+    "plain": ({"type": "string"}, False),
+    "relpath": (_RELPATH, True),
+    "list": ({"type": "list", "items": _RELPATH}, True),
+    "optional": ({"type": "optional", "item": _RELPATH}, True),
+    "map": ({"type": "map", "keys": {"type": "string"}, "values": _RELPATH}, True),
+    "record": ({"type": "record", "fields": [{"name": "report", **_RELPATH}]}, True),
+    "union": ({
+        "type": "union",
+        "discriminant": {"name": "kind", "type": "enum", "allowed": ["Done"]},
+        "variants": {"Done": {"fields": [{"name": "report", **_RELPATH}]}},
+    }, True),
+    "nested-plain": ({"type": "list", "items": {"type": "record", "fields": [{"name": "n", "type": "integer"}]}}, False),
+}
 
 
-def _compile_inference_asset(workspace: Path):
-    from orchestrator.omp_assets import inference_output_contract_path
-    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-
-    (workspace / "prompt.md").write_text(
-        "synthesize the output contract\n", encoding="utf-8"
-    )
-    entry = workspace / "infer-output-contract.orc"
-    entry.write_text(
-        Path(inference_output_contract_path()).read_text(encoding="utf-8")
-    )
-    return compile_stage3_entrypoint(
-        entry,
-        source_roots=(workspace,),
-        provider_externs={"providers.inference": "omp_conf_inference"},
-        prompt_externs={"prompts.inference": {"asset_file": "prompt.md"}},
-        validate_shared=True,
-        workspace_root=workspace,
-    )
-
-
-def test_inference_asset_declares_typed_string_inputs(tmp_path: Path) -> None:
-    result = _compile_inference_asset(tmp_path)
-    mapping = result.entry_result.lowered_workflows[0].authored_mapping
-    inputs = mapping["inputs"]
-    assert inputs["task_prompt"] == {"kind": "scalar", "type": "string"}
-    assert inputs["output_request"] == {"kind": "scalar", "type": "string"}
-    step = next(s for s in mapping["steps"] if "provider" in s)
-    bindings = {
-        entry["binding_name"]
-        for entry in (step.get("typed_prompt_inputs") or ())
+def _variant(spec, *, shared=False):
+    field = {"name": "item", "json_pointer": "/item", **spec}
+    return {
+        "path": _RESULT_PATH,
+        "discriminant": {"name": "variant", "json_pointer": "/variant", "type": "enum", "allowed": ["Ready", "Skip"]},
+        **({"shared_fields": [field]} if shared else {}),
+        "variants": {
+            "Ready": {"fields": [] if shared else [field]},
+            "Skip": {"fields": [{"name": "reason", "json_pointer": "/reason", "type": "string"}]},
+        },
     }
-    assert bindings == {"task_prompt", "output_request"}
-    # Neutral isolation: transient, no session artifact, internal extern.
-    assert step.get("session_request") is None
-    assert step.get("prompt_consumes") is None
 
 
-def test_inference_asset_output_is_only_output_contract_draft(tmp_path: Path) -> None:
-    result = _compile_inference_asset(tmp_path)
-    mapping = result.entry_result.lowered_workflows[0].authored_mapping
-    outputs = mapping["outputs"]
-    assert set(outputs) == {"return__fields"}
-    fields_spec = outputs["return__fields"]
-    assert fields_spec["type"] == "list"
-    items = fields_spec["items"]
-    assert items["record_name"] == "OutputContractField"
-    assert [f["name"] for f in items["fields"]] == ["name", "type"]
+_SHAPES = {
+    "root": (render_output_bundle_contract_block, "## Output Contract",
+             lambda spec: {"path": _RESULT_PATH, "fields": [{"name": "__result__", "json_pointer": "", **spec}]}),
+    "record": (render_output_bundle_contract_block, "## Output Contract",
+               lambda spec: {"path": _RESULT_PATH, "fields": [
+                   {"name": "ok", "json_pointer": "/ok", "type": "bool"},
+                   {"name": "item", "json_pointer": "/item", **spec}]}),
+    "variant": (render_variant_output_contract_block, "## Variant Output Contract", _variant),
+    "variant-shared": (render_variant_output_contract_block, "## Variant Output Contract",
+                       lambda spec: _variant(spec, shared=True)),
+}
+
+
+def _render(shape, schema, delivery):
+    render, heading, payload = _SHAPES[shape]
+    return heading, render(payload(_SCHEMAS[schema][0]), delivery=delivery)
+
+
+@pytest.mark.parametrize("delivery", ["legacy", "file"])
+@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_contract_block_has_one_path_line_before_its_schema(shape, schema, delivery):
+    heading, rendered = _render(shape, schema, delivery)
+    lines = rendered.splitlines()
+    format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: "))
+    assert lines.count(heading) == 1
+    assert lines.count(_PATH_LINE) == 1 and rendered.count(_RESULT_PATH) == 1
+    assert lines.index(heading) == 0 < lines.index(_PATH_LINE) < format_at
+
+
+@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_file_delivery_changes_only_the_lines_before_the_path_line(shape, schema):
+    _heading, legacy = _render(shape, schema, "legacy")
+    _heading, file = _render(shape, schema, "file")
+    marker = f"\n{_PATH_LINE}\n"
+    assert file[file.index(marker):] == legacy[legacy.index(marker):]
+    assert file[: file.index(marker)] != legacy[: legacy.index(marker)]
+
+
+@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_relpath_guidance_is_unconditional_under_legacy_and_typed_under_file(shape, schema):
+    has_relpath = _SCHEMAS[schema][1]
+    assert _RELPATH_GUIDANCE in _render(shape, schema, "legacy")[1].splitlines()
+    assert (_RELPATH_GUIDANCE in _render(shape, schema, "file")[1].splitlines()) == has_relpath
+
+
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_unknown_delivery_selector_is_rejected(shape):
+    with pytest.raises(ValueError):
+        _render(shape, "plain", "file/1")

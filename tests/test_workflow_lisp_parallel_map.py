@@ -6,8 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from orchestrator.contracts.closed_program import targets
-from orchestrator.workflow import validation
-from orchestrator.workflow.run_ref import bundle_transport, config
+from orchestrator.workflow.run_ref import config
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.build_manifest_io import _json_data
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
@@ -16,7 +15,7 @@ from orchestrator.workflow_lisp.compiler_session import CompilerSession
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.definitions import PathDef
 from orchestrator.workflow_lisp.expression_traversal import free_expr_names, map_expr, iter_child_exprs, stamp_capture_origin
-from orchestrator.workflow_lisp.expressions import LetStarExpr, ListMapEffectExpr, NameExpr, elaborate_expression
+from orchestrator.workflow_lisp.expressions import LetStarExpr, ListMapEffectExpr, elaborate_expression
 from orchestrator.workflow_lisp.functions import _clone_function_expr, _normalize_expr
 from orchestrator.workflow_lisp.conditionals import _normalize_list_map
 from orchestrator.workflow_lisp.procedure_typecheck import _semantic_identity
@@ -61,7 +60,7 @@ def test_parallel_map_keeps_typed_control_and_binder_scope():
     assert expr.body_expr.bindings[0][1].capture_origin is None
 
 
-@pytest.mark.parametrize("registry", [targets.SUPPORTED_TARGET_DSL_VERSIONS, validation.DEFAULT_SUPPORTED_VERSIONS, config._SUPPORTED_TARGET_DSL_VERSIONS, bundle_transport._SUPPORTED_TARGET_DSL_VERSIONS])
+@pytest.mark.parametrize("registry", [targets.SUPPORTED_TARGET_DSL_VERSIONS, config._SUPPORTED_TARGET_DSL_VERSIONS])
 def test_target_237_is_registered(registry):
     assert "2.37" in registry
 
@@ -184,7 +183,6 @@ def test_target_gate_does_not_change_evaluated_minimum():
     assert not syntax.target_dsl_supports_parallel_map("2.36")
     assert syntax.target_dsl_supports_parallel_map("2.37")
     assert syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION == "2.35"
-    assert validation.DEFAULT_VERSION_ORDER[-2:] == ("2.36", "2.37")
 
 
 def test_parallel_map_accepts_positive_one_and_empty_typed_source():

@@ -1,236 +1,252 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import builtins
+
+from copy import deepcopy
+from types import SimpleNamespace, MappingProxyType
+from orchestrator.observability.report import build_status_snapshot, render_status_markdown
+from orchestrator.workflow.run_ref.contracts import canonical_sha256, canonical_json_bytes
+from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
+from orchestrator.workflow.trial.config import build_trial_runtime_request
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.executable_ir import ExecutableWorkflow, ExecutableNodeKind, LeafExecutableNode, WorkflowRegion
+from orchestrator.workflow.state_projection import WorkflowStateProjection, CompatibilityNodeProjection, CompatibilityStepDefinition
+from orchestrator.workflow.surface_ast import SurfaceWorkflow, WorkflowProvenance
+from tests.test_workflow_trial_ledger import _captured_trial_config
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from orchestrator.cli.commands.report import _state_only_snapshot
-from orchestrator.contracts.output_contract import validate_output_bundle
-from orchestrator.observability.report import (
-    build_status_snapshot,
-    render_status_markdown,
-)
-from orchestrator.workflow.run_ref.bundle_transport import (
-    write_bundle_capsule_directory,
-)
-from orchestrator.workflow.run_ref.contracts import (
-    canonical_json_bytes,
-    canonical_sha256,
-)
-from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
-from orchestrator.workflow.run_ref.runtime import (
-    resolve_run_ref_parent_input_values_for_config,
-)
-from orchestrator.workflow.runtime_step import RuntimeStep
-from orchestrator.workflow.trial.adjudication import evaluate_trial_execution
-from orchestrator.workflow.trial.config import build_trial_runtime_request
-from orchestrator.workflow.trial.contracts import (
-    build_sealed_opaque_label_map,
-    derive_trial_cell_effect_scopes,
-)
-from orchestrator.workflow.trial.ledger import initialize_trial_event_ledger
-from orchestrator.workflow.trial.settlement import (
-    commit_trial_parent_settlement,
-    prepare_trial_parent_settlement,
-)
-from tests.test_observability_report import (
-    _load_bundle,
-    _sample_workflow_payload,
-)
-from tests.test_workflow_lisp_trial_lowering import (
-    _build_transportable_trial,
-    _trial_node,
-)
-from tests.test_workflow_trial_adjudication import (
-    _Executor,
-    _blinded_cell_harnesses,
-    _dependencies,
-)
-from tests.test_workflow_trial_runtime import _execute
 
-
-def _trial_authority(tmp_path: Path) -> SimpleNamespace:
-    workspace = (tmp_path / "workspace").resolve()
-    workspace.mkdir(parents=True)
-    built = _build_transportable_trial(
-        workspace,
-        declarations="",
-        type_name="String",
-    )
-    bundle = built.validated_bundle
-    node = _trial_node(built)
-    projection = bundle.projection.entries_by_node_id[node.node_id]
-    step_name = projection.presentation_key
-    step_id = projection.step_id
-    run_id = "parent-run"
-    run_root = (workspace / ".orchestrate" / "runs" / run_id).resolve()
-    run_root.mkdir(parents=True)
-    run_ref_root = (tmp_path / "run-ref-root").resolve()
-    run_ref_root.mkdir()
-    state = {
-        "schema_version": "2.1",
-        "run_id": run_id,
-        "run_root": run_root.as_posix(),
-        "run_ref_root": run_ref_root.as_posix(),
+def test_state_only_trial_report_identifies_kind_without_projecting_or_scanning(
+    tmp_path: Path,
+) -> None:
+    run_dir = (tmp_path / "run").resolve()
+    decoy = run_dir / "trials" / "should-not-be-read"
+    decoy.mkdir(parents=True)
+    (decoy / "authored-arm-id-direct").write_text("secret", encoding="utf-8")
+    active = {
+        "run_id": "run",
         "status": "running",
-        "workflow_file": bundle.provenance.workflow_path.name,
-        "bound_inputs": {"payload": "fixed"},
         "steps": {},
-        "step_visits": {step_name: 1},
         "current_step": {
-            "name": step_name,
-            "step_id": step_id,
+            "name": "Compare",
+            "step_id": "root.compare",
             "type": "trial",
             "status": "running",
             "visit_count": 1,
+            "duration_ms": 999,
+            "output": "active-preview-secret",
+            "debug": {"trace": "active-debug-secret"},
         },
     }
-    step_config = node.execution_config
-    request = build_trial_runtime_request(
-        step_config=step_config,
-        visit=RunRefVisitKey(
-            parent_run_id=run_id,
-            execution_frame_id="root",
-            call_frame_id=None,
-            step_id=step_id,
-            visit_count=1,
+    terminal = {
+        "run_id": "run",
+        "status": "completed",
+        "steps": {
+            "Compare": {
+                "status": "completed",
+                "step_id": "root.compare",
+                "trial": {"outcomes": [{"arm_id": "direct"}]},
+                "duration_ms": 999,
+                "output": "terminal-preview-secret",
+                "artifacts": {
+                    "outcomes": [
+                        {
+                            "value": "candidate-output-secret",
+                            "evidence": {
+                                "workspace_delta": {},
+                                "child_run_id": "child-secret",
+                                "evaluation_label": "evaluation-secret",
+                                "scorer_identity": "scorer-secret",
+                            },
+                        }
+                    ]
+                },
+                "error": {"message": "terminal-error-secret"},
+                "outcome": {"reason": "terminal-outcome-secret"},
+                "debug": {"trace": "terminal-debug-secret"},
+            }
+        },
+        "current_step": None,
+    }
+
+    active_snapshot = _state_only_snapshot(active, run_dir)
+    terminal_snapshot = _state_only_snapshot(terminal, run_dir)
+
+    assert active_snapshot["steps"][0]["kind"] == "trial"
+    assert terminal_snapshot["steps"][0]["kind"] == "trial"
+    assert active_snapshot["steps"][0]["output"] == {}
+    assert terminal_snapshot["steps"][0]["output"] == {}
+    rendered = json.dumps(terminal_snapshot["steps"][0])
+    for forbidden in (
+        "direct",
+        "duration_ms",
+        "candidate-output-secret",
+        "workspace_delta",
+        "child_run_id",
+        "evaluation_label",
+        "scorer_identity",
+        "terminal-preview-secret",
+        "terminal-error-secret",
+        "terminal-outcome-secret",
+        "terminal-debug-secret",
+    ):
+        assert forbidden not in rendered
+
+def test_ordinary_report_does_zero_trial_projection_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ordinary_root = (tmp_path / "ordinary" / "run").resolve()
+    ordinary_root.mkdir(parents=True)
+    imported: list[str] = []
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "orchestrator.workflow.trial.observability":
+            imported.append(name)
+            raise AssertionError("ordinary report imported trial observability")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    snapshot = _state_only_snapshot(
+        {
+            "run_id": "ordinary",
+            "status": "running",
+            "steps": {},
+            "current_step": None,
+        },
+        ordinary_root,
+    )
+
+    assert snapshot["progress"]["total"] == 0
+    assert imported == []
+    assert not (ordinary_root / "trials").exists()
+
+
+def _trial_authority(tmp_path: Path, variant="active") -> SimpleNamespace:
+    fixture_path = Path(__file__).parent / "fixtures" / "historical_trial_observability.json"
+    captured = json.loads(fixture_path.read_text())
+    active = captured["variants"][variant]
+    # Rebase reader locations and allocation paths bound to the ledger location.
+    # Execution results and verdict bytes retain the historical capture.
+    metadata = {key: value for key, value in active.items() if key != "files"}
+    metadata = json.loads(json.dumps(metadata).replace("@WORKSPACE@", str(tmp_path)))
+    config = _captured_trial_config(metadata["config"])
+    info = metadata["bundle"]
+    provenance = WorkflowProvenance(
+        workflow_path=Path(info["workflow_path"]), source_root=Path(info["source_root"]),
+    )
+    node = LeafExecutableNode(
+        node_id=info["node_id"], step_id=info["step_id"],
+        presentation_name=info["display_name"], kind=ExecutableNodeKind.TRIAL,
+        region=WorkflowRegion(info["region"]), lexical_scope=tuple(info["lexical_scope"]),
+        execution_config=config,
+    )
+    entry = CompatibilityNodeProjection(
+        node_id=node.node_id, step_id=node.step_id,
+        presentation_key=info["step_name"], display_name=info["display_name"],
+        region=node.region, compatibility_index=info["compatibility_index"],
+        step_definition=CompatibilityStepDefinition(report_kind="trial"),
+    )
+    bundle = LoadedWorkflowBundle(
+        surface=SurfaceWorkflow(
+            version=info["version"], name=info["name"], steps=(), provenance=provenance,
         ),
-        resolved_inputs_by_arm={
-            arm.arm_id: resolve_run_ref_parent_input_values_for_config(
-                arm.run_ref,
-                state,
-            )
-            for arm in step_config.arms
-        },
+        core_workflow_ast=None, semantic_ir=None,
+        ir=ExecutableWorkflow(
+            schema_version="workflow_executable_ir.v1", version=info["version"],
+            name=info["name"], provenance=provenance, body_region=(node.node_id,),
+            finalization_region=(), finalization_entry_node_id=None,
+            nodes=MappingProxyType({node.node_id: node}),
+        ),
+        projection=WorkflowStateProjection(
+            entries_by_node_id=MappingProxyType({node.node_id: entry}),
+            node_id_by_compatibility_index=MappingProxyType({entry.compatibility_index: node.node_id}),
+            compatibility_index_by_node_id=MappingProxyType({node.node_id: entry.compatibility_index}),
+            presentation_key_by_node_id=MappingProxyType({node.node_id: entry.presentation_key}),
+            node_id_by_step_id=MappingProxyType({node.step_id: node.node_id}),
+        ),
+        runtime_plan=None, imports=MappingProxyType({}), provenance=provenance,
     )
-    scopes = derive_trial_cell_effect_scopes(
-        request=request,
-        parent_run_root=run_root,
-        run_ref_root=run_ref_root,
+    request = build_trial_runtime_request(
+        step_config=config, visit=RunRefVisitKey("parent-run", "root", None, node.step_id, 1),
+        resolved_inputs_by_arm={"direct": {"payload": "fixed"}, "orc": {"payload": "fixed"}},
     )
-    sealed = build_sealed_opaque_label_map(
-        request.cell_domain,
-        salt=b"trial-observability-fixture-salt-v1",
-    )
-    capsule_dir = (tmp_path / "capsule").resolve()
-    assert built.run_ref_bundle_capsule is not None
-    write_bundle_capsule_directory(capsule_dir, built.run_ref_bundle_capsule)
+    for key in ("workspace", "run_root", "run_ref_root"):
+        Path(metadata[key]).mkdir(parents=True, exist_ok=True)
     return SimpleNamespace(
-        bundle=bundle,
-        node=node,
-        step_name=step_name,
-        step_id=step_id,
-        state=state,
-        workspace=workspace,
-        run_root=run_root,
-        run_ref_root=run_ref_root,
-        request=request,
-        scopes=scopes,
-        sealed=sealed,
-        capsule_dir=capsule_dir,
+        bundle=bundle, step_name=info["step_name"], step_id=node.step_id,
+        state=metadata["state"], workspace=Path(metadata["workspace"]),
+        run_root=Path(metadata["run_root"]), run_ref_root=Path(metadata["run_ref_root"]),
+        request=request, captured=captured, fixture_root=tmp_path,
     )
 
+def _rebase_captured_ledger(content, path):
+    rows = [json.loads(line) for line in content.splitlines()]
+    replacements = {}
+    rewritten = []
+    for original in rows:
+        encoded = json.dumps(original)
+        for old, new in replacements.items():
+            encoded = encoded.replace(old, new)
+        row = json.loads(encoded)
+        payload = row["payload"]
+        if row["kind"] == "cell_allocated":
+            cell = payload["cell"]
+            domain = rows[0]["payload"]["cell_domain"]
+            effect_root = path.parent / f"cell-{domain.index(cell) + 1:04d}" / "e1"
+            payload["effect_instance_root"] = str(effect_root)
+            payload["e1_ledger_path"] = str(effect_root / "run-ref-attempts.jsonl")
+        if row["kind"] == "evidence_frozen":
+            old = original["payload"]["evidence_set_digest"]
+            payload["evidence_set_digest"] = canonical_sha256(payload["cell_evidence"])
+            replacements[old] = payload["evidence_set_digest"]
+        if row["kind"] == "scores_frozen":
+            old = original["payload"]["score_set_digest"]
+            payload["score_set_digest"] = canonical_sha256(payload["scores"])
+            replacements[old] = payload["score_set_digest"]
+        if row["kind"] == "aggregation_frozen":
+            header = rows[0]["payload"]
+            scores = next(r for r in rewritten if r["kind"] == "scores_frozen")
+            authority = {key: payload[key] for key in (
+                "scores_frozen_row_digest", "sealed_opaque_label_map_digest",
+                "final_outcomes_digest",
+            )}
+            authority.update(
+                evaluation_digest=header["evaluation_digest"],
+                score_set_digest=scores["payload"]["score_set_digest"],
+            )
+            payload["aggregation_input_digest"] = canonical_sha256(authority)
+        row.pop("row_digest")
+        row["row_digest"] = canonical_sha256(row)
+        replacements[original["row_digest"]] = row["row_digest"]
+        rewritten.append(row)
+    return b"".join(canonical_json_bytes(row) + b"\n" for row in rewritten).decode()
 
-def _initialize_active_trial(authority: SimpleNamespace) -> Path:
-    initialized = initialize_trial_event_ledger(
-        request=authority.request,
-        sealed_opaque_labels=authority.sealed,
-        cell_scopes=authority.scopes,
-        recorded_at="2026-08-02T00:00:00.000000Z",
-    )
-    return initialized.path
+def _write_captured_trial(authority, variant):
+    captured = authority.captured["variants"][variant]
+    for relative, content in captured["files"].items():
+        path = authority.fixture_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.name == "trial-events.jsonl":
+            content = _rebase_captured_ledger(content, path)
+        path.write_text(content)
+    metadata = {k: v for k, v in captured.items() if k != "files"}
+    metadata = json.loads(json.dumps(metadata).replace("@WORKSPACE@", str(authority.fixture_root)))
+    return metadata["state"], Path(metadata["ledger_path"])
 
+def _initialize_active_trial(authority):
+    _state, path = _write_captured_trial(authority, "active")
+    return path
 
-def _terminal_trial(
-    authority: SimpleNamespace,
-    *,
-    commit_parent: bool,
-) -> tuple[dict[str, object], Path]:
-    fixture = {
-        "request": authority.request,
-        "parent_state": authority.state,
-        "parent_workspace": authority.workspace,
-        "parent_run_root": authority.run_root,
-        "run_ref_root": authority.run_ref_root,
-        "capsule_dir": authority.capsule_dir,
-        "scopes": authority.scopes,
-        "sealed": authority.sealed,
-    }
-    execution = _execute(fixture, _blinded_cell_harnesses())
-    dependencies, _ = _dependencies(_Executor())
-    adjudicated = evaluate_trial_execution(
-        authority.request,
-        execution,
-        parent_workspace=authority.workspace,
-        dependencies=dependencies,
-    )
-    envelope = {
-        "outcomes": list(adjudicated.authored_outcomes),
-        "verdict": adjudicated.verdict,
-        "verdict_artifact": adjudicated.verdict_artifact.relpath,
-    }
-    prepared = prepare_trial_parent_settlement(
-        execution.ledger_path,
-        request=authority.request,
-        parent_workspace=authority.workspace,
-        result_envelope=envelope,
-    )
-    output_path = "artifacts/compiler-generated-trial-result.json"
-    output_file = authority.workspace / output_path
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    output_file.write_bytes(canonical_json_bytes(envelope) + b"\n")
-    runtime_step = RuntimeStep(
-        node=authority.node,
-        name=authority.step_name,
-        step_id=authority.step_id,
-        target_dsl_version=authority.bundle.ir.version,
-    )
-    output_bundle = deepcopy(runtime_step["output_bundle"])
-    output_bundle["path"] = output_path
-    artifacts = validate_output_bundle(
-        output_bundle,
-        workspace=authority.workspace,
-    )
-    assert "outcomes" in artifacts
-    assert "workspace_delta" in json.dumps(artifacts)
-    assert "child_run_id" in json.dumps(artifacts)
-    assert "evaluation_label" in json.dumps(artifacts)
-    assert "scorer_identity" in json.dumps(artifacts)
-    state = deepcopy(authority.state)
-    state["status"] = "completed"
-    state["current_step"] = None
-    state["steps"] = {
-        authority.step_name: {
-            "status": "completed",
-            "name": authority.step_name,
-            "step_id": authority.step_id,
-            "visit_count": 1,
-            "exit_code": 0,
-            "duration_ms": adjudicated.verdict["budget_accounting"]["elapsed_ms"],
-            "output": "legacy-preview-secret",
-            "text": "legacy-text-secret",
-            "error": {"message": "legacy-error-secret"},
-            "outcome": {"reason": "legacy-outcome-secret"},
-            "debug": {"trace": "legacy-debug-secret"},
-            "artifacts": artifacts,
-            "trial": envelope,
-        }
-    }
-    if commit_parent:
-        commit_trial_parent_settlement(
-            execution.ledger_path,
-            request=authority.request,
-            prepared=prepared,
-            step_name=authority.step_name,
-            expected_artifacts=artifacts,
-            read_parent_state=lambda: state,
-        )
-    return state, execution.ledger_path
-
+def _terminal_trial(authority, *, commit_parent):
+    variant = "committed" if commit_parent else "prepared"
+    authority.__dict__.update(_trial_authority(authority.fixture_root, variant).__dict__)
+    return _write_captured_trial(authority, variant)
 
 def _trial_projection(snapshot: dict[str, object]) -> dict[str, object] | None:
     [step] = snapshot["steps"]
@@ -293,6 +309,7 @@ def test_active_trial_report_projects_only_validated_opaque_progress(
         "output",
     ):
         assert forbidden not in rendered
+
 
 
 @pytest.mark.parametrize("failure_mode", ("missing", "tampered"))
@@ -451,113 +468,3 @@ def test_prepared_trial_is_not_reported_as_terminal_and_report_never_commits_it(
     assert projection is None
     assert _trial_step(snapshot)["output"] == {}
     assert ledger_path.read_bytes() == before
-
-
-def test_state_only_trial_report_identifies_kind_without_projecting_or_scanning(
-    tmp_path: Path,
-) -> None:
-    run_dir = (tmp_path / "run").resolve()
-    decoy = run_dir / "trials" / "should-not-be-read"
-    decoy.mkdir(parents=True)
-    (decoy / "authored-arm-id-direct").write_text("secret", encoding="utf-8")
-    active = {
-        "run_id": "run",
-        "status": "running",
-        "steps": {},
-        "current_step": {
-            "name": "Compare",
-            "step_id": "root.compare",
-            "type": "trial",
-            "status": "running",
-            "visit_count": 1,
-            "duration_ms": 999,
-            "output": "active-preview-secret",
-            "debug": {"trace": "active-debug-secret"},
-        },
-    }
-    terminal = {
-        "run_id": "run",
-        "status": "completed",
-        "steps": {
-            "Compare": {
-                "status": "completed",
-                "step_id": "root.compare",
-                "trial": {"outcomes": [{"arm_id": "direct"}]},
-                "duration_ms": 999,
-                "output": "terminal-preview-secret",
-                "artifacts": {
-                    "outcomes": [
-                        {
-                            "value": "candidate-output-secret",
-                            "evidence": {
-                                "workspace_delta": {},
-                                "child_run_id": "child-secret",
-                                "evaluation_label": "evaluation-secret",
-                                "scorer_identity": "scorer-secret",
-                            },
-                        }
-                    ]
-                },
-                "error": {"message": "terminal-error-secret"},
-                "outcome": {"reason": "terminal-outcome-secret"},
-                "debug": {"trace": "terminal-debug-secret"},
-            }
-        },
-        "current_step": None,
-    }
-
-    active_snapshot = _state_only_snapshot(active, run_dir)
-    terminal_snapshot = _state_only_snapshot(terminal, run_dir)
-
-    assert active_snapshot["steps"][0]["kind"] == "trial"
-    assert terminal_snapshot["steps"][0]["kind"] == "trial"
-    assert active_snapshot["steps"][0]["output"] == {}
-    assert terminal_snapshot["steps"][0]["output"] == {}
-    rendered = json.dumps(terminal_snapshot["steps"][0])
-    for forbidden in (
-        "direct",
-        "duration_ms",
-        "candidate-output-secret",
-        "workspace_delta",
-        "child_run_id",
-        "evaluation_label",
-        "scorer_identity",
-        "terminal-preview-secret",
-        "terminal-error-secret",
-        "terminal-outcome-secret",
-        "terminal-debug-secret",
-    ):
-        assert forbidden not in rendered
-
-
-def test_ordinary_report_does_zero_trial_projection_work(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ordinary_root = (tmp_path / "ordinary" / "run").resolve()
-    ordinary_root.mkdir(parents=True)
-    bundle = _load_bundle(tmp_path / "ordinary", _sample_workflow_payload())
-    imported: list[str] = []
-    original_import = builtins.__import__
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "orchestrator.workflow.trial.observability":
-            imported.append(name)
-            raise AssertionError("ordinary report imported trial observability")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-    snapshot = build_status_snapshot(
-        bundle,
-        {
-            "run_id": "ordinary",
-            "status": "running",
-            "steps": {},
-            "current_step": None,
-        },
-        ordinary_root,
-    )
-
-    assert snapshot["progress"]["total"] == 2
-    assert imported == []
-    assert not (ordinary_root / "trials").exists()

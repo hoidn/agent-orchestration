@@ -10,7 +10,6 @@ import pytest
 import yaml
 
 from orchestrator.omp_assets import (
-    inference_output_contract_path,
     neutral_config_path,
     preset_conf_root,
 )
@@ -103,7 +102,7 @@ def test_neutral_conf_tree_admits() -> None:
     assert "agent/WATCHDOG.yml" not in snapshot.files
 
 
-# --- Task 7: packaged presets, canary fixtures, inference resource -----------
+# --- Task 7: packaged presets and canary fixtures ---------------------------
 
 
 def _admit_package_preset(name: str):
@@ -173,34 +172,3 @@ def test_preset_canary_prompt_fixtures_exist_and_name_admitted_agents() -> None:
             assert agent in text
         if "code-reviewer" in _PRESET_AGENTS[name]:
             assert "advisor" in text
-
-
-def test_inference_output_contract_resource_exists_and_compiles() -> None:
-    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-
-    resource_path = Path(inference_output_contract_path())
-    assert resource_path.is_file()
-    source = resource_path.read_text(encoding="utf-8")
-    assert "OutputContractDraft" in source
-    assert "infer-output-contract" in source
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as td:
-        workspace = Path(td)
-        (workspace / "prompt.md").write_text("synthesize the output contract\n")
-        entry = workspace / "infer-output-contract.orc"
-        entry.write_text(source)
-        result = compile_stage3_entrypoint(
-            entry,
-            source_roots=(workspace,),
-            provider_externs={"providers.inference": "omp_conf_inference"},
-            prompt_externs={"prompts.inference": {"asset_file": "prompt.md"}},
-            validate_shared=True,
-            workspace_root=workspace,
-        )
-        mapping = result.entry_result.lowered_workflows[0].authored_mapping
-        step = next(s for s in mapping["steps"] if "provider" in s)
-        assert step["provider"] == "omp_conf_inference"
-        fields = step["output_bundle"]["fields"]
-        assert [field["name"] for field in fields] == ["fields"]
-        assert fields[0]["type"] == "list"

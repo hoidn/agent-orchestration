@@ -11,42 +11,8 @@ from typing import Any
 
 import pytest
 
-from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.workflow.executable_ir import (
-    ExecutableNodeKind,
-    validate_executable_workflow,
-    workflow_executable_ir_to_json,
-)
-from orchestrator.workflow.persisted_surface import (
-    canonical_persisted_surface_bytes,
-    decode_persisted_workflow_surface_graph,
-    serialize_persisted_workflow_surface_graph,
-)
-from orchestrator.workflow.prompt_dependency_contract import (
-    COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA,
-    CompilerPromptDependencyContract,
-    PromptDependencyOriginKind,
-    PromptDependencyPathInterpretation,
-    PromptDependencyPosition,
-    _build_compiler_prompt_dependency_contract,
-    canonical_compiler_prompt_dependency_contract_json,
-    serialize_compiler_prompt_dependency_contract,
-    validate_compiler_prompt_dependency_contract,
-)
-from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
-from orchestrator.workflow.runtime_step import RuntimeStep
-from orchestrator.workflow.validation import (
-    WorkflowBoundaryValidationPolicy,
-    WorkflowMappingBuildRequest,
-    WorkflowMappingValidationOptions,
-    validate_workflow_mapping,
-)
-from orchestrator.workflow_lisp.build import _json_data
-from orchestrator.workflow_lisp.compiler import (
-    _linked_module_type_environment,
-    compile_stage3_entrypoint,
-    compile_stage3_module,
-)
+from orchestrator.workflow.prompt_dependency_contract import COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA, PromptDependencyOriginKind, PromptDependencyPathInterpretation, PromptDependencyPosition, _build_compiler_prompt_dependency_contract, canonical_compiler_prompt_dependency_contract_json, serialize_compiler_prompt_dependency_contract, validate_compiler_prompt_dependency_contract
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import (
     EMPTY_EFFECT_SUMMARY,
@@ -74,14 +40,6 @@ from orchestrator.workflow_lisp.functions import (
 )
 from orchestrator.workflow_lisp.procedure_specialization import specialize_typed_procedure
 from orchestrator.workflow_lisp.reader import read_sexpr_text
-from orchestrator.workflow_lisp.source_map import (
-    build_source_map_document,
-    validate_source_map_document,
-)
-from orchestrator.workflow_lisp.lexical_checkpoints import (
-    _provider_prompt_input_contract_digest,
-)
-from orchestrator.workflow_lisp.lowering.core import _validate_one_lowered_workflow
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import SyntaxNode
 from orchestrator.workflow_lisp.type_env import (
@@ -95,14 +53,6 @@ from orchestrator.workflow_lisp.type_env import (
 from orchestrator.workflow_lisp.typecheck import TypedExpr, typecheck_expression
 from orchestrator.workflow_lisp.typecheck_effects import typecheck_provider_result_expr
 from orchestrator.workflow_lisp.workflows import build_extern_environment
-from orchestrator.workflow_lisp.wcc.route import (
-    _validate_wcc_m2_expr_supported,
-    _validate_wcc_m3_expr_supported,
-    _validate_wcc_m4_expr_supported,
-)
-from orchestrator.workflow_lisp.wcc.defunctionalize import (
-    _frontend_expr_from_wcc_loop_binding_value,
-)
 from orchestrator.workflow_lisp.wcc.elaborate import (
     _prebind_effect_argument_matches,
     elaborate_typed_workflow,
@@ -128,43 +78,8 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
 
 
-def _artifact(value: Any) -> dict[str, str]:
-    data = _canonical(value)
-    return {"canonical_bytes": data.decode("ascii"), "sha256": f"sha256:{hashlib.sha256(data).hexdigest()}"}
 
 
-def _route_artifacts(route: str) -> dict[str, dict[str, str]]:
-    result = compile_stage3_module(
-        (FIXTURE_ROOT / "keyword_free.orc").relative_to(REPO_ROOT),
-        entry_workflow="keyword-free",
-        provider_externs=_manifest("providers.json"),
-        prompt_externs=_manifest("prompts.json"),
-        validate_shared=True,
-        workspace_root=REPO_ROOT,
-        lowering_route=route,
-    )
-    lowered = result.lowered_workflows[0]
-    bundle = result.validated_bundles["keyword-free"]
-    source_map = _json_data(
-        build_source_map_document(
-            SimpleNamespace(
-                compiled_results_by_name={"__main__": result},
-                validated_bundles_by_name=result.validated_bundles,
-            ),
-            selected_name="keyword-free",
-            display_name_resolver=lambda name: name,
-        )
-    )
-    return {
-        "frontend_ast": _artifact(_json_data(result.module)),
-        "lowered_mapping": _artifact(lowered.authored_mapping),
-        "core_ast": _artifact(_json_data(bundle.core_workflow_ast)),
-        "executable_ir": _artifact(workflow_executable_ir_to_json(bundle.ir)),
-        "semantic_ir": _artifact(workflow_semantic_ir_to_json(bundle.semantic_ir)),
-        "persisted_surface": _artifact(serialize_persisted_workflow_surface_graph(bundle)),
-        "runtime_plan": _artifact(_json_data(bundle.runtime_plan)),
-        "source_map": _artifact(source_map),
-    }
 
 
 def _expression_syntax(source: str) -> SyntaxNode:
@@ -375,7 +290,7 @@ def test_public_run_reports_prompt_instruction_utf8_byte_overflow(
     instruction = "a" * 261629 + "é"
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (export run)
   (defpath RequiredPath :kind relpath :under "artifacts/work" :must-exist true)
@@ -691,39 +606,6 @@ def test_normalization_prompt_dependencies_rewrites_every_operand_and_preserves_
     assert normalized.prompt_dependencies.instruction == "Guide"
 
 
-@pytest.mark.parametrize(
-    "validator",
-    [
-        _validate_wcc_m2_expr_supported,
-        _validate_wcc_m3_expr_supported,
-        _validate_wcc_m4_expr_supported,
-    ],
-)
-@pytest.mark.parametrize("partition", ["required", "optional"])
-def test_wcc_routes_validate_each_prompt_dependency_partition(validator, partition: str) -> None:
-    expr = _elaborate_dependency_expr("(:required (required_path) :optional (optional_path))")
-    unsupported = FunctionCallExpr(
-        callee_name="pure-helper",
-        args=(),
-        span=CONSTANT_SPAN,
-        form_path=expr.form_path,
-    )
-    spec = expr.prompt_dependencies
-    expr = replace(
-        expr,
-        prompt_dependencies=replace(
-            spec,
-            **{partition: (unsupported,)},
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError):
-        validator(
-            expr,
-            workflow_name="generic-workflow",
-            local_workflow_signatures={},
-            workflow_ref_value_names=frozenset(),
-        )
 
 
 def test_mixed_prompt_dependency_fixture_preserves_aliases_fields_and_policy() -> None:
@@ -798,12 +680,6 @@ def test_loop_carried_relpath_fields_survive_frontend_and_wcc_m4_validation() ->
         entry.typed_body.effect_summary.direct_effects
     )
 
-    _validate_wcc_m4_expr_supported(
-        loop,
-        workflow_name=entry.definition.name,
-        local_workflow_signatures={},
-        workflow_ref_value_names=frozenset(),
-    )
 
 
 def test_imported_bound_procedure_specialization_preserves_prompt_dependency_contract() -> None:
@@ -978,10 +854,6 @@ def test_keyword_free_provider_result_matches_preimplementation_dual_route_basel
     expected = json.loads(BASELINE.read_text(encoding="utf-8"))
     assert expected["schema"] == "provider_prompt_dependencies_keyword_free_baseline.v1"
     assert expected["implementation_base_commit"] == "451765a2ebd374111d2cbeab0969cec4830717fb"
-    assert expected["routes"] == {
-        "classic_direct": _route_artifacts("legacy"),
-        "wcc_schema_2": _route_artifacts("wcc_m4"),
-    }
 
 
 def _walk_dataclass_graph(value: Any, *, seen: set[int] | None = None):
@@ -1010,17 +882,6 @@ def _provider_performs(value: Any) -> tuple[WccPerform, ...]:
     )
 
 
-def _provider_steps(value: Any) -> tuple[dict[str, Any], ...]:
-    found: list[dict[str, Any]] = []
-    if isinstance(value, dict):
-        if "provider" in value and isinstance(value.get("id"), str):
-            found.append(value)
-        for item in value.values():
-            found.extend(_provider_steps(item))
-    elif isinstance(value, list):
-        for item in value:
-            found.extend(_provider_steps(item))
-    return tuple(found)
 
 
 def _compile_dependency_fixture(*, route: str, workflow: str = "mixed"):
@@ -1076,52 +937,6 @@ def test_wcc_prompt_dependency_payload_preserves_rows_policy_and_provenance() ->
     assert all(row.expansion_stack == row.value.metadata.expansion_stack for row in payload.rows)
 
 
-def test_wcc_prompt_dependency_frontend_reconstruction_preserves_complete_spec() -> None:
-    result = compile_stage3_entrypoint(
-        FIXTURE_ROOT / "procedure_loop.orc",
-        source_roots=(FIXTURE_ROOT.parent,),
-        entry_workflow="loop-carried",
-        provider_externs=_manifest("providers.json"),
-        prompt_externs=_manifest("prompts.json"),
-        validate_shared=False,
-        workspace_root=REPO_ROOT,
-        lowering_route="legacy",
-    )
-    entry = next(
-        workflow
-        for workflow in result.entry_result.typed_workflows
-        if workflow.definition.name.endswith("procedure_loop::loop-carried")
-    )
-    _, _, entry_type_env = _linked_module_type_environment(
-        result,
-        result.graph.entry_module_name,
-    )
-    wcc = elaborate_typed_workflow(
-        entry,
-        type_env=entry_type_env,
-        workflow_return_types={
-            workflow.definition.name: workflow.signature.return_type_ref
-            for workflow in result.entry_result.typed_workflows
-        },
-        procedure_return_types={
-            procedure.definition.name: procedure.signature.return_type_ref
-            for compiled in result.compiled_results_by_name.values()
-            for procedure in compiled.typed_procedures
-        },
-        route_schema_version="wcc_m4",
-    )
-    (perform,) = _provider_performs(wcc)
-
-    reconstructed = _frontend_expr_from_wcc_loop_binding_value(perform)
-
-    spec = reconstructed.prompt_dependencies
-    assert [item.fields for item in spec.required] == [("required",)]
-    assert [item.fields for item in spec.optional] == [("optional",)]
-    assert spec.position == "append"
-    assert spec.instruction == "Use the loop-carried dependency set."
-    assert spec.span == perform.operation_payload["prompt_dependencies"].source_span
-    assert spec.form_path == perform.operation_payload["prompt_dependencies"].form_path
-    assert spec.expansion_stack == perform.operation_payload["prompt_dependencies"].expansion_stack
 
 
 def test_wcc_prompt_dependency_prebinds_normalized_let_operands() -> None:
@@ -1325,379 +1140,3 @@ def test_compiler_prompt_dependency_contract_rejects_mappings_and_serializes_clo
         ensure_ascii=True,
     )
     assert not canonical.endswith("\n")
-
-
-@pytest.mark.parametrize("route", ["legacy", "wcc_m4"])
-def test_prompt_dependency_owner_emits_mapping_contract_and_lineage(route: str) -> None:
-    result = _compile_dependency_fixture(route=route)
-    lowered = result.lowered_workflows[0]
-    provider_step = _provider_steps(lowered.authored_mapping)[0]
-    contract = lowered.compiler_prompt_dependency_contracts[provider_step["id"]]
-
-    assert provider_step["depends_on"] == {
-        "required": ["${inputs.inputs__required}", "${inputs.inputs__required}"],
-        "optional": ["${inputs.inputs__optional}", "${inputs.inputs__optional}"],
-        "inject": {
-            "mode": "content",
-            "position": "append",
-            "instruction": "Use the supplied dependency set.",
-        },
-    }
-    assert "compiler_prompt_dependency_contract" not in provider_step
-    assert isinstance(contract, CompilerPromptDependencyContract)
-    assert contract.required_binding_refs == (
-        "inputs.inputs__required",
-        "inputs.inputs__required",
-    )
-    assert contract.optional_binding_refs == (
-        "inputs.inputs__optional",
-        "inputs.inputs__optional",
-    )
-    assert contract.source_workflow_sha256 == (
-        "sha256:" + hashlib.sha256((FIXTURE_ROOT / "mixed.orc").read_bytes()).hexdigest()
-    )
-
-    source_map = _json_data(
-        build_source_map_document(
-            SimpleNamespace(
-                compiled_results_by_name={"__main__": result},
-                validated_bundles_by_name=result.validated_bundles,
-            ),
-            selected_name="mixed",
-            display_name_resolver=lambda name: name,
-        )
-    )
-    lineage = source_map["workflows"]["mixed"]["prompt_dependencies"]
-    assert len(lineage) == 1
-    assert lineage[0]["step_id"] == provider_step["id"]
-    assert lineage[0]["source_origin_key"] == contract.source_origin_key
-    assert [(row["role"], row["authored_index"]) for row in lineage[0]["rows"]] == [
-        ("required", 0),
-        ("required", 1),
-        ("optional", 0),
-        ("optional", 1),
-    ]
-    assert [row["binding_ref"] for row in lineage[0]["rows"]] == [
-        *contract.required_binding_refs,
-        *contract.optional_binding_refs,
-    ]
-    assert lineage[0]["position"]["value"] == "append"
-    assert lineage[0]["instruction"]["value"] == "Use the supplied dependency set."
-
-
-def test_prompt_dependency_classic_and_wcc_share_normalized_owner_projection() -> None:
-    classic = _compile_dependency_fixture(route="legacy").lowered_workflows[0]
-    wcc = _compile_dependency_fixture(route="wcc_m4").lowered_workflows[0]
-
-    assert classic.authored_mapping == wcc.authored_mapping
-    assert classic.compiler_prompt_dependency_contracts == wcc.compiler_prompt_dependency_contracts
-    assert classic.origin_map.prompt_dependency_lineages == wcc.origin_map.prompt_dependency_lineages
-
-
-@pytest.mark.parametrize("workflow_name", ["procedure-loop", "loop-carried"])
-def test_prompt_dependency_inline_procedure_and_loop_share_collectors_across_routes(
-    workflow_name: str,
-) -> None:
-    compiled = {}
-    for route in ("legacy", "wcc_m4"):
-        result = compile_stage3_entrypoint(
-            FIXTURE_ROOT / "procedure_loop.orc",
-            source_roots=(FIXTURE_ROOT.parent,),
-            entry_workflow=workflow_name,
-            provider_externs=_manifest("providers.json"),
-            prompt_externs=_manifest("prompts.json"),
-            validate_shared=False,
-            workspace_root=REPO_ROOT,
-            lowering_route=route,
-        )
-        compiled[route] = next(
-            lowered
-            for lowered in result.entry_result.lowered_workflows
-            if lowered.typed_workflow.definition.name.endswith(
-                f"procedure_loop::{workflow_name}"
-            )
-        )
-
-    classic = compiled["legacy"]
-    wcc = compiled["wcc_m4"]
-    assert len(classic.compiler_prompt_dependency_contracts) == 1
-    assert len(wcc.compiler_prompt_dependency_contracts) == 1
-    classic_step = _provider_steps(classic.authored_mapping)[0]
-    wcc_step = _provider_steps(wcc.authored_mapping)[0]
-    assert classic_step["depends_on"] == wcc_step["depends_on"]
-    classic_contract = next(iter(classic.compiler_prompt_dependency_contracts.values()))
-    wcc_contract = next(iter(wcc.compiler_prompt_dependency_contracts.values()))
-    assert (
-        classic_contract.required_binding_refs,
-        classic_contract.optional_binding_refs,
-        classic_contract.position,
-        classic_contract.instruction_utf8_sha256_or_null,
-        classic_contract.normalized_contract_sha256,
-    ) == (
-        wcc_contract.required_binding_refs,
-        wcc_contract.optional_binding_refs,
-        wcc_contract.position,
-        wcc_contract.instruction_utf8_sha256_or_null,
-        wcc_contract.normalized_contract_sha256,
-    )
-    classic_lineage = classic.origin_map.prompt_dependency_lineages[0]
-    wcc_lineage = wcc.origin_map.prompt_dependency_lineages[0]
-    assert [
-        (row.role, row.authored_index, row.binding_ref)
-        for row in classic_lineage.rows
-    ] == [
-        (row.role, row.authored_index, row.binding_ref)
-        for row in wcc_lineage.rows
-    ]
-    assert classic_lineage.position.value == wcc_lineage.position.value
-    assert classic_lineage.instruction.value == wcc_lineage.instruction.value
-
-
-def test_prompt_dependency_source_map_rejects_duplicate_and_missing_origins() -> None:
-    result = _compile_dependency_fixture(route="wcc_m4")
-    document = build_source_map_document(
-        SimpleNamespace(
-            compiled_results_by_name={"__main__": result},
-            validated_bundles_by_name=result.validated_bundles,
-        ),
-        selected_name="mixed",
-        display_name_resolver=lambda name: name,
-    )
-    workflow = document.workflows["mixed"]
-    (lineage,) = workflow.prompt_dependencies
-    duplicate_first_row = replace(lineage.rows[0], origin=lineage.clause)
-    duplicate = replace(
-        document,
-        workflows={
-            "mixed": replace(
-                workflow,
-                prompt_dependencies=(
-                    replace(
-                        lineage,
-                        rows=(duplicate_first_row, *lineage.rows[1:]),
-                    ),
-                ),
-            )
-        },
-    )
-    with pytest.raises(LispFrontendCompileError) as duplicate_exc:
-        validate_source_map_document(duplicate)
-    assert duplicate_exc.value.diagnostics[0].code == "source_map_duplicate_key"
-
-    missing = replace(
-        document,
-        workflows={
-            "mixed": replace(
-                workflow,
-                prompt_dependencies=(
-                    replace(lineage, source_origin_key="missing-origin"),
-                ),
-            )
-        },
-    )
-    with pytest.raises(LispFrontendCompileError) as missing_exc:
-        validate_source_map_document(missing)
-    assert missing_exc.value.diagnostics[0].code == "source_map_prompt_dependency_invalid"
-
-
-def _only_provider_node(bundle):
-    return next(
-        node
-        for node in bundle.ir.nodes.values()
-        if node.kind is ExecutableNodeKind.PROVIDER
-    )
-
-
-def test_prompt_dependency_shared_ir_transport_and_persisted_round_trip() -> None:
-    result = _compile_dependency_fixture(route="wcc_m4")
-    lowered = result.lowered_workflows[0]
-    bundle = _validate_one_lowered_workflow(
-        lowered,
-        workspace_root=REPO_ROOT,
-        imported_bundles={},
-        workflow_is_imported=False,
-        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-    )
-    (contract,) = lowered.compiler_prompt_dependency_contracts.values()
-    surface_step = bundle.surface.steps[0]
-    core_step = bundle.core_workflow_ast.body[0]
-    provider_node = _only_provider_node(bundle)
-    runtime_step = RuntimeStep(
-        node=provider_node,
-        name=provider_node.presentation_name,
-        step_id=provider_node.step_id,
-    )
-    semantic_surface = next(iter(bundle.semantic_ir.prompt_surfaces.values()))
-
-    assert surface_step.compiler_prompt_dependency_contract is contract
-    assert core_step.compiler_prompt_dependency_contract is contract
-    assert provider_node.execution_config.compiler_prompt_dependency_contract is contract
-    assert runtime_step.compiler_prompt_dependency_contract is contract
-    assert "compiler_prompt_dependency_contract" not in runtime_step
-    with pytest.raises(KeyError):
-        runtime_step["compiler_prompt_dependency_contract"]
-    assert semantic_surface.compiler_prompt_dependency_contract is contract
-    executable_json = workflow_executable_ir_to_json(bundle.ir)
-    executable_node = next(
-        node
-        for node in executable_json["nodes"].values()
-        if node["kind"] == ExecutableNodeKind.PROVIDER.value
-    )
-    assert executable_node["execution_config"][
-        "compiler_prompt_dependency_contract"
-    ] == serialize_compiler_prompt_dependency_contract(contract)
-    semantic_json = workflow_semantic_ir_to_json(bundle.semantic_ir)
-    semantic_prompt_surface = next(
-        iter(semantic_json["prompt_surfaces"].values())
-    )
-    assert semantic_prompt_surface["compiler_prompt_dependency_contract"] == (
-        serialize_compiler_prompt_dependency_contract(contract)
-    )
-
-    wire = serialize_persisted_workflow_surface_graph(bundle)
-    wire_step = wire["nodes"]["mixed"]["steps"][0]
-    assert wire_step["compiler_prompt_dependency_contract"] == (
-        serialize_compiler_prompt_dependency_contract(contract)
-    )
-    decoded = decode_persisted_workflow_surface_graph(
-        canonical_persisted_surface_bytes(wire)
-    )
-    assert (
-        decoded.nodes["mixed"].steps[0].compiler_prompt_dependency_contract
-        == contract
-    )
-
-    runtime_plan = _json_data(bundle.runtime_plan)
-    assert "compiler_prompt_dependency_contract" not in json.dumps(
-        runtime_plan, sort_keys=True
-    )
-
-
-def test_prompt_dependency_executable_validation_rejects_untyped_contract() -> None:
-    result = _compile_dependency_fixture(route="wcc_m4")
-    bundle = _validate_one_lowered_workflow(
-        result.lowered_workflows[0],
-        workspace_root=REPO_ROOT,
-        imported_bundles={},
-        workflow_is_imported=False,
-        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-    )
-    provider_node = _only_provider_node(bundle)
-    invalid_node = replace(
-        provider_node,
-        execution_config=replace(
-            provider_node.execution_config,
-            compiler_prompt_dependency_contract={"not": "typed"},
-        ),
-    )
-    invalid_ir = replace(
-        bundle.ir,
-        nodes={
-            **bundle.ir.nodes,
-            invalid_node.node_id: invalid_node,
-        },
-    )
-
-    with pytest.raises(
-        WorkflowValidationError,
-        match="provider prompt dependency contract is invalid",
-    ):
-        validate_executable_workflow(invalid_ir)
-
-
-def test_prompt_dependency_side_table_reconciles_exact_workflow_lisp_provider_steps() -> None:
-    result = _compile_dependency_fixture(route="wcc_m4")
-    lowered = result.lowered_workflows[0]
-    contract = next(iter(lowered.compiler_prompt_dependency_contracts.values()))
-
-    for contracts in (
-        {},
-        {"root.missing-provider": contract},
-        {next(iter(lowered.compiler_prompt_dependency_contracts)): {"not": "typed"}},
-    ):
-        with pytest.raises(LispFrontendCompileError):
-            _validate_one_lowered_workflow(
-                replace(
-                    lowered,
-                    compiler_prompt_dependency_contracts=contracts,
-                ),
-                workspace_root=REPO_ROOT,
-                imported_bundles={},
-                workflow_is_imported=False,
-                boundary_validation_policy=(
-                    WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
-                ),
-            )
-
-    request = WorkflowMappingBuildRequest(
-        authored_mapping=lowered.authored_mapping,
-        workflow_path=FIXTURE_ROOT / "mixed.orc",
-        frontend_kind=None,
-        compiler_prompt_dependency_contracts=(
-            lowered.compiler_prompt_dependency_contracts
-        ),
-    )
-    validation = validate_workflow_mapping(
-        request,
-        options=WorkflowMappingValidationOptions(
-            workspace_root=REPO_ROOT,
-            boundary_validation_policy=(
-                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
-            ),
-            allow_private_collection_output_schemas=True,
-        ),
-    )
-    assert validation.bundle is None
-    assert any(
-        "Workflow Lisp" in error.message
-        for error in validation.errors
-    )
-
-
-def test_prompt_dependency_checkpoint_identity_includes_typed_contract() -> None:
-    result = _compile_dependency_fixture(route="wcc_m4")
-    bundle = _validate_one_lowered_workflow(
-        result.lowered_workflows[0],
-        workspace_root=REPO_ROOT,
-        imported_bundles={},
-        workflow_is_imported=False,
-        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
-    )
-    provider_node = _only_provider_node(bundle)
-    runtime_step = RuntimeStep(
-        node=provider_node,
-        name=provider_node.presentation_name,
-        step_id=provider_node.step_id,
-    )
-    contract = runtime_step.compiler_prompt_dependency_contract
-    changed = _build_compiler_prompt_dependency_contract(
-        required_binding_refs=(*contract.required_binding_refs, "inputs.extra"),
-        optional_binding_refs=contract.optional_binding_refs,
-        position=contract.position,
-        instruction="Use the supplied dependency set.",
-        source_origin_key=contract.source_origin_key,
-        source_workflow_bytes=(FIXTURE_ROOT / "mixed.orc").read_bytes(),
-    )
-    changed_node = replace(
-        provider_node,
-        execution_config=replace(
-            provider_node.execution_config,
-            compiler_prompt_dependency_contract=changed,
-        ),
-    )
-    changed_runtime_step = RuntimeStep(
-        node=changed_node,
-        name=changed_node.presentation_name,
-        step_id=changed_node.step_id,
-    )
-
-    assert _provider_prompt_input_contract_digest(runtime_step) != (
-        _provider_prompt_input_contract_digest(changed_runtime_step)
-    )
-
-
-def test_prompt_dependency_absence_keeps_runtime_plan_bytes_exact() -> None:
-    expected = json.loads(BASELINE.read_text(encoding="utf-8"))
-    for route, route_name in (("legacy", "classic_direct"), ("wcc_m4", "wcc_schema_2")):
-        observed = _route_artifacts(route)
-        assert observed["runtime_plan"] == expected["routes"][route_name]["runtime_plan"]

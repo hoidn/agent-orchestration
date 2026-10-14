@@ -1,10 +1,9 @@
-"""Compile Workflow Lisp modules through definition, type, effect, and lowering.
+"""Compile Workflow Lisp modules through definition, type, and effect analysis.
 
 This module coordinates the frontend pipeline rather than owning any one
 semantic layer. It resolves a module graph, expands macros, validates type
 definitions, registers procedure/workflow signatures, computes effect
-summaries, lowers typed workflows to ordinary workflow dictionaries, and then
-optionally validates those dictionaries through the existing workflow loader.
+summaries, and captures typed programs for the evaluated compiler.
 
 See `README.md` for the package map and
 `../../docs/design/workflow_lisp_frontend_mvp_specification.md` for the implemented
@@ -22,8 +21,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
-from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import (
     LoadedWorkflowBundle,
     WorkflowBoundaryProjectionView,
@@ -56,7 +53,6 @@ from .definitions import (
 from .diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
-    compiler_defect_boundary,
     diagnostic_effective_severity,
     with_diagnostic_metadata,
 )
@@ -101,15 +97,6 @@ from .functions import (
     retypecheck_resolved_function_definitions,
     typecheck_function_definitions,
     validate_function_cycles,
-)
-from .lowering import (
-    _lowered_workflow_dependencies,
-    _missing_validation_subject_message,
-    _origin_for_validation_subject_refs,
-    _remap_validation_message,
-    _shared_validation_diagnostic_code,
-    lower_workflow_definitions,
-    validate_lowered_workflows,
 )
 from orchestrator.workflow_lisp.procedure_specialization import (_resolve_procedure_lowering)
 from .macros import collect_macro_catalog, collect_macro_catalog_with_imports, expand_module_forms
@@ -158,7 +145,6 @@ from .reader import (
 )
 from .result_guidance import validate_module_result_guidance
 from .spans import SourcePosition, SourceSpan
-from .source_map import build_source_map_document
 from .syntax import (
     WorkflowLispSyntaxModule,
     SyntaxKeyword,
@@ -239,26 +225,9 @@ from .wcc.route import (
     LoweringRoute,
     lowering_schema_for_route,
     normalize_lowering_route,
-    validate_wcc_m1_route_supported,
-    validate_wcc_m2_route_supported,
-    validate_wcc_m3_route_supported,
-    validate_wcc_m4_route_supported,
-)
-from .wcc.lower import (
-    lower_wcc_m1_workflow_definitions,
-    lower_wcc_m2_workflow_definitions,
-    lower_wcc_m3_workflow_definitions,
-    lower_wcc_m4_workflow_definitions,
 )
 
 PromptExternValue = PromptExtern | str | Mapping[str, object]
-
-
-
-_EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
-    "executable validation provenance matched by message text fallback; "
-    "structured subject refs were unavailable"
-)
 
 
 class Stage3ValidationProfile(str, Enum):
@@ -338,13 +307,6 @@ def _normalize_stage3_validation_profile(
     return normalized
 
 
-def _shared_validation_enabled(profile: Stage3ValidationProfile) -> bool:
-    return profile in {
-        Stage3ValidationProfile.SHARED_CALLABLE,
-        Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
-    }
-
-
 def _retained_non_promotable_diagnostics(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> tuple[LispFrontendDiagnostic, ...]:
@@ -378,59 +340,6 @@ def _merge_retained_non_promotable_diagnostics(
             seen.add(key)
             merged.append(diagnostic)
     return tuple(merged)
-
-
-def _dedicated_runtime_proof_boundary_diagnostics(
-    lowered_workflows,
-    *,
-    workspace_root: Path,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
-) -> tuple[LispFrontendDiagnostic, ...]:
-    lowered_by_name = {
-        workflow.typed_workflow.definition.name: workflow
-        for workflow in lowered_workflows
-    }
-    diagnostics: list[LispFrontendDiagnostic] = []
-
-    def validation_subset(workflow_name: str):
-        included: set[str] = set()
-        pending = [workflow_name]
-        while pending:
-            current = pending.pop()
-            if current in included:
-                continue
-            lowered = lowered_by_name.get(current)
-            if lowered is None:
-                continue
-            included.add(current)
-            pending.extend(
-                dependency
-                for dependency in _lowered_workflow_dependencies(lowered)
-                if dependency in lowered_by_name
-            )
-        return tuple(
-            workflow
-            for workflow in lowered_workflows
-            if workflow.typed_workflow.definition.name in included
-        )
-
-    for workflow in lowered_workflows:
-        if not workflow.runtime_proof_nested_structured_step_names:
-            continue
-        try:
-            validate_lowered_workflows(
-                validation_subset(workflow.typed_workflow.definition.name),
-                workspace_root=workspace_root,
-                imported_workflow_bundles=imported_workflow_bundles,
-                validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
-            )
-        except LispFrontendCompileError as exc:
-            diagnostics.extend(
-                diagnostic
-                for diagnostic in exc.diagnostics
-                if diagnostic.code == "workflow_boundary_type_invalid"
-            )
-    return tuple(diagnostics)
 
 
 def _builtin_stdlib_source_root() -> Path:
@@ -527,42 +436,6 @@ def _infer_entry_source_root(
     return path.parents[len(expected_parts) - 1]
 
 
-def _attach_typed_programs_to_source_bundles(
-    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
-    typed_program,
-) -> dict[str, LoadedWorkflowBundle]:
-    """Attach transient bodies and rewire only imports that point into this catalog."""
-
-    attached = {
-        name: (
-            replace(
-                bundle,
-                typed_program=replace(
-                    typed_program,
-                    entry=typed_program.workflows[name],
-                ),
-            )
-            if name in typed_program.workflows
-            else bundle
-        )
-        for name, bundle in bundles_by_name.items()
-    }
-    for name, original in bundles_by_name.items():
-        replacement = attached[name]
-        if replacement is original:
-            continue
-        rewired = {
-            alias: attached.get(imported.surface.name, imported)
-            for alias, imported in original.imports.items()
-        }
-        if any(
-            rewired[alias] is not imported
-            for alias, imported in original.imports.items()
-        ):
-            object.__setattr__(replacement, "imports", MappingProxyType(rewired))
-    return attached
-
-
 def _bundle_boundary_contracts(
     bundle: LoadedWorkflowBundle,
 ) -> tuple[
@@ -585,22 +458,6 @@ def _bundle_boundary_contracts(
     )
 
 
-def _compiled_bundle_boundaries(
-    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
-) -> Mapping[
-    str,
-    tuple[
-        Mapping[str, Mapping[str, object]],
-        Mapping[str, Mapping[str, object]],
-        WorkflowBoundaryProjectionView,
-    ],
-]:
-    return {
-        name: _bundle_boundary_contracts(bundle)
-        for name, bundle in bundles_by_name.items()
-    }
-
-
 @dataclass(frozen=True)
 class LinkedStage1CompileResult:
     """Definition-only compile result for an entry module graph.
@@ -617,17 +474,11 @@ class LinkedStage1CompileResult:
 
 @dataclass(frozen=True)
 class LinkedStage3CompileResult:
-    """Executable compile result for an entry module graph.
-
-    This result includes expanded syntax, typechecked procedures/workflows,
-    lowered workflow dictionaries, and optionally bundles validated by the
-    existing workflow loader.
-    """
+    """Typed compile result and diagnostics for an entry module graph."""
 
     graph: LinkedModuleGraph
     entry_result: Stage3CompileResult
     compiled_results_by_name: Mapping[str, Stage3CompileResult]
-    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle]
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     validation_profile: Stage3ValidationProfile | None = None
     retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
@@ -841,15 +692,6 @@ def compile_stage3_entrypoint(
     if compile_result is None:
         raise RuntimeError("module-graph compilation did not produce a result")
     retained_non_promotable = _retained_non_promotable_diagnostics(diagnostics)
-    if normalized_validation_profile is Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF:
-        retained_non_promotable = _merge_retained_non_promotable_diagnostics(
-            retained_non_promotable,
-            _dedicated_runtime_proof_boundary_diagnostics(
-                compile_result.entry_result.lowered_workflows,
-                workspace_root=workspace_root or path.parent,
-                imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
-            ),
-        )
     typed_program = compile_result.entry_result.typed_program
     if typed_program is not None:
         from .build_artifacts import _source_file_digests_from_trace
@@ -1011,15 +853,6 @@ def compile_stage3_module(
         lint_profile=lint_profile,
     )
     retained_non_promotable = _retained_non_promotable_diagnostics(diagnostics)
-    if normalized_validation_profile is Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF:
-        retained_non_promotable = _merge_retained_non_promotable_diagnostics(
-            retained_non_promotable,
-            _dedicated_runtime_proof_boundary_diagnostics(
-                state.lowered_workflows,
-                workspace_root=workspace_root or path.parent,
-                imported_workflow_bundles=state.workflow_catalog.imported_bundles_by_name,
-            ),
-        )
     result = Stage3CompileResult(
         module=state.module,
         workflow_catalog=state.workflow_catalog,
@@ -1028,8 +861,6 @@ def compile_stage3_module(
         command_boundary_environment=state.command_boundary_environment,
         typed_procedures=state.typed_procedures,
         typed_workflows=state.typed_workflows,
-        lowered_workflows=state.lowered_workflows,
-        validated_bundles=state.validated_bundles,
         prompt_catalog=state.extras.get("prompt_catalog"),
         diagnostics=diagnostics,
         validation_profile=normalized_validation_profile,
@@ -1804,130 +1635,6 @@ def _reject_legacy_to_evaluated_imports(graph: LinkedModuleGraph) -> None:
             )
 
 
-def _lower_workflows_for_route(
-    *,
-    compiler_session: CompilerSession | None = None,
-    lowering_route: LoweringRoute,
-    typed_workflows: tuple[TypedWorkflowDef, ...],
-    typed_procedures: tuple[TypedProcedureDef, ...],
-    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
-    workflow_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    procedure_catalog: ProcedureCatalog,
-    workflow_path: Path,
-    workflow_catalog,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
-    extern_environment,
-    command_boundary_environment: CommandBoundaryEnvironment,
-    type_env: FrontendTypeEnvironment,
-    target_dsl_version: str = "2.14",
-    source_read_trace: SourceReadTrace | None = None,
-):
-    """Elaborate and lower typechecked workflows; an internal exception is a compiler defect."""
-
-    with compiler_defect_boundary(workflow_path):
-        compiler_session = compiler_session or CompilerSession()
-        resolved_procedures_by_name = MappingProxyType(
-            {procedure.definition.name: procedure for procedure in typed_procedures}
-        )
-        if lowering_route is LoweringRoute.WCC_M1:
-            validate_wcc_m1_route_supported(typed_workflows)
-            return lower_wcc_m1_workflow_definitions(
-                typed_workflows,
-                typed_procedures=typed_procedures,
-                resolved_procedures_by_name=resolved_procedures_by_name,
-                available_workflows_by_name=available_workflows_by_name,
-                procedure_type_envs=procedure_type_envs,
-                workflow_type_envs=workflow_type_envs,
-                procedure_catalog=procedure_catalog,
-                workflow_path=workflow_path,
-                workflow_catalog=workflow_catalog,
-                imported_workflow_bundles=imported_workflow_bundles,
-                extern_environment=extern_environment,
-                command_boundary_environment=command_boundary_environment,
-                type_env=type_env,
-                target_dsl_version=target_dsl_version,
-                source_read_trace=source_read_trace,
-            )
-        if lowering_route is LoweringRoute.WCC_M2:
-            validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
-            return lower_wcc_m2_workflow_definitions(
-                typed_workflows,
-                typed_procedures=typed_procedures,
-                resolved_procedures_by_name=resolved_procedures_by_name,
-                available_workflows_by_name=available_workflows_by_name,
-                procedure_type_envs=procedure_type_envs,
-                workflow_type_envs=workflow_type_envs,
-                procedure_catalog=procedure_catalog,
-                workflow_path=workflow_path,
-                workflow_catalog=workflow_catalog,
-                imported_workflow_bundles=imported_workflow_bundles,
-                extern_environment=extern_environment,
-                command_boundary_environment=command_boundary_environment,
-                type_env=type_env,
-                target_dsl_version=target_dsl_version,
-                source_read_trace=source_read_trace,
-            )
-        if lowering_route is LoweringRoute.WCC_M3:
-            validate_wcc_m3_route_supported(typed_workflows, typed_procedures)
-            return lower_wcc_m3_workflow_definitions(
-                typed_workflows,
-                typed_procedures=typed_procedures,
-                resolved_procedures_by_name=resolved_procedures_by_name,
-                available_workflows_by_name=available_workflows_by_name,
-                procedure_type_envs=procedure_type_envs,
-                workflow_type_envs=workflow_type_envs,
-                procedure_catalog=procedure_catalog,
-                workflow_path=workflow_path,
-                workflow_catalog=workflow_catalog,
-                imported_workflow_bundles=imported_workflow_bundles,
-                extern_environment=extern_environment,
-                command_boundary_environment=command_boundary_environment,
-                type_env=type_env,
-                target_dsl_version=target_dsl_version,
-                source_read_trace=source_read_trace,
-            )
-        if lowering_route is LoweringRoute.WCC_M4:
-            validate_wcc_m4_route_supported(
-                typed_workflows,
-                typed_procedures,
-                workflow_signatures=workflow_catalog.signatures_by_name,
-            )
-            return lower_wcc_m4_workflow_definitions(
-                typed_workflows,
-                typed_procedures=typed_procedures,
-                resolved_procedures_by_name=resolved_procedures_by_name,
-                available_workflows_by_name=available_workflows_by_name,
-                procedure_type_envs=procedure_type_envs,
-                workflow_type_envs=workflow_type_envs,
-                procedure_catalog=procedure_catalog,
-                workflow_path=workflow_path,
-                workflow_catalog=workflow_catalog,
-                imported_workflow_bundles=imported_workflow_bundles,
-                extern_environment=extern_environment,
-                command_boundary_environment=command_boundary_environment,
-                type_env=type_env,
-                target_dsl_version=target_dsl_version,
-                source_read_trace=source_read_trace,
-                lowering_session=compiler_session.lowering,
-            )
-        return lower_workflow_definitions(
-            typed_workflows,
-            typed_procedures=typed_procedures,
-            resolved_procedures_by_name=resolved_procedures_by_name,
-            procedure_catalog=procedure_catalog,
-            workflow_path=workflow_path,
-            workflow_catalog=workflow_catalog,
-            imported_workflow_bundles=imported_workflow_bundles,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            type_env=type_env,
-            target_dsl_version=target_dsl_version,
-            source_read_trace=source_read_trace,
-            lowering_session=compiler_session.lowering,
-        )
-
-
 def _raise_wcc_module_graph_unsupported(path: Path, route: LoweringRoute) -> None:
     span = SourceSpan(
         start=SourcePosition(path=str(path), line=1, column=1, offset=0),
@@ -2416,7 +2123,7 @@ def _run_stage3_validation_pipeline(
         ValidationPipelinePass(
             pass_id="lowering_surface",
             runner=lowering_surface_pass,
-            artifact_ready=lambda state: bool(state.lowered_workflows),
+            artifact_ready=lambda state: bool(state.typed_workflows),
         ),
     ]
     return run_validation_pipeline(
@@ -2438,171 +2145,6 @@ def compile_stage1_module(path: Path) -> WorkflowLispModule:
     )
     raise_pipeline_diagnostics(results)
     return state.module
-
-
-def _validate_stage3_source_map_lineage(
-    state: ValidationPipelineState,
-    *,
-    path: Path,
-    include_executable_nodes: bool,
-) -> None:
-    if state.module is None:
-        return
-    module_result = Stage3CompileResult(
-        module=state.module,
-        workflow_catalog=state.workflow_catalog,
-        procedure_catalog=state.procedure_catalog,
-        extern_environment=state.extern_environment,
-        command_boundary_environment=state.command_boundary_environment,
-        typed_procedures=state.typed_procedures,
-        typed_workflows=state.typed_workflows,
-        lowered_workflows=state.lowered_workflows,
-        validated_bundles=state.validated_bundles if include_executable_nodes else {},
-    )
-    module_name = state.module.module_name or path.stem
-    compile_result = LinkedStage3CompileResult(
-        graph=LinkedModuleGraph(
-            entry_module_name=module_name,
-            modules_by_name={},
-            topological_order=(module_name,),
-            export_surfaces_by_name={},
-        ),
-        entry_result=module_result,
-        compiled_results_by_name={module_name: module_result},
-        validated_bundles_by_name=state.validated_bundles if include_executable_nodes else {},
-    )
-    selected_name = (
-        state.lowered_workflows[0].typed_workflow.definition.name
-        if state.lowered_workflows
-        else module_name
-    )
-    build_source_map_document(
-        compile_result,
-        selected_name=selected_name,
-        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
-    )
-
-
-def _validate_stage3_linked_source_map_lineage(
-    compile_result: LinkedStage3CompileResult,
-    *,
-    selected_name: str,
-) -> None:
-    build_source_map_document(
-        compile_result,
-        selected_name=selected_name,
-        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
-    )
-
-
-def _stage3_lowered_workflows_by_name(
-    lowered_workflows: tuple[object, ...],
-) -> dict[str, object]:
-    return {
-        lowered_workflow.typed_workflow.definition.name: lowered_workflow
-        for lowered_workflow in lowered_workflows
-    }
-
-
-def _linked_stage3_lowered_workflows_by_name(
-    compile_result: LinkedStage3CompileResult,
-) -> dict[str, object]:
-    lowered_by_name: dict[str, object] = {}
-    for compiled_result in compile_result.compiled_results_by_name.values():
-        lowered_by_name.update(_stage3_lowered_workflows_by_name(compiled_result.lowered_workflows))
-    return lowered_by_name
-
-
-def _revalidate_stage3_executable_bundles(
-    validated_bundles: Mapping[str, LoadedWorkflowBundle],
-    *,
-    lowered_workflows_by_name: Mapping[str, object],
-) -> None:
-    diagnostics: list[LispFrontendDiagnostic] = []
-    for workflow_name, bundle in validated_bundles.items():
-        try:
-            validate_executable_workflow(bundle.ir)
-        except WorkflowValidationError as exc:
-            lowered_workflow = lowered_workflows_by_name.get(workflow_name)
-            diagnostics.extend(
-                _remap_stage3_executable_validation_errors(
-                    lowered_workflow,
-                    errors=tuple(exc.errors),
-                )
-            )
-    if diagnostics:
-        raise LispFrontendCompileError(tuple(diagnostics))
-
-
-def _remap_stage3_executable_validation_errors(
-    lowered_workflow: object,
-    *,
-    errors: tuple[object, ...],
-) -> tuple[LispFrontendDiagnostic, ...]:
-    diagnostics: list[LispFrontendDiagnostic] = []
-    for error in errors:
-        message = str(error.message)
-        subject_refs = tuple(getattr(error, "subject_refs", ()) or ())
-        origin = None
-        notes: tuple[str, ...] = ()
-        if subject_refs:
-            origin = _origin_for_validation_subject_refs(lowered_workflow.origin_map, subject_refs)
-            if origin is None:
-                diagnostics.append(
-                    with_diagnostic_metadata(
-                        LispFrontendDiagnostic(
-                            code="source_map_validation_ref_missing",
-                            message=_missing_validation_subject_message(subject_refs),
-                            span=lowered_workflow.origin_map.workflow_span,
-                            form_path=lowered_workflow.typed_workflow.definition.form_path,
-                            expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
-                        ),
-                        validation_pass="source_map",
-                    )
-                )
-                continue
-        else:
-            origin = _remap_validation_message(lowered_workflow.origin_map, message)
-            notes = (_EXECUTABLE_MESSAGE_FALLBACK_NOTE,)
-        if origin is None:
-            diagnostics.append(
-                with_diagnostic_metadata(
-                    LispFrontendDiagnostic(
-                        code="source_map_missing",
-                        message=message,
-                        span=lowered_workflow.origin_map.workflow_span,
-                        form_path=lowered_workflow.typed_workflow.definition.form_path,
-                        expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
-                    ),
-                    validation_pass="source_map",
-                )
-            )
-            continue
-        diagnostics.append(
-            with_diagnostic_metadata(
-                LispFrontendDiagnostic(
-                    code=_shared_validation_diagnostic_code(message),
-                    message=message,
-                    span=origin.span,
-                    form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
-                    expansion_stack=origin.expansion_stack,
-                    notes=origin.notes + notes,
-                ),
-                validation_pass="executable",
-            )
-        )
-    return tuple(diagnostics)
-
-
-def _selected_stage3_entry_workflow_name(
-    compile_result: LinkedStage3CompileResult,
-) -> str:
-    if compile_result.entry_result.lowered_workflows:
-        return compile_result.entry_result.lowered_workflows[0].typed_workflow.definition.name
-    module_name = compile_result.entry_result.module.module_name
-    if module_name is not None:
-        return module_name
-    return compile_result.graph.entry_module_name
 
 
 def _sha256_path(
@@ -2797,7 +2339,6 @@ def _compile_stage3_graph(
     workflow_type_envs_by_name: dict[str, FrontendTypeEnvironment] = {}
     procedure_effects_by_name: dict[str, EffectSummary] = {}
     workflow_effects_by_name: dict[str, EffectSummary] = {}
-    exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
     compiled_results_by_name: dict[str, Stage3CompileResult] = {}
     module_type_envs: dict[str, FrontendTypeEnvironment] = {}
     module_externs: dict[str, Mapping[str, object]] = {}
@@ -3025,11 +2566,7 @@ def _compile_stage3_graph(
             cloned_enum_origins=imported_enum_origins,
         )
         type_env.retain_enum_origins(imported_enum_origins)
-        effective_imported_bundles = _effective_imported_workflow_bundles(
-            import_scope,
-            explicit_imported_bundles=explicit_imported_bundles,
-            exported_validated_bundles_by_name=exported_validated_bundles_by_name,
-        )
+        effective_imported_bundles = dict(explicit_imported_bundles)
         workflow_catalog = build_workflow_catalog(
             definition_module,
             workflow_defs,
@@ -3470,8 +3007,6 @@ def _compile_stage3_graph(
             module_type_envs=module_type_envs,
             base_procedures_by_name=resolved_procedures_by_name,
         )
-        lowered_workflows = ()
-        validated_exports: Mapping[str, LoadedWorkflowBundle] = {}
         diagnostics = _collect_stage3_required_lint_diagnostics(
             typed_workflows,
             lowering_route=normalized_lowering_route,
@@ -3562,12 +3097,6 @@ def _compile_stage3_graph(
             command_boundary_environment=command_boundary_environment,
             typed_procedures=typed_procedures,
             typed_workflows=typed_workflows,
-            lowered_workflows=lowered_workflows,
-            validated_bundles=(
-                validated_exports
-                if normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
-                else {}
-            ),
             prompt_catalog=prompt_catalog,
             diagnostics=diagnostics,
             validation_profile=normalized_validation_profile,
@@ -3632,9 +3161,6 @@ def _compile_stage3_graph(
             workflow_type_envs_by_name[workflow.definition.name] = type_env
         for workflow in typed_workflows:
             workflow_effects_by_name[workflow.definition.name] = workflow.effect_summary
-        if validated_exports:
-            for binding in export_surfaces[module_name].workflows_by_name.values():
-                exported_validated_bundles_by_name[binding.canonical_name] = validated_exports[binding.canonical_name]
 
     if typed_program_snapshot is not None:
         compiled_results_by_name = {
@@ -3650,7 +3176,6 @@ def _compile_stage3_graph(
         ),
         entry_result=compiled_results_by_name[graph.entry_module_name],
         compiled_results_by_name=compiled_results_by_name,
-        validated_bundles_by_name=exported_validated_bundles_by_name,
         diagnostics=tuple(aggregate_diagnostics),
         validation_profile=normalized_validation_profile,
         retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(tuple(aggregate_diagnostics)),
@@ -4372,38 +3897,6 @@ def _imported_workflow_signatures(
                 ),
             )
     return imported
-
-
-def _effective_imported_workflow_bundles(
-    import_scope: ModuleImportScope,
-    *,
-    explicit_imported_bundles: Mapping[str, LoadedWorkflowBundle],
-    exported_validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
-    ) -> dict[str, LoadedWorkflowBundle]:
-    """Merge explicit imported bundles with validated bundles from imports."""
-
-    effective = dict(explicit_imported_bundles)
-    seen_canonical_names: set[str] = set()
-    for binding in import_scope.workflow_bindings.values():
-        if binding.canonical_name in seen_canonical_names:
-            continue
-        seen_canonical_names.add(binding.canonical_name)
-        bundle = exported_validated_bundles_by_name.get(binding.canonical_name)
-        if bundle is None:
-            continue
-        if binding.canonical_name in effective:
-            raise LispFrontendCompileError(
-                (
-                    LispFrontendDiagnostic(
-                        code="module_import_collision",
-                        message=f"imported workflow bundle key collision for `{binding.canonical_name}`",
-                        span=_bundle_span(bundle),
-                        form_path=("workflow-lisp", binding.canonical_name),
-                    ),
-                )
-            )
-        effective[binding.canonical_name] = bundle
-    return effective
 
 
 def _procedure_name_resolver(

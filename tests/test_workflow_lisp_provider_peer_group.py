@@ -7,12 +7,6 @@ import orchestrator.workflow_lisp.effects as effect_module
 import orchestrator.workflow_lisp.expressions as expression_module
 import orchestrator.workflow_lisp.functions as function_module
 import orchestrator.workflow_lisp.macros as macro_module
-from orchestrator.workflow.validation import (
-    WorkflowBoundaryValidationPolicy,
-    WorkflowMappingBuildRequest,
-    WorkflowMappingValidationOptions,
-    validate_workflow_mapping,
-)
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
@@ -155,32 +149,7 @@ def test_provider_peer_group_target_217_is_accepted_by_reader_and_shared_validat
     )
     assert module.target_dsl_version == "2.17"
 
-    result = validate_workflow_mapping(
-        WorkflowMappingBuildRequest(
-            authored_mapping={
-                "version": "2.17",
-                "name": "target-version",
-                "steps": [
-                    {
-                        "name": "Done",
-                        "command": ["echo", "done"],
-                    }
-                ],
-            },
-            workflow_path=tmp_path / "target-version.orc",
-            frontend_kind="workflow_lisp",
-        ),
-        options=WorkflowMappingValidationOptions(
-            workspace_root=tmp_path,
-            boundary_validation_policy=(
-                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
-            ),
-        ),
-    )
 
-    assert result.errors == ()
-    assert result.bundle is not None
-    assert result.bundle.surface.version == "2.17"
 
 
 @pytest.mark.parametrize("member_count", (2, 3, 8))
@@ -245,7 +214,7 @@ def test_public_run_reports_provider_peer_member_count_and_bounds(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.17")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defworkflow run () -> String",
@@ -1280,192 +1249,3 @@ def test_live_provider_peers_are_effectful_in_pure_helpers() -> None:
         function_module._find_purity_violation(expr)
         == "with-live-provider-peers"
     )
-
-
-def _compile_peer_pre_provider(tmp_path: Path, worker_expr: str):
-    from orchestrator.workflow.executable_ir import ExecutableNodeKind
-
-    source = _module_source(
-        "2.26",
-        (
-            "(defproc branching-input-worker ((a Bool) (b Bool)) -> String "
-            ":effects ((uses-provider providers.planner)) "
-            ":lowering inline "
-            f"(let* ((flag {worker_expr})) "
-            "(provider-result providers.planner "
-            ":prompt prompts.planner :inputs (flag) "
-            ":timeout-sec 30 :returns String)))"
-        ),
-        (
-            "(defworkflow orchestrate ((a Bool) (b Bool)) -> String "
-            "(with-live-provider-peers "
-            "((planner (branching-input-worker a b)) "
-            "(reviewer (provider-result providers.reviewer "
-            ":prompt prompts.reviewer :inputs () "
-            ":timeout-sec 20 :returns Bool))) "
-            "planner))"
-        ),
-    )
-    path = tmp_path / "peer_pre_provider.orc"
-    path.write_text(source, encoding="utf-8")
-    for prompt_path in ("prompts/planner.md", "prompts/reviewer.md"):
-        target = tmp_path / prompt_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("prompt\n", encoding="utf-8")
-    result = compile_stage3_module(
-        path,
-        entry_workflow="orchestrate",
-        provider_externs={
-            "providers.planner": "planner-provider",
-            "providers.reviewer": "reviewer-provider",
-        },
-        prompt_externs={
-            "prompts.planner": "prompts/planner.md",
-            "prompts.reviewer": "prompts/reviewer.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    nodes = result.validated_bundles["orchestrate"].ir.nodes
-    projections = [
-        node for node in nodes.values()
-        if node.kind is ExecutableNodeKind.PURE_PROJECTION
-    ]
-    peer_groups = [
-        node for node in nodes.values()
-        if node.kind is ExecutableNodeKind.PROVIDER_PEER_GROUP
-    ]
-    return projections, peer_groups
-
-
-def test_pre_provider_input_peer_lifts_whole_selection(tmp_path: Path) -> None:
-    """A peer-group member input selection lifts to one owner-scope projection."""
-
-    projections, peer_groups = _compile_peer_pre_provider(
-        tmp_path,
-        "(if a b false)",
-    )
-    assert len(projections) == 1
-    assert len(peer_groups) == 1
-    payload = dict(projections[0].execution_config.pure_projection["payload"])
-    assert payload["expr"]["kind"] == "if"
-
-    planner = next(
-        member
-        for member in peer_groups[0].execution_config.members
-        if member.member_id == "planner"
-    )
-    typed_inputs = planner.provider_config.typed_prompt_inputs
-    assert len(typed_inputs) == 1
-    assert typed_inputs[0]["value_source"]["kind"] == "typed_binding_ref"
-
-
-def test_pre_provider_input_peer_authored_and_or(tmp_path: Path) -> None:
-    """Authored pure `and`/`or` peer inputs reach the same projection path."""
-
-    for operator in ("and", "or"):
-        projections, peer_groups = _compile_peer_pre_provider(
-            tmp_path,
-            f"({operator} a b)",
-        )
-        assert len(projections) == 1
-        assert len(peer_groups) == 1
-        payload = dict(projections[0].execution_config.pure_projection["payload"])
-        assert payload["expr"]["kind"] == "if"
-        planner = next(
-            member
-            for member in peer_groups[0].execution_config.members
-            if member.member_id == "planner"
-        )
-        assert planner.provider_config.typed_prompt_inputs[0]["value_source"]["kind"] == "typed_binding_ref"
-
-
-def test_pre_provider_input_peer_chained_selections_thread_prior_ref(
-    tmp_path: Path,
-) -> None:
-    """Two chained peer member selections lower to two ordered projections."""
-
-    from orchestrator.workflow.executable_ir import ExecutableNodeKind
-
-    source = _module_source(
-        "2.26",
-        (
-            "(defproc branching-input-worker ((a Bool) (b Bool) (c Bool)) -> String "
-            ":effects ((uses-provider providers.planner)) "
-            ":lowering inline "
-            "(let* ((first (if a b false)) "
-            "(second (if first c false))) "
-            "(provider-result providers.planner "
-            ":prompt prompts.planner :inputs (second) "
-            ":timeout-sec 30 :returns String)))"
-        ),
-        (
-            "(defworkflow orchestrate ((a Bool) (b Bool) (c Bool)) -> String "
-            "(with-live-provider-peers "
-            "((planner (branching-input-worker a b c)) "
-            "(reviewer (provider-result providers.reviewer "
-            ":prompt prompts.reviewer :inputs () "
-            ":timeout-sec 20 :returns Bool))) "
-            "planner))"
-        ),
-    )
-    path = tmp_path / "peer_pre_provider_chained.orc"
-    path.write_text(source, encoding="utf-8")
-    for prompt_path in ("prompts/planner.md", "prompts/reviewer.md"):
-        target = tmp_path / prompt_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("prompt\n", encoding="utf-8")
-    result = compile_stage3_module(
-        path,
-        entry_workflow="orchestrate",
-        provider_externs={
-            "providers.planner": "planner-provider",
-            "providers.reviewer": "reviewer-provider",
-        },
-        prompt_externs={
-            "prompts.planner": "prompts/planner.md",
-            "prompts.reviewer": "prompts/reviewer.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    nodes = result.validated_bundles["orchestrate"].ir.nodes
-    projections = {
-        node.step_id: node
-        for node in nodes.values()
-        if node.kind is ExecutableNodeKind.PURE_PROJECTION
-    }
-    peer_groups = [
-        node for node in nodes.values()
-        if node.kind is ExecutableNodeKind.PROVIDER_PEER_GROUP
-    ]
-    assert len(projections) == 2
-    assert len(peer_groups) == 1
-
-    first_node = projections[
-        next(step_id for step_id in projections if step_id.endswith("__first"))
-    ]
-    second_node = projections[
-        next(step_id for step_id in projections if step_id.endswith("__second"))
-    ]
-    first_ref = f"root.steps.{first_node.presentation_name}.artifacts.__result__"
-    second_ref = f"root.steps.{second_node.presentation_name}.artifacts.__result__"
-
-    second_binding_refs = dict(
-        second_node.execution_config.pure_projection["binding_refs"]
-    )
-    first_dependency = next(
-        ref for name, ref in second_binding_refs.items() if name.endswith("__first")
-    )
-    assert first_dependency["ref"] == first_ref
-
-    planner = next(
-        member
-        for member in peer_groups[0].execution_config.members
-        if member.member_id == "planner"
-    )
-    typed_inputs = planner.provider_config.typed_prompt_inputs
-    assert len(typed_inputs) == 1
-    assert typed_inputs[0]["binding_name"].endswith("__second")
-    assert typed_inputs[0]["value_source"]["kind"] == "typed_binding_ref"
-    assert typed_inputs[0]["value_source"]["binding"]["ref"] == second_ref

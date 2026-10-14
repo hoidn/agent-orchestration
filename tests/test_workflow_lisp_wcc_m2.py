@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import CommandResultExpr, ProviderResultExpr
-from orchestrator.workflow_lisp.result_guidance import ResultGuidance, ReturnSpec
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PrimitiveTypeRef
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
-from orchestrator.workflow_lisp.wcc.defunctionalize import _frontend_expr_from_wcc_loop_binding_value
 from orchestrator.workflow_lisp.wcc.model import (
     WccCall,
     WccHalt,
@@ -36,10 +31,6 @@ MODULE_FIXTURES = FIXTURES / "modules" / "valid"
 CHARACTERIZATION_FIXTURES = FIXTURES / "characterization" / "sources"
 
 
-def _assert_wcc_route_unsupported(excinfo: pytest.ExceptionInfo[LispFrontendCompileError]) -> None:
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "wcc_lowering_route_unsupported"
-    assert diagnostic.phase == "lowering"
 
 
 def _compile_fixture(path: Path, *, tmp_path: Path):
@@ -79,44 +70,6 @@ def _compile_fixture(path: Path, *, tmp_path: Path):
     return type_env, workflows, workflow_return_types, procedure_return_types
 
 
-def _write_with_phase_command_fixture(tmp_path: Path) -> Path:
-    fixture = tmp_path / "with_phase_command_result.orc"
-    fixture.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord RunCtx",
-                "    (run-id RunId)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord PhaseCtx",
-                "    (run RunCtx)",
-                "    (phase-name Symbol)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defworkflow orchestrate",
-                "    ((phase-ctx PhaseCtx)",
-                "     (report_path WorkReport))",
-                "    -> ChecksResult",
-                "    (with-phase phase-ctx implementation",
-                "      (command-result run_checks",
-                '        :argv ("python" "scripts/run_checks.py" report_path)',
-                "        :returns ChecksResult))))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return fixture
 
 
 def _write_with_phase_provider_fixture(tmp_path: Path) -> Path:
@@ -163,106 +116,10 @@ def _write_with_phase_provider_fixture(tmp_path: Path) -> Path:
     return fixture
 
 
-def _write_imported_bundle_call_fixture(tmp_path: Path) -> Path:
-    fixture = tmp_path / "imported_bundle_call.orc"
-    fixture.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord ImplementationSummary",
-                "    (report WorkReport))",
-                "  (defworkflow orchestrate",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (call selector-run",
-                "      :input input",
-                "      :report_path report_path)))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return fixture
 
 
-def _write_proc_match_fixture(tmp_path: Path) -> Path:
-    fixture = tmp_path / "orchestrate_proc_match.orc"
-    fixture.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord CompletedAttempt",
-                "    (execution_report WorkReport))",
-                "  (defrecord BlockedAttempt",
-                "    (progress_report WorkReport))",
-                "  (defrecord ImplementationSummary",
-                "    (report WorkReport))",
-                "  (defunion ImplementationState",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)))",
-                "  (defproc provider-attempt",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    :effects ((uses-provider providers.execute))",
-                "    :lowering inline",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (input report_path)",
-                "               :returns ImplementationState)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (record ImplementationSummary",
-                "           :report completed.execution_report))",
-                "        ((BLOCKED blocked)",
-                "         (record ImplementationSummary",
-                "           :report blocked.progress_report)))))",
-                "  (defworkflow orchestrate",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (provider-attempt input report_path)))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return fixture
 
 
-def _load_imported_bundle_bindings(tmp_path: Path) -> dict[str, object]:
-    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
-    bindings = build_module.load_imported_workflow_bundle_manifest(
-        FIXTURES / "cli" / "imported_workflow_bundles.json",
-        workspace_root=tmp_path,
-        source_roots=(MODULE_FIXTURES / "imported_bundle_mix",),
-        provider_externs_path=FIXTURES / "cli" / "providers.json",
-        prompt_externs_path=FIXTURES / "cli" / "prompts.json",
-        command_boundaries_path=FIXTURES / "cli" / "commands.json",
-    )
-    return {binding.canonical_key: binding.bundle for binding in bindings}
 
 
 @pytest.mark.parametrize("route_value", ("wcc_m2", LoweringRoute.WCC_M2))
@@ -320,47 +177,6 @@ def test_wcc_model_instantiates_effectful_nodes_with_stable_metadata() -> None:
     assert call.metadata.scope_id == scope.scope_id
 
 
-@pytest.mark.parametrize(
-    ("perform_kind", "expected_type"),
-    (
-        ("provider_result", ProviderResultExpr),
-        ("command_result", CommandResultExpr),
-    ),
-)
-def test_wcc_loop_binding_reconstruction_preserves_return_spec(
-    perform_kind: str,
-    expected_type: type[ProviderResultExpr] | type[CommandResultExpr],
-) -> None:
-    span = SourceSpan(
-        start=SourcePosition(path="wcc_guidance.orc", line=1, column=1, offset=0),
-        end=SourcePosition(path="wcc_guidance.orc", line=1, column=2, offset=1),
-    )
-    scope = WccIdentityFactory(owner_name="guided-loop", lexical_owner_chain=("workflow",))
-    return_spec = ReturnSpec(
-        type_name="Bool",
-        guidance=ResultGuidance(description="No blockers remain."),
-        span=span,
-    )
-    perform = WccPerform(
-        metadata=scope.value_metadata(
-            role=f"perform:{perform_kind}",
-            type_ref=PrimitiveTypeRef(name="Bool"),
-            source_span=span,
-            form_path=("workflow-lisp", "defworkflow", "guided-loop"),
-        ),
-        perform_kind=perform_kind,
-        target_name="providers.execute" if perform_kind == "provider_result" else "run_checks",
-        prompt_name="prompts.review" if perform_kind == "provider_result" else None,
-        positional_args=(),
-        keyword_args=(),
-        returns_type_name="Bool",
-        operation_payload={"return_spec": return_spec},
-    )
-
-    reconstructed = _frontend_expr_from_wcc_loop_binding_value(perform)
-
-    assert isinstance(reconstructed, expected_type)
-    assert reconstructed.return_spec is return_spec
 
 
 def test_elaborate_preserves_effect_summaries_on_perform_nodes(tmp_path: Path) -> None:
@@ -473,41 +289,6 @@ def test_elaborate_preserves_with_phase_lowering_context_on_supported_effect_bod
     assert body.bound_value.metadata.phase_scope.phase_name == "implementation"
 
 
-def test_defunctionalize_preserves_phase_scoped_provider_lowering(tmp_path: Path) -> None:
-    fixture = _write_with_phase_provider_fixture(tmp_path)
-    compile_kwargs = dict(
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path / "workspace",
-    )
-
-    legacy = compile_stage3_module(
-        fixture,
-        lowering_route="legacy",
-        **compile_kwargs,
-    )
-    wcc_m2 = compile_stage3_module(
-        fixture,
-        lowering_route="wcc_m2",
-        **compile_kwargs,
-    )
-
-    legacy_workflow = next(iter(legacy.lowered_workflows))
-    wcc_workflow = next(iter(wcc_m2.lowered_workflows))
-    legacy_steps = legacy_workflow.authored_mapping["steps"]
-    wcc_steps = wcc_workflow.authored_mapping["steps"]
-
-    assert [step["name"] for step in wcc_steps] == [step["name"] for step in legacy_steps]
-
-    legacy_provider = next(step for step in legacy_steps if step["name"] == "orchestrate__result")
-    wcc_provider = next(step for step in wcc_steps if step["name"] == "orchestrate__result")
-
-    legacy_contract = legacy_provider["output_bundle"]
-    wcc_contract = wcc_provider["output_bundle"]
-    assert wcc_contract["path"] == legacy_contract["path"]
-    assert wcc_provider.get("consumes") == legacy_provider.get("consumes")
-    assert wcc_provider.get("prompt_consumes") == legacy_provider.get("prompt_consumes")
 
 
 def test_anf_atomizes_effectful_args_and_halt_result() -> None:
@@ -592,115 +373,12 @@ def test_anf_atomizes_effectful_args_and_halt_result() -> None:
     assert isinstance(normalized.body.body.body.result, WccNameAtom)
 
 
-def test_defunctionalize_preserves_step_order_for_straight_line_effects(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        CHARACTERIZATION_FIXTURES / "wcc_m2_straight_line_effects.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m2",
-    )
-
-    steps_by_workflow = {
-        workflow.typed_workflow.definition.name: [step.get("name") for step in workflow.authored_mapping["steps"]]
-        for workflow in result.lowered_workflows
-    }
-
-    assert steps_by_workflow["command-checks"] == ["command-checks__run_checks"]
-    assert steps_by_workflow["provider-attempt"] == ["provider-attempt__result"]
-    assert steps_by_workflow["orchestrate"] == [
-        "orchestrate__checks__call_command-checks",
-        "orchestrate__call_provider-attempt",
-    ]
 
 
-def test_defunctionalize_preserves_specialized_procedure_step_order(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        VALID_FIXTURES / "proc_ref_bind_proc_forwarding.orc",
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m2",
-    )
-
-    lowered = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
-    assert [step.get("name") for step in lowered.authored_mapping["steps"]] == [
-        "entry__forward-runner_1__invoke-runner_1__runner_1__run_checks"
-    ]
 
 
-def test_wcc_m2_lowering_does_not_rebuild_frontend_effect_exprs_for_performs(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = importlib.import_module("orchestrator.workflow_lisp.wcc.defunctionalize")
-    original = module._frontend_expr_from_wcc_binding_value
-
-    def guard(value):
-        if isinstance(value, WccPerform):
-            raise AssertionError("wcc_m2 should emit WccPerform bindings without rebuilding frontend expressions")
-        return original(value)
-
-    monkeypatch.setattr(module, "_frontend_expr_from_wcc_binding_value", guard)
-
-    result = compile_stage3_module(
-        CHARACTERIZATION_FIXTURES / "wcc_m2_straight_line_effects.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m2",
-    )
-
-    assert result.lowered_workflows
 
 
-def test_wcc_m2_lowering_does_not_rebuild_frontend_effect_exprs_for_proc_calls(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = importlib.import_module("orchestrator.workflow_lisp.wcc.defunctionalize")
-    original = module._frontend_expr_from_wcc_binding_value
-
-    def guard(value):
-        if isinstance(value, WccCall):
-            raise AssertionError("wcc_m2 should emit WccCall bindings without rebuilding frontend expressions")
-        return original(value)
-
-    monkeypatch.setattr(module, "_frontend_expr_from_wcc_binding_value", guard)
-
-    result = compile_stage3_module(
-        VALID_FIXTURES / "proc_ref_bind_proc_forwarding.orc",
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m2",
-    )
-
-    assert result.lowered_workflows
 
 
 @pytest.mark.parametrize(
@@ -729,129 +407,4 @@ def test_wcc_m2_route_compiles_positive_fixtures(
         lowering_route="wcc_m2",
     )
 
-    assert result.lowered_workflows
-
-
-@pytest.mark.parametrize(
-    "fixture_path",
-    (
-        VALID_FIXTURES / "structured_results.orc",
-        VALID_FIXTURES / "neurips_implementation_attempt.orc",
-    ),
-)
-def test_wcc_m2_route_rejects_out_of_scope_m3_m4_real_fixtures(
-    tmp_path: Path,
-    fixture_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            fixture_path,
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-
-
-def test_wcc_m2_route_rejects_same_file_module_graph_entrypoint_boundary(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "callables" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "callables",),
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-
-
-def test_wcc_m2_route_rejects_imported_bundle_mix_entrypoint_boundary(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "imported_bundle_mix" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "imported_bundle_mix",),
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            imported_workflow_bundles=_load_imported_bundle_bindings(tmp_path),
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-
-
-def test_wcc_m2_route_rejects_workflow_ref_calls_before_elaboration(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            VALID_FIXTURES / "workflow_refs_same_file.orc",
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-    assert "workflow-ref" in excinfo.value.diagnostics[0].message
-
-
-def test_wcc_m2_route_rejects_imported_bundle_calls_before_elaboration(tmp_path: Path) -> None:
-    fixture = _write_imported_bundle_call_fixture(tmp_path)
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            fixture,
-            imported_workflow_bundles=_load_imported_bundle_bindings(tmp_path),
-            validate_shared=False,
-            workspace_root=tmp_path / "workspace",
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-    assert "same-file direct workflow calls" in excinfo.value.diagnostics[0].message
-
-
-def test_wcc_m2_route_rejects_unsupported_control_hidden_in_same_file_procedure(tmp_path: Path) -> None:
-    fixture = _write_proc_match_fixture(tmp_path)
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            fixture,
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path / "workspace",
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
-    assert "bounded straight-line subset" in excinfo.value.diagnostics[0].message
+    assert result.typed_workflows

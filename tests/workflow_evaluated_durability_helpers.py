@@ -35,6 +35,7 @@ REAL = {name: getattr(os, name) for name in (
     "mkdir", "open", "write", "fsync", "replace", "rename", "unlink", "rmdir", "ftruncate")}
 REAL_COPY = shutil.copyfileobj
 state = {"busy": False, "done": False, "fsyncs": 0}
+inode_handles = {}
 
 
 def inside(path):
@@ -70,6 +71,9 @@ def tree():
             path = os.path.join(current, name)
             rel = os.path.relpath(path, WORKSPACE)
             ino = os.lstat(path).st_ino
+            # Keep deleted inodes alive while durable directory entries may still reference them.
+            if ino not in inode_handles:
+                inode_handles[ino] = REAL["open"](path, os.O_PATH | os.O_NOFOLLOW)
             if os.path.islink(path):
                 rows[rel] = ["symlink", ino, os.readlink(path)]
             elif os.path.isdir(path):

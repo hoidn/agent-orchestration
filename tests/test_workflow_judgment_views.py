@@ -9,23 +9,11 @@ from typing import Any
 
 import pytest
 
-from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.runtime_observability import (
-    record_compiled_frontend_provenance,
-)
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.prompt_dependency_evidence import (
-    evidence_relative_path,
-)
 from orchestrator.workflow.prompt_identity import (
     ROLE_ORDER,
     canonical_sha256,
 )
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
-from orchestrator.workflow_lisp.build import (
-    FrontendBuildRequest,
-    build_frontend_bundle,
-)
 
 
 EMPTY_VIEWS = {
@@ -54,106 +42,39 @@ def _project(
     )
 
 
-def _available_root_fixture(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[
-    dict[str, Any],
-    Path,
-    ProviderAttemptScope,
-    dict[str, Any],
-    dict[str, Any],
-]:
-    from tests.test_workflow_lisp_prompt_calculus_runtime import (
-        _compile_runtime_fragment,
-        _provider_success,
-        _runtime_fragment_manager,
-    )
-
-    generated_source, _discarded = _compile_runtime_fragment(
-        tmp_path,
-        lowering_route="wcc_m4",
-        target_dsl="2.22",
-        with_output_position=True,
-    )
-    source_path = tmp_path / "demo" / "prompt-runtime.orc"
-    source_path.parent.mkdir(parents=True)
-    generated_source.replace(source_path)
-    providers = tmp_path / "providers.json"
-    providers.write_text(
-        json.dumps({"providers.review": "capturing-provider"}),
-        encoding="utf-8",
-    )
-    build = build_frontend_bundle(
-        FrontendBuildRequest(
-            source_path=source_path,
-            source_roots=(tmp_path,),
-            entry_workflow="run-review",
-            provider_externs_path=providers,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m4",
-        )
-    )
-    bundle = build.validated_bundle
-    manager = _runtime_fragment_manager(
-        tmp_path,
-        source_path,
-        bundle,
-        run_id="q4-judgment-view",
-    )
-    captured: dict[str, object] = {
-        "preparations": 0,
-        "executions": 0,
-    }
-    prepare, base_execute = _provider_success(tmp_path, captured)
-
-    def execute(provider: object, invocation: object, **kwargs: Any) -> object:
-        report = tmp_path / "artifacts" / "work" / "review.md"
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("reviewed\n", encoding="utf-8")
-        return base_execute(provider, invocation, **kwargs)
-
-    monkeypatch.setattr(
-        ProviderExecutor,
-        "prepare_invocation",
-        prepare,
-    )
-    monkeypatch.setattr(ProviderExecutor, "execute", execute)
-    state = WorkflowExecutor(
-        bundle,
-        tmp_path,
-        manager,
-        retry_delay_ms=0,
-    ).execute(on_error="stop")
-    assert state["status"] == "completed"
-    record_compiled_frontend_provenance(
-        state,
-        build.validated_bundle.provenance,
-    )
-    allocation = next(
-        iter(state["provider_attempt_allocations"].values())
-    )
-    assert "events" not in allocation
-    scope = ProviderAttemptScope.from_dict(allocation["scope"])
-    result = next(
-        step
-        for step in state["steps"].values()
-        if step.get("step_id") == scope.runtime_step_id
-    )
+def _available_root_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Captured using the actual original fixture at 23eb9c97. Only retained reader artifacts are stored.
+    from orchestrator.workflow.persisted_surface import canonical_persisted_surface_bytes, persisted_surface_sha256
+    from tests.test_prompt_context_report import _reset_scope, _with_ordinal, _publish
+    captured = json.loads((Path(__file__).parent / "fixtures/historical_judgment_view.json").read_text(encoding="utf-8").replace("@WORKSPACE@", str(tmp_path)))
+    state = captured["state"]
+    for relative, text in captured["files"].items():
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    compiled = state["runtime_observability"]["compiled_frontend"]
+    graph_path = tmp_path / ".orchestrate" / compiled["persisted_workflow_surface"]["path"]
+    surface = canonical_persisted_surface_bytes(json.loads(graph_path.read_text(encoding="utf-8")))
+    graph_path.write_bytes(surface)
+    digest = persisted_surface_sha256(surface)
+    compiled["persisted_workflow_surface"]["sha256"] = digest
+    manifest_path = graph_path.with_name("manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["persisted_workflow_surface"]["sha256"] = digest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    scope = ProviderAttemptScope.from_dict(captured["scope"])
+    authority = next(iter(state["provider_attempt_allocations"].values()))["prompt_fragment_identity_schema_version"]
+    _reset_scope(state, scope, authority=authority)
+    record = _with_ordinal(captured["record"], scope, 1)
+    run_root = Path(captured["run_root"])
+    evidence = _publish(state, run_root, scope, 1, record)
+    result = state["steps"][captured["result_step_name"]]
     locator = result["debug"]["prompt_attempt_result_binding"]
-    ordinal = locator["attempt_ordinal"]
-    expected_relative_path = evidence_relative_path(scope, ordinal)
-    assert locator["scope_sha256"] == scope.key
-    assert ordinal <= allocation["last_allocated_ordinal"]
-    assert locator["evidence_relative_path"] == (
-        expected_relative_path.as_posix()
-    )
-    record = json.loads(
-        (manager.run_root / expected_relative_path).read_text(
-            encoding="utf-8"
-        )
-    )
-    return state, manager.run_root, scope, record, result
+    locator["scope_sha256"] = scope.key
+    locator["evidence_relative_path"] = evidence.relative_to(run_root).as_posix()
+    import hashlib
+    locator["evidence_file_sha256"] = "sha256:" + hashlib.sha256(evidence.read_bytes()).hexdigest()
+    return state, run_root, scope, record, result
 
 
 def _coordinate(

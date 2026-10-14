@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from contextlib import contextmanager
-from copy import deepcopy
 import json
 import importlib
 import hashlib
 import os
 from pathlib import Path
 import stat
-import threading
 
 import pytest
 
@@ -22,11 +18,8 @@ from orchestrator.runtime_observability import (
     open_executor_session,
     record_compiled_frontend_provenance,
 )
-from orchestrator.workflow.call_frame_state import (
-    _CallFrameStateManager,
-    _path_safe_frame_scope_token,
-)
-from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.provider_attempts import _path_safe_frame_scope_token
+from tests.historical_state import write_historical_state
 from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
@@ -69,29 +62,12 @@ def _nested_state(run_id: str, workflow_file: str, run_root: Path) -> RunState:
 
 def _install_frame(
     parent_state: RunState,
-    child: _NestedManager | _CallFrameStateManager,
+    child: _NestedManager,
 ) -> None:
     parent_state.call_frames[child.frame_id] = {
         "call_frame_id": child.frame_id,
         "state": child.state.to_dict(),
     }
-
-
-def _actual_nested_manager(
-    parent: StateManager | _CallFrameStateManager,
-    frame_id: str,
-    state: RunState,
-    scope: ResumeScopePath,
-) -> _CallFrameStateManager:
-    child = object.__new__(_CallFrameStateManager)
-    child.parent_manager = parent
-    child.frame_id = frame_id
-    child.run_id = parent.run_id
-    child.workspace = parent.workspace
-    child.run_root = parent.run_root / "call_frames" / _path_safe_frame_scope_token(frame_id)
-    child.state = state
-    child.resume_scope_path = scope
-    return child
 
 
 def _attempt_module():
@@ -121,7 +97,7 @@ def _direct_scope_payload(root: StateManager, *, candidate: str | None = None) -
 
 def _prepare_direct_scope_root(tmp_path: Path, run_id: str = "scope-root") -> StateManager:
     root = StateManager(tmp_path, run_id=run_id)
-    root.initialize(_workflow(tmp_path))
+    write_historical_state(root, _workflow(tmp_path))
     assert root.state is not None
     root.state.step_visits["Provider"] = 1
     root.state.current_step = {
@@ -462,7 +438,7 @@ def test_prompt_schema_authority_distinguishes_equal_runtime_ids_in_call_frames(
 ) -> None:
     attempts = _attempt_module()
     root = StateManager(tmp_path, run_id="q3-call-frame-authority")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     children = []
     for frame_id in ("first", "second"):
         scope_path = ResumeScopePath.root(root_state.workflow_file).child(frame_id)
@@ -471,7 +447,7 @@ def test_prompt_schema_authority_distinguishes_equal_runtime_ids_in_call_frames(
             / "call_frames"
             / _path_safe_frame_scope_token(frame_id)
         )
-        child = _actual_nested_manager(
+        child = _NestedManager(
             root,
             frame_id,
             _nested_state(root.run_id, f"{frame_id}.orc", child_root),
@@ -516,8 +492,9 @@ def test_prompt_schema_authority_distinguishes_equal_runtime_ids_in_call_frames(
                 "adjudication_subject": None,
             }
         )
-        assert child.allocate_provider_attempt(
+        assert root.allocate_provider_attempt(
             scope,
+            _origin_manager=child,
             prompt_fragment_identity_schema_version=schema_version,
         ) == 1
         scopes.append(scope)
@@ -574,7 +551,7 @@ def test_old_state_omits_allocator_member_on_round_trip() -> None:
 
 def test_unaffected_state_write_creates_no_process_lock(tmp_path: Path) -> None:
     manager = StateManager(tmp_path, run_id="unaffected")
-    manager.initialize(_workflow(tmp_path))
+    write_historical_state(manager, _workflow(tmp_path))
     before = manager.state_file.read_bytes()
 
     manager.update_status("completed")
@@ -587,7 +564,7 @@ def test_unaffected_state_write_creates_no_process_lock(tmp_path: Path) -> None:
 
 def test_state_transaction_exception_rolls_back_memory_and_disk(tmp_path: Path) -> None:
     manager = StateManager(tmp_path, run_id="transaction-rollback")
-    manager.initialize(_workflow(tmp_path))
+    write_historical_state(manager, _workflow(tmp_path))
 
     with pytest.raises(RuntimeError, match="abort transaction"):
         with manager.state_transaction() as transaction_state:
@@ -597,16 +574,6 @@ def test_state_transaction_exception_rolls_back_memory_and_disk(tmp_path: Path) 
     assert manager.state is not None
     assert "must_not_persist" not in manager.state.context
     assert "must_not_persist" not in json.loads(manager.state_file.read_bytes())["context"]
-
-
-def test_production_callers_use_transactions_instead_of_direct_root_write() -> None:
-    production_paths = (
-        Path("orchestrator/workflow/executor.py"),
-        Path("orchestrator/cli/commands/run.py"),
-        Path("orchestrator/cli/commands/resume.py"),
-    )
-
-    assert all("._write_state(" not in path.read_text() for path in production_paths)
 
 
 def test_single_writer_runtime_transactions_preserve_allocator_and_all_fields(
@@ -657,32 +624,6 @@ def test_single_writer_runtime_transactions_preserve_allocator_and_all_fields(
     ] == "completed"
 
 
-def test_workflow_boundary_persistence_after_allocation_keeps_bound_inputs(
-    tmp_path: Path,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="workflow-boundary-fields")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    assert root.allocate_provider_attempt(scope) == 1
-    executor = object.__new__(WorkflowExecutor)
-    executor.state_manager = root
-
-    executor._persist_workflow_boundary_state(
-        {
-            "bound_inputs": {"input": "boundary-value"},
-            "workflow_outputs": {"output": "value"},
-            "finalization": {"status": "completed"},
-            "error": None,
-        }
-    )
-
-    persisted = json.loads(root.state_file.read_bytes())
-    assert persisted["bound_inputs"] == {"input": "boundary-value"}
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 1
-
 def test_durable_writer_retries_short_writes_and_syncs_file_and_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -727,7 +668,7 @@ def test_repair_skips_semantically_invalid_newest_backup_for_older_valid_backup(
     tmp_path: Path,
 ) -> None:
     manager = StateManager(tmp_path, run_id="semantic-backup-fallback")
-    state = manager.initialize(_workflow(tmp_path))
+    state = write_historical_state(manager, _workflow(tmp_path))
     valid_backup = manager.run_root / "state.json.step_a-valid.bak"
     valid_backup.write_bytes(manager.state_file.read_bytes())
     invalid_payload = state.to_dict()
@@ -816,7 +757,7 @@ def test_unaffected_repair_retains_ordinary_backup_copy(
     tmp_path: Path,
 ) -> None:
     manager = StateManager(tmp_path, run_id="unaffected-repair-writer")
-    manager.initialize(_workflow(tmp_path))
+    write_historical_state(manager, _workflow(tmp_path))
     expected = manager.state_file.read_bytes()
     backup = manager.run_root / "state.json.step_valid.bak"
     backup.write_bytes(expected)
@@ -830,7 +771,7 @@ def test_unaffected_repair_retains_ordinary_backup_copy(
 
 def test_resolve_aggregate_owner_returns_root_scope_and_leaf(tmp_path: Path) -> None:
     root = StateManager(tmp_path, run_id="root-owner")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
 
     resolution = _attempt_module().resolve_aggregate_run_owner(root)
 
@@ -842,7 +783,7 @@ def test_resolve_aggregate_owner_returns_root_scope_and_leaf(tmp_path: Path) -> 
 
 def test_resolve_aggregate_owner_walks_two_call_levels_in_order(tmp_path: Path) -> None:
     root = StateManager(tmp_path, run_id="nested-owner")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     first_scope = ResumeScopePath.root(root_state.workflow_file).child("frame-one")
     first_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("frame-one")
     first = _NestedManager(
@@ -870,594 +811,11 @@ def test_resolve_aggregate_owner_walks_two_call_levels_in_order(tmp_path: Path) 
     assert resolution.aggregate_root == root.run_root
 
 
-def test_nested_heartbeat_and_owner_resolution_share_the_root_state_lock(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = StateManager(tmp_path, run_id="heartbeat-owner-lock")
-    root_state = root.initialize(_workflow(tmp_path))
-    scope = ResumeScopePath.root(root_state.workflow_file).child("frame")
-    child_root = (
-        root.run_root
-        / "call_frames"
-        / _path_safe_frame_scope_token("frame")
-    )
-    child = _actual_nested_manager(
-        root,
-        "frame",
-        _nested_state(root.run_id, "child.orc", child_root),
-        scope,
-    )
-    child.workflow = None
-    child.call_step_name = "CallChild"
-    child.call_step_id = "CallChildStep"
-    child.import_alias = "child"
-    child.bound_input_resume_validation = {}
-    child.state.current_step = {
-        "name": "PureStep",
-        "index": 0,
-        "type": "pure_projection",
-        "status": "running",
-        "started_at": "2026-01-01T00:00:00+00:00",
-        "last_heartbeat_at": "2026-01-01T00:00:00+00:00",
-        "step_id": "PureStepId",
-        "visit_count": 1,
-    }
-    _install_frame(root_state, child)
-
-    live_mutated = threading.Event()
-    allow_persist = threading.Event()
-    resolution_lock_attempted = threading.Event()
-    heartbeat_errors: list[BaseException] = []
-    resolution_errors: list[BaseException] = []
-    event_lock = threading.Lock()
-    events: list[str] = []
-    thread_depth = threading.local()
-    original_state_mutation = root._state_mutation
-    original_mutate_scoped_state = root._mutate_scoped_state
-
-    def record(event: str) -> None:
-        with event_lock:
-            events.append(event)
-
-    @contextmanager
-    def observed_state_mutation():
-        thread_name = threading.current_thread().name
-        depth = getattr(thread_depth, "value", 0)
-        if thread_name == "concurrent-owner-resolution" and depth == 0:
-            record("resolution_lock_attempted")
-            resolution_lock_attempted.set()
-        thread_depth.value = depth + 1
-        try:
-            with original_state_mutation():
-                if thread_name == "heartbeat-root-owner" and depth == 0:
-                    record("heartbeat_lock_acquired")
-                elif (
-                    thread_name == "concurrent-owner-resolution"
-                    and depth == 0
-                ):
-                    record("resolution_lock_acquired")
-                yield
-        finally:
-            thread_depth.value = depth
-            if thread_name == "heartbeat-root-owner" and depth == 0:
-                record("heartbeat_lock_released")
-
-    def delayed_mutate_scoped_state(
-        resume_scope_path: ResumeScopePath,
-        *,
-        commit_guard: Callable[[RunState], bool],
-        mutation: Callable[[RunState], None],
-    ) -> RunState:
-        def delayed_mutation(leaf: RunState) -> None:
-            mutation(leaf)
-            live_mutated.set()
-            if not allow_persist.wait(timeout=5.0):
-                raise TimeoutError(
-                    "test did not release nested heartbeat commit"
-                )
-
-        return original_mutate_scoped_state(
-            resume_scope_path,
-            commit_guard=commit_guard,
-            mutation=delayed_mutation,
-        )
-
-    monkeypatch.setattr(
-        root,
-        "_mutate_scoped_state",
-        delayed_mutate_scoped_state,
-    )
-    monkeypatch.setattr(root, "_state_mutation", observed_state_mutation)
-
-    def heartbeat() -> None:
-        try:
-            child.heartbeat_step("PureStep")
-        except BaseException as exc:  # pragma: no cover - asserted below
-            heartbeat_errors.append(exc)
-
-    def resolve() -> None:
-        try:
-            _attempt_module().resolve_aggregate_run_owner(child)
-        except BaseException as exc:  # pragma: no cover - asserted below
-            resolution_errors.append(exc)
-
-    heartbeat_thread = threading.Thread(
-        target=heartbeat,
-        name="heartbeat-root-owner",
-        daemon=True,
-    )
-    heartbeat_thread.start()
-    assert live_mutated.wait(timeout=5.0)
-
-    resolution_thread = threading.Thread(
-        target=resolve,
-        name="concurrent-owner-resolution",
-        daemon=True,
-    )
-    resolution_thread.start()
-    assert resolution_lock_attempted.wait(timeout=5.0)
-
-    allow_persist.set()
-    heartbeat_thread.join(timeout=5.0)
-    resolution_thread.join(timeout=5.0)
-
-    assert heartbeat_thread.is_alive() is False
-    assert resolution_thread.is_alive() is False
-    assert heartbeat_errors == []
-    assert resolution_errors == []
-    assert events.index("heartbeat_lock_acquired") < events.index(
-        "resolution_lock_attempted"
-    )
-    assert events.index("resolution_lock_attempted") < events.index(
-        "heartbeat_lock_released"
-    )
-    assert events.index("heartbeat_lock_released") < events.index(
-        "resolution_lock_acquired"
-    )
-
-
-def test_ordinary_nested_mutation_acquires_root_lock_before_live_change(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = StateManager(tmp_path, run_id="ordinary-nested-root-lock")
-    root_state = root.initialize(_workflow(tmp_path))
-    scope = ResumeScopePath.root(root_state.workflow_file).child("frame")
-    child_root = (
-        root.run_root
-        / "call_frames"
-        / _path_safe_frame_scope_token("frame")
-    )
-    child = _actual_nested_manager(
-        root,
-        "frame",
-        _nested_state(root.run_id, "child.orc", child_root),
-        scope,
-    )
-    child.workflow = None
-    child.call_step_name = "CallChild"
-    child.call_step_id = "CallChildStep"
-    child.import_alias = "child"
-    child.bound_input_resume_validation = {}
-    _install_frame(root_state, child)
-
-    original_state_mutation = root._state_mutation
-    lock_attempted = threading.Event()
-    mutation_done = threading.Event()
-    mutation_errors: list[BaseException] = []
-
-    @contextmanager
-    def observed_state_mutation():
-        if threading.current_thread().name == "ordinary-nested-mutation":
-            lock_attempted.set()
-        with original_state_mutation():
-            yield
-
-    monkeypatch.setattr(root, "_state_mutation", observed_state_mutation)
-
-    def mutate() -> None:
-        try:
-            child.update_status("suspended")
-        except BaseException as exc:  # pragma: no cover - asserted below
-            mutation_errors.append(exc)
-        finally:
-            mutation_done.set()
-
-    with original_state_mutation():
-        mutation_thread = threading.Thread(
-            target=mutate,
-            name="ordinary-nested-mutation",
-            daemon=True,
-        )
-        mutation_thread.start()
-        assert lock_attempted.wait(timeout=5.0)
-        assert child.state.status == "running"
-        assert mutation_done.is_set() is False
-
-    mutation_thread.join(timeout=5.0)
-    assert mutation_thread.is_alive() is False
-    assert mutation_errors == []
-    assert child.state.status == "suspended"
-    assert root.state is not None
-    assert root.state.call_frames["frame"]["state"]["status"] == (
-        "suspended"
-    )
-
-
-def test_deepest_nested_heartbeat_commits_through_root_and_refreshes_chain(
-    tmp_path: Path,
-) -> None:
-    root = StateManager(tmp_path, run_id="deepest-heartbeat")
-    root_state = root.initialize(_workflow(tmp_path))
-    root_scope = ResumeScopePath.root(root_state.workflow_file)
-    first_scope = root_scope.child("first")
-    first_root = (
-        root.run_root
-        / "call_frames"
-        / _path_safe_frame_scope_token("first")
-    )
-    first = _actual_nested_manager(
-        root,
-        "first",
-        _nested_state(root.run_id, "first.orc", first_root),
-        first_scope,
-    )
-    second_scope = first_scope.child("second")
-    second_root = (
-        first.run_root
-        / "call_frames"
-        / _path_safe_frame_scope_token("second")
-    )
-    second = _actual_nested_manager(
-        first,
-        "second",
-        _nested_state(root.run_id, "second.orc", second_root),
-        second_scope,
-    )
-    original_heartbeat = "2026-01-01T00:00:00+00:00"
-    second.state.current_step = {
-        "name": "DeepPureStep",
-        "index": 0,
-        "type": "pure_projection",
-        "status": "running",
-        "started_at": original_heartbeat,
-        "last_heartbeat_at": original_heartbeat,
-        "step_id": "DeepPureStepId",
-        "visit_count": 1,
-    }
-    _install_frame(first.state, second)
-    _install_frame(root_state, first)
-
-    second.heartbeat_step("DeepPureStep")
-
-    owner = _attempt_module().resolve_aggregate_run_owner(second)
-    assert owner.leaf_state.current_step is not None
-    persisted_heartbeat = owner.leaf_state.current_step[
-        "last_heartbeat_at"
-    ]
-    assert persisted_heartbeat != original_heartbeat
-    assert second.state.current_step is not None
-    assert second.state.current_step["last_heartbeat_at"] == persisted_heartbeat
-    assert root.state is not None
-    first_payload = root.state.call_frames["first"]["state"]
-    second_payload = first_payload["call_frames"]["second"]["state"]
-    assert second_payload["current_step"]["last_heartbeat_at"] == (
-        persisted_heartbeat
-    )
-
-
-def test_pure_begin_heartbeat_and_settle_share_one_root_critical_section(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.workflow.pure_result_replay import (
-        DERIVED_PURE_REPLAY_PROFILE,
-        PureReplayVisitWitness,
-    )
-
-    root = StateManager(tmp_path, run_id="pure-heartbeat-critical-section")
-    root_state = root.initialize(_workflow(tmp_path))
-    scope = ResumeScopePath.root(root_state.workflow_file).child("frame")
-    child_root = (
-        root.run_root
-        / "call_frames"
-        / _path_safe_frame_scope_token("frame")
-    )
-    child_state = _nested_state(root.run_id, "child.orc", child_root)
-    child_state.result_persistence_profile = DERIVED_PURE_REPLAY_PROFILE
-    child = _actual_nested_manager(
-        root,
-        "frame",
-        child_state,
-        scope,
-    )
-    _install_frame(root_state, child)
-
-    original_mutate_scoped_state = root._mutate_scoped_state
-    original_state_mutation = root._state_mutation
-    thread_depth = threading.local()
-    root_commit_finished = threading.Event()
-    allow_live_refresh = threading.Event()
-    heartbeat_lock_attempted = threading.Event()
-    event_lock = threading.Lock()
-    events: list[str] = []
-    begin_errors: list[BaseException] = []
-    heartbeat_errors: list[BaseException] = []
-
-    def record(event: str) -> None:
-        with event_lock:
-            events.append(event)
-
-    @contextmanager
-    def observed_state_mutation():
-        thread_name = threading.current_thread().name
-        depth = getattr(thread_depth, "value", 0)
-        if thread_name == "pure-heartbeat" and depth == 0:
-            record("heartbeat_lock_attempted")
-            heartbeat_lock_attempted.set()
-        thread_depth.value = depth + 1
-        try:
-            with original_state_mutation():
-                if thread_name == "pure-begin" and depth == 0:
-                    record("begin_lock_acquired")
-                elif thread_name == "pure-heartbeat" and depth == 0:
-                    record("heartbeat_lock_acquired")
-                yield
-        finally:
-            thread_depth.value = depth
-            if thread_name == "pure-begin" and depth == 0:
-                record("begin_lock_released")
-
-    def pause_after_pure_root_commit(
-        resume_scope_path: ResumeScopePath,
-        *,
-        commit_guard: Callable[[RunState], bool],
-        mutation: Callable[[RunState], None],
-    ) -> RunState:
-        result = original_mutate_scoped_state(
-            resume_scope_path,
-            commit_guard=commit_guard,
-            mutation=mutation,
-        )
-        if threading.current_thread().name == "pure-begin":
-            root_commit_finished.set()
-            if not allow_live_refresh.wait(timeout=5.0):
-                raise TimeoutError("test did not release pure live refresh")
-        return result
-
-    monkeypatch.setattr(
-        root,
-        "_mutate_scoped_state",
-        pause_after_pure_root_commit,
-    )
-    monkeypatch.setattr(root, "_state_mutation", observed_state_mutation)
-
-    def begin() -> None:
-        try:
-            child.begin_eligible_pure_visit(
-                step_name="PureStep",
-                step_index=0,
-                step_id="PureStepId",
-            )
-        except BaseException as exc:  # pragma: no cover - asserted below
-            begin_errors.append(exc)
-
-    def heartbeat() -> None:
-        try:
-            child.heartbeat_step("PureStep")
-        except BaseException as exc:  # pragma: no cover - asserted below
-            heartbeat_errors.append(exc)
-
-    begin_thread = threading.Thread(
-        target=begin,
-        name="pure-begin",
-        daemon=True,
-    )
-    begin_thread.start()
-    assert root_commit_finished.wait(timeout=5.0)
-
-    heartbeat_thread = threading.Thread(
-        target=heartbeat,
-        name="pure-heartbeat",
-        daemon=True,
-    )
-    heartbeat_thread.start()
-    assert heartbeat_lock_attempted.wait(timeout=5.0)
-
-    allow_live_refresh.set()
-    begin_thread.join(timeout=5.0)
-    heartbeat_thread.join(timeout=5.0)
-
-    assert begin_thread.is_alive() is False
-    assert heartbeat_thread.is_alive() is False
-    assert begin_errors == []
-    assert heartbeat_errors == []
-    assert events.index("begin_lock_acquired") < events.index(
-        "heartbeat_lock_attempted"
-    )
-    assert events.index("heartbeat_lock_attempted") < events.index(
-        "begin_lock_released"
-    )
-    assert events.index("begin_lock_released") < events.index(
-        "heartbeat_lock_acquired"
-    )
-
-    witness = PureReplayVisitWitness(
-        presentation_key="PureStep",
-        step_index=0,
-        step_id="PureStepId",
-        visit_count=1,
-    )
-    shell = child.settle_eligible_pure_success(witness)
-    owner = _attempt_module().resolve_aggregate_run_owner(child)
-
-    assert shell["status"] == "completed"
-    assert child.state.current_step is None
-    assert owner.leaf_state.current_step is None
-    assert owner.leaf_state.steps["PureStep"] == shell
-    assert owner.leaf_state.to_dict() == child.state.to_dict()
-
-
-def test_heartbeat_releases_root_before_pure_witness_settlement(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.workflow.pure_result_replay import (
-        DERIVED_PURE_REPLAY_PROFILE,
-        PureReplayVisitWitness,
-    )
-
-    root = StateManager(tmp_path, run_id="heartbeat-before-pure-settle")
-    root_state = root.initialize(_workflow(tmp_path))
-    scope = ResumeScopePath.root(root_state.workflow_file).child("frame")
-    child_root = (
-        root.run_root
-        / "call_frames"
-        / _path_safe_frame_scope_token("frame")
-    )
-    child_state = _nested_state(root.run_id, "child.orc", child_root)
-    child_state.result_persistence_profile = DERIVED_PURE_REPLAY_PROFILE
-    child = _actual_nested_manager(
-        root,
-        "frame",
-        child_state,
-        scope,
-    )
-    _install_frame(root_state, child)
-    child.begin_eligible_pure_visit(
-        step_name="PureStep",
-        step_index=0,
-        step_id="PureStepId",
-    )
-    witness = PureReplayVisitWitness(
-        presentation_key="PureStep",
-        step_index=0,
-        step_id="PureStepId",
-        visit_count=1,
-    )
-
-    original_state_mutation = root._state_mutation
-    original_mutate_scoped_state = root._mutate_scoped_state
-    thread_depth = threading.local()
-    heartbeat_root_committed = threading.Event()
-    allow_heartbeat_refresh = threading.Event()
-    settle_lock_attempted = threading.Event()
-    event_lock = threading.Lock()
-    events: list[str] = []
-    heartbeat_errors: list[BaseException] = []
-    settle_errors: list[BaseException] = []
-    settle_results: list[dict[str, object]] = []
-
-    def record(event: str) -> None:
-        with event_lock:
-            events.append(event)
-
-    @contextmanager
-    def observed_state_mutation():
-        thread_name = threading.current_thread().name
-        depth = getattr(thread_depth, "value", 0)
-        if thread_name == "pure-settle" and depth == 0:
-            record("settle_lock_attempted")
-            settle_lock_attempted.set()
-        thread_depth.value = depth + 1
-        try:
-            with original_state_mutation():
-                if thread_name == "heartbeat-before-settle" and depth == 0:
-                    record("heartbeat_lock_acquired")
-                elif thread_name == "pure-settle" and depth == 0:
-                    record("settle_lock_acquired")
-                yield
-        finally:
-            thread_depth.value = depth
-            if thread_name == "heartbeat-before-settle" and depth == 0:
-                record("heartbeat_lock_released")
-
-    def pause_after_heartbeat_root_commit(
-        resume_scope_path: ResumeScopePath,
-        *,
-        commit_guard: Callable[[RunState], bool],
-        mutation: Callable[[RunState], None],
-    ) -> RunState:
-        result = original_mutate_scoped_state(
-            resume_scope_path,
-            commit_guard=commit_guard,
-            mutation=mutation,
-        )
-        if threading.current_thread().name == "heartbeat-before-settle":
-            heartbeat_root_committed.set()
-            if not allow_heartbeat_refresh.wait(timeout=5.0):
-                raise TimeoutError(
-                    "test did not release heartbeat live refresh"
-                )
-        return result
-
-    monkeypatch.setattr(root, "_state_mutation", observed_state_mutation)
-    monkeypatch.setattr(
-        root,
-        "_mutate_scoped_state",
-        pause_after_heartbeat_root_commit,
-    )
-
-    def heartbeat() -> None:
-        try:
-            child.heartbeat_step("PureStep")
-        except BaseException as exc:  # pragma: no cover - asserted below
-            heartbeat_errors.append(exc)
-
-    def settle() -> None:
-        try:
-            settle_results.append(
-                child.settle_eligible_pure_success(witness)
-            )
-        except BaseException as exc:  # pragma: no cover - asserted below
-            settle_errors.append(exc)
-
-    heartbeat_thread = threading.Thread(
-        target=heartbeat,
-        name="heartbeat-before-settle",
-        daemon=True,
-    )
-    heartbeat_thread.start()
-    assert heartbeat_root_committed.wait(timeout=5.0)
-
-    settle_thread = threading.Thread(
-        target=settle,
-        name="pure-settle",
-        daemon=True,
-    )
-    settle_thread.start()
-    assert settle_lock_attempted.wait(timeout=5.0)
-
-    allow_heartbeat_refresh.set()
-    heartbeat_thread.join(timeout=5.0)
-    settle_thread.join(timeout=5.0)
-
-    assert heartbeat_thread.is_alive() is False
-    assert settle_thread.is_alive() is False
-    assert heartbeat_errors == []
-    assert settle_errors == []
-    assert len(settle_results) == 1
-    assert events.index("heartbeat_lock_acquired") < events.index(
-        "settle_lock_attempted"
-    )
-    assert events.index("settle_lock_attempted") < events.index(
-        "heartbeat_lock_released"
-    )
-    assert events.index("heartbeat_lock_released") < events.index(
-        "settle_lock_acquired"
-    )
-    owner = _attempt_module().resolve_aggregate_run_owner(child)
-    assert owner.leaf_state.current_step is None
-    assert owner.leaf_state.steps["PureStep"] == settle_results[0]
-    assert owner.leaf_state.to_dict() == child.state.to_dict()
-
-
 def test_resolve_aggregate_owner_rejects_wrong_intermediate_scope_prefix(
     tmp_path: Path,
 ) -> None:
     root = StateManager(tmp_path, run_id="intermediate-scope")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     root_scope = ResumeScopePath.root(root_state.workflow_file)
     first_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("first")
     first = _NestedManager(
@@ -1495,7 +853,7 @@ def test_pre_scope_mutation_allows_only_one_missing_leaf_scope(
     accepted: bool,
 ) -> None:
     root = StateManager(tmp_path, run_id=f"pre-scope-{scope_shape}")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     root_scope = ResumeScopePath.root(root_state.workflow_file)
     first_scope = root_scope.child("first")
     first_root = (
@@ -1553,10 +911,10 @@ def test_resolve_aggregate_owner_rejects_nested_root_owned_allocator_state(
     allocator_location: str,
 ) -> None:
     root = StateManager(tmp_path, run_id=f"nested-allocator-{allocator_location}")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     scope_path = ResumeScopePath.root(root_state.workflow_file).child("frame")
     child_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("frame")
-    child = _actual_nested_manager(
+    child = _NestedManager(
         root,
         "frame",
         _nested_state(root.run_id, "child.orc", child_root),
@@ -1598,7 +956,7 @@ def test_resolve_aggregate_owner_rejects_nested_root_owned_allocator_state(
     with pytest.raises(ValueError, match="root-owned"):
         _attempt_module().resolve_aggregate_run_owner(child)
     with pytest.raises(ValueError, match="root-owned"):
-        child.allocate_provider_attempt(nested_scope)
+        root.allocate_provider_attempt(nested_scope, _origin_manager=child)
     assert root.state_file.read_bytes() == before_root_bytes
 
 
@@ -1619,7 +977,7 @@ def test_resolve_aggregate_owner_rejects_identity_and_snapshot_contradictions(
     message: str,
 ) -> None:
     root = StateManager(tmp_path, run_id=f"contradiction-{contradiction}")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     scope = ResumeScopePath.root(root_state.workflow_file).child("frame")
     child_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("frame")
     child = _NestedManager(
@@ -1648,7 +1006,7 @@ def test_resolve_aggregate_owner_rejects_identity_and_snapshot_contradictions(
 
 def test_resolve_aggregate_owner_rejects_cycle_and_non_root_terminal(tmp_path: Path) -> None:
     root = StateManager(tmp_path, run_id="cycle-owner")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     scope = ResumeScopePath.root(root_state.workflow_file).child("frame")
     child_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("frame")
     child = _NestedManager(
@@ -1732,43 +1090,6 @@ def test_provider_attempt_run_independent_site_key_is_stable_and_call_frame_inje
     )
     assert second.run_independent_site_key == first.run_independent_site_key
     assert rich.run_independent_site_key != first.run_independent_site_key
-
-
-def test_provider_attempt_site_environment_is_runtime_owned(
-    tmp_path: Path,
-) -> None:
-    attempts = _attempt_module()
-    root = _prepare_direct_scope_root(tmp_path, run_id="runtime-owned-env")
-    scope = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    executor = object.__new__(WorkflowExecutor)
-    authored = {
-        "env": {
-            attempts.PROVIDER_ATTEMPT_SITE_KEY_ENV: "sha256:" + "f" * 64,
-            "AUTHORED": "retained",
-        }
-    }
-
-    selected = executor._provider_env_with_runtime_output_bundle_path(
-        authored,
-        {"path": "typed/output.json"},
-    )
-
-    assert selected == {
-        "AUTHORED": "retained",
-        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "typed/output.json",
-    }
-    assert executor._provider_attempt_execution_env_overlay(scope) == {
-        attempts.PROVIDER_ATTEMPT_SITE_KEY_ENV: scope.run_independent_site_key,
-    }
-    assert executor._provider_attempt_execution_env_overlay(None) is None
-
-    with pytest.raises(
-        TypeError,
-        match="provider_attempt_scope must be exact ProviderAttemptScope",
-    ):
-        executor._provider_attempt_execution_env_overlay(
-            object()  # pyright: ignore[reportArgumentType]
-        )
 
 
 def test_provider_attempt_scope_legacy_six_field_bytes_remain_exact() -> None:
@@ -2542,13 +1863,13 @@ def test_allocator_never_enumerates_evidence_directories(
     assert not (root.run_root / "workflow_lisp/prompt_dependencies").exists()
 
 
-def test_two_level_nested_manager_delegates_one_allocation_to_root(tmp_path: Path) -> None:
+def test_root_allocator_validates_two_level_nested_owner(tmp_path: Path) -> None:
     root = StateManager(tmp_path, run_id="nested-allocation")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     root_scope = ResumeScopePath.root(root_state.workflow_file)
     first_scope = root_scope.child("first")
     first_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("first")
-    first = _actual_nested_manager(
+    first = _NestedManager(
         root,
         "first",
         _nested_state(root.run_id, "first.orc", first_root),
@@ -2556,7 +1877,7 @@ def test_two_level_nested_manager_delegates_one_allocation_to_root(tmp_path: Pat
     )
     second_scope = first_scope.child("second")
     second_root = first.run_root / "call_frames" / _path_safe_frame_scope_token("second")
-    second = _actual_nested_manager(
+    second = _NestedManager(
         first,
         "second",
         _nested_state(root.run_id, "second.orc", second_root),
@@ -2595,7 +1916,7 @@ def test_two_level_nested_manager_delegates_one_allocation_to_root(tmp_path: Pat
         }
     )
 
-    assert second.allocate_provider_attempt(scope) == 1
+    assert root.allocate_provider_attempt(scope, _origin_manager=second) == 1
 
     persisted = json.loads(root.state_file.read_bytes())
     assert list(persisted["provider_attempt_allocations"]) == [scope.key]
@@ -2605,10 +1926,10 @@ def test_two_level_nested_manager_delegates_one_allocation_to_root(tmp_path: Pat
 
 def test_loop_in_call_scope_uses_leaf_visit_and_iteration(tmp_path: Path) -> None:
     root = StateManager(tmp_path, run_id="loop-call-allocation")
-    root_state = root.initialize(_workflow(tmp_path))
+    root_state = write_historical_state(root, _workflow(tmp_path))
     scope_path = ResumeScopePath.root(root_state.workflow_file).child("loop-frame")
     child_root = root.run_root / "call_frames" / _path_safe_frame_scope_token("loop-frame")
-    child = _actual_nested_manager(
+    child = _NestedManager(
         root,
         "loop-frame",
         _nested_state(root.run_id, "child.orc", child_root),
@@ -2650,70 +1971,4 @@ def test_loop_in_call_scope_uses_leaf_visit_and_iteration(tmp_path: Path) -> Non
         }
     )
 
-    assert child.allocate_provider_attempt(scope) == 1
-
-
-def test_deep_nested_counter_commit_is_root_atomic_and_detached(
-    tmp_path: Path,
-) -> None:
-    root = StateManager(tmp_path, run_id="deep-counter-commit")
-    root_state = root.initialize(_workflow(tmp_path))
-    root_scope = ResumeScopePath.root(root_state.workflow_file)
-
-    first = _actual_nested_manager(
-        root,
-        "first",
-        _nested_state(
-            root.run_id,
-            "first.orc",
-            root.run_root / "call_frames" / _path_safe_frame_scope_token("first"),
-        ),
-        root_scope.child("first"),
-    )
-    second = _actual_nested_manager(
-        first,
-        "second",
-        _nested_state(
-            root.run_id,
-            "second.orc",
-            first.run_root / "call_frames" / _path_safe_frame_scope_token("second"),
-        ),
-        root_scope.child("first").child("second"),
-    )
-    second.workflow = None
-    second.call_step_name = "CallSecond"
-    second.call_step_id = "CallSecondStep"
-    second.import_alias = "second"
-    second.bound_input_resume_validation = {}
-
-    first.state.call_frames["second"] = {
-        "call_frame_id": "second",
-        "state": deepcopy(second.state.to_dict()),
-    }
-    root_state.call_frames["first"] = {
-        "call_frame_id": "first",
-        "state": deepcopy(first.state.to_dict()),
-    }
-    root._write_state()
-
-    caller_visits = {"DeepStep": 1}
-    second.update_control_flow_counters(
-        transition_count=1,
-        step_visits=caller_visits,
-    )
-    caller_visits["DeepStep"] = 2
-
-    assert root.state is not None
-    persisted_first = root.state.call_frames["first"]["state"]
-    persisted_second = persisted_first["call_frames"]["second"]["state"]
-    assert persisted_second["transition_count"] == 1
-    assert persisted_second["step_visits"] == {"DeepStep": 1}
-    assert first.state.call_frames["second"]["state"]["step_visits"] == {
-        "DeepStep": 1
-    }
-    assert second.state.step_visits == {"DeepStep": 1}
-    assert second.state.step_visits is not caller_visits
-    assert persisted_second["step_visits"] is not second.state.step_visits
-    assert _attempt_module().resolve_aggregate_run_owner(second).leaf_state.step_visits == {
-        "DeepStep": 1
-    }
+    assert root.allocate_provider_attempt(scope, _origin_manager=child) == 1

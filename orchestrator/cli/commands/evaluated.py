@@ -91,7 +91,6 @@ def _request(args: Any, workflow_path: Path, workspace: Path) -> FrontendBuildRe
         prompt_externs_path=optional_path("prompt_externs_file"),
         imported_workflow_bundles_path=optional_path("imported_workflow_bundles_file"),
         command_boundaries_path=optional_path("command_boundaries_file"),
-        emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
         workspace_root=workspace,
     )
 
@@ -307,7 +306,7 @@ def _validate_reserved_pair(args, physical, logical, source, workspace):
         raise ValueError("physical request differs from the effective invocation")
     if not hasattr(args, "logical_input_file"):
         raise ValueError("reserved input-file requires an explicit logical counterpart")
-    for name in ("entry_workflow", "boundary_admission_profile", "emit_debug_yaml", "lint_profile", "lowering_route", "workspace_root"):
+    for name in ("entry_workflow", "boundary_admission_profile", "lint_profile", "lowering_route", "workspace_root"):
         if getattr(physical, name) != getattr(logical, name):
             raise ValueError(f"reserved request option differs: {name}")
     if len(physical.source_roots) != len(logical.source_roots):

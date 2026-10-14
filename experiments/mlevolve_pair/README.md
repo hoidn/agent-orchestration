@@ -35,12 +35,15 @@ operation or branch.
 The two seed candidates are fixed and valid by fixture construction.
 
 `search.orc` records the authored ORC policy, but this specimen does not claim
-that the policy executed: the current compiler rejects the controller. It
+that the policy executed: the original release compiler rejected the controller. It
 first met the 256-node limit of a pure expression; since bound values are
 shared in a payload it meets a loop inside a branch
 (`workflow_boundary_type_invalid`). `compare.py` runs the Python controller with
 direct and subprocess leaves, then attempts the ORC compile and public run.
-From the repository root, reproduce the comparison and write its evidence with:
+The following reproduction is historical and requires its original release and
+environment. In the current package, the old entry refuses at the retirement
+boundary before the former lowerer diagnostic; this command is not the current
+compact-controller recipe:
 
 ```bash
 python -m experiments.mlevolve_pair.compare --output /tmp/mlevolve-pair-evidence.json

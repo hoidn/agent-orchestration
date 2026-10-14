@@ -20,15 +20,72 @@ PROGRAM = '''(workflow-lisp
 
 
 def tree(root):
-    return {str(p.relative_to(root)): (stat.S_IMODE(p.lstat().st_mode),
-            p.read_bytes() if p.is_file() else os.fsencode(p.readlink()) if p.is_symlink() else None)
-            for p in [root, *sorted(root.rglob("*"))]}
+    return {
+        str(p.relative_to(root)): (
+            stat.S_IMODE(p.lstat().st_mode),
+            p.lstat().st_mtime_ns,
+            "symlink" if p.is_symlink() else "file" if p.is_file() else "directory" if p.is_dir() else "other",
+            os.fsencode(p.readlink()) if p.is_symlink() else p.read_bytes() if p.is_file() else None,
+        )
+        for p in [root, *sorted(root.rglob("*"))]
+    }
 
 
 def cli(root, *argv):
     return subprocess.run([sys.executable, "-B", "-m", "orchestrator", *argv], cwd=root,
         env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"},
         text=True, capture_output=True, timeout=60)
+
+
+RETIRED_IMPORT_BLOCKER = r'''
+import importlib.abc
+import sys
+
+_RETIRED_EXACT = {
+    "orchestrator.workflow.executor",
+    "orchestrator.workflow.pure_result_replay",
+    "orchestrator.workflow.lowering",
+    "orchestrator.workflow_lisp.wcc.lower",
+    "orchestrator.workflow_lisp.wcc.defunctionalize",
+}
+_BLOCKED_IMPORTS = []
+
+def _retired_import(name):
+    return (any(name == module or name.startswith(module + ".")
+            for module in _RETIRED_EXACT)
+        or name.startswith("orchestrator.workflow_lisp.lowering")
+        or name.startswith("orchestrator.workflow_lisp.lexical_checkpoint"))
+
+class _RetiredImportBlocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if _retired_import(fullname):
+            _BLOCKED_IMPORTS.append(fullname)
+            raise AssertionError("retired module import attempted: " + fullname)
+
+assert not any(name == "orchestrator" or name.startswith("orchestrator.")
+    for name in sys.modules)
+sys.meta_path.insert(0, _RetiredImportBlocker())
+'''
+
+
+def cold_python(root, body):
+    script = RETIRED_IMPORT_BLOCKER + f'''
+try:
+    exec({body!r}, globals())
+finally:
+    _loaded_retired = [name for name in sys.modules if _retired_import(name)]
+    assert not _BLOCKED_IMPORTS and not _loaded_retired, {{
+        "attempted": _BLOCKED_IMPORTS, "loaded": _loaded_retired
+    }}
+'''
+    return subprocess.run(
+        [sys.executable, "-B", "-c", script, str(root)],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"},
+        text=True,
+        capture_output=True,
+        timeout=120,
+    )
 
 
 @pytest.mark.parametrize("target", ["2.24", "2.34"])
@@ -54,7 +111,8 @@ def test_old_entry_refuses_before_build_or_run_publication(tmp_path, target, com
 
 
 def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_path):
-    from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+    from orchestrator.workflow_lisp import build
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
     from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint
     from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
@@ -64,11 +122,12 @@ def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_pat
     analysis = compile_stage3_entrypoint(source)
     assert analysis.entry_result.typed_program.target == "2.34"
     assert analysis.entry_result.typed_workflows
-    assert not analysis.validated_bundles_by_name
-    assert not analysis.entry_result.lowered_workflows
+    assert not hasattr(analysis, "validated_bundles_by_name")
+    assert not hasattr(analysis.entry_result, "lowered_workflows")
+    assert not hasattr(build, "build_frontend_bundle")
     before = tree(tmp_path)
     with pytest.raises(LispFrontendCompileError) as caught:
-        build_frontend_bundle(FrontendBuildRequest(source_path=source, workspace_root=tmp_path))
+        build_closed_program_bundle(build.FrontendBuildRequest(source_path=source, workspace_root=tmp_path))
     assert caught.value.diagnostics[0].code == "workflow_execution_target_retired"
     assert tree(tmp_path) == before
 
@@ -87,18 +146,19 @@ def test_explain_flat_views_refuse_without_build_or_export_writes(tmp_path, targ
 
 def test_frontend_publication_checks_the_compiled_source_target(tmp_path, monkeypatch):
     from orchestrator.workflow_lisp import build
+    from orchestrator.workflow_lisp.closed import artifact
     from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
     source = tmp_path / "retired.orc"
     source.write_text(PROGRAM.format(target="2.35"))
-    compile_in_memory = build.build_frontend_bundle_in_memory
+    compile_typed = artifact.compile_typed_program_with_result
 
-    def change_before_compile(request, **kwargs):
+    def change_before_compile(source_path, **kwargs):
         source.write_text(PROGRAM.format(target="2.34"))
-        return compile_in_memory(request, **kwargs)
+        return compile_typed(source_path, **kwargs)
 
-    monkeypatch.setattr(build, "build_frontend_bundle_in_memory", change_before_compile)
+    monkeypatch.setattr(artifact, "compile_typed_program_with_result", change_before_compile)
     with pytest.raises(LispFrontendCompileError) as caught:
-        build.build_frontend_bundle(build.FrontendBuildRequest(source_path=source, workspace_root=tmp_path))
+        artifact.build_closed_program_bundle(build.FrontendBuildRequest(source_path=source, workspace_root=tmp_path))
     assert caught.value.diagnostics[0].code == "workflow_execution_target_retired"
     assert caught.value.diagnostics[0].span.start.line == 3
     assert not (tmp_path / ".orchestrate").exists()
@@ -197,8 +257,7 @@ def test_resume_header_swap_under_lock_preserves_refusal_code(tmp_path, monkeypa
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(resume, "run_writer_lock", swap_under_lock)
-    monkeypatch.setattr(resume, "_resume_workflow_with_writer_lock_held",
-                        lambda *a, **k: pytest.fail("header swap reached the legacy executor"))
+    assert not hasattr(resume, "_resume_workflow_with_writer_lock_held")
     assert resume.resume_workflow(run_root.name) == 2
     assert any(record.getMessage().startswith(f"[{code}]") for record in caplog.records)
     if code != "memo_inconsistent":
@@ -253,10 +312,10 @@ def test_evaluated_parent_refuses_old_child_without_child_run(tmp_path):
     assert not list(refs.rglob("run.json"))
 
 
-def test_staged_child_refuses_before_decode_stage_or_execution(tmp_path, monkeypatch):
+def test_staged_child_refuses_before_decode_stage_or_execution(tmp_path):
     from types import SimpleNamespace
     from orchestrator.workflow.run_ref import child
-    monkeypatch.setattr(child, "_target_bundle", lambda *args: pytest.fail("staged child decoded"))
+    assert not hasattr(child, "_target_bundle")
     before = tree(tmp_path)
     with pytest.raises(ValueError) as caught:
         child.execute_request(SimpleNamespace())
@@ -265,20 +324,26 @@ def test_staged_child_refuses_before_decode_stage_or_execution(tmp_path, monkeyp
 
 
 def test_retired_python_execution_exports_and_trial_sdk(tmp_path):
+    import importlib.util
     import orchestrator.workflow as workflow
     import orchestrator.workflow_lisp as frontend
-    from orchestrator.workflow.trial import sdk
-    from orchestrator.workflow.trial.sdk import TrialEntryRequestError, run_trial_entry
+    from orchestrator.state import StateManager
     assert "WorkflowExecutor" not in workflow.__all__
     assert not hasattr(workflow, "WorkflowExecutor")
     assert "lower_workflow_definitions" not in frontend.__all__
     assert not hasattr(frontend, "lower_workflow_definitions")
-    assert "run_trial_entry" not in sdk.__all__
+    assert importlib.util.find_spec("orchestrator.workflow.trial.sdk") is None
+    assert importlib.util.find_spec("orchestrator.workflow.executor") is None
+    assert not hasattr(StateManager, "initialize")
+
+
+def test_trial_cli_refuses_before_source_reads_or_publication(tmp_path):
     before = tree(tmp_path)
-    with pytest.raises(TrialEntryRequestError) as caught:
-        run_trial_entry(workflow_file=tmp_path / "missing.orc", entry_workflow="run", inputs={},
-            workspace=tmp_path, state_dir=None, run_ref_root=tmp_path / "refs")
-    assert caught.value.code == "workflow_execution_target_retired"
+    result = cli(tmp_path, "trial", "missing.orc", "--entry-workflow", "run",
+                 "--run-ref-root", str(tmp_path / "children"))
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "workflow_execution_target_retired" in result.stderr
+    assert "Traceback" not in result.stderr
     assert tree(tmp_path) == before
 
 
@@ -296,6 +361,136 @@ def test_public_historical_report_derives_status_without_self_healing(tmp_path):
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["run"]["status"] == "failed"
     assert tree(tmp_path) == before
+
+
+def test_supported_public_evaluated_lifecycle_has_no_retired_imports(tmp_path):
+    from tests.test_workflow_evaluated_invalidate import _fixture
+
+    _fixture(tmp_path, 20)
+    result = cold_python(tmp_path, r'''
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+import json
+import os
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+os.chdir(root)
+from orchestrator.cli.main import main
+
+def invoke(arguments):
+    output = StringIO()
+    with redirect_stdout(output), redirect_stderr(StringIO()):
+        status = main(arguments)
+    return status, output.getvalue()
+
+source = str(root / "invalidate_public.orc")
+boundaries = str(root / "commands.json")
+assert invoke(["compile", source, "--command-boundaries-file", boundaries])[0] == 0
+assert invoke(["run", source, "--command-boundaries-file", boundaries])[0] == 0
+run_root, = (root / ".orchestrate" / "runs").iterdir()
+rows = [json.loads(line) for line in (run_root / "memo.jsonl").read_text().splitlines()]
+commits = [row for row in rows if row["record"] == "committed"]
+assert len(commits) == 3
+assert invoke(["resume", run_root.name])[0] == 0
+
+status, output = invoke(["report", "--run-id", run_root.name, "--format", "json"])
+assert status == 0
+assert json.loads(output)["run"]["status"] == "completed"
+
+status, output = invoke(["invalidate", run_root.name, commits[1]["identity"]])
+assert status == 0
+assert json.loads(output)["record"] == "invalidated"
+status, output = invoke(["report", "--run-id", run_root.name, "--format", "json"])
+assert status == 0
+assert json.loads(output)["run"]["status"] == "interrupted"
+
+assert invoke(["resume", run_root.name])[0] == 0
+assert (root / "dispatches.txt").read_text().splitlines() == [
+    "prefix", "writer", "reader", "writer", "reader"
+]
+status, output = invoke(["report", "--run-id", run_root.name, "--format", "json"])
+assert status == 0
+assert json.loads(output)["run"]["status"] == "completed"
+''')
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_historical_state_profiles_and_report_are_cold_and_read_only(tmp_path):
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    for label in ("absent", "exact", "unknown", "null"):
+        run_id = "historical-" + label
+        run_root = runs_root / run_id
+        run_root.mkdir(parents=True)
+        state = {
+            "schema_version": "2.1",
+            "run_id": run_id,
+            "workflow_file": "source-not-present.orc",
+            "workflow_checksum": "sha256:historical",
+            "started_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T00:00:01+00:00",
+            "status": "completed",
+            "steps": {"Kept": {"status": "completed", "output": "retained"}},
+            "call_frames": {"child": {"workflow_name": "child::run"}},
+            "artifact_versions": {"result": [{"version": 1, "value": "retained"}]},
+        }
+        if label != "absent":
+            state["result_persistence_profile"] = {
+                "exact": "derived_pure_replay.v1",
+                "unknown": "derived_pure_replay.v2",
+                "null": None,
+            }[label]
+        state_file = run_root / "state.json"
+        state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        state_file.chmod(0o640)
+
+    before = tree(tmp_path)
+    result = cold_python(tmp_path, r'''
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+from orchestrator.state import StateManager
+
+expected = {
+    "absent": None,
+    "exact": "derived_pure_replay.v1",
+    "unknown": "derived_pure_replay.v2",
+    "null": None,
+}
+for label, profile in expected.items():
+    run_id = "historical-" + label
+    manager = StateManager(root, run_id=run_id)
+    try:
+        state = manager.load()
+    except ValueError as exc:
+        assert label in {"unknown", "null"}
+        assert "profile" in str(exc)
+    else:
+        assert label in {"absent", "exact"}
+        assert state.result_persistence_profile == profile
+        assert state.steps["Kept"]["output"] == "retained"
+        assert state.call_frames["child"]["workflow_name"] == "child::run"
+        assert state.artifact_versions["result"][0]["value"] == "retained"
+
+from orchestrator.cli.main import main
+for label in expected:
+    output = StringIO()
+    with redirect_stdout(output), redirect_stderr(StringIO()):
+        status = main(["report", "--run-id", "historical-" + label,
+            "--runs-root", str(root / ".orchestrate" / "runs"), "--format", "json"])
+    assert status == 0
+    report = json.loads(output.getvalue())
+    assert report["run"]["run_id"] == "historical-" + label
+    assert report["run"]["status"] == "completed"
+    assert report["steps"][0]["name"] == "Kept"
+''')
+    assert tree(tmp_path) == before
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("module", ["orchestrator.prompt_session", "orchestrator.prompt_scaffold",

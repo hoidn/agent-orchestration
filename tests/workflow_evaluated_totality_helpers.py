@@ -20,15 +20,14 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from tests.test_workflow_evaluated_command_lifecycle import _InterruptedRun
 from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
 from tests.test_workflow_lisp_closed_program_compile_cli import _compile
-from tests.test_workflow_lisp_generic_unions_runtime import _write_sources, _write_probe, _public_run_files, _log
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
+from tests.test_workflow_evaluated_cli import _run_args, _run_argv
 from tests.workflow_lisp_closed_program_corpus import entry_with_target
 from tests.workflow_lisp_totality_matrix_sources import COMMANDS, FORMS, PROBE, program
 from tests.workflow_lisp_totality_matrix_locality import axes, form_value
 from tests.test_workflow_lisp_closed_program_corpus import _CONTROL_COMMANDS, _control_sources
 from tests.test_workflow_lisp_closed_run_ref_placement import _path_form, _placement_source, _restricted_source
 from tests.test_workflow_evaluated_run_ref import _assert_readonly_resumes
-from tests.e2e.test_e2e_workflow_lisp_run_ref import _assert_complete_evidence_manifest
+from tests.workflow_evaluated_run_ref_helpers import _assert_complete_evidence_manifest
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.syntax import build_syntax_module, syntax_head_name, syntax_node_datum
@@ -366,3 +365,59 @@ def exercise(root, files, probe, expected_value, expected_calls, monkeypatch, in
     authority, snapshot = assert_final(root, probe, expected_value, expected_calls)
     completed_resume(root, probe, authority)
     return authority, snapshot
+
+
+def _write_sources(root: Path, sources: dict[str, str]) -> Path:
+    for relative, text in sources.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return root / "grt" / "entry.orc"
+
+
+def _write_probe(root: Path, name: str, text: str) -> Path:
+    probe = root / f"{name}.py"
+    probe.write_text(text, encoding="utf-8")
+    return probe
+
+
+def _public_run_files(root: Path, probes: dict[str, Path]) -> dict[str, Path]:
+    files = {
+        "source": root / "grt" / "entry.orc",
+        "source_root": root,
+        "providers": root / "providers.json",
+        "prompts": root / "prompts.json",
+        "commands": root / "commands.json",
+    }
+    files["providers"].write_text("{}", encoding="utf-8")
+    files["prompts"].write_text("{}", encoding="utf-8")
+    files["commands"].write_text(
+        json.dumps(
+            {
+                name: {"kind": "external_tool", "stable_command": ["python", path.as_posix()],
+                       "closure": [path.relative_to(root).as_posix() if path.is_absolute() else path.as_posix()]}
+                for name, path in probes.items()
+            }
+        ),
+        encoding="utf-8",
+    )
+    return files
+
+
+def _log(probe: Path) -> list[str]:
+    log = probe.with_suffix(".log")
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+def _public_run(files: dict[str, Path], *, input_file: Path | None = None):
+    from unittest.mock import patch
+    import sys
+
+    from orchestrator.cli.commands.run import run_workflow
+    from tests.test_workflow_evaluated_cli import _run_args, _run_argv
+
+    args = _run_args(files, input_file=input_file)
+    args.command_boundaries_file = str(files["commands"])
+    argv = [*_run_argv(files), "--command-boundaries-file", str(files["commands"])]
+    with patch.object(sys, "argv", argv):
+        return run_workflow(args)

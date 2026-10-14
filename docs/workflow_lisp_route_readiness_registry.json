@@ -2,418 +2,357 @@
   "schema_version": "workflow_lisp_route_readiness_registry.v1",
   "surfaces": [
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[design_delta_union_match_projection]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m3_design_delta_union_projection_keeps_record_projection_output_contract"
+        "tests/fixtures/workflow_lisp/characterization/golden/design_delta_union_match_projection.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[design_delta_union_match_projection]; tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m3_design_delta_union_projection_keeps_record_projection_output_contract.",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/design_delta_union_match_projection.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.design_delta_union_match_projection",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route[wcc_ifexpr_loop_body]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_loop_body_converts_without_unsupported_loop_node"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_ifexpr_loop_body.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route[wcc_ifexpr_loop_body]; tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_loop_body_converts_without_unsupported_loop_node.",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_loop_body.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_ifexpr_loop_body",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route[wcc_ifexpr_non_tail_binding]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_non_tail_binding_uses_control_join_without_unsupported_rewrite"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_ifexpr_non_tail_binding.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route[wcc_ifexpr_non_tail_binding]; tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_non_tail_binding_uses_control_join_without_unsupported_rewrite.",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_non_tail_binding.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_ifexpr_non_tail_binding",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route[wcc_ifexpr_tail]"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_ifexpr_tail.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route[wcc_ifexpr_tail].",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_tail.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_ifexpr_tail",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m2_straight_line_effects]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m2_cases_dual_compile_identically_for_legacy_and_wcc_m2[wcc_m2_straight_line_effects]"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_m2_straight_line_effects.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
-      "notes": "Legacy-named characterization source that now compiles under the default WCC route; not author-facing guidance.",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m2_straight_line_effects]; tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m2_cases_dual_compile_identically_for_legacy_and_wcc_m2[wcc_m2_straight_line_effects].",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m2_straight_line_effects.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_m2_straight_line_effects",
       "surface_kind": "compiler_test"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_retired_characterization_sources_are_not_active_wcc_evidence"
+        "tests/fixtures/workflow_lisp/characterization/manifest.json"
       ],
-      "lowering_route": "wcc_m3",
-      "lowering_schema_version": 2,
-      "notes": "Retired characterization source retained on disk but not part of the active WCC characterization manifest.",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: stale_needs_update. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_retired_characterization_sources_are_not_active_wcc_evidence.",
       "owner": "workflow-lisp",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m3_branch_local_ref_leak.orc",
       "replacement_or_retirement_path": "tests/fixtures/workflow_lisp/characterization/manifest.json",
-      "route_label": "stale_needs_update",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_m3_branch_local_ref_leak",
       "surface_kind": "compiler_test"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_retired_characterization_sources_are_not_active_wcc_evidence"
+        "tests/fixtures/workflow_lisp/characterization/manifest.json"
       ],
-      "lowering_route": "wcc_m3",
-      "lowering_schema_version": 2,
-      "notes": "Retired characterization source retained on disk but not part of the active WCC characterization manifest.",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: stale_needs_update. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_retired_characterization_sources_are_not_active_wcc_evidence.",
       "owner": "workflow-lisp",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m3_nested_join_inside_arm.orc",
       "replacement_or_retirement_path": "tests/fixtures/workflow_lisp/characterization/manifest.json",
-      "route_label": "stale_needs_update",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_m3_nested_join_inside_arm",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m3_nested_non_tail_match]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m3_nested_match_characterization_case_matches_golden"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_m3_nested_non_tail_match.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
-      "notes": "Legacy-named characterization source that now compiles under the default WCC route; not author-facing guidance.",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m3_nested_non_tail_match]; tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m3_nested_match_characterization_case_matches_golden.",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m3_nested_non_tail_match.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_m3_nested_non_tail_match",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m4_implementation_phase_full_fixture]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_characterization_behavior_cases_match_golden[wcc_m4_implementation_phase_full_fixture]"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_m4_implementation_phase_full_fixture.structural.json",
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_m4_implementation_phase_full_fixture.behavior.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m4_implementation_phase_full_fixture]; tests/test_workflow_lisp_wcc_characterization.py::test_characterization_behavior_cases_match_golden[wcc_m4_implementation_phase_full_fixture].",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m4_implementation_phase_full_fixture.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_m4_implementation_phase_full_fixture",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "compiler_characterization",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m4_loop_under_case]",
-        "tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m4_nested_fixture_cases_compile_under_wcc_m4[wcc_m4_loop_under_case]"
+        "tests/fixtures/workflow_lisp/characterization/golden/wcc_m4_loop_under_case.structural.json"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_wcc_characterization.py::test_m5_route_flip_corpus_compiles_under_default_wcc_route[wcc_m4_loop_under_case]; tests/test_workflow_lisp_wcc_characterization.py::test_wcc_m4_nested_fixture_cases_compile_under_wcc_m4[wcc_m4_loop_under_case].",
       "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m4_loop_under_case.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.characterization.sources.wcc_m4_loop_under_case",
       "surface_kind": "compiler_test"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[loop-promoted-hook]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_loop_promoted_hook_phase_ctx.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[loop-promoted-hook].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_loop_promoted_hook_phase_ctx.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_loop_promoted_hook_phase_ctx",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_source_map.py::test_source_map_records_branch_scoped_resume_identity_lineage"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_nested_branch_scope_collision.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_source_map.py::test_source_map_records_branch_scoped_resume_identity_lineage.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_nested_branch_scope_collision.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_nested_branch_scope_collision",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_phase_stdlib.py::test_nested_implementation_phase_uses_ordinary_imported_review_revise_loop"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_nested_implementation_phase.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_phase_stdlib.py::test_nested_implementation_phase_uses_ordinary_imported_review_revise_loop.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_nested_implementation_phase.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_nested_implementation_phase",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_phase_stdlib.py::test_nested_imported_procedure_with_provider_command_workflow_effects_compiles_under_branch",
-        "tests/test_workflow_lisp_source_map.py::test_source_map_records_generated_write_roots_across_reusable_call_boundaries"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_nested_imported_branch_effects.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_phase_stdlib.py::test_nested_imported_procedure_with_provider_command_workflow_effects_compiles_under_branch; tests/test_workflow_lisp_source_map.py::test_source_map_records_generated_write_roots_across_reusable_call_boundaries.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_nested_imported_branch_effects.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_nested_imported_branch_effects",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_phase_stdlib.py::test_nested_same_file_call_with_local_record_compiles_under_branch"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_nested_same_file_call_local_record.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_phase_stdlib.py::test_nested_same_file_call_with_local_record_compiles_under_branch.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_nested_same_file_call_local_record.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_nested_same_file_call_local_record",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[parent-implementation-phase]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_parent_calls_implementation_phase.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[parent-implementation-phase].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_parent_calls_implementation_phase.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_parent_calls_implementation_phase",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[parent-work-item]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_parent_calls_work_item.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[parent-work-item].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_parent_calls_work_item.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_parent_calls_work_item",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[bootstrap.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/bootstrap.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[bootstrap.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/bootstrap.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.bootstrap",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[design_gap_architect.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/design_gap_architect.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[design_gap_architect.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/design_gap_architect.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.design_gap_architect",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[implementation_phase.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/implementation_phase.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[implementation_phase.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/implementation_phase.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.implementation_phase",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[plan_phase.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/plan_phase.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[plan_phase.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/plan_phase.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.plan_phase",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[selector.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/selector.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[selector.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/selector.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.selector",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[stdlib_adapters.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/stdlib_adapters.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[stdlib_adapters.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/stdlib_adapters.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.stdlib_adapters",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[types.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/types.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[types.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/types.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.types",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[work_item.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/work_item.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[work_item.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/work_item.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.work_item",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_compiles_with_bounded_loop",
-        "tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_runtime_materializes_output_bundle"
+        "workflows/examples/cycle_guard_demo.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_compiles_with_bounded_loop; tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_runtime_materializes_output_bundle.",
       "path": "workflows/examples/cycle_guard_demo.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.cycle_guard_demo",
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays",
-        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline",
-        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable",
-        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap"
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap.",
       "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.design_plan_impl_review_stack_v2_call",
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_effectful_let_star_normalization_orc_compiles_with_shared_validation"
+        "workflows/examples/effectful_let_star_normalization.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_effectful_let_star_normalization_orc_compiles_with_shared_validation.",
       "path": "workflows/examples/effectful_let_star_normalization.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.effectful_let_star_normalization",
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_effectful_match_arm_normalization_orc_compiles_with_shared_validation"
+        "workflows/examples/effectful_match_arm_normalization.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_effectful_match_arm_normalization_orc_compiles_with_shared_validation.",
       "path": "workflows/examples/effectful_match_arm_normalization.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.effectful_match_arm_normalization",
       "surface_kind": "workflow_example"
     },
@@ -455,84 +394,76 @@
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "legacy_compatibility_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack"
+        "workflows/examples/kiss_backlog_item.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "legacy",
-      "lowering_schema_version": 1,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: legacy_schema1_compat. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack.",
       "path": "workflows/examples/kiss_backlog_item.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "legacy_schema1_compat",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.kiss_backlog_item",
       "surface_kind": "workflow_example"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_example_validates_with_parameterized_context_docs",
-        "tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_runtime_private_collection_lane"
+        "workflows/examples/review_revise_design_docs.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_example_validates_with_parameterized_context_docs; tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_runtime_private_collection_lane.",
       "path": "workflows/examples/review_revise_design_docs.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.review_revise_design_docs",
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_judgment_panel_compiles_from_current_owner",
-        "tests/test_workflow_lisp_judgment_views_e2e.py::test_panel_executes_ordered_reviews_then_one_ineligible_synthesis"
+        "workflows/examples/review_revise_design_docs_judgment_panel.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_judgment_panel_compiles_from_current_owner; tests/test_workflow_lisp_judgment_views_e2e.py::test_panel_executes_ordered_reviews_then_one_ineligible_synthesis.",
       "path": "workflows/examples/review_revise_design_docs_judgment_panel.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.review_revise_design_docs_judgment_panel",
       "surface_kind": "workflow_example"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_review_revise_parametric_design_docs_example_remains_one_off_source_shape"
+        "workflows/examples/review_revise_parametric_design_docs.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "legacy",
-      "lowering_schema_version": 1,
-      "notes": "Historical parametric provenance example; current copy-safe review/revise guidance is review_revise_design_docs.orc.",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: stale_needs_update. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_parametric_design_docs_example_remains_one_off_source_shape.",
       "owner": "workflow-lisp",
       "path": "workflows/examples/review_revise_parametric_design_docs.orc",
       "replacement_or_retirement_path": "workflows/examples/review_revise_design_docs.orc",
-      "route_label": "stale_needs_update",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.review_revise_parametric_design_docs",
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_same_file_record_call_binding_orc_compiles_with_shared_validation"
+        "workflows/examples/same_file_record_call_binding.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_same_file_record_call_binding_orc_compiles_with_shared_validation.",
       "path": "workflows/examples/same_file_record_call_binding.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.same_file_record_call_binding",
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_examples.py::test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack"
+        "workflows/examples/with_phase_composed_binding.orc",
+        "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack.",
       "path": "workflows/examples/with_phase_composed_binding.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.examples.with_phase_composed_binding",
       "surface_kind": "workflow_example"
     },
@@ -549,245 +480,219 @@
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/bootstrap.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.bootstrap",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.design_gap_architect",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "legacy_compatibility_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
         "artifacts/work/review-parity-check/design_delta_parent_drain.json",
-        "artifacts/work/review-parity-check/design_delta_parent_drain.md",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_historical_parity_records_focused_smoke"
+        "workflows/library/lisp_frontend_design_delta/drain.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): artifacts/work/review-parity-check/design_delta_parent_drain.json; artifacts/work/review-parity-check/design_delta_parent_drain.md; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_historical_parity_records_focused_smoke.",
       "path": "workflows/library/lisp_frontend_design_delta/drain.orc",
-      "readiness_label": "promotion_eligible",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.drain",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/implementation_phase.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.implementation_phase",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/plan_phase.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/plan_phase.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.plan_phase",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/selector.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/selector.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.selector",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/types.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/types.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.types",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.work_item",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.stdlib_adapters",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_stdlib_payloads_compiles_directly"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_stdlib_payloads_compiles_directly.",
       "path": "workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.stdlib_payloads",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_projection_dual_run.py::test_design_delta_projection_runtime_fixture_executes_directly"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_projection_runtime.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_projection_dual_run.py::test_design_delta_projection_runtime_fixture_executes_directly.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_projection_runtime.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_projection_runtime",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[projections.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/projections.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[projections.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/projections.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.projections",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[transitions.orc]",
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/transitions.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_work_item_runtime_mirror_matches_production_owner[transitions.orc]; tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry.",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/transitions.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.transitions",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/projections.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors.",
       "path": "workflows/library/lisp_frontend_design_delta/projections.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.projections",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/runtime_transition_fixture.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli.",
       "path": "workflows/library/lisp_frontend_design_delta/runtime_transition_fixture.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.runtime_transition_fixture",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_view_dual_run.py::test_view_dual_run_emits_declared_report_and_passes_all_vectors"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/runtime_view_fixture.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_view_dual_run.py::test_view_dual_run_emits_declared_report_and_passes_all_vectors.",
       "path": "workflows/library/lisp_frontend_design_delta/runtime_view_fixture.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.runtime_view_fixture",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli",
-        "tests/test_workflow_lisp_resource_transition_runtime.py::test_executor_runs_generated_resource_transition_step"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "workflows/library/lisp_frontend_design_delta/transitions.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli; tests/test_workflow_lisp_resource_transition_runtime.py::test_executor_runs_generated_resource_transition_step.",
       "path": "workflows/library/lisp_frontend_design_delta/transitions.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.lisp_frontend_design_delta.transitions",
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "not_current_guidance",
       "entry_workflow": "generic_run_watchdog/watchdog::watchdog",
       "evidence": [
-        "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_compiles_with_exact_seven_input_four_output_contract",
-        "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_both_branches_preserve_artifact_lineage",
-        "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_resume_reuses_provider_and_publishes_once"
+        "workflows/library/generic_run_watchdog/watchdog.orc",
+        "docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_compiles_with_exact_seven_input_four_output_contract; tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_both_branches_preserve_artifact_lineage; tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_resume_reuses_provider_and_publishes_once.",
       "path": "workflows/library/generic_run_watchdog/watchdog.orc",
-      "readiness_label": "promotion_eligible",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "workflows.library.generic_run_watchdog.watchdog",
       "surface_kind": "library_workflow"
     },
@@ -806,57 +711,53 @@
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-proc]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_proc.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-proc].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_proc.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_proc",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-proc-ref]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_proc_ref.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-proc-ref].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_proc_ref.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_proc_ref",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-let-proc]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-let-proc].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_let_proc",
       "surface_kind": "test_fixture"
     },
     {
-      "copy_safety": "test_evidence_only",
+      "copy_safety": "not_current_guidance",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-let-proc-in-proc]"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc"
       ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-let-proc-in-proc].",
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
+      "route_label": "historical_negative",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_let_proc_in_proc",
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-10-12"
+  "updated": "2026-10-13"
 }

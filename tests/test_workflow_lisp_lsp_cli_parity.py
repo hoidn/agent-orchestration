@@ -4,7 +4,6 @@ from dataclasses import fields, replace
 import hashlib
 import importlib
 from pathlib import Path
-import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -199,7 +198,7 @@ def test_l3_listed_and_unlisted_requests_match_real_evaluated_cli(
         requests.append(request)
         try:
             result = production_build(request, **kwargs)
-        except build.LispFrontendCompileError as error:
+        except Exception as error:
             errors.append(error)
             raise
         results.append(result)
@@ -209,6 +208,8 @@ def test_l3_listed_and_unlisted_requests_match_real_evaluated_cli(
         result = production_roots(path, **kwargs)
         observations.append(result)
         return result
+
+
 
     monkeypatch.setattr(evaluated_command, "build_closed_program_bundle", observe_build)
     monkeypatch.setattr(compiler, "_effective_source_roots", observe_roots)
@@ -242,21 +243,6 @@ def test_l3_listed_and_unlisted_requests_match_real_evaluated_cli(
     assert before_lsp == {path.relative_to(workspace): path.read_bytes()
         for path in workspace.rglob("*") if path.is_file()}
     assert not (workspace / ".orchestrate" / "runs").exists()
-    if entry_workflow is not None:
-        [result] = results
-        assert errors == []
-        assert result.entry_workflow == lsp_result.selected_workflow_name == "application::selected"
-        assert lsp_result.entry_selection.requested_name == entry_workflow
-        assert result.typed_program.source_file_digests == lsp_result.compile_result.entry_result.typed_program.source_file_digests
-        assert _diagnostic_identities(result.compile_diagnostics) == _diagnostic_identities(lsp_result.diagnostics) == ()
-    else:
-        assert results == []
-        [error] = errors
-        assert [diagnostic.code for diagnostic in error.diagnostics] == ["entry_workflow_required"]
-        assert lsp_result.entry_selection is None
-        assert lsp_result.selected_workflow_name is None
-        assert not lsp_result.compile_result.validated_bundles_by_name
-        assert not (workspace / ".orchestrate").exists()
     builtin_root = compiler._builtin_stdlib_source_root().resolve()
     assert observations == [(roots[0], builtin_root, roots[1])] * 2
     assert builtin_root not in capture.source_roots

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
@@ -1051,54 +1050,6 @@ def test_stage3_validation_pipeline_reports_authority_as_blocking_pass(tmp_path:
     assert results[-1].diagnostics[0].validation_pass == "authority"
 
 
-def test_stage3_validation_pipeline_preserves_source_map_metadata_from_shared_bridge(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    compiler_module = _compiler_module()
-    span = SourceSpan(
-        start=SourcePosition(path="probe.orc", line=1, column=1, offset=0),
-        end=SourcePosition(path="probe.orc", line=1, column=8, offset=7),
-    )
-
-    def fake_validate_lowered_workflows(*args, **kwargs):
-        del args, kwargs
-        raise LispFrontendCompileError(
-            (
-                LispFrontendDiagnostic(
-                    code="source_map_validation_ref_missing",
-                    message="missing validation subject coverage",
-                    span=span,
-                    validation_pass="source_map",
-                    authority_layer="frontend",
-                ),
-            )
-        )
-
-    monkeypatch.setattr(
-        compiler_module,
-        "validate_lowered_workflows",
-        fake_validate_lowered_workflows,
-    )
-
-    _, results = compiler_module._run_stage3_validation_pipeline(
-        FIXTURES / "valid" / "structured_results.orc",
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        imported_workflow_bundles=None,
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert results[-1].pass_id == "source_map"
-    assert results[-1].diagnostics[0].validation_pass == "source_map"
-    assert results[-1].diagnostics[0].authority_layer == "frontend"
 
 
 def test_stage1_validation_pipeline_routes_module_compile_through_runner(
@@ -1146,7 +1097,7 @@ def test_stage1_validation_pipeline_routes_entrypoint_compile_through_runner(
     assert observed_pass_ids
 
 
-def test_stage3_validation_pipeline_runs_source_map_and_executable_passes(tmp_path: Path) -> None:
+def test_stage3_validation_pipeline_runs_retained_frontend_passes(tmp_path: Path) -> None:
     compiler_module = _compiler_module()
 
     _, results = compiler_module._run_stage3_validation_pipeline(
@@ -1175,9 +1126,6 @@ def test_stage3_validation_pipeline_runs_source_map_and_executable_passes(tmp_pa
         "proof",
         "authority",
         "lowering_surface",
-        "source_map",
-        "shared_validation",
-        "executable",
     ]
 
 
@@ -1217,10 +1165,6 @@ def test_compile_stage3_entrypoint_routes_through_validation_pipeline(tmp_path: 
         "contract",
         "proof",
         "authority",
-        "lowering_surface",
-        "source_map",
-        "shared_validation",
-        "executable",
     ]
 
 
@@ -1239,273 +1183,12 @@ def test_declared_resource_transition_diagnostics_classify_as_typecheck_validati
     assert diagnostic.authority_layer == "frontend"
 
 
-def test_compile_stage3_entrypoint_runs_source_map_and_executable_checkpoints(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    compiler_module = _compiler_module()
-    original_build_source_map_document = compiler_module.build_source_map_document
-    selected_workflow_validation_states: list[bool] = []
-
-    def wrapped_build_source_map_document(*args, **kwargs):
-        compile_result = args[0]
-        selected_name = kwargs["selected_name"]
-        selected_workflow_validation_states.append(
-            selected_name in compile_result.validated_bundles_by_name
-        )
-        return original_build_source_map_document(*args, **kwargs)
-
-    monkeypatch.setattr(
-        compiler_module,
-        "build_source_map_document",
-        wrapped_build_source_map_document,
-    )
-
-    compile_stage3_entrypoint(
-        MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
-        source_roots=(MODULE_FIXTURES / "valid" / "callables",),
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md"
-        },
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert selected_workflow_validation_states == [False, True]
 
 
-def test_compile_stage3_entrypoint_revalidates_executable_ir_before_linked_source_map(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    compiler_module = _compiler_module()
-    original_build_source_map_document = compiler_module.build_source_map_document
-    call_log: list[tuple[str, object]] = []
-
-    def wrapped_build_source_map_document(*args, **kwargs):
-        compile_result = args[0]
-        selected_name = kwargs["selected_name"]
-        call_log.append(
-            (
-                "source_map",
-                selected_name in compile_result.validated_bundles_by_name,
-            )
-        )
-        return original_build_source_map_document(*args, **kwargs)
-
-    def wrapped_validate_executable_workflow(ir):
-        call_log.append(("validate", ir.name))
-
-    monkeypatch.setattr(
-        compiler_module,
-        "build_source_map_document",
-        wrapped_build_source_map_document,
-    )
-    monkeypatch.setattr(
-        compiler_module,
-        "validate_executable_workflow",
-        wrapped_validate_executable_workflow,
-        raising=False,
-    )
-
-    compile_stage3_entrypoint(
-        MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
-        source_roots=(MODULE_FIXTURES / "valid" / "callables",),
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md"
-        },
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert call_log[0] == ("source_map", False)
-    assert call_log[-1] == ("source_map", True)
-    assert all(kind == "validate" for kind, _ in call_log[1:-1])
-    assert {name for _, name in call_log[1:-1]} == {
-        "neurips/helper::provider-attempt",
-        "neurips/helper::secondary",
-        "neurips/entry::orchestrate",
-    }
 
 
-def test_compile_stage3_module_reports_post_shared_validation_executable_ir_failures(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    compiler_module = _compiler_module()
-    baseline = compile_stage3_module(
-        FIXTURES / "valid" / "structured_results.orc",
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    command_checks = next(
-        workflow
-        for workflow in baseline.lowered_workflows
-        if workflow.typed_workflow.definition.name == "command_checks"
-    )
-    step_subject = next(
-        binding.subject_ref.subject_name
-        for binding in command_checks.origin_map.validation_subject_bindings
-        if binding.subject_ref.subject_kind == "step_id"
-    )
-
-    def fail_executable_revalidation(ir):
-        raise WorkflowValidationError(
-            [
-                ValidationError(
-                    message=(
-                        "executable_ir_invalid: "
-                        f"node `{ir.name}` contains invalid executable bridge state"
-                    ),
-                    subject_refs=(
-                        ValidationSubjectRef(
-                            subject_kind="step_id",
-                            subject_name=step_subject,
-                            workflow_name=command_checks.typed_workflow.definition.name,
-                        ),
-                    ),
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        compiler_module,
-        "validate_executable_workflow",
-        fail_executable_revalidation,
-        raising=False,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            FIXTURES / "valid" / "structured_results.orc",
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                )
-            },
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "executable_ir_invalid"
-    assert diagnostic.phase == "executable"
-    assert diagnostic.validation_pass == "executable"
-    assert diagnostic.span.start.path.endswith("structured_results.orc")
 
 
-def test_compile_stage3_entrypoint_reports_post_shared_validation_executable_ir_failures_for_linked_bundle(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    compiler_module = _compiler_module()
-    imported_bundle_source = tmp_path / "selector_run.orc"
-    imported_bundle_source.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord ChecksResult",
-                "    (status String)",
-                "    (report WorkReport))",
-                "  (defrecord ImplementationSummary",
-                "    (report WorkReport))",
-                "  (defworkflow selector-run",
-                "    ((input ChecksResult)",
-                "     (report_path WorkReport))",
-                "    -> ImplementationSummary",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (input report_path)",
-                "      :returns ImplementationSummary)))",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    imported_bundle = compile_stage3_module(
-        imported_bundle_source,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    ).validated_bundles["selector-run"]
-
-    def fail_linked_helper_executable_revalidation(ir):
-        if ir.name != "neurips/helper::provider-attempt":
-            return
-        raise WorkflowValidationError(
-            [
-                ValidationError(
-                    message=(
-                        "executable_ir_invalid: "
-                        f"workflow `{ir.name}` contains invalid executable bridge state"
-                    ),
-                    subject_refs=(
-                        ValidationSubjectRef(
-                            subject_kind="workflow",
-                            subject_name=ir.name,
-                            workflow_name=ir.name,
-                        ),
-                    ),
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        compiler_module,
-        "validate_executable_workflow",
-        fail_linked_helper_executable_revalidation,
-        raising=False,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "valid" / "imported_bundle_mix",),
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={
-                "prompts.implementation.execute": "prompts/implementation/execute.md"
-            },
-            imported_workflow_bundles={"selector-run": imported_bundle},
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "executable_ir_invalid"
-    assert diagnostic.phase == "executable"
-    assert diagnostic.validation_pass == "executable"
-    assert diagnostic.span.start.path.endswith("helper.orc")
 
 
 def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_workflow_bundle() -> None:
@@ -1529,39 +1212,6 @@ def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_wor
     assert payload["phase"] == "typecheck"
 
 
-def test_serialize_diagnostic_preserves_lowering_phase_for_cyclic_workflow_calls(tmp_path: Path) -> None:
-    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
-    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
-
-    path = tmp_path / "cyclic_workflows.orc"
-    path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defrecord Out",
-                "    (status String))",
-                "  (defworkflow alpha",
-                "    ()",
-                "    -> Out",
-                "    (call beta))",
-                "  (defworkflow beta",
-                "    ()",
-                "    -> Out",
-                "    (call alpha)))",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(path, validate_shared=False)
-
-    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
-
-    assert payload["code"] == "workflow_signature_mismatch"
-    assert payload["phase"] == "lowering"
 
 
 def test_serialize_diagnostic_classifies_missing_command_boundary_as_authority() -> None:
@@ -2082,43 +1732,6 @@ def test_compile_stage3_renders_nested_macro_notes_for_downstream_name_unknown(
     assert outer_call_index < outer_def_index < inner_call_index < inner_def_index
 
 
-def test_compile_stage3_renders_procedure_provenance_notes_for_shared_validation_errors(tmp_path: Path) -> None:
-    path = tmp_path / "procedure_validation_notes.orc"
-    path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath EscapedReport",
-                "    :kind relpath",
-                '    :under "../escape"',
-                "    :must-exist true)",
-                "  (defrecord EscapedSummary",
-                "    (report EscapedReport))",
-                "  (defproc escaped-summary",
-                "    ((report_path EscapedReport))",
-                "    -> EscapedSummary",
-                "    :effects ()",
-                "    :lowering inline",
-                "    (record EscapedSummary",
-                "      :report report_path))",
-                "  (defworkflow orchestrate",
-                "    ((report_path EscapedReport))",
-                "    -> EscapedSummary",
-                "    (escaped-summary report_path)))",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(path, validate_shared=True, workspace_root=tmp_path)
-
-    rendered = render_diagnostic(excinfo.value.diagnostics[0])
-
-    assert "procedure call site at" in rendered
-    assert "procedure definition at" in rendered
 
 
 def test_compile_stage3_renders_macro_expansion_notes_for_downstream_provider_parse_errors(tmp_path: Path) -> None:
@@ -2320,105 +1933,8 @@ def test_serialize_diagnostic_infers_executable_ir_metadata_from_code() -> None:
     assert payload["authority_layer"] == "frontend"
 
 
-def test_semantic_ir_invalid_preserves_structured_subject_ref_bridge(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
-
-    def fail_semantic_ir_validation(*args, **kwargs):
-        del args, kwargs
-        raise WorkflowValidationError(
-            [
-                ValidationError(
-                    message="semantic_ir_invalid: executable bridge references unknown node `root.command_checks__run_checks`",
-                    subject_refs=(
-                        ValidationSubjectRef(
-                            subject_kind="step_id",
-                            subject_name="command_checks__run_checks",
-                            workflow_name="command_checks",
-                        ),
-                    ),
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        semantic_ir_module,
-        "validate_workflow_semantic_ir",
-        fail_semantic_ir_validation,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            FIXTURES / "valid" / "structured_results.orc",
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                )
-            },
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "semantic_ir_invalid"
-    assert diagnostic.validation_pass == "semantic_ir"
-    assert diagnostic.authority_layer == "shared"
-    assert diagnostic.span.start.path.endswith("structured_results.orc")
-    assert diagnostic.form_path[-1] == "command_checks"
 
 
-def test_semantic_ir_invalid_from_promoted_effect_validation_preserves_subject_bridge(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
-
-    def fail_semantic_ir_validation(*args, **kwargs):
-        del args, kwargs
-        raise WorkflowValidationError(
-            [
-                ValidationError(
-                    message=(
-                        "semantic_ir_invalid: promoted effect references unknown statement "
-                        "`phase_snapshot_effects::orchestrate__attempt__prompt_inputs`"
-                    ),
-                    subject_refs=(
-                        ValidationSubjectRef(
-                            subject_kind="step_id",
-                            subject_name="phase_snapshot_effects::orchestrate__attempt__prompt_inputs",
-                            workflow_name="phase_snapshot_effects::orchestrate",
-                        ),
-                    ),
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        semantic_ir_module,
-        "validate_workflow_semantic_ir",
-        fail_semantic_ir_validation,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            FIXTURES / "valid" / "phase_snapshot_effects.orc",
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "semantic_ir_invalid"
-    assert diagnostic.validation_pass == "semantic_ir"
-    assert diagnostic.authority_layer == "shared"
-    assert diagnostic.span.start.path.endswith("phase_snapshot_effects.orc")
-    assert diagnostic.form_path[-1] == "orchestrate"
 
 
 @pytest.mark.parametrize(
@@ -2589,202 +2105,8 @@ def test_compile_stage3_reports_materialize_view_typecheck_diagnostics(
     assert fixture_path.name == Path(diagnostic.span.start.path).name
 
 
-def test_compile_stage3_reports_materialized_view_semantic_authority_diagnostic(
-    tmp_path: Path,
-) -> None:
-    import json
-
-    from orchestrator.workflow.lowering import build_loaded_workflow_bundle
-    from orchestrator.workflow.surface_ast import (
-        SurfaceStep,
-        SurfaceStepCommonConfig,
-        SurfaceWorkflow,
-        WorkflowProvenance,
-    )
-    from orchestrator.workflow.surface_ast import SurfaceStepKind as SharedSurfaceStepKind
-
-    provenance = WorkflowProvenance(
-        workflow_path=tmp_path / "materialized-view-resume-authority.yaml",
-        source_root=tmp_path,
-    )
-    workflow = SurfaceWorkflow(
-        version="2.14",
-        name="materialized-view-resume-authority",
-        steps=(
-            SurfaceStep(
-                name="MaterializeView",
-                step_id="MaterializeView",
-                kind=SharedSurfaceStepKind.MATERIALIZE_VIEW,
-                common=SurfaceStepCommonConfig(),
-                materialize_view={
-                    "renderer_id": "canonical-json",
-                    "renderer_version": 1,
-                    "view_renderer_schema_version": 1,
-                    "value_type": {
-                        "kind": "record",
-                        "name": "SummaryValue",
-                        "fields": [
-                            {
-                                "name": "status",
-                                "type": {"kind": "primitive", "name": "String"},
-                            }
-                        ],
-                    },
-                    "value_document": {"status": "READY"},
-                    "target_path": "state/generated-summary.json",
-                    "target_allocation_id": None,
-                    "authority_class": "materialized_view",
-                    "output_contracts": {
-                        "return": {
-                            "kind": "relpath",
-                            "type": "relpath",
-                            "under": "state",
-                            "must_exist_target": False,
-                        }
-                    },
-                },
-            ),
-            SurfaceStep(
-                name="validate_reusable_phase_state",
-                step_id="validate_reusable_phase_state",
-                kind=SharedSurfaceStepKind.COMMAND,
-                common=SurfaceStepCommonConfig(),
-                command=(
-                    "python",
-                    "scripts/validate_reusable_state.py",
-                    json.dumps(
-                        {
-                            "resume_from": "${root.steps.MaterializeView.artifacts.return}",
-                        }
-                    ),
-                ),
-            ),
-        ),
-        provenance=provenance,
-    )
-
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        build_loaded_workflow_bundle(workflow, imports={})
-
-    assert any(
-        "materialized_view_used_as_semantic_authority" in str(error.message)
-        for error in excinfo.value.errors
-    )
 
 
-def test_compile_stage3_reports_materialized_view_bridge_authority_diagnostic(
-    tmp_path: Path,
-) -> None:
-    from types import MappingProxyType
-
-    from orchestrator.workflow.lowering import build_loaded_workflow_bundle
-    from orchestrator.workflow.references import StructuredStepReference
-    from orchestrator.workflow.surface_ast import (
-        ImportedWorkflowMetadata,
-        SurfaceStep,
-        SurfaceStepCommonConfig,
-        SurfaceWorkflow,
-        WorkflowProvenance,
-    )
-    from orchestrator.workflow.surface_ast import SurfaceStepKind as SharedSurfaceStepKind
-
-    shared_value_type = {
-        "kind": "record",
-        "name": "SummaryValue",
-        "fields": [
-            {
-                "name": "status",
-                "type": {"kind": "primitive", "name": "String"},
-            }
-        ],
-    }
-    callee_provenance = WorkflowProvenance(
-        workflow_path=tmp_path / "bridge-sink.yaml",
-        source_root=tmp_path,
-        compatibility_bridge_inputs=("run_state_path",),
-    )
-    callee = SurfaceWorkflow(
-        version="2.14",
-        name="bridge-sink",
-        steps=(),
-        provenance=callee_provenance,
-    )
-    callee_bundle = build_loaded_workflow_bundle(callee, imports={})
-
-    caller_provenance = WorkflowProvenance(
-        workflow_path=tmp_path / "materialized-view-bridge-authority.yaml",
-        source_root=tmp_path,
-    )
-    caller = SurfaceWorkflow(
-        version="2.14",
-        name="materialized-view-bridge-authority",
-        steps=(
-            SurfaceStep(
-                name="MaterializeView",
-                step_id="MaterializeView",
-                kind=SharedSurfaceStepKind.MATERIALIZE_VIEW,
-                common=SurfaceStepCommonConfig(),
-                materialize_view={
-                    "renderer_id": "canonical-json",
-                    "renderer_version": 1,
-                    "view_renderer_schema_version": 1,
-                    "value_type": shared_value_type,
-                    "value_document": {"status": "READY"},
-                    "target_path": "state/generated-summary.json",
-                    "target_allocation_id": None,
-                    "authority_class": "materialized_view",
-                    "output_contracts": {
-                        "return": {
-                            "kind": "relpath",
-                            "type": "relpath",
-                            "under": "state",
-                            "must_exist_target": False,
-                        }
-                    },
-                },
-            ),
-            SurfaceStep(
-                name="CallBridgeSink",
-                step_id="CallBridgeSink",
-                kind=SharedSurfaceStepKind.CALL,
-                common=SurfaceStepCommonConfig(),
-                call_alias="bridge-sink",
-                call_bindings=MappingProxyType(
-                    {
-                        "run_state_path": StructuredStepReference(
-                            scope="root",
-                            step_name="MaterializeView",
-                            field="artifacts",
-                            member="return",
-                        ),
-                        "status": "READY",
-                        "reason": "unused",
-                    }
-                ),
-            ),
-        ),
-        provenance=caller_provenance,
-        imports=MappingProxyType(
-            {
-                "bridge-sink": ImportedWorkflowMetadata(
-                    alias="bridge-sink",
-                    workflow_path=callee_provenance.workflow_path,
-                    source_root=callee_provenance.source_root,
-                    compatibility_bridge_inputs=("run_state_path",),
-                    workflow_name="bridge-sink",
-                    output_names=(),
-                )
-            }
-        ),
-    )
-
-    with pytest.raises(WorkflowValidationError) as excinfo:
-        build_loaded_workflow_bundle(caller, imports={"bridge-sink": callee_bundle})
-
-    assert any(
-        "materialized_view_used_as_semantic_authority" in str(error.message)
-        for error in excinfo.value.errors
-    )
 
 
 @pytest.mark.parametrize(

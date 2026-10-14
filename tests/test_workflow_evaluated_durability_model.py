@@ -24,12 +24,60 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.workflow_evaluated_durability_helpers import (
+    DurableState, RECORDER,
     cli_env, crash_points, dispatch_log, dispatches, image_digest, materialize,
     operation_counts, record_public_run, write_workspace,
 )
 
 
 TOPOLOGIES = ["new-ancestors", "preexisting-roots"]
+
+
+def test_recorder_preserves_deleted_inode_identity(tmp_path):
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    node = workspace / "node"
+    node.write_bytes(b"old authority")
+    launcher = tmp_path / "recorder.py"
+    launcher.write_text(RECORDER, encoding="utf-8")
+    probe = '''import contextlib, io, json, os, sys
+from pathlib import Path
+namespace = {}
+sys.argv = ["recorder", "--help"]
+with contextlib.redirect_stdout(io.StringIO()):
+    try:
+        exec(Path(os.environ["DURABILITY_RECORDER"]).read_text(), namespace)
+    except SystemExit as error:
+        assert error.code == 0
+'''
+    probe += '''
+workspace = Path(os.environ["DURABILITY_WORKSPACE"])
+before = namespace["tree"]()
+old_inode = before["node"][1]
+(workspace / "node").unlink()
+(workspace / "node").mkdir()
+after = namespace["tree"]()
+held = [int(fd.name) for fd in Path("/proc/self/fd").iterdir()
+        if fd.is_symlink() and os.readlink(fd) == str(workspace / "node") + " (deleted)"]
+assert held, "recorder released an inode that durable directory entries still reference"
+assert os.fstat(held[0]).st_ino == old_inode and os.fstat(held[0]).st_nlink == 0
+assert after["node"][1] != old_inode
+print(json.dumps({"before": before, "after": after}))
+'''
+    env = {**cli_env(), "DURABILITY_WORKSPACE": str(workspace),
+           "DURABILITY_RECORDER": str(launcher),
+           "DURABILITY_TRACE": str(tmp_path / "trace.jsonl"),
+           "DURABILITY_DISPATCH_LOG": str(tmp_path / "dispatches")}
+    result = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True,
+                            text=True, check=False, timeout=30)
+    assert result.returncode == 0, result.stderr
+    captured = json.loads(result.stdout)
+    before, after = captured["before"], captured["after"]
+    durable = DurableState(before)
+    durable.sync({"kind": "dir", "ino": after["node"][1], "after": {"tree": after}})
+    assert durable.image()["node"] == ("file", b"old authority")
+    durable.sync({"kind": "dir", "ino": after["."][1], "after": {"tree": after}})
+    assert durable.image()["node"] == ("dir", None)
 
 
 def _template(root: Path, topology: str) -> tuple[Path, list[str]]:

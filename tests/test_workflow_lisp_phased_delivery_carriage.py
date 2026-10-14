@@ -1,22 +1,12 @@
 from __future__ import annotations
 
-import copy
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.workflow.core_ast import (
-    _statement_to_json,
-    validate_core_workflow_ast,
-)
-from orchestrator.workflow.executable_ir import ProviderStepConfig, _json_value
 from orchestrator.workflow.provider_phased_delivery.protocol import (
     diagnostic_from_dict,
 )
-from orchestrator.workflow.runtime_step import RuntimeStep
-from orchestrator.workflow.semantic_ir import validate_workflow_semantic_ir
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
@@ -106,36 +96,11 @@ def test_phased_policy_defaults_and_identity_stay_paired_through_carriers(
         typed_expr.prompt.prompt_attempt_identity_version
         == "workflow_prompt_attempt_identity.v2"
     )
-    bundle = result.validated_bundles["phased-review"]
-    surface = bundle.surface.steps[0]
-    core = bundle.core_workflow_ast.body[0]
-    node = next(iter(bundle.ir.nodes.values()))
-    config = node.execution_config
-    assert isinstance(config, ProviderStepConfig)
-    semantic_prompt = next(
-        iter(bundle.semantic_ir.prompt_surfaces.values())
-    )
 
     expected_policy = {
         "delivery": "phased",
         "materialization_attempts": 2,
     }
-    assert dict(surface.provider_call_policy or {}) == expected_policy
-    assert dict(core.provider_call_policy or {}) == expected_policy
-    assert dict(config.provider_call_policy or {}) == expected_policy
-    assert dict(
-        semantic_prompt.provider_call_policy or {}
-    ) == expected_policy
-    assert dict(
-        RuntimeStep(node=node, name="Review", step_id="review")
-    )["provider_call_policy"] == expected_policy
-    assert (
-        config.prompt_attempt_identity_version
-        == "workflow_prompt_attempt_identity.v2"
-    )
-    assert config.compiler_prompt_attempt_binding_plan is not None
-    assert config.common.output_bundle is not None
-    assert config.common.output_bundle["fields"]
 
 
 def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
@@ -154,61 +119,8 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
     )
 
 
-def test_phased_policy_serializers_use_closed_canonical_order() -> None:
-    result = _compile()
-    bundle = result.validated_bundles["phased-review"]
-    core = bundle.core_workflow_ast.body[0]
-    config = next(iter(bundle.ir.nodes.values())).execution_config
-    assert isinstance(config, ProviderStepConfig)
-    reversed_policy = {
-        "materialization_attempts": 2,
-        "delivery": "phased",
-        "effort": "high",
-        "model": "model-id",
-    }
-
-    core_payload = _statement_to_json(
-        replace(core, provider_call_policy=reversed_policy)
-    )
-    executable_payload = _json_value(
-        replace(config, provider_call_policy=reversed_policy)
-    )
-
-    assert tuple(core_payload["provider_call_policy"]) == (
-        "model",
-        "effort",
-        "delivery",
-        "materialization_attempts",
-    )
-    assert tuple(executable_payload["provider_call_policy"]) == (
-        "model",
-        "effort",
-        "delivery",
-        "materialization_attempts",
-    )
 
 
-@pytest.mark.parametrize("attempts", (1, 3))
-def test_phased_materialization_attempt_bounds_are_inclusive(
-    tmp_path: Path,
-    attempts: int,
-) -> None:
-    result = _compile_source(
-        tmp_path,
-        target="2.23",
-        sections=(
-            ":delivery :phased "
-            f":materialization-attempts {attempts}"
-        ),
-    )
-    config = next(
-        iter(result.validated_bundles["check"].ir.nodes.values())
-    ).execution_config
-    assert isinstance(config, ProviderStepConfig)
-    assert config.provider_call_policy == {
-        "delivery": "phased",
-        "materialization_attempts": attempts,
-    }
 
 
 @pytest.mark.parametrize(
@@ -339,45 +251,6 @@ def test_phased_policy_rejects_target_pairing_boolean_and_range_errors(
     assert exact["related_sources"][0]["kind"] == "authored_span"
 
 
-@pytest.mark.parametrize("attempts", (0, 4))
-def test_public_run_reports_phased_materialization_value_and_range(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    attempts: int,
-) -> None:
-    from tests.test_workflow_lisp_improve_stdlib import _public_run, _public_run_files
-
-    entry = tmp_path / "grt" / "entry.orc"
-    entry.parent.mkdir(parents=True, exist_ok=True)
-    entry.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.23")
-  (defmodule grt/entry)
-  (export run)
-  (defrecord Result (approved Bool))
-  (defprompt review-prompt (:fills (subject :text)) -> Result "Review {{subject}}")
-  (defworkflow run ((subject String)) -> Result
-    (provider-result providers.review
-      :prompt (review-prompt :subject subject)
-      :delivery :phased :materialization-attempts {attempts})))
-''',
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    files = _public_run_files(tmp_path, {})
-    files["providers"].write_text('{"providers.review":"test-provider"}', encoding="utf-8")
-
-    result = _public_run(files)
-
-    assert result.exit_code == 2
-    assert "provider_phased_delivery_policy_invalid" in caplog.text
-    assert f"value={attempts}" in caplog.text
-    assert "minimum=1" in caplog.text
-    assert "maximum=3" in caplog.text
-
-
 def test_phased_fragment_requires_non_empty_generated_contract_suffix(
     tmp_path: Path,
 ) -> None:
@@ -458,90 +331,3 @@ def test_phased_delivery_rejects_extern_prompt_without_fragment_contract(
     assert [source["owner"] for source in exact["related_sources"]] == [
         "provider_application"
     ]
-
-
-def test_surface_workflow_rejects_phased_carriage_below_target() -> None:
-    bundle = _compile().validated_bundles["phased-review"]
-
-    with pytest.raises(
-        ValueError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        replace(bundle.surface, version="2.22")
-
-
-def test_core_workflow_rejects_phased_carriage_below_target() -> None:
-    bundle = _compile().validated_bundles["phased-review"]
-    candidate = replace(bundle.core_workflow_ast, dsl_version="2.22")
-
-    with pytest.raises(
-        WorkflowValidationError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        validate_core_workflow_ast(candidate, imports=bundle.imports)
-
-
-def test_executable_workflow_rejects_phased_carriage_below_target() -> None:
-    bundle = _compile().validated_bundles["phased-review"]
-
-    with pytest.raises(
-        ValueError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        replace(bundle.ir, version="2.22")
-
-
-def test_semantic_validation_rejects_phased_carriage_below_target() -> None:
-    bundle = _compile().validated_bundles["phased-review"]
-    candidate = copy.copy(bundle.ir)
-    object.__setattr__(candidate, "version", "2.22")
-
-    with pytest.raises(
-        WorkflowValidationError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        validate_workflow_semantic_ir(
-            bundle.semantic_ir,
-            ir=candidate,
-            projection=bundle.projection,
-            runtime_plan=bundle.runtime_plan,
-            surface=bundle.surface,
-            imports=bundle.imports,
-        )
-
-
-def test_runtime_step_rejects_phased_carriage_below_target() -> None:
-    bundle = _compile().validated_bundles["phased-review"]
-    node = next(iter(bundle.ir.nodes.values()))
-
-    with pytest.raises(
-        ValueError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        RuntimeStep(
-            node=node,
-            name="Review",
-            step_id="review",
-            target_dsl_version="2.22",
-        )
-
-
-def test_lower_carriers_reject_explicit_composed_policy_below_target() -> None:
-    bundle = _compile_composed().validated_bundles["composed-review"]
-    node = next(iter(bundle.ir.nodes.values()))
-
-    with pytest.raises(
-        ValueError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        replace(bundle.ir, version="2.22")
-    with pytest.raises(
-        ValueError,
-        match="provider_phased_delivery_carriage_mismatch",
-    ):
-        RuntimeStep(
-            node=node,
-            name="Review",
-            step_id="review",
-            target_dsl_version="2.22",
-        )

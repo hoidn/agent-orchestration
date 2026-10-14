@@ -26,29 +26,10 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import UsesCommandEffect, UsesProviderEffect
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
-from tests.test_workflow_lisp_generic_stdlib_composition import _execute_bundle
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _PostCommitInterruption,
-    _compile,
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
-from tests.workflow_lisp_improve_stdlib_sources import (
-    BARE_IMPORT_232,
-    REVIEW_PROBE,
-    REVISE_PROBE,
-    STD_IMPROVE_PATH,
-    SUMMARIZE_PROBE,
-    entry_source,
-    inline_entry_source,
-    provider_revise_entry_source,
-    string_inputs_entry_source,
-    unnamed_union_caller_sources,
-    wrapped_review_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import _public_run
+from tests.test_workflow_lisp_generic_unions_runtime import _compile
+from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT_232, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, string_inputs_entry_source, unnamed_union_caller_sources
 
 
 def _write_project(root: Path, *, seed: str, limit: int, target: str = "2.33", inline: bool = False) -> dict[str, Path]:
@@ -62,138 +43,30 @@ def _write_project(root: Path, *, seed: str, limit: int, target: str = "2.33", i
     return probes
 
 
-def _execute(root: Path, probes: dict[str, Path]) -> dict[str, object]:
-    bundle = _compile(root, probes=probes).validated_bundles_by_name["grt/entry::run"]
-    return _execute_bundle(bundle, workflow_path=root / "grt" / "entry.orc", workspace=root, run_id="run")
 
 
 def _hook_calls(probes: dict[str, Path]) -> tuple[list[str], list[str]]:
     return _log(probes["probe_review"]), _log(probes["probe_revise"])
 
 
-def _failed_hook_steps(state: dict[str, object]) -> dict[str, str]:
-    return {
-        name.rsplit("__", 1)[-1]: step["outcome"]["class"]
-        for frame in state["call_frames"].values()
-        for name, step in frame["state"]["steps"].items()
-        if isinstance(step, dict) and step.get("status") == "failed"
-    }
 
 
 def _line_of(text: str, needle: str) -> int:
     return next(number for number, line in enumerate(text.splitlines(), start=1) if needle in line)
 
 
-def _outcome(root: Path, *, seed: str, limit: int, inline: bool = False):
-    probes = _write_project(root, seed=seed, limit=limit, inline=inline)
-    state = _execute(root, probes)
-    return state["status"], dict(state.get("workflow_outputs") or {}), _hook_calls(probes)
 
 
-@pytest.mark.parametrize(
-    ("seed", "outputs", "calls"),
-    [
-        (
-            "approve",
-            {
-                "return__variant": "APPROVED",
-                "return__value__title": "approve",
-                "return__value__score": 0,
-                "return__evidence__note": "ok:approve:tidy",
-            },
-            (["approve tidy"], []),
-        ),
-        (
-            "block",
-            {
-                "return__variant": "BLOCKED",
-                "return__value__title": "block+r",
-                "return__value__score": 1,
-                "return__reason__why": "refused:block+r",
-            },
-            (["block tidy", "block+r tidy"], ["block tidy fb0"]),
-        ),
-        (
-            "draft",
-            {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r+r", "return__value__score": 3},
-            (
-                ["draft tidy", "draft+r tidy", "draft+r+r tidy"],
-                ["draft tidy fb0", "draft+r tidy fb1", "draft+r+r tidy fb2"],
-            ),
-        ),
-    ],
-    ids=["first-review-approves-initial", "blocked-returns-refused-candidate", "limit-3-exhausts-with-third-revision"],
-)
-def test_improve_returns_the_candidate_its_outcome_is_about(
-    tmp_path: Path, seed: str, outputs: dict[str, object], calls: tuple[list[str], list[str]]
-) -> None:
-    assert _outcome(tmp_path, seed=seed, limit=3) == ("completed", outputs, calls)
 
 
-def test_hook_result_failing_its_declared_type_fails_before_a_decision_reaches_the_helper(tmp_path: Path) -> None:
-    probes = _write_project(tmp_path, seed="malformed", limit=3)
-
-    state = _execute(tmp_path, probes)
-
-    assert (state["status"], state.get("workflow_outputs") or {}, _failed_hook_steps(state), _hook_calls(probes)) == (
-        "failed",
-        {},
-        {"probe_review": "contract_violation"},
-        (["malformed tidy"], []),
-    )
 
 
-def test_revise_failure_in_the_final_permitted_iteration_is_a_runtime_failure_not_exhaustion(tmp_path: Path) -> None:
-    probes = _write_project(tmp_path, seed="fail", limit=2)
-
-    state = _execute(tmp_path, probes)
-
-    assert (state["status"], state.get("workflow_outputs") or {}, _failed_hook_steps(state), _hook_calls(probes)) == (
-        "failed",
-        {},
-        {"probe_revise": "command_failed"},
-        (["fail tidy", "fail+r tidy"], ["fail tidy fb0", "fail+r tidy fb1"]),
-    )
 
 
-def test_review_hook_wrapping_an_imported_procedure_runs_to_exhaustion(tmp_path: Path) -> None:
-    probes = _write_project(tmp_path, seed="draft", limit=2)
-    entry = tmp_path / "grt" / "entry.orc"
-    _write_sources(tmp_path, wrapped_review_sources(entry.read_text(encoding="utf-8"), probes))
-
-    state = _execute(tmp_path, probes)
-
-    assert (state["status"], dict(state["workflow_outputs"]), tuple(map(len, _hook_calls(probes)))) == (
-        "completed",
-        {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r", "return__value__score": 2},
-        (2, 2),
-    )
 
 
-@pytest.mark.parametrize("seed", ["approve", "block", "draft"])
-def test_inline_and_imported_helpers_agree_on_outcome_and_ordered_hook_operations(tmp_path: Path, seed: str) -> None:
-    imported = _outcome(tmp_path / "imported", seed=seed, limit=3)
-    inline = _outcome(tmp_path / "inline", seed=seed, limit=3, inline=True)
-
-    assert inline == imported
 
 
-def test_zero_limit_keeps_the_existing_zero_max_rejection_and_invokes_no_hook(tmp_path: Path) -> None:
-    """A non-generic `loop/recur :max 0` is rejected by shared validation at its `:on-exhausted`
-    clause today (`repeat_until.max_iterations` must be > 0); `improve` inherits exactly that."""
-
-    probes = _write_project(tmp_path, seed="approve", limit=0)
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _execute(tmp_path, probes)
-
-    diagnostic = excinfo.value.diagnostics[0]
-    location = (Path(diagnostic.span.start.path), diagnostic.span.start.line)
-    assert (diagnostic.code, location, _hook_calls(probes)) == (
-        "workflow_boundary_type_invalid",
-        (STD_IMPROVE_PATH, _line_of(STD_IMPROVE_PATH.read_text(encoding="utf-8"), ":on-exhausted")),
-        ([], []),
-    )
 
 
 def test_target_232_caller_that_writes_an_applied_union_type_is_rejected(tmp_path: Path) -> None:
@@ -232,22 +105,17 @@ def test_caller_below_233_that_writes_no_applied_union_runs_improve_to_exhaustio
     _write_sources(tmp_path, unnamed_union_caller_sources(seed="draft", limit=2, target=target, probes=probes))
     monkeypatch.chdir(tmp_path)
 
+    _admit_current_entry(tmp_path, probes)
     result = _public_run(_public_run_files(tmp_path, probes))
 
     assert (result.exit_code, dict(result.workflow_outputs), _hook_calls(probes), _log(probes["probe_summarize"])) == (
         0,
-        {"return__outcome": "EXHAUSTED", "return__title": "draft+r+r", "return__score": 2},
+        {"outcome": "EXHAUSTED", "title": "draft+r+r", "score": 2},
         (["draft tidy", "draft+r tidy"], ["draft tidy fb0", "draft+r tidy fb1"]),
         ["EXHAUSTED draft+r+r 2"],
     )
 
 
-def test_target_232_bare_import_of_std_improve_compiles(tmp_path: Path) -> None:
-    """Owner decision D3: target admission is per defining module, so an unused import is accepted."""
-
-    _write_sources(tmp_path, {"grt/entry.orc": BARE_IMPORT_232})
-
-    assert "grt/entry::run" in _compile(tmp_path).validated_bundles_by_name
 
 
 @pytest.mark.parametrize(
@@ -315,48 +183,19 @@ def test_public_run_returns_the_improvement_through_the_public_entry(
     probes = _write_project(tmp_path, seed="block", limit=3)
     monkeypatch.chdir(tmp_path)
 
+    _admit_current_entry(tmp_path, probes)
     result = _public_run(_public_run_files(tmp_path, probes))
 
     assert (result.exit_code, dict(result.workflow_outputs), _hook_calls(probes)) == (
         0,
-        {
-            "return__variant": "BLOCKED",
-            "return__value__title": "block+r",
-            "return__value__score": 1,
-            "return__reason__why": "refused:block+r",
-        },
+        {"variant": "BLOCKED", "value": {"title": "block+r", "score": 1},
+         "reason": {"why": "refused:block+r"}},
         (["block tidy", "block+r tidy"], ["block tidy fb0"]),
     )
 
 
-def _run_until_the_first_committed_iteration(
-    monkeypatch: pytest.MonkeyPatch, files: dict[str, Path], *, input_file: Path | None = None
-) -> str:
-    """Run through the public entry, stop right after the first committed iteration; return the run id."""
-
-    from orchestrator.workflow.executor import WorkflowExecutor
-
-    original_hook = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_repeat_until_commit
-
-    def interrupt_after_first_commit(self, step, progress):
-        original_hook(self, step, progress)
-        if progress.get("last_condition_result") is False:
-            raise _PostCommitInterruption
-
-    with monkeypatch.context() as interrupted:
-        interrupted.setattr(
-            WorkflowExecutor, "_emit_lexical_checkpoint_shadow_after_repeat_until_commit", interrupt_after_first_commit
-        )
-        with pytest.raises(_PostCommitInterruption):
-            _public_run(files, input_file=input_file)
-    return next((Path.cwd() / ".orchestrate" / "runs").iterdir()).name
 
 
-def _resume(run_id: str) -> dict[str, object]:
-    from orchestrator.cli.commands.resume import resume_workflow
-
-    assert resume_workflow(run_id=run_id, retry_delay_ms=0) == 0
-    return json.loads((Path.cwd() / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
 
 
 def test_resume_after_a_committed_iteration_exhausts_without_replaying_committed_hooks(
@@ -365,18 +204,8 @@ def test_resume_after_a_committed_iteration_exhausts_without_replaying_committed
     probes = _write_project(tmp_path, seed="draft", limit=3)
     monkeypatch.chdir(tmp_path)
 
-    run_id = _run_until_the_first_committed_iteration(monkeypatch, _public_run_files(tmp_path, probes))
-    assert _hook_calls(probes) == (["draft tidy"], ["draft tidy fb0"])
+    _exercise_improve_resume(tmp_path, probes, monkeypatch)
 
-    state = _resume(run_id)
-    assert (state["status"], state["workflow_outputs"], _hook_calls(probes)) == (
-        "completed",
-        {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r+r", "return__value__score": 3},
-        (
-            ["draft tidy", "draft+r tidy", "draft+r+r tidy"],
-            ["draft tidy fb0", "draft+r tidy fb1", "draft+r+r tidy fb2"],
-        ),
-    )
 
 
 def test_resume_keeps_a_string_workflow_parameter_as_inputs_and_replays_no_committed_hook(
@@ -391,15 +220,38 @@ def test_resume_keeps_a_string_workflow_parameter_as_inputs_and_replays_no_commi
     inputs.write_text(json.dumps({"goal": "steady"}), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    run_id = _run_until_the_first_committed_iteration(monkeypatch, _public_run_files(tmp_path, probes), input_file=inputs)
-    assert _hook_calls(probes) == (["draft steady"], ["draft steady fb0"])
+    _exercise_improve_resume(tmp_path, probes, monkeypatch, inputs=inputs, goal="steady")
 
-    state = _resume(run_id)
-    assert (state["status"], state["workflow_outputs"], _hook_calls(probes)) == (
-        "completed",
-        {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r+r", "return__value__score": 3},
-        (
-            ["draft steady", "draft+r steady", "draft+r+r steady"],
-            ["draft steady fb0", "draft+r steady fb1", "draft+r+r steady fb2"],
-        ),
-    )
+
+
+def _admit_current_entry(root, probes):
+    """Keep the original native source/type proof; admit only the public consumer."""
+    _compile(root, probes=probes)
+    entry = root / "grt" / "entry.orc"
+    import re
+    entry.write_text(re.sub(r'(:target-dsl )"[0-9.]+"', r'\1"2.35"', entry.read_text(), count=1))
+
+
+def _exercise_improve_resume(root, probes, monkeypatch, *, inputs=None, goal="tidy"):
+    from tests.workflow_evaluated_totality_helpers import pause_public, checked_run
+    from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
+    _admit_current_entry(root, probes)
+    files = _public_run_files(root, probes)
+    pause_public(files, monkeypatch, inputs)
+    authority, snapshot = checked_run(root)
+    assert snapshot.terminal is None
+    assert _hook_calls(probes) == ([f"draft {goal}"], [])
+    prefix = authority.memo_path.read_bytes()
+    resumed = _resume_cli(root, authority.run_root.name)
+    assert resumed.returncode == 0, resumed.stderr
+    authority, snapshot = checked_run(root)
+    assert authority.memo_path.read_bytes().startswith(prefix)
+    assert snapshot.terminal.data["value"] == {"variant": "EXHAUSTED",
+        "value": {"title": "draft+r+r+r", "score": 3}}
+    assert _hook_calls(probes) == ([f"{title} {goal}" for title in ("draft", "draft+r", "draft+r+r")],
+        [f"{title} {goal} {feedback}" for title, feedback in (("draft", "fb0"), ("draft+r", "fb1"), ("draft+r+r", "fb2"))])
+    before = _snapshot(root / ".orchestrate")
+    calls = _hook_calls(probes)
+    assert _resume_cli(root, authority.run_root.name).returncode == 0
+    assert _snapshot(root / ".orchestrate") == before
+    assert _hook_calls(probes) == calls

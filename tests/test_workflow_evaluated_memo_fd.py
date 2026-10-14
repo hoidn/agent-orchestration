@@ -95,7 +95,8 @@ def test_public_readers_use_the_root_held_by_the_writer_lock(tmp_path, monkeypat
     owners = []
 
     def swap_then_read(path, run_files=None):
-        if not owners:
+        # The non-mutating retirement check precedes acquisition of the writer lock.
+        if run_files is not None and not owners:
             owners.append(run_files)
             root.rename(original)
             root.mkdir()

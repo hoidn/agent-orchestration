@@ -22,7 +22,7 @@ from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_memo import _committed, _started
-from tests.test_workflow_run_ref_child import _build_path_fixture, _path_request
+from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture, _path_request
 
 
 def _checked_parent_program(root, fixture, structure="direct", returns="String"):
@@ -128,13 +128,13 @@ def _checked_launch_fixture(tmp_path, *, allocate=True, structure="direct", dyna
 @pytest.mark.parametrize("structure", ["direct", "call", "nested", "loop"])
 def test_private_v2_requires_current_parent_launch_authority(tmp_path, monkeypatch, capsys, structure):
     compiled = []
-    real_compile = child.compile_and_admit_path_program
+    real_compile = child._admit_path_request
 
-    def observe_compile(**kwargs):
-        compiled.append(kwargs)
-        return real_compile(**kwargs)
+    def observe_compile(*args, **kwargs):
+        compiled.append((args, kwargs))
+        return real_compile(*args, **kwargs)
 
-    monkeypatch.setattr(child, "compile_and_admit_path_program", observe_compile)
+    monkeypatch.setattr(child, "_admit_path_request", observe_compile)
     with _checked_launch_fixture(tmp_path, structure=structure) as (_request, fixture, document, owner):
         result = child.main(["--path-request", fixture.request_path.as_posix(),
                              "--parent-root-fd", str(owner.root_fd)])
@@ -142,7 +142,7 @@ def test_private_v2_requires_current_parent_launch_authority(tmp_path, monkeypat
         assert result == 0, output.err
         assert len(compiled) == 1
         returned = json.loads(output.out)
-        assert returned["schema_version"] == "run_ref_path_child_result.v1"
+        assert returned["schema_version"] == "run_ref_path_child_result.v2"
         assert returned["workflow_outputs"] == {"__result__": "mode2-child-input"}
         assert document["parent_authority"]["attempt"] == 2
         assert ledger.load_attempt_ledger(_request.ledger_path, run_files=owner).rows[-1].attempt_ordinal == 1
@@ -185,7 +185,7 @@ def test_private_loop_activation_cannot_use_other_iterations_launch(
                 raise
 
         monkeypatch.setattr(launch_authority, "validate_parent_launch", observe_authority)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(),
                            "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
@@ -218,7 +218,7 @@ def test_direct_v2_execution_rejects_fields_changed_after_decode(tmp_path, field
                      "clone_root": tmp_path, "child_state_dir": tmp_path,
                      "test_control": child.RunRefChildTestControl("mode_2_compile", tmp_path / "progress")}
         changed = replace(decoded, **{field: mutations[field]})
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         with pytest.raises(child._ChildCommandError, match="request_invalid"):
             child.execute_path_request(changed)
 
@@ -275,7 +275,7 @@ def test_child_refuses_invalid_parent_header_without_compile(tmp_path, monkeypat
             header.update(header_change)
         path.write_bytes(canonical_json_bytes(header))
         before = _tree_bytes(request.parent_run_root)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
         assert _tree_bytes(request.parent_run_root) == before
@@ -298,7 +298,7 @@ def test_child_requires_exact_v2_descriptor_transport(tmp_path, monkeypatch, cap
         if descriptor_kind != "missing":
             arguments += ["--parent-root-fd", str(descriptor)]
         before = _tree_bytes(request.parent_run_root)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         try:
             assert child.main(arguments) == 2
             assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
@@ -319,7 +319,7 @@ def test_child_refuses_changed_full_request(tmp_path, monkeypatch, capsys, mutat
         document.update(changes.get(mutation, {}))
         fixture.request_path.write_bytes(canonical_json_bytes(document))
         before = _tree_bytes(request.parent_run_root)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
         assert _tree_bytes(request.parent_run_root) == before
@@ -330,7 +330,7 @@ def test_child_refuses_corrupt_parent_artifact_without_writes(tmp_path, monkeypa
     with _checked_launch_fixture(tmp_path) as (request, fixture, _document, owner):
         (request.parent_run_root / artifact).write_bytes(b"corrupt\n")
         before = _tree_bytes(request.parent_run_root)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
         assert _tree_bytes(request.parent_run_root) == before
@@ -343,7 +343,7 @@ def test_child_refuses_historical_launched_row(tmp_path, monkeypatch, capsys):
                                    "child_terminal_state_digest": "sha256:" + "e" * 64,
                                    "result_payload_digest": "sha256:" + "e" * 64}, run_files=owner)
         before = _tree_bytes(request.parent_run_root)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
         assert _tree_bytes(request.parent_run_root) == before
@@ -400,7 +400,7 @@ def test_child_refuses_root_swap_during_authority_read(tmp_path, monkeypatch, ca
             return result
 
         monkeypatch.setattr(launch_authority, "load_attempt_ledger", load_then_swap)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
         assert _tree_bytes(root) == {"<root>": ("directory", None)}
@@ -419,7 +419,7 @@ def test_child_binds_exact_other_checked_config_before_ledger_hash(tmp_path, mon
         assert site_classes(checked.program) == {document["parent_authority"]["identity"]: "run_ref"}
         before = _tree_bytes(root)
         monkeypatch.setattr(launch_authority, "load_attempt_ledger", lambda *_args, **_kwargs: pytest.fail("passed checked config"))
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         assert json.loads(capsys.readouterr().err)["reason"] == "request_invalid"
         assert _tree_bytes(root) == before
@@ -443,7 +443,7 @@ def test_direct_child_refuses_superseded_live_permission(tmp_path, monkeypatch, 
                            workspace=workspace, parent_values={"payload": "mode2-child-input"})
                 ledger.allocate_attempt(request.ledger_path, visit=request.visit, bindings=bindings, run_files=owner)
         before = _tree_bytes(request.parent_run_root)
-        monkeypatch.setattr(child, "compile_and_admit_path_program", lambda **_kwargs: pytest.fail("compiled"))
+        monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))
         with pytest.raises(child._ChildCommandError, match="request_invalid"):
             child.execute_path_request(decoded)
         assert _tree_bytes(request.parent_run_root) == before

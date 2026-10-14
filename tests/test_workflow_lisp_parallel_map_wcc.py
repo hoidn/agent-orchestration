@@ -8,11 +8,11 @@ from orchestrator.workflow_lisp.closed.build import Builder
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body, _free_wcc_names_in_body
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
-from orchestrator.workflow_lisp.wcc.defunctionalize import _wcc_body_nodes
+from tests.workflow_lisp_closed_program_helpers import _wcc_body_nodes
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
 from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
 from orchestrator.workflow_lisp.wcc.use_site_scope import rename_capturing_binders
-from orchestrator.workflow_lisp.wcc.model import WccLet, WccNameAtom, WccJoin, WccCall, WccRecJoin
+from orchestrator.workflow_lisp.wcc.model import WccLet, WccNameAtom, WccJoin, WccRecJoin
 from orchestrator.workflow_lisp.closed.command_templates import _wcc_continuation_binding_demands
 from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, install
 

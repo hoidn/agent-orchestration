@@ -2281,7 +2281,7 @@ def _json_value(value: Any) -> Any:
 
 
 def _provenance_json_value(provenance: WorkflowProvenance) -> dict[str, Any]:
-    from orchestrator.workflow_lisp.lexical_checkpoint_restore import public_restore_metadata
+    from orchestrator.workflow.surface_ast import public_restore_metadata
 
     payload = _json_value(provenance)
     if not isinstance(payload, dict):

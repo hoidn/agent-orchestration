@@ -1,22 +1,10 @@
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
-from orchestrator.state import StateManager
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow_lisp.compiler import (
-    _definition_only_syntax_module,
-    _validate_definition_module,
-    compile_stage1_module,
-    compile_stage3_module,
-)
+from orchestrator.workflow_lisp.compiler import _definition_only_syntax_module, _validate_definition_module
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
@@ -30,7 +18,6 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
-from orchestrator.providers.executor import ProviderExecutor
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,8 +38,6 @@ def _compile_definition_module(path: Path):
     return module
 
 
-def _type_env(path: Path = VALID_FIXTURE) -> FrontendTypeEnvironment:
-    return FrontendTypeEnvironment.from_module(_compile_definition_module(path))
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -105,99 +90,8 @@ def _typecheck_fixture(path: Path):
     )
 
 
-def _runtime_bundle_payload(mode: str) -> dict[str, object]:
-    if mode == "completed":
-        return {
-            "variant": "COMPLETED",
-            "implementation_state": "COMPLETED",
-            "execution_report_path": "artifacts/work/execution_report.md",
-        }
-    if mode == "blocked":
-        return {
-            "variant": "BLOCKED",
-            "implementation_state": "BLOCKED",
-            "progress_report_path": "artifacts/work/progress_report.md",
-            "blocker_class": "missing_resource",
-        }
-    raise AssertionError(f"unexpected mode: {mode}")
 
 
-def _compile_and_execute_phase_fixture(workspace: Path, *, mode: str) -> tuple[dict, Path]:
-    (workspace / "docs" / "design").mkdir(parents=True, exist_ok=True)
-    (workspace / "docs" / "plans").mkdir(parents=True, exist_ok=True)
-    (workspace / "state").mkdir(parents=True, exist_ok=True)
-    (workspace / "docs" / "design" / "workflow_lisp_frontend_specification.md").write_text(
-        "# design\n",
-        encoding="utf-8",
-    )
-    (workspace / "docs" / "plans" / "implementation_plan.md").write_text("# plan\n", encoding="utf-8")
-    (workspace / "state" / "fake_provider_scenario.json").write_text(
-        json.dumps({"mode": mode}, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-    compile_result = compile_stage3_module(
-        VALID_FIXTURE,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=workspace,
-    )
-    bundle = next(
-        bundle
-        for name, bundle in compile_result.validated_bundles.items()
-        if name.endswith("run-implementation-attempt")
-    )
-    state_manager = StateManager(workspace=workspace, run_id=f"phase-translation-{mode}")
-    state_manager.initialize(
-        VALID_FIXTURE.as_posix(),
-        bound_inputs={
-            "phase-ctx__implementation_state_bundle_path": "artifacts/work/implementation_state.json",
-            "phase-ctx__execution_report_target": "artifacts/work/execution_report.md",
-            "phase-ctx__progress_report_target": "artifacts/work/progress_report.md",
-            "inputs__design": "docs/design/workflow_lisp_frontend_specification.md",
-            "inputs__plan": "docs/plans/implementation_plan.md",
-        },
-    )
-    executor = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0)
-
-    def _prepare_invocation(_self, *args, **kwargs):
-        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
-
-    def _execute(_self, _invocation, **kwargs):
-        subprocess.run(
-            [sys.executable, str(ROOT / "tests" / "fixtures" / "bin" / "fake_provider.py")],
-            input=b"Primitive implementation outcome oracle\n",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=workspace,
-            check=True,
-        )
-        bundle_path = workspace / "artifacts" / "work" / "implementation_state.json"
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        bundle_path.write_text(
-            json.dumps(_runtime_bundle_payload(mode), indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return SimpleNamespace(
-            exit_code=0,
-            stdout=b"ok",
-            stderr=b"",
-            duration_ms=1,
-            error=None,
-            missing_placeholders=None,
-            invalid_prompt_placeholder=False,
-            raw_stdout=None,
-            normalized_stdout=None,
-            provider_session=None,
-        )
-
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
-        ProviderExecutor, "execute", _execute
-    ):
-        state = executor.execute()
-
-    return state, workspace / "artifacts" / "work" / "implementation_state.json"
 
 
 def test_elaborate_phase_translation_fixture_builds_with_phase_and_phase_target_nodes() -> None:
@@ -227,22 +121,6 @@ def test_elaborate_phase_translation_fixture_builds_with_phase_and_phase_target_
     ]
 
 
-def test_compile_stage3_module_records_with_phase_macro_frame_for_phase_fixture(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        VALID_FIXTURE,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    workflow = result.lowered_workflows[0]
-    origin = workflow.origin_map.step_spans[
-        "neurips_implementation_attempt::run-implementation-attempt__attempt"
-    ]
-
-    assert origin.expansion_stack
-    assert origin.expansion_stack[0].macro_name == "with-phase"
 
 
 def test_typecheck_rejects_phase_target_outside_with_phase() -> None:
@@ -574,45 +452,3 @@ def test_typecheck_phase_translation_fixture_keeps_internal_union_and_externs() 
     assert [param_name for param_name, _ in typed_workflow.signature.params] == ["phase-ctx", "inputs"]
     assert typed_workflow.signature.return_type_ref.name == "ImplementationAttemptSurfaceResult"
     assert typed_workflow.typed_body.type_ref == typed_workflow.signature.return_type_ref
-
-
-def test_runtime_completed_phase_translation_matches_oracle_shape(tmp_path: Path) -> None:
-    state, bundle_path = _compile_and_execute_phase_fixture(tmp_path, mode="completed")
-
-    assert state["status"] == "completed"
-    assert state["workflow_outputs"]["return__implementation_state"] == "COMPLETED"
-    assert state["workflow_outputs"]["return__implementation_state_bundle_path"] == (
-        "artifacts/work/implementation_state.json"
-    )
-    assert bundle_path.is_file()
-
-    actual_bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-    expected_bundle = json.loads(
-        (ROOT / "tests" / "fixtures" / "v214_primitives" / "implementation_oracle" / "expected" / "completed.json")
-        .read_text(encoding="utf-8")
-    )["files"]["state/oracle/implementation_state.json"]["json"]
-    assert actual_bundle["implementation_state"] == "COMPLETED"
-    assert actual_bundle["execution_report_path"] == "artifacts/work/execution_report.md"
-    assert "blocker_class" not in actual_bundle
-    assert {key: actual_bundle[key] for key in expected_bundle} == expected_bundle
-
-
-def test_runtime_blocked_phase_translation_matches_oracle_shape(tmp_path: Path) -> None:
-    state, bundle_path = _compile_and_execute_phase_fixture(tmp_path, mode="blocked")
-
-    assert state["status"] == "completed"
-    assert state["workflow_outputs"]["return__implementation_state"] == "BLOCKED"
-    assert state["workflow_outputs"]["return__implementation_state_bundle_path"] == (
-        "artifacts/work/implementation_state.json"
-    )
-    assert bundle_path.is_file()
-
-    actual_bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-    expected_bundle = json.loads(
-        (ROOT / "tests" / "fixtures" / "v214_primitives" / "implementation_oracle" / "expected" / "blocked.json")
-        .read_text(encoding="utf-8")
-    )["files"]["state/oracle/implementation_state.json"]["json"]
-    assert actual_bundle["implementation_state"] == "BLOCKED"
-    assert actual_bundle["progress_report_path"] == "artifacts/work/progress_report.md"
-    assert actual_bundle["blocker_class"] == "missing_resource"
-    assert {key: actual_bundle[key] for key in expected_bundle} == expected_bundle

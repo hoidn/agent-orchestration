@@ -75,11 +75,11 @@ Decided on 2026-09-30: decision 6, the evaluated execution target, is **2.35**
 (recorded by the Phase 2 owner in `bf6c9c9d`). The earlier recommendation of
 a new major number is superseded; the runtime delivery scope is unchanged.
 
-Decisions needed:
+Retirement decision, selected on 2026-10-13:
 
-| # | Decision | Recommendation | Needed before |
+| # | Decision | Selected contract | Gate |
 | --- | --- | --- | --- |
-| 8 | When older targets are retired, including how existing runs remain resumable or are explicitly retired | After the maintained workflows run at the new target, with an explicit disposition for existing runs | Phase 7 |
+| 8 | Retire old executable targets/profiles after the finite maintained set migrates | The [retirement contract](../design/workflow_lisp_executor_retirement.md) preserves original data and read access; exact-release recovery is limited to evidenced families | R accepted; final deleted-tree verification/delivery tracked in the retirement closeout |
 
 Base: the integration branch of the shared defect repairs plan, with `main`
 and the paired search experiment merged in. Phases 0 and 1 merge to `main`
@@ -390,10 +390,15 @@ selected.
 
 ### Delivery Order And Preserved Capabilities
 
-Owner amendment, 2026-10-01, updated by selection on 2026-10-07:
+Historical order selected on 2026-10-07:
 
 **Phase 2 → Phase 3 → Phase 6a pilot → pure lexical-capture correction →
 Phase 4c/W3 → Phase 5 → Phase 6b migration → Phase 7 retirement.**
+
+The selected 2026-10-13 [completion amendment](2026-10-13-best-of-n-and-executor-retirement-plan.md)
+separates serial 2.35 consumer migration → finite dispositions → gate R →
+cutoff/deletion from full Phase 5. Optional parallel best of N remains with
+Phase 5; existing phase numbers and bounded 2.37 support remain unchanged.
 
 Owner selection, 2026-10-07, orders the pure-capture correction and W3 before
 Phase 5. Other Phase 4 additions remain consumer-conditioned and independent;
@@ -528,9 +533,10 @@ subsets), refreshed audit and qualified real-provider smoke. Independent final
 code/evidence review is PASS at `ef689a39`; final documentation/spec review
 is PASS, and fast-forward merge/push delivered `06130a53` to `main` and
 `origin/main`. Tasks 16/17 and Phase 3 are closed. The reviewed early pilot’s
-entry was satisfied and Tasks 1–3 have bounded independent PASS reviews. Its [final campaign and assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) record 21 passing pilot cases and a RED full suite, with closeout status owned by that report. The finite totality matrix did not cover the pre-existing pure-inline shadow defect (101 versus lexical 8); the [subsequent pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) supplies bounded lexical/effect-once and retained-run evidence, with historical final code/spec PASS and bounded acceptance in the original worktree before interruption. Its report owns recovery verification; the Phase 4c closeout owns shared final qualification and delivery. Closing the bounded pilot does not close global Phase 6a; W3 has subsequent bounded compatibility evidence, while broader Phase 6b migration remains separate. The subsequent owner order is Phase 3 → early Phase 6a pilot → pure-capture
-correction → W3 → Phase 5 → Phase 6b → Phase 7; unrelated Phase 4 additions
-remain consumer-conditioned.
+entry was satisfied and Tasks 1–3 have bounded independent PASS reviews. Its [final campaign and assessment](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#final-campaign-and-compatibility) record 21 passing pilot cases and a RED full suite, with closeout status owned by that report. The finite totality matrix did not cover the pre-existing pure-inline shadow defect (101 versus lexical 8); the [subsequent pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) supplies bounded lexical/effect-once and retained-run evidence, with historical final code/spec PASS and bounded acceptance in the original worktree before interruption. Its report owns recovery verification; the Phase 4c closeout owns shared final qualification and delivery. Closing the bounded pilot does not close global Phase 6a; W3 has subsequent bounded compatibility evidence, while broader Phase 6b migration remains separate. The owner order recorded then was Phase 3 → early Phase 6a pilot → pure-capture
+correction → W3 → Phase 5 → Phase 6b → Phase 7. The selected 2026-10-13
+amendment below now separates serial migration and retirement from full Phase 5;
+unrelated Phase 4 additions remain consumer-conditioned.
 
 ### Phase 4: Consumer Capabilities And Authoring
 
@@ -659,7 +665,7 @@ the migration/compatibility decision. Qualification preparation can overlap
 Phase 3; the pilot supplies executable caller evidence before Phase 4c.
 Do not require unimplemented W3 syntax to run the pilot.
 
-Execution update, 2026-10-07: the [pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#assessment-and-next-handoff) supplies the proposal/explicit/bound caller assessment, truthful helper-inclusive counts, two separately reviewed compiler corrections and the W3 decision table. The full campaign passes all 21 pilot cases and the existing 400-case totality owner but remains RED overall; the report owns closeout status. The [subsequent uncommitted pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) demonstrates lexical 8 and the coupled effect-once repair; historical final code/spec reviews passed and the bounded prerequisite was accepted in the original worktree before interruption. Its report owns recovery verification; the [Phase 4c closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns the shared full-freeze result and delivery. The subsequent owner selection assigns W3 target 2.36 and graph migration; the Phase 4c plan owns the accepted bounded contract and the closeout records final-package compatibility and verification. Pure-capture correction precedes W3, which precedes Phase 5. Portable context still needs a named consumer, and serial `best_of_n` goes to Phase 5. No canonical migration or unrelated later capability is selected here.
+Execution update, 2026-10-07: the [pilot report](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md#assessment-and-next-handoff) supplies the proposal/explicit/bound caller assessment, truthful helper-inclusive counts, two separately reviewed compiler corrections and the W3 decision table. The full campaign passes all 21 pilot cases and the existing 400-case totality owner but remains RED overall; the report owns closeout status. The [subsequent uncommitted pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md) demonstrates lexical 8 and the coupled effect-once repair; historical final code/spec reviews passed and the bounded prerequisite was accepted in the original worktree before interruption. Its report owns recovery verification; the [Phase 4c closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns the shared full-freeze result and delivery. The subsequent owner selection assigns W3 target 2.36 and graph migration; the Phase 4c plan owns the accepted bounded contract and the closeout records final-package compatibility and verification. Pure-capture correction precedes W3, which precedes Phase 5. Portable context still needs a named consumer. The later 2026-10-13 amendment selects canonical serial `best_of_n` migration at 2.35 independently of Phase 5; the pilot itself selects no unrelated later capability.
 
 Use observed friction to select a principled improvement, a justified
 design/type-system revision, or explicit simplification of an unhelpful
@@ -690,15 +696,18 @@ optional parallel best of N does. Execution now closes finite consumer/run
 dispositions before gate R permits the cutoff and physical deletion. This
 selection does not declare global Phase 6b complete or satisfy decision 8
 without those dispositions. The [closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
-owns exact progress and outstanding choices.
+owns exact progress and outstanding qualification/delivery evidence.
 
 ### Phase 7: Retirement
 
-Entry: completed Phase 6b and the owner's decision 8, including a disposition
-for existing old-profile runs. Remove code serving only retired targets
+Entry: the selected finite consumer migration and decision 8 dispositions,
+qualified by gate R of the 2026-10-13 retirement plan. This amendment does not
+require full Phase 5 or global Phase 6b. Remove code serving only retired targets
 once no maintained consumer needs it: displaced flat lowering, replay and
 state-translation machinery, not useful language contracts or shared
-performers. Until then, old runs keep their documented resume route. Two
+performers. The selected cutoff now refuses old-profile resume/invalidation;
+original data stays readable and exact qualified recovery stays with its retained
+release/environment. Two
 runtimes are a migration cost, not the intended permanent architecture;
 retirement is a delivery milestone, not indefinite optional cleanup.
 
@@ -715,8 +724,13 @@ repository, including nested experiment/project roots; the initial inventory
 covers `.orchestrate/runs` and `.orchestrate/archive` only. Original run data
 remains untouched. The owner separately selected Phase 5 D1 target 2.37 on
 2026-10-12; its checked parallel compilation/read-back is qualified and bounded workers
-are independently reviewed; full public qualification and phase delivery remain pending. Consolidation grants
-no retirement cutoff.
+are independently reviewed; full public qualification and phase delivery remain pending. Consolidation alone granted no retirement cutoff; the later selected
+2026-10-13 serial/R amendment above now governs that cutoff and deletion. Its
+Tasks 0–4/R are accepted; physical implementation, retained-test migration
+and R3/R4/native reviews have independent PASS. The retirement
+closeout records second full RED with 15 classified failures and zero errors;
+final closeout review is PASS and the selected retirement is complete in the
+commit containing that closeout, without closing global Phase 5/6b.
 
 ---
 

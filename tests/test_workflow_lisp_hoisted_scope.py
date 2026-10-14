@@ -1,23 +1,10 @@
-"""Shared defect repairs, Task 5 second review fixes: every hoisted binding keeps its source scope.
+"""Lexical scope across operands, control subjects and command payloads.
+
+Historical header parameters cover typed frontend analysis; execution uses the
+public evaluated 2.35 entry. Command probes and a fixed provider payload check
+native values, capture and once-only execution independently of lowering names.
 
 Plan: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md, Task 5.
-Design: docs/design/workflow_lisp_core_calculus_middle_end.md section 9 (a
-reference is valid only where its definition dominates it).
-
-At every target the elaborator renames a binding it hoists out of a sub-expression
-when the code it is hoisted over refers to that name: the rest of a `let*` (which
-includes an `if` or `cond` condition, bound whole by the strict boolean normalizer),
-the arms of a `match`, the other operands of a pure operator, record, record update or
-union constructor, the later arguments and the continuation of an effect call, and the
-body of a loop whose `:max` binds names. The renaming follows binding structure: a
-binder of the same spelling inside the renamed code starts a scope the renaming does
-not enter. It corrects values only: forms that older targets refuse stay refused.
-
-A `match` subject that applies a typed prompt keeps its typechecked form from 2.33,
-so the application reaches lowering with its compiled identity.
-
-Effects are command probes (`tick`, `choose`) that append their argv to `<probe>.log`,
-and, for prompts, a stand-in provider executor that writes a fixed payload.
 """
 
 from __future__ import annotations
@@ -31,15 +18,11 @@ from unittest.mock import patch
 import pytest
 
 from orchestrator.providers.executor import ProviderExecutor
-from tests.test_workflow_lisp_elaborated_prefixes import LOOP_MATCH, _run, _write_program
+from tests.test_workflow_lisp_elaborated_prefixes import CAPTURE_PROBE, LOOP_MATCH, _run, _write_program
 from tests.test_workflow_lisp_generic_union_provider_results import _Provider
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import public_run
+from tests.test_workflow_lisp_elaborated_prefixes import _analyze_and_select_evaluated_entry, _scope_files
 from tests.workflow_lisp_improve_stdlib_sources import _PROBE_PRELUDE, _PROBE_WRITE
 
 
@@ -65,13 +48,14 @@ MODULE = """(workflow-lisp
 """
 
 PROBES = {
+    "capture": CAPTURE_PROBE,
     "tick": _PROBE_PRELUDE + "payload = int(sys.argv[1])\n" + _PROBE_WRITE,
     "choose": _PROBE_PRELUDE + 'payload = {"variant": "YES", "v": int(sys.argv[1])}\n' + _PROBE_WRITE,
 }
 
 
 def _outcome(
-    root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *, returns: str = "Int", target: str = "2.33", view: bool = False
+    root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *, returns: str = "Int", target: str = "2.35", view: bool = False
 ):
     """Run `body` through `run_workflow`; return (exit code, outputs, tick log, choose log)."""
 
@@ -87,7 +71,9 @@ def _outcome(
         input_file = root / "inputs.json"
         input_file.write_text(json.dumps({"target": "artifacts/work/view.json"}), encoding="utf-8")
     monkeypatch.chdir(root)
-    result = _public_run(_public_run_files(root, probes), input_file=input_file)
+    files = _scope_files(root, probes)
+    _analyze_and_select_evaluated_entry(root)
+    result = public_run(files, input_file=input_file)
     return result.exit_code, dict(result.workflow_outputs or {}), _log(probes["tick"]), _log(probes["choose"])
 
 
@@ -138,9 +124,9 @@ _TICKS = {name: ["10"] for name in ("let-binding-value", "if-condition", "cond-c
 
 def _outputs(returns: str, value) -> dict:
     if returns == "Pair":
-        return {"return__left": value[0], "return__right": value[1]}
+        return {"left": value[0], "right": value[1]}
     if returns == "Choice":
-        return {"return__variant": "YES", "return__v": value}
+        return {"variant": "YES", "v": value}
     return {"__result__": value}
 
 
@@ -166,8 +152,7 @@ def test_a_hoisted_binding_keeps_its_source_scope_at_every_target(
 
 
 VIEW = (
-    "(materialize-view audit-view :value VALUE :renderer canonical-json :renderer-version 1"
-    " :target target :returns OutPath)"
+    '(command-result capture :argv ("python" "CAPTURE" target) :inputs ((value VALUE)) :returns String)'
 )
 
 
@@ -223,7 +208,7 @@ def test_a_subject_binding_named_like_the_loop_parameter_does_not_capture_it(
 
     assert _run(tmp_path, monkeypatch, probes) == (
         0,
-        {"return__title": "draft+r+r+r", "return__score": 3},
+        {"title": "draft+r+r+r", "score": 3},
         (
             ["draft tidy", "draft+r tidy", "draft+r+r tidy"],
             ["draft tidy fb", "draft+r tidy fb", "draft+r+r tidy fb"],
@@ -240,7 +225,7 @@ PROMPT_FORMS = {
 }
 
 
-def _prompt_outcome(root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *, target: str = "2.33"):
+def _prompt_outcome(root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *, target: str = "2.35"):
     """Run with a stand-in `providers.pick`; return (exit code, outputs, provider calls, tick log)."""
 
     root.mkdir(parents=True, exist_ok=True)
@@ -249,14 +234,15 @@ def _prompt_outcome(root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *, t
     source = MODULE.replace("TARGET", target).replace("RETURNS", "Int").replace("BODY", body).replace("PARAMS", "")
     source = source.replace("TICK", tick.as_posix()).replace("CHOOSE", choose.as_posix())
     _write_sources(root, {"grt/entry.orc": source})
-    files = _public_run_files(root, {"tick": tick, "choose": choose})
+    files = _scope_files(root, {"tick": tick, "choose": choose})
     files["providers"].write_text(json.dumps({"providers.pick": "codex"}), encoding="utf-8")
+    _analyze_and_select_evaluated_entry(root, provider_externs={"providers.pick": "codex"})
     provider = _Provider({"variant": "YES", "v": 7})
     with ExitStack() as stack:
         stack.enter_context(patch.object(ProviderExecutor, "prepare_invocation", provider.prepare_invocation))
         stack.enter_context(patch.object(ProviderExecutor, "execute", provider.execute))
         monkeypatch.chdir(root)
-        result = _public_run(files)
+        result = public_run(files)
     return result.exit_code, dict(result.workflow_outputs or {}), provider.calls, _log(tick)
 
 
@@ -267,13 +253,13 @@ def test_a_match_subject_that_applies_a_typed_prompt_runs_as_the_let_bound_form(
     assert _prompt_outcome(tmp_path, monkeypatch, PROMPT_FORMS[form]) == (0, {"__result__": 7}, 1, ["10"])
 
 
-def test_target_232_keeps_the_refusal_of_a_prompt_applied_in_a_match_subject(
+def test_target_232_prompt_analysis_remains_available_to_an_evaluated_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.ERROR):
         outcome = _prompt_outcome(tmp_path, monkeypatch, PROMPT_FORMS["call-subject"], target="2.32")
 
-    assert (outcome, "[compiled_prompt_fragment_identity_missing]" in caplog.text) == ((2, {}, 0, []), True)
+    assert outcome == (0, {"__result__": 7}, 1, ["10"])
 
 
 # A pure procedure that the resolved-inline normalizer copies into its caller is
@@ -313,6 +299,8 @@ def test_a_copied_pure_procedure_gets_the_source_value_whatever_the_targets(
         },
     )
     monkeypatch.chdir(tmp_path)
-    result = _public_run(_public_run_files(tmp_path, {}))
+    files = _scope_files(tmp_path, {})
+    _analyze_and_select_evaluated_entry(tmp_path)
+    result = public_run(files)
 
     assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"__result__": 11})

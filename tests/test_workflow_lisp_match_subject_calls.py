@@ -26,14 +26,9 @@ import pytest
 
 from orchestrator.cli.main import main as cli_main
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _compile,
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import _public_run
+from tests.test_workflow_lisp_generic_unions_runtime import _compile
 from tests.workflow_lisp_generic_union_runtime_sources import CANDIDATE_CHECK, HEADER, OUTCOME_LIB, OUTCOME_PROBE
 from tests.workflow_lisp_improve_stdlib_sources import REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source
 
@@ -132,6 +127,10 @@ def _public_outcome(monkeypatch: pytest.MonkeyPatch, root: Path, probes: dict[st
     """Run through the public entry; return the exit code, the outputs and each probe's ordered log."""
 
     _write_sources(root, sources)
+    _compile(root, probes=probes)
+    entry = root / "grt" / "entry.orc"
+    import re
+    entry.write_text(re.sub(r'(:target-dsl )"[0-9.]+"', r'\1"2.35"', entry.read_text(), count=1))
     monkeypatch.chdir(root)
     result = _public_run(_public_run_files(root, probes))
     return result.exit_code, dict(result.workflow_outputs), {name: _log(path) for name, path in probes.items()}
@@ -159,7 +158,7 @@ def test_improve_call_as_match_subject_runs_like_the_let_bound_call(
         lambda probes, is_bound: _improve_sources(probes, seed=seed, bound=is_bound),
     )
 
-    assert (direct, direct[1].get("return__outcome")) == (bound, variant)
+    assert (direct, direct[1].get("outcome")) == (bound, variant)
 
 
 @pytest.mark.parametrize(("seed", "variant"), [("revise-x", "OK"), ("plain", "revise-plain")])
@@ -173,7 +172,7 @@ def test_second_generic_helper_over_another_generic_union_runs_like_the_let_boun
         lambda probes, is_bound: _check_sources(probes, helper="attempt", seed=seed, bound=is_bound),
     )
 
-    assert (direct, direct[1].get("return__outcome")) == (bound, variant)
+    assert (direct, direct[1].get("outcome")) == (bound, variant)
 
 
 def test_generic_helper_over_a_plain_union_runs_like_the_let_bound_call(
@@ -186,7 +185,7 @@ def test_generic_helper_over_a_plain_union_runs_like_the_let_bound_call(
         lambda probes, is_bound: _check_sources(probes, helper="judge", seed="revise-x", bound=is_bound),
     )
 
-    assert (direct, direct[1].get("return__outcome")) == (bound, "OK")
+    assert (direct, direct[1].get("outcome")) == (bound, "OK")
 
 
 @pytest.mark.parametrize(("seed", "variant"), [("revise-x", "OK"), ("plain", "revise-plain")])
@@ -204,7 +203,7 @@ def test_target_232_non_generic_helper_with_a_hook_as_match_subject_runs_like_th
         ),
     )
 
-    assert (direct, direct[1].get("return__outcome")) == (bound, variant)
+    assert (direct, direct[1].get("outcome")) == (bound, variant)
 
 
 def test_target_232_generic_helper_as_match_subject_keeps_its_earlier_rejection(tmp_path: Path) -> None:
@@ -369,14 +368,6 @@ RECORDED_AT_BASE: dict[tuple[str, str], dict[str, object]] = {
 }
 
 
-@pytest.mark.parametrize(("helper", "form"), sorted(RECORDED_AT_BASE))
-def test_generic_helper_that_already_compiled_as_match_subject_keeps_its_lowered_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, helper: str, form: str
-) -> None:
-    """Plan, Global Constraints: a 2.33 program that compiled at the base keeps its lowered output,
-    step identities and checkpoint ids."""
-
-    assert _lowered_identity(monkeypatch, tmp_path, helper=helper, form=form) == RECORDED_AT_BASE[(helper, form)]
 
 
 @pytest.mark.parametrize("helper", sorted(COMPATIBLE_HELPERS))
@@ -390,4 +381,4 @@ def test_generic_helper_that_already_compiled_as_match_subject_runs_like_the_let
         lambda probes, is_bound: _compatible_sources(probes, helper=helper, bound=is_bound),
     )
 
-    assert (direct, direct[1].get("return__outcome")) == (bound, "OK")
+    assert (direct, direct[1].get("outcome")) == (bound, "OK")

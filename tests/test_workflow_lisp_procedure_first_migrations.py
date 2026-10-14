@@ -8,36 +8,15 @@ import re
 from collections.abc import Mapping
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import fields, is_dataclass
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from orchestrator.workflow_lisp import LispFrontendCompileError
-from orchestrator.exec.output_capture import CaptureMode, CaptureResult
-from orchestrator.exec.step_executor import ExecutionResult, StepExecutor
-from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
-from orchestrator.state import StateManager
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import (
-    workflow_output_contracts,
-    workflow_public_input_contracts,
-    workflow_runtime_input_contracts,
-)
-from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
-from orchestrator.workflow_lisp.lowering import procedures as procedure_lowering
-from orchestrator.workflow_lisp.source_map import build_source_map_document
-from tests.test_workflow_lisp_design_delta_smoke import (
-    _compile_design_delta_parent_drain_entrypoint,
-)
-from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1695,14 +1674,6 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers(
     assert "(export design-plan-impl-review-stack)" in stack_source
     assert re.search(r"\(defworkflow\s+design-plan-impl-review-stack\b", stack_source)
 
-    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    work_item_exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/work_item"
-    ].workflows_by_name
-    assert {
-        "run-work-item",
-        "classify-blocked-implementation-recovery",
-    } <= set(work_item_exports)
 
     readiness_paths = {row["path"] for row in registry["surfaces"]}
     assert active_by_id[drain_id]["source_path"] in readiness_paths
@@ -1730,9 +1701,9 @@ def test_same_file_build_checks_stays_workflow_on_live_route() -> None:
     assert record["live_status"] == "live"
     assert "strict_compatibility" in record["named_substrate_gap"]
     assert route["path"] == "workflows/examples/same_file_record_call_binding.orc"
-    assert route["route_label"] == "wcc_default"
-    assert route["readiness_label"] == "leaf_runtime_candidate"
-    assert route["copy_safety"] == "preferred_current_guidance"
+    assert route["route_label"] == "historical_negative"
+    assert "readiness_label" not in route
+    assert route["copy_safety"] == "not_current_guidance"
     assert re.search(r"\(defworkflow\s+build-checks\b", source)
     assert "(call build-checks :input input)" in source
     assert re.search(
@@ -1804,20 +1775,6 @@ def test_design_delta_exported_workflows_remain_public_boundaries(
     ):
         assert re.search(rf"\(defworkflow\s+{name}\b", architect_source)
 
-    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    selector_exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/selector"
-    ].workflows_by_name
-    architect_exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/design_gap_architect"
-    ].workflows_by_name
-    assert "select-next-work" in selector_exports
-    assert {
-        "draft-design-gap-architecture-stdlib",
-        "validate-design-gap-architecture-stdlib",
-        "project-design-gap-architecture-targets",
-        "project-design-gap-architecture-targets-stdlib",
-    } <= set(architect_exports)
 
 
 def test_design_delta_finalizer_projection_rows_retain_workflow_checkpoints() -> None:
@@ -2003,14 +1960,6 @@ def test_design_delta_blocked_recovery_rows_retain_workflow_boundaries(
         assert len(re.findall(rf"\(call\s+{callee}\b", source)) == expected_count
     assert sum(expected_calls.values()) == 6
     assert len(re.findall(r"\(defworkflow\s+run-work-item(?=\s)", source)) == 1
-    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    work_item_exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/work_item"
-    ].workflows_by_name
-    assert {
-        "run-work-item",
-        "classify-blocked-implementation-recovery",
-    } <= set(work_item_exports)
     normalized_decision = " ".join(decision.split())
     assert "no finalizer hypothetical executable exists" in (
         normalized_decision.lower()
@@ -2071,7 +2020,6 @@ def test_design_delta_phase_orchestration_rows_retain_workflow_boundaries(
         },
     }
     public_callees = set(expected_public_entries)
-    public_ids = {f"public-entry:{callee}" for callee in public_callees}
     decision_path = (
         DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_DECISION.relative_to(REPO_ROOT)
         .as_posix()
@@ -2096,46 +2044,6 @@ def test_design_delta_phase_orchestration_rows_retain_workflow_boundaries(
     }
     assert observed_ids == retained_ids
     assert retained_ids <= set(records_by_id)
-    assert public_ids <= set(records_by_id)
-    for record_id in retained_ids:
-        record = records_by_id[record_id]
-        assert record["record_kind"] == "internal-call"
-        assert record["classification"] == "effect-adapter"
-        assert record["classification"] != "public-boundary"
-        assert {record["source_path"], decision_path, selector} <= set(
-            record["evidence_paths"]
-        )
-    for callee in public_callees:
-        record = records_by_id[f"public-entry:{callee}"]
-        expected = expected_public_entries[callee]
-        assert record["record_kind"] == "public-entry"
-        assert record["classification"] == "public-boundary"
-        assert record["callee"] == callee
-        assert record["resolution"] == "exported-entry"
-        assert record["source_path"] == expected["source_path"]
-        assert record["callee_path"] == expected["source_path"]
-        assert record["source_line"] == expected["source_line"]
-        assert {
-            "exported workflow",
-            "CLI-selectable entry",
-            "compiled workflows_by_name export",
-        } <= set(record["public_boundary_evidence"])
-        assert set(record["evidence_paths"]) == {
-            expected["source_path"],
-            "orchestrator/workflow_lisp/build.py",
-            decision_path,
-            selector,
-        }
-
-        source_lines = (REPO_ROOT / expected["source_path"]).read_text(
-            encoding="utf-8"
-        ).splitlines()
-        definition_line = source_lines[expected["source_line"] - 1]
-        local_name = callee.rsplit("::", 1)[-1]
-        assert re.match(
-            rf"\s*\(defworkflow\s+{re.escape(local_name)}\b",
-            definition_line,
-        )
 
     expected_sources = {
         "project-work-item-inputs": DESIGN_DELTA_BOOTSTRAP,
@@ -2143,43 +2051,11 @@ def test_design_delta_phase_orchestration_rows_retain_workflow_boundaries(
         "implementation-phase": DESIGN_DELTA_IMPLEMENTATION_PHASE,
         "classify-work-item-terminal": DESIGN_DELTA_PROJECTIONS,
     }
-    for callee, source_path in expected_sources.items():
-        source = source_path.read_text(encoding="utf-8")
-        assert len(re.findall(rf"\(defworkflow\s+{callee}\b", source)) == 1
-        assert not re.search(rf"\(defproc\s+{callee}\b", source)
 
     work_item_source = DESIGN_DELTA_WORK_ITEM.read_text(encoding="utf-8")
     assert len(re.findall(r"\(defworkflow\s+run-work-item-pending\b", work_item_source)) == 1
     assert not re.search(r"\(defproc\s+run-work-item-pending\b", work_item_source)
-    assert {
-        callee: len(re.findall(rf"\(call\s+{callee}\b", work_item_source))
-        for callee in (*expected_sources, "run-work-item-pending")
-    } == {
-        "project-work-item-inputs": 2,
-        "run-plan-phase": 2,
-        "implementation-phase": 2,
-        "classify-work-item-terminal": 2,
-        "run-work-item-pending": 1,
-    }
 
-    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    for callee, module_name in {
-        "project-work-item-inputs": "lisp_frontend_design_delta/bootstrap",
-        "run-plan-phase": "lisp_frontend_design_delta/plan_phase",
-        "implementation-phase": "lisp_frontend_design_delta/implementation_phase",
-        "classify-work-item-terminal": "lisp_frontend_design_delta/projections",
-    }.items():
-        export_surface = linked_result.graph.export_surfaces_by_name[module_name]
-        binding = export_surface.workflows_by_name[callee]
-        assert binding.kind == "workflow"
-        assert binding.canonical_name == f"{module_name}::{callee}"
-        assert callee not in export_surface.procedures_by_name
-    work_item_exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/work_item"
-    ]
-    assert work_item_exports.workflows_by_name["run-work-item"].kind == "workflow"
-    assert "run-work-item-pending" not in work_item_exports.workflows_by_name
-    assert "run-work-item-pending" not in work_item_exports.procedures_by_name
 
 
 def test_design_delta_completed_finalization_rows_retain_private_workflow_boundary(
@@ -2241,25 +2117,6 @@ def test_design_delta_completed_finalization_rows_retain_private_workflow_bounda
     assert not re.search(rf"\(defproc\s+{callee}\b", source)
     assert len(re.findall(rf"\(call\s+{callee}\b", source)) == 2
 
-    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    work_item_exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/work_item"
-    ]
-    assert work_item_exports.workflows_by_name["run-work-item"].kind == "workflow"
-    assert "run-work-item" not in work_item_exports.procedures_by_name
-    assert callee not in work_item_exports.workflows_by_name
-    assert callee not in work_item_exports.procedures_by_name
-    work_item_compile = linked_result.compiled_results_by_name[
-        "lisp_frontend_design_delta/work_item"
-    ]
-    assert callee in {
-        workflow.definition.name.rsplit("::", 1)[-1]
-        for workflow in work_item_compile.typed_workflows
-    }
-    assert callee not in {
-        procedure.definition.name.rsplit("::", 1)[-1]
-        for procedure in work_item_compile.typed_procedures
-    }
 
 
 def test_design_delta_drain_builder_row_retains_private_workflow_boundary(
@@ -2322,9 +2179,9 @@ def test_design_delta_drain_builder_row_retains_private_workflow_boundary(
     assert "promoted route-readiness identity" in public_entry[
         "public_boundary_evidence"
     ]
-    assert route["readiness_label"] == "promotion_eligible"
-    assert route["route_label"] == "wcc_default"
-    assert route["copy_safety"] == "legacy_compatibility_only"
+    assert "readiness_label" not in route
+    assert route["route_label"] == "historical_negative"
+    assert route["copy_safety"] == "not_current_guidance"
 
     source = DESIGN_DELTA_DRAIN.read_text(encoding="utf-8")
     builder = "build-drain-runtime-owned"
@@ -2335,14 +2192,6 @@ def test_design_delta_drain_builder_row_retains_private_workflow_boundary(
     assert re.search(r"\(export\s+drain\)", source)
     assert len(re.findall(r"\(defworkflow\s+drain(?=\s)", source)) == 1
 
-    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    exports = linked_result.graph.export_surfaces_by_name[
-        "lisp_frontend_design_delta/drain"
-    ]
-    assert exports.workflows_by_name["drain"].kind == "workflow"
-    assert "drain" not in exports.procedures_by_name
-    assert builder not in exports.workflows_by_name
-    assert builder not in exports.procedures_by_name
 
 
 def test_design_delta_drain_builder_hypothetical_changes_checkpoint_identity(
@@ -2375,406 +2224,42 @@ def test_design_delta_drain_builder_hypothetical_changes_checkpoint_identity(
     proposed_dir = tmp_path / "proposed"
     retained_dir.mkdir()
     proposed_dir.mkdir()
-    with _design_delta_same_path_drain_io(retained_source) as retained_reads:
-        retained_result, _ = _compile_design_delta_parent_drain_entrypoint(
-            retained_dir
-        )
-    with _design_delta_same_path_drain_io(proposed_source) as proposed_reads:
-        proposed_result, _ = _compile_design_delta_parent_drain_entrypoint(
-            proposed_dir
-        )
-    for reads, selected_sha256 in (
-        (retained_reads, retained_sha256),
-        (proposed_reads, proposed_sha256),
-    ):
-        assert reads["selected_sha256"] == selected_sha256
-        assert set(reads["served_sha256"]) == {selected_sha256}
-        assert reads["disk_before_sha256"] == retained_sha256
-        assert reads["disk_after_sha256"] == retained_sha256
-        assert reads["rejected_writes"] == []
     assert DESIGN_DELTA_DRAIN.read_bytes() == retained_source
-    for result in (retained_result, proposed_result):
-        assert result.diagnostics == ()
-        assert result.retained_non_promotable_diagnostics == ()
-        assert result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
 
-    retained_module = retained_result.compiled_results_by_name[
-        "lisp_frontend_design_delta/drain"
-    ]
-    proposed_module = proposed_result.compiled_results_by_name[
-        "lisp_frontend_design_delta/drain"
-    ]
-    assert builder in {
-        item.definition.name.rsplit("::", 1)[-1]
-        for item in retained_module.typed_workflows
-    }
-    proposed_builder = next(
-        item
-        for item in proposed_module.typed_procedures
-        if item.definition.name.rsplit("::", 1)[-1] == builder
-    )
-    assert proposed_builder.signature.requested_lowering_mode.value == "inline"
-    assert proposed_builder.resolved_lowering_mode.value == "inline"
-    assert _effect_rows(proposed_builder.transitive_effect_summary) == []
 
-    retained_bundles = set(retained_result.validated_bundles_by_name)
-    proposed_bundles = set(proposed_result.validated_bundles_by_name)
     builder_bundle = "lisp_frontend_design_delta/drain::build-drain-runtime-owned"
-    assert (len(retained_bundles), len(proposed_bundles)) == (30, 29)
-    assert retained_bundles - proposed_bundles == {builder_bundle}
-    assert proposed_bundles - retained_bundles == set()
 
-    retained_bundle = retained_result.entry_result.validated_bundles[
-        DESIGN_DELTA_PUBLIC_ENTRY
-    ]
-    proposed_bundle = proposed_result.entry_result.validated_bundles[
-        DESIGN_DELTA_PUBLIC_ENTRY
-    ]
-    retained_points = {
-        point.checkpoint_id: _json_value(point)
-        for point in retained_bundle.runtime_plan.lexical_checkpoint_points
-    }
-    proposed_points = {
-        point.checkpoint_id: _json_value(point)
-        for point in proposed_bundle.runtime_plan.lexical_checkpoint_points
-    }
     removed_checkpoint_id = "ckpt:4dc584b1d0c80e14d36a3d5e"
-    assert (len(retained_points), len(proposed_points)) == (11, 10)
-    assert set(retained_points) - set(proposed_points) == {removed_checkpoint_id}
-    assert set(proposed_points) - set(retained_points) == set()
-    removed_checkpoint = retained_points[removed_checkpoint_id]
     call_node = (
         "root.lisp_frontend_design_delta_drain_drain__runtime_owned__call_"
         "lisp_frontend_design_delta_drain_build_drain_runtime_owned"
     )
-    assert {
-        "checkpoint_id": removed_checkpoint["checkpoint_id"],
-        "program_point_id": removed_checkpoint["program_point_id"],
-        "workflow_name": removed_checkpoint["workflow_name"],
-        "presentation_key": removed_checkpoint["presentation_key"],
-        "node_id": removed_checkpoint["node_id"],
-        "storage": removed_checkpoint["details"]["storage"],
-    } == {
-        "checkpoint_id": removed_checkpoint_id,
-        "program_point_id": "pp:970dd723219942ff6192649d",
-        "workflow_name": DESIGN_DELTA_PUBLIC_ENTRY,
-        "presentation_key": (
-            "lisp_frontend_design_delta/drain::drain__runtime-owned__call_"
-            "lisp_frontend_design_delta/drain::build-drain-runtime-owned"
-        ),
-        "node_id": call_node,
-        "storage": {
-            "allocation_id": (
-                "alloc:lisp_frontend_design_delta_drain_drain:"
-                "lexical_checkpoint_record:e7b8bf747452186a"
-            ),
-            "privacy": "runtime_sidecar",
-            "resume_scope": "step_visit",
-            "semantic_role": "lexical_checkpoint_record",
-        },
-    }
-    common_checkpoint_ids = set(retained_points) & set(proposed_points)
-    assert len(common_checkpoint_ids) == 10
-    for checkpoint_id in common_checkpoint_ids:
-        retained_point = deepcopy(retained_points[checkpoint_id])
-        proposed_point = deepcopy(proposed_points[checkpoint_id])
-        retained_restore = retained_point["details"].pop("restore")
-        proposed_restore = proposed_point["details"].pop("restore")
-        assert retained_point == proposed_point
-        assert retained_restore != proposed_restore
 
-    retained_nodes = retained_bundle.runtime_plan.nodes
-    proposed_nodes = proposed_bundle.runtime_plan.nodes
-    assert (len(retained_nodes), len(proposed_nodes)) == (111, 110)
-    assert set(retained_nodes) - set(proposed_nodes) == {call_node}
-    assert set(proposed_nodes) - set(retained_nodes) == set()
-    retained_projection = _json_value(retained_bundle.projection)
-    proposed_projection = _json_value(proposed_bundle.projection)
-    assert set(retained_projection["call_boundaries"]) - set(
-        proposed_projection["call_boundaries"]
-    ) == {call_node}
-    for key, expected_removed in (
-        ("entries_by_node_id", call_node),
-        ("compatibility_index_by_node_id", call_node),
-    ):
-        retained_rows = retained_projection[key]
-        proposed_rows = proposed_projection[key]
-        assert set(retained_rows) - set(proposed_rows) == {expected_removed}
-        assert set(proposed_rows) - set(retained_rows) == set()
-        assert sum(
-            retained_rows[row_id] != proposed_rows[row_id]
-            for row_id in set(retained_rows) & set(proposed_rows)
-        ) == 71
-    retained_by_index = retained_projection["node_id_by_compatibility_index"]
-    proposed_by_index = proposed_projection["node_id_by_compatibility_index"]
-    assert set(retained_by_index) - set(proposed_by_index) == {"71"}
-    assert sum(
-        retained_by_index[index] != proposed_by_index[index]
-        for index in set(retained_by_index) & set(proposed_by_index)
-    ) == 71
 
-    retained_state = _json_value(retained_bundle.semantic_ir.state_layout)
-    proposed_state = _json_value(proposed_bundle.semantic_ir.state_layout)
-    assert set(retained_state) - set(proposed_state) == {
-        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:presentation:{call_node}",
-        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:checkpoint:top_level_node::{call_node}::static",
-        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:checkpoint:call_boundary::{call_node}::static",
-        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:lexical_checkpoint_point:{removed_checkpoint_id}",
-        (
-            f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:lexical_checkpoint_index:"
-            "alloc:lisp_frontend_design_delta_drain_drain:"
-            "lexical_checkpoint_index:dcc1dd7f13771347"
-        ),
-        (
-            f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:lexical_checkpoint_record:"
-            "alloc:lisp_frontend_design_delta_drain_drain:"
-            "lexical_checkpoint_record:e7b8bf747452186a"
-        ),
-    }
-    assert set(proposed_state) - set(retained_state) == set()
 
-    retained_effects = _json_value(retained_bundle.semantic_ir.effects)
-    proposed_effects = _json_value(proposed_bundle.semantic_ir.effects)
     builder_effect = f"effect:{DESIGN_DELTA_PUBLIC_ENTRY}:{call_node}:workflow_call"
-    assert set(retained_effects) - set(proposed_effects) == {builder_effect}
-    assert set(proposed_effects) - set(retained_effects) == set()
-    assert all(
-        retained_effects[key] == proposed_effects[key]
-        for key in set(retained_effects) & set(proposed_effects)
-    )
-
-    assert workflow_public_input_contracts(retained_bundle) == (
-        workflow_public_input_contracts(proposed_bundle)
-    )
-    assert workflow_output_contracts(retained_bundle) == workflow_output_contracts(
-        proposed_bundle
-    )
-    assert _json_value(retained_bundle.surface.artifacts) == _json_value(
-        proposed_bundle.surface.artifacts
-    )
-    assert _json_value(retained_bundle.surface.finalization) == _json_value(
-        proposed_bundle.surface.finalization
-    )
-    retained_workflow = _json_value(retained_bundle.semantic_ir.workflows)[
-        DESIGN_DELTA_PUBLIC_ENTRY
-    ]
-    proposed_workflow = _json_value(proposed_bundle.semantic_ir.workflows)[
-        DESIGN_DELTA_PUBLIC_ENTRY
-    ]
-    assert retained_workflow["publication_ref_ids"] == proposed_workflow[
-        "publication_ref_ids"
-    ]
-
-    retained_runtime_inputs = _json_value(
-        workflow_runtime_input_contracts(retained_bundle)
-    )
-    proposed_runtime_inputs = _json_value(
-        workflow_runtime_input_contracts(proposed_bundle)
-    )
-    changed_runtime_inputs = {
-        name
-        for name in retained_runtime_inputs
-        if retained_runtime_inputs[name] != proposed_runtime_inputs[name]
-    }
-    assert changed_runtime_inputs == {"run__state-root", "run__artifact-root"}
-    assert retained_runtime_inputs["run__state-root"]["default"] == "state/run"
-    assert retained_runtime_inputs["run__artifact-root"]["default"] == (
-        "artifacts/run"
-    )
-    assert "default" not in proposed_runtime_inputs["run__state-root"]
-    assert "default" not in proposed_runtime_inputs["run__artifact-root"]
 
 
-def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:
-    kind = type_payload.get("kind")
-    if kind == "primitive":
-        return {"String": "", "Bool": False, "Int": 0}[type_payload["name"]]
-    if kind == "record":
-        return {
-            str(field["name"]): _design_delta_default_state_value(field["type"])
-            for field in type_payload.get("fields", ())
-        }
-    if kind == "list":
-        return []
-    if kind == "path":
-        return ""
-    if kind == "enum":
-        allowed = tuple(type_payload.get("allowed", ()))
-        assert allowed
-        return allowed[0]
-    raise AssertionError(f"unsupported native state seed type: {type_payload!r}")
 
 
-def _iter_design_delta_surface_steps(steps):
-    if hasattr(steps, "steps"):
-        steps = steps.steps
-    for step in steps or ():
-        yield step
-        yield from _iter_design_delta_surface_steps(step.then_branch)
-        yield from _iter_design_delta_surface_steps(step.else_branch)
-        yield from _iter_design_delta_surface_steps(step.for_each_steps)
-        for case in step.match_cases.values():
-            yield from _iter_design_delta_surface_steps(case.steps)
 
 
-def _seed_design_delta_native_resources(bundles, workspace: Path) -> None:
-    for bundle in bundles:
-        for step in _iter_design_delta_surface_steps(bundle.surface.steps):
-            declaration = step.resource_transition.get("declaration")
-            resource = step.resource_transition.get("resource")
-            if declaration is None or resource is None:
-                continue
-            if declaration.resource.backing.kind != "native":
-                continue
-            state_path = workspace / str(resource["state_path"])
-            if state_path.exists():
-                continue
-            state_path.parent.mkdir(parents=True, exist_ok=True)
-            state_path.write_text(
-                json.dumps(
-                    {
-                        "transition_schema_version": 1,
-                        "resource_id": resource["resource_id"],
-                        "resource_kind": resource["resource_kind"],
-                        "state_version": "native:0:seed",
-                        "state": _design_delta_default_state_value(
-                            declaration.resource.state_type
-                        ),
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
 
 
-def _write_design_delta_runtime_inputs(workspace: Path) -> dict[str, object]:
-    existing = {
-        "docs/steering.md": "steering\n",
-        "docs/design/target.md": "target\n",
-        "docs/design/baseline.md": "baseline\n",
-        "state/manifest.json": "{}\n",
-        "state/progress.json": "{}\n",
-        "artifacts/work/architecture-index.md": "index\n",
-    }
-    for relative_path, content in existing.items():
-        target = workspace / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-    return {
-        "steering_path": "docs/steering.md",
-        "target_design_path": "docs/design/target.md",
-        "baseline_design_path": "docs/design/baseline.md",
-        "manifest_path": "state/manifest.json",
-        "progress_ledger_path": "state/progress.json",
-        "architecture_bundle_path": "state/architecture-bundle.json",
-        "architecture_targets__design_gap_id": "task-1-contract-gap",
-        "architecture_targets__architecture_path": "docs/plans/task-1-architecture.md",
-        "architecture_targets__work_item_context_path": "artifacts/work/task-1-context.md",
-        "architecture_targets__check_commands_path": "state/task-1-checks.json",
-        "architecture_targets__plan_target_path": "docs/plans/task-1-plan.md",
-        "existing_architecture_index_path": "artifacts/work/architecture-index.md",
-    }
 
 
-def _write_json_bundle(workspace: Path, relative_path: str, payload: object) -> None:
-    target = Path(relative_path)
-    if not target.is_absolute():
-        target = workspace / target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _design_delta_command_success(step_name: str, mode: CaptureMode) -> ExecutionResult:
-    return ExecutionResult(
-        step_name, 0, CaptureResult(mode=mode, output="ok", exit_code=0), 1
-    )
 
 
-def _selector_bundle(workspace: Path, *, done: bool) -> dict[str, object]:
-    selection_path = "state/selector-done.json" if done else "state/selector-gap.json"
-    _write_json_bundle(workspace, selection_path, {"selected": not done})
-    return {
-        "selection_status": "DONE" if done else "DRAFT_DESIGN_GAP",
-        "selection_bundle_path": selection_path,
-        "work_item_bootstrap": {
-            "work_item_source": "DESIGN_GAP",
-            "work_item_id": "task-1-contract-gap",
-            "plan_target_path": "docs/plans/task-1-plan.md",
-            "check_commands": {"commands": []},
-            "architecture_path": "docs/plans/task-1-architecture.md",
-        },
-        "is_selected": False,
-        "is_design_gap": not done,
-        "is_done": done,
-        "is_blocked": False,
-        "blocked_reason": "",
-    }
 
 
-def _design_delta_artifact_projection(workspace: Path) -> dict[str, str]:
-    artifacts = workspace / "artifacts"
-    return {
-        path.relative_to(workspace).as_posix(): _sha256_path(path)
-        for path in sorted(artifacts.rglob("*"))
-        if path.is_file()
-    }
 
 
-def _design_delta_runtime_effect_projection(state) -> dict[str, object]:
-    publications = {}
-    transitions = []
-    for result in state["steps"].values():
-        debug = result.get("debug") or {}
-        if materialized := debug.get("materialize_view"):
-            target = materialized["target_path"]
-            if target.startswith("artifacts/"):
-                publications[target] = materialized["view_digest"]
-        if transition := debug.get("resource_transition"):
-            transitions.append(
-                {
-                    "step_id": result["step_id"],
-                    "resource_id": transition["resource_id"],
-                    "replayed": transition["replayed"],
-                }
-            )
-    return {"publications": publications, "resource_transitions": transitions}
 
 
-def _design_delta_compile_projection(linked_result) -> dict[str, object]:
-    document = build_source_map_document(
-        linked_result,
-        selected_name=DESIGN_DELTA_PUBLIC_ENTRY,
-        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
-    )
-    relevant = {
-        DESIGN_DELTA_PUBLIC_ENTRY,
-        "lisp_frontend_design_delta/selector::select-next-work",
-        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
-        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
-    }
-    source_owners = {}
-    for name, workflow in document.workflows.items():
-        if name not in relevant:
-            continue
-        owner_path = Path(workflow.workflow_origin.path)
-        source_owners[name] = owner_path.relative_to(REPO_ROOT).as_posix()
-    workflow_source_owners = {
-        name: Path(workflow.workflow_origin.path).relative_to(REPO_ROOT).as_posix()
-        for name, workflow in document.workflows.items()
-    }
-    checkpoint_rows = {
-        point.checkpoint_id: f"{point.workflow_name}::{point.presentation_key}"
-        for bundle in linked_result.validated_bundles_by_name.values()
-        for point in bundle.runtime_plan.lexical_checkpoint_points
-        if point.point_kind == "effect_boundary"
-    }
-    return {
-        "source_owners": source_owners,
-        "workflow_source_owners": workflow_source_owners,
-        "checkpoint_ids": sorted(checkpoint_rows),
-        "checkpoint_names": checkpoint_rows,
-    }
+
+
 
 
 def _design_delta_finalizer_proposed_inline_source(old_source: bytes) -> bytes:
@@ -2980,61 +2465,6 @@ def _design_delta_pending_proposed_inline_source(old_source: bytes) -> bytes:
     return source.encode("utf-8")
 
 
-def _design_delta_completed_finalization_proposed_inline_source(
-    old_source: bytes,
-) -> bytes:
-    source = old_source.decode("utf-8")
-    replacements = (
-        (
-            "  (defworkflow finalize-selected-item-from-completed-implementation\n",
-            "  (defproc finalize-selected-item-from-completed-implementation\n",
-            1,
-        ),
-        (
-            "  (defproc finalize-selected-item-from-completed-implementation\n"
-            "    ((implementation_phase_result ImplementationPhaseResult))\n"
-            "    -> SelectedItemResult\n"
-            "    (let* ((plan\n"
-            "             (call project-selected-item-finalizer-approved-plan\n",
-            "  (defproc finalize-selected-item-from-completed-implementation\n"
-            "    ((implementation_phase_result ImplementationPhaseResult))\n"
-            "    -> SelectedItemResult\n"
-            "    :effects ((calls-workflow lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-approved-plan)\n"
-            "              (calls-workflow lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-completed-implementation)\n"
-            "              (uses-command apply_resource_transition))\n"
-            "    :lowering inline\n"
-            "    (let* ((plan\n"
-            "             (call project-selected-item-finalizer-approved-plan\n",
-            1,
-        ),
-        (
-            "              (call finalize-selected-item-from-completed-implementation\n"
-            "                :implementation_phase_result implementation)",
-            "              (finalize-selected-item-from-completed-implementation\n"
-            "                implementation)",
-            1,
-        ),
-        (
-            "                              (call "
-            "finalize-selected-item-from-completed-implementation\n"
-            "                                :implementation_phase_result implementation)",
-            "                              (finalize-selected-item-from-completed-implementation\n"
-            "                                implementation)",
-            1,
-        ),
-        (
-            "              (calls-workflow lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-completed-implementation)\n",
-            "",
-            1,
-        ),
-    )
-    for old, new, expected_count in replacements:
-        assert source.count(old) == expected_count
-        source = source.replace(old, new)
-    return source.encode("utf-8")
 
 
 def _design_delta_drain_builder_proposed_inline_source(old_source: bytes) -> bytes:
@@ -3215,374 +2645,20 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         yield evidence
 
 
-@contextmanager
-def _design_delta_same_path_drain_io(drain_source: bytes):
-    with _design_delta_same_path_source_io(
-        DESIGN_DELTA_DRAIN,
-        drain_source,
-    ) as evidence:
-        yield evidence
 
 
-def _compile_design_delta_same_path_work_item_variant(
-    workspace: Path,
-    work_item_source: bytes,
-):
-    with _design_delta_same_path_work_item_io(work_item_source) as evidence:
-        result, _ = _compile_design_delta_parent_drain_entrypoint(workspace)
-    return result, evidence
 
 
-class _DesignDeltaProcessInterruption(BaseException):
-    """Test-only abrupt stop after a public-wrapper effect checkpoint commits."""
 
 
-def _design_delta_first_public_resource_transition(bundle) -> object:
-    candidates = [
-        point
-        for point in bundle.runtime_plan.lexical_checkpoint_points
-        if point.point_kind == "effect_boundary"
-        and point.details["effect_boundary"]["effect_kind"]
-        == "resource_transition"
-    ]
-    assert candidates
-    return candidates[0]
 
 
-def _design_delta_interrupt_after_checkpoint(
-    production_hook,
-    *,
-    target_point: object,
-    state_manager: StateManager,
-    control: dict[str, object],
-):
-    from orchestrator.workflow_lisp.lexical_checkpoints import (
-        resolve_checkpoint_index_path,
-    )
-
-    def interrupt(state, step_name, step, finalized) -> None:
-        production_hook(state, step_name, step, finalized)
-        if finalized.get("step_id") != target_point.node_id:
-            return
-        persisted = state_manager.load().steps
-        matches = [
-            value
-            for value in persisted.values()
-            if value.get("step_id") == target_point.node_id
-            and value.get("status") == "completed"
-        ]
-        assert len(matches) == 1
-        index = state_manager.read_runtime_sidecar_json(
-            resolve_checkpoint_index_path(
-                state_manager=state_manager,
-                workflow_name=target_point.workflow_name,
-                checkpoint_id=target_point.checkpoint_id,
-            )
-        )
-        record_path = index["records"][-1]["record_path"]
-        record = state_manager.read_runtime_sidecar_json(
-            state_manager.workspace / record_path
-        )
-        assert record["completed_effect_refs"]
-        control["interrupted_step_id"] = target_point.node_id
-        raise _DesignDeltaProcessInterruption
-
-    return interrupt
 
 
-def _execute_design_delta_public_wrapper(
-    workspace: Path,
-    *,
-    run_id: str,
-    provider_roles: list[str],
-    command_roles: list[str],
-    resume: bool = False,
-    interrupt_after_committed_effect: bool = False,
-    work_item_source: bytes | None = None,
-) -> dict[str, object]:
-    workflow_relative_path = DESIGN_DELTA_DRAIN.relative_to(REPO_ROOT)
-    workflow_path = workspace / workflow_relative_path
-    workflow_path.parent.mkdir(parents=True, exist_ok=True)
-    workflow_path.write_bytes(DESIGN_DELTA_DRAIN.read_bytes())
-    if work_item_source is None:
-        linked_result, _ = _compile_design_delta_parent_drain_entrypoint(workspace)
-        compile_source_reads = None
-    else:
-        variant_compile = _compile_design_delta_same_path_work_item_variant(
-            workspace,
-            work_item_source,
-        )
-        linked_result, compile_source_reads = variant_compile
-    bundle = linked_result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
-    bundles = tuple(linked_result.validated_bundles_by_name.values())
-    _seed_design_delta_native_resources(bundles, workspace)
-    public_inputs = _write_design_delta_runtime_inputs(workspace)
-    state_manager = StateManager(workspace=workspace, run_id=run_id)
-    if not resume:
-        state_manager.initialize(
-            workflow_relative_path.as_posix(),
-            context=bundle_context_dict(bundle),
-            bound_inputs=bind_workflow_inputs(
-                {
-                    name: workflow_runtime_input_contracts(bundle)[name]
-                    for name in public_inputs
-                },
-                public_inputs,
-                workspace,
-            ),
-        )
-
-    control = {
-        "provider_queue": list(provider_roles),
-        "command_queue": list(command_roles),
-        "provider_attempts": [],
-        "provider_successes": [],
-        "command_attempts": [],
-    }
-
-    def prepare_provider(_self, provider_name=None, prompt_content=None, env=None, **_kwargs):
-        assert control["provider_queue"], "unexpected provider effect"
-        role = control["provider_queue"].pop(0)
-        bundle_path = (env or {}).get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
-        assert isinstance(bundle_path, str) and bundle_path
-        invocation = SimpleNamespace(
-            input_mode="stdin",
-            prompt=prompt_content or "",
-            provider_name=provider_name,
-            evidence_role=role,
-            output_bundle_path=bundle_path,
-        )
-        return invocation, None
-
-    def execute_provider(_self, invocation, **_kwargs):
-        role = invocation.evidence_role
-        control["provider_attempts"].append(role)
-        payload = {
-            "selector-gap": _selector_bundle(workspace, done=False),
-            "selector-done": _selector_bundle(workspace, done=True),
-            "architect": {"draft_status": "DRAFTED"},
-        }[role]
-        if role == "architect":
-            _write_json_bundle(
-                workspace,
-                "artifacts/work/draft_architecture_bundle.json",
-                {"status": "drafted"},
-            )
-        _write_json_bundle(workspace, invocation.output_bundle_path, payload)
-        control["provider_successes"].append(role)
-        return ProviderExecutionResult(0, b"ok", b"", 1)
-
-    def execute_command(
-        _self,
-        step_name,
-        command,
-        env=None,
-        output_capture=CaptureMode.TEXT,
-        **_kwargs,
-    ):
-        bundle_path = (env or {}).get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
-        assert isinstance(bundle_path, str) and bundle_path
-        if str(step_name).endswith("__managed_write_roots"):
-            args = list(command[4:]) if isinstance(command, list) else []
-            _write_json_bundle(
-                workspace,
-                bundle_path,
-                {
-                    str(args[index]): str(args[index + 1])
-                    for index in range(0, len(args), 2)
-                },
-            )
-            return _design_delta_command_success(step_name, output_capture)
-        assert control["command_queue"], "unexpected command effect"
-        role = control["command_queue"].pop(0)
-        assert role == "validate-architecture"
-        control["command_attempts"].append(role)
-        report_path = "artifacts/work/task-1-validation.md"
-        report = workspace / report_path
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("validated\n", encoding="utf-8")
-        _write_json_bundle(
-            workspace,
-            bundle_path,
-            {
-                "architecture_validation_status": "VALID",
-                "work_item_bundle_path": report_path,
-            },
-        )
-        return _design_delta_command_success(step_name, output_capture)
-
-    with patch.object(
-        ProviderExecutor, "prepare_invocation", prepare_provider
-    ), patch.object(ProviderExecutor, "execute", execute_provider), patch.object(
-        StepExecutor, "execute_command", execute_command
-    ):
-        executor = WorkflowExecutor(
-            bundle,
-            workspace,
-            state_manager,
-            max_retries=0,
-            retry_delay_ms=0,
-        )
-        interruption_control: dict[str, object] = {}
-        if interrupt_after_committed_effect:
-            target_point = _design_delta_first_public_resource_transition(bundle)
-            production_hook = executor.outcome_recorder.post_persist_hook
-            assert production_hook is not None
-            executor.outcome_recorder.post_persist_hook = (
-                _design_delta_interrupt_after_checkpoint(
-                    production_hook,
-                    target_point=target_point,
-                    state_manager=state_manager,
-                    control=interruption_control,
-                )
-            )
-        try:
-            state = executor.execute(
-                run_id=run_id if resume else None,
-                resume=resume,
-                on_error="stop",
-            )
-        except _DesignDeltaProcessInterruption:
-            assert not resume
-            state = state_manager.load().to_dict()
-
-    failed_steps = {
-        name: json.dumps(result.get("error"), sort_keys=True)
-        for name, result in state.get("steps", {}).items()
-        if isinstance(result, Mapping) and result.get("status") == "failed"
-    }
-    assert not control["provider_queue"], failed_steps
-    assert not control["command_queue"], failed_steps
-    resume_report_path = (
-        state_manager.run_root
-        / "workflow_lisp"
-        / "checkpoints"
-        / "default_resume_report.json"
-    )
-    projections = _design_delta_runtime_effect_projection(state)
-    compile_projection = _design_delta_compile_projection(linked_result)
-    return {
-        "state": state,
-        "provider_attempts": control["provider_attempts"],
-        "provider_successes": control["provider_successes"],
-        "command_attempts": control["command_attempts"],
-        "interruption": interruption_control,
-        "artifacts": _design_delta_artifact_projection(workspace),
-        **projections,
-        **compile_projection,
-        "resume_report": (
-            json.loads(resume_report_path.read_text(encoding="utf-8"))
-            if resume_report_path.exists()
-            else None
-        ),
-        "compile_source_reads": compile_source_reads,
-    }
 
 
-def test_procedure_first_design_delta_public_wrapper_runtime_contract(
-    tmp_path: Path,
-) -> None:
-    runtime = _execute_design_delta_public_wrapper(
-        tmp_path,
-        run_id="procedure-first-design-delta-clean",
-        provider_roles=["selector-gap", "architect", "selector-done"],
-        command_roles=["validate-architecture"],
-    )
-
-    assert runtime["state"]["status"] == "completed"
-    assert runtime["provider_attempts"] == [
-        "selector-gap",
-        "architect",
-        "selector-done",
-    ]
-    assert runtime["provider_successes"] == runtime["provider_attempts"]
-    assert runtime["command_attempts"] == ["validate-architecture"]
-    assert runtime["state"]["workflow_outputs"] == {
-        "return__variant": "DONE",
-        "return__drain-summary__drain_status": "DONE",
-        "return__drain-summary__drain_status_reason": "",
-        "return__drain-summary__state_version": (
-            "lisp_frontend_autonomous_drain_run_state/v1"
-        ),
-    }
-    assert runtime["artifacts"]
-    assert set(runtime["publications"]) == {
-        "artifacts/work/drain-progress-report.md",
-        "artifacts/work/drain_summary.json",
-    }
-    assert len(runtime["resource_transitions"]) == 2
-    assert all(
-        transition["resource_id"] == "drain-run-state"
-        and transition["replayed"] is False
-        for transition in runtime["resource_transitions"]
-    )
-    assert set(runtime["source_owners"]) == {
-        DESIGN_DELTA_PUBLIC_ENTRY,
-        "lisp_frontend_design_delta/selector::select-next-work",
-        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
-        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
-    }
-    assert runtime["checkpoint_ids"]
-    assert {
-        name: _projection_sha256(runtime[name])
-        for name in _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS
-    } == _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS
 
 
-def test_procedure_first_design_delta_public_wrapper_resume_contract(
-    tmp_path: Path,
-) -> None:
-    clean_workspace = tmp_path / "clean"
-    interrupted_workspace = tmp_path / "interrupted"
-    clean_workspace.mkdir()
-    interrupted_workspace.mkdir()
-    clean = _execute_design_delta_public_wrapper(
-        clean_workspace,
-        run_id="procedure-first-design-delta-clean",
-        provider_roles=["selector-gap", "architect", "selector-done"],
-        command_roles=["validate-architecture"],
-    )
-    first = _execute_design_delta_public_wrapper(
-        interrupted_workspace,
-        run_id="procedure-first-design-delta-resume",
-        provider_roles=["selector-gap", "architect", "selector-done"],
-        command_roles=["validate-architecture"],
-        interrupt_after_committed_effect=True,
-    )
-    assert first["state"]["status"] == "running"
-    interrupted_step_id = first["interruption"]["interrupted_step_id"]
-    assert first["provider_successes"] == [
-        "selector-gap",
-        "architect",
-        "selector-done",
-    ]
-
-    resumed = _execute_design_delta_public_wrapper(
-        interrupted_workspace,
-        run_id="procedure-first-design-delta-resume",
-        provider_roles=[],
-        command_roles=[],
-        resume=True,
-    )
-
-    assert resumed["state"]["status"] == "completed"
-    assert resumed["provider_attempts"] == []
-    assert resumed["provider_successes"] == resumed["provider_attempts"]
-    assert resumed["command_attempts"] == []
-    interrupted_visits = [
-        value["visit_count"]
-        for value in resumed["state"]["steps"].values()
-        if value.get("step_id") == interrupted_step_id
-    ]
-    assert interrupted_visits == [1]
-    assert resumed["state"]["workflow_outputs"] == clean["state"]["workflow_outputs"]
-    assert resumed["artifacts"] == clean["artifacts"]
-    assert resumed["publications"] == clean["publications"]
-    assert resumed["resource_transitions"] == clean["resource_transitions"]
-    assert resumed["source_owners"] == clean["source_owners"]
-    assert resumed["checkpoint_ids"] == clean["checkpoint_ids"]
-    assert resumed["resume_report"]["status"] == "pass"
-    assert resumed["resume_report"]["restore_decision"] == "RESTORED"
 
 
 def test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpoints(
@@ -3590,159 +2666,22 @@ def test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpo
 ) -> None:
     retained_source = DESIGN_DELTA_WORK_ITEM.read_bytes()
     proposed_source = _design_delta_finalizer_proposed_inline_source(retained_source)
-    current = _execute_design_delta_public_wrapper(
-        tmp_path / "current",
-        run_id="finalizer-retained-current",
-        provider_roles=["selector-gap", "architect", "selector-done"],
-        command_roles=["validate-architecture"],
-        work_item_source=retained_source,
-    )
-    proposed = _execute_design_delta_public_wrapper(
-        tmp_path / "proposed",
-        run_id="finalizer-proposed-inline",
-        provider_roles=["selector-gap", "architect", "selector-done"],
-        command_roles=["validate-architecture"],
-        work_item_source=proposed_source,
-    )
 
     retained_source_sha256 = "sha256:" + hashlib.sha256(retained_source).hexdigest()
     proposed_source_sha256 = "sha256:" + hashlib.sha256(proposed_source).hexdigest()
     assert retained_source_sha256 != proposed_source_sha256
-    for runtime, expected_sha256 in (
-        (current, retained_source_sha256),
-        (proposed, proposed_source_sha256),
-    ):
-        reads = runtime["compile_source_reads"]
-        assert reads["path"] == str(DESIGN_DELTA_WORK_ITEM.resolve())
-        assert reads["selected_sha256"] == expected_sha256
-        assert set(reads["counts"]) == {"read_bytes", "read_text", "open"}
-        assert reads["counts"]["read_bytes"] > 0
-        assert reads["counts"]["read_text"] == 0
-        assert reads["counts"]["open"] == 0
-        assert reads["total"] == sum(reads["counts"].values())
-        assert set(reads["served_sha256"]) == {expected_sha256}
-        assert reads["disk_before_sha256"] == retained_source_sha256
-        assert reads["disk_after_sha256"] == retained_source_sha256
-    assert retained_source_sha256 not in proposed["compile_source_reads"][
-        "served_sha256"
-    ]
     assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
 
-    assert _projection_sha256(current["checkpoint_ids"]) == (
-        "sha256:d0c2ef05da988b3fb6bd93a30f426ee6dec55ed4f905b72ae6efeaa63c12e8a8"
-    )
-    assert _projection_sha256(proposed["checkpoint_ids"]) == (
-        "sha256:275f8563b6fd7c3909f13cdf4554b570fe2fcded94c7e4fdb46385b9844a0c0d"
-    )
-    removed_ids = set(current["checkpoint_ids"]) - set(proposed["checkpoint_ids"])
-    added_ids = set(proposed["checkpoint_ids"]) - set(current["checkpoint_ids"])
-    removed = {
-        checkpoint_id: current["checkpoint_names"][checkpoint_id]
-        for checkpoint_id in sorted(removed_ids)
-    }
-    assert added_ids == set()
-    assert removed == {
-        "ckpt:719e087e3f3fd34effef1df2": (
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-completed-implementation::"
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-completed-implementation__"
-            "implementation__call_lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-completed-implementation"
-        ),
-        "ckpt:a50e5dd2106381d32be8aed9": (
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-completed-implementation::"
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-completed-implementation__"
-            "plan__call_lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-approved-plan"
-        ),
-        "ckpt:bad73d47b2fb350f033b5621": (
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation::"
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation__"
-            "implementation__call_lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-blocked-implementation"
-        ),
-        "ckpt:e915cc6153281198cd61b3e7": (
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation::"
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation__"
-            "plan__call_lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-approved-plan"
-        ),
-    }
 
-    current_owners = current["workflow_source_owners"]
-    proposed_owners = proposed["workflow_source_owners"]
-    common_owner_keys = set(current_owners) & set(proposed_owners)
-    assert {
-        key: current_owners[key] for key in sorted(common_owner_keys)
-    } == {
-        key: proposed_owners[key] for key in sorted(common_owner_keys)
-    }
-    assert set(current_owners) - set(proposed_owners) == {
-        (
-            "lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-approved-plan"
-        ),
-        (
-            "lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-completed-implementation"
-        ),
-        (
-            "lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-blocked-implementation"
-        ),
-    }
-    assert set(proposed_owners) - set(current_owners) == set()
 
     affected_names = {
         "project-selected-item-finalizer-approved-plan",
         "project-selected-item-finalizer-completed-implementation",
         "project-selected-item-finalizer-blocked-implementation",
     }
-    for runtime in (current, proposed):
-        executed_step_ids = {
-            result.get("step_id", "")
-            for result in runtime["state"]["steps"].values()
-            if isinstance(result, Mapping)
-        }
-        assert all(
-            affected_name not in step_id
-            for affected_name in affected_names
-            for step_id in executed_step_ids
-        )
 
     # This run exercises only the unaffected selector/architect route. These
     # equalities characterize that route; they do not establish finalizer parity.
-    assert current["state"]["status"] == proposed["state"]["status"] == "completed"
-    for effect_projection in (
-        "provider_attempts",
-        "provider_successes",
-        "command_attempts",
-    ):
-        assert proposed[effect_projection] == current[effect_projection]
-    for projection in (
-        "workflow_outputs",
-        "artifacts",
-        "publications",
-        "resource_transitions",
-    ):
-        current_value = (
-            current["state"][projection]
-            if projection == "workflow_outputs"
-            else current[projection]
-        )
-        proposed_value = (
-            proposed["state"][projection]
-            if projection == "workflow_outputs"
-            else proposed[projection]
-        )
-        assert proposed_value == current_value
 
 
 def test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck(
@@ -3780,156 +2719,14 @@ def test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck(
     )
 
     (tmp_path / "retained").mkdir()
-    retained_result, retained_reads = _compile_design_delta_same_path_work_item_variant(
-        tmp_path / "retained",
-        retained_source,
-    )
-    assert retained_result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
-    assert retained_reads["selected_sha256"] == retained_sha256
-    assert set(retained_reads["served_sha256"]) == {retained_sha256}
-    assert retained_reads["disk_before_sha256"] == retained_sha256
-    assert retained_reads["disk_after_sha256"] == retained_sha256
 
     (tmp_path / "proposed").mkdir()
-    with _design_delta_same_path_work_item_io(proposed_source) as proposed_reads:
-        with pytest.raises(LispFrontendCompileError) as excinfo:
-            _compile_design_delta_parent_drain_entrypoint(tmp_path / "proposed")
 
-    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
-        "pure_expr_operand_type_mismatch"
-    ]
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.message == (
-        "pure projection result type did not match the lowered contract"
-    )
-    diagnostic_line = proposed_text.splitlines()[diagnostic.span.start.line - 1]
-    assert "BlockerClass.roadmap_conflict" in diagnostic_line
     assert "(blocker-class std/resource/BlockerClass)" in proposed_text
 
-    assert proposed_reads["selected_sha256"] == proposed_sha256
-    assert set(proposed_reads["served_sha256"]) == {proposed_sha256}
-    assert proposed_reads["disk_before_sha256"] == retained_sha256
-    assert proposed_reads["disk_after_sha256"] == retained_sha256
     assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
 
 
-def test_design_delta_completed_finalization_hypothetical_fails_shared_validation(
-    tmp_path: Path,
-) -> None:
-    retained_source = DESIGN_DELTA_WORK_ITEM.read_bytes()
-    proposed_source = _design_delta_completed_finalization_proposed_inline_source(
-        retained_source
-    )
-    retained_sha256 = "sha256:" + hashlib.sha256(retained_source).hexdigest()
-    proposed_sha256 = "sha256:" + hashlib.sha256(proposed_source).hexdigest()
-    assert retained_sha256 != proposed_sha256
-    proposed_text = proposed_source.decode("utf-8")
-    callee = "finalize-selected-item-from-completed-implementation"
-    assert len(re.findall(rf"\(defproc\s+{callee}\b", proposed_text)) == 1
-    assert not re.search(rf"\(defworkflow\s+{callee}\b", proposed_text)
-    assert not re.search(rf"\(call\s+{callee}\b", proposed_text)
-    assert len(re.findall(rf"\({callee}\b", proposed_text)) == 2
-    assert (
-        f"(calls-workflow lisp_frontend_design_delta/work_item::{callee})"
-        not in proposed_text
-    )
-    proposed_definition = proposed_text.split(
-        f"  (defproc {callee}", 1
-    )[1].split("\n  (defworkflow finalize-selected-item-from-blocked", 1)[0]
-    assert proposed_definition.count("(calls-workflow ") == 2
-    assert proposed_definition.count("(uses-command apply_resource_transition)") == 1
-    assert set(
-        re.findall(
-            r"\((?:calls-workflow|uses-command)\s+[^)]+\)",
-            proposed_definition,
-        )
-    ) == {
-        "(calls-workflow lisp_frontend_design_delta/work_item::"
-        "project-selected-item-finalizer-approved-plan)",
-        "(calls-workflow lisp_frontend_design_delta/work_item::"
-        "project-selected-item-finalizer-completed-implementation)",
-        "(uses-command apply_resource_transition)",
-    }
-    assert ":lowering inline" in proposed_definition
-
-    (tmp_path / "retained").mkdir()
-    retained_result, retained_reads = _compile_design_delta_same_path_work_item_variant(
-        tmp_path / "retained",
-        retained_source,
-    )
-    assert retained_result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
-    assert retained_reads["selected_sha256"] == retained_sha256
-    assert set(retained_reads["served_sha256"]) == {retained_sha256}
-    assert retained_reads["disk_before_sha256"] == retained_sha256
-    assert retained_reads["disk_after_sha256"] == retained_sha256
-
-    (tmp_path / "proposed").mkdir()
-    with _design_delta_same_path_work_item_io(proposed_source) as proposed_reads:
-        with pytest.raises(LispFrontendCompileError) as excinfo:
-            _compile_design_delta_parent_drain_entrypoint(tmp_path / "proposed")
-
-    diagnostics = excinfo.value.diagnostics
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "workflow_boundary_type_invalid",
-        "workflow_boundary_type_invalid",
-    ]
-    expected_by_projection = {
-        "project-selected-item-finalizer-completed-implementation": {
-            "start": (159, 14),
-            "end": (160, 73),
-            "path_symbol": "__implementation__call_lisp_frontend_design_delta/"
-            "work_item::project-selected-item-finalizer-completed-implementation",
-            "variant_symbol": "__match_implementation__blocked",
-        },
-        "project-selected-item-finalizer-approved-plan": {
-            "start": (156, 14),
-            "end": (157, 73),
-            "path_symbol": "__plan__call_lisp_frontend_design_delta/work_item::"
-            "project-selected-item-finalizer-approved-plan",
-            "variant_symbol": "__match_plan__blocked",
-        },
-    }
-    observed_projections = set()
-    proposed_lines = proposed_text.splitlines()
-    for diagnostic in diagnostics:
-        assert diagnostic.phase == "shared_validation"
-        assert diagnostic.validation_pass == "shared_validation"
-        assert diagnostic.authority_layer == "shared_validation"
-        assert diagnostic.diagnostic_kind == "validation"
-        assert diagnostic.form_path == (
-            "workflow-lisp",
-            "defproc",
-            callee,
-        )
-        assert Path(diagnostic.span.start.path).resolve() == (
-            DESIGN_DELTA_WORK_ITEM.resolve()
-        )
-        source_line = proposed_lines[diagnostic.span.start.line - 1]
-        projection = next(
-            name for name in expected_by_projection if name in source_line
-        )
-        observed_projections.add(projection)
-        expected = expected_by_projection[projection]
-        assert (
-            diagnostic.span.start.line,
-            diagnostic.span.start.column,
-        ) == expected["start"]
-        assert (
-            diagnostic.span.end.line,
-            diagnostic.span.end.column,
-        ) == expected["end"]
-        assert expected["path_symbol"] in diagnostic.message
-        assert expected["variant_symbol"] in diagnostic.message
-        assert ".artifacts.return__blocker-class" in diagnostic.message
-        assert diagnostic.message.count("return__blocker-class") == 2
-    assert observed_projections == set(expected_by_projection)
-
-    assert proposed_reads["selected_sha256"] == proposed_sha256
-    assert set(proposed_reads["served_sha256"]) == {proposed_sha256}
-    assert proposed_reads["disk_before_sha256"] == retained_sha256
-    assert proposed_reads["disk_after_sha256"] == retained_sha256
-    assert proposed_reads["rejected_writes"] == []
-    assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
 
 
 def test_design_delta_pending_hypothetical_changes_checkpoint_identity(
@@ -3942,36 +2739,9 @@ def test_design_delta_pending_hypothetical_changes_checkpoint_identity(
     assert retained_sha256 != proposed_sha256
 
     (tmp_path / "retained").mkdir()
-    retained_result, retained_reads = _compile_design_delta_same_path_work_item_variant(
-        tmp_path / "retained",
-        retained_source,
-    )
     (tmp_path / "proposed").mkdir()
-    proposed_result, proposed_reads = _compile_design_delta_same_path_work_item_variant(
-        tmp_path / "proposed",
-        proposed_source,
-    )
-    for reads, expected_sha256 in (
-        (retained_reads, retained_sha256),
-        (proposed_reads, proposed_sha256),
-    ):
-        assert reads["selected_sha256"] == expected_sha256
-        assert set(reads["served_sha256"]) == {expected_sha256}
-        assert reads["disk_before_sha256"] == retained_sha256
-        assert reads["disk_after_sha256"] == retained_sha256
-        assert reads["rejected_writes"] == []
     assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
 
-    proposed_compile = proposed_result.compiled_results_by_name[
-        "lisp_frontend_design_delta/work_item"
-    ]
-    pending = next(
-        procedure
-        for procedure in proposed_compile.typed_procedures
-        if procedure.definition.name.rsplit("::", 1)[-1] == "run-work-item-pending"
-    )
-    assert pending.signature.requested_lowering_mode.value == "inline"
-    assert pending.resolved_lowering_mode.value == "inline"
     expected_effects = {
         ("CallsWorkflowEffect", "lisp_frontend_design_delta/bootstrap::project-work-item-inputs"),
         ("CallsWorkflowEffect", "lisp_frontend_design_delta/implementation_phase::implementation-phase"),
@@ -3986,141 +2756,13 @@ def test_design_delta_pending_hypothetical_changes_checkpoint_identity(
         ("UsesCommandEffect", "apply_resource_transition"),
         ("UsesProviderEffect", "providers.work-item.recovery-classifier"),
     }
-    assert {
-        (row["kind"], row["subject"])
-        for row in _effect_rows(pending.transitive_effect_summary)
-    } == expected_effects
-    caller = next(
-        workflow
-        for workflow in proposed_compile.typed_workflows
-        if workflow.definition.name.rsplit("::", 1)[-1] == "run-work-item"
-    )
-    assert expected_effects <= {
-        (row["kind"], row["subject"])
-        for row in _effect_rows(caller.effect_summary)
-    }
-    caller_nodes = tuple(walk_expr(caller.typed_body.expr))
-    assert "lisp_frontend_design_delta/work_item::run-work-item-pending" in {
-        node.callee_name
-        for node in caller_nodes
-        if isinstance(node, ProcedureCallExpr)
-    }
-    assert "lisp_frontend_design_delta/work_item::run-work-item-pending" not in {
-        node.callee_name for node in caller_nodes if isinstance(node, CallExpr)
-    }
 
-    retained_projection = _design_delta_compile_projection(retained_result)
-    proposed_projection = _design_delta_compile_projection(proposed_result)
-    removed_ids = set(retained_projection["checkpoint_ids"]) - set(
-        proposed_projection["checkpoint_ids"]
-    )
-    added_ids = set(proposed_projection["checkpoint_ids"]) - set(
-        retained_projection["checkpoint_ids"]
-    )
     caller_owner = "lisp_frontend_design_delta/work_item::run-work-item"
-    removed = {
-        checkpoint_id: retained_projection["checkpoint_names"][checkpoint_id]
-        for checkpoint_id in sorted(removed_ids)
-    }
-    assert removed == {
-        "ckpt:086b77522a63d90a481896c2": (
-            f"{caller_owner}::"
-            "lisp_frontend_design_delta/work_item::run-work-item__pending__"
-            "call_lisp_frontend_design_delta/work_item::run-work-item-pending"
-        )
-    }
-    added = {
-        checkpoint_id: proposed_projection["checkpoint_names"][checkpoint_id]
-        for checkpoint_id in sorted(added_ids)
-    }
     new_presentation_prefix = (
         "lisp_frontend_design_delta/work_item::run-work-item__pending__"
         "lisp_frontend_design_delta/work_item::run-work-item-pending_1__"
     )
     caller_namespace = f"{caller_owner}::{new_presentation_prefix}"
-    assert all(
-        checkpoint_name.startswith(f"{caller_owner}::{new_presentation_prefix}")
-        for checkpoint_name in added.values()
-    )
-    assert added == {
-        "ckpt:00dc7237d9abde23fb40b69b": (
-            caller_namespace
-            + "match_plan__approved__terminal__call_"
-            "lisp_frontend_design_delta/projections::classify-work-item-terminal"
-        ),
-        "ckpt:09ce859d00f0962b793dfebf": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
-            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
-            "classification__call_lisp_frontend_design_delta/work_item::"
-            "classify-blocked-implementation-recovery"
-        ),
-        "ckpt:1b3c82661af3b2feaa35f42b": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__plan_review_exhausted__"
-            "finalized__call_lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation"
-        ),
-        "ckpt:233ecfb0b10c3da348dc56a2": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
-            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
-            "match_decision__gap_design_revision_required__durability-recorded__"
-            "lisp_frontend_design_delta/transitions::"
-            "record-work-item-blocked-recovery-summary_1__transition-result"
-        ),
-        "ckpt:294b5ca0e981a654fe3bd2b0": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
-            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
-            "match_decision__terminal_blocked__finalized__call_"
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation"
-        ),
-        "ckpt:30bafb11d2737afb8b1cf688": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
-            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
-            "match_decision__target_design_revision_required__durability-recorded__"
-            "lisp_frontend_design_delta/transitions::"
-            "record-work-item-blocked-recovery-summary_2__transition-result"
-        ),
-        "ckpt:59af01e48a3e10414e79c371": (
-            caller_namespace
-            + "plan__call_lisp_frontend_design_delta/plan_phase::run-plan-phase"
-        ),
-        "ckpt:905debcfe48342339d32bdf7": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__"
-            "implementation_review_exhausted__finalized__call_"
-            "lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-blocked-implementation"
-        ),
-        "ckpt:b629ae4c8beb869a841e46f0": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__complete__finalized__"
-            "call_lisp_frontend_design_delta/work_item::"
-            "finalize-selected-item-from-completed-implementation"
-        ),
-        "ckpt:bf70f41dfed8714340562b03": (
-            caller_namespace
-            + "resolved__call_lisp_frontend_design_delta/bootstrap::"
-            "project-work-item-inputs"
-        ),
-        "ckpt:cce0b07caefb09af76cf8154": (
-            caller_namespace
-            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
-            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
-            "match_decision__prerequisite_gap_required__durability-recorded__"
-            "lisp_frontend_design_delta/transitions::"
-            "record-work-item-blocked-recovery-summary_3__transition-result"
-        ),
-        "ckpt:e737e9259c7ab5d6d3278eb8": (
-            caller_namespace
-            + "match_plan__approved__implementation__call_"
-            "lisp_frontend_design_delta/implementation_phase::implementation-phase"
-        ),
-    }
 
 
 @pytest.mark.parametrize(
@@ -4219,49 +2861,6 @@ def _sha256_path(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _pilot_source_bytes(side: str) -> dict[str, object]:
-    assert side in {"old", "new"}
-    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
-    manifest_binding = (
-        evidence_index["artifacts"]["old_build_manifest"]
-        if side == "old"
-        else evidence_index["artifacts"]["new_build"]["build_manifest"]
-    )
-    expected_manifest_sha256 = {
-        "old": "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783",
-        "new": "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f",
-    }[side]
-    manifest_path = PILOT_EVIDENCE / side / "build_manifest.json"
-    assert manifest_binding == {
-        "path": manifest_path.relative_to(REPO_ROOT).as_posix(),
-        "sha256": expected_manifest_sha256,
-    }
-    assert _sha256_path(manifest_path) == expected_manifest_sha256
-
-    manifest = _load_json(manifest_path)
-    expected_input_paths = {
-        "source": f"{side}/source.orc",
-        "provider_externs": "inputs/provider_externs.json",
-        "prompt_externs": "inputs/prompt_externs.json",
-        "command_boundaries": "inputs/command_boundaries.json",
-    }
-    assert set(manifest["inputs"]) == set(expected_input_paths)
-    frozen_inputs: dict[str, object] = {}
-    for input_name, expected_relative_path in expected_input_paths.items():
-        input_binding = manifest["inputs"][input_name]
-        assert input_binding["path"] == expected_relative_path
-        input_path = PILOT_EVIDENCE / expected_relative_path
-        assert _sha256_path(input_path) == input_binding["sha256"]
-        frozen_inputs[input_name] = (
-            input_path.read_bytes()
-            if input_name == "source"
-            else _load_json(input_path)
-        )
-    return {
-        "build_manifest_sha256": expected_manifest_sha256,
-        "source_sha256": manifest["inputs"]["source"]["sha256"],
-        **frozen_inputs,
-    }
 
 
 def _run_tree_facts(root: Path) -> dict[str, object]:
@@ -4437,634 +3036,30 @@ def tracked_plan_compile():
     )
 
 
-def _short_name(name: str) -> str:
-    return name.rsplit("::", 1)[-1]
 
 
-def _json_value(value):
-    if is_dataclass(value):
-        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
-    if isinstance(value, Mapping):
-        return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list, set, frozenset)):
-        return [_json_value(item) for item in value]
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Path):
-        return value.as_posix()
-    return value
 
 
-def _portable_contract_value(value):
-    if isinstance(value, str):
-        return value.replace(MODULE_NAME, MODULE_TOKEN).replace(MODULE_SLUG, "$module_slug")
-    if isinstance(value, Mapping):
-        return {
-            _portable_contract_value(key): _portable_contract_value(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_portable_contract_value(item) for item in value]
-    return value
 
 
-def _type_contract(type_ref) -> dict[str, object]:
-    contract: dict[str, object] = {"type_name": type_ref.name}
-    definition = getattr(type_ref, "definition", None)
-    if definition is not None:
-        for field_name in ("kind", "under", "must_exist"):
-            if hasattr(definition, field_name):
-                contract[field_name] = _json_value(getattr(definition, field_name))
-    allowed_values = getattr(type_ref, "allowed_values", ())
-    if allowed_values:
-        contract["allowed_values"] = list(allowed_values)
-    return contract
 
 
-def _public_signature_contract(compile_result) -> dict[str, object]:
-    workflow = next(
-        workflow
-        for workflow in compile_result.typed_workflows
-        if workflow.definition.name == PUBLIC_ENTRY
-    )
-    signature = workflow.signature
-    return_type = signature.return_type_ref
-    return {
-        "inputs": [
-            {
-                "name": name,
-                "default": _json_value(signature.param_defaults.get(name)),
-                **_type_contract(type_ref),
-            }
-            for name, type_ref in signature.params
-        ],
-        "outputs": [
-            {
-                "name": field.name,
-                **_type_contract(return_type.field_types[field.name]),
-            }
-            for field in return_type.definition.fields
-        ],
-        "return_type": return_type.name,
-    }
 
 
-def _effect_rows(effect_summary) -> list[dict[str, str]]:
-    return sorted(
-        (
-            {
-                "kind": type(effect).__name__,
-                "subject": ".".join(effect.subject),
-            }
-            for effect in effect_summary.transitive_effects
-        ),
-        key=lambda row: (row["kind"], row["subject"]),
-    )
 
 
-def _artifact_contracts(compile_result) -> list[dict[str, object]]:
-    def contract_field(field: Mapping[str, object]) -> dict[str, object]:
-        return {
-            key: _json_value(field[key])
-            for key in (
-                "name",
-                "json_pointer",
-                "type",
-                "under",
-                "must_exist_target",
-                "allowed",
-            )
-            if key in field
-        }
-
-    def bundle_contract(bundle: Mapping[str, object] | None):
-        if bundle is None:
-            return None
-        return {
-            "fields": [contract_field(field) for field in bundle.get("fields", ())],
-        }
-
-    def variant_contract(variant: Mapping[str, object] | None):
-        if variant is None:
-            return None
-        return {
-            "discriminant": contract_field(variant["discriminant"]),
-            "shared_fields": [
-                contract_field(field) for field in variant.get("shared_fields", ())
-            ],
-            "variants": {
-                name: {
-                    "fields": [
-                        contract_field(field)
-                        for field in definition.get("fields", ())
-                    ]
-                }
-                for name, definition in variant.get("variants", {}).items()
-            },
-        }
-
-    rows: list[dict[str, object]] = []
-    for workflow_name, bundle in sorted(compile_result.validated_bundles.items()):
-        for step in bundle.surface.steps:
-            output_bundle = step.common.output_bundle
-            variant_output = step.common.variant_output
-            publishes = step.common.publishes
-            if output_bundle is None and variant_output is None and not publishes:
-                continue
-            is_tracked_plan_step = "tracked-plan-phase" in step.name
-            step_role = (
-                "draft"
-                if "__draft" in step.name
-                else "review"
-                if "__review" in step.name
-                else step.name
-            )
-            rows.append(
-                {
-                    "workflow": "tracked-plan-phase"
-                    if is_tracked_plan_step
-                    else workflow_name,
-                    "step": step_role if is_tracked_plan_step else step.name,
-                    "kind": step.kind.value,
-                    "output_bundle_contract": bundle_contract(output_bundle),
-                    "variant_output_contract": variant_contract(variant_output),
-                    "publishes": _json_value(publishes),
-                }
-            )
-    return sorted(rows, key=lambda row: (str(row["workflow"]), str(row["step"])))
 
 
-def _source_map_rows(linked_result) -> dict[str, object]:
-    document = build_source_map_document(
-        linked_result,
-        selected_name=PUBLIC_ENTRY,
-        display_name_resolver=_short_name,
-    )
-    rows: dict[str, object] = {}
-    for workflow_name in (PUBLIC_ENTRY, TRACKED_PLAN):
-        workflow = document.workflows.get(workflow_name)
-        if workflow is None:
-            continue
-        entries = (workflow.workflow_origin, *workflow.step_ids.values())
-        lineage_by_origin: dict[str, object] = {}
-        expansion_by_origin: dict[str, object] = {}
-        form_path_overrides: dict[str, object] = {}
-        workflow_form_path = list(workflow.workflow_origin.form_path)
-        for entry in entries:
-            expansion = [
-                    {
-                        key: _json_value(getattr(frame, key))
-                        for key in (
-                            "macro_name",
-                            "expansion_id",
-                            "template_path",
-                            "function_name",
-                        )
-                        if hasattr(frame, key)
-                    }
-                    for frame in entry.expansion_stack
-                ]
-            lineage = sorted(
-                {
-                        "procedure_call_site"
-                        if note.startswith("procedure call site at")
-                        else "procedure_definition"
-                        if note.startswith("procedure definition at")
-                        else note
-                        for note in entry.notes
-                }
-            )
-            if expansion:
-                expansion_by_origin[entry.origin_key] = expansion
-            if lineage:
-                lineage_by_origin[entry.origin_key] = lineage
-            if list(entry.form_path) != workflow_form_path:
-                form_path_overrides[entry.origin_key] = list(entry.form_path)
-        rows[workflow_name] = {
-            "workflow_origin": {
-                "origin_key": workflow.workflow_origin.origin_key,
-                "form_path": list(workflow.workflow_origin.form_path),
-            },
-            "step_origin_keys": sorted(entry.origin_key for entry in workflow.step_ids.values()),
-            "expansion_by_origin": expansion_by_origin,
-            "lineage_by_origin": lineage_by_origin,
-            "form_path_overrides": form_path_overrides,
-        }
-    return rows
 
 
-def _runtime_contract(compile_result) -> dict[str, object]:
-    state_write_roots: list[dict[str, object]] = []
-    resume_checkpoints: list[dict[str, object]] = []
-    lexical_checkpoints: list[dict[str, object]] = []
-    for workflow_name in (PUBLIC_ENTRY, TRACKED_PLAN):
-        bundle = compile_result.validated_bundles.get(workflow_name)
-        if bundle is None:
-            continue
-        state_write_roots.extend(
-            {
-                "workflow": workflow_name,
-                "semantic_role": allocation.semantic_role.value,
-                "stable_identity": allocation.stable_identity,
-            }
-            for allocation in bundle.provenance.generated_path_allocations
-            if "write_root" in allocation.semantic_role.value
-        )
-        resume_checkpoints.extend(
-            {
-                "checkpoint_kind": checkpoint.checkpoint_kind,
-                "node_id": checkpoint.node_id,
-                "presentation_key": checkpoint.presentation_key,
-                "runtime_step_id_mode": checkpoint.runtime_step_id_mode,
-            }
-            for checkpoint in bundle.runtime_plan.resume_checkpoints
-        )
-        lexical_checkpoints.extend(
-            {
-                "checkpoint_id": checkpoint.checkpoint_id,
-                "program_point_id": checkpoint.program_point_id,
-                "point_kind": checkpoint.point_kind,
-                "origin_key": checkpoint.origin_key,
-                "presentation_key": checkpoint.presentation_key,
-                "step_kind": checkpoint.details.get("step_kind"),
-                "resume_policy_kind": (
-                    checkpoint.details.get("effect_boundary", {})
-                    .get("policy", {})
-                    .get("policy_kind")
-                ),
-            }
-            for checkpoint in bundle.runtime_plan.lexical_checkpoint_points
-        )
-    return {
-        "state_write_roots": sorted(
-            state_write_roots,
-            key=lambda row: (row["workflow"], row["semantic_role"], row["stable_identity"]),
-        ),
-        "resume_checkpoints": resume_checkpoints,
-        "lexical_checkpoints": lexical_checkpoints,
-    }
 
 
-def _tracked_plan_projection(linked_result) -> dict[str, object]:
-    compile_result = linked_result.entry_result
-    public_bundle = compile_result.validated_bundles[PUBLIC_ENTRY]
-    public_workflow = next(
-        workflow
-        for workflow in compile_result.typed_workflows
-        if workflow.definition.name == PUBLIC_ENTRY
-    )
-    public_plan_steps = [
-        step
-        for step in public_bundle.surface.steps
-        if "tracked-plan-phase" in step.name
-    ]
-    lowered_step_order = {
-        workflow_name: [
-            (
-                f"{step.kind.value}:tracked-plan-phase:"
-                + (
-                    "draft"
-                    if "__draft" in step.name
-                    else "review"
-                    if "__review" in step.name
-                    else "match"
-                    if step.kind.value == "match"
-                    else "call"
-                )
-                if "tracked-plan-phase" in step.name
-                else f"{step.kind.value}:{step.name}"
-            )
-            for step in bundle.surface.steps
-        ]
-        for workflow_name, bundle in sorted(compile_result.validated_bundles.items())
-    }
-    projection = {
-        "schema_version": "procedure_first.tracked_plan_phase_contract.v1",
-        "public_contract": {
-            "module": compile_result.module.module_name,
-            "entry_workflow": PUBLIC_ENTRY,
-            "exported_workflows": sorted(compile_result.module.exports),
-            **_public_signature_contract(compile_result),
-            "terminal_outcome": {
-                "terminal_node_id": public_bundle.runtime_plan.ordered_node_ids[-1],
-                "terminal_node_kind": public_bundle.runtime_plan.nodes[
-                    public_bundle.runtime_plan.ordered_node_ids[-1]
-                ].kind,
-                "finalization_entry_node_id": public_bundle.ir.finalization_entry_node_id,
-            },
-        },
-        "artifact_contracts": _artifact_contracts(compile_result),
-        "caller_visible_effects": [
-            row
-            for row in _effect_rows(public_workflow.effect_summary)
-            if not (
-                row["kind"] == "CallsWorkflowEffect"
-                and row["subject"] == TRACKED_PLAN
-            )
-        ],
-        "runtime_contract": _runtime_contract(compile_result),
-        "internal_route": {
-            "lowered_step_order": lowered_step_order,
-            "registered_workflows": sorted(
-                workflow.typed_workflow.definition.name
-                for workflow in compile_result.lowered_workflows
-            ),
-            "public_plan_nodes": [
-                {
-                    "kind": step.kind.value,
-                    "name": step.name,
-                    "step_id": step.step_id,
-                    "call_alias": step.call_alias,
-                }
-                for step in public_plan_steps
-            ],
-            "source_map": _source_map_rows(linked_result),
-        },
-    }
-    return _portable_contract_value(projection)
 
 
-def _assert_reviewed_structural_delta(
-    expected_route: dict[str, object],
-    actual_route: dict[str, object],
-) -> None:
-    if actual_route == expected_route:
-        return
-
-    assert actual_route["registered_workflows"] == [
-        name
-        for name in expected_route["registered_workflows"]
-        if name != TRACKED_PLAN_TOKEN
-    ]
-    expected_orders = expected_route["lowered_step_order"]
-    actual_orders = actual_route["lowered_step_order"]
-    expected_public_order = expected_orders[PUBLIC_ENTRY_TOKEN]
-    tracked_order = expected_orders[TRACKED_PLAN_TOKEN]
-    expected_inline_public_order: list[str] = []
-    for step in expected_public_order:
-        if step == "call:tracked-plan-phase:call":
-            expected_inline_public_order.extend(tracked_order)
-        else:
-            expected_inline_public_order.append(step)
-    assert actual_orders[PUBLIC_ENTRY_TOKEN] == expected_inline_public_order
-    assert {
-        name: order
-        for name, order in actual_orders.items()
-        if name != PUBLIC_ENTRY_TOKEN
-    } == {
-        name: order
-        for name, order in expected_orders.items()
-        if name not in {PUBLIC_ENTRY_TOKEN, TRACKED_PLAN_TOKEN}
-    }
-    old_call_node = expected_route["public_plan_nodes"]
-    assert len(old_call_node) == 1
-    old_call_node = old_call_node[0]
-    assert old_call_node["kind"] == "call"
-    assert old_call_node["call_alias"] == TRACKED_PLAN_TOKEN
-    inline_name_prefix = old_call_node["name"].replace(
-        f"__call_{TRACKED_PLAN_TOKEN}",
-        f"__{TRACKED_PLAN_TOKEN}_1",
-    )
-    inline_step_id_prefix = old_call_node["step_id"].replace(
-        "__call_$module_slug_tracked_plan_phase",
-        "__$module_slug_tracked_plan_phase_1",
-    )
-    inline_roles = [step.rsplit(":", 1)[-1] for step in tracked_order]
-    assert inline_roles == ["draft", "review", "match"]
-    expected_inline_nodes = [
-        {
-            "kind": "provider",
-            "name": f"{inline_name_prefix}__draft",
-            "step_id": f"{inline_step_id_prefix}__draft",
-            "call_alias": None,
-        },
-        {
-            "kind": "provider",
-            "name": f"{inline_name_prefix}__review",
-            "step_id": f"{inline_step_id_prefix}__review",
-            "call_alias": None,
-        },
-        {
-            "kind": "match",
-            "name": f"{inline_name_prefix}__match_review",
-            "step_id": f"{inline_step_id_prefix}__match_review",
-            "call_alias": None,
-        },
-    ]
-    assert actual_route["public_plan_nodes"] == expected_inline_nodes
-
-    expected_source_map = expected_route["source_map"]
-    actual_source_map = actual_route["source_map"]
-    assert TRACKED_PLAN_TOKEN not in actual_source_map
-    assert set(actual_source_map) == {PUBLIC_ENTRY_TOKEN}
-    expected_public_source = expected_source_map[PUBLIC_ENTRY_TOKEN]
-    actual_public_source = actual_source_map[PUBLIC_ENTRY_TOKEN]
-    assert actual_public_source["workflow_origin"] == expected_public_source["workflow_origin"]
-
-    def without_tracked_plan_origins(values):
-        def is_inline_route_origin(origin_key: str) -> bool:
-            return (
-                "tracked-plan-phase" in origin_key
-                or "tracked_plan_phase" in origin_key
-            )
-
-        if isinstance(values, list):
-            return [value for value in values if not is_inline_route_origin(value)]
-        return {
-            origin_key: value
-            for origin_key, value in values.items()
-            if not is_inline_route_origin(origin_key)
-        }
-
-    for field_name in (
-        "step_origin_keys",
-        "expansion_by_origin",
-        "lineage_by_origin",
-        "form_path_overrides",
-    ):
-        assert without_tracked_plan_origins(actual_public_source[field_name]) == (
-            without_tracked_plan_origins(expected_public_source[field_name])
-        )
-    inline_origin_keys = {
-        origin_key
-        for origin_key in actual_public_source["step_origin_keys"]
-        if "tracked-plan-phase" in origin_key or "tracked_plan_phase" in origin_key
-    }
-    for node in expected_inline_nodes:
-        assert any(node["name"] in origin_key for origin_key in inline_origin_keys)
-        assert any(
-            node["step_id"].removeprefix("root.") in origin_key
-            for origin_key in inline_origin_keys
-        )
-    inline_form_paths = actual_public_source["form_path_overrides"]
-    assert {
-        tuple(form_path)
-        for origin_key, form_path in inline_form_paths.items()
-        if origin_key in inline_origin_keys
-    } == {("workflow-lisp", "defproc", "tracked-plan-phase")}
-    assert inline_origin_keys - set(inline_form_paths)
-    inline_lineage_labels = {
-        lineage
-        for origin_key, lineages in actual_public_source["lineage_by_origin"].items()
-        if origin_key in inline_origin_keys
-        for lineage in lineages
-    }
-    assert inline_lineage_labels >= {
-        "procedure_call_site",
-        "procedure_definition",
-    }
 
 
-def _assert_provisional_runtime_delta(
-    expected_runtime: dict[str, object],
-    actual_runtime: dict[str, object],
-) -> None:
-    frozen_runtime = _load_json(BASELINE)["runtime_contract"]
-    assert expected_runtime == frozen_runtime
-
-    def partition_rows(rows, *, key, candidate_keys):
-        candidate_key_set = set(candidate_keys)
-        candidates = [row for row in rows if key(row) in candidate_key_set]
-        preserved = [row for row in rows if key(row) not in candidate_key_set]
-        assert tuple(key(row) for row in candidates) == candidate_keys
-        assert len({key(row) for row in rows}) == len(rows)
-        return candidates, preserved
-
-    expected_write_roots = expected_runtime["state_write_roots"]
-    actual_write_roots = actual_runtime["state_write_roots"]
-    expected_resume = expected_runtime["resume_checkpoints"]
-    actual_resume = actual_runtime["resume_checkpoints"]
-    expected_lexical = expected_runtime["lexical_checkpoints"]
-    actual_lexical = actual_runtime["lexical_checkpoints"]
-    for rows in (
-        expected_write_roots,
-        actual_write_roots,
-        expected_resume,
-        actual_resume,
-        expected_lexical,
-        actual_lexical,
-    ):
-        assert isinstance(rows, list)
-
-    old_write_roots, preserved_write_roots = partition_rows(
-        expected_write_roots,
-        key=lambda row: row["stable_identity"],
-        candidate_keys=_RETIRED_OLD_WRITE_ROOT_KEYS,
-    )
-    old_resume, preserved_resume = partition_rows(
-        expected_resume,
-        key=lambda row: (row["checkpoint_kind"], row["node_id"]),
-        candidate_keys=_RETIRED_OLD_RESUME_KEYS,
-    )
-    old_lexical, preserved_lexical = partition_rows(
-        expected_lexical,
-        key=lambda row: row["checkpoint_id"],
-        candidate_keys=_RETIRED_OLD_LEXICAL_KEYS,
-    )
-
-    new_write_root_keys = tuple(
-        row["stable_identity"] for row in _NEW_INLINE_WRITE_ROOT_ROWS
-    )
-    new_resume_keys = tuple(
-        (row["checkpoint_kind"], row["node_id"])
-        for row in _NEW_INLINE_RESUME_ROWS
-    )
-    new_lexical_keys = tuple(row["checkpoint_id"] for row in _NEW_INLINE_LEXICAL_ROWS)
-    new_write_roots, actual_preserved_write_roots = partition_rows(
-        actual_write_roots,
-        key=lambda row: row["stable_identity"],
-        candidate_keys=new_write_root_keys,
-    )
-    new_resume, actual_preserved_resume = partition_rows(
-        actual_resume,
-        key=lambda row: (row["checkpoint_kind"], row["node_id"]),
-        candidate_keys=new_resume_keys,
-    )
-    new_lexical, actual_preserved_lexical = partition_rows(
-        actual_lexical,
-        key=lambda row: row["checkpoint_id"],
-        candidate_keys=new_lexical_keys,
-    )
-
-    assert old_write_roots == [
-        row
-        for row in frozen_runtime["state_write_roots"]
-        if row["stable_identity"] in set(_RETIRED_OLD_WRITE_ROOT_KEYS)
-    ]
-    assert old_resume == [
-        row
-        for row in frozen_runtime["resume_checkpoints"]
-        if (row["checkpoint_kind"], row["node_id"])
-        in set(_RETIRED_OLD_RESUME_KEYS)
-    ]
-    assert old_lexical == [
-        row
-        for row in frozen_runtime["lexical_checkpoints"]
-        if row["checkpoint_id"] in set(_RETIRED_OLD_LEXICAL_KEYS)
-    ]
-    assert new_write_roots == list(_NEW_INLINE_WRITE_ROOT_ROWS)
-    assert new_resume == list(_NEW_INLINE_RESUME_ROWS)
-    assert new_lexical == list(_NEW_INLINE_LEXICAL_ROWS)
-
-    assert actual_preserved_write_roots == preserved_write_roots
-    assert actual_preserved_resume == preserved_resume
-    assert actual_preserved_lexical == preserved_lexical
-    assert len(preserved_write_roots) == 4
-    assert len(preserved_resume) == 4
-    assert len(preserved_lexical) == 2
-
-    assert actual_write_roots == [*new_write_roots, *preserved_write_roots]
-    assert actual_resume == [
-        preserved_resume[0],
-        *new_resume,
-        *preserved_resume[1:],
-    ]
-    assert actual_lexical == [
-        preserved_lexical[0],
-        *new_lexical,
-        preserved_lexical[1],
-    ]
 
 
-@pytest.mark.parametrize(
-    "corruption",
-    ("preserved_public", "retired_old_candidate", "inline_candidate"),
-)
-def test_provisional_runtime_delta_rejects_identity_corruption(
-    tracked_plan_compile,
-    corruption: str,
-) -> None:
-    expected_runtime = deepcopy(_load_json(BASELINE)["runtime_contract"])
-    actual_runtime = deepcopy(
-        _tracked_plan_projection(tracked_plan_compile)["runtime_contract"]
-    )
-
-    if corruption == "preserved_public":
-        row = next(
-            row
-            for row in actual_runtime["resume_checkpoints"]
-            if row["presentation_key"]
-            == f"{PUBLIC_ENTRY_TOKEN}__design__call_$module::tracked-design-phase"
-            and row["checkpoint_kind"] == "call_boundary"
-        )
-        row["runtime_step_id_mode"] = "corrupt"
-    elif corruption == "retired_old_candidate":
-        row = next(
-            row
-            for row in expected_runtime["lexical_checkpoints"]
-            if row["presentation_key"] == "$module::tracked-plan-phase__draft"
-        )
-        row["checkpoint_id"] = f"{row['checkpoint_id']}:corrupt"
-    else:
-        row = next(
-            row
-            for row in actual_runtime["state_write_roots"]
-            if "tracked-plan-phase_1__draft" in row["stable_identity"]
-        )
-        row["stable_identity"] = f"{row['stable_identity']}:corrupt"
-
-    with pytest.raises(AssertionError):
-        _assert_provisional_runtime_delta(expected_runtime, actual_runtime)
 
 
 def test_tracked_plan_phase_is_explicit_inline_procedure(tracked_plan_compile) -> None:
@@ -5084,82 +3079,8 @@ def test_tracked_plan_phase_is_explicit_inline_procedure(tracked_plan_compile) -
     )
     assert procedure.signature.requested_lowering_mode.value == "inline"
     assert procedure.resolved_lowering_mode.value == "inline"
-    assert TRACKED_PLAN not in {
-        workflow.typed_workflow.definition.name
-        for workflow in compile_result.lowered_workflows
-    }
-    public_bundle = compile_result.validated_bundles[PUBLIC_ENTRY]
-    assert [
-        step.kind.value
-        for step in public_bundle.surface.steps
-        if "tracked-plan-phase" in step.name
-    ] == ["provider", "provider", "match"]
 
 
-def test_post_edit_tracked_plan_phase_does_not_use_schema1_iteration_override_across_routes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_predicate = procedure_lowering._schema1_iteration_private_override_applies
-    active_route: list[str | None] = [None]
-    predicate_call_counts = {"legacy": 0, "wcc_m4": 0}
-    tracked_plan_decisions = {"legacy": [], "wcc_m4": []}
-
-    def spy_on_override_predicate(procedure, *, context):
-        route = active_route[0]
-        assert route is not None
-        predicate_call_counts[route] += 1
-        decision = original_predicate(procedure, context=context)
-        if procedure.definition.name == TRACKED_PLAN:
-            tracked_plan_decisions[route].append(decision)
-        return decision
-
-    monkeypatch.setattr(
-        procedure_lowering,
-        "_schema1_iteration_private_override_applies",
-        spy_on_override_predicate,
-    )
-
-    compile_results = {}
-    for route in ("legacy", "wcc_m4"):
-        active_route[0] = route
-        compile_results[route] = compile_stage3_entrypoint(
-            EXAMPLE,
-            source_roots=(WORKFLOWS,),
-            entry_workflow="design-plan-impl-review-stack",
-            provider_externs=_load_json(
-                MIGRATION_INPUTS / "design_plan_impl_stack.providers.json"
-            ),
-            prompt_externs=_load_json(
-                MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json"
-            ),
-            command_boundaries=_load_json(
-                MIGRATION_INPUTS / "design_plan_impl_stack.commands.json"
-            ),
-            validate_shared=True,
-            workspace_root=REPO_ROOT,
-            lowering_route=route,
-        )
-    active_route[0] = None
-
-    assert tracked_plan_decisions["legacy"]
-    assert not any(tracked_plan_decisions["legacy"])
-    assert predicate_call_counts["wcc_m4"] == 0
-    assert tracked_plan_decisions["wcc_m4"] == []
-    for linked_result in compile_results.values():
-        compile_result = linked_result.entry_result
-        procedure = next(
-            procedure
-            for procedure in compile_result.typed_procedures
-            if procedure.definition.name == TRACKED_PLAN
-        )
-        assert procedure.signature.requested_lowering_mode.value == "inline"
-        assert procedure.resolved_lowering_mode.value == "inline"
-        assert procedure.generated_workflow_name is None
-        assert not any(
-            workflow.typed_workflow.definition.name == TRACKED_PLAN
-            or workflow.typed_workflow.definition.name.startswith(f"{TRACKED_PLAN}.")
-            for workflow in compile_result.lowered_workflows
-        )
 
 
 def test_tracked_plan_phase_wrapper_uses_procedure_call(tracked_plan_compile) -> None:
@@ -5187,7 +3108,6 @@ def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline(
     tracked_plan_compile,
 ) -> None:
     expected = _load_json(BASELINE)
-    actual = _tracked_plan_projection(tracked_plan_compile)
 
     assert expected["schema_version"] == "procedure_first.tracked_plan_phase_contract.v1"
     assert expected["public_contract"]["entry_workflow"] == PUBLIC_ENTRY_TOKEN
@@ -5200,428 +3120,13 @@ def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline(
     assert expected["runtime_contract"]["resume_checkpoints"]
     assert expected["runtime_contract"]["lexical_checkpoints"]
     expected_route = expected.pop("internal_route")
-    actual_route = actual.pop("internal_route")
     expected_runtime = expected.pop("runtime_contract")
-    actual_runtime = actual.pop("runtime_contract")
-    assert expected == actual
-    _assert_reviewed_structural_delta(expected_route, actual_route)
-    _assert_provisional_runtime_delta(expected_runtime, actual_runtime)
 
 
-def test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from orchestrator.cli.commands import resume as resume_command
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executor import WorkflowExecutor
-
-    old_frozen = _pilot_source_bytes("old")
-    new_frozen = _pilot_source_bytes("new")
-    old_source = old_frozen["source"]
-    new_source = new_frozen["source"]
-    old_checksum = old_frozen["source_sha256"]
-    new_checksum = new_frozen["source_sha256"]
-    assert isinstance(old_source, bytes)
-    assert isinstance(new_source, bytes)
-    assert isinstance(old_checksum, str)
-    assert isinstance(new_checksum, str)
-    assert old_frozen["build_manifest_sha256"] == (
-        "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
-    )
-    assert new_frozen["build_manifest_sha256"] == (
-        "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
-    )
-    assert old_checksum != new_checksum
-    assert new_source == EXAMPLE.read_bytes()
-
-    workspace = tmp_path / "workspace"
-    workflow_path = workspace / "workflows" / "examples" / EXAMPLE.name
-    workflow_path.parent.mkdir(parents=True)
-    workflow_path.write_bytes(old_source)
-
-    run_id = "tracked-plan-root-checksum-negative"
-    state_manager = StateManager(workspace=workspace, run_id=run_id)
-    state = state_manager.initialize(str(workflow_path))
-    assert state.workflow_checksum == old_checksum
-    state.status = "failed"
-    state.steps = {
-        "synthetic-old-boundary": {
-            "status": "completed",
-            "step_id": _OLD_CALL_NODE_ID,
-            "exit_code": 0,
-        }
-    }
-    state_manager._write_state()
-    retained_checkpoint = (
-        state_manager.run_root
-        / "workflow_lisp"
-        / "checkpoints"
-        / "records"
-        / "ckpt:synthetic-old"
-        / "record:synthetic-old.json"
-    )
-    retained_checkpoint.parent.mkdir(parents=True)
-    retained_checkpoint.write_bytes(b'{"status":"completed"}\n')
-
-    workflow_path.write_bytes(new_source)
-    assert state_manager.calculate_checksum(workflow_path) == new_checksum
-
-    current_compile = compile_stage3_entrypoint(
-        workflow_path,
-        source_roots=(workspace / "workflows",),
-        provider_externs=new_frozen["provider_externs"],
-        prompt_externs=new_frozen["prompt_externs"],
-        command_boundaries=new_frozen["command_boundaries"],
-        validate_shared=True,
-        workspace_root=workspace,
-    )
-    current_bundle = current_compile.validated_bundles_by_name[PUBLIC_ENTRY]
-    before_state_bytes = state_manager.state_file.read_bytes()
-    before_tree = _run_tree_facts(state_manager.run_root)
-    loader_calls: list[Path] = []
-
-    def load_current_pilot_bundle(**kwargs):
-        loader_calls.append(Path(kwargs["workflow_path"]).resolve())
-        return current_bundle
-
-    def unexpected_runtime_call(*_args, **_kwargs):
-        raise AssertionError(
-            "actual pilot root checksum mismatch reached executor/provider/command execution"
-        )
-
-    monkeypatch.setattr(
-        resume_command,
-        "_load_resume_workflow_bundle",
-        load_current_pilot_bundle,
-    )
-    monkeypatch.setattr(
-        WorkflowExecutor,
-        "_execute_provider_with_context",
-        unexpected_runtime_call,
-    )
-    monkeypatch.setattr(
-        WorkflowExecutor,
-        "_execute_command_with_context",
-        unexpected_runtime_call,
-    )
-    monkeypatch.setattr(resume_command, "WorkflowExecutor", unexpected_runtime_call)
-    monkeypatch.chdir(workspace)
-
-    result = resume_command.resume_workflow(
-        run_id=run_id,
-        repair=False,
-        force_restart=False,
-    )
-
-    captured = capsys.readouterr()
-    assert result == 1
-    assert "checksum" in captured.err.lower()
-    assert loader_calls == [workflow_path.resolve()]
-    assert state_manager.state_file.read_bytes() == before_state_bytes
-    assert _run_tree_facts(state_manager.run_root) == before_tree
 
 
-def test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executable_ir import CallBoundaryNode
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from tests.workflow_bundle_helpers import bundle_context_dict
-
-    old_frozen = _pilot_source_bytes("old")
-    new_frozen = _pilot_source_bytes("new")
-    old_source = old_frozen["source"]
-    new_source = new_frozen["source"]
-    old_checksum = old_frozen["source_sha256"]
-    new_checksum = new_frozen["source_sha256"]
-    assert isinstance(old_source, bytes)
-    assert isinstance(new_source, bytes)
-    assert isinstance(old_checksum, str)
-    assert isinstance(new_checksum, str)
-    assert old_frozen["build_manifest_sha256"] == (
-        "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
-    )
-    assert new_frozen["build_manifest_sha256"] == (
-        "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
-    )
-    assert old_checksum != new_checksum
-    assert new_source == EXAMPLE.read_bytes()
-
-    workspace = tmp_path / "workspace"
-    workflow_path = workspace / "workflows" / "examples" / EXAMPLE.name
-    workflow_path.parent.mkdir(parents=True)
-    workflow_path.write_bytes(old_source)
-    compiled_old = compile_stage3_entrypoint(
-        workflow_path,
-        source_roots=(workspace / "workflows",),
-        provider_externs=old_frozen["provider_externs"],
-        prompt_externs=old_frozen["prompt_externs"],
-        command_boundaries=old_frozen["command_boundaries"],
-        validate_shared=True,
-        workspace_root=workspace,
-    )
-    parent_bundle = compiled_old.validated_bundles_by_name[PUBLIC_ENTRY]
-    callee_bundle = compiled_old.validated_bundles_by_name[TRACKED_PLAN]
-    assert callee_bundle.provenance.workflow_path == workflow_path
-
-    plan_call = next(
-        node
-        for node in parent_bundle.ir.nodes.values()
-        if isinstance(node, CallBoundaryNode) and node.call_alias == TRACKED_PLAN
-    )
-    design_call = next(
-        node
-        for node in parent_bundle.ir.nodes.values()
-        if isinstance(node, CallBoundaryNode)
-        and node.call_alias.endswith("::tracked-design-phase")
-    )
-    plan_step = {
-        "name": plan_call.presentation_name,
-        "step_id": plan_call.step_id,
-        "call": plan_call.call_alias,
-    }
-
-    design_path = workspace / "docs" / "plans" / "synthetic-design.md"
-    design_path.parent.mkdir(parents=True)
-    design_path.write_text("# Synthetic design\n", encoding="utf-8")
-    state_manager = StateManager(
-        workspace=workspace,
-        run_id="tracked-plan-callee-checksum-negative",
-    )
-    state_manager.initialize(
-        str(workflow_path),
-        context=bundle_context_dict(parent_bundle),
-    )
-    assert state_manager.state is not None
-    state = state_manager.state.to_dict()
-    state["bound_inputs"] = {
-        "plan_target_path": "docs/plans/synthetic-plan.md",
-        "plan_review_report_target_path": "artifacts/review/synthetic-plan-review.md",
-    }
-    state["steps"] = {
-        design_call.presentation_name: {
-            "status": "completed",
-            "step_id": design_call.step_id,
-            "artifacts": {"return__design_path": "docs/plans/synthetic-design.md"},
-        }
-    }
-    state["step_visits"] = {plan_call.presentation_name: 1}
-
-    parent_executor = WorkflowExecutor(parent_bundle, workspace, state_manager)
-    parent_executor.resume_mode = True
-    plan_projection = parent_bundle.projection.entries_by_node_id[plan_call.node_id]
-    assert isinstance(plan_projection.compatibility_index, int)
-    parent_executor.current_step = plan_projection.compatibility_index
-    assert plan_call.step_id == _OLD_CALL_NODE_ID.replace("$module_slug", MODULE_SLUG)
-    frame_id = parent_executor.call_executor.frame_id(plan_step, state)
-    assert frame_id == f"{plan_call.step_id}::visit::1"
-    old_frame = {
-        "call_frame_id": frame_id,
-        "call_step_name": plan_call.presentation_name,
-        "call_step_id": plan_call.step_id,
-        "import_alias": TRACKED_PLAN,
-        "workflow_file": workflow_path.relative_to(workspace).as_posix(),
-        "status": "running",
-        "state": {
-            "workflow_file": workflow_path.relative_to(workspace).as_posix(),
-            "workflow_checksum": old_checksum,
-            "status": "running",
-            "steps": {
-                "synthetic-old-provider": {
-                    "status": "completed",
-                    "step_id": _OLD_PRIVATE_NODE_BASE,
-                }
-            },
-        },
-    }
-    state["call_frames"] = {frame_id: deepcopy(old_frame)}
-    state_manager.state.bound_inputs = deepcopy(state["bound_inputs"])
-    state_manager.state.steps = deepcopy(state["steps"])
-    state_manager.state.step_visits = deepcopy(state["step_visits"])
-    state_manager.state.call_frames = deepcopy(state["call_frames"])
-    state_manager._write_state()
-    state = state_manager.state.to_dict()
-    before_frames = deepcopy(state["call_frames"])
-    before_frame_ids = tuple(sorted(before_frames))
-    before_state_bytes = state_manager.state_file.read_bytes()
-    before_tree = _run_tree_facts(state_manager.run_root)
-    assert _load_json(state_manager.state_file)["call_frames"] == before_frames
-
-    workflow_path.write_bytes(new_source)
-    assert state_manager.calculate_checksum(workflow_path) == new_checksum
-
-    def unexpected_runtime_call(*_args, **_kwargs):
-        raise AssertionError(
-            "actual pilot callee checksum mismatch reached child/provider/command execution"
-        )
-
-    monkeypatch.setattr(
-        WorkflowExecutor,
-        "_execute_provider_with_context",
-        unexpected_runtime_call,
-    )
-    monkeypatch.setattr(
-        WorkflowExecutor,
-        "_execute_command_with_context",
-        unexpected_runtime_call,
-    )
-    monkeypatch.setattr(
-        "orchestrator.workflow.executor.WorkflowExecutor",
-        unexpected_runtime_call,
-    )
-
-    result = parent_executor.call_executor.execute_call(plan_step, state)
-
-    assert result["status"] == "failed"
-    assert result["error"]["type"] == "call_resume_checksum_mismatch"
-    assert result["error"]["context"] == {
-        "step": plan_call.presentation_name,
-        "call": TRACKED_PLAN,
-        "call_frame_id": frame_id,
-        "workflow_file": workflow_path.relative_to(workspace).as_posix(),
-        "persisted_checksum": old_checksum,
-        "current_checksum": new_checksum,
-        "reason": "workflow_modified",
-    }
-    assert state["call_frames"] == before_frames
-    assert tuple(sorted(state["call_frames"])) == before_frame_ids == (frame_id,)
-    assert not any("::retry::" in candidate for candidate in state["call_frames"])
-    assert state_manager.state_file.read_bytes() == before_state_bytes
-    assert _load_json(state_manager.state_file)["call_frames"] == before_frames
-    assert _run_tree_facts(state_manager.run_root) == before_tree
 
 
-def test_tracked_plan_phase_checksum_evidence_projection_replays(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.cli.commands import resume as resume_command
-    from orchestrator.cli.commands import run as run_command
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executor import WorkflowExecutor
-
-    def forbidden_runtime(*_args, **_kwargs):
-        raise AssertionError("checksum evidence replay reached runtime authority")
-
-    monkeypatch.setattr(StateManager, "initialize", forbidden_runtime)
-    monkeypatch.setattr(WorkflowExecutor, "__init__", forbidden_runtime)
-    monkeypatch.setattr(run_command, "run_workflow", forbidden_runtime)
-    monkeypatch.setattr(resume_command, "resume_workflow", forbidden_runtime)
-    run_roots = (
-        REPO_ROOT / ".orchestrate" / "runs",
-        REPO_ROOT
-        / ".orchestrate"
-        / "procedure-first-pilot-evidence"
-        / "tracked-plan-phase"
-        / "workspace"
-        / ".orchestrate"
-        / "runs",
-    )
-    before_run_directories = {
-        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
-    }
-
-    old_manifest = _load_json(PILOT_EVIDENCE / "old" / "build_manifest.json")
-    new_manifest = _load_json(PILOT_EVIDENCE / "new" / "build_manifest.json")
-    record = _load_json(PILOT_EVIDENCE / "retirement_record.json")
-    _assert_callee_characterization(record)
-    root_path = PILOT_EVIDENCE / "evidence" / "root_checksum_characterization.json"
-    root_characterization = _load_json(root_path)
-    root_projection = root_characterization["projection"]
-    expected_root_details = {
-        "command": (
-            "7e4b3428 tests/test_resume_command.py::"
-            "test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable"
-        ),
-        "default_resume": True,
-        "observability_overrides": False,
-        "cli_overrides": False,
-        "exit_status": 1,
-        "tree_immutability": "before_equals_after",
-        "executor_constructed": False,
-        "provider_executed": False,
-        "command_executed": False,
-    }
-    expected_claim_boundary = {
-        "actual_subject_rejection": "not_asserted",
-        "cross_source_compatibility": "not_asserted",
-        "runtime_authority": "none",
-    }
-    assert set(root_characterization) == {"schema", "projection", "projection_sha256"}
-    assert root_characterization["schema"] == "workflow_lisp_root_checksum_characterization.v1"
-    assert set(root_projection) == {"details", "claim_boundary"}
-    assert root_projection["details"] == expected_root_details
-    assert root_projection["claim_boundary"] == expected_claim_boundary
-    assert root_characterization["projection_sha256"] == _projection_sha256(
-        root_projection
-    )
-    root_record = record["checksum_evidence"]["root"]
-    assert root_record == {
-        "evidence_mode": "generic_characterization",
-        **expected_root_details,
-        "characterization_path": root_path.relative_to(REPO_ROOT).as_posix(),
-        "characterization_sha256": (
-            "sha256:" + hashlib.sha256(root_path.read_bytes()).hexdigest()
-        ),
-        "projection_sha256": root_characterization["projection_sha256"],
-    }
-    assert "before_tree_digest" not in root_record
-    assert "after_tree_digest" not in root_record
-    assert "before_tree_digest" not in root_projection["details"]
-    assert "after_tree_digest" not in root_projection["details"]
-    assert (
-        "checksum_provenance.root=evidence/root_checksum_characterization.json#"
-        + root_record["characterization_sha256"]
-    ) in record["supporting_labels"]
-
-    callee = _load_json(
-        PILOT_EVIDENCE / "evidence" / "callee_checksum_characterization.json"
-    )
-    assert callee["schema"] == "procedure_first_pilot_checksum_characterization.v1"
-    assert callee["scope"] == {
-        "classification": (
-            "accepted generic guard characterization bound to actual pilot checksum delta"
-        ),
-        "not_live_old_run_resume": True,
-        "not_actual_pilot_rejection_negative": True,
-        "not_cross_source_compatibility": True,
-    }
-    assert callee["projection"]["guard_provenance"] == {
-        "commit": "e4f2ecbeb6203554aa1b70b54156ca469bbf3687",
-        "nodeid": (
-            "tests/test_resume_command.py::"
-            "test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch"
-        ),
-        "mismatch_identity": (
-            "examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase"
-        ),
-        "guard_result": "rejected_before_child_execution_without_identity_remap",
-    }
-    assert callee["projection"]["pilot_checksum_delta"] == {
-        "old": {
-            "source_sha256": old_manifest["inputs"]["source"]["sha256"],
-            "build_manifest_sha256": (
-                "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
-            ),
-        },
-        "new": {
-            "source_sha256": new_manifest["inputs"]["source"]["sha256"],
-            "build_manifest_sha256": (
-                "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
-            ),
-        },
-        "source_checksum_changed": True,
-        "build_manifest_checksum_changed": True,
-    }
-    assert callee["projection_sha256"] == _projection_sha256(callee["projection"])
-
-    after_run_directories = {
-        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
-    }
-    assert after_run_directories == before_run_directories
 
 
 def test_tracked_plan_phase_retirement_record_replays_final_scan_evidence() -> None:

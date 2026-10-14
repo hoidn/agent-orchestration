@@ -50,8 +50,6 @@ class ValidationPipelineState:
     command_boundary_environment: object | None = None
     typed_procedures: tuple[object, ...] = ()
     typed_workflows: tuple[object, ...] = ()
-    lowered_workflows: tuple[object, ...] = ()
-    validated_bundles: Mapping[str, object] = field(default_factory=dict)
     extras: Mapping[str, Any] = field(default_factory=dict)
 
 

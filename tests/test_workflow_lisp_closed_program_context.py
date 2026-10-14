@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.closed.build import Builder, build_closed_program
-from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, _select_and_finalize_typed_program, _workflow_import_boundary_signature
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.names import CanonicalNameError, canonical_type_descriptor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
@@ -177,6 +177,11 @@ def test_phase_context_partitions_keep_exact_source_routes_and_readback(
         name: tuple(workflow.signature.params)
         for name, workflow in typed.workflows.items()
     }
+    if partition == "item-derived":
+        parent = typed.workflows["context_probe::parent"]
+        boundary = _workflow_import_boundary_signature(typed, parent)
+        assert boundary.params == parent.signature.params
+        assert "phase-ctx" not in boundary.hidden_context_requirements
     path.unlink()
     built = build_closed_program(typed)
     restored = ClosedProgram.from_artifact(built.artifact())
@@ -360,7 +365,7 @@ def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_pa
         validate_shared=True,
         workspace_root=producer_root,
     )
-    bundle = loaded.validated_bundles_by_name["producer::entry"]
+    bundle = _select_and_finalize_typed_program(loaded.entry_result, entry_path=producer_path, entry_workflow="producer::entry")
     consumer_root = tmp_path / "consumer"
     consumer_root.mkdir()
     consumer_path = install(consumer_root, consumer_source)
@@ -369,7 +374,7 @@ def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_pa
         entry_workflow="run",
         source_roots=(consumer_root,),
         command_boundaries={},
-        imported_workflow_bundles={"dep": bundle},
+        imported_programs={"dep": bundle},
         workspace_root=consumer_root,
     )
     producer_path.unlink()
@@ -468,8 +473,8 @@ def test_imported_capture_resolves_native_context_after_omitted_and_explicit_cal
                 validate_shared=True,
                 workspace_root=root,
             )
-            bundle = old.validated_bundles_by_name["producer::entry"]
-            native = bundle.typed_program
+            bundle = _select_and_finalize_typed_program(old.entry_result, entry_path=producer_path, entry_workflow="producer::entry")
+            native = bundle
             signatures = {
                 name: tuple(workflow.signature.params)
                 for name, workflow in native.workflows.items()
@@ -480,7 +485,7 @@ def test_imported_capture_resolves_native_context_after_omitted_and_explicit_cal
                 entry_workflow="consumer::run",
                 source_roots=(root,),
                 command_boundaries={},
-                imported_workflow_bundles={"dep": bundle},
+                imported_programs={"dep": bundle},
                 workspace_root=root,
             )
 
@@ -571,8 +576,8 @@ def test_old_native_record_path_boundary_keeps_1_to_n_views_defaults_and_order(
         validate_shared=True,
         workspace_root=producer_root,
     )
-    bundle = flat.validated_bundles_by_name["producer::get"]
-    native_params = tuple(bundle.typed_program.entry.signature.params)
+    bundle = _select_and_finalize_typed_program(flat.entry_result, entry_path=producer_path, entry_workflow="producer::get")
+    native_params = tuple(bundle.entry.signature.params)
 
     consumer_root = tmp_path / "consumer"
     consumer_root.mkdir()
@@ -605,7 +610,7 @@ def test_old_native_record_path_boundary_keeps_1_to_n_views_defaults_and_order(
         prompt_externs={
             "prompt": PromptExtern(name="prompt", input_file="prompt.md")
         },
-        imported_workflow_bundles={"dep": bundle},
+        imported_programs={"dep": bundle},
         workspace_root=consumer_root,
     )
     producer_path.unlink()
@@ -618,7 +623,7 @@ def test_old_native_record_path_boundary_keeps_1_to_n_views_defaults_and_order(
         program.sites,
         program.digest,
     )
-    assert tuple(bundle.typed_program.entry.signature.params) == native_params
+    assert tuple(bundle.entry.signature.params) == native_params
 
     definitions = program.tree["definitions"]
     owner, native = next(
@@ -717,3 +722,43 @@ def test_old_native_record_path_boundary_keeps_1_to_n_views_defaults_and_order(
         "pair-provider",
         "count-provider",
     ]
+
+
+@pytest.mark.parametrize(
+    "formal, second_leaf, code",
+    [
+        ("(phase-ctx Int)", "", "workflow_boundary_projection_collision"),
+        ("(phase-ctx__run__run-id String)", "", "workflow_boundary_projection_collision"),
+        ("", "(defworkflow other ((phase-ctx PhaseCtx)) -> Symbol (with-phase phase-ctx other-phase phase-ctx.phase-name))",
+         "promoted_entry_hidden_phase_ctx_ambiguous"),
+    ],
+)
+def test_import_boundary_rejects_authored_and_phase_collisions(tmp_path, formal, second_leaf, code):
+    tail = "(call other)" if second_leaf else "first"
+    source = f'''(defworkflow entry ({formal}) -> Symbol
+      (let* ((first (call leaf))) {tail}))''' + _LEAF + second_leaf
+    path, typed = _compile(tmp_path, source)
+    path.unlink()
+    with pytest.raises(LispFrontendCompileError) as error:
+        _workflow_import_boundary_signature(typed, typed.entry)
+    diagnostic = error.value.diagnostics[0]
+    assert diagnostic.code == code
+    assert diagnostic.span == typed.entry.definition.span
+
+
+def test_explicit_private_helper_context_adds_no_import_capture(tmp_path):
+    path, typed = _compile(tmp_path, '''
+      (defworkflow entry ((explicit PhaseCtx)) -> Symbol
+        (call helper :phase-ctx explicit))
+      (defworkflow helper ((phase-ctx PhaseCtx) (n Int :default 7)) -> Symbol
+        (with-phase phase-ctx plan-gate-wrapper phase-ctx.phase-name))''')
+    path.unlink()
+    boundary = _workflow_import_boundary_signature(typed, typed.entry)
+    assert boundary.params == typed.entry.signature.params
+    assert "phase-ctx" not in boundary.hidden_context_requirements
+    program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
+    helper = next(row for row in program.tree["definitions"].values()
+                  if row["key"][:3] == ["context_probe", "workflow", "helper"])
+    assert helper["key"][7] == []
+    call = next(node for node in _walk(program.tree["body"]) if node.get("k") == "call")
+    assert call["args"][1]["v"] == 7

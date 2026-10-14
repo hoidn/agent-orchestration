@@ -1,5 +1,13 @@
 # Workflow Lisp Trial Runs: Controlled Experiments Over Pinned Repository Workspaces
 
+Current availability amendment (2026-10-13): the
+[selected retirement](workflow_lisp_executor_retirement.md) removes `trial`,
+its SDK and ES/research execution from this package. E0's bounded evaluated
+entry and admitted evaluated path-mode `run-ref` remain; bundle/trial effects
+are excluded. The original E0–E2 completion, study park, protocol and scientific
+results below are historical evidence, not current launch permission or a new
+research selection. [CLI](../../specs/cli.md) owns the public refusal boundary.
+
 ## Metadata
 
 - **Status:** accepted design; E0 direct control, E1 pinned child
@@ -50,7 +58,7 @@ of `.orc` orchestration can be measured against controls on real repository
 tasks, and (2) bounded, generational program evolution can later be run —
 without adding runtime `eval`, code values, or a parallel evaluation system.
 
-Authority: normative runtime behavior remains in `specs/`. Current E1/E2
+Authority: normative runtime behavior remains in `specs/`. Historical E1/E2
 contracts are in [the DSL spec](../../specs/dsl.md), [state
 spec](../../specs/state.md), [versioning spec](../../specs/versioning.md), and
 [CLI contract](../../specs/cli.md); authoring guidance is in the [drafting

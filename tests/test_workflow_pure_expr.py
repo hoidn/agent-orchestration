@@ -82,12 +82,12 @@ def test_golden_vectors_cover_every_required_operator_group() -> None:
             row.get("expected_value"),
             row.get("expected_error_code"),
         )
-        for evaluation_lane in ("runtime", "compile_time_folding")
+        for evaluation_lane in ("runtime", "constant_guidance_shared_evaluator")
         for row in _golden_vectors()
     ],
     ids=[
         f"{evaluation_lane}-{row['name']}"
-        for evaluation_lane in ("runtime", "compile_time_folding")
+        for evaluation_lane in ("runtime", "constant_guidance_shared_evaluator")
         for row in _golden_vectors()
     ],
 )
@@ -103,12 +103,12 @@ def test_evaluate_pure_expr_matches_golden_vectors(
     if evaluation_lane == "runtime":
         evaluator = pure_expr.evaluate_pure_expr
     else:
-        pure_projection = importlib.import_module(
-            "orchestrator.workflow_lisp.lowering.pure_projection"
+        result_guidance = importlib.import_module(
+            "orchestrator.workflow_lisp.result_guidance"
         )
-        # The compiler fold entry point imports this exact evaluator seam.
-        assert pure_projection.evaluate_pure_expr is pure_expr.evaluate_pure_expr
-        evaluator = pure_projection.evaluate_pure_expr
+        # Retained constant guidance imports this same checked evaluator seam.
+        assert result_guidance.evaluate_pure_expr is pure_expr.evaluate_pure_expr
+        evaluator = result_guidance.evaluate_pure_expr
 
     if expected_error_code is not None:
         with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:

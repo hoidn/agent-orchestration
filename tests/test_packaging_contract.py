@@ -300,6 +300,12 @@ compiler.resolve_module_graph = _observe_resolve_module_graph
 
     assert_selected_source(cli_provenance)
 
+    entry_path.write_text(
+        entry_path.read_text(encoding="utf-8").replace(
+            "\n      0)))", '\n      "wrong return type")))'
+        ),
+        encoding="utf-8",
+    )
     before_lsp = _workspace_snapshot(workspace)
     lsp_provenance = tmp_path / "installed-lsp-provenance.jsonl"
     process = _LspProcess(
@@ -344,7 +350,7 @@ compiler.resolve_module_graph = _observe_resolve_module_graph
             diagnostic["code"]
             for diagnostic in published["params"]["diagnostics"]
         )
-        assert "evaluated_execution_unavailable" in codes
+        assert codes == ("return_type_mismatch",)
         process.shutdown()
     finally:
         process.close()

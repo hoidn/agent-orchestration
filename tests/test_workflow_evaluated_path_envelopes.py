@@ -18,11 +18,11 @@ from tests.e2e.test_e2e_workflow_evaluated_run_ref import _compile_public
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_command_lifecycle import _InterruptedRun
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
-from tests.test_workflow_evaluated_run_ref import _assert_readonly_resumes, _authority
+from tests.test_workflow_evaluated_run_ref import _assert_readonly_resumes, _authority, _assert_retired_child_refusal
 from tests.test_workflow_evaluated_run_ref_settlement import _service_run
 from tests.workflow_evaluated_path_envelope_helpers import (
     CASES, HOMONYM, _path_names, assert_nested_path_envelope, interrupt_after, local_parent_fixture,
-    path_envelope_fixture, recorded_signature_return, settled_evidence, static_config, tamper_child_evidence,
+    path_envelope_fixture, settled_evidence, static_config, tamper_child_evidence,
 )
 from tests.workflow_evaluated_run_ref_helpers import _json_lines, _run_to_exit
 from tests.test_workflow_evaluated_providers import (
@@ -164,6 +164,9 @@ def test_public_provider_bundle_paths_name_committed_attempts_through_call_loop_
 @pytest.mark.parametrize("case", list(CASES))
 def test_public_path_child_envelope_keeps_nested_child_relative_paths(tmp_path, case):
     parent, source, refs, inputs = path_envelope_fixture(tmp_path, case)
+    if CASES[case]["child_target"] == "2.24":
+        _assert_retired_child_refusal(parent, source, refs, *inputs)
+        return
     result = _run_cli(parent, str(source), *inputs, "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
     authority, commit = assert_nested_path_envelope(case, parent, refs)
@@ -187,16 +190,19 @@ def test_public_path_refinement_uses_closed_nominal_names(tmp_path, form, child_
     refinement = static.program.return_refinement
     assert refinement == static.result_descriptor["envelope"]["fields"][0]["type"]
     assert _path_names(refinement) == {expected}
+    if child_target == "2.24":
+        _assert_retired_child_refusal(parent, source, refs, *inputs)
+        return
     result = _run_cli(parent, str(source), *inputs, "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
     _, memo, _, _, documents = settled_evidence(parent)
     assert memo.terminal.data["value"] is True
-    assert documents["child-result"]["path_compile"]["signature"]["return"] == recorded_signature_return(
-        child_target, refinement, bare_paths=form != "imported-path")
+    assert documents["child-result"]["path_compile"]["signature"]["return"] == refinement
 
 
-def test_public_legacy_child_homonymous_path_type_is_refused_at_admission(tmp_path, monkeypatch):
-    parent, source, refs, inputs = path_envelope_fixture(tmp_path, "legacy-homonym", HOMONYM)
+@pytest.mark.parametrize("child_target", ["2.24", "2.35"], ids=["retired-target", "nominal-mismatch"])
+def test_public_child_homonymous_path_type_is_refused_at_admission(tmp_path, monkeypatch, child_target):
+    parent, source, refs, inputs = path_envelope_fixture(tmp_path, "homonym", {**HOMONYM, "child_target": child_target})
     child_diagnostics = []
     real_run = subprocess.run
 
@@ -209,10 +215,11 @@ def test_public_legacy_child_homonymous_path_type_is_refused_at_admission(tmp_pa
     monkeypatch.setattr(subprocess, "run", capture)
     assert _service_run(monkeypatch, parent, source, refs, *inputs).exit_code == 1
     (diagnostic,) = child_diagnostics
-    assert (diagnostic["code"], diagnostic["secondary_causes"]) == (
-        "trial_program_signature_mismatch", ["return_type_mismatch"])
+    expected = (("trial_program_compile_rejected", ["workflow_execution_target_retired"]) if child_target == "2.24"
+                else ("trial_program_signature_mismatch", ["return_type_mismatch"]))
+    assert (diagnostic["code"], diagnostic["secondary_causes"]) == expected
     _, memo = _authority(parent)
-    assert memo.terminal.data["code"] == "trial_program_signature_mismatch" and not memo.active_commits
+    assert memo.terminal.data["code"] == expected[0] and not memo.active_commits
     (request_path,) = refs.rglob("child-request.json")
     request = json.loads(request_path.read_bytes())
     assert not (Path(request["child_state_dir"]) / request["child_run_id"]).exists()
@@ -222,6 +229,9 @@ def test_public_legacy_child_homonymous_path_type_is_refused_at_admission(tmp_pa
 @pytest.mark.parametrize("case", ["legacy-union", "evaluated-nested"])
 def test_public_resume_after_commit_or_settlement_keeps_envelope_without_child(tmp_path, monkeypatch, case, gap):
     parent, source, refs, inputs = path_envelope_fixture(tmp_path / "w", case)
+    if CASES[case]["child_target"] == "2.24":
+        _assert_retired_child_refusal(parent, source, refs, *inputs)
+        return
     authority, before = interrupt_after(monkeypatch, parent, source, refs, inputs, gap)
     (commit,) = before.active_commits.values()
     identity = commit.data["identity"]
@@ -257,6 +267,9 @@ TAMPERS = [("evaluated-nested", kind, gap) for kind in ("artifact", "missing-art
 @pytest.mark.parametrize("case,kind,gap", TAMPERS)
 def test_public_resume_refuses_tampered_path_evidence_before_reconcile_or_launch(tmp_path, monkeypatch, case, kind, gap):
     parent, source, refs, inputs = path_envelope_fixture(tmp_path, case)
+    if CASES[case]["child_target"] == "2.24":
+        _assert_retired_child_refusal(parent, source, refs, *inputs)
+        return
     interrupt_after(monkeypatch, parent, source, refs, inputs, gap)
     authority, _memo, _commit, attempt_root, documents = settled_evidence(parent)
     child_root = attempt_root / "workspace" / ".orchestrate" / "runs" / documents["child-request"]["child_run_id"]

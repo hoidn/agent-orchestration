@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.closed.build import build_closed_program
-from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, _select_and_finalize_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import PromptExtern
@@ -120,7 +120,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
         validate_shared=True,
         workspace_root=producer_root,
     )
-    bundle = producer.validated_bundles_by_name["producer::get"]
+    producer_program = _select_and_finalize_typed_program(producer.entry_result, entry_path=producer_path, entry_workflow="producer::get")
 
     consumer_root = tmp_path / "consumer"
     consumer_root.mkdir()
@@ -151,7 +151,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
             "pair-provider": "pair-provider-id",
         },
         prompt_externs={"prompt": PromptExtern(name="prompt", input_file="prompt.md")},
-        imported_workflow_bundles={"dep": bundle},
+        imported_programs={"dep": producer_program},
         workspace_root=consumer_root,
     )
     compiled = build_closed_program(typed)

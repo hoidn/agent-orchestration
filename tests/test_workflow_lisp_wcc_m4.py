@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import json
 from pathlib import Path
 
 import pytest
@@ -14,7 +13,6 @@ from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
 )
-from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.definitions import (
     elaborate_definition_module,
 )
@@ -38,12 +36,7 @@ from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body
 from orchestrator.workflow_lisp.wcc import analysis as wcc_analysis
 from orchestrator.workflow_lisp.wcc import model as wcc_model
-from orchestrator.workflow_lisp.wcc.route import (
-    DEFAULT_LOWERING_ROUTE,
-    LoweringRoute,
-    normalize_lowering_route,
-    validate_wcc_m4_route_supported,
-)
+from orchestrator.workflow_lisp.wcc.route import DEFAULT_LOWERING_ROUTE, LoweringRoute, normalize_lowering_route
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
 from orchestrator.workflow_lisp.wcc.model import (
@@ -62,7 +55,6 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccPureOp,
     WccRecJoin,
 )
-from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -91,72 +83,8 @@ def _assert_diagnostic_code(
     assert excinfo.value.diagnostics[0].code == code
 
 
-def _compile_review_loop_wcc_m4(path: Path, *, tmp_path: Path):
-    return compile_stage3_module(
-        path,
-        provider_externs={
-            "providers.review": "fake-review",
-            "providers.fix": "fake-fix",
-            "providers.execute": "fake-execute",
-            "providers.checks": "fake-checks",
-        },
-        prompt_externs={
-            "prompts.implementation.review": "prompts/implementation/review.md",
-            "prompts.implementation.fix": "prompts/implementation/fix.md",
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-            "prompts.implementation.checks": "prompts/implementation/checks.md",
-        },
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-            "validate_review_findings_v1": validate_review_findings_v1_binding(),
-        },
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
 
 
-def _certified_adapter_command_boundaries():
-    return _parse_command_boundaries_manifest(
-        {
-            "normalize_result": {
-                "kind": "certified_adapter",
-                "stable_command": ["python", "scripts/normalize_result.py"],
-                "input_contract": {"type": "object"},
-                "output_type_name": "ImplementationSummary",
-                "effects": ["structured_result"],
-                "path_safety": {"kind": "workspace_relpath"},
-                "source_map_behavior": "step",
-                "fixture_ids": ["normalize_result_ok"],
-                "negative_fixture_ids": ["normalize_result_bad"],
-                "behavior_class": "structured_result",
-                "input_signature": [
-                    {
-                        "name": "execution_report",
-                        "type_name": "WorkReport",
-                        "required": True,
-                        "transport_key": "execution_report",
-                    },
-                    {
-                        "name": "review_report",
-                        "type_name": "WorkReport",
-                        "required": True,
-                        "transport_key": "review_report",
-                    },
-                ],
-                "artifact_contracts": ["implementation_summary_report"],
-                "state_writes": [],
-                "error_codes": ["normalize_result_invalid_payload"],
-                "owner_module": "std/phase",
-                "replacement_path": "typed review findings validation bridge",
-                "invocation_protocol": "json_object_positional_arg",
-            }
-        },
-        manifest_path=None,
-    )
 
 
 def _compile_fixture(path: Path, *, tmp_path: Path):
@@ -187,31 +115,6 @@ def _skip_lets(body):
     return current
 
 
-def _walk_steps(steps):
-    for step in steps:
-        yield step
-        repeat_until = step.get("repeat_until")
-        if isinstance(repeat_until, dict):
-            nested = repeat_until.get("steps", [])
-            if isinstance(nested, list):
-                yield from _walk_steps(nested)
-        branch = step.get("if")
-        if isinstance(branch, dict):
-            for key in ("then", "else"):
-                case = branch.get(key)
-                if isinstance(case, dict):
-                    nested = case.get("steps", [])
-                    if isinstance(nested, list):
-                        yield from _walk_steps(nested)
-        match_block = step.get("match")
-        if isinstance(match_block, dict):
-            cases = match_block.get("cases", {})
-            if isinstance(cases, dict):
-                for case in cases.values():
-                    if isinstance(case, dict):
-                        nested = case.get("steps", [])
-                        if isinstance(nested, list):
-                            yield from _walk_steps(nested)
 
 
 def test_normalize_lowering_route_accepts_wcc_m4() -> None:
@@ -223,22 +126,6 @@ def test_default_lowering_route_is_wcc_m4_after_m5_flip() -> None:
     assert DEFAULT_LOWERING_ROUTE is LoweringRoute.WCC_M4
 
 
-def test_wcc_m4_route_validator_accepts_loop_recur_fixture(tmp_path: Path) -> None:
-    try:
-        compile_stage3_module(
-            VALID_FIXTURES / "loop_recur_minimal.orc",
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m4",
-        )
-    except LispFrontendCompileError as exc:
-        assert exc.diagnostics[0].code != "wcc_lowering_route_unsupported"
-    except TypeError as exc:
-        assert "LoopRecurExpr" in str(exc)
-    except AttributeError as exc:
-        assert "WccRecJoin" in str(exc)
 
 
 def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_path: Path) -> None:
@@ -303,26 +190,11 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
         entry_workflow="drain",
     )
 
-    lowered = {
-        workflow.typed_workflow.definition.name: workflow
-        for workflow in result.entry_result.lowered_workflows
-    }
-    assert "pkg/helpers::finalize" in lowered
-    assert "pkg/entry::drain" in lowered
+    workflows = result.entry_result.typed_program.workflows
+    assert "pkg/helpers::finalize" in workflows
+    assert "pkg/entry::drain" in workflows
 
 
-def test_wcc_m3_still_rejects_loop_recur_fixture(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            VALID_FIXTURES / "loop_recur_minimal.orc",
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m3",
-        )
-
-    _assert_diagnostic_code(excinfo, "wcc_lowering_route_unsupported")
 
 
 def test_wcc_m4_accepts_generic_imported_workflow_call_module_graph(
@@ -337,7 +209,7 @@ def test_wcc_m4_accepts_generic_imported_workflow_call_module_graph(
         lowering_route="wcc_m4",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
 def test_wcc_m4_pure_op_elaboration_preserves_operation_metadata(tmp_path: Path) -> None:
@@ -362,60 +234,8 @@ def test_wcc_m4_pure_op_elaboration_preserves_operation_metadata(tmp_path: Path)
     assert body.result.metadata.scope_id.startswith("wcc-scope:wcc_m4:")
 
 
-def test_wcc_m4_pure_projection_runtime_regions_emit_visible_projection_steps(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        PURE_EXPR_LOOP_COUNTER,
-        provider_externs={},
-        prompt_externs={},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    all_steps = list(_walk_steps(result.lowered_workflows[0].authored_mapping["steps"]))
-    pure_projection_steps = [step for step in all_steps if "pure_projection" in step]
-
-    assert pure_projection_steps
-    assert any(step["name"].endswith("__condition") for step in pure_projection_steps)
-    assert all(step["output_bundle"]["fields"] for step in pure_projection_steps)
 
 
-def test_wcc_m4_constant_folds_literal_only_pure_expression_without_projection_step(tmp_path: Path) -> None:
-    module_path = tmp_path / "literal_fold.orc"
-    module_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule literal_fold)",
-                "  (export fold)",
-                "  (defrecord FoldResult",
-                "    (value Int))",
-                "  (defworkflow fold () -> FoldResult",
-                "    (record FoldResult",
-                "      :value (+ 1 (+ 2 3))))",
-                ")",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        module_path,
-        provider_externs={},
-        prompt_externs={},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    steps = list(_walk_steps(result.lowered_workflows[0].authored_mapping["steps"]))
-
-    assert not any("pure_projection" in step for step in steps)
-    materialize = next(step for step in steps if "materialize_artifacts" in step)
-    assert materialize["materialize_artifacts"]["values"][0]["source"]["literal"] == 6
 
 
 def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:
@@ -1668,30 +1488,6 @@ def test_wcc_m4_provider_peer_group_closes_nested_inline_procedures(
         assert provider_performs == 1
 
 
-def test_wcc_m4_route_validator_accepts_live_provider_peer_group(
-    tmp_path: Path,
-) -> None:
-    context = _typed_provider_peer_group_wcc_context(
-        tmp_path,
-        (
-            "(defworkflow orchestrate () -> String "
-            "(with-live-provider-peers "
-            "((planner "
-            "(provider-result providers.planner "
-            ":prompt prompts.planner :inputs () :returns String)) "
-            "(reviewer "
-            "(provider-result providers.reviewer "
-            ":prompt prompts.reviewer :inputs () :returns String))) "
-            "planner))"
-        ),
-    )
-
-    validate_wcc_m4_route_supported(
-        (context["typed_workflow"],),
-        tuple(
-            context["resolved_procedures_by_name"].values()
-        ),
-    )
 
 
 def test_wcc_m4_peer_settlement_type_inference_excludes_outer_names() -> None:
@@ -1972,478 +1768,3 @@ def test_wcc_m4_target_217_keeps_v1_provider_supervision_term(
 
     assert isinstance(group, wcc_model.WccProviderSupervision)
     assert not isinstance(group, wcc_model.WccProviderPeerGroup)
-
-
-def test_wcc_m4_defunctionalizes_loop_recur_to_repeat_until(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        VALID_FIXTURES / "loop_recur_minimal.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    assert any("repeat_until" in step for step in lowered["steps"])
-
-
-def test_wcc_m4_hoists_effectful_match_arm_steps_by_structure_not_workflow_name(tmp_path: Path) -> None:
-    module_path = tmp_path / "generic_effectful_match_arm_route.orc"
-    module_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule generic_effectful_match_arm_route)",
-                "  (export run)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion Attempt",
-                "    (COMPLETED",
-                "      (report WorkReport))",
-                "    (BLOCKED",
-                "      (reason String)",
-                "      (report WorkReport)))",
-                "  (defrecord Followup",
-                "    (ok Bool)",
-                "    (report WorkReport))",
-                "  (defunion RouteResult",
-                "    (COMPLETED",
-                "      (report WorkReport))",
-                "    (BLOCKED",
-                "      (reason String)",
-                "      (report WorkReport)))",
-                "  (defworkflow run",
-                "    ((seed_report WorkReport))",
-                "    -> RouteResult",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (seed_report)",
-                "               :returns Attempt)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (let* ((followup",
-                "                  (provider-result providers.execute",
-                "                    :prompt prompts.implementation.execute",
-                "                    :inputs (completed.report)",
-                "                    :returns Followup)))",
-                "           (if followup.ok",
-                "             (variant RouteResult COMPLETED",
-                "               :report followup.report)",
-                "             (variant RouteResult COMPLETED",
-                "               :report completed.report))))",
-                "        ((BLOCKED blocked)",
-                "         (let* ((followup",
-                "                  (provider-result providers.execute",
-                "                    :prompt prompts.implementation.execute",
-                "                    :inputs (blocked.report)",
-                "                    :returns Followup)))",
-                "           (if followup.ok",
-                "             (variant RouteResult BLOCKED",
-                "               :reason blocked.reason",
-                "               :report followup.report)",
-                "             (variant RouteResult BLOCKED",
-                '               :reason "fallback"',
-                "               :report blocked.report))))))",
-                ")",
-                ")",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        module_path,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    steps = result.lowered_workflows[0].authored_mapping["steps"]
-    match_step = next(step for step in steps if "match" in step)
-    case_provider_steps = {
-        case_name: [
-            case_step
-            for case_step in case["steps"]
-            if case_step.get("provider") == "fake" and case_step["name"].endswith("__followup")
-        ]
-        for case_name, case in match_step["match"]["cases"].items()
-    }
-
-    assert set(case_provider_steps) == {"COMPLETED", "BLOCKED"}
-    assert {case_name: len(case_steps) for case_name, case_steps in case_provider_steps.items()} == {
-        "COMPLETED": 1,
-        "BLOCKED": 1,
-    }
-    assert all("when" not in step and "requires_variant" not in step for steps in case_provider_steps.values() for step in steps)
-
-
-def test_wcc_m4_loop_emitter_does_not_call_legacy_loop_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from orchestrator.workflow_lisp.lowering import control_loops
-
-    def fail_legacy_adapter(*args, **kwargs):
-        raise AssertionError("WCC M4 must not call legacy loop adapter")
-
-    monkeypatch.setattr(control_loops, "_control_lower_loop_recur_impl", fail_legacy_adapter)
-
-    result = compile_stage3_module(
-        VALID_FIXTURES / "loop_recur_minimal.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    assert any("repeat_until" in step for step in result.lowered_workflows[0].authored_mapping["steps"])
-
-
-def test_wcc_m4_loop_emitter_does_not_rebuild_frontend_loop_recur(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.workflow_lisp.lowering import control_loops
-    from orchestrator.workflow_lisp.wcc import defunctionalize
-
-    def fail_frontend_loop_recur_adapter(*args, **kwargs):
-        raise AssertionError("WCC M4 must not rebuild LoopRecurExpr for repeat_until emission")
-
-    monkeypatch.setattr(
-        control_loops,
-        "_emit_repeat_until_from_loop_recur_expr",
-        fail_frontend_loop_recur_adapter,
-    )
-    monkeypatch.setattr(
-        defunctionalize,
-        "_emit_repeat_until_from_loop_recur_expr",
-        fail_frontend_loop_recur_adapter,
-        raising=False,
-    )
-
-    result = compile_stage3_module(
-        VALID_FIXTURES / "loop_recur_minimal.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    assert any("repeat_until" in step for step in result.lowered_workflows[0].authored_mapping["steps"])
-
-
-def test_wcc_m4_defunctionalizes_typed_exhaustion_to_repeat_until_outputs(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        VALID_FIXTURES / "loop_recur_on_exhausted_union.orc",
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    repeat_step = next(
-        step for step in result.lowered_workflows[0].authored_mapping["steps"] if "repeat_until" in step
-    )
-    on_exhausted = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
-    assert on_exhausted["result__variant"] == "EXHAUSTED"
-    assert on_exhausted["result__reason"] == "max_iterations_reached"
-
-
-def test_wcc_m4_scalar_loop_result_normalizes_root_result_artifact(tmp_path: Path) -> None:
-    """A bounded loop with a root-valued result materializes `__result__`, not `return`."""
-    module_path = tmp_path / "native_loop_scalar_result.orc"
-    module_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord SummaryWithCount",
-                "    (report WorkReport)",
-                "    (count Int))",
-                "  (defrecord CounterState",
-                "    (count Int))",
-                "  (defworkflow native-loop-count",
-                "    ((report_path WorkReport))",
-                "    -> SummaryWithCount",
-                "    (let* ((total",
-                "             (loop/recur",
-                "               :max 6",
-                "               :state (record CounterState :count 0)",
-                "               (fn (state)",
-                "                 (if (< state.count 3)",
-                "                   (continue (record-update state :count (+ state.count 1)))",
-                "                   (done state.count))))))",
-                "      (record SummaryWithCount",
-                "        :report report_path",
-                "        :count total))))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        module_path,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    normalization_step = next(
-        step
-        for step in lowered["steps"]
-        if "materialize_artifacts" in step and step["name"].endswith("__total__result")
-    )
-    assert [value["name"] for value in normalization_step["materialize_artifacts"]["values"]] == [
-        "__result__"
-    ]
-
-    return_step = next(
-        step
-        for step in lowered["steps"]
-        if "materialize_artifacts" in step and step["name"].endswith("__return")
-    )
-    count_value = next(
-        value
-        for value in return_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__count"
-    )
-    assert count_value["source"] == {
-        "ref": f"root.steps.{normalization_step['name']}.artifacts.__result__"
-    }
-
-
-def test_wcc_m4_exports_specialized_stdlib_review_loop_terminal_value(tmp_path: Path) -> None:
-    result = _compile_review_loop_wcc_m4(
-        VALID_FIXTURES / "phase_stdlib_review_loop.orc",
-        tmp_path=tmp_path,
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
-    ).authored_mapping
-
-    assert any("repeat_until" in step for step in lowered["steps"])
-    assert set(lowered["outputs"]) >= {"return__variant", "return__review_report", "return__last_review_report"}
-
-
-def test_wcc_m4_full_fixture_exports_terminal_review_decision(tmp_path: Path) -> None:
-    result = _compile_review_loop_wcc_m4(
-        CHARACTERIZATION_SOURCES / "wcc_m4_implementation_phase_full_fixture.orc",
-        tmp_path=tmp_path,
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.endswith("::run")
-    ).authored_mapping
-
-    def walk_steps(steps):
-        for step in steps:
-            yield step
-            if "repeat_until" in step:
-                yield from walk_steps(step["repeat_until"].get("steps", []))
-            if "match" in step:
-                for case in step["match"].get("cases", {}).values():
-                    yield from walk_steps(case.get("steps", []))
-
-    all_steps = list(walk_steps(lowered["steps"]))
-    assert any("match" in step for step in lowered["steps"])
-    assert any(step.get("command", [])[:2] == ["python", "scripts/run_checks.py"] for step in all_steps)
-    assert any("repeat_until" in step for step in all_steps)
-    assert set(lowered["outputs"]) >= {"return__variant", "return__review_report", "return__findings__items_path"}
-
-
-def test_wcc_m4_lexical_checkpoint_extraction_exports_effect_boundary_and_loop_back_edge_points(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LEXICAL_CHECKPOINT_FIXTURE,
-        provider_externs={},
-        prompt_externs={},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
-    )
-    checkpoint_points = getattr(lowered, "lexical_checkpoint_points")
-
-    assert any(point["point_kind"] == "effect_boundary" for point in checkpoint_points)
-    assert any(point["point_kind"] == "loop_back_edge" for point in checkpoint_points)
-    assert all(
-        point["wcc_identity"]["node_id_digest"].startswith("sha256:")
-        and point["wcc_identity"]["scope_id_digest"].startswith("sha256:")
-        for point in checkpoint_points
-    )
-    assert all(
-        isinstance(point["executable_identity"]["step_id"], str) and point["executable_identity"]["step_id"]
-        for point in checkpoint_points
-    )
-
-    assert all("wcc-node:" not in point["program_point_id"] for point in checkpoint_points)
-    assert all("wcc_m4" not in point["program_point_id"] for point in checkpoint_points)
-
-
-def test_wcc_m4_lexical_checkpoint_extraction_exports_restore_eligibility_descriptors(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LEXICAL_RESTORE_FIXTURE,
-        provider_externs={},
-        prompt_externs={},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
-    )
-    checkpoint_points = getattr(lowered, "lexical_checkpoint_points")
-    restore_labels = {
-        label
-        for point in checkpoint_points
-        for label in point.get("restore", {}).get("eligibility", ())
-    }
-    points_by_step_id = {
-        point["step_id"]: point
-        for point in checkpoint_points
-    }
-    call_point = points_by_step_id["orchestrate__decision__call_choose_branch"]
-    loop_point = points_by_step_id["orchestrate__loop_result__loop"]
-    materialize_point = points_by_step_id["orchestrate__materialize_view__runtime_summary"]
-    materialize_binding_names = {
-        descriptor["binding_name"]
-        for descriptor in materialize_point["restore"]["binding_descriptors"]
-    }
-
-    assert {"pure_binding", "let_continuation", "match_branch", "loop_frame"} <= restore_labels
-    assert any(point.get("restore", {}).get("binding_descriptor_digests") for point in checkpoint_points)
-    assert any(point.get("restore", {}).get("proof_descriptor_digests") for point in checkpoint_points)
-    assert any(point.get("restore", {}).get("loop_frame_descriptor_digest") for point in checkpoint_points)
-    assert call_point["restore"]["binding_descriptor_digests"] == []
-    assert call_point["restore"]["proof_descriptor_digests"] == []
-    assert len(loop_point["restore"]["binding_descriptor_digests"]) == 2
-    assert {"selected_label", "selected_report", "summary_status"} <= materialize_binding_names
-    assert len(loop_point["restore"]["proof_descriptor_digests"]) == 2
-    assert len(materialize_point["restore"]["proof_descriptor_digests"]) == 2
-    assert all("wcc-node:" not in json.dumps(point.get("restore", {}), sort_keys=True) for point in checkpoint_points)
-    assert all("wcc_m4" not in json.dumps(point.get("restore", {}), sort_keys=True) for point in checkpoint_points)
-
-
-def test_wcc_m4_lexical_checkpoint_extraction_emits_r3_policy_envelopes_for_boundary_families(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LEXICAL_POLICY_FIXTURE,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
-    )
-    checkpoint_points = getattr(lowered, "lexical_checkpoint_points")
-    effect_policies = {
-        point["effect_boundary"]["effect_kind"]: point["effect_boundary"]["policy"]
-        for point in checkpoint_points
-        if point["point_kind"] == "effect_boundary"
-    }
-
-    assert set(effect_policies) >= {
-        "pure_projection",
-        "provider",
-        "command",
-        "call",
-        "materialize_view",
-        "resource_transition",
-    }
-    assert effect_policies["pure_projection"]["policy_kind"] == "recompute_or_reuse_checkpoint"
-    assert effect_policies["provider"]["policy_kind"] == "reuse_validated_structured_output"
-    assert effect_policies["command"]["policy_kind"] == "reuse_validated_structured_output"
-    assert effect_policies["call"]["policy_kind"] == "reuse_validated_workflow_call"
-    assert effect_policies["materialize_view"]["policy_kind"] == "preserve_durable_view"
-    assert effect_policies["resource_transition"]["policy_kind"] == "transition_idempotent_audit_required"
-    structured_output = effect_policies["provider"]["evidence_requirements"]["structured_output"]
-    assert structured_output["prompt_input_contract_digest"].startswith("sha256:")
-    workflow_call = effect_policies["call"]["evidence_requirements"]["workflow_call"]
-    assert workflow_call["target_dsl_version"] == "2.14"
-    assert workflow_call["callee_checksum"].startswith("sha256:")
-    assert all(policy["schema_version"] == "workflow_lisp_effect_resume_policy.v1" for policy in effect_policies.values())
-    assert all("wcc-node:" not in json.dumps(policy, sort_keys=True) for policy in effect_policies.values())
-
-
-def test_wcc_m4_certified_adapter_command_boundary_uses_adapter_specific_r3_policy(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        CERTIFIED_ADAPTER_FIXTURE,
-        command_boundaries=_certified_adapter_command_boundaries(),
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "normalize-summary"
-    )
-    command_point = next(
-        point
-        for point in getattr(lowered, "lexical_checkpoint_points")
-        if point["point_kind"] == "effect_boundary"
-        and point["effect_boundary"]["effect_kind"] == "command"
-    )
-    policy = command_point["effect_boundary"]["policy"]
-
-    assert policy["policy_kind"] == "certified_resume_protocol_required"
-    assert policy["unsafe_pending_behavior"] == "requires_certified_resume_protocol"
-    assert policy["evidence_requirements"]["command_resume_protocol"] == {
-        "protocol_name": "normalize_result"
-    }
-    assert policy["evidence_requirements"]["structured_output"]["declared_target_only"] is True

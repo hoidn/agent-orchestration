@@ -46,12 +46,12 @@ distinguishes implemented surfaces from proposals. The evaluated-execution
 design owns effects, identities, memo replay and coordinator settlement.
 
 The [existing delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-owns ordering: Phase 4 supplies consumer-required capabilities, Phase 5 owns
-parallel map, Phase 6b migrates maintained consumers and Phase 7 retires routes
-under decision 8. The owner requested execution of the plan on 2026-10-12;
-bounded extraction Tasks 0–4 are accepted in an isolated worktree. Tasks 5–7 retain
-that sequence and its capability, consumer and
-cutoff gates. The owner separately selected Phase 5 D1 target 2.37 on
+owns the original capability sequence. Its selected 2026-10-13 retirement
+amendment lets serial consumers already admitted at 2.35 migrate before full
+Phase 5 qualification. Finite consumer/run dispositions and gate R govern
+their cutoff and deletion; parallel best of N still belongs to Phase 5.
+Bounded extraction Tasks 0–4 are accepted. The owner separately selected
+Phase 5 D1 target 2.37 on
 2026-10-12; [checked parallel compilation/read-back](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)
 is qualified; bounded workers also have independent contract/quality PASS
 ([Task 4 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator)).
@@ -66,7 +66,7 @@ redesign of already shared provider, command, resource or run-reference services
 
 Before extraction, the evaluated route already had the desired execution model,
 but its runtime imported `workflow_lisp.closed` and compiler-owned prompt utilities. Meanwhile,
-older targets retain flat lowering, replay and state translation. Renaming
+older targets retained flat lowering, replay and state translation. Renaming
 directories alone removes neither dependency nor execution path; immediately
 deleting old code would remove supported capabilities and recovery.
 
@@ -201,7 +201,7 @@ decision. Historical features need not all be ported to complete consolidation.
 | --- | --- | --- |
 | Closed loader/checker imports | Compiler, runtime, readers and tests consume one extracted owner; wire conformance passes | Remove displaced definitions and temporary import aliases |
 | Provider IO and prompt utilities | Imported-source, bound-procedure and file-handoff cases preserve selection and evidence | Delete compiler dependencies from interpreter paths, retain compiler factories |
-| Maintained workflows and stdlib callers | Phase 6b public run/resume evidence for each consumer's required Phase 4/5 capabilities | Remove source forwarding and position-repair machinery made unnecessary |
+| Maintained workflows and stdlib callers | Public run/resume evidence for each selected consumer; the serial retirement amendment does not depend on full Phase 5 | Remove source forwarding and position-repair machinery made unnecessary |
 | Old flat new-run route | Maintained set migrated; explicit owner selection of supported targets and cutover | Disable old new-run admission; delete lowering only after the old-run support gate also passes |
 | Old executable run families | Decision 8 records a tested recovery or explicit retirement disposition per family | Remove their executor/replay/state-translation code only when support ends |
 | Historical read access | Separate report/archive contract and fixtures accepted | Keep a small read-only reader if required; this does not retain execution authority |
@@ -209,9 +209,10 @@ decision. Historical features need not all be ported to complete consolidation.
 
 For each supported old-run family, record target/profile, artifact and source
 requirements, an exact retained release and environment, recoverability proof,
-support owner and retention policy. Proposed default: recovery through that
-pinned release until the owner explicitly retires the family; no automatic
-30-day expiry. Test an interrupted representative before promising recovery,
+support owner and retention policy. The selected retirement contract retains
+recovery only for families with exact-release evidence; other families have
+explicitly retired resumability. There is no automatic 30-day expiry.
+Test an interrupted representative before promising recovery,
 including required command closures, source assets and coordinator state.
 An unrecoverable family needs explicit disposition, not an assumed upgrade.
 
@@ -271,12 +272,12 @@ affected normative owners, drafting and lifecycle guides, capability matrix,
 design index, examples and existing delivery plan. Keep historical evidence
 linked with its original scope. The companion plan owns task order and receipts.
 
-Material decisions remain explicit: the plan selects an extraction inventory
-that preserves all currently supported contracts/APIs, with a bounded
-qualification set. Broader migration coverage, supported old-run family
-dispositions, recovery retention/cutoff and new-run target retirement remain
-Tasks 5–6 gates. The
-repository-only inventory selects no retirement policy. Frontend/runtime owners
-qualify the dependency split and any separately needed format migration. Open
-decisions block their affected migration or deletion; extraction selection grants
-no waiver of existing contracts.
+The extraction inventory and qualification remain historical evidence. The
+selected [retirement contract](workflow_lisp_executor_retirement.md) now owns
+the finite consumers, old-run dispositions and cutoff. Its gate R is accepted;
+physical implementation is deleted and independently reviewed PASS.
+Retained-test migration and R3/R4/native reviews are accepted. The retirement
+closeout records second full RED with 15 classified failures and zero errors;
+final closeout review is PASS. The selected retirement is complete in the commit
+containing that closeout, with main integration recorded in its delivery receipt.
+This does not declare full Phase 5 or global Phase 6b complete.

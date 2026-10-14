@@ -161,7 +161,7 @@ def test_public_empty_and_absent_documents_differ(tmp_path, present, certified):
 
 
 def _certified_bindings(root, fields, *, names=("emit", "one", "two")):
-    from tests.test_workflow_lisp_command_adapters import _typed_adapter_manifest_payload
+    from tests.test_workflow_evaluated_command_templates import _typed_adapter_manifest_payload
 
     row = _typed_adapter_manifest_payload()["normalize_result"]
     row.update(stable_command=["python", "consumer.py"], closure=["consumer.py"], output_type_name="Value",

@@ -1,23 +1,10 @@
-"""Shared defect repairs, Task 15: a pure binding keeps its source scope where it is used.
+"""Pure bindings and specialization values keep their creation scope.
+
+Historical header parameters cover typed frontend analysis before the entry is
+executed at target 2.35. Expected values and command order are fixed lexical
+outcomes. Excluded live-provider forms must refuse before any effect executes.
 
 Plan: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md, Task 15.
-Design: docs/design/workflow_lisp_core_calculus_middle_end.md section 9 (a
-reference is valid only where its definition dominates it).
-
-Lowering keeps a pure binding as a frontend expression and resolves its free names
-where the binding is used. At every target, a binder between the definition and a use
-that spells one of those names is renamed, so the names resolve in the scope of the
-definition. Below target 2.30 a `defun` call binds its parameters in order; a
-parameter that a later argument reads is renamed, so every argument is evaluated in
-the caller's scope.
-
-An inlined procedure's specialization bindings (`bind-proc` values, `let-proc`
-captures, bound procedure references) are binders of its body too, and their values
-are pure values from the caller: a parameter, a specialization binding or a body
-binder that spells a name one of them reads is renamed.
-
-Effects are command probes (`tick`, `choose`) that append their argv to `<probe>.log`.
-Live providers are the stand-in runtime of the provider supervision end-to-end tests.
 """
 
 from __future__ import annotations
@@ -27,15 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _log, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import public_run
+from tests.test_workflow_lisp_elaborated_prefixes import _analyze_and_select_evaluated_entry, _scope_files
 from tests.test_workflow_lisp_hoisted_scope import PROBES, _outputs
-from tests.test_workflow_lisp_provider_supervision_e2e import _install_fake_provider_runtime
+from orchestrator.providers.executor import ProviderExecutor
 
 
 MODULE = """(workflow-lisp
@@ -97,13 +80,9 @@ def _outcome(
     if inputs is not None:
         input_file = root / "inputs.json"
         input_file.write_text(json.dumps(inputs), encoding="utf-8")
-    files = _public_run_files(root, probes)
-    if target == "2.35":
-        commands = json.loads(files["commands"].read_text(encoding="utf-8"))
-        for name, path in probes.items():
-            commands[name]["closure"] = [path.name]
-        files["commands"].write_text(json.dumps(commands), encoding="utf-8")
-    result = _public_run(files, input_file=input_file)
+    files = _scope_files(root, probes)
+    _analyze_and_select_evaluated_entry(root)
+    result = public_run(files, input_file=input_file)
     return result.exit_code, dict(result.workflow_outputs or {}), _log(probes["tick"]), _log(probes["choose"])
 
 
@@ -470,17 +449,9 @@ LIVE_PROVIDERS = """(let* ((worker 1) (v (+ worker 1)))
         v))"""
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "not repaired: a provider supervision member binds its name in the settlement body over "
-        "a pure binding that reads the same name; refused in lowering with "
-        "pure_expr_operand_type_mismatch (task-15 review, finding 2)"
-    ),
-)
 @pytest.mark.parametrize("target", ["2.16", "2.33"])
-def test_a_live_provider_member_does_not_capture_a_pure_binding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+def test_live_provider_scope_is_refused_before_any_effect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, target: str
 ) -> None:
     probes = {name: _write_probe(tmp_path, name, text) for name, text in PROBES.items()}
     source = MODULE.replace("TARGET", target).replace("RETURNS", "Int").replace("BODY", LIVE_PROVIDERS)
@@ -488,12 +459,18 @@ def test_a_live_provider_member_does_not_capture_a_pure_binding(
         source = source.replace(name.upper(), path.as_posix())
     _write_sources(tmp_path, {"grt/entry.orc": source})
     (tmp_path / "grt" / "prompt.md").write_text("review\n", encoding="utf-8")
-    files = _public_run_files(tmp_path, probes)
+    files = _scope_files(tmp_path, probes)
     providers = {"providers.worker": "codex", "providers.supervisor": "supervisor-provider"}
     files["providers"].write_text(json.dumps(providers), encoding="utf-8")
     files["prompts"].write_text(json.dumps({f"prompts.{name}": "prompt.md" for name in ("worker", "supervisor")}), encoding="utf-8")
-    _install_fake_provider_runtime(monkeypatch)
+    _analyze_and_select_evaluated_entry(
+        tmp_path, provider_externs=providers,
+        prompt_externs={f"prompts.{name}": (tmp_path / "grt" / "prompt.md").as_posix() for name in ("worker", "supervisor")},
+    )
+    monkeypatch.setattr(ProviderExecutor, "execute", lambda *_args, **_kwargs: pytest.fail("provider effect ran before refusal"))
     monkeypatch.chdir(tmp_path)
-    result = _public_run(files)
+    result = public_run(files)
 
-    assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"__result__": 2})
+    assert (result.exit_code, dict(result.workflow_outputs or {})) == (2, {})
+    assert "[closed_program_gap]" in caplog.text
+    assert _log(probes["tick"]) == _log(probes["choose"]) == []

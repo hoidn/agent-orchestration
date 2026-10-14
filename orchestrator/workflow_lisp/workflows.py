@@ -101,7 +101,6 @@ from .typecheck import (
 if TYPE_CHECKING:
     from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
     from .functions import FunctionCatalog, TypedFunctionDef
-    from .lowering import LoweredWorkflow
     from .procedures import TypedProcedureDef
     from .modules import LinkedModuleGraph, ModuleImportScope
 
@@ -441,7 +440,7 @@ class ExpressionCompileContext:
 
 @dataclass(frozen=True)
 class Stage3CompileResult:
-    """Compiled module result after typecheck, lowering, and shared validation."""
+    """Typed module result with retained source and configuration evidence."""
 
     module: WorkflowLispModule
     workflow_catalog: WorkflowCatalog
@@ -450,8 +449,6 @@ class Stage3CompileResult:
     command_boundary_environment: CommandBoundaryEnvironment
     typed_procedures: tuple["TypedProcedureDef", ...]
     typed_workflows: tuple[TypedWorkflowDef, ...]
-    lowered_workflows: tuple["LoweredWorkflow", ...]
-    validated_bundles: Mapping[str, "LoadedWorkflowBundle"]
     prompt_catalog: object | None = None
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     validation_profile: object | None = None
@@ -884,7 +881,7 @@ def build_workflow_catalog(
     definitions_by_name: dict[str, WorkflowDef] = {}
     diagnostics: list[LispFrontendDiagnostic] = []
     for imported_name, program in (imported_programs or {}).items():
-        if imported_name in signatures_by_name or imported_name in imported_workflow_bundles:
+        if imported_name in signatures_by_name or imported_name in (imported_workflow_bundles or {}):
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="workflow_definition_duplicate",
@@ -1890,9 +1887,10 @@ def _signature_from_imported_typed_program(
     """Resolve a caller-view signature from an admitted retained typed body."""
 
     from .contracts import derive_workflow_signature_contracts
+    from .closed.frontend import _workflow_import_boundary_signature
 
     native_workflow = program.entry
-    native_signature = native_workflow.signature
+    native_signature = _workflow_import_boundary_signature(program, native_workflow)
     producer_env = program._workflow_type_env_with_retained_nominal_names(
         native_workflow.definition.name
     )

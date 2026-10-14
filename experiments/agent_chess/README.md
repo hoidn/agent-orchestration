@@ -2,15 +2,22 @@
 
 This target-2.36 workflow sends one shared text value to White, then sends
 White's returned text to Black. Each configured round calls both agents in
-that order. The initial value and each accepted provider result overwrite the
-same caller-selected Markdown file; the workflow returns Black's final string.
-The String contains the position, full move history, and public messages. The
-provider result contract requires a JSON string at the root.
+that order. The text contains the position, full move history, and public
+messages.
+
+Each agent returns a `MoveOutcome`: `Moved` with the updated text, or
+`Blocked` with a reason when it cannot move. The initial value and each `Moved`
+position overwrite the same caller-selected Markdown file. A `Blocked` result
+is committed like any other and ends the game at once; the runtime does not
+retry it. The workflow returns a `GameOutcome`: `Finished` with Black's final
+position, or `Blocked` with the side (`"White"` or `"Black"`) and its reason.
+The prompts describe only the move; the runtime renders how to deliver the
+result.
 
 The workflow defaults to 100 rounds. Omit the `rounds` input for that
 default budget; set it to a smaller value for a short game or smoke run. It does
-not check move legality, adjudicate the game, detect checkmate or draws, or
-stop early when a game ends.
+not check move legality, adjudicate the game, or detect checkmate or draws; it
+stops early only when an agent returns `Blocked`.
 
 `providers.black` uses the existing `claude_unrestricted_workspace` profile so
 Claude can write its result bundle in the attempt directory. Use it only in a

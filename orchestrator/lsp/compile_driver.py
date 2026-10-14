@@ -826,7 +826,6 @@ class LspCompileDriver:
             prompt_externs_path=paths.prompt_externs_path,
             imported_workflow_bundles_path=paths.imported_workflow_bundles_path,
             command_boundaries_path=paths.command_boundaries_path,
-            emit_debug_yaml=False,
             workspace_root=self.state.workspace_root,
             lint_profile=self.state.options.lint_profile,
             lowering_route=self.state.options.lowering_route,

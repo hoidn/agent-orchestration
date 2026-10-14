@@ -13,7 +13,6 @@ from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.contracts.closed_program.names import canonical_run_ref_signature
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow.assets import WorkflowAssetResolver
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import PromptExtern
@@ -201,65 +200,6 @@ def test_selected_workflow_reference_body_uses_its_exact_provider_owner(
     assert digests[0] == digests[1]
 
 
-def test_imported_provider_body_keeps_its_extern_scope_when_caller_conflicts(
-    tmp_path: Path,
-) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
-      (defmodule cp/producer) (export run)
-      (defworkflow run () -> Int
-        (provider-result shared-provider :prompt shared-prompt :inputs () :returns Int)))'''
-    owner = tmp_path / "owner"
-    path = install(owner, source)
-    compiled = compile_stage3_entrypoint(
-        path,
-        source_roots=(owner,),
-        workspace_root=owner,
-        command_boundaries={},
-        provider_externs={"shared-provider": "producer-id"},
-        prompt_externs={"shared-prompt": {"asset_file": "producer.md"}},
-        validate_shared=True,
-    )
-    bundle = compiled.validated_bundles_by_name["cp/producer::run"]
-    path.unlink()
-
-    caller = tmp_path / "caller"
-    path = install(
-        caller,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
-          (defmodule caller) (export run)
-          (defworkflow run () -> Int (call dep)))''',
-    )
-    typed = compile_typed_program(
-        path,
-        entry_workflow="run",
-        source_roots=(caller,),
-        workspace_root=caller,
-        command_boundaries={},
-        provider_externs={"shared-provider": "caller-id"},
-        prompt_externs={"shared-prompt": {"input_file": "caller.md"}},
-        imported_workflow_bundles={"dep": bundle},
-    )
-    path.unlink()
-
-    closed = _build_source_free(typed)
-    definition = closed.tree["definitions"]["workflow:cp/producer::run"]
-    selected_scope = closed.tree["configuration"]["imports"][definition["configuration"]]
-    assert selected_scope["providers"]["shared-provider"] == {"provider_id": "producer-id"}
-    assert selected_scope["prompts"]["shared-prompt"] == {
-        "source_kind": "asset_file",
-        "path": "producer.md",
-        "asset_base": "cp",
-    }
-    assert closed.tree["configuration"]["providers"]["shared-provider"] == {
-        "provider_id": "caller-id"
-    }
-    (provider,) = _provider_nodes(definition["body"])
-    assert provider["provider"] == "producer-id"
-    assert provider["prompt"] == {
-        "source_kind": "asset_file",
-        "path": "producer.md",
-        "asset_base": "cp",
-    }
 
 
 def test_imported_nominals_keep_variant_contract_placement_for_commands_and_providers(
@@ -1467,95 +1407,6 @@ _PURE_LOCAL_CAPTURE_ONCE = '''(workflow-lisp
         (let* ((hook (proc-ref saved))) (hook selected.value))))))'''
 
 
-@pytest.mark.parametrize("source_route", ("native-2.35", "imported-2.34"))
-@pytest.mark.parametrize("effect_kind", ("run_ref", "command", "provider"))
-def test_pure_inline_capture_evaluates_each_effectful_source_once(
-    tmp_path: Path,
-    source_route: str,
-    effect_kind: str,
-) -> None:
-    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-
-    effects = {
-        "run_ref": '''(run-ref
-          :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567")
-          :program (:path "child.orc" :entry child) :inputs (:n 1) :returns Int
-          :policy (:environment :deterministic-effect-free :setup ()))''',
-        "command": '(command-result tool :argv ("python" "tool.py") :returns Box)',
-        "provider": '(provider-result provider :prompt prompt :inputs () :returns Box)',
-    }
-    source = _PURE_LOCAL_CAPTURE_ONCE.replace("EFFECT", effects[effect_kind]).replace(
-        "BOX_RECORD",
-        "(defrecord Box (value Int))" if effect_kind != "run_ref" else "",
-    )
-    owner = tmp_path / "owner"
-    source_target = "2.34" if source_route == "imported-2.34" else TARGET
-    path = install(owner, source.replace("TARGET", source_target))
-    (owner / "tool.py").write_text("raise RuntimeError('compile only')\n", encoding="utf-8")
-    boundaries = {
-        "tool": ExternalToolBinding(
-            name="tool",
-            stable_command=("python", "tool.py"),
-            closure=("tool.py",),
-        )
-    }
-    compile_inputs = {
-        "source_roots": (owner,),
-        "workspace_root": owner,
-        "command_boundaries": boundaries,
-        "provider_externs": {"provider": "selected-provider"},
-        "prompt_externs": {"prompt": {"input_file": "prompts/source.md"}},
-    }
-    if source_route == "native-2.35":
-        typed = compile_typed_program(
-            path,
-            entry_workflow="entry",
-            **compile_inputs,
-        )
-    else:
-        native = compile_stage3_entrypoint(
-            path,
-            validate_shared=True,
-            **compile_inputs,
-        )
-        bundle = native.validated_bundles_by_name["entry::entry"]
-        caller = tmp_path / "caller"
-        consumer = install(
-            caller,
-            '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
-              (defmodule consumer) (export run)
-              (defworkflow run ((flag Bool)) -> Int (call dep :flag flag)))''',
-        )
-        typed = compile_typed_program(
-            consumer,
-            entry_workflow="run",
-            source_roots=(caller,),
-            workspace_root=caller,
-            command_boundaries={},
-            imported_workflow_bundles={"dep": bundle},
-        )
-        consumer.unlink()
-    for authored in owner.rglob("*.orc"):
-        authored.unlink()
-
-    closed = _build_source_free(typed)
-    bodies = [closed.tree["body"], *(row["body"] for row in closed.tree["definitions"].values())]
-    selected_effects = [
-        node
-        for body in bodies
-        for node in _ast_nodes(body)
-        if node.get("k") == "perform"
-    ]
-    assert len(selected_effects) == len(closed.sites) == 1
-    assert selected_effects[0]["class"] == effect_kind
-
-    captured_values = [
-        node
-        for value in bodies
-        for node in _ast_nodes(value)
-        if node.get("k") == "field" and node.get("path") == ["value"]
-    ]
-    assert len(captured_values) >= 3
 
 
 _SELECTED_RUN_REF_ALIAS = '''(workflow-lisp

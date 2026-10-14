@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import re
-import shutil
 from statistics import median
 from typing import Any, Mapping
 
@@ -18,11 +17,6 @@ from orchestrator.workflow.adjudication import (
     scorer_identity_hash,
     select_candidate,
 )
-from orchestrator.workflow.pure_result_replay import (
-    PureReplayVisitWitness,
-    build_pure_completion_shell,
-    validate_pure_completion_shell,
-)
 from orchestrator.workflow.run_ref.contracts import (
     RepositoryRevisionId,
     SetupPolicy,
@@ -30,30 +24,10 @@ from orchestrator.workflow.run_ref.contracts import (
     canonical_json_bytes,
     canonical_sha256,
 )
-from orchestrator.workflow.run_ref.delta import (
-    DeclaredArtifact,
-    build_workspace_delta,
-    validate_workspace_delta,
-)
-from orchestrator.workflow.run_ref.ledger import (
-    RunRefAttemptBindings,
-    RunRefVisitKey,
-    advance_attempt,
-    allocate_attempt,
-    identify_incomplete_attempt,
-    load_attempt_ledger,
-    reconcile_pending_parent_commit,
-    record_discarded_attempt,
-    select_committed_reuse,
-    settled_result_binding,
-)
-from orchestrator.workflow.run_ref.result_contract import (
-    is_transportable_type_descriptor,
-)
+from orchestrator.workflow.run_ref.delta import DeclaredArtifact, build_workspace_delta
+from orchestrator.workflow.run_ref.ledger import RunRefAttemptBindings
 from orchestrator.workflow.run_ref.runtime import build_run_ref_accounting
 from orchestrator.workflow.run_ref.workspace import TreeManifest, freeze_tree
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
 class _TrialFeasibilityError(ValueError):
@@ -75,13 +49,6 @@ class _BlindCell:
     failure: Mapping[str, Any] | None = None
 
 
-@dataclass(frozen=True)
-class _DurableCellFact:
-    arm_id: str
-    rep: int
-    attempt_ordinal: int
-    settlement_digest: str
-    score: float
 
 
 @dataclass(frozen=True)
@@ -360,14 +327,6 @@ def _mapping_keys_and_scalar_values(value: Any) -> tuple[set[str], set[Any]]:
     return keys, scalars
 
 
-def _visit(label: str) -> RunRefVisitKey:
-    return RunRefVisitKey(
-        parent_run_id="trial-parent",
-        execution_frame_id="root",
-        call_frame_id=None,
-        step_id=f"root.{label}",
-        visit_count=1,
-    )
 
 
 def _bindings(tmp_path: Path, label: str, *, ordinal: int = 1) -> RunRefAttemptBindings:
@@ -400,123 +359,14 @@ _LAUNCH_TRANSITIONS = (
 )
 
 
-def _settlement_transitions(
-    authority: _EvidenceAuthority,
-) -> tuple[tuple[str, dict[str, str]], ...]:
-    envelope = authority.envelope
-    accounting = envelope["accounting"]
-    return (
-        *_LAUNCH_TRANSITIONS,
-        (
-            "child_completed",
-            {
-                "child_terminal_state_digest": canonical_sha256(
-                    {
-                        "child_run_id": accounting["child_run_id"],
-                        "status": "completed",
-                    }
-                ),
-                "result_payload_digest": canonical_sha256(envelope["value"]),
-            },
-        ),
-        (
-            "delta_captured",
-            {
-                "workspace_delta_digest": canonical_sha256(
-                    envelope["workspace_delta"]
-                ),
-                "accounting_digest": canonical_sha256(accounting),
-                "evidence_manifest_digest": canonical_sha256(envelope),
-            },
-        ),
-        ("completed_pending_parent_commit", {}),
-    )
 
 
-def _advance_transitions(
-    path: Path,
-    *,
-    visit: RunRefVisitKey,
-    ordinal: int,
-    transitions: tuple[tuple[str, dict[str, str]], ...],
-):
-    row = None
-    for stage, updates in transitions:
-        row = advance_attempt(
-            path,
-            visit=visit,
-            attempt_ordinal=ordinal,
-            stage=stage,
-            binding_updates=updates,
-        )
-    assert row is not None
-    return row
 
 
-def _authority_validator(authority: _EvidenceAuthority):
-    envelope = authority.envelope
-
-    def validate(row) -> None:
-        validate_workspace_delta(
-            envelope["workspace_delta"],
-            expected_digest=row.bindings.workspace_delta_digest,
-            base=authority.base,
-            baseline_root=authority.baseline_root,
-            baseline_manifest=authority.baseline_manifest,
-            workspace_root=authority.workspace_root,
-            declared_artifacts=authority.declared_artifacts,
-        )
-        accounting = envelope["accounting"]
-        assert accounting == build_run_ref_accounting(**accounting)
-        assert row.bindings.accounting_digest == canonical_sha256(accounting)
-        assert row.bindings.result_payload_digest == canonical_sha256(
-            envelope["value"]
-        )
-        assert row.bindings.evidence_manifest_digest == canonical_sha256(envelope)
-
-    return validate
 
 
-def _settle(
-    path: Path,
-    *,
-    visit: RunRefVisitKey,
-    bindings: RunRefAttemptBindings,
-):
-    allocated = allocate_attempt(path, visit=visit, bindings=bindings)
-    authority = _build_e1_envelope_authority(
-        bindings.run_ref_root.parent.parent,
-        label=visit.step_id.replace(".", "-"),
-        bindings=bindings,
-        ordinal=allocated.attempt_ordinal,
-    )
-    pending = _advance_transitions(
-        path,
-        visit=visit,
-        ordinal=allocated.attempt_ordinal,
-        transitions=_settlement_transitions(authority),
-    )
-    settlement = settled_result_binding(pending)
-    committed = reconcile_pending_parent_commit(
-        path,
-        settled_result=settlement,
-        current_step_config_digest=bindings.step_config_digest,
-        validate_bound_authority=_authority_validator(authority),
-    )
-    return settlement, committed, authority
 
 
-def _transient_view(facts: tuple[_DurableCellFact, ...]) -> dict[str, Any]:
-    authored_order = tuple(dict.fromkeys(fact.arm_id for fact in facts))
-    return {
-        "authored_order": authored_order,
-        "medians": {
-            arm_id: median(
-                fact.score for fact in facts if fact.arm_id == arm_id
-            )
-            for arm_id in authored_order
-        },
-    }
 
 
 def test_whole_run_evidence_composes_with_neutral_scoring_without_identity_leaks(
@@ -762,247 +612,3 @@ def test_existing_single_winner_selection_is_not_trial_aggregation() -> None:
 
     assert legacy.selected_candidate_id == "opaque-a1"
     assert max(trial_medians, key=trial_medians.__getitem__) == "arm-b"
-
-
-def test_trial_durable_fact_model_fits_clean_and_crash_resume_without_memo(
-    tmp_path: Path,
-) -> None:
-    clean_a_path = tmp_path / "clean-a.jsonl"
-    clean_b_path = tmp_path / "clean-b.jsonl"
-    clean_a_binding = _bindings(tmp_path, "clean-a")
-    clean_b_binding = _bindings(tmp_path, "clean-b")
-    clean_a_settlement, _, _ = _settle(
-        clean_a_path,
-        visit=_visit("clean-a"),
-        bindings=clean_a_binding,
-    )
-    clean_b_settlement, _, _ = _settle(
-        clean_b_path,
-        visit=_visit("clean-b"),
-        bindings=clean_b_binding,
-    )
-
-    resumed_a_path = tmp_path / "resumed-a.jsonl"
-    resumed_b_path = tmp_path / "resumed-b.jsonl"
-    resumed_a_binding = _bindings(tmp_path, "resumed-a")
-    resumed_b_binding = _bindings(tmp_path, "resumed-b")
-    resumed_a_settlement, _, resumed_a_authority = _settle(
-        resumed_a_path,
-        visit=_visit("resumed-a"),
-        bindings=resumed_a_binding,
-    )
-    a_bytes_before_reuse = resumed_a_path.read_bytes()
-    reused_a = select_committed_reuse(
-        resumed_a_path,
-        settled_result=resumed_a_settlement,
-        current_step_config_digest=resumed_a_binding.step_config_digest,
-        validate_bound_authority=_authority_validator(resumed_a_authority),
-    )
-    assert reused_a.attempt_ordinal == 1
-    assert resumed_a_path.read_bytes() == a_bytes_before_reuse
-    assert sum(
-        row.stage == "launched" and row.status == "in_progress"
-        for row in load_attempt_ledger(resumed_a_path).rows
-    ) == 1
-
-    resumed_b_visit = _visit("resumed-b")
-    first = allocate_attempt(
-        resumed_b_path,
-        visit=resumed_b_visit,
-        bindings=resumed_b_binding,
-    )
-    resumed_b_binding.workspace_path.mkdir(parents=True)
-    (resumed_b_binding.workspace_path / "incident.txt").write_text(
-        "launched then interrupted\n",
-        encoding="utf-8",
-    )
-    _advance_transitions(
-        resumed_b_path,
-        visit=resumed_b_visit,
-        ordinal=first.attempt_ordinal,
-        transitions=_LAUNCH_TRANSITIONS,
-    )
-    incomplete = identify_incomplete_attempt(
-        resumed_b_path,
-        visit=resumed_b_visit,
-        current_step_config_digest=resumed_b_binding.step_config_digest,
-    )
-    assert incomplete is not None and incomplete.stage == "launched"
-    assert resumed_b_binding.workspace_path.is_dir()
-    assert sum(
-        row.stage == "launched" and row.status == "in_progress"
-        for row in load_attempt_ledger(resumed_b_path).rows
-    ) == 1
-    shutil.rmtree(resumed_b_binding.workspace_path)
-    assert not resumed_b_binding.workspace_path.exists()
-    record_discarded_attempt(
-        resumed_b_path,
-        visit=resumed_b_visit,
-        attempt_ordinal=1,
-        workspace_path=resumed_b_binding.workspace_path,
-        disposition_digest=_digest("1"),
-    )
-    retry_binding = replace(
-        resumed_b_binding,
-        workspace_path=(
-            resumed_b_binding.run_ref_root / "runs" / "resumed-b" / "2" / "workspace"
-        ),
-        child_run_id="trial-parent--resumed-b--2",
-    )
-    retry = allocate_attempt(
-        resumed_b_path,
-        visit=resumed_b_visit,
-        bindings=retry_binding,
-    )
-    assert retry.attempt_ordinal == 2
-    resumed_b_authority = _build_e1_envelope_authority(
-        tmp_path,
-        label="resumed-b-retry",
-        bindings=retry_binding,
-        ordinal=2,
-    )
-    pending = _advance_transitions(
-        resumed_b_path,
-        visit=resumed_b_visit,
-        ordinal=2,
-        transitions=_settlement_transitions(resumed_b_authority),
-    )
-    resumed_b_settlement = settled_result_binding(pending)
-    reconcile_pending_parent_commit(
-        resumed_b_path,
-        settled_result=resumed_b_settlement,
-        current_step_config_digest=retry_binding.step_config_digest,
-        validate_bound_authority=_authority_validator(resumed_b_authority),
-    )
-
-    clean_facts = (
-        _DurableCellFact("a", 1, 1, clean_a_settlement.pending_row_digest, 0.7),
-        _DurableCellFact("b", 1, 1, clean_b_settlement.pending_row_digest, 0.6),
-    )
-    resumed_facts = (
-        _DurableCellFact("a", 1, 1, resumed_a_settlement.pending_row_digest, 0.7),
-        _DurableCellFact("b", 1, 2, resumed_b_settlement.pending_row_digest, 0.6),
-    )
-    assert _transient_view(clean_facts) == _transient_view(resumed_facts)
-    forbidden_derived_keys = {
-        "authored_order",
-        "median",
-        "ranking",
-        "cache",
-        "memo",
-        "memo_key",
-        "derived_value",
-    }
-    durable_keys, _ = _mapping_keys_and_scalar_values(
-        [asdict(fact) for fact in resumed_facts]
-    )
-    assert durable_keys.isdisjoint(forbidden_derived_keys)
-    resumed_b_rows = load_attempt_ledger(resumed_b_path).rows
-    assert any(row.attempt_ordinal == 1 and row.status == "discarded" for row in resumed_b_rows)
-    assert any(row.attempt_ordinal == 2 and row.status == "committed" for row in resumed_b_rows)
-    assert sum(
-        row.stage == "launched" and row.status == "in_progress"
-        for row in resumed_b_rows
-    ) == 2
-
-    witness = PureReplayVisitWitness(
-        presentation_key="trial-score-view",
-        step_index=1,
-        step_id="root.trial-score-view",
-        visit_count=1,
-    )
-    shell = build_pure_completion_shell(witness)
-    validate_pure_completion_shell(shell, witness=witness)
-    shell_keys, _ = _mapping_keys_and_scalar_values(shell)
-    assert shell_keys.isdisjoint(
-        forbidden_derived_keys | {"value", "result", "output", "outputs"}
-    )
-
-
-@pytest.mark.parametrize(
-    ("definition", "name", "descriptor"),
-    (
-        (
-            ("  (defrecord NestedPayload", "    (value String))"),
-            "NestedPayload",
-            {
-                "kind": "record",
-                "name": "NestedPayload",
-                "fields": [
-                    {
-                        "name": "value",
-                        "type": {"kind": "primitive", "name": "String"},
-                    }
-                ],
-            },
-        ),
-        (
-            (
-                "  (defunion NestedPayload",
-                "    (VALUE",
-                "      (value String)))",
-            ),
-            "NestedPayload",
-            {
-                "kind": "union",
-                "name": "NestedPayload",
-                "variants": [
-                    {
-                        "name": "VALUE",
-                        "fields": [
-                            {
-                                "name": "value",
-                                "type": {"kind": "primitive", "name": "String"},
-                            }
-                        ],
-                    }
-                ],
-            },
-        ),
-    ),
-)
-def test_target_224_rejects_record_and_union_elements_below_list(
-    tmp_path: Path,
-    definition: tuple[str, ...],
-    name: str,
-    descriptor: dict[str, Any],
-) -> None:
-    workflow_path = tmp_path / "nested_transport_rejection.orc"
-    workflow_path.write_text(
-        "\n".join(
-            (
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.24")',
-                *definition,
-                "  (defrecord InvalidResult",
-                f"    (payloads List[{name}]))",
-                "  (defrecord WorkflowOutput",
-                "    (report String))",
-                "  (defworkflow orchestrate",
-                "    ()",
-                "    -> WorkflowOutput",
-                "    (let* ((result",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.execute",
-                "               :inputs ()",
-                "               :returns InvalidResult)))",
-                '      (record WorkflowOutput :report "ok"))))',
-            )
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            workflow_path,
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.execute": "prompts/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == "collection_element_type_unsupported"
-    assert not is_transportable_type_descriptor(
-        {"kind": "list", "item": descriptor}
-    )

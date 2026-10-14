@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Title:** Provider result delivery rendering, versioned replay, and a typed channel for inability
-- **Status:** draft
+- **Status:** implemented on 2026-10-13; execution record in the [closeout](../reports/2026-10-13-provider-result-delivery-closeout.md)
 - **Kind:** clarification and operational design
 - **Owner:** evaluated runtime and prompt-contract maintainers
 - **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
@@ -17,7 +17,17 @@
   [executor retirement](workflow_lisp_executor_retirement.md),
   `specs/providers.md`, `specs/io.md`, `specs/state.md`;
   plan: [provider result delivery plan](../plans/2026-10-13-provider-result-delivery-plan.md)
-- **Implementation target:** evaluated targets 2.35 and later; no new target. Targets through 2.34 keep their composed prompts byte for byte.
+- **Implementation target:** admitted evaluated targets 2.35 and later; no new target or admission change. The original through-2.34 byte comparison is historical qualification.
+
+Execution scope after integration with [executor retirement](workflow_lisp_executor_retirement.md):
+[the CLI cutoff](../../specs/cli.md#executable-support-boundary) rejects executable
+entries through 2.34 and old-profile resume/invalidation. The original flat-route
+comparisons and goals below refer to their pre-retirement release or retained
+byte snapshots; they do not require a live flat executor in this package.
+`legacy` rendering remains for replay of earlier evaluated effects and OMP
+integration. The shared `orchestrator/workflow/prompting.py` composer remains
+available; preserving its rendering contract is distinct from admitting flat
+execution. Original qualification results remain in the linked closeout.
 
 ## Summary
 
@@ -39,7 +49,8 @@ rendering a committed effect used, so that resume replays it without a false
 `effect_input_diverged`; surfaces the agent's reply in the missing-result
 diagnostic; and gives authors a typed way to say "I cannot" instead of
 withholding the file. Authored prompts stop carrying transport instructions.
-The flat route is untouched.
+The original delivery change preserved flat-route composition bytes; that
+pre-retirement comparison remains historical evidence, not current execution support.
 
 ## Context And Authority
 
@@ -63,7 +74,9 @@ The flat route is untouched.
   and `render_variant_output_contract_block` (tagged unions). All three carry
   the conditional sentence and the unconditional `_RELPATH_GUIDANCE` line.
   Two callers share them: `orchestrator/workflow/evaluated/prompts.py`
-  (evaluated route) and `orchestrator/workflow/prompting.py` (flat route).
+  (evaluated route) and the retained shared `orchestrator/workflow/prompting.py`
+  composer. Its original flat-executor caller is retired; shared composition
+  checks do not require that executor.
 - No test asserts the block's wording (repository rule: no tests of prompt
   phrasing). `tests/test_prompt_contract.py` and
   `tests/test_prompt_contract_injection.py` test structure and injection.
@@ -72,7 +85,8 @@ The flat route is untouched.
   prose, and each guidance line in a rendered block is tracked debt that
   should name the missing mechanism.
 - The [executor retirement design](workflow_lisp_executor_retirement.md)
-  schedules the flat route for deletion. This design adds nothing to it.
+  governs the selected executable cutoff and deletion. This design adds no
+  executor port or exception to it.
 
 ## Problem
 
@@ -117,7 +131,9 @@ Goals:
 3. A run that committed provider effects under an earlier rendering resumes
    with those effects reused, never redispatched, and never refused for the
    rendering difference alone.
-4. Targets through 2.34 compose byte-identical prompts before and after.
+4. Original qualification: through-2.34 flat composition bytes remain
+   identical in the retained-release comparison or stored byte oracles.
+   Current checks preserve shared/`legacy` rendering without old execution.
 5. A `provider_result_missing` failure names what the agent returned instead,
    without materializing it as a result.
 6. Authors have a documented typed shape for a step that may be unable to
@@ -132,7 +148,7 @@ Non-goals:
   provider input part, or the run header.
 - Rendering changes for the flat route or for `expected_outputs` output
   positions; neither carries the conditional sentence's defect in the
-  observed failures, and the flat route is being retired.
+  observed failures; the flat executable route is retired.
 - A new provider transport, a prompt-position experiment beyond the measured
   variant named in §Open Questions, or any retry policy change.
 
@@ -142,10 +158,12 @@ Render the delivery instruction for the transport the runtime selected, and
 version that rendering per committed effect.
 
 - The three structured-result renderers take a `delivery` selector. `legacy`
-  reproduces today's text exactly and is the default, used by the flat route.
-  `file` renders the evaluated route's block: the write action and the path
-  first, the environment variable as the same target, the statement that a
-  reply does not deliver, then the schema. The relpath guidance is rendered
+  reproduces the pre-change text exactly and remains the default for shared
+  callers, earlier evaluated-effect replay and OMP integration.
+  `file` renders the evaluated route's block: the write action first,
+  pointing at the `- path:` line (the path itself appears exactly once in the
+  prompt, rule R3 of the evaluated design), the environment variable as the
+  same target, the statement that a reply does not deliver, then the schema. The relpath guidance is rendered
   under `file` only when the contract's schema contains a `relpath` type.
 - The evaluated route records the rendering it used as a provider input part,
   `delivery`, whose value is the canonical digest of the rendering name
@@ -155,8 +173,10 @@ version that rendering per committed effect.
   selector, `file/1`.
 - The `provider_result_missing` message carries a bounded excerpt of the
   attempt's `stdout.txt` (first 240 characters, whitespace collapsed) after
-  the path. The memo row shape is unchanged: the excerpt is inside the
-  existing `exit_info.error` string.
+  the path. The memo `failed` row is unchanged (`specs/state.md` fixes its
+  `exit_info` as `{}` for this code); the excerpt travels in the failure
+  message, which reaches the failed terminal row's `message`, the view's
+  `error.message` and `report`.
 - Authors express inability with a tagged union result; the drafting guide
   documents the shape and the chess workflow adopts it. Authored prompts drop
   transport paragraphs.
@@ -199,12 +219,12 @@ is owned by the renderer and is not a test oracle):
 
 ```text
 ## Output Contract
-Write one JSON value to this file, then stop:
-  .orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/result.json
+Write one JSON value to the file on the `- path:` line below, then stop.
 Create it with a file-writing or shell tool before you finish. The
 environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file.
 Returning the value in your reply does not deliver it.
-- format: JSON value
+- path: .orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/result.json
+  format: JSON value
   type: string
 ```
 
@@ -213,9 +233,10 @@ the opening sentences change. The `- path:` line remains the attempt's
 workspace-relative `result.json` (R3). The relpath guidance line is appended
 only when the schema spec, walked recursively, contains a `relpath` type.
 
-`delivery="legacy"` returns today's text. The flat route caller
-(`orchestrator/workflow/prompting.py`) is not modified and therefore composes
-identical bytes.
+`delivery="legacy"` returns the pre-change text. The retained shared composer
+(`orchestrator/workflow/prompting.py`) uses the renderer's default and preserves
+those bytes. This remains a valid shared-composer check; it does not compile,
+run or resume a retired flat entry.
 
 ### Identity and replay
 
@@ -228,14 +249,15 @@ treating absence as `legacy`; an unknown digest refuses with
 current name, `file/1`. The `started` row of a new attempt therefore carries
 the part, and a later runtime replays it by the same rule.
 
-The flat route records no `delivery` part; its replay is unchanged.
+Historical flat runs recorded no `delivery` part; this change does not rewrite
+their data. Their execution/replay is retired under the CLI cutoff.
 
 ### Diagnostics
 
 `provider_result` (evaluated `providers.py`) reads `stdout.txt` from the
 attempt directory on `FileNotFoundError` of `result.json` and appends the
 excerpt to the message. The excerpt is text for operators; nothing parses it.
-Views and `report` already surface `exit_info.error`.
+Views and `report` already surface the failure message.
 
 ### Authoring
 
@@ -267,9 +289,9 @@ outcome. It reads nothing but memo rows and attempt files and writes nothing.
 | Contract | Old | New | Compatibility |
 | --- | --- | --- | --- |
 | Rendered contract block, evaluated route | Content-first sentence with a conditional alternative; relpath guidance always | Delivery-first sentence for the file transport; relpath guidance only with a path type | New runs only; replay of committed rows renders what they recorded |
-| Rendered contract block, flat route | unchanged | unchanged | Byte-identical |
+| Historical flat-route contract block / retained shared rendering | unchanged | unchanged | Original retained-release or snapshot comparison; no current flat execution |
 | Provider `input_parts` (`specs/state.md`) | `declaration`, `values`, `policy`, `params`, `prompt`, `dependency_rows`, sources, dependencies | plus `delivery` | Additive; absence means `legacy` on replay |
-| `provider_result_missing` `exit_info.error` | `provider did not create <path>` | same, plus `; reply began: <excerpt>` when `stdout.txt` is non-empty | String content only; shape unchanged |
+| `provider_result_missing` failure message (terminal row `message`, view `error.message`, `report`) | `provider did not create <path>` | same, plus `; reply began: <excerpt>` when `stdout.txt` is non-empty | Message text only; the memo `failed` row keeps `exit_info` `{}` |
 | Renderer Python API | `render_*_contract_block(payload, *, render_nominal_names=False)` | plus keyword `delivery="legacy"` | Existing callers unchanged |
 | Authored prompt assets | May carry transport prose | Should not; the runtime renders delivery | Guidance, not enforcement |
 
@@ -295,7 +317,8 @@ must-exist checks keep their diagnostics.
 - A committed effect is reused on resume if and only if its recorded input
   parts equal the recomputed ones, with the recomputation using the recorded
   `delivery`; a rendering change alone never diverges a committed effect.
-- Flat-route composed prompts are byte-identical before and after.
+- Retained `legacy`/shared-composer rendering matches its byte oracles; the
+  original flat-route comparison is historical qualification only.
 - An unknown `delivery` digest in a committed row refuses with
   `effect_input_diverged` and names the part; it never guesses a rendering.
 - The stdout excerpt is bounded and never parsed.
@@ -304,8 +327,8 @@ must-exist checks keep their diagnostics.
 
 ## Security, Operations, And Performance
 
-The excerpt in `exit_info.error` repeats up to 240 characters of provider
-stdout into `memo.jsonl` and derived views, which already retain the full
+The excerpt in the failure message repeats up to 240 characters of provider
+stdout into the terminal row of `memo.jsonl` and derived views, which already retain the full
 `stdout.txt`; no new data class is exposed. Rendering cost is unchanged. No
 deployment or credential impact.
 
@@ -313,15 +336,17 @@ deployment or credential impact.
 
 - Default path: `assemble_provider_prompt` with `delivery="file/1"` for new
   attempts, reached through public `run` and `resume`.
-- The flat route's `PromptComposer` path must not acquire the new rendering;
-  a test composes a flat-route step before and after and compares bytes.
+- The retained shared `PromptComposer` keeps the renderer default; direct
+  shared-composition checks compare its bytes with retained snapshots. The
+  original flat-step before/after comparison belongs to the pre-retirement
+  release and does not require the removed executor.
 - Replay of rows without the part exercises `legacy`; a fixture run recorded
   before the change, resumed after it, proves reuse through the public entry.
 - The census script is evidence tooling, not a source of truth.
 
 ## Compatibility And Migration
 
-Runs started before this change resume unchanged: their committed provider
+Admitted evaluated runs started before this change resume unchanged: their committed provider
 rows carry no `delivery` part and replay with `legacy`. Their next new
 attempts render `file/1` and record it, so one run may hold both renderings;
 that is by design. No migration of existing memos or headers. Rollback is
@@ -342,8 +367,10 @@ rollback after any new run is a new rendering change, not a revert.
   resume twice yields identical memo bytes.
 - Divergence: a committed row with a fabricated unknown `delivery` digest
   refuses with `effect_input_diverged` naming `delivery`, before any launch.
-- Flat route: composing the same step through `orchestrator/workflow/prompting.py`
-  before and after yields equal bytes.
+- Shared composition: exercise the retained `PromptComposer` in
+  `orchestrator/workflow/prompting.py` against stored byte oracles. Historical
+  flat-executor comparisons require their original release/environment or
+  retained snapshots, never an executable entry through 2.34 in this package.
 - Diagnostic: a provider that writes no file but prints text fails with
   `provider_result_missing` whose error contains the excerpt; one that prints
   nothing has no excerpt suffix.
@@ -397,6 +424,11 @@ pass; the coordinator inspects the diff and receipts.
   transport; the evaluated route selects the file.
 - `specs/state.md`: provider `input_parts` gain `delivery`; replay rule.
 - `specs/versioning.md`: v2.35 additions bullet.
+- `docs/design/workflow_lisp_evaluated_execution.md`: the parity statements
+  (R4, the admitted-class table, §8.4 and the feasibility row) say the prompt
+  originally compared with the flat route apart from R3; those historical
+  comparisons also record the contract block's opening-line change, without
+  restoring a current flat-execution obligation.
 - `docs/lisp_workflow_drafting_guide.md`: "A step that may be unable to
   answer" recipe; note that prompts carry no transport instructions.
 - `docs/capability_status_matrix.md`: row for delivery rendering.
@@ -420,12 +452,13 @@ Phases, in the order the plan executes them:
 5. Authoring recipe, chess example, prompt cleanup.
 6. Specs, guide, matrix, routing; smoke; reviews.
 
-Tricky areas: `tests/test_workflow_evaluated_prompts.py` compares evaluated
-composition with the flat executor's; after phase 1 the comparison must force
-`legacy` or compare everything but the structured-result block. The
-`file` rendering must keep the `- path:` line the specs cite. Capture the
-pre-change fixture run with the current package before any renderer edit, or
-the replay scenario cannot be proven.
+Original qualification compared evaluated composition with the flat executor
+before retirement, forcing `legacy` or excluding the structured-result block.
+Current `tests/test_workflow_evaluated_prompts.py` checks retained shared
+composition/captured dataflow without the flat executor. Use the recorded
+pre-change fixture and byte oracles; reproducing the original capture requires
+its retained release/environment. The `file` rendering still keeps the
+`- path:` line the specs cite.
 
 Safe first step: phase 1 with the selector defaulting to `legacy`, so that the
 whole suite is unchanged until the evaluated composer opts in.
@@ -434,14 +467,17 @@ whole suite is unchanged until the evaluated composer opts in.
 
 | Question | Owner | Blocking |
 | --- | --- | --- |
-| The omp launch strips `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` from the child environment (`orchestrator/providers/omp_launch.py`). How does an omp-backed provider deliver its result on the evaluated route, and should it render `file/1`? | providers maintainer | Blocks `file/1` for omp templates only; others proceed with omp on `legacy` |
+| Resolved 2026-10-13: `specs/providers.md` states that OMP JSON-transport children never receive the binding; they emit one validated final assistant JSON value that the parent materializes. Providers bound to `omp` templates therefore keep `legacy`, whose text includes that branch; a dedicated text rendering is later work. Owner selection recorded in the plan | owner | No |
 | Does a one-line delivery statement at the top of a long prompt (the 24 KB design case) reduce prose-only replies? | measured after phase 4, as `file/2` if adopted | No |
 | Should `report` render the excerpt distinctly from the error code? | views maintainer | No |
 
 ## Appendix
 
 Local baseline on 2026-10-13, evaluated runs under the main checkout, the
-`-smoke`, `-rerun` and `-repl` worktrees and the chess live workspace:
-67 provider attempts, 63 committed, 4 `provider_result_missing`, by the sites
-and shapes in §Problem. Produced with the ad-hoc pairing the census script
-formalizes.
+`-smoke`, `-rerun` and `-repl` worktrees and the chess live workspace, as
+reported by `scripts/provider_delivery_census.py`: 69 provider attempts, of
+which 64 committed, 4 `provider_result_missing` (the sites and shapes in
+§Problem) and 1 open (a `started` row with no end row, in the `-repl`
+worktree's run `9azbib`). An earlier hand count gave 67 because it skipped
+the open attempt and one commit; open attempts do not count toward a miss
+rate.

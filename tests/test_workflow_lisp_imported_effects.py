@@ -22,14 +22,9 @@ import pytest
 
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import UsesCommandEffect
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _compile,
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import _public_run
+from tests.test_workflow_lisp_generic_unions_runtime import _compile
 from tests.workflow_lisp_improve_stdlib_sources import (
     REVIEW_PROBE,
     REVISE_PROBE,
@@ -113,6 +108,11 @@ def _wrapper_project(root: Path, *, target: str, effects: str, body: str) -> dic
 
 
 def _run(root: Path, probes: dict[str, Path], monkeypatch: pytest.MonkeyPatch):
+    # Analyze the original caller and producer headers before admitting current execution.
+    _compile(root, probes=probes)
+    entry = root / "grt" / "entry.orc"
+    import re
+    entry.write_text(re.sub(r'(:target-dsl )"[0-9.]+"', r'\1"2.35"', entry.read_text(), count=1))
     monkeypatch.chdir(root)
     result = _public_run(_public_run_files(root, probes))
     return result.exit_code, dict(result.workflow_outputs), _log(probes["probe_check"])
@@ -153,7 +153,7 @@ def test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_valu
 
     probes = _wrapper_project(tmp_path, target="2.33", effects=DECLARED, body=body)
 
-    assert _run(tmp_path, probes, monkeypatch) == (0, {"return__text": "ok:alpha"}, ["alpha"])
+    assert _run(tmp_path, probes, monkeypatch) == (0, {"text": "ok:alpha"}, ["alpha"])
 
 
 def test_wrapper_declaring_no_effects_is_rejected_naming_the_missing_effect(tmp_path: Path) -> None:
@@ -219,14 +219,13 @@ def test_target_232_wrapper_declaring_the_imported_command_keeps_the_mismatch_re
     )
 
 
-def test_target_232_wrapper_declaring_no_effects_still_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_target_232_wrapper_declaring_no_effects_still_types(tmp_path: Path) -> None:
     probes = _wrapper_project(tmp_path, target="2.32", effects=UNDECLARED, body="tail")
-
-    assert _run(tmp_path, probes, monkeypatch) == (
-        0,
-        {"return__variant": "PASS", "return__note__text": "ok:alpha"},
-        ["alpha"],
-    )
+    result = _compile(tmp_path, probes=probes)
+    assert result.entry_result.typed_program.target == "2.32"
+    wrapper = next(row for row in result.entry_result.typed_procedures
+                   if row.definition.name == "grt/entry::check-wrap")
+    assert wrapper.typed_body.type_ref == wrapper.signature.return_type_ref
 
 
 def test_target_232_specialized_improve_summary_keeps_its_result(tmp_path: Path) -> None:

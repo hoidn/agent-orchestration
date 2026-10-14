@@ -19,6 +19,7 @@ from orchestrator.workflow.evaluated.memo import MemoError, read_memo
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from tests.test_workflow_evaluated_run_ref import (
+    _assert_retired_child_refusal,
     _authority, _assert_readonly_resumes, _public_fixture, _repeated_fixture,
 )
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
@@ -113,6 +114,9 @@ def test_finalize_requires_exact_reread_active_commit(tmp_path, monkeypatch, cha
 @pytest.mark.parametrize("structure", ["direct", "helper", "nested"])
 def test_public_repetition_resume_after_real_first_settlement(tmp_path, monkeypatch, child_target, structure):
     parent, source, refs = _repeated_fixture(tmp_path, child_target=child_target, structure=structure, forwarding=True)
+    if child_target == "2.24":
+        _assert_retired_child_refusal(parent, source, refs)
+        return
     real_settle = evaluated_runtime.settle_evaluated_run_ref
 
     def settle_then_interrupt(*args, **kwargs):
@@ -299,6 +303,9 @@ def _install_fault(context, fault):
 @pytest.mark.parametrize("fault", ["before-commit", "after-commit", "settled", "before-child"])
 def test_failed_append_and_settlement_preserve_durable_commit_and_ordinals(tmp_path, monkeypatch, child_target, fault):
     parent, source, refs = _public_fixture(tmp_path, child_target=child_target)
+    if child_target == "2.24":
+        _assert_retired_child_refusal(parent, source, refs)
+        return
     with monkeypatch.context() as context:
         _install_fault(context, fault)
         assert _service_run(context, parent, source, refs).exit_code == 1

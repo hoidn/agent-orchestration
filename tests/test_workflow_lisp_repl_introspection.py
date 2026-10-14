@@ -109,7 +109,6 @@ def test_existing_introspection_substrate(
     def unexpected_boundary(*_args, **_kwargs):
         pytest.fail("ordinary effect typechecking crossed a lowering/evaluation boundary")
 
-    monkeypatch.setattr(workflow_lisp_compiler, "_lower_workflows_for_route", unexpected_boundary)
     monkeypatch.setattr(repl_expr, "evaluate_closed_value", unexpected_boundary)
     trace = SourceReadTrace()
     compiled = compile_stage3_entrypoint(
@@ -125,7 +124,6 @@ def test_existing_introspection_substrate(
 
     assert compiled.graph.topological_order == ("proof/types", "proof/entry")
     assert set(compiled.graph.modules_by_name) == set(authored_text)
-    assert all(not result.lowered_workflows for result in compiled.compiled_results_by_name.values())
     assert not (tmp_path / ".orchestrate").exists()
     assert set(trace.raw_bytes_by_path) == {path.resolve() for path in source_paths.values()}
     assert {path for path, _revision in trace.revision_vector} == set(trace.raw_bytes_by_path)

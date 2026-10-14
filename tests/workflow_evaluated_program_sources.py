@@ -31,7 +31,7 @@ from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
 from tests.experiments.test_mlevolve_pair_fixture import _SCRIPTED_LEAVES, _reference, _scenario_answers
 from tests.test_workflow_evaluated_command_lifecycle import _InterruptedRun
 from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args
+from tests.test_workflow_evaluated_cli import _run_args
 from tests.workflow_evaluated_totality_helpers import assert_commit_bytes, checked_run, compile_public
 
 

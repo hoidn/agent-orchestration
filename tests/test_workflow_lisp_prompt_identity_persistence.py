@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-import orchestrator.workflow_lisp as workflow_lisp
 from orchestrator.workflow.persisted_surface import (
     canonical_persisted_surface_bytes,
     decode_persisted_workflow_surface_graph,
@@ -25,15 +24,10 @@ from orchestrator.workflow.surface_ast import (
     SurfaceStepKind,
 )
 from tests.test_workflow_lisp_build_artifacts import (
-    _build_module,
-    _build_request,
+    _historical_surface_template,
     _call_step,
     _persisted_fragment_contracts,
     _synthetic_surface_bundle,
-)
-from tests.test_workflow_lisp_prompt_identity_carriage import (
-    _compile,
-    _provider_carriers,
 )
 
 
@@ -72,9 +66,7 @@ def _legacy_fragment_bundle(
     with_output: bool,
     name: str,
 ):
-    template = _build_module().build_frontend_bundle(
-        _build_request(tmp_path)
-    ).validated_bundle
+    template = _historical_surface_template()
     q1, q2, expected_outputs = _persisted_fragment_contracts()
     contract = q2 if with_output else q1
     step = SurfaceStep(
@@ -151,14 +143,48 @@ def test_persisted_surface_v1_v2_canonical_bytes_are_frozen(
 
 
 def _q3_bundle(tmp_path: Path, *, with_output: bool = False):
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    result = _compile(
-        tmp_path,
-        target_dsl="2.22",
-        lowering_route="legacy",
-        with_output=with_output,
+    from orchestrator.workflow.prompt_fragment_contract import (
+        CompilerPromptAttemptBindingPlan, CompilerPromptAttemptBindingPlanRow,
+        PROMPT_ATTEMPT_IDENTITY_VERSION,
     )
-    return _provider_carriers(result)[-1]
+    from orchestrator.workflow.prompt_dependency_contract import (
+        _build_compiler_prompt_dependency_contract, PromptDependencyOriginKind,
+        PromptDependencyPosition,
+    )
+    q1, q2, expected_outputs = _persisted_fragment_contracts()
+    contract = q2 if with_output else q1
+    rows = [CompilerPromptAttemptBindingPlanRow(
+        declaration_ordinal=0, slot_name="target_doc", slot_kind="doc",
+        refinement=None, output_role="none", delivery="dependency",
+        runtime_source={"kind": "required_dependency", "ordinal": 0}, renderer=None,
+    )]
+    for index, slot in enumerate(contract.rendered_slots):
+        rows.append(CompilerPromptAttemptBindingPlanRow(
+            declaration_ordinal=index + 1, slot_name=slot.name, slot_kind=slot.kind,
+            refinement=None, output_role="required_string_file" if with_output else "none",
+            delivery="template", runtime_source={"kind": "rendered_slot", "ordinal": index},
+            renderer={"renderer_id": slot.renderer_id, "renderer_version": 1},
+        ))
+    plan = CompilerPromptAttemptBindingPlan(
+        "compiler_prompt_attempt_binding_plan.v1", tuple(rows), None,
+    ).with_canonical_sha256()
+    dependency = _build_compiler_prompt_dependency_contract(
+        required_binding_refs=("inputs.target_doc",), optional_binding_refs=(),
+        position=PromptDependencyPosition.PREPEND, instruction=None,
+        source_origin_key="historical/provider", source_workflow_bytes=b"historical",
+        origin_kind=PromptDependencyOriginKind.WORKFLOW_LISP_PROMPT_FRAGMENT,
+    )
+    step = SurfaceStep(
+        "Review", "review", SurfaceStepKind.PROVIDER, provider="test-provider",
+        common=SurfaceStepCommonConfig(expected_outputs=expected_outputs if with_output else ()),
+        compiler_prompt_fragment_contract=contract,
+        compiled_prompt_fragment_identity=contract.compiled_prompt_fragment_identity,
+        prompt_attempt_identity_version=PROMPT_ATTEMPT_IDENTITY_VERSION,
+        compiler_prompt_attempt_binding_plan=plan, compiler_prompt_dependency_contract=dependency,
+        typed_prompt_inputs=tuple({"binding_name": slot.name, "renderer": {"renderer_id": slot.renderer_id, "renderer_version": 1}} for slot in contract.rendered_slots if slot.kind in {"path", "value"}),
+    )
+    bundle = _synthetic_surface_bundle(_historical_surface_template(target="2.22"), "historical::q3", steps=(step,))
+    return replace(bundle, surface=replace(bundle.surface, version="2.22"))
 
 
 def _q3_graph_payload(tmp_path: Path):
@@ -496,61 +522,25 @@ def test_persisted_surface_v3_decoder_rejects_target_220_q1_wire_fields(
 def test_persisted_surface_v3_round_trips_document_slot_with_distinct_source_name(
     tmp_path: Path,
 ) -> None:
-    source_path = tmp_path / "distinct_document_source.orc"
-    source_path.write_text(
-        """
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.22")
-  (defmodule demo/distinct-document-source)
-
-  (defpath DesignDocPath
-    :kind relpath
-    :under "docs/design"
-    :must-exist true)
-
-  (defprompt review
-    (:fills
-      (target_doc :doc DesignDocPath))
-    -> Bool
-    "Review the supplied design.")
-
-  (defworkflow run-review
-    ((design_doc DesignDocPath))
-    -> Bool
-    (provider-result providers.review
-      :prompt
-        (review :target_doc design_doc))))
-""".lstrip(),
-        encoding="utf-8",
+    bundle = _q3_bundle(tmp_path)
+    step = bundle.surface.steps[0]
+    dependency = replace(
+        step.compiler_prompt_dependency_contract,
+        required_binding_refs=("inputs.design_doc",),
+        normalized_contract_sha256=__import__(
+            "orchestrator.workflow.prompt_dependency_contract", fromlist=["_normalized_contract_sha256"]
+        )._normalized_contract_sha256(
+            required_binding_refs=("inputs.design_doc",), optional_binding_refs=(),
+            position=step.compiler_prompt_dependency_contract.position,
+            instruction_utf8_sha256_or_null=None,
+        ),
     )
-    result = workflow_lisp.compile_stage3_module(
-        source_path,
-        provider_externs={"providers.review": "test-provider"},
-        prompt_externs={},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="legacy",
-    )
-    bundle = result.validated_bundles["run-review"]
-
+    step = replace(step, compiler_prompt_dependency_contract=dependency)
+    bundle = replace(bundle, surface=replace(bundle.surface, steps=(step,)))
     payload = serialize_persisted_workflow_surface_graph(bundle)
     wire_step = payload["nodes"][bundle.surface.name]["steps"][0]
     row = wire_step["compiler_prompt_attempt_binding_plan"]["rows"][0]
-
     assert row["slot_name"] == "target_doc"
-    assert wire_step["compiler_prompt_dependency_contract"][
-        "required_binding_refs"
-    ] == ["inputs.design_doc"]
-
-    decoded = decode_persisted_workflow_surface_graph(
-        canonical_persisted_surface_bytes(payload)
-    )
-    decoded_step = decoded.entry_node.steps[0]
-    assert decoded_step.compiler_prompt_attempt_binding_plan == (
-        next(
-            node.execution_config.compiler_prompt_attempt_binding_plan
-            for node in bundle.ir.nodes.values()
-            if node.step_id == decoded_step.step_id
-        )
-    )
+    assert wire_step["compiler_prompt_dependency_contract"]["required_binding_refs"] == ["inputs.design_doc"]
+    decoded = decode_persisted_workflow_surface_graph(canonical_persisted_surface_bytes(payload))
+    assert decoded.entry_node.steps[0].compiler_prompt_attempt_binding_plan == step.compiler_prompt_attempt_binding_plan

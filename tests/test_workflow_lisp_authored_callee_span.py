@@ -12,28 +12,12 @@ from orchestrator.workflow_lisp.compiler import (
     normalize_lowering_route,
 )
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
-from orchestrator.workflow_lisp.expressions import (
-    CallExpr,
-    LetStarExpr,
-    LiteralExpr,
-    NameExpr,
-    ProcedureCallExpr,
-    elaborate_expression,
-)
+from orchestrator.workflow_lisp.expressions import CallExpr, LetStarExpr, NameExpr, ProcedureCallExpr, elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.spans import SourceSpan
 from orchestrator.workflow_lisp.syntax import (
     SyntaxNode,
     clone_caller_syntax,
-)
-from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-from orchestrator.workflow_lisp.wcc.defunctionalize import (
-    _frontend_expr_from_wcc_loop_binding_value,
-)
-from orchestrator.workflow_lisp.wcc.model import (
-    WccCall,
-    WccIdentityFactory,
-    WccPerform,
 )
 
 
@@ -261,39 +245,3 @@ def test_generated_and_ambiguous_calls_default_to_no_callee_provenance() -> None
     assert getattr(ambiguous_workflow, "authored_callee_span", None) is None
     assert getattr(replace(generated_procedure, args=()), "authored_callee_span", None) is None
     assert getattr(copy(ambiguous_workflow), "authored_callee_span", None) is None
-
-
-def test_wcc_reconstruction_never_promotes_whole_form_spans_to_callee_spans() -> None:
-    whole_form = _expression_syntax("(call review :review review)").span
-    metadata = WccIdentityFactory(owner_name="callee-provenance-test").value_metadata(
-        role="call",
-        type_ref=PrimitiveTypeRef(name="String"),
-        source_span=whole_form,
-        form_path=FORM_PATH,
-    )
-    reconstructed_workflow = _frontend_expr_from_wcc_loop_binding_value(
-        WccPerform(
-            metadata=metadata,
-            perform_kind="workflow_call",
-            target_name="review",
-            prompt_name=None,
-            positional_args=(),
-            keyword_args=(),
-            returns_type_name="String",
-        )
-    )
-    reconstructed_procedure = _frontend_expr_from_wcc_loop_binding_value(
-        WccCall(
-            metadata=metadata,
-            callee_name="review",
-            specialized_callee_name="review",
-            args=(),
-        )
-    )
-
-    assert isinstance(reconstructed_workflow, CallExpr)
-    assert isinstance(reconstructed_procedure, ProcedureCallExpr)
-    assert reconstructed_workflow.span == whole_form
-    assert reconstructed_procedure.span == whole_form
-    assert getattr(reconstructed_workflow, "authored_callee_span", None) is None
-    assert getattr(reconstructed_procedure, "authored_callee_span", None) is None

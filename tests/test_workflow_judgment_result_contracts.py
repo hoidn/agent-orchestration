@@ -9,9 +9,6 @@ from typing import Any, Callable
 
 import pytest
 
-from orchestrator.runtime_observability import (
-    record_compiled_frontend_provenance,
-)
 from orchestrator.workflow.judgment_views import (
     JUDGMENT_RESULT_CONTRACT_MISMATCH,
     JUDGMENT_RESULT_COORDINATE_INVALID,
@@ -26,10 +23,6 @@ from orchestrator.workflow.persisted_surface import (
 )
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.surface_ast import SurfaceStepKind
-from orchestrator.workflow_lisp.build import (
-    FrontendBuildRequest,
-    build_frontend_bundle,
-)
 
 
 _SOURCE = """(workflow-lisp
@@ -59,24 +52,25 @@ def _fixture(tmp_path: Path) -> dict[str, Any]:
     )
     source.parent.mkdir()
     source.write_text(_SOURCE, encoding="utf-8")
-    providers = tmp_path / "providers.json"
-    providers.write_text(
-        json.dumps({"providers.worker": "test-provider"}),
-        encoding="utf-8",
+    # Captured at 23eb9c97: readers must work without the retired compiler.
+    retained = json.loads(
+        (Path(__file__).parent / "fixtures" / "historical_judgment_contract.json")
+        .read_text(encoding="utf-8")
+        .replace("@WORKSPACE@", str(tmp_path))
     )
-    result = build_frontend_bundle(
-        FrontendBuildRequest(
-            source_path=source,
-            source_roots=(tmp_path,),
-            entry_workflow="orchestrate",
-            provider_externs_path=providers,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m4",
-        )
-    )
-    graph = decode_persisted_workflow_surface_graph(
-        result.artifact_paths["persisted_workflow_surface"].read_bytes()
-    )
+    state = retained["state"]
+    manifest = retained["manifest"]
+    surface = canonical_persisted_surface_bytes(retained["surface"])
+    digest = persisted_surface_sha256(surface)
+    compiled = state["runtime_observability"]["compiled_frontend"]
+    compiled["persisted_workflow_surface"]["sha256"] = digest
+    manifest["persisted_workflow_surface"]["sha256"] = digest
+    graph_path = tmp_path / ".orchestrate" / manifest["persisted_workflow_surface"]["path"]
+    graph_path.parent.mkdir(parents=True)
+    graph_path.write_bytes(surface)
+    manifest_path = graph_path.with_name("manifest.json")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    graph = decode_persisted_workflow_surface_graph(surface)
     entry = graph.entry_node
     root_provider = next(
         step
@@ -106,35 +100,10 @@ def _fixture(tmp_path: Path) -> dict[str, Any]:
         if step.kind is SurfaceStepKind.PROVIDER
     )
     frame_id = f"{call.step_id}::visit::1"
-    child_state = {
-        "step_visits": {child_provider.name: 1},
-        "call_frames": {},
-    }
-    state: dict[str, Any] = {
-        "run_id": "task5-contracts",
-        "status": "completed",
-        "workflow_file": source.relative_to(tmp_path).as_posix(),
-        "workflow_checksum": f"sha256:{result.manifest.source_sha256}",
-        "step_visits": {
-            root_provider.name: 1,
-            loop_owner.name: 1,
-        },
-        "call_frames": {
-            frame_id: {
-                "call_frame_id": frame_id,
-                "call_step_id": call.step_id,
-                "import_alias": call.call_alias,
-                "state": child_state,
-            }
-        },
-    }
-    record_compiled_frontend_provenance(
-        state,
-        result.validated_bundle.provenance,
-    )
     return {
         "source": source,
-        "result": result,
+        "graph_path": graph_path,
+        "manifest_path": manifest_path,
         "state": state,
         "root_provider": root_provider,
         "loop_owner": loop_owner,
@@ -270,9 +239,7 @@ def test_persisted_result_contract_rejects_missing_or_digest_invalid_graph(
             "sha256:" + "0" * 64
         )
     else:
-        path = fixture["result"].artifact_paths[
-            "persisted_workflow_surface"
-        ]
+        path = fixture["graph_path"]
         path.write_bytes(path.read_bytes() + b" ")
 
     _assert_code(
@@ -565,7 +532,7 @@ def test_persisted_result_contract_rejects_persisted_source_binding_tamper(
     if damage == "state":
         fixture["state"]["workflow_checksum"] = "sha256:" + "0" * 64
     else:
-        manifest_path = fixture["result"].manifest_path
+        manifest_path = fixture["manifest_path"]
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["source_sha256"] = "0" * 64
         manifest_path.write_text(
@@ -611,16 +578,15 @@ def _reanchor(
     fixture: dict[str, Any],
     mutate: Callable[[dict[str, Any]], None],
 ) -> None:
-    result = fixture["result"]
-    path = result.artifact_paths["persisted_workflow_surface"]
+    path = fixture["graph_path"]
     payload = json.loads(path.read_text(encoding="utf-8"))
     mutate(payload)
     encoded = canonical_persisted_surface_bytes(payload)
     path.write_bytes(encoded)
     digest = persisted_surface_sha256(encoded)
-    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(fixture["manifest_path"].read_text(encoding="utf-8"))
     manifest["persisted_workflow_surface"]["sha256"] = digest
-    result.manifest_path.write_text(
+    fixture["manifest_path"].write_text(
         json.dumps(manifest, sort_keys=True) + "\n",
         encoding="utf-8",
     )

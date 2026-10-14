@@ -18,7 +18,7 @@ from orchestrator.workflow.run_ref.runtime import (
     declared_artifacts_from_value, flatten_run_ref_result_artifacts,
 )
 from orchestrator.contracts.closed_program.program import ClosedProgram
-from tests.e2e.test_e2e_workflow_lisp_run_ref import _assert_complete_evidence_manifest, _git
+from tests.workflow_evaluated_run_ref_helpers import _assert_complete_evidence_manifest, _git
 from tests.test_workflow_evaluated_command_lifecycle import _InterruptedRun
 from tests.test_workflow_evaluated_run_ref import _authority, _public_fixture
 from tests.test_workflow_evaluated_run_ref_settlement import _commit_gap, _service_run
@@ -142,23 +142,6 @@ def _path_names(descriptor):
     return set().union(*map(_path_names, nested)) if nested else set()
 
 
-def frontend_path_names(descriptor):
-    """The descriptor a legacy child records in its v1 signature: path names stay as declared."""
-    if isinstance(descriptor, list):
-        return [frontend_path_names(item) for item in descriptor]
-    if not isinstance(descriptor, dict):
-        return descriptor
-    renamed = {key: frontend_path_names(value) for key, value in descriptor.items()}
-    if descriptor.get("kind") == "path":
-        renamed["name"] = descriptor["name"].rsplit("::", 1)[-1]
-    return renamed
-
-
-def recorded_signature_return(child_target, claim, *, bare_paths):
-    """Evaluated children record the claim; legacy v1 records keep the child's frontend names."""
-    return frontend_path_names(claim) if child_target == "2.24" and bare_paths else claim
-
-
 def assert_nested_path_envelope(case, parent, refs):
     authority, memo, commit, attempt_root, documents = settled_evidence(parent)
     settlement = commit.data["proof"]["settled_result"]
@@ -170,10 +153,8 @@ def assert_nested_path_envelope(case, parent, refs):
     workspace = Path(settlement["workspace_path"])
     _assert_declared_artifacts(case, parent, workspace, value, descriptor, documents["workspace-delta"])
     child_root = workspace / ".orchestrate" / "runs" / documents["child-request"]["child_run_id"]
-    if CASES[case]["child_target"] == "2.24":
-        _assert_legacy_child(child_root, settlement, documents["child-result"], manifest)
-    else:
-        _assert_evaluated_child(child_root, settlement, documents["child-result"], manifest, value)
+    assert CASES[case]["child_target"] == "2.35"
+    _assert_evaluated_child(child_root, settlement, documents["child-result"], manifest, value)
     ledger = load_attempt_ledger(authority.run_root / "run-ref-attempts.jsonl")
     assert ledger.rows[-1].stage == "committed"
     assert ledger.rows[-1].bindings.evidence_manifest_digest == canonical_sha256(manifest)
@@ -190,8 +171,7 @@ def _assert_envelope(case, authority, commit, documents, manifest, value):
     owner = "shapes" if "modules" not in CASES[case] else "common"
     assert descriptor["name"] == f'{owner}::{CASES[case]["returns"]}'
     assert _path_names(descriptor) == {"common::WorkPath"}
-    assert documents["child-result"]["path_compile"]["signature"]["return"] == recorded_signature_return(
-        CASES[case]["child_target"], descriptor, bare_paths="modules" in CASES[case])
+    assert documents["child-result"]["path_compile"]["signature"]["return"] == descriptor
     assert commit.data["proof"]["artifacts"] == flatten_run_ref_result_artifacts(
         envelope, static.result_descriptor["envelope"])
     return descriptor
@@ -215,17 +195,6 @@ def _assert_declared_artifacts(case, parent, workspace, value, descriptor, delta
                      "size": len(content), "sha256": "sha256:" + sha256(content).hexdigest(),
                      "link_target": None})
     assert delta["declared_artifacts"] == rows
-
-
-def _assert_legacy_child(child_root, settlement, result, manifest):
-    identity = result["path_compile"]["program_identity"]
-    assert result["path_compile"]["evidence"]["program_identity_digest"] == identity["digest"]
-    assert result["schema_version"] == "run_ref_path_child_result.v1"
-    assert "__result__" not in result["workflow_outputs"]
-    assert identity["schema_version"] == "workflow_lisp_program_identity.v2"
-    state = (child_root / "state.json").read_bytes()
-    assert settlement["child_terminal_state_digest"] == "sha256:" + sha256(state).hexdigest()
-    assert manifest["paths"]["child_state"] == (child_root / "state.json").as_posix()
 
 
 def _assert_evaluated_child(child_root, settlement, result, manifest, value):

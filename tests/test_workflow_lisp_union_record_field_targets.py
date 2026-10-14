@@ -22,7 +22,6 @@ import pytest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
-from tests.test_workflow_lisp_generic_stdlib_composition import _execute_bundle
 
 
 PROBE = """import json, os, sys
@@ -114,20 +113,6 @@ def _location_of(entry: Path, marker: str) -> tuple[str, int, int]:
     raise AssertionError(f"{marker!r} not in {entry}")
 
 
-@pytest.mark.parametrize("placement", sorted(PLACEMENTS))
-@pytest.mark.parametrize("target", ["2.23", "2.28", "2.29", "2.32"])
-def test_older_targets_reject_a_record_field_filled_from_a_bound_name(
-    tmp_path: Path, target: str, placement: str
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path, target=target, placement=placement)
-
-    diagnostic = excinfo.value.diagnostics[0]
-    span = diagnostic.span.start
-    assert (diagnostic.code, (Path(span.path).name, span.line, span.column)) == (
-        "workflow_return_not_exportable",
-        _location_of(tmp_path / "tgt" / "entry.orc", PLACEMENTS[placement][2]),
-    )
 
 
 @pytest.mark.parametrize("placement", sorted(PLACEMENTS))
@@ -136,22 +121,17 @@ def test_older_targets_reject_a_record_field_filled_from_a_bound_name(
     [(1, "EXHAUSTED"), (2, "APPROVED")],
     ids=["exhausted", "approved"],
 )
-def test_target_233_runs_a_record_field_filled_from_a_bound_name(
+def test_target_233_types_a_record_field_filled_from_a_bound_name(
     tmp_path: Path, placement: str, limit: int, expected_variant: str
 ) -> None:
     result = _compile(tmp_path, target="2.33", placement=placement, limit=limit)
-    bundle = result.validated_bundles_by_name["tgt/entry::run"]
-
-    outcome = _execute_bundle(bundle, workflow_path=tmp_path / "tgt" / "entry.orc", workspace=tmp_path, run_id="run")
-
-    assert (outcome["status"], dict(outcome["workflow_outputs"])) == (
-        "completed",
-        {"return__variant": expected_variant, "return__value__title": "seed+r", "return__value__score": 1},
-    )
+    workflow = result.entry_result.typed_program.workflows["tgt/entry::run"]
+    assert workflow.signature.return_type_ref.name == "Result"
+    assert workflow.typed_body.type_ref == workflow.signature.return_type_ref
 
 
 @pytest.mark.parametrize("target", ["2.29", "2.32"])
-def test_targets_229_to_232_run_a_variant_outside_a_loop_filled_from_a_bound_name(tmp_path: Path, target: str) -> None:
+def test_targets_229_to_232_type_a_variant_outside_a_loop_filled_from_a_bound_name(tmp_path: Path, target: str) -> None:
     entry = tmp_path / "tgt" / "entry.orc"
     entry.parent.mkdir(parents=True)
     entry.write_text(NON_LOOP_SOURCE.replace("TARGET", target), encoding="utf-8")
@@ -166,11 +146,6 @@ def test_targets_229_to_232_run_a_variant_outside_a_loop_filled_from_a_bound_nam
         lowering_route=None,
     )
 
-    outcome = _execute_bundle(
-        result.validated_bundles_by_name["tgt/entry::run"], workflow_path=entry, workspace=tmp_path, run_id="run"
-    )
-
-    assert (outcome["status"], dict(outcome["workflow_outputs"])) == (
-        "completed",
-        {"return__variant": "APPROVED", "return__value__title": "seed", "return__value__score": 0},
-    )
+    workflow = result.entry_result.typed_program.workflows["tgt/entry::run"]
+    assert workflow.signature.return_type_ref.name == "Result"
+    assert workflow.typed_body.type_ref == workflow.signature.return_type_ref

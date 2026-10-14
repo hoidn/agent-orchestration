@@ -89,7 +89,10 @@ def _prepare_closed_program_bundle(
 ) -> ClosedProgramBuildResult:
     """Prepare a checked program and carrier in memory, without cache writes."""
 
+    from .target import refuse_retired_entry_target
+
     resolved = request
+    refuse_retired_entry_target(resolved.source_path, source_read_trace=source_read_trace)
     configuration_trace = ConfigurationReadTrace()
     provider_externs = _load_string_mapping(
         resolved.provider_externs_path,

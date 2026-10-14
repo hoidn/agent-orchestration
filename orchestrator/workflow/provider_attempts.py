@@ -7,6 +7,7 @@ import binascii
 from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
+from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -19,6 +20,22 @@ from orchestrator._common.validation import (
 from ..state import RunState, StateManager
 from .identity import STEP_ID_PATTERN
 from .resume_projection_integrity import ResumeScopePath
+
+
+def _path_safe_frame_scope_token(frame_id: str) -> str:
+    """Return one bounded path-safe token for nested call-frame storage."""
+
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    normalized = "".join(char if char in allowed else "_" for char in frame_id).strip("._-")
+    while ".." in normalized:
+        normalized = normalized.replace("..", "._")
+    if not normalized:
+        normalized = "call_frame"
+    digest = sha256(frame_id.encode("utf-8")).hexdigest()[:12]
+    max_prefix_length = 96 - len(digest) - 1
+    if len(normalized) > max_prefix_length:
+        normalized = normalized[:max_prefix_length].rstrip("._-") or "call_frame"
+    return f"{normalized}_{digest}"
 
 
 PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS = frozenset(
@@ -475,7 +492,6 @@ def _resolve_aggregate_run_owner_locked(
         if _ordinary_absolute(child.workspace) != _ordinary_absolute(root.workspace):
             raise ValueError("nested workspace root contradicts aggregate root")
 
-        from .call_frame_state import _path_safe_frame_scope_token
 
         expected_root = (
             _ordinary_absolute(parent_manager.run_root)

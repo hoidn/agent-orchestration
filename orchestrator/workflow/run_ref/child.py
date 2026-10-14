@@ -16,12 +16,7 @@ from typing import Any, Mapping, Sequence
 from orchestrator.run_lock import run_writer_lock, workspace_run_lock
 from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
 
-from .bundle_transport import (
-    BundleCapsuleValidationError,
-    decode_bundle_capsule,
-    read_bundle_capsule_directory,
-)
-from .capsule_stage import stage_bundle_capsule
+
 from .contracts import (
     PostSetupBaselineIdentity,
     VerifiedGitTreeIdentity,
@@ -556,68 +551,10 @@ def load_path_request(path: Path, *, parent_root_fd: int | None = None) -> RunRe
         ) from exc
 
 
-def _target_bundle(request: RunRefChildRequest):
-    local_identity = compute_compiler_runtime_identity()
-    if (
-        local_identity.digest
-        != request.expected_compiler_runtime_identity_digest
-    ):
-        raise BundleCapsuleValidationError(
-            "run_ref_bundle_compiler_identity_invalid"
-        )
-    encoded = read_bundle_capsule_directory(
-        request.capsule_dir,
-        expected_capsule_digest=request.expected_capsule_digest,
-    )
-    decoded = decode_bundle_capsule(
-        manifest_bytes=encoded.manifest_bytes,
-        pickle_bytes=encoded.pickle_bytes,
-        closure=encoded.closure,
-        expected_capsule_digest=request.expected_capsule_digest,
-        expected_compiler_runtime_identity_digest=(
-            request.expected_compiler_runtime_identity_digest
-        ),
-    )
-    _complete_injected_boundary(
-        request.test_control,
-        boundary="mode_1_decode",
-    )
-    staged = stage_bundle_capsule(decoded, clone_root=request.clone_root)
-    target = request.target_workflow_name
-    if (
-        target not in decoded.target_workflow_names
-        or target not in staged.target_workflow_names
-        or target not in staged.bundles_by_name
-    ):
-        raise _ChildCommandError(
-            "run_ref_capsule_invalid",
-            "target_not_declared",
-        )
-    return staged.bundles_by_name[target]
 
 
-def compile_and_admit_path_program(*, materialized_source, step_config):
-    """Load the full compiler only when the private path command is selected."""
-
-    from .path_compile import compile_and_admit_path_program as compile_path
-
-    return compile_path(
-        materialized_source=materialized_source,
-        step_config=step_config,
-    )
 
 
-def _execute_bundle(
-    bundle: Any,
-    *,
-    clone_root: Path,
-    child_run_id: str,
-    child_state_dir: Path,
-    inputs: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Execute one admitted bundle while owning its run-lifetime writer lock."""
-
-    raise _ChildCommandError("workflow_execution_target_retired", "flat_execution_retired")
 
 
 def execute_request(request: RunRefChildRequest) -> dict[str, Any]:
@@ -795,11 +732,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 execute = execute_path_request
             with workspace_run_lock(request.clone_root, request.child_run_id):
                 result = execute(request)
-    except BundleCapsuleValidationError:
-        error = _ChildCommandError(
-            "run_ref_capsule_invalid",
-            "capsule_validation_failed",
-        )
     except _ChildCommandError as exc:
         error = exc
     except Exception:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from orchestrator.workflow_lisp.closed.build import build_closed_program
-from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+from orchestrator.workflow_lisp.closed.frontend import compile_typed_program, _select_and_finalize_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, PromptExtern
@@ -108,8 +108,8 @@ def test_imported_effect_uses_producer_configuration_on_name_conflicts(
         prompt_externs={
             "prompt": PromptExtern(name="prompt", input_file="prompt.md")
         },
-        imported_workflow_bundles={
-            "dep": producer.validated_bundles_by_name["producer::get"]
+        imported_programs={
+            "dep": _select_and_finalize_typed_program(producer.entry_result, entry_path=producer_path, entry_workflow="producer::get")
         },
         workspace_root=consumer_root,
     )
@@ -187,8 +187,8 @@ def test_projected_import_result_keeps_committed_file_lineage_without_reread(
         entry_workflow="consumer::run",
         source_roots=(consumer_root,),
         command_boundaries={},
-        imported_workflow_bundles={
-            "dep": producer.validated_bundles_by_name["producer::get"]
+        imported_programs={
+            "dep": _select_and_finalize_typed_program(producer.entry_result, entry_path=producer_path, entry_workflow="producer::get")
         },
         workspace_root=consumer_root,
     )
@@ -224,12 +224,7 @@ def test_projected_import_result_keeps_committed_file_lineage_without_reread(
 def test_source_admitted_imported_union_projects_only_active_variant_rows(
     tmp_path: Path,
 ) -> None:
-    from orchestrator.state import StateManager
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
-    from orchestrator.workflow.signatures import bind_workflow_inputs
-    from tests.workflow_bundle_helpers import bundle_context_dict
 
     type_forms = '''(defpath Report :kind relpath :under "artifacts/work" :must-exist false)
       (defunion Choice (Ready (path Report)) (Skipped (reason String)))'''
@@ -264,8 +259,8 @@ def test_source_admitted_imported_union_projects_only_active_variant_rows(
         entry_workflow="consumer::run",
         source_roots=(consumer_root,),
         command_boundaries={},
-        imported_workflow_bundles={
-            "dep": producer.validated_bundles_by_name["producer::get"]
+        imported_programs={
+            "dep": _select_and_finalize_typed_program(producer.entry_result, entry_path=producer_path, entry_workflow="producer::get")
         },
         workspace_root=consumer_root,
     )
@@ -291,63 +286,7 @@ def test_source_admitted_imported_union_projects_only_active_variant_rows(
         for allow in (True, False)
     }
 
-    old_root = tmp_path / "legacy"
-    old_root.mkdir()
-    old_producer_path = install(old_root, producer_source)
-    old_producer = compile_stage3_entrypoint(
-        old_producer_path,
-        entry_workflow="producer::get",
-        source_roots=(old_root,),
-        validate_shared=True,
-        workspace_root=old_root,
-    )
-    old_consumer_source = consumer_source.replace(
-        f'(:target-dsl "{TARGET}")', '(:target-dsl "2.34")'
-    )
-    old_consumer_path = install(old_root, old_consumer_source)
-    old_bundle = compile_stage3_entrypoint(
-        old_consumer_path,
-        entry_workflow="consumer::run",
-        source_roots=(old_root,),
-        validate_shared=True,
-        workspace_root=old_root,
-        imported_workflow_bundles={
-            "dep": old_producer.validated_bundles_by_name["producer::get"]
-        },
-    ).validated_bundles_by_name["consumer::run"]
-
-    old_values = {}
-    for allow in (True, False):
-        contracts = {
-            name: contract
-            for name, contract in workflow_runtime_input_contracts(old_bundle).items()
-            if not name.startswith("__write_root__")
-        }
-        run_id = f"imported-union-{allow}"
-        state = StateManager(workspace=old_root, run_id=run_id)
-        state.initialize(
-            str(old_consumer_path),
-            context=bundle_context_dict(old_bundle),
-            bound_inputs=bind_workflow_inputs(contracts, {"allow": allow}, old_root),
-        )
-        outcome = WorkflowExecutor(old_bundle, old_root, state, retry_delay_ms=0).execute(
-            on_error="stop"
-        )
-        assert outcome["status"] == "completed"
-        old_values[allow] = outcome["workflow_outputs"]
-
-    # Compare decoded old-route payloads, not the route-specific flattened names.
-    projected_old_values = {
-        True: {
-            "variant": old_values[True]["return__variant"],
-            "path": old_values[True]["return__path"],
-        },
-        False: {
-            "variant": old_values[False]["return__variant"],
-            "reason": old_values[False]["return__reason"],
-        },
-    }
-    assert evaluated_values == projected_old_values == {
+    assert evaluated_values == {
         True: {"variant": "Ready", "path": "artifacts/work/report.md"},
         False: {"variant": "Skipped", "reason": "declined"},
     }

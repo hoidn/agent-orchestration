@@ -52,11 +52,17 @@ The launcher repeats platform, AVX2, version, ownership, mode, and whole-file
 digest checks before every run. An operator shell alias or alternate binary on
 `PATH` is not an override.
 
+Current prompt lanes: `prompt run` and both `prompt import` modes are retired,
+including inference/scaffold creation. Verified native `prompt resume` and
+`--in-place` remain, with TTY, byte/pin verification, isolation, lineage and
+continuation contracts. They do not compile or resume an old workflow; see the
+[CLI cutoff](../specs/cli.md) and [retirement contract](design/workflow_lisp_executor_retirement.md).
+
 ## Run prerequisites
 
 First [inspect the installed pin](#inspect-the-installed-pin); ordinary use
 does not require rebuilding it. The profile-isolated lanes `omp_no_tools`,
-`omp_conf`, and internal `omp_conf_inference` require nonempty caller roots.
+and `omp_conf` require nonempty caller roots.
 In the terminal that will launch the orchestrator, preserve existing values
 or supply the conventional defaults:
 
@@ -143,8 +149,8 @@ Before installation:
    block.
 3. Update raw transport fixtures only when an audited protocol change requires
    it; never rewrite them merely to make a parser test pass.
-4. Run the pin, transport, conf, launch, observation, scaffold, session,
-   import, and resume selectors. Then run the real OMP-I1 gates below.
+4. Run the pin, transport, conf, launch, observation, retained scaffold verification, native session
+   and resume selectors. Then run the real OMP-I1 gates below.
 
 Retain the previous admitted executable under a digest-qualified operator path.
 Install the new file by same-filesystem temporary name and atomic rename:
@@ -182,7 +188,7 @@ pytest -q \
   tests/test_prompt_session.py \
   tests/test_prompt_resume.py \
   tests/test_cli_prompt.py \
-  tests/test_cli_prompt_import.py
+  tests/test_executor_retirement_cutoff.py
 ```
 
 Real acceptance requires the [run prerequisites](#run-prerequisites), including
@@ -217,8 +223,9 @@ A rollback moves the Orchestrator code and installed OMP executable together:
 3. atomically restore the executable whose digest matches that revision's
    `OMP_BINARY_PIN`;
 4. repeat the inspection commands and narrow pin/launch tests;
-5. use `orchestrator resume <run_id>` only when that restored revision accepts
-   the run's existing workflow checksum and state. Never force a session link,
+5. A restored pin/code pair is availability evidence, not qualification of
+   interrupted workflow recovery. Resume only an exact qualified family with
+   its release, source/assets/closures and run evidence. Never force a session link,
    continuation chain, scaffold, or run state across pin drift.
 
 Existing structured workflow results remain authority. OMP journals, launch

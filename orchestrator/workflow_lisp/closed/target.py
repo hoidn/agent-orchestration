@@ -13,7 +13,7 @@ from orchestrator.workflow_lisp.diagnostics import (
 )
 from orchestrator.workflow_lisp.reader import SourceReadTrace, read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom
-from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.spans import SourceSpan
 
 
 def _entry_target_header_from_tree(
@@ -43,13 +43,6 @@ def _entry_target_header(
     return _entry_target_header_from_tree(
         read_sexpr_file(path, source_read_trace=source_read_trace)
     )
-
-
-def _initial_source_location(path: Path) -> SourceSpan:
-    """Locate a compiled-only refusal at its known source path's file start."""
-
-    position = SourcePosition(str(Path(path)), 1, 1, 0)
-    return SourceSpan(position, position)
 
 
 def _entry_target_header_from_bytes(
@@ -103,81 +96,3 @@ def refuse_compiled_retired_entry_target(
     if captured_target != target:
         raise RuntimeError("compiled entry target does not match its source snapshot")
     _raise_retired_execution_target(target, span)
-
-
-def _raise_evaluated_execution_unavailable(
-    target_dsl_version: str,
-    target_span: SourceSpan,
-) -> None:
-    raise LispFrontendCompileError(
-        (_evaluated_execution_unavailable_diagnostic_at_span(
-            target_dsl_version,
-            target_span,
-        ),)
-    )
-
-
-def _evaluated_execution_unavailable_diagnostic_at_span(
-    target_dsl_version: str,
-    target_span: SourceSpan,
-) -> LispFrontendDiagnostic:
-    return LispFrontendDiagnostic(
-        code="evaluated_execution_unavailable",
-        message=(
-            f"target DSL {target_dsl_version} runs only on the evaluated route "
-            f"(from DSL {syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}); "
-            "the flat route cannot execute it"
-        ),
-        span=target_span,
-        phase="lowering",
-    )
-
-
-def _evaluated_execution_unavailable_diagnostic(
-    target_dsl_version: str,
-    source_path: Path,
-) -> LispFrontendDiagnostic:
-    """Build a target refusal diagnostic from compiled metadata and source location."""
-
-    return _evaluated_execution_unavailable_diagnostic_at_span(
-        target_dsl_version,
-        _initial_source_location(source_path),
-    )
-
-
-def refuse_run_at_evaluated_execution_target(path: Path) -> None:
-    """Refuse run/resume early when the entry header selects evaluated execution."""
-
-    try:
-        target_dsl_version, target_span = _entry_target_header(path)
-    except (LispFrontendCompileError, OSError, UnicodeError):
-        # This is only an early refusal peek; the regular build owns source diagnostics.
-        return
-    if syntax.target_dsl_uses_evaluated_execution(target_dsl_version):
-        _raise_evaluated_execution_unavailable(target_dsl_version, target_span)
-
-
-def refuse_compiled_target_at_evaluated_execution_target(
-    path: Path,
-    target_dsl_version: str,
-    source_bytes_by_path: Mapping[Path, bytes],
-) -> None:
-    """Reject the target parsed by the compiler from its exact source snapshot."""
-
-    if not syntax.target_dsl_uses_evaluated_execution(target_dsl_version):
-        return
-    try:
-        source_bytes = source_bytes_by_path[path]
-    except KeyError as exc:
-        raise RuntimeError(
-            f"compiled entry source `{path}` is absent from its read trace"
-        ) from exc
-    snapshot_target, target_span = _entry_target_header_from_bytes(
-        path,
-        source_bytes,
-    )
-    if snapshot_target != target_dsl_version:
-        raise RuntimeError(
-            f"compiled entry target `{target_dsl_version}` does not match its source snapshot"
-        )
-    _raise_evaluated_execution_unavailable(snapshot_target, target_span)

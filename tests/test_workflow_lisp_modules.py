@@ -1,19 +1,13 @@
 import importlib
 from pathlib import Path
-from types import MappingProxyType
 
 import pytest
 
-from orchestrator.state import StateManager
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
-from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
 from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import CallExpr
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
-from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "modules"
@@ -704,69 +698,8 @@ def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: P
     assert "neurips/types" in helper_imports
     assert "neurips/procedures::build-checks" in result.entry_result.procedure_catalog.signatures_by_name
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
-    assert "neurips/helper::secondary" in result.validated_bundles_by_name
-    assert set(result.validated_bundles_by_name) == {
-        "neurips/entry::orchestrate",
-        "neurips/helper::provider-attempt",
-        "neurips/helper::secondary",
-    }
-    root_bundle = result.validated_bundles_by_name["neurips/entry::orchestrate"]
-    secondary_bundle = root_bundle.imports["neurips/helper::secondary"]
-    leaf_bundle = secondary_bundle.imports["neurips/helper::provider-attempt"]
-    assert leaf_bundle is result.validated_bundles_by_name[
-        "neurips/helper::provider-attempt"
-    ]
-    assert all(
-        bundle.provenance.frontend_kind == "workflow_lisp"
-        for bundle in result.validated_bundles_by_name.values()
-    )
 
 
-def test_compile_stage3_entrypoint_preserves_explicit_compiled_orc_bundle_identity(
-    tmp_path: Path,
-) -> None:
-    imported_source = (
-        Path(__file__).parent
-        / "fixtures"
-        / "workflow_lisp"
-        / "cli"
-        / "imported_selector.orc"
-    )
-    imported_result = _compile_stage3_entrypoint(
-        imported_source,
-        source_root=imported_source.parent,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-    imported_bundle = imported_result.validated_bundles_by_name[
-        "imported_selector::selector-run"
-    ]
-    assert imported_bundle.provenance.frontend_kind == "workflow_lisp"
-
-    source_root = VALID_FIXTURES / "imported_bundle_mix"
-    result = _compile_stage3_entrypoint(
-        source_root / "neurips" / "entry.orc",
-        source_root=source_root,
-        imported_workflow_bundles={"selector-run": imported_bundle},
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-
-    linked_import = result.entry_result.workflow_catalog.imported_bundles_by_name[
-        "selector-run"
-    ]
-    root_import = result.validated_bundles_by_name[
-        "neurips/entry::orchestrate"
-    ].imports["selector-run"]
-    assert linked_import is imported_bundle
-    assert root_import is imported_bundle
-    assert linked_import.provenance.frontend_kind == "workflow_lisp"
-    assert root_import.provenance.frontend_kind == "workflow_lisp"
-    assert imported_bundle.provenance.frontend_kind == "workflow_lisp"
-    assert all(
-        bundle.provenance.frontend_kind == "workflow_lisp"
-        for bundle in result.validated_bundles_by_name.values()
-    )
 
 
 def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_keys(tmp_path: Path) -> None:
@@ -789,7 +722,6 @@ def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_
     )
 
     assert "workflow_refs/imported_helper::echo-helper" in result.entry_result.workflow_catalog.signatures_by_name
-    assert "workflow_refs/imported_entry::entry" in result.validated_bundles_by_name
 
 
 def test_compile_stage3_entrypoint_resolves_imported_proc_refs_to_canonical_keys(
@@ -1046,7 +978,7 @@ def test_compile_stage3_module_supports_builtin_stdlib_imports(tmp_path: Path) -
 
     assert "demo/entry::run" in result.workflow_catalog.signatures_by_name
 
-def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_path: Path) -> None:
+def test_compile_stage3_entrypoint_keeps_native_analysis_for_old_source(tmp_path: Path) -> None:
     source_root = tmp_path / "validate_shared_disabled"
     path = _write_module(
         source_root / "demo" / "entry.orc",
@@ -1077,17 +1009,6 @@ def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_pat
     compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
     assert callable(compile_fn), "compile_stage3_entrypoint is missing"
 
-    with pytest.raises(LispFrontendCompileError):
-        compile_fn(
-            path,
-            source_roots=(source_root,),
-            provider_externs={"providers.execute": "test-provider"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            lowering_route="legacy",
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
     result = compile_fn(
         path,
         source_roots=(source_root,),
@@ -1097,9 +1018,9 @@ def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_pat
         validate_shared=False,
         workspace_root=tmp_path,
     )
+    assert result.entry_result.typed_program.target == "2.14"
+    assert "demo/entry::run" in result.entry_result.typed_program.workflows
 
-    assert result.entry_result.validated_bundles == {}
-    assert result.validated_bundles_by_name == {}
 
 
 def test_compile_stage3_entrypoint_prefers_local_names_over_only_imports(tmp_path: Path) -> None:
@@ -1433,61 +1354,8 @@ def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp
     _assert_diagnostic_code(excinfo, "callable_name_collision")
 
 
-def test_compile_stage3_entrypoint_imported_private_helper_local_union_compiles_on_default_wcc_route(
-    tmp_path: Path,
-) -> None:
-    source_root = VALID_FIXTURES / "imported_private_helper_local_union"
-    entry_path = source_root / "imported_private_helper_local_union" / "consumer.orc"
-
-    result = _compile_stage3_entrypoint(
-        entry_path,
-        source_root=source_root,
-        lowering_route=None,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-
-    assert (
-        "imported_private_helper_local_union/consumer::run"
-        in result.entry_result.validated_bundles
-    )
-    lowered_names = {
-        workflow.typed_workflow.definition.name
-        for compiled in result.compiled_results_by_name.values()
-        for workflow in compiled.lowered_workflows
-    }
-    assert "%helper.imported_private_helper_local_union/helper::route-decision.v1" in lowered_names
-    assert "%helper.imported_private_helper_local_union/helper::finalize-decision.v1" in lowered_names
 
 
-def test_compile_stage3_entrypoint_imported_private_helper_exported_union_not_imported_compiles_on_default_wcc_route(
-    tmp_path: Path,
-) -> None:
-    source_root = VALID_FIXTURES / "imported_private_helper_exported_union_not_imported"
-    entry_path = source_root / "imported_private_helper_exported_union_not_imported" / "consumer.orc"
-
-    result = _compile_stage3_entrypoint(
-        entry_path,
-        source_root=source_root,
-        lowering_route=None,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-
-    assert (
-        "imported_private_helper_exported_union_not_imported/consumer::run"
-        in result.entry_result.validated_bundles
-    )
-    lowered_names = {
-        workflow.typed_workflow.definition.name
-        for compiled in result.compiled_results_by_name.values()
-        for workflow in compiled.lowered_workflows
-    }
-    assert "%helper.imported_private_helper_exported_union_not_imported/helper::route-decision.v1" in lowered_names
-    assert (
-        "%helper.imported_private_helper_exported_union_not_imported/helper::finalize-decision.v1"
-        in lowered_names
-    )
 
 
 @pytest.mark.parametrize(
@@ -1516,26 +1384,7 @@ def test_linked_private_procedures_resolve_once_in_their_defining_module(
         )
         return original_resolver(typed_procedures, **kwargs)
 
-    original_consumer = getattr(compiler, consumer_name)
-
-    def capture_consumer(typed_workflows, **kwargs):
-        if any(
-            workflow.definition.name
-            == "imported_private_helper_local_union/consumer::run"
-            for workflow in typed_workflows
-        ):
-            typed_rows = kwargs["typed_procedures"]
-            resolved_rows = kwargs["resolved_procedures_by_name"]
-            assert isinstance(resolved_rows, type(MappingProxyType({})))
-            assert all(
-                resolved_rows[procedure.definition.name] is procedure
-                for procedure in typed_rows
-            )
-            received_rows.append(typed_rows)
-        return original_consumer(typed_workflows, **kwargs)
-
     monkeypatch.setattr(compiler, "_resolve_procedure_lowering", counting_resolver)
-    monkeypatch.setattr(compiler, consumer_name, capture_consumer)
 
     result = _compile_stage3_entrypoint(
         entry_path,
@@ -1551,13 +1400,9 @@ def test_linked_private_procedures_resolve_once_in_their_defining_module(
             "imported_private_helper_local_union/helper::route-decision",
         )
     ]
-    assert len(received_rows) == 1
-    assert {
-        procedure.generated_workflow_name
-        for procedure in received_rows[0]
-    } >= {
-        "%helper.imported_private_helper_local_union/helper::finalize-decision.v1",
-        "%helper.imported_private_helper_local_union/helper::route-decision.v1",
+    assert set(result.entry_result.typed_program.procedures) >= {
+        "imported_private_helper_local_union/helper::finalize-decision",
+        "imported_private_helper_local_union/helper::route-decision",
     }
     assert result.entry_result.typed_procedures == ()
 
@@ -1582,114 +1427,10 @@ def test_compile_stage3_entrypoint_imported_private_helper_unknown_type_stays_at
     assert diagnostic.span.start.path.endswith("helper.orc")
 
 
-def test_compile_stage3_entrypoint_imported_private_helper_runtime_executes_nested_private_call(
-    tmp_path: Path,
-) -> None:
-    source_root = VALID_FIXTURES / "imported_private_helper_local_union"
-    entry_path = source_root / "imported_private_helper_local_union" / "consumer.orc"
-    result = _compile_stage3_entrypoint(
-        entry_path,
-        source_root=source_root,
-        lowering_route=None,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-    bundle = result.entry_result.validated_bundles[
-        "imported_private_helper_local_union/consumer::run"
-    ]
-    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
-    binding_inputs = {
-        input_name: contract
-        for input_name, contract in runtime_inputs.items()
-        if not input_name.startswith("__write_root__")
-    }
-    bound_inputs = bind_workflow_inputs(
-        binding_inputs,
-        {"input__approved": True, "input__detail": "ok"},
-        tmp_path,
-    )
-    state_manager = StateManager(workspace=tmp_path, run_id="imported-private-helper-runtime")
-    state_manager.initialize(
-        entry_path.as_posix(),
-        context=bundle_context_dict(bundle),
-        bound_inputs=bound_inputs,
-    )
-
-    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
-
-    assert state["status"] == "completed"
-    assert state["workflow_outputs"] == {"return__variant": "ALLOW", "return__detail": "ok"}
-    call_step = state["steps"][
-        "imported_private_helper_local_union/consumer::run__decision__call_imported_private_helper_local_union/helper::run-helper"
-    ]
-    assert call_step["status"] == "completed"
-    assert any(
-        "route_decision" in frame_name
-        for frame_name in call_step["debug"]["call"]["nested_call_frames"]
-    )
 
 
-def test_compile_stage3_entrypoint_pure_projection_boundary_decision_consumer_compiles_on_default_wcc_route(
-    tmp_path: Path,
-) -> None:
-    source_root = VALID_FIXTURES / "pure_projection_boundary_decision_consumer"
-    entry_path = source_root / "pure_projection_boundary_decision_consumer" / "entry.orc"
-
-    result = _compile_stage3_entrypoint(
-        entry_path,
-        source_root=source_root,
-        lowering_route=None,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-
-    assert "pure_projection_boundary_decision_consumer/entry::run" in result.entry_result.validated_bundles
 
 
-def test_compile_stage3_entrypoint_pure_projection_boundary_decision_consumer_executes_runtime_path(
-    tmp_path: Path,
-) -> None:
-    source_root = VALID_FIXTURES / "pure_projection_boundary_decision_consumer"
-    entry_path = source_root / "pure_projection_boundary_decision_consumer" / "entry.orc"
-    result = _compile_stage3_entrypoint(
-        entry_path,
-        source_root=source_root,
-        lowering_route=None,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-    bundle = result.entry_result.validated_bundles[
-        "pure_projection_boundary_decision_consumer/entry::run"
-    ]
-    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
-    binding_inputs = {
-        input_name: contract
-        for input_name, contract in runtime_inputs.items()
-        if not input_name.startswith("__write_root__")
-    }
-    bound_inputs = bind_workflow_inputs(
-        binding_inputs,
-        {"bundle_path": "state/selection.json", "reason": "gap"},
-        tmp_path,
-    )
-    state_manager = StateManager(
-        workspace=tmp_path,
-        run_id="pure-projection-boundary-decision-consumer",
-    )
-    state_manager.initialize(
-        entry_path.as_posix(),
-        context=bundle_context_dict(bundle),
-        bound_inputs=bound_inputs,
-    )
-
-    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
-
-    assert state["status"] == "completed"
-    assert state["workflow_outputs"] == {
-        "return__selected_path": "state/selection.json",
-        "return__path_detail": "READY",
-        "return__shared_detail": "gap-computed",
-    }
 
 
 def test_compile_stage3_entrypoint_rejects_ambiguous_unqualified_transition_imports(
@@ -1781,147 +1522,3 @@ def test_compile_stage3_entrypoint_rejects_ambiguous_unqualified_transition_impo
         )
 
     _assert_diagnostic_code(excinfo, "module_import_ambiguous")
-
-
-def test_compile_stage3_entrypoint_imported_root_result_call_executes_runtime(
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "src"
-    callee_dir = source_root / "rootcall"
-    callee_dir.mkdir(parents=True)
-    _write_module(
-        callee_dir / "rootlib.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
-                "  (defmodule rootcall/rootlib)",
-                "  (export root-flag)",
-                "  (defworkflow root-flag",
-                "    ((count Int))",
-                "    -> Bool",
-                "    (> count 0)))",
-            ]
-        )
-        + "\n",
-    )
-    entry_path = _write_module(
-        callee_dir / "entry.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule rootcall/entry)",
-                "  (import rootcall/rootlib :only (root-flag))",
-                "  (export run)",
-                "  (defrecord Wrap",
-                "    (ok Bool))",
-                "  (defworkflow run",
-                "    ((count Int))",
-                "    -> Wrap",
-                "    (let* ((ok (call root-flag :count count)))",
-                "      (record Wrap :ok ok))))",
-            ]
-        )
-        + "\n",
-    )
-
-    result = _compile_stage3_entrypoint(
-        entry_path,
-        source_root=source_root,
-        lowering_route=None,
-        validate_shared=True,
-        tmp_path=tmp_path,
-    )
-    bundle = result.entry_result.validated_bundles["rootcall/entry::run"]
-    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
-    binding_inputs = {
-        input_name: contract
-        for input_name, contract in runtime_inputs.items()
-        if not input_name.startswith("__write_root__")
-    }
-    bound_inputs = bind_workflow_inputs(binding_inputs, {"count": 2}, tmp_path)
-    state_manager = StateManager(workspace=tmp_path, run_id="imported-root-result-call")
-    state_manager.initialize(
-        entry_path.as_posix(),
-        context=bundle_context_dict(bundle),
-        bound_inputs=bound_inputs,
-    )
-
-    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
-        on_error="stop"
-    )
-
-    assert state["status"] == "completed"
-    assert state["workflow_outputs"] == {"return__ok": True}
-    call_step = next(
-        result_payload
-        for step_name, result_payload in state["steps"].items()
-        if "__call_" in step_name
-    )
-    assert call_step["status"] == "completed"
-    assert call_step["artifacts"] == {"__result__": True}
-
-
-def test_root_result_workflow_failure_suppresses_output_finalization(tmp_path: Path) -> None:
-    module_path = _write_module(
-        tmp_path / "root_result_failure.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
-                "  (defworkflow root-check",
-                "    ((count Int))",
-                "    -> Bool",
-                "    (command-result run_checks",
-                '      :argv ("python" "scripts/run_checks.py")',
-                "      :returns Bool)))",
-            ]
-        )
-        + "\n",
-    )
-    result = compile_stage3_module(
-        module_path,
-        provider_externs={},
-        prompt_externs={},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    bundle = next(
-        bundle
-        for name, bundle in result.validated_bundles.items()
-        if name == "root-check" or name.endswith("::root-check")
-    )
-    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
-    binding_inputs = {
-        input_name: contract
-        for input_name, contract in runtime_inputs.items()
-        if not input_name.startswith("__write_root__")
-    }
-    bound_inputs = bind_workflow_inputs(binding_inputs, {"count": 1}, tmp_path)
-    state_manager = StateManager(workspace=tmp_path, run_id="root-result-suppression")
-    state_manager.initialize(
-        module_path.as_posix(),
-        context=bundle_context_dict(bundle),
-        bound_inputs=bound_inputs,
-    )
-
-    state = WorkflowExecutor(
-        bundle,
-        tmp_path,
-        state_manager,
-        max_retries=0,
-        retry_delay_ms=0,
-    ).execute(on_error="stop")
-
-    assert state["status"] == "failed"
-    assert not state.get("workflow_outputs")

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use `superpowers:subagent-driven-development`. The coordinator owns integration and final verification; use a reviewer distinct from the author. The owner selected execution on 2026-10-13; respect the remaining consumer and recovery gates.
 
-**Status:** execution selected; Task 0 inventory recorded; Task 1 bounded implementation accepted; Tasks 2–5 in progress or pending their dependencies. **Date:** 2026-10-13.
+**Status:** Tasks 0–5 and R complete in the commit containing the retirement closeout. Physical deletion, retained-test migration and final independent reviews are PASS. The second full remains RED (15 classified failures, zero errors); main integration and preserved user changes are recorded in the delivery receipt. **Date:** 2026-10-13.
 **Goal:** migrate canonical serial best of N and remove old execution infrastructure after finite consumer/recovery dispositions.
 **Architecture:** preserve evaluated 2.35/2.36 and bounded 2.37 with their current limits and shared services; remove only retired flat execution and its callers.
 **Tech stack:** existing Python, Workflow Lisp, pytest and subprocess fixtures; no new dependency.
@@ -92,6 +92,7 @@ or unresolved disposition bucket. The matrix records proposed choices until sele
 - [x] Update a runnable README recipe with existing provider bindings, typed input and prerequisites for independent candidate clones under a temporary working root. Do not revive `harness/run_best_of_n_trial.sh` or `run_single_call.sh` and their missing machine-specific variants.
 - [x] Collect the changed test module, run its narrow best-of-N selectors, and run the canonical public compile/dry-run/run/resume/report recipe with deterministic transport. Keep provider requests and artifact hashes as evidence.
 - [x] Reuse applicable historical live-provider qualification with limits; if this migration changes provider delivery/policy, qualify the changed boundary live before claiming parity. Do not turn this migration into a new quality benchmark.
+- [x] Integrate the provider-delivery change from main: remove authored result-delivery prose from maintained prompt assets and verify their current evaluated dataflow ([provider result delivery](../design/provider_result_delivery.md)).
 
 **Done:** both canonical exported entries run through the evaluated route;
 four-candidate use and interrupted/completed resume have public evidence. Old
@@ -109,11 +110,20 @@ exact additional paths selected in Task 0, registry and `workflows/README.md`.
 Selected prompt retirement is owned by Tasks 3–4; the inference asset is not a
 maintained migration and retires if no other caller remains.
 
-- [ ] For each selected migration, use the existing 2.35 copy/fixture proof to identify the minimum source/command-closure changes; prove the canonical source and required imports through the public route.
-- [ ] Preserve typed results, phases/targets, artifact lineage, history publication and required effect order; run committed-boundary and completed resume. Do not add W3 or new effect classes unless the consumer actually requires them.
-- [ ] For selected retirements, remove primary launch/copy-safe routing and exclusive executable assets/tests; keep historical reports labeled and retain shared code used by maintained consumers.
-- [ ] For every unsupported required shape, record its exact failure and return the bounded contract choice to design: port only that needed shape or explicitly retire its consumer. No fallback or blanket “complete Phase 4” dependency.
-- [ ] Complete each frozen row with evidence. Keep delivered W3 proposal and README plan/review/execute as regression controls; old imported headers alone do not force a port.
+- [x] For each selected migration, use the existing 2.35 copy/fixture proof to identify the minimum source/command-closure changes; prove the canonical source and required imports through the public route.
+- [x] Preserve typed results, phases/targets, artifact lineage, history publication and required effect order; run committed-boundary and completed resume. Do not add W3 or new effect classes unless the consumer actually requires them.
+- [x] For selected retirements, remove primary launch/copy-safe routing and exclusive executable assets/tests; keep historical reports labeled and retain shared code used by maintained consumers.
+- [x] For every unsupported required shape, record its exact failure and return the bounded contract choice to design: port only that needed shape or explicitly retire its consumer. No fallback or blanket “complete Phase 4” dependency.
+- [x] Complete each frozen row with evidence. Keep delivered W3 proposal and README plan/review/execute as regression controls; old imported headers alone do not force a port.
+
+Accepted evidence/dispositions: [closeout Task 2](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md#task-2--other-canonical-consumers)
+and its later R qualification record canonical reviewed-change/direct-task/drain/search
+lifecycle, phases/history/terminal outcomes and source-bound request data. Selected
+retirement rows have explicit decisions and corrected launch/copy routing; no
+unsupported required shape remains awaiting a new port (that design-return
+branch is not applicable). W3 and README controls retain their existing contracts.
+Task 2 acceptance does not close post-deletion retained-test migration, full
+qualification or delivery: those remain Tasks 4–5.
 
 **Done:** all selected maintained roots run/resume on evaluated execution and every
 other executable root has its explicit selected retirement disposition.
@@ -129,15 +139,15 @@ other executable root has its explicit selected retirement disposition.
 `tests/test_cli_prompt{,_import,_run_seam}.py`, `tests/test_prompt_resume{,_child}.py`
 and `tests/test_prompt_session_scaffold.py`.
 
-- [ ] Add failing public tests for old entry compile/run/dry-run, old-profile resume/force-restart/invalidate, and legacy path/staged-bundle child refusal; compare retained root file bytes before/after. Refuse before publishing run/build state or effects, with actionable diagnostics.
-- [ ] Refuse `prompt run` default/exact/inferred and `--scaffold` rerun, plus both `prompt import` branches (including `--reuse-run-contract`), before scaffold/run/session writes or effects. Preserve existing data and provide retained-release guidance. Smoke-test native `prompt resume` and `--in-place`, retaining TTY, pins, isolation, lineage and continuation behavior; this is not old-workflow recovery.
-- [ ] Apply the selected Python API disposition to `workflow/__init__.py`, `workflow_lisp/__init__.py` flat lowerer exports and `workflow/trial/sdk.py` compile-and-run. Migrate maintained callers or retire them with release guidance; retain supported analysis/type interfaces. No replacement trial port is selected merely by this removal.
-- [ ] Retire executable entries through 2.34 at existing boundaries while retaining registration/support for 2.35/2.36/2.37 with current limits. Keep source snapshots/pins authoritative and supported older-module imports; do not retag source/checkpoints.
-- [ ] Prove pinned evaluated children still compile/run/settle/reconcile. Test that an evaluated parent cannot reach legacy child execution or legacy path-compilation fallback.
-- [ ] Select existing `tests/test_workflow_lisp_parallel_map*.py` and `tests/test_workflow_evaluated_parallel*.py` checks by changed compiler/read-back, replay and worker owners. Preserve 2.37 behavior; reuse valid source-bound receipts and rerun invalidated checks.
-- [ ] Test representative interrupted old families on the exact retained complete release/environment, including required assets/closures and children. Record which families recover and which have explicitly retired resumability; never infer success from newly generated fixtures.
-- [ ] Exercise existing historical report/dashboard access without executable imports. If a pure decoder is required, move that logic once into its existing reader owner; retain no executable replay merely to read state.
-- [ ] Update normative support/refusal and recovery guidance with the selected cutoff. Preserve original data and honest package/interpreter-pin mismatches.
+- [x] Add failing public tests for old entry compile/run/dry-run, old-profile resume/force-restart/invalidate, and legacy path/staged-bundle child refusal; compare retained root file bytes before/after. Refuse before publishing run/build state or effects, with actionable diagnostics.
+- [x] Refuse `prompt run` default/exact/inferred and `--scaffold` rerun, plus both `prompt import` branches (including `--reuse-run-contract`), before scaffold/run/session writes or effects. Preserve existing data and provide retained-release guidance. Smoke-test native `prompt resume` and `--in-place`, retaining TTY, pins, isolation, lineage and continuation behavior; this is not old-workflow recovery.
+- [x] Apply the selected Python API disposition to `workflow/__init__.py`, `workflow_lisp/__init__.py` flat lowerer exports and `workflow/trial/sdk.py` compile-and-run. Migrate maintained callers or retire them with release guidance; retain supported analysis/type interfaces. No replacement trial port is selected merely by this removal.
+- [x] Retire executable entries through 2.34 at existing boundaries while retaining registration/support for 2.35/2.36/2.37 with current limits. Keep source snapshots/pins authoritative and supported older-module imports; do not retag source/checkpoints.
+- [x] Prove pinned evaluated children still compile/run/settle/reconcile. Test that an evaluated parent cannot reach legacy child execution or legacy path-compilation fallback.
+- [x] Select existing `tests/test_workflow_lisp_parallel_map*.py` and `tests/test_workflow_evaluated_parallel*.py` checks by changed compiler/read-back, replay and worker owners. Preserve 2.37 behavior; reuse valid source-bound receipts and rerun invalidated checks.
+- [x] Test representative interrupted old families on the exact retained complete release/environment, including required assets/closures and children. Record which families recover and which have explicitly retired resumability; never infer success from newly generated fixtures.
+- [x] Exercise existing historical report/dashboard access without executable imports. If a pure decoder is required, move that logic once into its existing reader owner; retain no executable replay merely to read state.
+- [x] Update normative support/refusal and recovery guidance with the selected cutoff. Preserve original data and honest package/interpreter-pin mismatches.
 
 **Gate R:** selected consumer/run dispositions complete, migrated lifecycle checks
 pass, old-route refusal is non-mutating, retained recovery/read-only claims are
@@ -163,14 +173,14 @@ update every caller; do not keep re-export aliases or copy the old lowering
 package under a new name. The cutoff and exclusive implementation removal ship
 together. The execution closeout owns evidence and exact helper inventory.
 
-- [ ] Remove `workflow/executor.py::WorkflowExecutor`, public exports and CLI/child/trial call sites whose contracts are retired. Keep shared `exec/step_executor.py`, `providers/` and evaluated run-reference services.
-- [ ] Remove old executable replay/checkpoint/state-translation branches in `workflow/pure_result_replay.py`, `workflow_lisp/lexical_checkpoint*.py`, `state.py` and affected CLI commands after the read-only split, if needed.
-- [ ] Trace evaluated compiler imports from `workflow_lisp/{compiler,procedure_specialization,conditionals,prompts,result_guidance}.py`, `workflow_lisp/closed/{build,command_templates}.py`, WCC elaboration and source-map/explain/LSP before removing flat lowering. Move only shared helper definitions to existing semantic owners, update callers, and delete displaced definitions/aliases.
-- [ ] Remove retired prompt run/import execution and executable scaffold-compilation callers; retire `omp_assets/infer-output-contract.orc` if unused. Keep native resume routing, `_scaffold_files` and the historical 2.27 renderer for `verify_private_scaffold`/`verify_captured_occupant` byte/manifest/link verification. Remove eager compiler imports and `compile_check`/`derive_compiled_contract` only when without callers; retain pure prompt/provider/codec helpers still used.
-- [ ] Delete exclusive `workflow_lisp/lowering`, WCC-to-flat and `workflow/lowering.py` machinery. Preserve WCC model/elaboration/normalization, checked construction and shared descriptors; retain justified parts of mixed IR/bundle/state modules under explicit owners.
-- [ ] Migrate tests of retained semantics to the canonical evaluated public path. Delete only tests whose contract Task 0 explicitly retires; retain frozen historical receipts without importing the old runtime into current tests.
-- [ ] Add fresh-process behavioral checks blocking retired-module imports across supported CLI compile/run/resume/report, native prompt-resume/scaffold-verification and child lifecycle paths; exercise lazy/error/recovery paths. Native prompt resume must not import the workflow compiler or old executor. Reuse `test_workflow_closed_program_isolation.py` for the separate compiler-free parent boundary.
-- [ ] Run searches for every deleted symbol/path and inspect remaining hits. Require actual physical deletion and one executable route; a renamed legacy package, compatibility switch, or dormant fallback fails completion.
+- [x] Remove `workflow/executor.py::WorkflowExecutor`, public exports and CLI/child/trial call sites whose contracts are retired. Keep shared `exec/step_executor.py`, `providers/` and evaluated run-reference services.
+- [x] Remove old executable replay/checkpoint/state-translation branches in `workflow/pure_result_replay.py`, `workflow_lisp/lexical_checkpoint*.py`, `state.py` and affected CLI commands after the read-only split, if needed.
+- [x] Trace evaluated compiler imports from `workflow_lisp/{compiler,procedure_specialization,conditionals,prompts,result_guidance}.py`, `workflow_lisp/closed/{build,command_templates}.py`, WCC elaboration and source-map/explain/LSP before removing flat lowering. Move only shared helper definitions to existing semantic owners, update callers, and delete displaced definitions/aliases.
+- [x] Remove retired prompt run/import execution and executable scaffold-compilation callers; retire `omp_assets/infer-output-contract.orc` if unused. Keep native resume routing, `_scaffold_files` and the historical 2.27 renderer for `verify_private_scaffold`/`verify_captured_occupant` byte/manifest/link verification. Remove eager compiler imports and `compile_check`/`derive_compiled_contract` only when without callers; retain pure prompt/provider/codec helpers still used.
+- [x] Delete exclusive `workflow_lisp/lowering`, WCC-to-flat and `workflow/lowering.py` machinery. Preserve WCC model/elaboration/normalization, checked construction and shared descriptors; retain justified parts of mixed IR/bundle/state modules under explicit owners.
+- [x] Complete migration of retained semantic tests on the evaluated/typed/read-only owners. R3 report assertions and R4 eight positive analyses have narrow/affected and second-full evidence; independent final source/ledger review is PASS. The second full remains RED with all 15 remaining causes classified. Delete only explicitly retired execution/recovery tests; preserve historical receipts.
+- [x] Add fresh-process behavioral checks blocking retired-module imports across supported CLI compile/run/resume/report, native prompt-resume/scaffold-verification and child lifecycle paths; exercise lazy/error/recovery paths. Native prompt resume must not import the workflow compiler or old executor. Reuse `test_workflow_closed_program_isolation.py` for the separate compiler-free parent boundary.
+- [x] Run searches for every deleted symbol/path and inspect remaining hits. Require actual physical deletion and one executable route; a renamed legacy package, compatibility switch, or dormant fallback fails completion.
 
 ## Task 5 — Verify, Reconcile Documentation, And Deliver
 
@@ -179,10 +189,25 @@ together. The execution closeout owns evidence and exact helper inventory.
 `docs/design/README.md`, frontend/evaluated/consolidation designs, normative owners,
 route-readiness registry, workflow/experiment READMEs and affected exports/API docs.
 
-- [ ] Collect added/renamed tests, run narrow owners, then public smoke/integration and affected/full campaigns under the rules below. Account for every new failure; preserve known RED baseline status.
-- [ ] Reconcile discoverability and actual selector/manifests found in Task 0; retain historical status/evidence as history. Report effective routes and retired targets accurately.
-- [ ] Repeat the LOC recipe on the final tree, report production/test deltas separately, and list removed execution doors, remaining shared modules and any retained read-only code. Explain remaining old-named modules by actual callers.
-- [ ] Obtain independent code/evidence and design/spec review, apply accepted findings, and rerun only checks invalidated by relevant changes/failures. Coordinator inspects final diff and receipts before integration.
+- [x] Collect added/renamed tests, run narrow owners, then public smoke/integration and affected/full campaigns under the rules below. Second full: 15,464 PASS / 15 FAIL / 28 SKIP / 2 XFAIL / 0 ERROR, exit 1; all 15 causes classified with no new unaccounted failure or source drift. Preserve both full RED results and the known compiler/environment limits.
+- [x] Reconcile discoverability and actual selector/manifests found in Task 0; retain historical status/evidence as history. Report effective routes and retired targets accurately; bounded routing review R1–R5 is PASS. Final status refresh follows the closeout.
+- [x] Refresh tracked LOC/source scope at the second freeze `53542f3b`: production −103,594 lines (28.89%); tests −254,921 (42.54%), `E/retirement-final-loc2.json`. Retain the first measurements as history; refresh only after a scope-changing final edit. Keep removed-door/shared-reader scope explicit.
+- [x] Obtain independent code/evidence and design/spec review, apply accepted findings, and rerun only checks invalidated by relevant changes/failures. Coordinator inspected the final diff and receipts; final reviews are PASS with the full-suite RED limits explicit.
+
+Final status and receipts: [retirement closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md#final-deleted-tree-qualification-and-delivery).
+Task 4 retained-test migration is accepted on final independent source/ledger
+PASS for R3/R4 and the additional native error-domain catch
+(`E/retirement-final-test-disposition-review.json`; prompt ledger
+`E/retirement-prompt-integration-tests.json`) plus second-full execution.
+Task 5 verification/routing is recorded in `E/retirement-final-full2.*` and
+`E/retirement-final-full2-dispositions.json`: 15,464 PASS / 15 FAIL / 28 SKIP /
+2 XFAIL / 0 ERROR, exit 1, with no new unaccounted failure or source drift.
+Ten newly exposed scope cases reproduce two prior compiler limits via public
+CLI at exact `23eb9c97`; five other failures have matching baseline trace causes.
+Both full campaigns remain RED. Task 5 is complete under these classified
+limits and independent final code/evidence and design/closeout PASS. Delivery
+is the commit containing the final closeout; `E/retirement-main-delivery.json`
+records its exact hash, main integration and preservation of concurrent changes.
 
 ## Verification And Measurement Recipes
 

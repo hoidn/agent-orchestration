@@ -585,10 +585,6 @@ def validate_core_workflow_ast(
         raise WorkflowValidationError(errors)
 
 
-def lower_core_workflow_ast(core_workflow_ast: CoreWorkflowAST):
-    from .lowering import _lower_surface_workflow_impl
-
-    return _lower_surface_workflow_impl(_surface_workflow_from_core_ast(core_workflow_ast))
 
 
 def workflow_core_ast_to_json(core_workflow_ast: CoreWorkflowAST) -> dict[str, Any]:

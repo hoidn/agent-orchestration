@@ -759,7 +759,6 @@ def test_driver_coalesces_latest_generation_and_accepts_one_injected_success(
         prompt_externs_path=None,
         imported_workflow_bundles_path=None,
         command_boundaries_path=None,
-        emit_debug_yaml=False,
         workspace_root=workspace.resolve(),
         lint_profile=driver.state.options.lint_profile,
         lowering_route=driver.state.options.lowering_route,
@@ -2360,9 +2359,10 @@ def _l3_result_identity(
         ),
         "entry_selection": result.entry_selection,
         "selected_workflow_name": result.selected_workflow_name,
-        "typed_frontend_ast": build._serialize_typed_frontend_ast(
-            result.compile_result
-        ),
+        "typed_frontend_ast": build._json_data({
+            "workflows": entry_result.typed_workflows,
+            "procedures": entry_result.typed_procedures,
+        }),
         "workflow_catalog": entry_result.workflow_catalog,
         "procedure_catalog": entry_result.procedure_catalog,
         "typed_workflow_names": tuple(workflow.definition.name for workflow in entry_result.typed_workflows),
@@ -2406,9 +2406,10 @@ def _l3_serializable_result_identity(
             }
         ),
         "selected_workflow_name": result.selected_workflow_name,
-        "typed_frontend_ast": build._serialize_typed_frontend_ast(
-            result.compile_result
-        ),
+        "typed_frontend_ast": build._json_data({
+            "workflows": entry_result.typed_workflows,
+            "procedures": entry_result.typed_procedures,
+        }),
         "workflow_catalog": {
             "signatures": tuple(
                 sorted(entry_result.workflow_catalog.signatures_by_name)
@@ -2642,8 +2643,6 @@ def test_l3_mixed_entry_driver_matches_isolated_peers_without_state_bleed(
     }
     assert application.compile_result.entry_result.typed_program is not None
     assert library.compile_result.entry_result.typed_program is not None
-    assert not application.compile_result.validated_bundles_by_name
-    assert not library.compile_result.validated_bundles_by_name
     assert combined_driver.queued_generations == ()
     assert _workspace_snapshot(L3_ENTRY_SELECTION_ROOT) == before
     assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
@@ -4502,8 +4501,6 @@ def test_analysis_build_accepts_supported_headers_without_flat_emission(
     def forbidden(*args, **kwargs):
         raise AssertionError("LSP analysis must not emit or reattach flat workflows")
 
-    monkeypatch.setattr(compiler, "_lower_workflows_for_route", forbidden)
-    monkeypatch.setattr(build, "_select_and_reattach", forbidden)
     source = tmp_path / "analysis.orc"
     source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule analysis) (export run) (defworkflow run () -> Int 1))''')
@@ -4512,7 +4509,5 @@ def test_analysis_build_accepts_supported_headers_without_flat_emission(
     ))
     assert result.entry_selection.canonical_name == "analysis::run"
     assert result.compile_result.entry_result.typed_program.target == target
-    assert not result.compile_result.validated_bundles_by_name
-    assert not result.compile_result.entry_result.lowered_workflows
     assert source in dict(result.source_read_trace.revision_vector)
     assert not (tmp_path / ".orchestrate").exists()

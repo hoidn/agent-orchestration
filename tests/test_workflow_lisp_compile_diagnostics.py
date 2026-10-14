@@ -9,10 +9,9 @@ from orchestrator.cli.commands.compile import compile_workflow
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
-    build_frontend_bundle,
 )
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.compile_diagnostics import (
-    build_accepted_compile_diagnostics_document,
     build_rejected_compile_diagnostics_document,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -22,7 +21,7 @@ def _source(*, return_type: str = "Result") -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.24")
+  (:target-dsl "2.35")
   (defmodule candidate)
   (export Result run)
   (defrecord Result
@@ -72,10 +71,8 @@ def test_cli_and_library_emit_identical_accepted_full_compile_document(
     source_path.write_text(_source(), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    build_result = build_frontend_bundle(_request(source_path, tmp_path))
-    library_document = build_accepted_compile_diagnostics_document(
-        build_result
-    )
+    build_result = build_closed_program_bundle(_request(source_path, tmp_path))
+    library_document = {"status": "accepted", "program_digest": build_result.program.digest, "build_key": build_result.build_key}
 
     exit_code = compile_workflow(_cli_args(source_path, tmp_path))
     captured = capsys.readouterr()
@@ -101,7 +98,7 @@ def test_cli_and_library_emit_identical_rejected_full_compile_document(
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_frontend_bundle(_request(source_path, tmp_path))
+        build_closed_program_bundle(_request(source_path, tmp_path))
     library_document = build_rejected_compile_diagnostics_document(
         excinfo.value.diagnostics
     )

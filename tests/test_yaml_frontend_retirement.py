@@ -6,13 +6,11 @@ import json
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from orchestrator.cli.commands.report import report_workflow
 from orchestrator.cli.commands.resume import (
-    _load_resume_workflow_bundle,
     resume_workflow,
 )
 from orchestrator.cli.commands.run import run_workflow
@@ -68,7 +66,7 @@ def _write_minimal_orc(path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule entry)",
                 "  (export run)",
                 "  (defrecord Result (ok Bool))",
@@ -167,18 +165,11 @@ def test_completed_legacy_resume_fails_closed_when_source_is_missing(
     before = _run_tree_snapshot(run_root)
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
-        side_effect=AssertionError("legacy resume must not construct a frontend loader"),
-    ), patch(
-        "orchestrator.cli.commands.resume.WorkflowExecutor",
-        side_effect=AssertionError("legacy resume must not construct an executor"),
-    ):
-        result = resume_workflow("completed-legacy", repair=False)
+    result = resume_workflow("completed-legacy", repair=False)
 
     captured = capsys.readouterr()
-    assert result == 1
-    assert ".orc required" in captured.err
+    assert result == 2
+    assert "workflow_execution_profile_retired" in captured.err
     assert "already completed successfully" not in captured.out
     assert _run_tree_snapshot(run_root) == before
 
@@ -211,27 +202,9 @@ def test_resume_rejects_executable_legacy_runs_with_orc_required(
 
     result = resume_workflow("legacy-execution", force_restart=force_restart)
 
-    assert result == 1
-    assert ".orc required" in capsys.readouterr().err
+    assert result == 2
+    assert "workflow_execution_profile_retired" in capsys.readouterr().err
     assert _run_tree_snapshot(run_root) == before
-
-
-def test_force_restart_orc_without_process_metadata_uses_frontend_build(
-    tmp_path: Path,
-) -> None:
-    workflow = _write_minimal_orc(tmp_path / "entry.ORC")
-    run_root = tmp_path / ".orchestrate" / "runs" / "missing-metadata"
-    run_root.mkdir(parents=True)
-
-    loaded = _load_resume_workflow_bundle(
-        workflow_path=workflow,
-        workspace_dir=tmp_path,
-        run_root=run_root,
-        force_restart=True,
-    )
-
-    assert loaded.lowering_schema_version is not None
-    assert loaded.bundle.surface.name == "entry::run"
 
 
 def test_report_uses_state_only_when_legacy_source_is_missing(
@@ -267,7 +240,7 @@ def test_report_uses_state_only_when_legacy_source_is_missing(
     assert "state-only" in payload["run"]["report_warning"]
 
 
-def test_report_state_only_projection_reconciles_stale_running_state(
+def test_report_state_only_projection_displays_stale_running_without_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -281,6 +254,7 @@ def test_report_state_only_projection_reconciles_stale_running_state(
         updated_at=stale,
         steps={"FailedStep": {"status": "failed", "error": {"message": "boom"}}},
     )
+    before = state_path.read_bytes()
     monkeypatch.chdir(tmp_path)
 
     result = report_workflow(
@@ -295,11 +269,7 @@ def test_report_state_only_projection_reconciles_stale_running_state(
     assert payload["run"]["display_status_reason"] == (
         "stale_running_terminal_not_finalized"
     )
-    persisted = json.loads(state_path.read_text(encoding="utf-8"))
-    assert persisted["status"] == "failed"
-    assert persisted["context"]["status_reconciled_reason"] == (
-        "stale_running_terminal_not_finalized"
-    )
+    assert state_path.read_bytes() == before
 
 
 def test_dashboard_degrades_non_orc_run_without_reading_authored_source(

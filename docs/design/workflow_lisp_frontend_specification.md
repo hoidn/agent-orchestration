@@ -1,10 +1,17 @@
 # Workflow Lisp Frontend Specification and Design
 
 Status: accepted baseline / umbrella frontend contract
-Target substrate: WCC preparation; targets through 2.34 use flat lowering,
-while evaluated targets use the checked closed program described below
+Target substrate: checked closed-program execution at 2.35/2.36 and bounded
+2.37; executable entries through 2.34 and the flat emitter are retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
+
+Execution scope: [executor retirement](workflow_lisp_executor_retirement.md)
+and [CLI](../../specs/cli.md) govern executable admission. Historical lowering,
+IR/source-map emissions and effect descriptions below remain design/type
+history, not available flat builds. Source spans, catalogs and read traces
+remain part of typed diagnostics and LSP. An old imported header never selects
+an old executor.
 
 Lifecycle note: this document is the parent language contract for Workflow
 Lisp. Focused companion contracts refine current ProcRef, compiler
@@ -28,7 +35,8 @@ owns optional identity-aware effect restrictions and their migration. Current
 target-2.30 resolved-inline [pure-call composition](workflow_lisp_pure_call_composition.md)
 is summarized in §8.6 below; it does not change authored effect declarations.
 
-Target 2.31 supports the portable ordinary-call slice of
+Historical target-2.31 syntax/type contract (context capture is excluded from
+current evaluated execution): the portable ordinary-call slice of
 [provider context values](workflow_lisp_provider_context_values.md):
 `provider-result :context <Context expression>` starts a fresh call with quoted
 history; `:capture-context :portable` returns `Contextual[T]` while `:returns T`
@@ -41,7 +49,8 @@ native and cross-provider continuation are not admitted. Normative transport
 and atomic publication contracts are in [Providers](../../specs/providers.md)
 and [Step IO](../../specs/io.md).
 
-Target 2.32 adds one host-mediated expression,
+Historical target-2.32 syntax/type contract (`request-input` execution and
+answer/cancel mutation are retired): one host-mediated expression,
 `(request-input question)`. Its question is exact `String`; its fixed ordinary
 result is `HumanReply = ANSWERED(text String) | CANCELLED`; and it infers the
 subject-free `host-input` effect. It lowers to the existing validated pipeline
@@ -85,56 +94,32 @@ The compact operating rule is:
 - legacy parsing and pointer conventions are quarantined;
 - every generated semantic node is source-mapped.
 
-This document assumes the Lisp frontend is not a YAML generator and not merely
-a macro veneer. It is a typed procedural authoring language that lowers through
-the accepted WCC middle-end. The following flat pipeline and diagram apply to
-targets through 2.34; evaluated targets instead use the linked closed-program
-contract:
+The Lisp frontend is a typed procedural authoring language. Current executable
+entries use the shared typed frontend and checked closed-program route:
 
 ```text
 Lisp source
   -> frontend AST
-  -> macro expansion, import expansion, and ProcRef specialization
-  -> typecheck
-  -> WCC elaboration
-  -> ANF normalization
-  -> scope / effect / proof analysis
-  -> defunctionalization into flat Core AST
-  -> shared validation
-  -> semantic IR
-  -> executable IR
-  -> existing runtime
+  -> macro/import expansion and ProcRef specialization
+  -> typecheck and effect/proof analysis
+  -> WCC/typed elaboration and normalization
+  -> checked closed program
+  -> evaluated runtime and memo
+  -> derived report/dashboard views
 ```
 
-WCC schema 2 is the current default lowering route for the migrated route
-subset. The legacy schema 1 route and direct per-form lowerers are retained
-only for compatibility, characterization, and resume of historical runs where
-explicitly marked.
-
-The same pipeline, with the authority boundary made explicit:
+Old-header imports and editor analysis stop at the typed/catalog boundary where
+appropriate. They do not emit a flat executable bundle. WCC/schema-2 and schema-1
+remain historical compiler-owner identities for retained typed decisions;
+old lowerers, flat emitters and historical-run replay are retired.
 
 ```mermaid
 flowchart LR
-    Source[".orc source"] --> Parse["Frontend parser"]
-    Parse --> FrontendAST["Frontend AST"]
-    FrontendAST --> Expand["Macro/import expansion and ProcRef specialization"]
-    Expand --> Typed["Typecheck"]
-    Typed --> WCC["WCC elaboration, ANF, scope/effect/proof analysis"]
-    WCC --> CoreAST["Defunctionalized flat Core Workflow AST"]
-    CoreAST --> SharedValidation["Shared validation"]
-    SharedValidation --> SemanticIR["Semantic Workflow IR"]
-    SemanticIR --> ExecutableIR["Executable IR"]
-    ExecutableIR --> Runtime["Existing runtime"]
-
-    DebugYAML["Debug YAML projection"] -. debug only .-> CoreAST
-
-    classDef authority fill:#e8f5e9,stroke:#2e7d32,color:#111;
-    classDef frontend fill:#e3f2fd,stroke:#1565c0,color:#111;
-    classDef projection fill:#fff3e0,stroke:#ef6c00,color:#111,stroke-dasharray: 4 3;
-
-    class CoreAST,SharedValidation,SemanticIR,ExecutableIR,Runtime authority;
-    class Source,Parse,FrontendAST,Expand frontend;
-    class DebugYAML projection;
+    Source[".orc source"] --> Typed["Shared typed frontend and catalogs"]
+    Typed --> Closed["Checked closed program"]
+    Closed --> Runtime["Evaluated runtime and memo"]
+    Runtime --> Views["Derived report/dashboard views"]
+    Typed --> LSP["Read-only editor analysis"]
 ```
 
 The design is grounded in the v2.14 handoff's guardrails: the frontend must
@@ -242,12 +227,12 @@ The Lisp frontend owns:
 - pure helper checking
 - macro expansion, when macros are implemented
 - `defproc` and `defworkflow` elaboration
-- source-map generation
-- lowering to Core Workflow AST
+- source spans, catalogs and diagnostic provenance
+- typed elaboration and checked closed-program construction
 
 Existing shared workflow machinery owns:
 
-- Core Workflow AST validation
+- checked closed-program validation
 - contract refinement checks
 - reference resolution
 - variant proof validation
@@ -277,12 +262,12 @@ flowchart TB
         Types["Frontend type definitions"]
         Macros["Macro expansion"]
         Procedures["defproc and defworkflow elaboration"]
-        SourceMaps["Source-map generation"]
-        Lowering["Lowering to Core Workflow AST"]
+        SourceMaps["Source spans and catalogs"]
+        Lowering["Checked closed-program construction"]
     end
 
     subgraph Shared["Shared workflow machinery owns semantics"]
-        CoreValidation["Core AST validation"]
+        CoreValidation["Closed-program validation"]
         Contracts["Contract refinement"]
         Refs["Reference resolution"]
         Proofs["Variant proof validation"]
@@ -309,7 +294,9 @@ flowchart TB
 
 ### Internal Component Contracts Required Before Runtime Implementation
 
-The following component docs define the missing implementation contracts:
+The following preserve typed/shared component contracts and historical flat
+architecture. They do not define a missing executor to restore; current
+execution follows the evaluated design and retirement cutoff:
 
 1. [Core Workflow AST](workflow_lisp_core_workflow_ast.md)  
    Syntax-neutral workflow representation shared by YAML and Lisp.
@@ -324,7 +311,7 @@ The following component docs define the missing implementation contracts:
    layout, and source maps.
 
 4. [Executable IR](workflow_lisp_executable_ir.md)  
-   Current-checkout executable contract documenting validated
+   Historical flat executable contract documenting validated
    `LoadedWorkflowBundle.ir` / `ExecutableWorkflow` as the runtime-facing
    authority and adjacent projections as derived views.
 
@@ -3552,29 +3539,21 @@ inside COMPLETED branch:
 
 ## 44.1 Workflow Core Calculus
 
-WCC schema 2 is the current default compiler middle-end for new Workflow Lisp
-compiles in the migrated route subset. It is compiler-internal, not runtime
-state and not a second execution authority.
-
-The typechecked frontend elaborates into WCC, then the compiler applies:
-
-- ANF normalization to atomize effectful subexpressions;
-- scope/effect/proof analysis over the normalized program; and
-- defunctionalization of second-class join points into the existing flat Core
-  Workflow AST.
-
-The legacy schema 1 route and direct per-form lowerers remain only for
-explicitly marked compatibility, characterization, and historical-run resume.
-New compiler-lane work for nested structured control, loops, stdlib
-composition, returned-variant normalization, and branch-local proof handling
-must target WCC/schema 2.
+WCC and typed elaboration retain compiler-internal effect/proof and ownership
+rules used by checked closed-program construction. Historical schemas 1/2
+identify predecessor compiler contracts, not a current flat executor. ANF and
+scope analysis remain where needed; defunctionalization to flat steps and
+positional/checkpoint replay are removed by the selected retirement. Current
+nested control/loop/stdlib work must preserve admitted typed and evaluated
+contracts, without restoring a compatibility backend.
 
 Detailed contract:
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md).
 
 ## 45. Core Workflow AST
 
-Syntax-neutral structure shared by YAML and Lisp.
+Historical syntax-neutral flat structure; YAML authoring and flat execution
+are retired. Retained typed/shared readers do not restore that backend.
 
 Suggested shape:
 
@@ -4908,28 +4887,25 @@ Implementation landed through `70b83f32`, `b399c041`, `ee213a43`, and
 
 ## 77. Compile
 
+Use the public evaluated [compile contract](../../specs/cli.md) and the
+[complete recipe](../lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate):
+
 ```bash
-orchestrate compile workflow.orc \
-  --emit-core-ast \
-  --emit-semantic-ir \
-  --emit-source-map
+python -m orchestrator compile workflows/examples/plan_review_execute.orc \
+  --entry-workflow plan_review_execute::run \
+  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
 ```
+
+Compilation checks the closed program and persists `closed_program.json` and
+its manifest. Flat Core-AST, Semantic/Executable IR and source-map emissions
+are retired. The read-only typed core remains available for analysis/LSP.
 
 ## 78. Run
 
-```bash
-orchestrate run workflow.orc \
-  --input inputs.json
-```
-
-Equivalent to:
-
-```text
-compile
-validate
-lower
-execute
-```
+Public `run`, `--dry-run`, `resume` and `invalidate` use the evaluated profile.
+Supply the entry's declared input and binding manifests as shown in the linked
+recipe; executable entries through 2.34 refuse before publication or effects.
+Historical state is read by report/dashboard, without conversion or replay.
 
 ### 78.1 Historical Migration Promotion Gates
 
@@ -4953,32 +4929,13 @@ cited there; preserved reports remain frozen history.
 
 ## 79. Explain Expansion
 
-```bash
-orchestrate explain workflow.orc \
-  --form run-implementation-phase
-```
-
-Shows:
-
-- macro expansions
-- generated procedures
-- core AST nodes
-- semantic IR nodes
-- source-map trace
-
-`orchestrate explain` is useful only when source maps, Semantic IR layout,
-effect summaries, and generated-path allocation metadata are stable enough to
-explain. It is not a prerequisite for stdlib migration and must not be treated
-as semantic authority.
+The flat `explain` command is retired. No evaluated replacement is selected.
+Retained editor diagnostics and REPL introspection use their own public contracts.
 
 ## 80. Emit Debug YAML
 
-```bash
-orchestrate compile workflow.orc \
-  --emit-debug-yaml expanded.yaml
-```
-
-Debug YAML is not semantic authority.
+Flat debug-YAML emission is retired. Its renderer/layout descriptions are
+historical design evidence, not an execution or persistence authority.
 
 ## Part XIV. Standard Library Sketch
 

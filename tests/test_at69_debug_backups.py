@@ -4,14 +4,15 @@ AT-69: --debug produces state.json.step_<Step>.bak backups with rotation (keep l
 """
 
 import json
-import pytest
 from pathlib import Path
 import tempfile
 import time
 
-from orchestrator.state import StateManager, RunState, StepResult
-from orchestrator.workflow.executor import WorkflowExecutor
-from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
+from tests.historical_state import write_historical_state
+from orchestrator.state import (
+    StateManager,
+    StepResult,
+)
 
 
 def test_at69_debug_enables_backups():
@@ -25,7 +26,7 @@ def test_at69_debug_enables_backups():
         # Initialize state
         workflow_file = workspace / "test.yaml"
         workflow_file.write_text("steps: []")
-        manager.initialize("test.yaml")
+        write_historical_state(manager, "test.yaml")
 
         # Create backups for multiple steps
         manager.backup_state("Step1")
@@ -55,7 +56,7 @@ def test_at69_backup_rotation():
         # Initialize state
         workflow_file = workspace / "test.yaml"
         workflow_file.write_text("steps: []")
-        manager.initialize("test.yaml")
+        write_historical_state(manager, "test.yaml")
 
         # Create more than 3 backups
         for i in range(5):
@@ -79,97 +80,6 @@ def test_at69_backup_rotation():
         assert "state.json.step_Step1.bak" not in backup_names
 
 
-def test_at69_workflow_executor_creates_backups():
-    """Test that WorkflowExecutor creates backups when debug=True."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        workspace = Path(tmpdir)
-
-        # Create workflow file
-        workflow = {
-            'version': '1.1',
-            'steps': [
-                {'name': 'Step1', 'command': 'echo hello'},
-                {'name': 'Step2', 'command': 'echo world'}
-            ]
-        }
-        workflow_file = workspace / "workflow.fixture.json"
-        workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
-
-        # Create state manager with debug=True
-        state_manager = StateManager(workspace, debug=True)
-        state_manager.initialize("workflow.fixture.json")
-
-        # Create executor with debug=True
-        executor = WorkflowExecutor(
-            workflow=load_workflow_bundle_for_test(workspace, workflow_file),
-            workspace=workspace,
-            state_manager=state_manager,
-            debug=True  # Enable debug mode
-        )
-
-        # Execute workflow
-        result = executor.execute()
-
-        # Check that backups were created for each step
-        backup_dir = state_manager.run_root
-        backups = list(backup_dir.glob("state.json.step_*.bak"))
-        backup_names = [b.name for b in backups]
-
-        # Should have backups for both steps
-        assert "state.json.step_Step1.bak" in backup_names
-        assert "state.json.step_Step2.bak" in backup_names
-
-
-def test_at69_for_each_loop_backups():
-    """Test that backups are created for steps within for_each loops."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        workspace = Path(tmpdir)
-
-        # Create workflow with for_each loop
-        workflow = {
-            'version': '1.1',
-            'steps': [
-                {
-                    'name': 'ProcessItems',
-                    'for_each': {
-                        'items': ['item1', 'item2'],
-                        'steps': [
-                            {'name': 'Process', 'command': 'echo ${item}'}
-                        ]
-                    }
-                }
-            ]
-        }
-        workflow_file = workspace / "workflow.fixture.json"
-        workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
-
-        # Create state manager with debug=True
-        state_manager = StateManager(workspace, debug=True)
-        state_manager.initialize("workflow.fixture.json")
-
-        # Create executor with debug=True
-        executor = WorkflowExecutor(
-            workflow=load_workflow_bundle_for_test(workspace, workflow_file),
-            workspace=workspace,
-            state_manager=state_manager,
-            debug=True
-        )
-
-        # Execute workflow
-        result = executor.execute()
-
-        # Check that backups were created for loop steps
-        backup_dir = state_manager.run_root
-        backups = list(backup_dir.glob("state.json.step_*.bak"))
-        backup_names = [b.name for b in backups]
-
-        # Should have backup for main loop step
-        assert "state.json.step_ProcessItems.bak" in backup_names
-        # Should have backups for nested steps with iteration index
-        assert "state.json.step_ProcessItems[0].Process.bak" in backup_names
-        assert "state.json.step_ProcessItems[1].Process.bak" in backup_names
-
-
 def test_at69_backup_content_validity():
     """Test that backup files contain valid state."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -181,7 +91,7 @@ def test_at69_backup_content_validity():
         # Initialize state
         workflow_file = workspace / "test.yaml"
         workflow_file.write_text("steps: []")
-        manager.initialize("test.yaml")
+        write_historical_state(manager, "test.yaml")
 
         # Add a step result
         step_result = StepResult(
@@ -219,7 +129,7 @@ def test_at69_debug_false_no_backups():
         # Initialize state
         workflow_file = workspace / "test.yaml"
         workflow_file.write_text("steps: []")
-        manager.initialize("test.yaml")
+        write_historical_state(manager, "test.yaml")
 
         # Try to create backup (should be skipped)
         manager.backup_state("Step1")

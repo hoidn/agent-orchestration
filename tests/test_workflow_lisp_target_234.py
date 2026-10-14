@@ -7,27 +7,16 @@ its surface; see `specs/versioning.md` (v2.34 additions).
 
 from __future__ import annotations
 
-import hashlib
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-import orchestrator
-from orchestrator.workflow import validation
-from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
+from orchestrator.workflow.run_ref import config as run_ref_config
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _compile,
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
+from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import _public_run
+from tests.test_workflow_lisp_generic_unions_runtime import _compile
 from tests.test_workflow_lisp_improve_stdlib import _hook_calls, _write_project
 from tests.workflow_lisp_improve_stdlib_sources import REVISE_PROBE
 
@@ -103,111 +92,27 @@ def _write_program(root: Path, target: str) -> dict[str, Path]:
     return _public_run_files(root, probes)
 
 
-def _build(files: dict[str, Path], out: Path) -> tuple[str, dict[str, bytes]]:
-    """Build through the public compile entry in a fresh interpreter with a fixed hash seed.
-
-    Returns the build key and every artifact: the emitted ones and the build directory's files.
-    """
-
-    builds = files["source_root"] / ".orchestrate" / "build"
-    earlier = set(builds.iterdir()) if builds.exists() else set()
-    out.mkdir()
-    argv = [
-        sys.executable, "-m", "orchestrator", "compile", str(files["source"]), "--entry-workflow", "grt/entry::run",
-        "--source-root", str(files["source_root"]), "--provider-externs-file", str(files["providers"]),
-        "--prompt-externs-file", str(files["prompts"]), "--command-boundaries-file", str(files["commands"]),
-    ]  # fmt: skip
-    for flag in ARTIFACT_FLAGS:
-        argv += [flag, str(out / flag.removeprefix("--emit-"))]
-    env = {**os.environ, "PYTHONHASHSEED": "0", "PYTHONPATH": str(Path(orchestrator.__file__).parents[1])}
-    completed = subprocess.run(argv, cwd=files["source_root"], env=env, capture_output=True, text=True, check=False)
-    assert completed.returncode == 0, completed.stderr
-    (build_dir,) = set(builds.iterdir()) - earlier
-    artifacts = {path.name: path.read_bytes() for path in out.iterdir()}
-    artifacts |= {f"build/{path.name}": path.read_bytes() for path in build_dir.iterdir()}
-    return build_dir.name, artifacts
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 @pytest.mark.parametrize(
     "registry",
     [
         pytest.param(syntax.SUPPORTED_TARGET_DSL_VERSIONS, id="frontend"),
-        pytest.param(validation.DEFAULT_SUPPORTED_VERSIONS, id="shared-validation"),
         pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
-        pytest.param(bundle_transport._SUPPORTED_TARGET_DSL_VERSIONS, id="bundle-transport"),
     ],
 )
 def test_target_234_is_registered(registry) -> None:
     assert "2.34" in registry
 
 
-def test_shared_validation_orders_234_after_233() -> None:
-    order = validation.DEFAULT_VERSION_ORDER
-    assert order.index("2.34") == order.index("2.33") + 1
 
 
-def test_program_targeting_234_runs_through_the_public_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    files = _write_program(tmp_path, "2.34")
-    monkeypatch.chdir(tmp_path)
-
-    result = _public_run(files)
-
-    assert (result.exit_code, dict(result.workflow_outputs), _log(tmp_path / "probe_revise.py")) == (
-        0,
-        {"return__title": "seed+r+r", "return__score": 2},
-        ["seed tidy fb", "seed+r tidy fb"],
-    )
 
 
-def test_234_builds_the_artifacts_of_233_apart_from_the_recorded_version(tmp_path: Path) -> None:
-    root = tmp_path / "program"
-    root.mkdir()
-    files = _write_program(root, "2.33")
-    source_233 = files["source"].read_bytes()
-    key_233, at_233 = _build(files, tmp_path / "out-233")
-    files = _write_program(root, "2.34")
-    key_234, at_234 = _build(files, tmp_path / "out-234")
-    surface = "build/persisted_workflow_surface.json"
-    # The build key, the source digest and the surface digest each hash bytes that record the version.
-    derived = {
-        key_234: key_233,
-        _sha256(files["source"].read_bytes()): _sha256(source_233),
-        _sha256(at_234[surface]): _sha256(at_233[surface]),
-    }
-
-    normalised = {}
-    for name, data in at_234.items():
-        data = data.replace(b"2.34", b"2.33")
-        for new, old in derived.items():
-            data = data.replace(new.encode(), old.encode())
-        normalised[name] = data
-
-    assert all(b"2.34" in at_234[name] for name in at_233 if b"2.33" in at_233[name])
-    assert normalised == at_233
 
 
-def test_program_targeting_234_imports_and_runs_std_improve_at_233(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    probes = _write_project(tmp_path, seed="block", limit=3, target="2.34")
-    monkeypatch.chdir(tmp_path)
-
-    result = _public_run(_public_run_files(tmp_path, probes))
-
-    assert (result.exit_code, dict(result.workflow_outputs), _hook_calls(probes)) == (
-        0,
-        {
-            "return__variant": "BLOCKED",
-            "return__value__title": "block+r",
-            "return__value__score": 1,
-            "return__reason__why": "refused:block+r",
-        },
-        (["block tidy", "block+r tidy"], ["block tidy fb0"]),
-    )
 
 
 def test_target_238_is_refused_as_unsupported(tmp_path: Path) -> None:

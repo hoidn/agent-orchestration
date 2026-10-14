@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow import validation
-from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
+from orchestrator.workflow.run_ref import config as run_ref_config
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from tests.test_workflow_lisp_closed_program_compile_cli import _build_state
-from tests.test_workflow_lisp_generic_unions_runtime import _public_run, _public_run_files
+from tests.workflow_evaluated_totality_helpers import _public_run_files
+from tests.workflow_evaluated_totality_helpers import _public_run
 
 
 W3_TARGET = "2.36"
@@ -40,9 +40,7 @@ def _write_program(root: Path, target: str) -> dict[str, Path]:
     "registry",
     [
         pytest.param(syntax.SUPPORTED_TARGET_DSL_VERSIONS, id="frontend"),
-        pytest.param(validation.DEFAULT_SUPPORTED_VERSIONS, id="shared-validation"),
         pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
-        pytest.param(bundle_transport._SUPPORTED_TARGET_DSL_VERSIONS, id="bundle-transport"),
     ],
 )
 def test_target_236_is_registered(registry) -> None:
@@ -58,15 +56,12 @@ def test_w3_feature_gate_starts_at_236_and_evaluated_route_stays_at_235() -> Non
     assert syntax.target_dsl_uses_evaluated_execution(W3_TARGET) is True
 
 
-def test_shared_validation_orders_236_after_235() -> None:
-    order = validation.DEFAULT_VERSION_ORDER
-    assert order[order.index(EVALUATED_TARGET) + 1] == W3_TARGET
 
 
 @pytest.mark.parametrize(
     "target",
-    [FLAT_CONTROL_TARGET, EVALUATED_TARGET, W3_TARGET],
-    ids=["flat-234", "evaluated-235", "evaluated-w3-236"],
+    [EVALUATED_TARGET, W3_TARGET],
+    ids=["evaluated-235", "evaluated-w3-236"],
 )
 def test_public_run_keeps_pure_program_semantics_across_routes(tmp_path: Path, monkeypatch, target: str) -> None:
     files = _write_program(tmp_path, target)
@@ -76,16 +71,9 @@ def test_public_run_keeps_pure_program_semantics_across_routes(tmp_path: Path, m
 
     assert result.exit_code == 0
     assert result.run_root is not None
-    if target == FLAT_CONTROL_TARGET:
-        assert dict(result.workflow_outputs) == {"return__answer": 7}
-        assert (result.run_root / "state.json").is_file()
-        assert not (result.run_root / "run.json").exists()
-    else:
-        # Evaluated execution returns the result record directly and publishes
-        # its run authority; the flat route uses legacy return__ fields.
-        assert dict(result.workflow_outputs) == {"answer": 7}
-        assert (result.run_root / "run.json").is_file()
-        assert (result.run_root / "memo.jsonl").is_file()
+    assert dict(result.workflow_outputs) == {"answer": 7}
+    assert (result.run_root / "run.json").is_file()
+    assert (result.run_root / "memo.jsonl").is_file()
 
 
 def test_public_compile_w3_artifact_preserves_non_target_structure_and_source_identity(

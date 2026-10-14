@@ -1,60 +1,17 @@
-"""Prompt scaffold slug behavior split from the primary CLI seam tests."""
+"""Retained scaffold directory identity naming without retired publication."""
 
-from tests.test_cli_prompt import (
-    TASK_TEXT,
-    _exit,
-    _generated_scaffold,
-    fake_runtime,
-)
+from pathlib import Path
+
+from orchestrator.prompt_scaffold import scaffold_dir_name, slugify
+from tests.test_prompt_scaffold import _inputs
 
 
-def test_inline_prompt_slug_is_literal_prompt(tmp_path, monkeypatch, fake_runtime):
-    code = _exit(
-        ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
-        tmp_path,
-        monkeypatch,
-    )
-    assert code == 0
-    assert _generated_scaffold(tmp_path).name.startswith("prompt-")
+def test_inline_prompt_identity_slug_is_literal_prompt():
+    inputs = _inputs(b"p", provider="omp_no_tools", slug="prompt")
+    assert scaffold_dir_name(inputs).startswith("prompt-")
 
 
-def test_prompt_file_slug_is_normalized_lowercase_stem(
-    tmp_path, monkeypatch, fake_runtime
-):
-    prompt_file = tmp_path / "My Meeting Notes v2.md"
-    prompt_file.write_bytes(TASK_TEXT.encode("utf-8"))
-    code = _exit(
-        ["prompt", "run", "--prompt-file", str(prompt_file),
-         "--provider", "omp_no_tools"],
-        tmp_path,
-        monkeypatch,
-    )
-    assert code == 0
-    scaffold = _generated_scaffold(tmp_path)
-    assert scaffold.name.startswith("my-meeting-notes-v2-"), scaffold.name
-
-
-def test_external_workspace_rerun_is_refused_before_execution(
-    tmp_path, monkeypatch, fake_runtime
-):
-    prompt_file = tmp_path / "My Meeting Notes v2.md"
-    prompt_file.write_bytes(TASK_TEXT.encode("utf-8"))
-    code = _exit(
-        ["prompt", "run", "--prompt-file", str(prompt_file),
-         "--provider", "omp_no_tools"],
-        tmp_path,
-        monkeypatch,
-    )
-    assert code == 0
-    scaffold = _generated_scaffold(tmp_path)
-    fake_runtime.executed.clear()
-    rerun_workspace = tmp_path / "slug-rerun"
-    rerun_workspace.mkdir()
-    code = _exit(
-        ["prompt", "run", "--scaffold", str(scaffold)],
-        rerun_workspace,
-        monkeypatch,
-    )
-    assert code == 1
-    assert fake_runtime.executed == []
-    assert not (rerun_workspace / ".orchestrate").exists()
+def test_prompt_file_identity_slug_is_normalized_lowercase_stem():
+    stem = Path("My Meeting Notes v2.md").stem
+    inputs = _inputs(b"p", provider="omp_no_tools", slug=slugify(stem))
+    assert scaffold_dir_name(inputs).startswith("my-meeting-notes-v2-")

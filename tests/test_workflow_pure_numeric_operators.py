@@ -12,24 +12,20 @@ Python reference of the same formula gives.
 
 from __future__ import annotations
 
-import json
 import math
-import shutil
 from pathlib import Path
 
 import pytest
 
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _compile,
-    _public_run,
-    _public_run_files,
+from tests.workflow_evaluated_totality_helpers import (
     _write_sources,
 )
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow.pure_expr import evaluate_pure_operator, PureExprEvaluationError
 
 
 INT64_MIN = -(2**63)
-BRANCH_SCORE = Path(__file__).parent / "fixtures" / "workflow_lisp" / "numeric_surface" / "branch_score.orc"
 EXPR_LINE, EXPR_COLUMN = 8, 5
 
 
@@ -42,31 +38,12 @@ def _source(expr: str, params: dict[str, object], *, result: str, target: str = 
     )
 
 
-def _run(root: Path, monkeypatch: pytest.MonkeyPatch, source: str, inputs: dict[str, object]):
-    _write_sources(root, {"grt/entry.orc": source})
-    files = _public_run_files(root, {})
-    input_file = root / "inputs.json"
-    input_file.write_text(json.dumps(inputs), encoding="utf-8")
-    monkeypatch.chdir(root)
-    return _public_run(files, input_file=input_file)
-
-
 def _refusal_at_compile_time(root: Path, source: str):
     _write_sources(root, {"grt/entry.orc": source})
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(root)
+        compile_stage3_entrypoint(root / "grt/entry.orc", source_roots=(root,))
     diagnostic = excinfo.value.diagnostics[0]
     return diagnostic.code, (diagnostic.span.start.line, diagnostic.span.start.column), diagnostic.message
-
-
-def _failed_step(root: Path, outcome) -> tuple[dict, tuple[int, int]]:
-    """The error of the one failed step and the source position the build's source map gives it."""
-
-    state = json.loads((Path(outcome.run_root) / "state.json").read_text(encoding="utf-8"))
-    [(name, step)] = [(n, s) for n, s in state["steps"].items() if isinstance(s, dict) and s.get("status") == "failed"]
-    [source_map] = (root / ".orchestrate" / "build").glob("*/source_map.json")
-    origin = json.loads(source_map.read_text(encoding="utf-8"))["workflows"]["grt/entry::run"]["step_ids"][name]
-    return step["error"], (origin["line"], origin["column"])
 
 
 def _type(value: object) -> str:
@@ -113,16 +90,12 @@ RESULTS = [
 
 
 @pytest.mark.parametrize(("expr", "inputs", "result"), RESULTS, ids=[f"{e}{list(i.values())}" for e, i, _ in RESULTS])
-def test_operator_result_through_the_public_run_entry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expr: str, inputs: dict[str, object], result: object
-) -> None:
-    outcome = _run(tmp_path, monkeypatch, _source(expr, inputs, result=_type(result)), inputs)
-
-    assert (outcome.exit_code, dict(outcome.workflow_outputs)) == (0, {"__result__": result})
-    assert type(outcome.workflow_outputs["__result__"]) is type(result)
-
-
-DIV_MOD = "(record DivMod :q (int/div i j) :r (int/mod i j) :back (+ (* (int/div i j) j) (int/mod i j)))"
+def test_numeric_catalog_operator_result(expr: str, inputs: dict[str, object], result: object) -> None:
+    operator = expr[1:].split(" ", 1)[0]
+    descriptor, observed = evaluate_pure_operator(operator, [({"kind": "primitive", "name": _type(value)}, value) for value in inputs.values()])
+    assert descriptor == {"kind": "primitive", "name": _type(result)}
+    assert observed == result
+    assert type(observed) is type(result)
 
 
 @pytest.mark.parametrize(
@@ -140,15 +113,13 @@ DIV_MOD = "(record DivMod :q (int/div i j) :r (int/mod i j) :back (+ (* (int/div
         (2**63 - 1, 2, 2**62 - 1, 1),
     ],
 )
-def test_int_div_rounds_to_negative_infinity_and_int_mod_takes_the_divisor_sign(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, i: int, j: int, q: int, r: int
-) -> None:
-    outcome = _run(tmp_path, monkeypatch, _source(DIV_MOD, {"i": i, "j": j}, result="DivMod"), {"i": i, "j": j})
-
-    assert (outcome.exit_code, dict(outcome.workflow_outputs)) == (
-        0,
-        {"return__q": q, "return__r": r, "return__back": i},
-    )
+def test_int_div_rounds_to_negative_infinity_and_int_mod_takes_the_divisor_sign(i: int, j: int, q: int, r: int) -> None:
+    integer = {"kind": "primitive", "name": "Int"}
+    quotient_type, quotient = evaluate_pure_operator("int/div", [(integer, i), (integer, j)])
+    remainder_type, remainder = evaluate_pure_operator("int/mod", [(integer, i), (integer, j)])
+    _, product = evaluate_pure_operator("*", [(quotient_type, quotient), (integer, j)])
+    _, reconstructed = evaluate_pure_operator("+", [(integer, product), (remainder_type, remainder)])
+    assert (quotient, remainder, reconstructed) == (q, r, i)
 
 
 # (expression, inputs, result type, code)
@@ -178,18 +149,15 @@ def _literal(value: object) -> str:
 
 
 @pytest.mark.parametrize(("expr", "inputs", "result", "code"), REFUSALS, ids=REFUSAL_IDS)
-def test_refusal_at_run_time_names_the_operator_and_prints_the_operands(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expr: str, inputs: dict[str, object], result: str, code: str
-) -> None:
-    outcome = _run(tmp_path, monkeypatch, _source(expr, inputs, result=result), inputs)
-    error, position = _failed_step(tmp_path, outcome)
+def test_numeric_catalog_refusal_names_operator_and_operands(expr: str, inputs: dict[str, object], result: str, code: str) -> None:
     operator = expr[1:].split(" ", 1)[0]
-
-    assert (outcome.exit_code, error["type"], position) == (1, code, (EXPR_LINE, EXPR_COLUMN))
-    metadata = error["context"]["metadata"]
-    assert (metadata["operator"], metadata["operands"]) == (operator, list(inputs.values()))
-    assert f"`{operator}`" in error["message"]
-    assert all(_literal(value) in error["message"] for value in inputs.values())
+    with pytest.raises(PureExprEvaluationError) as exc_info:
+        evaluate_pure_operator(operator, [({"kind": "primitive", "name": _type(value)}, value) for value in inputs.values()])
+    assert exc_info.value.code == code
+    assert exc_info.value.metadata["operator"] == operator
+    assert exc_info.value.metadata["operands"] == list(inputs.values())
+    assert f"`{operator}`" in str(exc_info.value)
+    assert all(_literal(value) in str(exc_info.value) for value in inputs.values())
 
 
 @pytest.mark.parametrize(("expr", "inputs", "result", "code"), REFUSALS, ids=REFUSAL_IDS)
@@ -303,19 +271,15 @@ BRANCH_SCORE_ROWS = [
 
 
 @pytest.mark.parametrize(("total", "visits", "all_visits", "weight"), BRANCH_SCORE_ROWS)
-def test_branch_score_gives_the_double_of_its_python_reference(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, total: float, visits: int, all_visits: int, weight: float
-) -> None:
-    shutil.copy(BRANCH_SCORE, tmp_path / "branch_score.orc")
-    files = {**_public_run_files(tmp_path, {}), "source": tmp_path / "branch_score.orc"}
-    input_file = tmp_path / "inputs.json"
-    inputs = {"total": total, "visits": visits, "all-visits": all_visits, "weight": weight}
-    input_file.write_text(json.dumps(inputs), encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-
-    outcome = _public_run(files, input_file=input_file)
-
-    assert (outcome.exit_code, dict(outcome.workflow_outputs)) == (
-        0,
-        {"__result__": branch_score(total, visits, all_visits, weight)},
-    )
+def test_numeric_catalog_branch_score_agrees_with_python_reference(total: float, visits: int, all_visits: int, weight: float) -> None:
+    integer = {"kind": "primitive", "name": "Int"}
+    floating = {"kind": "primitive", "name": "Float"}
+    visits_type, visits_float = evaluate_pure_operator("int/to-float", [(integer, visits)])
+    all_type, all_float = evaluate_pure_operator("int/to-float", [(integer, all_visits)])
+    mean_type, mean = evaluate_pure_operator("/", [(floating, total), (visits_type, visits_float)])
+    log_type, logarithm = evaluate_pure_operator("float/log", [(all_type, all_float)])
+    ratio_type, ratio = evaluate_pure_operator("/", [(log_type, logarithm), (visits_type, visits_float)])
+    sqrt_type, root = evaluate_pure_operator("float/sqrt", [(ratio_type, ratio)])
+    weighted_type, weighted = evaluate_pure_operator("*", [(floating, weight), (sqrt_type, root)])
+    _, observed = evaluate_pure_operator("+", [(mean_type, mean), (weighted_type, weighted)])
+    assert observed == branch_score(total, visits, all_visits, weight)

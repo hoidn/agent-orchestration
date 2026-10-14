@@ -17,25 +17,16 @@ not reached by the public programs tried here.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.definitions import RecordDef, RecordField, UnionDef, UnionVariant
-from orchestrator.workflow_lisp.expressions import ListExpr, LiteralExpr, NameExpr, RecordExpr, UnionVariantExpr
-from orchestrator.workflow_lisp.lowering.control_loops import _loop_seed_pure_projection_expr
+from orchestrator.workflow_lisp.definitions import RecordDef, UnionDef, UnionVariant
+from orchestrator.workflow_lisp.expressions import RecordExpr, UnionVariantExpr
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.type_env import (
-    FrontendTypeEnvironment, ListTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef,
-)
-from tests.test_workflow_lisp_generic_unions_runtime import (
-    _log,
-    _public_run,
-    _public_run_files,
-    _write_probe,
-    _write_sources,
-)
+from orchestrator.workflow_lisp.type_env import RecordTypeRef, UnionTypeRef
+from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
+from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.workflow_lisp_generic_union_runtime_sources import HEADER
 
 
@@ -84,14 +75,14 @@ CONSUMER = """  (defrecord Note (text String))
 """
 
 CALLS = {
-    "direct": ('(lift (record Cand :title "c"))', {"return__variant": "OK", "return__value__title": "c"}),
-    "nested-ok": ('(check (record Cand :title "c") true)', {"return__variant": "OK", "return__value__title": "c"}),
-    "nested-err": ('(check (record Cand :title "c") false)', {"return__variant": "ERR", "return__error": "rejected"}),
+    "direct": ('(lift (record Cand :title "c"))', {'variant': 'OK', 'value': {'title': 'c'}}),
+    "nested-ok": ('(check (record Cand :title "c") true)', {'variant': 'OK', 'value': {'title': 'c'}}),
+    "nested-err": ('(check (record Cand :title "c") false)', {'variant': 'ERR', 'error': 'rejected'}),
 }
 
 def _install(root: Path, body: str, *, imported: bool, probes: dict[str, Path] | None = None) -> dict[str, Path]:
     entry = (
-        HEADER
+        HEADER.replace('"2.33"', '"2.35"')
         + "  (defmodule grt/entry)\n"
         + ("  (import grt/lib :only (Outcome lift check))\n" if imported else "")
         + "  (export run)\n  (defrecord Cand (title String))\n"
@@ -138,7 +129,7 @@ def test_caller_matches_the_returned_union_with_effectful_arms(
 
     assert (result.exit_code, dict(result.workflow_outputs or {}), _log(probe)) == (
         0,
-        {"return__text": expected},
+        {'text': expected},
         [expected],
     )
 
@@ -156,15 +147,16 @@ def test_retargeted_to_2_32_the_program_is_rejected_at_the_generic_union(
 
     files = _install(tmp_path, _program(CALLS[case][0]), imported=imported)
     for source in (tmp_path / "grt").glob("*.orc"):
-        source.write_text(source.read_text(encoding="utf-8").replace('"2.33"', '"2.32"'), encoding="utf-8")
+        source.write_text(source.read_text(encoding="utf-8").replace('"2.33"', '"2.32"').replace('"2.35"', '"2.32"'), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    with caplog.at_level(logging.ERROR):
-        result = _public_run(files)
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_entrypoint(tmp_path / "grt" / "entry.orc", source_roots=(tmp_path,), workspace_root=tmp_path)
+    message = str(caught.value)
 
     declaring = "lib.orc" if imported else "entry.orc"
-    assert (result.exit_code, f"grt/{declaring}:" in caplog.text, "[generic_union_requires_dsl_2_33]" in caplog.text) == (
-        2,
+    assert (caught.value.diagnostics[0].code, f"grt/{declaring}:" in message, "[generic_union_requires_dsl_2_33]" in message) == (
+        "generic_union_requires_dsl_2_33",
         True,
         True,
     )
@@ -197,15 +189,15 @@ JOIN_ENTRY = HEADER + """  (defmodule grt/entry)
 @pytest.mark.parametrize(
     ("flag", "expected"),
     [
-        ("true", {"return__variant": "YES", "return__value__name": "c"}),
-        ("false", {"return__variant": "NO", "return__error": "no"}),
+        ("true", {'variant': 'YES', 'value': {'name': 'c'}}),
+        ("false", {'variant': 'NO', 'error': 'no'}),
     ],
     ids=["sibling-call-branch", "own-constructor-branch"],
 )
 def test_imported_generic_body_joins_a_sibling_call_with_its_own_constructor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str, expected: dict[str, str]
 ) -> None:
-    _write_sources(tmp_path, {"grt/lib.orc": JOIN_LIB, "grt/entry.orc": JOIN_ENTRY.replace("FLAG", flag)})
+    _write_sources(tmp_path, {"grt/lib.orc": JOIN_LIB, "grt/entry.orc": JOIN_ENTRY.replace("FLAG", flag).replace('"2.33"', '"2.35"')})
     files = _public_run_files(tmp_path, {})
     monkeypatch.chdir(tmp_path)
 
@@ -256,15 +248,15 @@ HIDDEN_ENTRIES = {
 
 def _install_hidden(root: Path, case: str, target: str) -> dict[str, Path]:
     header = HEADER.replace('"2.33"', f'"{target}"')
-    _write_sources(root, {"grt/lib.orc": header + HIDDEN_LIBS[case], "grt/entry.orc": header + HIDDEN_ENTRIES[case]})
+    _write_sources(root, {"grt/lib.orc": header + HIDDEN_LIBS[case], "grt/entry.orc": (header.replace('"2.33"', '"2.35"') if target == "2.33" else header) + HIDDEN_ENTRIES[case]})
     return _public_run_files(root, {})
 
 
 @pytest.mark.parametrize(
     ("case", "expected"),
     [
-        ("non-generic", {"return__variant": "YES", "return__value__name": "x"}),
-        ("generic", {"return__variant": "NO", "return__error": "hidden"}),
+        ("non-generic", {'variant': 'YES', 'value': {'name': 'x'}}),
+        ("generic", {'variant': 'NO', 'error': 'hidden'}),
     ],
     ids=["non-generic", "generic"],
 )
@@ -288,10 +280,12 @@ def test_before_2_33_the_hidden_type_stays_unknown_in_the_caller(
     files = _install_hidden(tmp_path, "non-generic", target)
     monkeypatch.chdir(tmp_path)
 
-    with caplog.at_level(logging.ERROR):
-        result = _public_run(files)
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_entrypoint(tmp_path / "grt" / "entry.orc", source_roots=(tmp_path,), workspace_root=tmp_path)
+    message = str(caught.value)
 
-    assert (result.exit_code, "grt/entry.orc:7:33: [type_unknown] unknown type `Secret`" in caplog.text) == (2, True)
+    assert caught.value.diagnostics[0].code == "type_unknown"
+    assert "unknown type `Secret`" in message
 
 
 # At 2.32 the module record `T` is what `(record T ...)` names inside a
@@ -312,12 +306,11 @@ def test_at_2_32_a_type_parameter_does_not_shadow_a_module_record_in_an_inlined_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write_sources(tmp_path, {"grt/entry.orc": HEADER.replace('"2.33"', '"2.32"') + SHADOW_ENTRY})
-    files = _public_run_files(tmp_path, {})
-    monkeypatch.chdir(tmp_path)
+    result = compile_stage3_entrypoint(tmp_path / "grt" / "entry.orc", source_roots=(tmp_path,), workspace_root=tmp_path)
+    procedure = next(row for row in result.entry_result.typed_procedures if row.specialization is not None)
+    assert procedure.signature.return_type_ref.name.endswith("Wrap")
+    assert procedure.typed_body.type_ref.field_types["value"].name == "T"
 
-    result = _public_run(files)
-
-    assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"return__value__name": "module"})
 
 
 # `make` builds the hidden `Private` inside the visible `Outer`. The public
@@ -370,15 +363,15 @@ LOOP_ENTRY = """  (defmodule grt/entry)
 @pytest.mark.parametrize(
     ("lib", "entry", "expected"),
     [
-        (SEED_LIB, SEED_ENTRY, {"return__value__word": "x", "return__tags": ("x",)}),
-        (LOOP_LIB, LOOP_ENTRY, {"return__value__word": "done", "return__tags": ("x",)}),
+        (SEED_LIB, SEED_ENTRY, {'value': {'word': 'x'}, 'tags': ('x',)}),
+        (LOOP_LIB, LOOP_ENTRY, {'value': {'word': 'done'}, 'tags': ('x',)}),
     ],
     ids=["seed-from-imported-body", "loop-in-imported-body"],
 )
 def test_imported_loop_programs_return_private_record_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lib: str, entry: str, expected: dict[str, object]
 ) -> None:
-    _write_sources(tmp_path, {"grt/lib.orc": HEADER + lib, "grt/entry.orc": HEADER + entry})
+    _write_sources(tmp_path, {"grt/lib.orc": HEADER + lib, "grt/entry.orc": HEADER.replace('"2.33"', '"2.35"') + entry})
     files = _public_run_files(tmp_path, {})
     monkeypatch.chdir(tmp_path)
 
@@ -409,7 +402,7 @@ TWO_SPECIALIZATIONS = """  (defmodule grt/entry)
 def test_two_specialized_workflows_return_their_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ok: str, expected: tuple[str, str]
 ) -> None:
-    _write_sources(tmp_path, {"grt/entry.orc": HEADER + TWO_SPECIALIZATIONS})
+    _write_sources(tmp_path, {"grt/entry.orc": HEADER.replace('"2.33"', '"2.35"') + TWO_SPECIALIZATIONS})
     files = _public_run_files(tmp_path, {})
     (tmp_path / "inputs.json").write_text(f'{{"ok": {ok}}}', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -418,7 +411,7 @@ def test_two_specialized_workflows_return_their_values(
 
     assert (result.exit_code, dict(result.workflow_outputs or {})) == (
         0,
-        {"return__a": expected[0], "return__b": expected[1]},
+        {'a': expected[0], 'b': expected[1]},
     )
 
 
@@ -446,25 +439,6 @@ def test_equal_source_constructors_with_different_carried_types_are_distinct_key
     assert (values[first], values[second]) == ("first", "second")
 
 
-def test_rebuilt_loop_seed_resolves_its_private_carried_type() -> None:
-    """No public program among three tested shapes needs this carried seed type today."""
 
-    position = SourcePosition("probe.orc", 1, 1, 0)
-    span = SourceSpan(position, position)
-    string_type = PrimitiveTypeRef("String")
-    list_type = ListTypeRef("List[String]", string_type)
-    seed_type = RecordTypeRef(
-        "PrivateSeed",
-        RecordDef("PrivateSeed", (RecordField("marks", "List[String]", span),), span),
-        {"marks": list_type},
-    )
-    marks = ListExpr((LiteralExpr("m", "string", span, ("list",)),), string_type, span, ("list",))
-    rebuilt = _loop_seed_pure_projection_expr(
-        NameExpr("seed", span, ("loop",)),
-        state_type=seed_type,
-        local_values={"seed": {"marks": marks}},
-    )
-
-    assert isinstance(rebuilt, RecordExpr)
-    assert rebuilt.resolved_type is seed_type
-    assert FrontendTypeEnvironment({}, target_dsl_version="2.33").resolve_constructor_type(rebuilt) is seed_type
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError

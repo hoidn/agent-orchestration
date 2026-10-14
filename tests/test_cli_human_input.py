@@ -5,12 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.historical_state import write_historical_state
+
 from orchestrator.cli.main import main
 from orchestrator.run_lock import run_writer_lock
 from orchestrator.state import StateManager
 from orchestrator.workflow.human_input import (
     get_human_input,
-    record_human_input,
 )
 
 
@@ -19,7 +20,7 @@ def _manager(tmp_path: Path, *, custom_state_dir: Path | None = None) -> StateMa
         "version: 1\nsteps: []\n", encoding="utf-8"
     )
     manager = StateManager(tmp_path, run_id="human", state_dir=custom_state_dir)
-    manager.initialize("workflow.yaml")
+    write_historical_state(manager, "workflow.yaml")
     assert manager.state is not None
     manager.state.current_step = {
         "name": "request",
@@ -31,20 +32,18 @@ def _manager(tmp_path: Path, *, custom_state_dir: Path | None = None) -> StateMa
     return manager
 
 
-def _pending(
-    manager: StateManager, *, question: str = "Continue?"
-) -> dict[str, object]:
-    return record_human_input(
-        manager,
-        runtime_step_id="request",
-        enclosing_step={
-            "step_name": "request",
-            "step_id": "request",
-            "visit_count": 1,
-        },
-        loop_iteration=None,
-        question=question,
-    )
+def _pending(manager: StateManager, *, question: str = "Continue?") -> dict[str, object]:
+    record = {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "resume_scope": {"root_workflow_file": "workflow.yaml", "call_frame_ids": []},
+        "runtime_step_id": "request",
+        "enclosing_step": {"step_name": "request", "step_id": "request", "visit_count": 1},
+        "loop_iteration": None, "question": question, "status": "pending",
+    }
+    manager.state.human_input = record
+    manager.state.status = "suspended"
+    manager._write_state()
+    return record
 
 
 def test_input_get_prints_the_pending_record_without_mutation(

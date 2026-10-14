@@ -6,13 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from orchestrator.contracts.prompt_delivery import RELPATH_GUIDANCE as _RELPATH_GUIDANCE, delivery_opening
 
-_RELPATH_GUIDANCE = (
-    "# Relpath values are workspace-relative. Include the declared `under` "
-    "prefix in the value: for `under: artifacts/work`, write "
-    "`artifacts/work/...`; for `under: artifacts/review`, write "
-    "`artifacts/review/...`."
-)
 
 _CONTENT_ONLY_FOOTER = "Use these consumed artifacts as context for your work."
 _REFERENCE_ONLY_FOOTER = "These references preserve artifact lineage; open them only when needed."
@@ -301,25 +296,18 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
 
 
 def render_output_bundle_contract_block(
-    output_bundle: Dict[str, Any], *, render_nominal_names: bool = False,
+    output_bundle: Dict[str, Any], *, render_nominal_names: bool = False, delivery: str = "legacy",
 ) -> str:
     """Render a stable prompt suffix describing a required JSON output bundle."""
     fields = output_bundle.get("fields", [])
     if len(fields) == 1 and fields[0].get("json_pointer") == "":
         return _render_root_output_bundle_contract_block(
-            output_bundle, fields[0], render_nominal_names=render_nominal_names,
+            output_bundle, fields[0], render_nominal_names=render_nominal_names, delivery=delivery,
         )
 
     lines: List[str] = [
         "## Output Contract",
-        (
-            "Produce the following JSON bundle exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
-            "runtime-owned authoritative target. Otherwise, do not create or "
-            "modify the listed path; emit the JSON object as final assistant "
-            "text only so the runtime can materialize it."
-        ),
-        _RELPATH_GUIDANCE,
+        *delivery_opening("bundle", delivery, output_bundle),
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
     ]
@@ -340,6 +328,7 @@ def render_output_bundle_contract_block(
 
 def _render_root_output_bundle_contract_block(
     output_bundle: Dict[str, Any], field: Dict[str, Any], *, render_nominal_names: bool = False,
+    delivery: str = "legacy",
 ) -> str:
     """Render a stable prompt suffix for a single direct-JSON-root output bundle.
 
@@ -351,14 +340,7 @@ def _render_root_output_bundle_contract_block(
     """
     lines: List[str] = [
         "## Output Contract",
-        (
-            "Produce one JSON value exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
-            "runtime-owned authoritative target. Otherwise, do not create or "
-            "modify the listed path; emit the JSON value as final assistant "
-            "text only so the runtime can materialize it."
-        ),
-        _RELPATH_GUIDANCE,
+        *delivery_opening("value", delivery, output_bundle),
         f"- path: {output_bundle['path']}",
         "  format: JSON value",
     ]
@@ -370,19 +352,14 @@ def _render_root_output_bundle_contract_block(
     return "\n".join(lines) + "\n"
 
 
-def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
+def render_variant_output_contract_block(
+    variant_output: Dict[str, Any], *, delivery: str = "legacy",
+) -> str:
     """Render a stable prompt suffix describing a tagged-union JSON output bundle."""
     discriminant = variant_output["discriminant"]
     lines: List[str] = [
         "## Variant Output Contract",
-        (
-            "Produce the following JSON bundle exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
-            "runtime-owned authoritative target. Otherwise, do not create or "
-            "modify the listed path; emit the JSON object as final assistant "
-            "text only so the runtime can materialize it."
-        ),
-        _RELPATH_GUIDANCE,
+        *delivery_opening("variant", delivery, variant_output),
         f"- path: {variant_output['path']}",
         "  format: JSON object",
     ]

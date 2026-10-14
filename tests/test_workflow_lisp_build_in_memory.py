@@ -6,7 +6,6 @@ import inspect
 import json
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -485,7 +484,6 @@ def test_recursive_imported_builds_share_trace_and_never_emit_child_artifacts(
     snapshot = in_memory.compile_result.entry_result.typed_program
     assert imported.typed_program is snapshot.imported_programs["selector-run"]
     assert imported.typed_program.entry.definition.name == imported.workflow_name
-    assert not in_memory.compile_result.validated_bundles_by_name
 
 
 def test_imported_binding_retains_frozen_complete_typed_program(
@@ -517,17 +515,6 @@ def test_imported_binding_retains_frozen_complete_typed_program(
         program.source_file_digests["other"] = "missing"
 
 
-def test_imported_catalog_flattening_rejects_canonical_name_conflicts() -> None:
-    build = importlib.import_module("orchestrator.workflow_lisp.build")
-    compile_result = SimpleNamespace(
-        compiled_results_by_name={
-            "first": SimpleNamespace(validated_bundles={"duplicate": object()}),
-            "second": SimpleNamespace(validated_bundles={"duplicate": object()}),
-        }
-    )
-
-    with pytest.raises(RuntimeError, match="canonical-name conflict.*duplicate"):
-        build._flatten_compiled_bundle_catalog(compile_result)
 
 
 def test_library_only_in_memory_result_is_explicit_and_non_runnable(
@@ -549,7 +536,6 @@ def test_library_only_in_memory_result_is_explicit_and_non_runnable(
     assert result.entry_selection is None
     assert result.selected_workflow_name is None
     assert result.compile_result.entry_result.typed_program is not None
-    assert not result.compile_result.validated_bundles_by_name
     assert result.source_read_trace.records
     assert _tree_snapshot(tmp_path) == before
 

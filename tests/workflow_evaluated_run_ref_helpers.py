@@ -10,6 +10,19 @@ import time
 
 import pytest
 
+from dataclasses import dataclass
+import base64
+from orchestrator.workflow.run_ref import wire
+from orchestrator.workflow.run_ref.contracts import canonical_sha256, compute_compiler_runtime_identity
+from orchestrator.workflow.run_ref.config import PathProgram, ReferenceBinding, RunRefInput, build_run_ref_static_config, encode_run_ref_static_config
+from orchestrator.workflow.run_ref.result_contract import RUN_REF_RESULT_CONTRACT_SCHEMA, _accounting_descriptor, _workspace_delta_descriptor
+from orchestrator.workflow.run_ref.source import MaterializedSource, SourceRequest, materialize_source
+from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
+
+_PATH_SITE = "71d55760c27a0d51" + "0" * 48
+_STRING_DESCRIPTOR = {"kind": "primitive", "name": "String"}
+
+
 
 _CONTROL_RUNNER = r"""
 import hashlib
@@ -263,3 +276,199 @@ def _run_to_exit(parent: Path, control: Path, arguments: list[str]) -> str:
         return output
     finally:
         _kill_own_group(process, pgid)
+
+
+@dataclass(frozen=True)
+class _PathFixture:
+    materialized_source: MaterializedSource
+    step_config: RunRefStepConfig
+    child_run_id: str
+    state_dir: Path
+    request_path: Path
+
+
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ("git", "-C", repo.as_posix(), *args),
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _path_result_descriptor() -> dict[str, object]:
+    envelope = {
+        "kind": "record",
+        "name": f"RunRefResult${_PATH_SITE[:16]}",
+        "fields": [
+            {"name": "value", "type": _STRING_DESCRIPTOR},
+            {"name": "workspace_delta", "type": _workspace_delta_descriptor()},
+            {"name": "accounting", "type": _accounting_descriptor()},
+        ],
+    }
+    return {"schema": RUN_REF_RESULT_CONTRACT_SCHEMA, "envelope": envelope}
+
+
+def _build_path_fixture(
+    root: Path,
+    *,
+    body: str = "payload",
+    case: str = "executes",
+    target_dsl_version: str = "2.35",
+) -> _PathFixture:
+    repository = root / f"repository-{case}"
+    repository.mkdir()
+    _git(repository, "init", "--quiet")
+    (repository / "candidate.orc").write_text(
+        "\n".join(
+            (
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{target_dsl_version}")',
+                "  (defmodule candidate)",
+                "  (export run)",
+                "  (defworkflow run ((payload String)) -> String",
+                f"    {body}))",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", "candidate.orc")
+    _git(
+        repository,
+        "-c",
+        "user.name=Run Ref Child Test",
+        "-c",
+        "user.email=run-ref-child@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    )
+    commit = _git(repository, "rev-parse", "HEAD")
+    source = SourceRequest(locator=repository.resolve().as_uri(), commit=commit)
+    run_ref_root = (root / f"run-ref-{case}").resolve()
+    workspace = (
+        run_ref_root / "runs" / "parent" / "step" / "1" / "workspace"
+    ).resolve()
+    materialized = materialize_source(
+        source,
+        run_ref_root=run_ref_root,
+        workspace=workspace,
+    )
+    result_descriptor = _path_result_descriptor()
+    static_config = build_run_ref_static_config(
+        compiler_runtime_identity_digest=compute_compiler_runtime_identity().digest,
+        site_digest=_PATH_SITE,
+        source=source,
+        program=PathProgram(
+            path="candidate.orc",
+            entry_name="run",
+            return_refinement=_STRING_DESCRIPTOR,
+        ),
+        inputs=(
+            RunRefInput(
+                name="payload",
+                type_descriptor=_STRING_DESCRIPTOR,
+                binding=ReferenceBinding("inputs.payload"),
+            ),
+        ),
+        result_descriptor=result_descriptor,
+        result_digest=canonical_sha256(result_descriptor),
+    )
+    step_config = RunRefStepConfig(
+        common=StepCommonConfig(),
+        run_ref=static_config,
+    )
+    return _PathFixture(
+        materialized_source=materialized,
+        step_config=step_config,
+        child_run_id=f"path-child-{case}",
+        state_dir=workspace / ".orchestrate" / "runs",
+        request_path=root / f"path-request-{case}.json",
+    )
+
+
+def _path_request(fixture: _PathFixture) -> dict[str, object]:
+    static_config_bytes = encode_run_ref_static_config(
+        fixture.step_config.run_ref
+    )
+    return {
+        "schema_version": "run_ref_path_child_request.v1",
+        "clone_root": fixture.materialized_source.workspace_path.as_posix(),
+        "child_state_dir": fixture.state_dir.as_posix(),
+        "child_run_id": fixture.child_run_id,
+        "materialized_source": wire.materialized_source_record(
+            fixture.materialized_source
+        ),
+        "run_ref_static_config_base64": base64.b64encode(
+            static_config_bytes
+        ).decode("ascii"),
+        "expected_step_config_digest": fixture.step_config.step_config_digest,
+        "inputs": {"payload": "mode2-child-input"},
+        "test_control": None,
+    }
+
+
+def _commit_candidate(repository: Path, source: str) -> str:
+    repository.mkdir()
+    _git(repository, "init", "--quiet")
+    (repository / "candidate.orc").write_text(source, encoding="utf-8")
+    _git(repository, "add", "candidate.orc")
+    _git(
+        repository,
+        "-c",
+        "user.name=Run Ref E2E",
+        "-c",
+        "user.email=run-ref-e2e@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "candidate",
+    )
+    return _git(repository, "rev-parse", "HEAD")
+
+
+def _assert_complete_evidence_manifest(
+    attempt_root: Path,
+    *,
+    settlement: dict,
+    mode: str,
+) -> dict:
+    manifest = json.loads(
+        (attempt_root / "evidence-manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["schema_version"] == "run_ref_evidence_manifest.v1"
+    assert manifest["mode"] == mode
+    assert manifest["attempt_ordinal"] == settlement["attempt_ordinal"]
+    assert manifest["child_run_id"] == settlement["child_run_id"]
+    assert manifest["step_config_digest"] == settlement["step_config_digest"]
+    assert manifest["child_terminal_state_digest"] == settlement[
+        "child_terminal_state_digest"
+    ]
+    assert manifest["result_contract_digest"] == settlement[
+        "result_contract_digest"
+    ]
+    assert manifest["result_payload_digest"] == settlement[
+        "result_payload_digest"
+    ]
+    assert manifest["workspace_delta_digest"] == settlement[
+        "workspace_delta_digest"
+    ]
+    assert manifest["accounting_digest"] == settlement["accounting_digest"]
+    assert canonical_sha256(manifest) == settlement["evidence_manifest_digest"]
+    assert set(manifest["paths"]) == {
+        "accounting",
+        "baseline",
+        "child_request",
+        "child_result",
+        "child_state",
+        "setup_evidence",
+        "workspace",
+        "workspace_delta",
+    }
+    assert all(Path(value).exists() for value in manifest["paths"].values())
+    return manifest

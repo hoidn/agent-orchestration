@@ -18,7 +18,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canoni
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed import artifact
 from tests import test_workflow_evaluated_run_ref_caller as caller
-from tests.test_workflow_run_ref_child import _PathFixture, _build_path_fixture, _git, _path_request
+from tests.workflow_evaluated_run_ref_helpers import _PathFixture, _build_path_fixture, _git, _path_request
 from tests.test_workflow_evaluated_memo import _started
 
 
@@ -123,7 +123,7 @@ def test_authorized_path_child_uses_ordinary_closed_build(tmp_path, monkeypatch,
         build = prepared[0]
         workspace = fixture.materialized_source.workspace_path
         assert (build.source_roots, build.entry_workflow, build.boundary_admission_profile,
-                build.lowering_route, build.emit_debug_yaml) == ((workspace,), "run", None, None, False)
+                build.lowering_route) == ((workspace,), "run", None, None)
         assert (build.provider_externs_path, build.prompt_externs_path,
                 build.imported_workflow_bundles_path, build.command_boundaries_path) == (None,) * 4
         root = workspace / ".orchestrate" / "runs" / document["child_run_id"]
@@ -383,8 +383,8 @@ def test_closed_child_never_uses_flat_execution_or_build_cache(tmp_path, monkeyp
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, _document, owner):
         forbidden = lambda *_args, **_kwargs: pytest.fail("legacy dispatch or second cache publication")
-        monkeypatch.setattr(child, "compile_and_admit_path_program", forbidden)
-        monkeypatch.setattr(child, "_execute_bundle", forbidden)
+        assert not hasattr(child, "compile_and_admit_path_program")
+        assert not hasattr(child, "_execute_bundle")
         monkeypatch.setattr(artifact, "build_closed_program_bundle", forbidden)
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 0
         assert json.loads(capsys.readouterr().out)["schema_version"] == "run_ref_path_child_result.v2"

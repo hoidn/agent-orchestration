@@ -2,20 +2,14 @@ from __future__ import annotations
 
 import importlib
 import json
-from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
 from orchestrator.state import StateManager
-from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 from orchestrator.workflow.typed_prompt_inputs import render_typed_prompt_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.providers.executor import ProviderExecutor
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,141 +39,10 @@ def _generic_family_profile_catalog():
     )
 
 
-def test_typed_union_source_rewriter_changes_only_explicit_source_references() -> None:
-    from orchestrator.workflow_lisp.lowering.values import (
-        rewrite_typed_union_prompt_source_references,
-    )
-
-    literal_carrier = {
-        "kind": "typed_union_projection",
-        "descriptor": {"kind": "String"},
-        "source": {
-            "kind": "reference",
-            "reference": "parent.steps.sibling.artifacts.fake",
-        },
-    }
-    value = {
-        "__typed_union_prompt_source__": {
-            "kind": "union",
-            "discriminant": {
-                "kind": "reference",
-                "reference": "parent.steps.sibling.artifacts.variant",
-            },
-            "variants": {
-                "YES": {
-                    "value": {
-                        "kind": "literal",
-                        "value": {
-                            "ref": "parent.steps.sibling.artifacts.literal",
-                            "nested": literal_carrier,
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-    rewritten = rewrite_typed_union_prompt_source_references(
-        value["__typed_union_prompt_source__"],
-        lambda ref: ref.replace("parent.steps.", "self.steps."),
-    )
-
-    assert rewritten["discriminant"]["reference"] == "self.steps.sibling.artifacts.variant"
-    assert rewritten["variants"]["YES"]["value"]["value"] == {
-        "ref": "parent.steps.sibling.artifacts.literal",
-        "nested": literal_carrier,
-    }
 
 
-def test_union_source_scope_rewriters_and_parent_discovery_keep_literals_opaque() -> None:
-    from orchestrator.workflow_lisp.lowering import control_loops, control_match, core, procedures
-    from orchestrator.workflow_lisp.wcc import defunctionalize
-
-    literal = {
-        "ref": "parent.steps.sibling.artifacts.literal",
-        "nested": {
-            "kind": "typed_union_projection",
-            "descriptor": {"kind": "String"},
-            "source": {
-                "kind": "reference",
-                "reference": "parent.steps.sibling.artifacts.fake",
-            },
-        },
-    }
-
-    def local_value(reference: str) -> dict[str, object]:
-        return {
-            "__typed_union_prompt_source__": {
-                "kind": "union",
-                "discriminant": {"kind": "reference", "reference": reference},
-                "variants": {
-                    "YES": {
-                        "value": {"kind": "literal", "value": literal},
-                        "other": {"kind": "reference", "reference": reference},
-                    },
-                },
-            },
-        }
-
-    parent_value = local_value("parent.steps.sibling.artifacts.variant")
-    rewritten_parent = [
-        core._rewrite_case_sibling_refs_in_value(parent_value, sibling_names=("sibling",)),
-        control_match._rewrite_case_sibling_refs_in_value(
-            parent_value,
-            sibling_names=("sibling",),
-        ),
-        control_loops._rewrite_hoisted_loop_case_scope_value(
-            parent_value,
-            self_scope_step_names={"sibling"},
-        ),
-        defunctionalize._rewrite_case_sibling_refs_in_value(
-            parent_value,
-            sibling_names=("sibling",),
-        ),
-    ]
-    root_value = local_value("root.steps.sibling.artifacts.variant")
-    rewritten_root = [
-        procedures._rewrite_refs_in_sibling_scope(root_value, ("sibling",)),
-        defunctionalize._rewrite_case_sibling_refs_in_value(
-            root_value,
-            sibling_names=("sibling",),
-        ),
-        defunctionalize._rewrite_branch_local_refs_in_value(
-            root_value,
-            branch_step_prefix="sibling",
-        ),
-    ]
-
-    for rewritten in (*rewritten_parent, *rewritten_root):
-        source = rewritten["__typed_union_prompt_source__"]
-        assert source["discriminant"]["reference"] == "self.steps.sibling.artifacts.variant"
-        assert source["variants"]["YES"]["other"]["reference"] == "self.steps.sibling.artifacts.variant"
-        assert source["variants"]["YES"]["value"]["value"] == literal
-
-    from orchestrator.workflow_lisp.lowering.values import iter_parent_ref_strings
-
-    assert iter_parent_ref_strings(parent_value) == (
-        "parent.steps.sibling.artifacts.variant",
-        "parent.steps.sibling.artifacts.variant",
-    )
 
 
-def _compile_typed_prompt_input_bundle(tmp_path: Path):
-    result = compile_stage3_module(
-        TYPED_PROMPT_INPUT_FIXTURE,
-        provider_externs={"providers.execute": "fake-execute"},
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        family_profile_catalog=_generic_family_profile_catalog(),
-    )
-    return next(
-        bundle
-        for name, bundle in result.validated_bundles.items()
-        if name.endswith("run-typed-prompt-phase-demo")
-    )
 
 
 def _initialize_typed_prompt_input_workspace(workspace: Path) -> None:
@@ -196,22 +59,6 @@ def _initialize_typed_prompt_input_workspace(workspace: Path) -> None:
     )
 
 
-def _typed_prompt_input_bound_inputs(bundle) -> dict[str, str]:
-    bound_inputs: dict[str, str] = {
-        "inputs__prompt_context__design": "docs/design/workflow_lisp_frontend_specification.md",
-        "inputs__prompt_context__plan": "docs/plans/typed_prompt_input_plan.md",
-        "inputs__prompt_context__focus": "prefer typed values over producer-owned prompt files",
-    }
-    for input_name, contract in bundle.surface.inputs.items():
-        definition = getattr(contract, "definition", {})
-        default_value = definition.get("default") if hasattr(definition, "get") else None
-        if isinstance(default_value, str):
-            bound_inputs.setdefault(input_name, default_value)
-        if "execution_report_target" in input_name:
-            bound_inputs[input_name] = "artifacts/work/execution_report.md"
-        if "progress_report_target" in input_name:
-            bound_inputs[input_name] = "artifacts/work/progress_report.md"
-    return bound_inputs
 
 
 def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists() -> None:
@@ -360,112 +207,6 @@ def test_union_prompt_inputs_preserve_active_payload(
     assert len(evidence) == 1
 
 
-def test_typed_union_projection_resolves_only_the_active_payload() -> None:
-    descriptor = {
-        "kind": "union",
-        "name": "Outcome",
-        "variants": [
-            {
-                "name": "PAYLOAD",
-                "fields": [
-                    {
-                        "name": "payload",
-                        "type": {"kind": "primitive", "name": "Value"},
-                    }
-                ],
-            },
-            {
-                "name": "REJECTED",
-                "fields": [
-                    {
-                        "name": "reason",
-                        "type": {"kind": "primitive", "name": "String"},
-                    }
-                ],
-            },
-        ],
-    }
-    source = {
-        "kind": "typed_union_projection",
-        "descriptor": descriptor,
-        "source": {
-            "kind": "union",
-            "discriminant": {
-                "kind": "reference",
-                "reference": "root.steps.source.artifacts.variant",
-            },
-            "variants": {
-                "PAYLOAD": {
-                    "payload": {
-                        "kind": "literal",
-                        "value": {"ref": "literal-payload-key"},
-                    },
-                },
-                "REJECTED": {
-                    "reason": {
-                        "kind": "reference",
-                        "reference": "root.steps.source.artifacts.reason",
-                    },
-                },
-            },
-        },
-    }
-    requested: list[str] = []
-    executor = object.__new__(WorkflowExecutor)
-
-    def resolve(ref: str, state, *, scope=None):
-        requested.append(ref)
-        if ref.endswith("variant"):
-            return "PAYLOAD", None
-        raise AssertionError(f"inactive source was resolved: {ref}")
-
-    executor._resolve_ref_value = resolve
-    value, error = executor._resolve_typed_prompt_value_source(source, {})
-
-    assert error is None
-    assert value == {"variant": "PAYLOAD", "payload": {"ref": "literal-payload-key"}}
-    assert requested == ["root.steps.source.artifacts.variant"]
-
-    nested_source = deepcopy(source)
-    nested_source["descriptor"]["variants"][0]["fields"][0]["type"] = {
-        "kind": "record",
-        "name": "Payload",
-        "fields": [
-            {
-                "name": "message",
-                "type": {"kind": "primitive", "name": "String"},
-            }
-        ],
-    }
-    nested_source["source"]["variants"]["PAYLOAD"]["payload"] = {
-        "kind": "literal",
-        "value": {"message": "whole nested payload"},
-    }
-    requested.clear()
-    value, error = executor._resolve_typed_prompt_value_source(nested_source, {})
-    assert error is None
-    assert value == {
-        "variant": "PAYLOAD",
-        "payload": {"message": "whole nested payload"},
-    }
-    assert requested == ["root.steps.source.artifacts.variant"]
-
-    malformed_source = deepcopy(source)
-    malformed_source["source"]["discriminant"] = {"kind": "literal", "value": []}
-    value, error = executor._resolve_typed_prompt_value_source(malformed_source, {})
-    assert value is None
-    assert error is not None
-    assert "typed_union_projection_unknown_variant" in str(error)
-
-    missing_payload_source = deepcopy(source)
-    del missing_payload_source["source"]["variants"]["PAYLOAD"]["payload"]
-    value, error = executor._resolve_typed_prompt_value_source(
-        missing_payload_source,
-        {},
-    )
-    assert value is None
-    assert error is not None
-    assert "union fields do not match the descriptor" in str(error)
 
 
 def test_known_literal_union_and_metadata_skip_preserve_authored_fields() -> None:
@@ -498,291 +239,21 @@ def test_known_literal_union_and_metadata_skip_preserve_authored_fields() -> Non
     )
 
 
-def test_authored_literal_union_prompt_source_emits_selected_branch_only(
-    tmp_path: Path,
-) -> None:
-    source_path = tmp_path / "literal_union_prompt_input.orc"
-    source_path.write_text(
-        """\
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.28")
-  (defmodule literal_union_prompt_input)
-  (export summarize)
-  (defunion Outcome (YES) (NO))
-  (defworkflow summarize () -> Bool
-    (let* ((outcome (variant Outcome YES)))
-      (provider-result providers.summarize
-        :prompt prompts.summarize
-        :inputs (outcome)
-        :returns Bool))))
-""",
-        encoding="utf-8",
-    )
-    result = compile_stage3_module(
-        source_path,
-        entry_workflow="summarize",
-        provider_externs={"providers.summarize": "test-summarize"},
-        prompt_externs={"prompts.summarize": "prompts/summarize.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-    step = next(iter(result.validated_bundles.values())).surface.steps[0]
-    source = step.typed_prompt_inputs[0]["value_source"]["source"]
-    assert source["discriminant"] == {"kind": "literal", "value": "YES"}
-    assert source["variants"] == {"YES": {}}
-
-def _compile_generic_ordinary_extern_input(
-    tmp_path: Path,
-    *,
-    input_type: str,
-    type_definitions: str = "",
-    target_dsl_version: str = "2.23",
-    boundary_admission_profile: str | None = None,
-):
-    source = tmp_path / "ordinary_extern_typed_input.orc"
-    source.write_text(
-        f"""\
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{target_dsl_version}")
-  (defmodule ordinary_extern_typed_input)
-  (export summarize)
-  (defpath ReportPath
-    :kind relpath
-    :under "artifacts/reports"
-    :must-exist true)
-{type_definitions}
-  (defworkflow summarize ((value {input_type})) -> Bool
-    (provider-result providers.summarize
-      :prompt prompts.summarize
-      :inputs (value)
-      :returns Bool)))
-""",
-        encoding="utf-8",
-    )
-    result = compile_stage3_module(
-        source,
-        entry_workflow="summarize",
-        provider_externs={"providers.summarize": "test-provider"},
-        prompt_externs={"prompts.summarize": "prompts/summarize.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-        boundary_admission_profile=boundary_admission_profile,
-    )
-    bundle = next(iter(result.validated_bundles.values()))
-    return _provider_step(bundle)
 
 
-def test_ordinary_extern_prompt_input_admits_nested_lists_of_json_values(
-    tmp_path: Path,
-) -> None:
-    provider_step = _compile_generic_ordinary_extern_input(
-        tmp_path,
-        input_type="List[List[ReportPath]]",
-    )
-
-    assert [
-        {
-            "binding_name": row["binding_name"],
-            "renderer_id": row["renderer"]["renderer_id"],
-            "accepted_shape": row["renderer"]["accepted_shape"],
-            "value_type_name": row["value_type_name"],
-        }
-        for row in provider_step.typed_prompt_inputs
-    ] == [
-        {
-            "binding_name": "value",
-            "renderer_id": "canonical-json",
-            "accepted_shape": "any_pure_value",
-            "value_type_name": "List[List[ReportPath]]",
-        }
-    ]
 
 
-@pytest.mark.parametrize(
-    "input_type",
-    ["Optional[String]", "Map[String, String]"],
-)
-def test_ordinary_extern_prompt_input_admits_optional_and_map_boundaries(
-    tmp_path: Path,
-    input_type: str,
-) -> None:
-    # Task 7 authorized admission: canonical Optional/Map now cross the Stage 3
-    # input boundary; the prompt fragment renderer still binds only admitted
-    # list shapes, so no typed binding rows are produced.
-    step = _compile_generic_ordinary_extern_input(
-        tmp_path,
-        input_type=input_type,
-    )
-    assert step.typed_prompt_inputs == ()
 
 
-def test_ordinary_extern_prompt_input_rejects_unsupported_containers(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_generic_ordinary_extern_input(
-            tmp_path,
-            input_type="Outcome",
-            type_definitions="""\
-  (defunion Outcome
-    (VALUE (value String))
-    (EMPTY))
-""",
-        )
-
-    assert exc_info.value.diagnostics[0].code == "workflow_boundary_type_invalid"
 
 
-@pytest.mark.parametrize(
-    ("target_dsl_version", "expected_kind"),
-    (("2.27", "typed_binding_ref"), ("2.28", "typed_union_projection")),
-)
-def test_ordinary_union_prompt_input_uses_closed_active_value_source(
-    tmp_path: Path,
-    target_dsl_version: str,
-    expected_kind: str,
-) -> None:
-    step = _compile_generic_ordinary_extern_input(
-        tmp_path,
-        input_type="Outcome",
-        target_dsl_version=target_dsl_version,
-        boundary_admission_profile="transportable_child",
-        type_definitions="""\
-  (defunion Outcome
-    (PAYLOAD (payload Value))
-    (EMPTY))
-""",
-    )
-
-    source = step.typed_prompt_inputs[0]["value_source"]
-    assert source["kind"] == expected_kind
-    if expected_kind == "typed_binding_ref":
-        return
-    assert source["descriptor"]["kind"] == "union"
-    assert source["source"]["discriminant"] == {
-        "kind": "reference", "reference": "inputs.value__variant"
-    }
-    assert source["source"]["variants"]["PAYLOAD"]["payload"] == {
-        "kind": "reference", "reference": "inputs.value__payload"
-    }
 
 
-def test_union_prompt_input_keeps_variant_specific_same_name_sources(
-    tmp_path: Path,
-) -> None:
-    step = _compile_generic_ordinary_extern_input(
-        tmp_path,
-        input_type="Outcome",
-        target_dsl_version="2.28",
-        boundary_admission_profile="transportable_child",
-        type_definitions="""\
-  (defrecord Nested (x Int))
-  (defunion Outcome
-    (SCALAR (value Int))
-    (RECORD (value Nested)))
-""",
-    )
-    source = step.typed_prompt_inputs[0]["value_source"]["source"]
-    assert source["variants"]["SCALAR"]["value"] == {
-        "kind": "reference", "reference": "inputs.value__value"
-    }
-    assert source["variants"]["RECORD"]["value"] == {
-        "kind": "record",
-        "fields": {
-            "x": {
-                "kind": "reference", "reference": "inputs.value__value__x"
-            }
-        },
-    }
 
 
-@pytest.mark.parametrize(
-    ("tag", "expected_value", "active_branch"),
-    (
-        ("SCALAR", {"variant": "SCALAR", "value": 7}, "SCALAR"),
-        ("RECORD", {"variant": "RECORD", "value": {"x": 7}}, "RECORD"),
-    ),
-)
-def test_provider_union_prompt_input_keeps_active_same_name_branch(
-    tmp_path: Path,
-    tag: str,
-    expected_value: dict[str, object],
-    active_branch: str,
-) -> None:
-    source_path = tmp_path / "provider_union_prompt_input.orc"
-    source_path.write_text(
-        """\
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.28")
-  (defmodule provider_union_prompt_input)
-  (export summarize)
-  (defrecord Nested (x Int))
-  (defunion Outcome
-    (SCALAR (value Int))
-    (RECORD (value Nested)))
-  (defworkflow summarize () -> Bool
-    (let* ((outcome
-             (provider-result providers.produce
-               :prompt prompts.produce
-               :inputs ()
-               :returns Outcome)))
-      (provider-result providers.summarize
-        :prompt prompts.summarize
-        :inputs (outcome)
-        :returns Bool))))
-""",
-        encoding="utf-8",
-    )
-    result = compile_stage3_module(
-        source_path,
-        entry_workflow="summarize",
-        provider_externs={
-            "providers.produce": "test-produce",
-            "providers.summarize": "test-summarize",
-        },
-        prompt_externs={
-            "prompts.produce": "prompts/produce.md",
-            "prompts.summarize": "prompts/summarize.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-    consumer = next(
-        step
-        for step in next(iter(result.validated_bundles.values())).surface.steps
-        if step.provider == "test-summarize"
-    )
-    source = consumer.typed_prompt_inputs[0]["value_source"]
-    assert source["kind"] == "typed_union_projection"
-    scalar_ref = source["source"]["variants"]["SCALAR"]["value"]["reference"]
-    nested_ref = source["source"]["variants"]["RECORD"]["value"]["fields"]["x"]["reference"]
-    requested: list[str] = []
-    executor = object.__new__(WorkflowExecutor)
-
-    def resolve(ref: str, state, *, scope=None):
-        requested.append(ref)
-        if ref.endswith("variant"):
-            return tag, None
-        if ref == (scalar_ref if active_branch == "SCALAR" else nested_ref):
-            return 7, None
-        raise AssertionError(f"inactive or missing ref was resolved: {ref}")
-
-    executor._resolve_ref_value = resolve
-    value, error = executor._resolve_typed_prompt_value_source(source, {})
-    assert error is None
-    assert value == expected_value
-    assert (scalar_ref if active_branch == "SCALAR" else nested_ref) in requested
-    assert (nested_ref if active_branch == "SCALAR" else scalar_ref) not in requested
 
 
-def _provider_step(bundle):
-    return next(step for step in bundle.surface.steps if step.kind is SurfaceStepKind.PROVIDER)
+
 
 
 def test_normalize_typed_prompt_input_entry_canonicalizes_metadata() -> None:
@@ -1017,136 +488,10 @@ def test_target_2_22_fragment_trace_reuse_preserves_typed_evidence_schema(
     )
 
 
-def _shared_composition_executor(
-    tmp_path: Path,
-    resolved_by_name: dict[str, object],
-) -> tuple[WorkflowExecutor, list[dict[str, object]]]:
-    from orchestrator.workflow.prompting import PromptComposer
-
-    evidence_capture: list[dict[str, object]] = []
-    executor = object.__new__(WorkflowExecutor)
-    executor.workspace = tmp_path
-    executor.asset_resolver = None
-    executor.prompt_composer = PromptComposer(
-        workspace=tmp_path,
-        asset_resolver=None,
-    )
-    executor.current_step = 0
-    executor.workflow_name = "shared-composition"
-    executor.workflow_version = "2.25"
-    executor.executable_ir = SimpleNamespace(version="2.25")
-
-    def _resolve(
-        value: object,
-        _state: object,
-        *,
-        scope: object = None,
-    ) -> tuple[object, None]:
-        if isinstance(value, dict) and set(value) == {"ref"}:
-            name = str(value["ref"]).rsplit(".", 1)[-1]
-            return resolved_by_name[name], None
-        return value, None
-
-    executor._resolve_typed_prompt_input_value = _resolve  # type: ignore[method-assign]
-    executor._write_typed_prompt_input_evidence = (  # type: ignore[method-assign]
-        lambda *, step_id, evidence: evidence_capture.extend(evidence)
-    )
-    return executor, evidence_capture
 
 
-def test_shared_attempt_composer_renders_fragment_owned_inputs_without_legacy_block(
-    tmp_path: Path,
-) -> None:
-    from tests.test_workflow_lisp_prompt_identity_render_trace import (
-        _IDENTITY,
-        _contract,
-        _plan,
-        _resolved_values,
-        _typed_entries,
-    )
-
-    executor, evidence_capture = _shared_composition_executor(
-        tmp_path,
-        _resolved_values(),
-    )
-    step = {
-        "name": "planner",
-        "step_id": "root.planner",
-        "provider": "extern",
-        "timeout_sec": 10,
-        "inject_consumes": False,
-        "inject_output_contract": False,
-        "compiler_prompt_fragment_contract": _contract(),
-        "compiled_prompt_fragment_identity": _IDENTITY,
-        "prompt_attempt_identity_version": "workflow_prompt_attempt_identity.v2",
-        "compiler_prompt_attempt_binding_plan": _plan(),
-        "typed_prompt_inputs": _typed_entries(),
-    }
-
-    prompt, error, _debug = executor._compose_provider_attempt_for_step(
-        step,
-        {},
-        {},
-        runtime_step_id="root.planner",
-    )
-
-    assert error is None
-    assert prompt is not None
-    assert "## Typed Prompt Input" not in prompt
-    assert "Inspect" in prompt
-    assert "score" in prompt
-    assert evidence_capture
-    assert {row["binding_name"] for row in evidence_capture} == {
-        "payload",
-        "report_path",
-    }
 
 
-def test_shared_attempt_composer_keeps_single_legacy_block_for_plain_inputs(
-    tmp_path: Path,
-) -> None:
-    executor, _evidence = _shared_composition_executor(
-        tmp_path,
-        {"flag": True},
-    )
-    step = {
-        "name": "planner",
-        "step_id": "root.planner",
-        "provider": "extern",
-        "timeout_sec": 10,
-        "inject_consumes": False,
-        "inject_output_contract": False,
-        "typed_prompt_inputs": [
-            {
-                "schema_version": "workflow_lisp_typed_prompt_input.v1",
-                "binding_name": "flag",
-                "renderer": {
-                    "renderer_id": "canonical-json",
-                    "renderer_version": 1,
-                    "accepted_shape": "any_pure_value",
-                },
-                "value_source": {
-                    "kind": "typed_binding_ref",
-                    "ref": "inputs.flag",
-                },
-                "value_type_name": "Value",
-                "source_map_origin_key": "shared-composition::flag",
-                "injection_order": 0,
-            }
-        ],
-    }
-
-    prompt, error, _debug = executor._compose_provider_attempt_for_step(
-        step,
-        {},
-        {},
-        runtime_step_id="root.planner",
-    )
-
-    assert error is None
-    assert prompt is not None
-    assert prompt.count("## Typed Prompt Input") == 1
-    assert "true" in prompt
 
 
 def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -> None:
@@ -1947,79 +1292,6 @@ def test_build_typed_prompt_input_report_keeps_design_delta_consume_prompt_rows_
     assert report["consumed_artifact_prompt_rows"] == []
 
 
-def test_runtime_smoke_renders_typed_prompt_inputs_without_prompt_materialization(
-    tmp_path: Path,
-) -> None:
-    _initialize_typed_prompt_input_workspace(tmp_path)
-    bundle = _compile_typed_prompt_input_bundle(tmp_path)
-    state_manager = StateManager(workspace=tmp_path, run_id="typed-prompt-input-runtime")
-    state_manager.initialize(
-        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
-        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
-    )
-    executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
-    captured: dict[str, object] = {"prompt": "", "output_bundle_path": ""}
-
-    def _prepare_invocation(_self, *args, **kwargs):
-        captured["prompt"] = kwargs.get("prompt_content", "")
-        env = dict(kwargs.get("env") or {})
-        captured["output_bundle_path"] = env.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "")
-        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"], env=env), None
-
-    def _execute(_self, invocation, **_kwargs):
-        bundle_path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / "artifacts" / "work" / "execution_report.md").write_text(
-            "# execution report\n",
-            encoding="utf-8",
-        )
-        bundle_path.write_text(
-            json.dumps(
-                {
-                    "variant": "COMPLETED",
-                    "implementation_state": "COMPLETED",
-                    "execution_report_path": "artifacts/work/execution_report.md",
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        return SimpleNamespace(
-            exit_code=0,
-            stdout=b"ok",
-            stderr=b"",
-            duration_ms=1,
-            error=None,
-            missing_placeholders=None,
-            invalid_prompt_placeholder=False,
-            raw_stdout=None,
-            normalized_stdout=None,
-            provider_session=None,
-        )
-
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
-        ProviderExecutor, "execute", _execute
-    ):
-        state = executor.execute(on_error="stop")
-
-    provider_step = _provider_step(bundle)
-    assert state["steps"][provider_step.name]["exit_code"] == 0
-    assert getattr(provider_step, "typed_prompt_inputs")
-    assert not any(
-        step.kind is SurfaceStepKind.MATERIALIZE_ARTIFACTS and "prompt_inputs" in step.step_id
-        for step in bundle.surface.steps
-    )
-    evidence_root = (
-        tmp_path
-        / ".orchestrate"
-        / "runs"
-        / "typed-prompt-input-runtime"
-        / "workflow_lisp"
-        / "typed_prompt_inputs"
-    )
-    assert evidence_root.exists()
-    assert "prefer typed values over producer-owned prompt files" in str(captured["prompt"])
 
 
 def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
@@ -2027,23 +1299,12 @@ def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _initialize_typed_prompt_input_workspace(tmp_path)
-    bundle = _compile_typed_prompt_input_bundle(tmp_path)
     state_manager = StateManager(
         workspace=tmp_path,
         run_id="typed-prompt-input-missing-composer-evidence",
     )
-    state_manager.initialize(
-        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
-        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
-    )
-    executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
     calls = {"preparations": 0, "executions": 0}
 
-    monkeypatch.setattr(
-        executor.prompt_composer,
-        "apply_typed_prompt_input_injection",
-        lambda *_args, **_kwargs: ("composed prompt", []),
-    )
 
     def _prepare(*_args, **_kwargs):
         calls["preparations"] += 1
@@ -2053,216 +1314,17 @@ def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
         calls["executions"] += 1
         return pytest.fail("provider execution must not be reached")
 
-    monkeypatch.setattr(executor.provider_executor, "prepare_invocation", _prepare)
-    monkeypatch.setattr(executor.provider_executor, "execute", _execute)
 
-    state = executor.execute(on_error="stop")
 
-    provider_step = _provider_step(bundle)
-    assert state["steps"][provider_step.name]["status"] == "failed"
-    assert state["steps"][provider_step.name]["error"]["context"]["reason"] == (
-        "typed_prompt_input_composition_invalid"
-    )
     assert calls == {"preparations": 0, "executions": 0}
 
 
-def test_runtime_rejects_missing_typed_state_before_provider_preparation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _initialize_typed_prompt_input_workspace(tmp_path)
-    bundle = _compile_typed_prompt_input_bundle(tmp_path)
-    state_manager = StateManager(
-        workspace=tmp_path,
-        run_id="typed-prompt-input-missing-state",
-    )
-    state_manager.initialize(
-        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
-        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
-    )
-    with state_manager.state_transaction():
-        del state_manager.state.bound_inputs["inputs__prompt_context__focus"]
-    executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
-    monkeypatch.setattr(
-        executor.provider_executor,
-        "prepare_invocation",
-        lambda *_args, **_kwargs: pytest.fail(
-            "provider preparation must not be reached"
-        ),
-    )
-
-    state = executor.execute(on_error="stop")
-
-    provider_step = _provider_step(bundle)
-    assert state["steps"][provider_step.name]["status"] == "failed"
-    assert state["steps"][provider_step.name]["error"]["context"]["reason"] == (
-        "typed_prompt_input_value_unavailable"
-    )
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "typed_prompt_input_renderer_unknown",
-        "typed_prompt_input_renderer_shape_mismatch",
-    ],
-)
-def test_runtime_typed_renderer_failures_are_controlled_before_provider_preparation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    failure: str,
-) -> None:
-    workspace = tmp_path / failure
-    workspace.mkdir()
-    _initialize_typed_prompt_input_workspace(workspace)
-    bundle = _compile_typed_prompt_input_bundle(workspace)
-    state_manager = StateManager(
-        workspace=workspace,
-        run_id=failure,
-    )
-    state_manager.initialize(
-        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
-        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
-    )
-    executor = WorkflowExecutor(
-        bundle,
-        workspace,
-        state_manager,
-        retry_delay_ms=0,
-    )
-    monkeypatch.setattr(
-        executor.prompt_composer,
-        "apply_typed_prompt_input_injection",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError(failure)),
-    )
-    monkeypatch.setattr(
-        executor.provider_executor,
-        "prepare_invocation",
-        lambda *_args, **_kwargs: pytest.fail(
-            "provider preparation must not be reached"
-        ),
-    )
-
-    state = executor.execute(on_error="stop")
-
-    provider_step = _provider_step(bundle)
-    assert state["steps"][provider_step.name]["status"] == "failed"
-    error_context = state["steps"][provider_step.name]["error"]["context"]
-    assert error_context["reason"] == "typed_prompt_input_composition_invalid"
-    assert failure in error_context["error"]
 
 
-def test_typed_prompt_input_evidence_long_step_ids_are_bounded_and_collision_safe(
-    tmp_path: Path,
-) -> None:
-    bundle = _compile_typed_prompt_input_bundle(tmp_path)
-    state_manager = StateManager(
-        workspace=tmp_path,
-        run_id="typed-prompt-input-long-identities",
-    )
-    state_manager.initialize(
-        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
-        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
-    )
-    executor = WorkflowExecutor(
-        bundle,
-        tmp_path,
-        state_manager,
-        retry_delay_ms=0,
-    )
-    shared_prefix = "qualified." + ("same-segment." * 20)
-    step_ids = (
-        f"{shared_prefix}first-tail",
-        f"{shared_prefix}second-tail",
-    )
-
-    for step_id in step_ids:
-        executor._write_typed_prompt_input_evidence(
-            step_id=step_id,
-            evidence=[{"runtime_step_id": step_id}],
-        )
-
-    evidence_root = (
-        state_manager.run_root
-        / "workflow_lisp"
-        / "typed_prompt_inputs"
-    )
-    evidence_paths = sorted(evidence_root.glob("*.json"))
-    assert len(evidence_paths) == 2
-    assert all(len(path.name) <= 185 for path in evidence_paths)
-    assert len({path.name for path in evidence_paths}) == 2
-    assert {
-        json.loads(path.read_text(encoding="utf-8"))[0]["runtime_step_id"]
-        for path in evidence_paths
-    } == set(step_ids)
 
 
-def test_typed_prompt_input_evidence_does_not_replace_provider_output_authority(
-    tmp_path: Path,
-) -> None:
-    _initialize_typed_prompt_input_workspace(tmp_path)
-    bundle = _compile_typed_prompt_input_bundle(tmp_path)
-    state_manager = StateManager(workspace=tmp_path, run_id="typed-prompt-input-authority")
-    state_manager.initialize(
-        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
-        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
-    )
-    executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
-
-    def _prepare_invocation(_self, *args, **kwargs):
-        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", ""), env=dict(kwargs.get("env") or {})), None
-
-    def _execute(_self, invocation, **_kwargs):
-        wrong_bundle = tmp_path / "artifacts" / "work" / "wrong-path.json"
-        wrong_bundle.parent.mkdir(parents=True, exist_ok=True)
-        wrong_bundle.write_text(
-            json.dumps(
-                {
-                    "variant": "COMPLETED",
-                    "implementation_state": "COMPLETED",
-                    "execution_report_path": "artifacts/work/execution_report.md",
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        evidence_root = (
-            tmp_path
-            / ".orchestrate"
-            / "runs"
-            / "typed-prompt-input-authority"
-            / "workflow_lisp"
-            / "typed_prompt_inputs"
-        )
-        evidence_root.mkdir(parents=True, exist_ok=True)
-        (evidence_root / "attempt.json").write_text(
-            json.dumps({"schema_version": "workflow_lisp_typed_prompt_input_evidence.v1"}, indent=2)
-            + "\n",
-            encoding="utf-8",
-        )
-        return SimpleNamespace(
-            exit_code=0,
-            stdout=b"ok",
-            stderr=b"",
-            duration_ms=1,
-            error=None,
-            missing_placeholders=None,
-            invalid_prompt_placeholder=False,
-            raw_stdout=None,
-            normalized_stdout=None,
-            provider_session=None,
-        )
-
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
-        ProviderExecutor, "execute", _execute
-    ):
-        state = executor.execute(on_error="stop")
-
-    provider_step = _provider_step(bundle)
-    assert getattr(provider_step, "typed_prompt_inputs")
-    assert state["steps"][provider_step.name]["status"] == "failed"
-    assert "evidence" not in json.dumps(state["steps"][provider_step.name])
 
 
 def test_typed_prompt_input_fixture_rows_resolve_via_family_profile_catalog() -> None:

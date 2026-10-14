@@ -1,7 +1,6 @@
 """Real lexical elaboration witnesses for compiler-local command scopes."""
 
-from dataclasses import asdict, fields, is_dataclass, replace
-from types import SimpleNamespace
+from dataclasses import fields, is_dataclass, replace
 
 import pytest
 
@@ -138,7 +137,6 @@ def _assert_distinct_scope_outputs(outputs):
 
 
 def test_closed_type_lookup_uses_real_sibling_environments(tmp_path, monkeypatch):
-    from orchestrator.workflow_lisp.lowering import core
     from orchestrator.workflow_lisp.closed import command_templates as summary
 
     program, inputs, facts = _compile(
@@ -149,9 +147,6 @@ def test_closed_type_lookup_uses_real_sibling_environments(tmp_path, monkeypatch
     assert len(siblings) == 2
     assert siblings[0].metadata.binding_identity == siblings[1].metadata.binding_identity
     assert siblings[0].bound_type_ref != siblings[1].bound_type_ref
-    def reject_legacy(*args, **kwargs):
-        pytest.fail("closed lexical type lookup reached the partial legacy adapter")
-    monkeypatch.setattr(core, "_infer_inline_binding_type", reject_legacy)
     closed = ControlFacts(**facts, closed_program=True,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
     for (_, outer), expected in zip(program.entry.typed_body.expr.bindings, siblings, strict=True):

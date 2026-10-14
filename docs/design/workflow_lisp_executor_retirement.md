@@ -1,6 +1,6 @@
 # Best Of N Migration And Old Executor Retirement
 
-**Status:** selected by the owner on 2026-10-13; migration and cutoff are implemented candidates in preparation for R. Qualification and delivery remain gated on finite consumer/run dispositions and final verification; executor deletion is not claimed complete.
+**Status:** selected by the owner on 2026-10-13; gate R accepted. Physical implementation is deleted and independently reviewed PASS. Retained-test migration has independent source/ledger PASS and completed second-full evidence: RED with 15 classified failures, zero errors and no new unaccounted failure. Tasks 0–5 are complete in the commit containing the execution closeout, which records independent final review PASS, main integration and preserved user changes through its delivery receipt.
 **Kind:** architecture and migration. **Date:** 2026-10-13.
 **Owner:** frontend/runtime maintainers; repository owner selects supported consumers and recovery policy.
 **Plan:** [bounded implementation plan](../plans/2026-10-13-best-of-n-and-executor-retirement-plan.md).
@@ -96,7 +96,9 @@ candidate repositories must already exist. The result remains `Selection`:
 The workflow does not create clones or merge the winner. `select-only` retains
 its `intent`, `repos`, and ordered `accounts` input contract.
 
-Preserve prompt assets, provider bindings, model/effort/timeout policy, candidate
+Preserve prompt assets (minus authored result-delivery prose, which the
+evaluated route renders; [provider result delivery](provider_result_delivery.md)),
+provider bindings, model/effort/timeout policy, candidate
 isolation, input ordering, and typed outputs. Assert requests/dataflow rather
 than literal prompt wording. Resume reuses committed candidates and judge
 effects; it never reruns a committed edit merely because its input is equal to
@@ -118,8 +120,8 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 [CLI](../../specs/cli.md#executable-support-boundary),
 [versioning](../../specs/versioning.md#executable-support-and-historical-version-gates),
 [State](../../specs/state.md#execution-and-historical-format-scope) and
-[IO](../../specs/io.md) own the cutoff contract. Its implementation candidate
-requires final R verification before qualification/delivery is claimed.
+[IO](../../specs/io.md) own the cutoff contract. Gate R is accepted; final
+deleted-tree verification and delivery remain tracked in the execution closeout.
 
 ## 5. Finite Consumer Dispositions
 

@@ -45,7 +45,7 @@ from .model import (
 )
 
 if TYPE_CHECKING:
-    from ..lowering.context import _LoweringContext
+    from ..closed.command_templates import ControlFacts
     from ..procedures import TypedProcedureDef
 
 
@@ -124,7 +124,7 @@ def _normalized_inline_procedure_wcc_body(
     value: WccCall,
     *,
     procedure: TypedProcedureDef,
-    context: _LoweringContext,
+    context: ControlFacts,
 ) -> WccBody:
     from ..procedures import (
         _procedure_signature_local_type_bindings,
@@ -177,7 +177,7 @@ def _normalized_inline_procedure_wcc_body(
 def _iter_specialized_loop_effect_values(
     body: WccBody,
     *,
-    context: _LoweringContext,
+    context: ControlFacts,
     active_procedures: frozenset[str] = frozenset(),
 ):
     from ..procedures import ProcedureLoweringMode

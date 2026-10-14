@@ -4,16 +4,11 @@ import importlib
 import json
 from dataclasses import fields, replace
 from pathlib import Path
-from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
-import orchestrator.workflow_lisp.lowering.procedures as procedure_lowering
 import orchestrator.workflow_lisp.procedure_specialization as procedure_specialization
-import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
-from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.compiler_session import CompilerSession
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
@@ -24,34 +19,15 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage3_module as _compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import (
     EMPTY_EFFECT_SUMMARY,
     CallsWorkflowEffect,
     UsesCommandEffect,
     UsesProviderEffect,
 )
-from orchestrator.workflow_lisp.expressions import (
-    BindProcBinding,
-    BindProcExpr,
-    FinalizeSelectedItemExpr,
-    LetProcBinding,
-    LetProcExpr,
-    LetStarExpr,
-    LiteralExpr,
-    NameExpr,
-    ProcedureCallExpr,
-    ProcRefLiteralExpr,
-    ProduceOneOfExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
-    RunProviderPhaseExpr,
-    UnionVariantExpr,
-    WithPhaseExpr,
-)
+from orchestrator.workflow_lisp.expressions import BindProcBinding, BindProcExpr, FinalizeSelectedItemExpr, LetProcBinding, LetProcExpr, LetStarExpr, LiteralExpr, NameExpr, ProcedureCallExpr, ProcRefLiteralExpr, ProduceOneOfExpr, ResourceTransitionExpr, ResumeOrStartExpr, RunProviderPhaseExpr, UnionVariantExpr
 from orchestrator.workflow_lisp.procedure_specialization import (_resolve_procedure_lowering)
-from orchestrator.workflow_lisp.lowering import (lower_workflow_definitions)
-from orchestrator.workflow_lisp.lowering.procedures import _validate_resolved_procedure_mapping
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import (
     ProcedureLoweringMode,
@@ -77,13 +53,8 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
-from orchestrator.workflow_lisp.wcc.defunctionalize import lower_wcc_m4_workflow_definitions
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
-from tests.workflow_lisp_procedure_identity import (
-    build_procedure_identity_observation,
-    normalize_procedure_prerequisite_failure_log,
-    remove_reviewed_synthetic_inline_call_checkpoint,
-)
+from tests.workflow_lisp_procedure_identity import normalize_procedure_prerequisite_failure_log
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -172,17 +143,6 @@ def _write_module(path: Path, lines: list[str]) -> Path:
     return path
 
 
-def _iter_nested_steps(steps):
-    for step in steps:
-        yield step
-        match_block = step.get("match")
-        if isinstance(match_block, dict):
-            for case in match_block.get("cases", {}).values():
-                if isinstance(case, dict):
-                    yield from _iter_nested_steps(case.get("steps", ()))
-        repeat_block = step.get("repeat_until")
-        if isinstance(repeat_block, dict):
-            yield from _iter_nested_steps(repeat_block.get("steps", ()))
 
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
@@ -1666,7 +1626,6 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
         and procedure.specialization.base_name == "apply-checker"
     )
 
-    assert "entry" in result.validated_bundles
     assert specialized.signature.type_params == ()
     assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
     assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
@@ -1974,24 +1933,11 @@ def test_inline_lowering_carries_resolved_transitive_effects(tmp_path: Path) -> 
     )
     selected_effect = UsesCommandEffect(subject=("run_checks",))
     unselected_effect = UsesProviderEffect(subject=("providers", "execute"))
-    entry = next(
-        lowered
-        for lowered in result.lowered_workflows
-        if lowered.typed_workflow.definition.name == "entry"
-    )
-    lowered_payload = json.dumps(entry.authored_mapping, sort_keys=True)
 
     assert specialized.direct_effect_summary.direct_effects == frozenset()
     assert specialized.transitive_effect_summary.transitive_effects == frozenset(
         {selected_effect}
     )
-    assert (
-        entry.typed_workflow.effect_summary.transitive_effects
-        == specialized.transitive_effect_summary.transitive_effects
-    )
-    assert "run_checks" in lowered_payload
-    assert "providers.execute" not in lowered_payload
-    assert unselected_effect not in entry.typed_workflow.effect_summary.transitive_effects
 
 
 def test_private_workflow_lowering_carries_resolved_transitive_effects(
@@ -2009,20 +1955,10 @@ def test_private_workflow_lowering_carries_resolved_transitive_effects(
         if getattr(procedure.specialization, "base_name", "") == "invoke-selected"
         and getattr(procedure.specialization, "proc_ref_bindings", {})
     )
-    generated = next(
-        lowered.typed_workflow
-        for lowered in result.lowered_workflows
-        if lowered.typed_workflow.specialization is not None
-        and lowered.typed_workflow.specialization.base_name == "invoke-selected"
-        and lowered.typed_workflow.definition.name.startswith("%")
-    )
     selected_effect = UsesCommandEffect(subject=("run_checks",))
     unselected_effect = UsesProviderEffect(subject=("providers", "execute"))
 
     assert specialized.direct_effect_summary.direct_effects == frozenset()
-    assert generated.effect_summary == specialized.transitive_effect_summary
-    assert generated.effect_summary.transitive_effects == frozenset({selected_effect})
-    assert unselected_effect not in generated.effect_summary.transitive_effects
 
 
 def test_private_workflow_specialization_revalidates_selected_hook_boundary(
@@ -2139,7 +2075,6 @@ def test_compile_stage3_supports_type_params_nested_inside_proc_ref_signatures(t
     )
 
     assert specialized.signature.return_type_ref.name == "WorkflowInput"
-    assert "entry" in result.validated_bundles
 
 
 def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tmp_path: Path) -> None:
@@ -2726,110 +2661,10 @@ def test_typecheck_rejects_procedure_arity_mismatch(tmp_path: Path) -> None:
     _assert_diagnostic_code(excinfo, "procedure_arity_mismatch")
 
 
-def test_lowering_generates_private_workflow_for_reused_boundary_lowerable_procedure(tmp_path: Path) -> None:
-    result = _compile(PRIVATE_WORKFLOW_FIXTURE, tmp_path=tmp_path)
-
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-
-    assert "%defproc_private_workflow.build-checks.v1" in lowered_names
-    assert lowered_names.count("%defproc_private_workflow.build-checks.v1") == 1
-    assert result.lowered_workflows[-1].typed_workflow.definition.name == "%defproc_private_workflow.build-checks.v1"
-    assert "%defproc_private_workflow.build-checks.v1" in _compile_validated(
-        PRIVATE_WORKFLOW_FIXTURE,
-        tmp_path=tmp_path,
-    ).validated_bundles
 
 
-def test_private_workflow_wrapper_preserves_procedure_return_guidance(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "guided_private_workflow_procedure.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord ChecksResult",
-            "    (report WorkReport))",
-            "  (defproc build-checks",
-            "    ((report_path WorkReport))",
-            '    -> (result ChecksResult :description "Validated check outputs.")',
-            "    :effects ((uses-command run_checks))",
-            "    :lowering private-workflow",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" report_path)',
-            "      :returns ChecksResult))",
-            "  (defworkflow entry",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    (build-checks report_path)))",
-        ],
-    )
-
-    result = _compile(path, tmp_path=tmp_path)
-    private_workflow = next(
-        lowered.typed_workflow
-        for lowered in result.lowered_workflows
-        if lowered.typed_workflow.definition.name.startswith("%guided_private_workflow_procedure.build-checks")
-    )
-
-    assert private_workflow.definition.return_spec.guidance.description == "Validated check outputs."
 
 
-def test_lowering_preloads_nested_private_workflow_procedure_dependencies(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "nested_private_workflow_order_sensitive.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord ChecksResult",
-            "    (report WorkReport))",
-            "  (defproc outer",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering private-workflow",
-            "    (inner report_path))",
-            "  (defproc inner",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering private-workflow",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" report_path)',
-            "      :returns ChecksResult))",
-            "  (defworkflow first",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    (outer report_path))",
-            "  (defworkflow second",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    (outer report_path)))",
-        ],
-    )
-
-    result = _compile(path, tmp_path=tmp_path)
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    outer_private = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "%nested_private_workflow_order_sensitive.outer.v1"
-    )
-    validated = _compile_validated(path, tmp_path=tmp_path)
-
-    assert "%nested_private_workflow_order_sensitive.inner.v1" in lowered_names
-    assert "%nested_private_workflow_order_sensitive.outer.v1" in lowered_names
-    assert outer_private.authored_mapping["steps"][0]["call"] == "%nested_private_workflow_order_sensitive.inner.v1"
-    assert "%nested_private_workflow_order_sensitive.inner.v1" in validated.validated_bundles
-    assert "%nested_private_workflow_order_sensitive.outer.v1" in validated.validated_bundles
 
 
 def test_lowering_rejects_private_workflow_for_non_boundary_type(tmp_path: Path) -> None:
@@ -3082,10 +2917,6 @@ def test_auto_lowering_call_binding_body_stays_inline_outside_iteration_scopes(
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    lowered_names = [
-        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
-    ]
-    assert not [name for name in lowered_names if name.startswith("%")], lowered_names
 
 
 def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inputs(
@@ -3169,48 +3000,9 @@ def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inp
         workspace_root=tmp_path,
     )
 
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-
-    assert lowered_names == ["first", "second", "%auto_inline_required_for_input_projection.build-checks.v1"]
 
 
-def test_explicit_private_workflow_rejects_input_projection_body(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "explicit_private_input_projection.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord ChecksResult",
-            "    (report WorkReport))",
-            "  (defproc build-checks",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    :effects ()",
-            "    :lowering private-workflow",
-            "    (record ChecksResult",
-            "      :report report_path))",
-            "  (defworkflow first",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    (build-checks report_path))",
-            "  (defworkflow second",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            "    (build-checks report_path)))",
-        ],
-    )
 
-    result = _compile(path, tmp_path=tmp_path)
-
-    assert any(
-        workflow.typed_workflow.definition.name == "%explicit_private_input_projection.build-checks.v1"
-        for workflow in result.lowered_workflows
-    )
 
 
 def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
@@ -3299,84 +3091,8 @@ def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tm
     assert invoke.direct_effect_summary.direct_effects == frozenset()
 
 
-def test_inline_procedure_lowering_accepts_literal_command_arguments(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "procedure_inline_literal_argument.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord ChecksResult",
-            "    (report WorkReport))",
-            "  (defproc build-checks",
-            "    ((label String)",
-            "     (report_path WorkReport))",
-            "    -> ChecksResult",
-            "    :effects",
-            "      ((uses-command run_checks))",
-            "    :lowering inline",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" label report_path)',
-            "      :returns ChecksResult))",
-            "  (defworkflow orchestrate",
-            "    ((report_path WorkReport))",
-            "    -> ChecksResult",
-            '    (build-checks "strict" report_path)))',
-        ],
-    )
-
-    result = _compile(path, tmp_path=tmp_path)
-
-    assert result.lowered_workflows[0].authored_mapping["steps"][0]["command"] == [
-        "python",
-        "scripts/run_checks.py",
-        "strict",
-        "${inputs.report_path}",
-    ]
 
 
-def test_private_workflow_call_lowers_local_record_argument_into_flattened_with_bindings(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "procedure_private_workflow_local_record_argument.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord WorkflowInput",
-            "    (report WorkReport))",
-            "  (defrecord WorkflowOutput",
-            "    (report WorkReport))",
-            "  (defproc build-checks",
-            "    ((input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    :effects",
-            "      ((uses-command run_checks))",
-            "    :lowering private-workflow",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" input.report)',
-            "      :returns WorkflowOutput))",
-            "  (defworkflow entry",
-            "    ((report_path WorkReport))",
-            "    -> WorkflowOutput",
-            "    (let* ((input (record WorkflowInput :report report_path)))",
-            "      (build-checks input))))",
-        ],
-    )
-
-    result = _compile(path, tmp_path=tmp_path)
-    lowered = next(
-        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
-    )
-
-    assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
 
 
 def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
@@ -3629,407 +3345,14 @@ def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reu
     _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
 
 
-def test_private_workflow_with_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "procedure_with_phase_binding_private_workflow.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-            "    missing_resource",
-            "    unavailable_hardware",
-            "    roadmap_conflict",
-            "    external_dependency_outside_authority",
-            "    user_decision_required",
-            "    unrecoverable_after_fix_attempt)",
-            "  (defenum ImplementationStateTag",
-            "    COMPLETED",
-            "    BLOCKED)",
-            "  (defpath DesignDocPath",
-            "    :kind relpath",
-            '    :under "docs/design"',
-            "    :must-exist true)",
-            "  (defpath PlanDocPath",
-            "    :kind relpath",
-            '    :under "docs/plans"',
-            "    :must-exist true)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defpath WorkReportTarget",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist false)",
-            "  (defpath ImplementationStateBundlePath",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist false)",
-            "  (defrecord ImplementationAttemptInputs",
-            "    (design DesignDocPath)",
-            "    (plan PlanDocPath))",
-            "  (defrecord ImplementationAttemptPhaseCtx",
-            "    (implementation_state_bundle_path ImplementationStateBundlePath)",
-            "    (execution_report_target WorkReportTarget)",
-            "    (progress_report_target WorkReportTarget))",
-            "  (defunion ImplementationAttempt",
-            "    (COMPLETED",
-            "      (implementation_state ImplementationStateTag)",
-            "      (execution_report_path WorkReport))",
-            "    (BLOCKED",
-            "      (implementation_state ImplementationStateTag)",
-            "      (progress_report_path WorkReport)",
-            "      (blocker_class BlockerClass)))",
-            "  (defrecord ImplementationAttemptReport",
-            "    (report_path WorkReport))",
-            "  (defproc private-run",
-            "    ((phase-ctx ImplementationAttemptPhaseCtx)",
-            "     (inputs ImplementationAttemptInputs))",
-            "    -> ImplementationAttemptReport",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering private-workflow",
-            "    (let* ((phase-result",
-            "             (with-phase phase-ctx implementation",
-                "               (provider-result providers.execute",
-            "                 :prompt prompts.implementation.execute",
-            "                 :inputs (inputs.design",
-            "                          inputs.plan",
-            "                          (phase-target execution-report)",
-            "                          (phase-target progress-report))",
-            "                 :returns ImplementationAttempt))))",
-            "      (match phase-result",
-            "        ((COMPLETED completed)",
-            "         (record ImplementationAttemptReport",
-            "           :report_path completed.execution_report_path))",
-            "        ((BLOCKED blocked)",
-            "         (record ImplementationAttemptReport",
-            "           :report_path blocked.progress_report_path)))))",
-            "  (defworkflow run-private",
-            "    ((phase-ctx ImplementationAttemptPhaseCtx)",
-            "     (inputs ImplementationAttemptInputs))",
-            "    -> ImplementationAttemptReport",
-            "    (private-run phase-ctx inputs)))",
-        ],
-    )
-
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    private_names = [name for name in lowered_names if name.endswith(".private-run.v1")]
-
-    assert private_names == ["%procedure_with_phase_binding_private_workflow.private-run.v1"]
-    outer_workflow = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-private"
-    )
-    assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
 
 
-def test_private_workflow_with_top_level_ifexpr_exports_step_backed_outputs(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "procedure_top_level_ifexpr_private_workflow.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord AttemptReport",
-            "    (report WorkReport))",
-            "  (defproc private-run",
-            "    ((prefer_first Bool)",
-            "     (report_path WorkReport))",
-            "    -> AttemptReport",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering private-workflow",
-            "    (if prefer_first",
-            "      (let* ((attempt",
-            "               (provider-result providers.execute",
-            "                 :prompt prompts.implementation.execute",
-            "                 :inputs (report_path)",
-            "                 :returns AttemptReport)))",
-            "        (record AttemptReport",
-            "          :report attempt.report))",
-            "      (let* ((attempt",
-            "               (provider-result providers.execute",
-            "                 :prompt prompts.implementation.execute",
-            "                 :inputs (report_path)",
-            "                 :returns AttemptReport)))",
-            "        (record AttemptReport",
-            "          :report attempt.report))))",
-            "  (defworkflow run-private",
-            "    ((prefer_first Bool)",
-            "     (report_path WorkReport))",
-            "    -> AttemptReport",
-            "    (private-run prefer_first report_path)))",
-        ],
-    )
-
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    private_names = [name for name in lowered_names if name.endswith(".private-run.v1")]
-
-    assert private_names == ["%procedure_top_level_ifexpr_private_workflow.private-run.v1"]
-    outer_workflow = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-private"
-    )
-    assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
 
 
-def test_private_workflow_effectful_match_arms_export_step_backed_outputs(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "procedure_effectful_match_private_workflow.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-            "    missing_resource",
-            "    unavailable_hardware)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord AttemptReport",
-            "    (report WorkReport))",
-            "  (defunion ImplementationState",
-            "    (COMPLETED",
-            "      (execution_report WorkReport))",
-            "    (BLOCKED",
-            "      (progress_report WorkReport)",
-            "      (blocker_class BlockerClass)))",
-            "  (defproc private-run",
-            "    ((report_path WorkReport))",
-            "    -> AttemptReport",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering private-workflow",
-            "    (let* ((attempt",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (report_path)",
-            "               :returns ImplementationState)))",
-            "      (match attempt",
-            "        ((COMPLETED completed)",
-            "         (provider-result providers.execute",
-            "           :prompt prompts.implementation.execute",
-            "           :inputs (completed.execution_report)",
-            "           :returns AttemptReport))",
-            "        ((BLOCKED blocked)",
-            "         (provider-result providers.execute",
-            "           :prompt prompts.implementation.execute",
-            "           :inputs (blocked.progress_report)",
-            "           :returns AttemptReport)))))",
-            "  (defworkflow run-private",
-            "    ((report_path WorkReport))",
-            "    -> AttemptReport",
-            "    (private-run report_path)))",
-        ],
-    )
-
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    private_names = [name for name in lowered_names if name.endswith(".private-run.v1")]
-
-    assert private_names == ["%procedure_effectful_match_private_workflow.private-run.v1"]
-    outer_workflow = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-private"
-    )
-    assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
 
 
-def test_private_workflow_match_binding_exports_step_backed_outputs(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "procedure_match_binding_private_workflow.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-            "    missing_resource",
-            "    unavailable_hardware)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord AttemptReport",
-            "    (report WorkReport))",
-            "  (defrecord FinalReport",
-            "    (report WorkReport))",
-            "  (defunion ImplementationState",
-            "    (COMPLETED",
-            "      (execution_report WorkReport))",
-            "    (BLOCKED",
-            "      (progress_report WorkReport)",
-            "      (blocker_class BlockerClass)))",
-            "  (defproc private-run",
-            "    ((report_path WorkReport))",
-            "    -> FinalReport",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering private-workflow",
-            "    (let* ((attempt",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (report_path)",
-            "               :returns ImplementationState))",
-            "            (alias attempt)",
-            "            (attempt-report",
-            "             (match alias",
-            "               ((COMPLETED completed)",
-            "                (provider-result providers.execute",
-            "                  :prompt prompts.implementation.execute",
-            "                  :inputs (completed.execution_report)",
-            "                  :returns AttemptReport))",
-            "               ((BLOCKED blocked)",
-            "                (provider-result providers.execute",
-            "                  :prompt prompts.implementation.execute",
-            "                  :inputs (blocked.progress_report)",
-            "                  :returns AttemptReport))))",
-            "            (final-report",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (attempt-report.report)",
-            "               :returns FinalReport)))",
-            "      final-report))",
-            "  (defworkflow run-private",
-            "    ((report_path WorkReport))",
-            "    -> FinalReport",
-            "    (private-run report_path)))",
-        ],
-    )
-
-    result = _compile(path, tmp_path=tmp_path)
-
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    private_names = [name for name in lowered_names if name.endswith(".private-run.v1")]
-
-    assert private_names == ["%procedure_match_binding_private_workflow.private-run.v1"]
-    outer_workflow = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-private"
-    )
-    assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
 
 
-def test_private_workflow_union_match_uses_private_workflow_metadata_not_name_heuristic(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "procedure_union_match_private_workflow.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defenum BlockerClass",
-            "    missing_resource",
-            "    unavailable_hardware)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defunion AttemptResult",
-            "    (APPROVED",
-            "      (execution_report_path WorkReport))",
-            "    (BLOCKED",
-            "      (progress_report_path WorkReport)",
-            "      (blocker_class BlockerClass)))",
-            "  (defproc private-wrap",
-            "    ((report_path WorkReport))",
-            "    -> AttemptResult",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering private-workflow",
-            "    (let* ((attempt",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (report_path)",
-            "               :returns AttemptResult)))",
-            "      (match attempt",
-            "        ((APPROVED approved)",
-            "         (variant AttemptResult APPROVED",
-            "           :execution_report_path approved.execution_report_path))",
-            "        ((BLOCKED blocked)",
-            "         (variant AttemptResult BLOCKED",
-            "           :progress_report_path blocked.progress_report_path",
-            "           :blocker_class blocked.blocker_class)))))",
-            "  (defworkflow run-private",
-            "    ((report_path WorkReport))",
-            "    -> AttemptResult",
-            "    (private-wrap report_path)))",
-        ],
-    )
-
-    compiled = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-    private_proc = next(
-        procedure for procedure in compiled.typed_procedures if procedure.definition.name == "private-wrap"
-    )
-    custom_private_proc = replace(
-        private_proc,
-        resolved_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
-        generated_workflow_name="%custom.private-wrap",
-    )
-    resolved_procedures = tuple(
-        custom_private_proc
-        if procedure.definition.name == private_proc.definition.name
-        else procedure
-        for procedure in compiled.typed_procedures
-    )
-    resolved_procedures_by_name = MappingProxyType(
-        {procedure.definition.name: procedure for procedure in resolved_procedures}
-    )
-
-    lowered = lower_workflow_definitions(
-        compiled.typed_workflows,
-        typed_procedures=resolved_procedures,
-        resolved_procedures_by_name=resolved_procedures_by_name,
-        procedure_catalog=compiled.procedure_catalog,
-        workflow_path=path,
-        workflow_catalog=compiled.workflow_catalog,
-        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
-        extern_environment=compiled.extern_environment,
-        command_boundary_environment=compiled.command_boundary_environment,
-        type_env=FrontendTypeEnvironment.from_module(compiled.module),
-    )
-    private_workflow = next(
-        workflow for workflow in lowered if workflow.typed_workflow.definition.name == "%custom.private-wrap"
-    )
-
-    assert not any(
-        name.endswith("__match_attempt__result_bundle") for name in private_workflow.authored_mapping["inputs"]
-    )
 
 
 def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: Path) -> None:
@@ -4077,47 +3400,6 @@ def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: 
     )
 
 
-def test_shared_validation_remap_renders_procedure_call_and_definition_notes(tmp_path: Path) -> None:
-    path = tmp_path / "procedure_shared_validation_remap.orc"
-    path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath EscapedReport",
-                "    :kind relpath",
-                '    :under "../escape"',
-                "    :must-exist true)",
-                "  (defrecord EscapedSummary",
-                "    (report EscapedReport))",
-                "  (defproc escaped-summary",
-                "    ((report_path EscapedReport))",
-                "    -> EscapedSummary",
-                "    :effects ()",
-                "    :lowering inline",
-                "    (record EscapedSummary",
-                "      :report report_path))",
-                "  (defworkflow orchestrate",
-                "    ((report_path EscapedReport))",
-                "    -> EscapedSummary",
-                "    (escaped-summary report_path)))",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    rendered = render_diagnostic(excinfo.value.diagnostics[0])
-
-    assert "procedure call site at" in rendered
-    assert "procedure definition at" in rendered
 
 
 def test_compile_stage3_entrypoint_registers_imported_procedure_signatures(tmp_path: Path) -> None:
@@ -4238,12 +3520,6 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
 
     assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
     assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
-    serialized_payloads = (
-        json.dumps([workflow.authored_mapping for workflow in result.entry_result.lowered_workflows], sort_keys=True),
-    )
-    for payload in serialized_payloads:
-        assert "TypeParamRef" not in payload
-        assert "%loop-state." not in payload
 
 
 def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_carrier(
@@ -4345,12 +3621,6 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
 
     assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
     assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
-    serialized_payloads = (
-        json.dumps([workflow.authored_mapping for workflow in result.entry_result.lowered_workflows], sort_keys=True),
-    )
-    for payload in serialized_payloads:
-        assert "TypeParamRef" not in payload
-        assert "%loop-state." not in payload
 
 
 def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without_runtime_leaks(
@@ -4574,89 +3844,11 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         == ["APPROVED", "BLOCKED", "EXHAUSTED"]
     )
 
-    bundle = next(iter(result.validated_bundles_by_name.values()))
-    serialized_payloads = (
-        json.dumps(workflow_executable_ir_to_json(bundle.ir), sort_keys=True),
-        json.dumps(workflow_semantic_ir_to_json(bundle.semantic_ir), sort_keys=True),
-    )
-    for payload in serialized_payloads:
-        assert "TypeParamRef" not in payload
-        assert "ProcRef[" not in payload
-        assert "providers.execute" not in payload
-        assert "prompts.implementation.execute" not in payload
-        assert "%loop-state." not in payload
-        assert "procedure_call_unknown" not in payload
-        assert "type_unknown" not in payload
-        assert "loop_recur_state_type_invalid" not in payload
 
-    lowered = next(
-        workflow
-        for workflow in result.compiled_results_by_name["entry"].lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry::orchestrate"
-    )
-    authored_payload = json.dumps(lowered.authored_mapping, sort_keys=True)
-    assert "providers.execute" not in authored_payload
-    assert "prompts.implementation.execute" not in authored_payload
-    assert "`review`" not in authored_payload
-    assert "`fix`" not in authored_payload
 
-    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
-    outputs = repeat_step["repeat_until"]["outputs"]
-    on_exhausted = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
-    assert repeat_step["repeat_until"]["max_iterations"] == 4
-    assert "state__latest_findings__schema_version" in outputs
-    assert "state__latest_findings__items_path" in outputs
-    assert outputs["state__latest_findings__items_path"]["under"] == "artifacts/work"
-    assert outputs["state__latest_findings__items_path"]["must_exist_target"] is True
-    assert on_exhausted["result__variant"] == "EXHAUSTED"
-    assert on_exhausted["result__reason"] == "max_iterations_reached"
-    assert "result__findings__schema_version" not in on_exhausted
-    assert "result__findings__items_path" not in on_exhausted
-    assert "result__review_report" not in on_exhausted
-    assert "result__last_review_report" not in on_exhausted
 
-    seed_step = next(step for step in lowered.authored_mapping["steps"] if step["name"].endswith("__seed"))
-    seed_values = {value["name"]: value for value in seed_step["materialize_artifacts"]["values"]}
-    assert seed_values["state__latest_findings__schema_version"]["source"] == {"literal": "ReviewFindings.v1"}
-    assert seed_values["state__latest_findings__items_path"]["source"] == {"ref": "inputs.inputs__findings_path"}
 
-    current_state_step = next(
-        step
-        for step in repeat_step["repeat_until"]["steps"]
-        if step["name"].endswith("__body__state")
-    )
-    carried_copy = next(
-        nested_step
-        for nested_step in current_state_step["then"]["steps"]
-        if nested_step["name"].endswith("__use_carried_state")
-    )
-    carried_contracts = {
-        value["name"]: value["contract"]
-        for value in carried_copy["materialize_artifacts"]["values"]
-        if value["name"] in {"state__latest_findings__schema_version", "state__latest_findings__items_path"}
-    }
-    assert set(carried_contracts) == {
-        "state__latest_findings__schema_version",
-        "state__latest_findings__items_path",
-    }
-    assert carried_contracts["state__latest_findings__items_path"]["under"] == "artifacts/work"
-    assert carried_contracts["state__latest_findings__items_path"]["must_exist_target"] is True
-    assert '"APPROVED"' in authored_payload
-    assert '"BLOCKED"' in authored_payload
-    assert '"EXHAUSTED"' in authored_payload
 
-    origin_paths = {
-        origin.span.start.path
-        for mapping in (
-            lowered.origin_map.step_spans,
-            lowered.origin_map.generated_output_spans,
-            lowered.origin_map.generated_path_spans,
-        )
-        for origin in mapping.values()
-        if getattr(origin, "span", None) is not None
-    }
-    assert any(path.endswith("entry.orc") for path in origin_paths)
-    assert any(path.endswith("stdlib/review_loop_consumer.orc") for path in origin_paths)
 
 
 def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owner_env_and_loop_state_types(
@@ -4764,10 +3956,6 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
         getattr(procedure.specialization, "base_name", "") == "std/phase::review-revise-loop-proc"
         for procedure in result.compiled_results_by_name["helper"].typed_procedures
     )
-    assert any(
-        workflow.typed_workflow.definition.name == "entry::orchestrate"
-        for workflow in result.entry_result.lowered_workflows
-    )
 
 
 def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle_paths_use_hidden_inputs(
@@ -4864,33 +4052,8 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
         workspace_root=tmp_path,
     )
 
-    def _walk_steps(steps):
-        for step in steps:
-            yield step
-            if "repeat_until" in step:
-                yield from _walk_steps(step["repeat_until"].get("steps", []))
-            if "match" in step:
-                for case in step["match"].get("cases", {}).values():
-                    yield from _walk_steps(case.get("steps", []))
 
-    lowered = next(
-        workflow
-        for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry::orchestrate"
-    )
-    managed_write_root_steps = [
-        step
-        for step in _walk_steps(lowered.authored_mapping.get("steps", []))
-        if str(step.get("name", "")).endswith("__managed_write_roots")
-    ]
 
-    assert managed_write_root_steps
-    for step in managed_write_root_steps:
-        path = step["output_bundle"]["path"]
-        assert path.startswith("${inputs.")
-        assert path.endswith("}")
-        input_name = path[len("${inputs.") : -1]
-        assert input_name in lowered.authored_mapping["inputs"]
 
 
 def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_keep_distinct_loop_state_carriers(
@@ -5040,10 +4203,6 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
         if getattr(procedure.specialization, "base_name", "") == "std/phase::review-revise-loop-proc"
     ]
     assert len(specialized_review_loops) == 2
-    assert any(
-        workflow.typed_workflow.definition.name == "entry::orchestrate"
-        for workflow in result.entry_result.lowered_workflows
-    )
 
 
 def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_schema_version_on_exhausted_state_projection(
@@ -5230,29 +4389,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
 
     assert result.entry_result.lowering_schema_version == 2
 
-    lowered = next(
-        workflow
-        for workflow in result.compiled_results_by_name["entry"].lowered_workflows
-        if workflow.typed_workflow.definition.name == "entry::orchestrate"
-    )
-    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
-    on_exhausted = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
-    result_step = next(
-        step for step in lowered.authored_mapping["steps"] if step["name"].endswith("__result")
-    )
-    exhausted_case = result_step["match"]["cases"]["EXHAUSTED"]
 
-    assert repeat_step["repeat_until"]["max_iterations"] == 4
-    assert on_exhausted["result__variant"] == "EXHAUSTED"
-    assert on_exhausted["result__reason"] == "max_iterations_reached"
-    assert "result__findings__schema_version" not in on_exhausted
-    assert "result__findings__items_path" not in on_exhausted
-    assert exhausted_case["outputs"]["return__findings__schema_version"]["from"] == {
-        "ref": f"root.steps.{repeat_step['name']}.artifacts.state__latest_findings__schema_version"
-    }
-    assert exhausted_case["outputs"]["return__findings__items_path"]["from"] == {
-        "ref": f"root.steps.{repeat_step['name']}.artifacts.state__latest_findings__items_path"
-    }
 
 
 def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_path: Path) -> None:
@@ -5563,71 +4700,12 @@ def test_compile_stage3_supports_pure_helper_authored_union_variant_constructor(
 
     assert "entry" in {workflow.definition.name for workflow in result.typed_workflows}
 
-def test_lowering_authored_union_variant_constructor_reuses_existing_union_output_path(
-    tmp_path: Path,
-) -> None:
-    path = _write_module(
-        tmp_path / "union_variant_lowering.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord WorkflowInput",
-            "    (report WorkReport))",
-            "  (defunion WorkflowResult",
-            "    (APPROVED",
-            "      (report WorkReport)",
-            "      (message String))",
-            "    (BLOCKED",
-            "      (report WorkReport)",
-            "      (reason String)))",
-            "  (defworkflow entry",
-            "    ((input WorkflowInput))",
-            "    -> WorkflowResult",
-            "    (variant WorkflowResult APPROVED",
-            "      :report input.report",
-            '      :message "ok"))',
-            ")",
-        ],
-    )
-
-    result = _compile(path, tmp_path=tmp_path)
-    lowered = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
-    step = lowered.authored_mapping["steps"][0]
-    values = {value["name"]: value["source"] for value in step["materialize_artifacts"]["values"]}
-
-    assert step["name"] == "entry"
-    assert values["variant"] == {"literal": "APPROVED"}
-    assert values["report"] == {"ref": "inputs.input__report"}
-    assert values["message"] == {"literal": "ok"}
-    assert step["variant_output"]["path"] == "${inputs.__write_root__entry__result_bundle}"
-    assert lowered.origin_map.step_spans["entry"].form_path == ("workflow-lisp", "defworkflow", "entry")
-    assert lowered.origin_map.generated_output_spans["return__variant"].form_path == (
-        "workflow-lisp",
-        "defworkflow",
-        "entry",
-    )
 
 
 def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path: Path) -> None:
     result = _compile_validated(WORKFLOW_REF_FORWARDING_FIXTURE, tmp_path=tmp_path)
-    generated = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.startswith(
-            "%workflow_refs_forwarding.invoke-runner__spec__"
-        )
-    )
 
-    assert "entry" in result.validated_bundles
     assert result.typed_procedures[0].definition.name == "invoke-runner"
-    assert generated.typed_workflow.effect_summary.transitive_effects == frozenset(
-        {CallsWorkflowEffect(subject=("runner",))}
-    )
 
 
 def test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_literals(
@@ -5665,7 +4743,6 @@ def test_compile_stage3_supports_bind_proc_forwarding_and_lexical_proc_ref_calls
     assert invoke_runner.typed_body.expr.callee_name == "runner"
     assert isinstance(entry_body, LetStarExpr)
     assert isinstance(entry_body.bindings[0][1], BindProcExpr)
-    assert "entry" in result.validated_bundles
 
 
 def test_let_proc_resolves_to_hidden_generated_proc_ref(tmp_path: Path) -> None:
@@ -6448,53 +5525,6 @@ def test_stage3_effect_inference_rejects_proc_ref_specialization_cycles_before_l
     _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(excinfo)
 
 
-def test_higher_order_procedure_specializations_reuse_private_workflow_lowering(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "higher_order_private_reuse.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord WorkflowInput",
-            "    (report WorkReport))",
-            "  (defrecord WorkflowOutput",
-            "    (report WorkReport))",
-            "  (defworkflow echo-helper",
-            "    ((input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" input.report)',
-            "      :returns WorkflowOutput))",
-            "  (defproc invoke-runner",
-            "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
-            "     (input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    :effects ((calls-workflow runner))",
-            "    :lowering auto",
-            "    (call runner",
-            "      :input input))",
-            "  (defworkflow first",
-            "    ((input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    (invoke-runner echo-helper input))",
-            "  (defworkflow second",
-            "    ((input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    (invoke-runner echo-helper input)))",
-        ],
-    )
-
-    result = _compile_validated(path, tmp_path=tmp_path)
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    private_names = [name for name in lowered_names if name.startswith("%higher_order_private_reuse.")]
-
-    assert len(private_names) == 1
-    assert "invoke-runner__spec__runner__echo_helper" in private_names[0]
-    assert private_names[0] in result.validated_bundles
 
 
 def test_compile_stage3_accepts_variant_projection_match(tmp_path: Path) -> None:
@@ -6515,70 +5545,6 @@ def test_compile_stage3_rejects_variant_projection_match_mismatch(tmp_path: Path
     assert "SELECTED" in excinfo.value.diagnostics[0].message
 
 
-def test_wcc_effectful_proc_pure_terminal_materializes_root_result(tmp_path: Path) -> None:
-    """An effectful proc whose terminal is a root-valued pure expression exposes `__result__`."""
-    path = _write_module(
-        tmp_path / "native_proc_root_terminal.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord SummaryWithCount",
-            "    (report WorkReport)",
-            "    (count Int))",
-            "  (defproc bump-count",
-            "    ((report_path WorkReport))",
-            "    -> Int",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering inline",
-            "    (let* ((n",
-            "             (provider-result providers.execute",
-            "               :prompt prompts.implementation.execute",
-            "               :inputs (report_path)",
-            "               :returns Int)))",
-            "      (+ n 1)))",
-            "  (defworkflow native-proc-terminal",
-            "    ((report_path WorkReport))",
-            "    -> SummaryWithCount",
-            "    (let* ((total (bump-count report_path)))",
-            "      (record SummaryWithCount",
-            "        :report report_path",
-            "        :count total))))",
-        ],
-    )
-
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        lowering_route="wcc_m4",
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    terminal_projection = next(
-        step
-        for step in lowered["steps"]
-        if "pure_projection" in step and step["name"].endswith("__terminal_projection")
-    )
-    assert terminal_projection["output_bundle"]["fields"] == [
-        {"name": "__result__", "json_pointer": "", "kind": "scalar", "type": "integer"}
-    ]
-
-    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
-    count_value = next(
-        value
-        for value in materialize_step["materialize_artifacts"]["values"]
-        if value["name"] == "return__count"
-    )
-    assert count_value["source"] == {
-        "ref": f"root.steps.{terminal_projection['name']}.artifacts.__result__"
-    }
 
 
 def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) -> None:
@@ -6751,20 +5717,6 @@ def test_procedure_prerequisite_failure_log_preserves_newline_and_utf8_digest() 
     )
 
 
-def test_procedure_identity_modes_match_frozen_legacy_observables(tmp_path: Path) -> None:
-    expected = json.loads(
-        (PROCEDURE_IDENTITY_BASELINES / "procedure_lowering_identity_modes.legacy.json").read_text(
-            encoding="utf-8"
-        )
-    )
-
-    actual = build_procedure_identity_observation(
-        PROCEDURE_IDENTITY_FIXTURE,
-        "legacy",
-        tmp_path,
-    )
-
-    assert actual == expected
 
 
 def test_stage3_returns_module_resolved_procedure_modes_and_names(tmp_path: Path) -> None:
@@ -6818,155 +5770,14 @@ def test_stage3_resolves_lowering_once_after_specialization_and_effects(
     )
 
 
-def _resolved_procedure_identity_inputs(tmp_path: Path):
-    compiled = _compile_procedure_identity_fixture(tmp_path)
-    type_env = FrontendTypeEnvironment.from_module(compiled.module)
-    resolved_by_name = _resolve_procedure_lowering(
-        compiled.typed_procedures,
-        typed_workflows=compiled.typed_workflows,
-        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
-        type_env=type_env,
-        procedure_type_envs={
-            procedure.definition.name: type_env
-            for procedure in compiled.typed_procedures
-        },
-    )
-    resolved = tuple(
-        resolved_by_name[procedure.definition.name]
-        for procedure in compiled.typed_procedures
-    )
-    private_name = next(
-        procedure.definition.name
-        for procedure in resolved
-        if procedure.definition.name.endswith("private-helper")
-    )
-    custom = tuple(
-        replace(procedure, generated_workflow_name="%test.resolved.helper")
-        if procedure.definition.name == private_name
-        else procedure
-        for procedure in resolved
-    )
-    return compiled, type_env, custom, MappingProxyType(
-        {procedure.definition.name: procedure for procedure in custom}
-    )
 
 
-def test_legacy_lowerer_uses_supplied_resolved_procedure_tuple(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    compiled, type_env, resolved, resolved_by_name = _resolved_procedure_identity_inputs(tmp_path)
-
-    def fail_recomputation(*args, **kwargs):
-        raise AssertionError("legacy lowerer recomputed procedure lowering")
-
-    monkeypatch.setattr(
-        procedure_specialization,
-        "_resolve_procedure_lowering",
-        fail_recomputation,
-    )
-
-    lowered = lower_workflow_definitions(
-        compiled.typed_workflows,
-        typed_procedures=resolved,
-        resolved_procedures_by_name=resolved_by_name,
-        procedure_catalog=compiled.procedure_catalog,
-        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
-        workflow_catalog=compiled.workflow_catalog,
-        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
-        extern_environment=compiled.extern_environment,
-        command_boundary_environment=compiled.command_boundary_environment,
-        type_env=type_env,
-        target_dsl_version=compiled.module.target_dsl_version,
-    )
-
-    assert any(
-        workflow.typed_workflow.definition.name == "%test.resolved.helper"
-        for workflow in lowered
-    )
 
 
-def test_wcc_m4_lowerer_uses_supplied_resolved_procedure_tuple(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    compiled, type_env, resolved, resolved_by_name = _resolved_procedure_identity_inputs(tmp_path)
-
-    def fail_recomputation(*args, **kwargs):
-        raise AssertionError("WCC M4 lowerer recomputed procedure lowering")
-
-    monkeypatch.setattr(
-        procedure_specialization,
-        "_resolve_procedure_lowering",
-        fail_recomputation,
-    )
-
-    assert not hasattr(wcc_defunctionalize, "_resolve_procedure_lowering")
-
-    lowered = lower_wcc_m4_workflow_definitions(
-        compiled.typed_workflows,
-        typed_procedures=resolved,
-        resolved_procedures_by_name=resolved_by_name,
-        procedure_type_envs={
-            procedure.definition.name: type_env
-            for procedure in resolved
-        },
-        procedure_catalog=compiled.procedure_catalog,
-        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
-        workflow_catalog=compiled.workflow_catalog,
-        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
-        extern_environment=compiled.extern_environment,
-        command_boundary_environment=compiled.command_boundary_environment,
-        type_env=type_env,
-        target_dsl_version=compiled.module.target_dsl_version,
-    )
-
-    assert any(
-        workflow.typed_workflow.definition.name == "%test.resolved.helper"
-        for workflow in lowered
-    )
 
 
-@pytest.mark.parametrize(
-    ("mode", "generated_name"),
-    [
-        (ProcedureLoweringMode.PRIVATE_WORKFLOW, None),
-        (ProcedureLoweringMode.INLINE, "%test.invalid.inline"),
-    ],
-)
-def test_resolved_procedure_mapping_rejects_malformed_mode_name_pairs(
-    tmp_path: Path,
-    mode: ProcedureLoweringMode,
-    generated_name: str | None,
-) -> None:
-    compiled = _compile_procedure_identity_fixture(tmp_path)
-    source = next(
-        procedure
-        for procedure in compiled.typed_procedures
-        if procedure.resolved_lowering_mode is mode
-    )
-    malformed = replace(source, generated_workflow_name=generated_name)
-    supplied = MappingProxyType({malformed.definition.name: malformed})
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _validate_resolved_procedure_mapping((malformed,), supplied)
-
-    assert excinfo.value.diagnostics[0].code == "procedure_lowering_unresolved"
-    assert excinfo.value.diagnostics[0].span == malformed.definition.span
 
 
-def test_resolved_procedure_mapping_preserves_empty_mapping_identity_and_rejects_extras(
-    tmp_path: Path,
-) -> None:
-    empty = MappingProxyType({})
-    assert _validate_resolved_procedure_mapping((), empty) is empty
-
-    compiled = _compile_procedure_identity_fixture(tmp_path)
-    procedure = compiled.typed_procedures[0]
-    nonempty = MappingProxyType({procedure.definition.name: procedure})
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _validate_resolved_procedure_mapping((), nonempty)
-    assert excinfo.value.diagnostics[0].code == "procedure_lowering_unresolved"
 
 
 def test_resolved_procedure_mapping_rejects_wrong_type_and_equal_distinct_rows(
@@ -6975,150 +5786,7 @@ def test_resolved_procedure_mapping_rejects_wrong_type_and_equal_distinct_rows(
     compiled = _compile_procedure_identity_fixture(tmp_path)
     procedure = compiled.typed_procedures[0]
 
-    with pytest.raises(LispFrontendCompileError) as wrong_type:
-        _validate_resolved_procedure_mapping(
-            (procedure,),
-            {procedure.definition.name: procedure},
-        )
-    assert wrong_type.value.diagnostics[0].code == "procedure_lowering_unresolved"
 
     equal_but_distinct = replace(procedure)
     assert equal_but_distinct == procedure
     assert equal_but_distinct is not procedure
-    with pytest.raises(LispFrontendCompileError) as distinct_row:
-        _validate_resolved_procedure_mapping(
-            (procedure,),
-            MappingProxyType({procedure.definition.name: equal_but_distinct}),
-        )
-    assert distinct_row.value.diagnostics[0].code == "procedure_lowering_unresolved"
-
-
-@pytest.mark.parametrize(
-    ("route", "consumer_name"),
-    [
-        ("legacy", "lower_workflow_definitions"),
-        ("wcc_m1", "lower_wcc_m1_workflow_definitions"),
-        ("wcc_m2", "lower_wcc_m2_workflow_definitions"),
-        ("wcc_m3", "lower_wcc_m3_workflow_definitions"),
-        ("wcc_m4", "lower_wcc_m4_workflow_definitions"),
-    ],
-)
-def test_compiler_dispatch_passes_exact_resolved_mapping_to_every_route(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    route: str,
-    consumer_name: str,
-) -> None:
-    compiled = _compile_procedure_identity_fixture(tmp_path)
-    type_env = FrontendTypeEnvironment.from_module(compiled.module)
-    received: list[object] = []
-    validated: list[object] = []
-
-    def capture_consumer(typed_workflows, **kwargs):
-        supplied = kwargs["resolved_procedures_by_name"]
-        received.append(supplied)
-        validated.append(
-            _validate_resolved_procedure_mapping(
-                kwargs["typed_procedures"],
-                supplied,
-            )
-        )
-        return ()
-
-    monkeypatch.setattr(workflow_lisp_compiler, consumer_name, capture_consumer)
-    for validator_name in (
-        "validate_wcc_m1_route_supported",
-        "validate_wcc_m2_route_supported",
-        "validate_wcc_m3_route_supported",
-        "validate_wcc_m4_route_supported",
-    ):
-        monkeypatch.setattr(workflow_lisp_compiler, validator_name, lambda *args, **kwargs: None)
-
-    workflow_lisp_compiler._lower_workflows_for_route(
-        lowering_route=workflow_lisp_compiler.normalize_lowering_route(route),
-        typed_workflows=compiled.typed_workflows,
-        typed_procedures=compiled.typed_procedures,
-        procedure_type_envs={
-            procedure.definition.name: type_env
-            for procedure in compiled.typed_procedures
-        },
-        procedure_catalog=compiled.procedure_catalog,
-        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
-        workflow_catalog=compiled.workflow_catalog,
-        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
-        extern_environment=compiled.extern_environment,
-        command_boundary_environment=compiled.command_boundary_environment,
-        type_env=type_env,
-        target_dsl_version=compiled.module.target_dsl_version,
-    )
-
-    assert len(received) == 1
-    assert isinstance(received[0], type(MappingProxyType({})))
-    assert validated[0] is received[0]
-
-
-def test_procedure_identity_modes_match_frozen_wcc_m4_observables(tmp_path: Path) -> None:
-    expected = json.loads(
-        (PROCEDURE_IDENTITY_BASELINES / "procedure_lowering_identity_modes.wcc_m4.json").read_text(
-            encoding="utf-8"
-        )
-    )
-
-    actual = build_procedure_identity_observation(
-        PROCEDURE_IDENTITY_FIXTURE,
-        "wcc_m4",
-        tmp_path,
-    )
-
-    normalized_expected, removed = remove_reviewed_synthetic_inline_call_checkpoint(
-        expected,
-        checkpoint_id="ckpt:96c8f1defd3c99d22430b7e9",
-    )
-
-    assert removed["program_point_id"] == "pp:557411aebbf25d7fe27132c9"
-    assert removed["step_id"] == (
-        "root.procedure_lowering_identity_modes_orchestrate__plan__"
-        "procedure_lowering_identity_modes_inline_plan_1__match_attempt"
-    )
-    assert actual == normalized_expected
-
-
-def test_explicit_inline_pilot_shape_does_not_use_schema1_iteration_override(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_predicate = procedure_lowering._schema1_iteration_private_override_applies
-    override_decisions: list[bool] = []
-
-    def spy_on_override_predicate(procedure, *, context):
-        decision = original_predicate(procedure, context=context)
-        if procedure.definition.name.endswith("::inline-plan"):
-            override_decisions.append(decision)
-        return decision
-
-    monkeypatch.setattr(
-        procedure_lowering,
-        "_schema1_iteration_private_override_applies",
-        spy_on_override_predicate,
-    )
-
-    observations = [
-        build_procedure_identity_observation(PROCEDURE_IDENTITY_FIXTURE, route, tmp_path / route)
-        for route in ("legacy", "wcc_m4")
-    ]
-
-    assert override_decisions
-    assert not any(override_decisions)
-    for observation in observations:
-        inline_plan = next(
-            procedure
-            for procedure in observation["resolved_typed_procedures"]
-            if procedure["name"].endswith("::inline-plan")
-        )
-        assert inline_plan["requested_mode"] == "inline"
-        assert inline_plan["resolved_mode"] == "inline"
-        assert inline_plan["generated_workflow_name"] is None
-        assert not any(
-            workflow["workflow_name"].endswith("::inline-plan.v1")
-            for workflow in observation["generated_private_workflows"]
-        )

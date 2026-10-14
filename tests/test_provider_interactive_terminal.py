@@ -27,13 +27,6 @@ from orchestrator.providers import (
     ProviderSessionSupport,
     ProviderTemplate,
 )
-from orchestrator.workflow.validation import (
-    WorkflowBoundaryValidationPolicy,
-    WorkflowMappingBuildRequest,
-    WorkflowMappingValidationOptions,
-    WorkflowMappingValidationResult,
-    validate_workflow_mapping,
-)
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
     FailedCleanupProof,
@@ -727,64 +720,6 @@ def test_workflow_manifest_absence_does_not_create_capability() -> None:
     loaded = registry.get("ordinary")
     assert loaded is not None
     assert loaded.interactive_session_support is None
-
-
-def _shared_validation_result(
-    tmp_path: Path,
-    capability: dict[str, object],
-) -> WorkflowMappingValidationResult:
-    workspace = tmp_path
-    mapping = {
-        "version": "2.16",
-        "name": "interactive-capability-validation",
-        "providers": {
-            "peer": {
-                "command": ["tool", "${PROMPT}"],
-                "input_mode": "argv",
-                "interactive_session_support": capability,
-            }
-        },
-        "steps": [{"name": "Done", "command": ["echo", "done"]}],
-    }
-    return validate_workflow_mapping(
-        WorkflowMappingBuildRequest(
-            authored_mapping=mapping,
-            workflow_path=workspace / "interactive-capability.orc",
-            frontend_kind="workflow_lisp",
-        ),
-        options=WorkflowMappingValidationOptions(
-            workspace_root=workspace,
-            boundary_validation_policy=(
-                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
-            ),
-        ),
-    )
-
-
-def test_shared_workflow_validation_preserves_valid_capability(
-    tmp_path: Path,
-) -> None:
-    result = _shared_validation_result(tmp_path, _capability_config())
-
-    assert result.errors == ()
-    assert result.bundle is not None
-
-
-def test_shared_workflow_validation_rejects_malformed_capability(
-    tmp_path: Path,
-) -> None:
-    result = _shared_validation_result(
-        tmp_path,
-        _capability_config(
-            schema_version="interactive_terminal_turn_queue.v2"
-        ),
-    )
-
-    assert result.bundle is None
-    assert any(
-        "interactive_session_support.schema_version" in error.message
-        for error in result.errors
-    ), result.errors
 
 
 class _FakeInteractiveBackend:
@@ -2739,11 +2674,6 @@ def test_interactive_adapter_never_uses_v1_control_or_observation_surfaces(
     )
     monkeypatch.setattr(
         "orchestrator.providers.control.ProviderExecutionControl.cancel_and_reap",
-        forbidden,
-    )
-    monkeypatch.setattr(
-        "orchestrator.workflow.provider_supervision.bindings."
-        "WorkflowProviderSupervisionBindings.prepare_resume_invocation",
         forbidden,
     )
     monkeypatch.setattr(

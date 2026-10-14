@@ -1944,9 +1944,8 @@ def test_closed_imported_old_snapshot_survives_source_deletion_and_is_reachable(
         workspace_root=tmp_path,
         lowering_route=None,
     )
-    snapshot = producer.validated_bundles_by_name[
-        "cp/producer::get"
-    ].typed_program
+    snapshot = producer.entry_result.typed_program
+    snapshot = replace(snapshot, entry=snapshot.workflows["cp/producer::get"])
     assert snapshot is not None
     producer_path.unlink()
 

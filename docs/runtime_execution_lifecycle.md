@@ -12,34 +12,36 @@ case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
 with `.orc required` before a run root or `state.json` is created. There is no
 production YAML parser.
 
-`resume` recognizes an evaluated run (target 2.35) by its header before any
-flat-route state check ([CLI](../specs/cli.md#evaluated-execution-target-235));
-for a flat run it loads the selected run's persisted state first. Once state
-is loaded, every recorded workflow suffix other than `.orc` fails closed with
-`.orc required`, regardless of run terminality or force-restart selection. A
-non-`.orc` source is neither compiled nor executed. `report` and dashboard
-views remain state-only observability for legacy runs; they do not parse
-authored source or reconstruct executable workflow structure from it.
+Executable entries through 2.34 are retired. `resume` admits only a supported
+evaluated header and refuses old profiles, including force-restart, before
+changing their run contents. Invalidation has the same old-profile boundary;
+see [CLI](../specs/cli.md#executable-support-boundary). Historical `report` and
+dashboard views read state without compiling source or reconstructing an
+executor. Native `prompt resume [--in-place]` is a separate retained session
+bridge; it does not resume old workflow execution.
 
 ## Execution Profiles
 
-A run belongs to one of two profiles, selected by its target and recorded in
-its header; nothing converts a run from one to the other.
+Evaluated execution is the sole current workflow runtime. Historical flat
+states remain readable; nothing converts a run between profiles.
 
 | Profile | Targets | Authority on disk | Sections |
 | --- | --- | --- | --- |
-| Flat (legacy) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | Execution Timeline, Run Artifacts, Step State Machine and the flat sections that follow them, up to the evaluated section |
-| Evaluated | 2.35 | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235) |
+| Flat (historical, read-only) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | Historical protocol below, up to the evaluated section; no creation, replay, repair or translation in this package |
+| Evaluated | 2.35/2.36 and bounded 2.37 | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235) |
 
-The flat sections below describe the flat profile only. The normative owner
-of both is [State](../specs/state.md), with the evaluated profile in its
+The flat sections below preserve the historical protocol for interpreting
+old state, not commands to execute with this package. Recovery requires an
+exact retained release/environment and evidence for that run family; the
+[retirement contract](design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)
+states the limits. The normative format owner is [State](../specs/state.md), with the evaluated profile in its
 [target-2.35 section](../specs/state.md#evaluated-execution-persistence-profile-target-235);
 the evaluated profile's design is
 [evaluated execution](design/workflow_lisp_evaluated_execution.md).
 
 ## Execution Timeline
 
-Flat profile (targets through 2.34).
+Historical flat profile (targets through 2.34); the following protocol is retired.
 
 ```text
 1) Enforce the `.orc` source boundary, then parse/typecheck Workflow Lisp
@@ -345,6 +347,9 @@ missing, stale or unparseable. Readers never append, repair or rebuild; a
 preview or an explicit output of a reader is the reader's file, not a
 mutation of the observed run. `monitor --once --dry-run` reads and
 classifies; it is not an installed service and sends nothing.
+
+The shared watchdog probe remains a reader. The watchdog workflow's executable
+route is retired; keeping its probe does not preserve that runtime.
 
 ## Runtime vs Authoring Boundary
 

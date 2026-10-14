@@ -7,15 +7,15 @@ import subprocess
 import sys
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.run_lock import WorkspaceAlreadyActiveError, workspace_run_lock
-from tests.test_workflow_resume_after_known_failure import SEQUENCE, _install, _log, _run
-from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args
+from tests.test_workflow_resume_after_known_failure import SEQUENCE, _install
+from tests.workflow_evaluated_totality_helpers import _log, _public_run
+from tests.test_workflow_evaluated_cli import _run_args
 
 
 LOCK_HOLDER = """
@@ -135,10 +135,10 @@ def test_stale_metadata_and_different_workspaces_do_not_block(tmp_path):
 
 
 @pytest.mark.parametrize("separate_state_dir", [False, True])
-def test_run_refuses_before_build_or_effect_and_preserves_requested_identity(
+def test_run_refuses_before_run_publication_or_effect_and_preserves_requested_identity(
     tmp_path, monkeypatch, caplog, separate_state_dir,
 ):
-    files = _install(tmp_path, SEQUENCE)
+    files = _install(tmp_path, SEQUENCE, target="2.35")
     monkeypatch.chdir(tmp_path)
     args = _run_args(files)
     args.command_boundaries_file = str(files["commands"])
@@ -150,15 +150,16 @@ def test_run_refuses_before_build_or_effect_and_preserves_requested_identity(
     assert result.run_id == "requested-run"
     assert "workspace_run_already_active" in caplog.text
     assert "active-run" in caplog.text
-    assert not (tmp_path / ".orchestrate" / "build").exists()
+    runs_root = Path(args.state_dir) if args.state_dir else tmp_path / ".orchestrate" / "runs"
+    assert not runs_root.exists()
     assert not files["probe"].with_suffix(".log").exists()
 
 
 @pytest.mark.parametrize("force_restart", [False, True])
 def test_resume_refuses_before_mutating_other_run(tmp_path, monkeypatch, capsys, force_restart):
-    files = _install(tmp_path, SEQUENCE, broken=("check",))
+    files = _install(tmp_path, SEQUENCE, target="2.35", broken=("check",))
     monkeypatch.chdir(tmp_path)
-    assert _run(files) == 1
+    assert _public_run(files).exit_code == 1
     state_file = next((tmp_path / ".orchestrate" / "runs").glob("*/state.json"))
     before = state_file.read_bytes()
     with workspace_run_lock(tmp_path, "active-run"):
@@ -170,7 +171,7 @@ def test_resume_refuses_before_mutating_other_run(tmp_path, monkeypatch, capsys,
 
 
 def test_dry_run_succeeds_while_another_run_is_active(tmp_path, monkeypatch):
-    files = _install(tmp_path, SEQUENCE)
+    files = _install(tmp_path, SEQUENCE, target="2.35")
     monkeypatch.chdir(tmp_path)
     args = _run_args(files)
     args.command_boundaries_file = str(files["commands"])
@@ -183,53 +184,25 @@ def test_dry_run_succeeds_while_another_run_is_active(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("broken", [(), ("check",)])
 def test_public_run_releases_workspace_after_success_or_failure(tmp_path, monkeypatch, broken):
-    files = _install(tmp_path, SEQUENCE, broken=broken)
+    files = _install(tmp_path, SEQUENCE, target="2.35", broken=broken)
     monkeypatch.chdir(tmp_path)
-    assert _run(files) == bool(broken)
+    assert _public_run(files).exit_code == bool(broken)
     with workspace_run_lock(tmp_path, "next-run"):
         pass
     assert _log(files["probe"]) == (["prepare", "check"] if broken else ["prepare", "check", "finish"])
 
+def test_run_ref_child_refuses_an_active_clone_before_decoding_or_compiling(tmp_path, capsys):
+    from orchestrator.workflow.run_ref import child
+    from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+    from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture, _path_request
 
-def test_trial_cli_refuses_with_the_same_status_and_one_code(tmp_path, monkeypatch, caplog):
-    from orchestrator.cli.main import main
-    from tests.test_workflow_lisp_trial_lowering import _write_trial_module
-
-    source = _write_trial_module(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    with workspace_run_lock(tmp_path, "active-run"):
-        exit_code = main([
-            "trial", str(source), "--entry-workflow", "compare",
-            "--run-ref-root", str((tmp_path / "children").resolve()),
-        ])
-    assert exit_code == 2
-    assert caplog.text.count("workspace_run_already_active") == 1
-    assert "active-run" in caplog.text
-    assert not (tmp_path / ".orchestrate" / "build").exists()
-
-
-@pytest.mark.parametrize("path_program", [False, True])
-def test_run_ref_child_refuses_an_active_clone_before_decoding_or_compiling(tmp_path, capsys, path_program):
-    from tests.test_workflow_run_ref_child import (
-        _build_path_fixture, _invoke, _invoke_path, _path_request, _request,
-    )
-
-    if path_program:
-        fixture = _build_path_fixture(tmp_path)
-        payload, request_path, invoke = _path_request(fixture), fixture.request_path, _invoke_path
-        run_root = fixture.state_dir / fixture.child_run_id
-    else:
-        # A request that passes the loader; its capsule is read only after the lock.
-        digest = "sha256:" + "0" * 64
-        capsule = SimpleNamespace(
-            root=tmp_path, capsule_dir=tmp_path, capsule_digest=digest,
-            compiler_identity=digest, target_workflow_name="entry::run",
-        )
-        payload, request_path, state_dir = _request(capsule, case="active")
-        invoke = _invoke
-        run_root = state_dir / payload["child_run_id"]
+    fixture = _build_path_fixture(tmp_path)
+    payload = _path_request(fixture)
+    fixture.request_path.write_bytes(canonical_json_bytes(payload))
+    run_root = fixture.state_dir / fixture.child_run_id
     with workspace_run_lock(Path(payload["clone_root"]), "active-run"):
-        exit_code, _, stderr = invoke(payload, request_path, capsys)
+        exit_code = child.main(["--path-request", str(fixture.request_path)])
+    stderr = capsys.readouterr().err
     assert exit_code == 1
     assert json.loads(stderr)["code"] == "run_ref_child_launch_failed"
     assert not run_root.exists()

@@ -1,4 +1,4 @@
-"""A local 2.35 proposal edit with a stable 2.33 route as its baseline."""
+"""Retained 2.35 proposal and reviewed-change dataflow across public resume."""
 
 from __future__ import annotations
 
@@ -21,6 +21,9 @@ from tests.test_workflow_evaluated_consumers import (
     _owners as _consumer_owners,
     _predecessors as _consumer_predecessors,
     _review,
+    _proposal,
+    _reviewed_change_dataflow,
+    _assert_provider_policy,
 )
 from tests.workflow_lisp_improve_example_sources import (
     APPROVED_LAUNCH,
@@ -36,7 +39,6 @@ from tests.workflow_evaluated_consumer_sources import (
     Route,
     assert_request_lineage,
     checked_run,
-    flat_outputs,
     install,
     install_shims,
     jsonl,
@@ -173,17 +175,6 @@ def _assert_focus_normalized_requests_match(first: Route, second: Route) -> None
     ]
 
 
-def _run_baseline(root: Path, monkeypatch, plan: dict) -> Route:
-    install_shims(root.parent / "bin", monkeypatch, plan)
-    frontend = install(root, PROGRAMS["improve"], {"question": QUESTION}, current=False)
-    result = _capture(root, [sys.executable, "-m", "orchestrator", "run", *frontend,
-                            "--input-file", "inputs.json"])
-    assert result.returncode == 0, result.stderr
-    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
-    state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
-    return Route(root, state["workflow_outputs"], requests(root))
-
-
 def _run_variant(root: Path, frontend: list[str], focus: str, marker: str) -> Route:
     compiled = _capture(root, [sys.executable, "-m", "orchestrator", "compile", *frontend,
                                "--diagnostics-json"])
@@ -221,22 +212,29 @@ def _resume_and_replay(root: Path, authority, prefix: bytes, paused_requests: li
     return Route(root, snapshot.terminal.data["value"], requests(root), authority, snapshot, paused_requests)
 
 
-def _assert_outcome_and_launcher(old: Route, new: Route, launch: dict) -> None:
-    assert old.value == flat_outputs(new.value)
+def _assert_outcome_and_launcher(new: Route, launch: dict) -> None:
     assert new.value == {"status": "launched" if launch["outcome"] == "approved" else "held"}
-    assert jsonl(old.root / "scripts/launch_experiment.log") == [launch]
     assert jsonl(new.root / "scripts/launch_experiment.log") == [launch]
     assert set(new.started().values()) == {1}
 
 
-def _assert_hook_inputs(old: Route, new: Route, focus: str, verdicts: tuple[str, ...]) -> None:
+def _assert_hook_inputs(new: Route, focus: str, verdicts: tuple[str, ...]) -> None:
     review_requests, revise_requests = new.requests[::2], new.requests[1::2]
-    assert len(review_requests) == len(old.requests[::2])
+    assert len(review_requests) == len(verdicts)
     assert all(focus in request["prompt"] for request in review_requests)
     assert all(focus not in request["prompt"] for request in revise_requests)
-    assert [_effective_request(request) for request in old.requests[1::2]] == [
-        _effective_request(request) for request in revise_requests
-    ]
+    request_view(new)
+    for round_, request in enumerate(review_requests):
+        proposal = _proposal(round_)
+        assert QUESTION in request["prompt"]
+        assert proposal["hypothesis"] in request["prompt"]
+        assert json.dumps(proposal["parameters"], sort_keys=True, separators=(",", ":")) in request["prompt"]
+    for round_, request in enumerate(revise_requests):
+        assert QUESTION in request["prompt"]
+        proposal = _proposal(round_)
+        assert proposal["hypothesis"] in request["prompt"]
+        assert json.dumps(proposal["parameters"], sort_keys=True, separators=(",", ":")) in request["prompt"]
+        assert f"methods:add-{round_ + 1}" in request["prompt"]
     assert len(new.paused) == 1
     assert len(new.requests) == 2 * len(verdicts) - (verdicts[-1] != "REVISE")
 
@@ -247,14 +245,14 @@ def test_proposal_review_focus_is_review_only_and_survives_public_resume(
     tmp_path, monkeypatch, verdicts, launch, focus,
 ):
     plan = _improve_plan(*verdicts)
-    old = _run_baseline(tmp_path / "old", monkeypatch, plan)
+    install_shims(tmp_path / "bin", monkeypatch, plan)
     new_root = tmp_path / "new"
     inputs = {"question": QUESTION, "review_focus": focus}
     frontend = install(new_root, PROGRAMS["improve"], inputs, current=True)
     (new_root / PROGRAMS["improve"].source).write_text(VARIANT.read_text(encoding="utf-8"), encoding="utf-8")
     new = _run_variant(new_root, frontend, focus, REVIEW)
-    _assert_outcome_and_launcher(old, new, launch)
-    _assert_hook_inputs(old, new, focus, verdicts)
+    _assert_outcome_and_launcher(new, launch)
+    _assert_hook_inputs(new, focus, verdicts)
 
 
 REVIEWED_CASES = [
@@ -284,17 +282,6 @@ REVIEWED_CASES.extend([
         id="wrong-approach-at-final-round",
     ),
 ])
-
-
-def _run_reviewed_baseline(root: Path, plan: dict, inputs: dict) -> Route:
-    program = PROGRAMS["reviewed_change"]
-    frontend = install(root, program, inputs, current=False)
-    result = _capture(root, [sys.executable, "-m", "orchestrator", "run", *frontend,
-                            "--input-file", "inputs.json"])
-    assert result.returncode == 0, result.stderr
-    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
-    state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
-    return Route(root, state["workflow_outputs"], requests(root))
 
 
 def _run_reviewed_variant(root: Path, frontend: list[str], marker: str, paused_count: int = 2) -> Route:
@@ -329,13 +316,12 @@ def test_reviewed_change_reuses_improve_without_changing_its_contract(
     install_shims(tmp_path / "bin", monkeypatch, plan)
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
               "intent": "add returns a + b", "repo": "repo"}
-    old = _run_reviewed_baseline(tmp_path / "old", plan, inputs)
     new_root = tmp_path / "new"
     program = PROGRAMS["reviewed_change"]
     frontend = install(new_root, program, inputs, current=True)
     (new_root / program.source).write_text(variant_path.read_text(encoding="utf-8"), encoding="utf-8")
     new = _run_reviewed_variant(new_root, frontend, marker)
-    _assert_reviewed_contract(old, new, plan, value, paused_count)
+    _assert_reviewed_contract(new, plan, inputs, value, paused_count)
 
 
 @pytest.mark.parametrize("account", ("captured-account-alpha", "captured-account-beta"))
@@ -384,19 +370,20 @@ def test_bound_review_intent_changes_only_reviewer_requests_across_resume(tmp_pa
     assert _consumer_files(first.root, "artifacts", "repo") == _consumer_files(second.root, "artifacts", "repo")
 
 
-def _assert_reviewed_contract(old: Route, new: Route, plan: dict, value: dict, paused_count: int) -> None:
-    _assert_reviewed_values_and_requests(old, new, value, plan)
+def _assert_reviewed_contract(new: Route, plan: dict, inputs: dict, value: dict, paused_count: int) -> None:
+    _assert_reviewed_values_and_requests(new, value, plan)
+    _reviewed_change_dataflow(new, plan, inputs)
+    _assert_provider_policy(new)
     _assert_reviewed_lifecycle(new, plan, paused_count)
-    _assert_reviewed_artifacts(old, new, plan)
+    _assert_reviewed_artifacts(new, plan)
     assert_request_lineage(new)
 
 
-def _assert_reviewed_values_and_requests(old: Route, new: Route, value: dict, plan: dict) -> None:
+def _assert_reviewed_values_and_requests(new: Route, value: dict, plan: dict) -> None:
     calls = len(plan["claude"]) + len(plan["codex"])
     expected_tools = [tool for _ in range(len(plan["codex"])) for tool in ("claude", "codex")]
     assert new.value == value
-    assert old.value == flat_outputs(new.value)
-    assert request_view(new) == request_view(old)
+    request_view(new)
     assert [request["tool"] for request in new.requests] == expected_tools
     assert len(new.requests) == calls
 
@@ -411,15 +398,13 @@ def _assert_reviewed_lifecycle(new: Route, plan: dict, paused_count: int) -> Non
     assert missing_edges(new, _consumer_predecessors(calls)) == [[]] * calls
 
 
-def _assert_reviewed_artifacts(old: Route, new: Route, plan: dict) -> None:
+def _assert_reviewed_artifacts(new: Route, plan: dict) -> None:
     reports = {name: text.encode() for answer in plan["codex"] for name, text in answer.get("files", {}).items()}
     repo_files = {"calc.py": BUGGY.encode(), **{
         name.removeprefix("repo/"): text.encode()
         for answer in plan["claude"] for name, text in answer.get("files", {}).items()
     }}
-    assert _consumer_files(old.root, "artifacts") == reports
     assert _consumer_files(new.root, "artifacts") == reports
-    assert _consumer_files(old.root / "repo", ".") == repo_files
     assert _consumer_files(new.root / "repo", ".") == repo_files
 
 

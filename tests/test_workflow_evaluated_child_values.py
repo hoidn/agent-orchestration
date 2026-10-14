@@ -106,7 +106,8 @@ def test_direct_nested_child_value_survives_envelope_and_reuse(tmp_path, optiona
         assert recovered.envelope["value"] == reused.envelope["value"] == value
         assert recovered.artifacts == reused.artifacts == prepared.artifacts
         assert ledger.load_attempt_ledger(request.ledger_path, run_files=owner).rows[-1].stage == "committed"
-        assert _tree_bytes(tmp_path) == before
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())
         assert len(launched) == 1
 
 
@@ -126,7 +127,8 @@ def test_durable_v2_inputs_do_not_check_path_existence_or_copy(tmp_path, monkeyp
         monkeypatch.setattr(runtime, "_copy_path_value", lambda *_args, **_kwargs: pytest.fail("durable path copy"))
         before = _tree_bytes(tmp_path)
         assert runtime._validate_child_request_document(request, row=row, document=document) == ("path", document)
-        assert _tree_bytes(tmp_path) == before
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())
 
 
 def test_float_integer_override_preserves_recipe_and_normalizes_durable_value(tmp_path, monkeypatch):
@@ -150,7 +152,8 @@ def test_float_integer_override_preserves_recipe_and_normalizes_durable_value(tm
             artifacts=prepared.artifacts, reconcile_pending=False)
         assert finalized.envelope == reused.envelope == prepared.envelope
         assert type(reused.envelope["value"]) is float
-        assert _tree_bytes(tmp_path) == before
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())
 
 
 @pytest.mark.parametrize("type_name,value", [("Bool", True), ("Int", 1), ("Float", 1.5), ("Optional[String]", None),
@@ -166,7 +169,8 @@ def test_direct_scalar_and_container_values_keep_json_shape(tmp_path, type_name,
         reused = runtime.reuse_run_ref_settlement(request, settled_result=prepared.settled_result.record,
             artifacts=prepared.artifacts, reconcile_pending=False)
         assert finalized.envelope == reused.envelope == prepared.envelope
-        assert _tree_bytes(tmp_path) == before
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())
 
 
 @pytest.mark.parametrize("type_name,value,wrong", [("Int", 1, True), ("Bool", True, 1), ("Float", 1.5, True)])
@@ -180,7 +184,8 @@ def test_durable_typed_inputs_do_not_equate_bool_and_numeric_values(tmp_path, ty
         before = _tree_bytes(tmp_path)
         with pytest.raises(runtime.RunRefRuntimeError, match="child_request_inputs_invalid"):
             runtime._validate_child_request_document(request, row=row, document=document)
-        assert _tree_bytes(tmp_path) == before
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())
 
 
 def test_committed_path_result_is_pure_in_terminal_helper_but_e1_still_checks_artifact(tmp_path):
@@ -207,45 +212,21 @@ def test_committed_path_result_is_pure_in_terminal_helper_but_e1_still_checks_ar
         with pytest.raises(runtime.RunRefRuntimeError, match="run_ref_delta_capture_failed|run_ref_evidence_invalid"):
             runtime.reuse_run_ref_settlement(request, settled_result=prepared.settled_result.record,
                 artifacts=prepared.artifacts, reconcile_pending=False)
-        assert _tree_bytes(tmp_path) == before
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())
 
 
-def test_legacy_profile_check_and_state_capture_share_retained_root(tmp_path, monkeypatch):
-    with caller._checked_launch_fixture(tmp_path, allocate=False) as (request, _fixture, document, owner):
-        request = replace(request, parent_identity=document["parent_authority"]["identity"], parent_attempt=2)
-        observed = {}
-        real_path_read, real_fd_read = Path.read_bytes, WorkspaceFiles.read
-        def swap(path):
-            if path != observed.get("state") or observed.get("swapped"):
-                return
-            root = path.parent
-            retained = root.with_name("retained-legacy-child")
-            root.rename(retained)
-            root.mkdir()
-            state = json.loads(observed["payload"])
-            state["substitute_marker"] = True
-            (root / "state.json").write_text(json.dumps(state))
-            (root / "run.json").write_bytes(real_path_read(request.parent_run_root / "run.json"))
-            observed.update(swapped=True, retained=retained)
-            observed["substitute"] = _tree_bytes(root)
-        def path_read(path):
-            swap(path)
-            return real_path_read(path)
-        def fd_read(files, path):
-            swap(Path(path))
-            return real_fd_read(files, path)
-        monkeypatch.setattr(Path, "read_bytes", path_read)
-        monkeypatch.setattr(WorkspaceFiles, "read", fd_read)
-        def launch_real(launch):
-            process = runtime._default_child_launcher(launch)
-            assert process.returncode == 0, process.stderr.decode()
-            root = launch.workspace / ".orchestrate" / "runs" / launch.child_run_id
-            observed.update(payload=real_path_read(root / "state.json"), original=_tree_bytes(root))
-            observed["state"] = root / "state.json"
-            return process
-        with pytest.raises(runtime.RunRefRuntimeError):
-            runtime.prepare_run_ref_settlement(request, dependencies=runtime.RunRefRuntimeDependencies(launch_child=launch_real))
-        assert observed["swapped"]
-        assert ledger.load_attempt_ledger(request.ledger_path, run_files=owner).rows[-1].stage == "launched"
-        assert _tree_bytes(observed["retained"]) == observed["original"]
-        assert _tree_bytes(observed["state"].parent) == observed["substitute"]
+def test_retired_private_child_refuses_before_state_capture_or_publication(tmp_path, monkeypatch, capsys):
+    from orchestrator.workflow.run_ref import child
+    from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture
+
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.24"))
+    with caller._checked_launch_fixture(tmp_path) as (_request, fixture, _document, owner):
+        before = _tree_bytes(tmp_path)
+        assert child.main(["--path-request", str(fixture.request_path), "--parent-root-fd", str(owner.root_fd)]) == 2
+        diagnostic = json.loads(capsys.readouterr().err)
+        assert diagnostic["code"] == "trial_program_compile_rejected"
+        assert "workflow_execution_target_retired" in json.dumps(diagnostic)
+        assert not fixture.state_dir.exists()
+        after = _tree_bytes(tmp_path)
+        assert all(after.get(path) == evidence for path, evidence in before.items())

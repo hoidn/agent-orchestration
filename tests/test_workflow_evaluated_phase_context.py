@@ -6,23 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.state import StateManager
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 from orchestrator.workflow.evaluated.values import (
     EvaluatedValueError,
     coerce_evaluated_value,
 )
-from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
-from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from tests.test_workflow_lisp_closed_program_elaboration import _GENERIC_PHASE_TARGET_SOURCE
-from tests.test_workflow_lisp_generic_union_provider_results import _Provider
-from tests.workflow_bundle_helpers import bundle_context_dict
 from tests.workflow_lisp_closed_program_helpers import TARGET, build, install
 
 
@@ -109,12 +101,7 @@ def _write_phase_target_inputs(tmp_path, inputs, context):
         path.write_text("evidence\n", encoding="utf-8")
 
 
-def _assert_legacy_phase_execution(old_outcome, provider):
-    assert old_outcome["status"] == "completed"
-    assert provider.calls == 1
-
-
-def test_fixed_phase_target_values_match_legacy_after_readback(
+def test_fixed_phase_target_values_follow_named_order_after_readback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = {
@@ -136,61 +123,7 @@ def test_fixed_phase_target_values_match_legacy_after_readback(
         "prompt_externs": {"prompts.implementation.execute": "prompt.md"},
         "workspace_root": tmp_path,
     }
-    source_path = install(
-        tmp_path, _FIXED_PHASE_TARGET_SOURCE.replace("TARGET", "2.34"),
-    )
-    compiled = compile_stage3_module(source_path, validate_shared=True, **configuration)
-    bundle = compiled.validated_bundles["phase_targets_swapped::run-implementation-attempt"]
-    contracts = {
-        name: contract
-        for name, contract in workflow_runtime_input_contracts(bundle).items()
-        if not name.startswith("__write_root__")
-    }
-    assert not any(name.startswith("__phase_prompt__") for name in contracts)
-    provided = {
-        **{f"phase-ctx__{name}": value for name, value in context.items()},
-        **{f"inputs__{name}": value for name, value in inputs.items()},
-    }
-    state = StateManager(workspace=tmp_path, run_id="old-x3")
-    state.initialize(
-        str(source_path), context=bundle_context_dict(bundle),
-        bound_inputs=bind_workflow_inputs(contracts, provided, tmp_path),
-    )
-    provider = _Provider(payload)
-    old_targets = []
-    original_resolve = WorkflowExecutor._resolve_typed_prompt_value_source
-
-    def observe_resolve(executor, source, runtime_state, **kwargs):
-        value, error = original_resolve(executor, source, runtime_state, **kwargs)
-        if source.get("binding", {}).get("ref") in {
-            "inputs.phase-ctx__progress_report_target",
-            "inputs.phase-ctx__execution_report_target",
-        }:
-            assert error is None
-            old_targets.append(value)
-        return value, error
-
-    def execute(_executor, invocation, **kwargs):
-        # The existing stand-in writes relative env paths against cwd;
-        # the real provider runs in the workspace selected by WorkflowExecutor.
-        output = Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
-        invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] = str(
-            output if output.is_absolute() else tmp_path / output
-        )
-        return provider.execute(invocation, **kwargs)
-
-    with monkeypatch.context() as patcher:
-        patcher.setattr(ProviderExecutor, "prepare_invocation", provider.prepare_invocation)
-        patcher.setattr(ProviderExecutor, "execute", execute)
-        patcher.setattr(WorkflowExecutor, "_resolve_typed_prompt_value_source", observe_resolve)
-        old_outcome = WorkflowExecutor(bundle, tmp_path, state, retry_delay_ms=0).execute(
-            on_error="stop"
-        )
-    _assert_legacy_phase_execution(old_outcome, provider)
-
-    source_path.write_text(
-        _FIXED_PHASE_TARGET_SOURCE.replace("TARGET", TARGET), encoding="utf-8",
-    )
+    source_path = install(tmp_path, _FIXED_PHASE_TARGET_SOURCE.replace("TARGET", TARGET))
     typed = compile_typed_program(
         source_path,
         entry_workflow="phase_targets_swapped::run-implementation-attempt",
@@ -209,7 +142,7 @@ def test_fixed_phase_target_values_match_legacy_after_readback(
     result = evaluate_closed_program(
         program, {"phase-ctx": context, "inputs": inputs}, effect_handler=perform,
     )
-    assert old_targets == new_targets == [
+    assert new_targets == [
         context["progress_report_target"], context["execution_report_target"],
     ]
     expected = {
@@ -217,9 +150,7 @@ def test_fixed_phase_target_values_match_legacy_after_readback(
         "implementation_state_bundle_path": context["implementation_state_bundle_path"],
     }
     assert result.json_value() == expected
-    assert old_outcome["workflow_outputs"] == {
-        f"return__{name}": value for name, value in expected.items()
-    }
+
 
 
 @pytest.mark.parametrize("phase", ["work", "implementation"])

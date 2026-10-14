@@ -82,7 +82,7 @@ def _base_entry(**overrides: object) -> dict[str, object]:
         "lowering_schema_version": 2,
         "copy_safety": "preferred_current_guidance",
         "evidence": [
-            "tests/test_workflow_lisp_examples.py::test_effectful_match_arm_normalization_orc_compiles_with_shared_validation"
+            "tests/test_workflow_lisp_examples.py"
         ],
     }
     entry.update(overrides)
@@ -309,23 +309,21 @@ def test_registry_evidence_accepts_existing_report_path(tmp_path: Path) -> None:
 
 
 def test_registry_evidence_accepts_parameterized_pytest_node(tmp_path: Path) -> None:
-    registry = load_route_readiness_registry(
-        _write_registry(
-            tmp_path,
-            [
-                _base_entry(
-                    evidence=[
-                        "tests/test_workflow_lisp_wcc_characterization.py::"
-                        "test_m5_route_flip_corpus_compiles_under_default_wcc_route"
-                        "[design_delta_union_match_projection]"
-                    ]
-                )
-            ],
-        )
+    evidence_module = tmp_path / "tests" / "test_evidence.py"
+    evidence_module.parent.mkdir(parents=True)
+    evidence_module.write_text(
+        'import pytest\n@pytest.mark.parametrize("value", [1], ids=["one"])\n'
+        'def test_value(value):\n    assert value == 1\n', encoding="utf-8"
     )
-
-    validation = validate_route_readiness_registry(registry, REPO_ROOT)
-
+    source = tmp_path / "workflows/examples/evidence.orc"
+    source.parent.mkdir(parents=True)
+    source.write_text("(workflow-lisp)", encoding="utf-8")
+    registry = load_route_readiness_registry(_write_registry(tmp_path, [
+        _base_entry(path="workflows/examples/evidence.orc", evidence=[
+            "tests/test_evidence.py::test_value[one]"
+        ])
+    ]))
+    validation = validate_route_readiness_registry(registry, tmp_path)
     assert _evidence_codes(validation) == set()
 
 
@@ -772,7 +770,7 @@ def test_verified_route_is_promotion_eligible_and_copy_safe() -> None:
     assert entry.copy_safety == "preferred_current_guidance"
 
 
-def test_watchdog_route_is_promotion_eligible_and_copy_safe() -> None:
+def test_watchdog_route_is_retired_without_executable_promotion() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
     entry = registry_entry_for_path(
         registry,
@@ -782,11 +780,11 @@ def test_watchdog_route_is_promotion_eligible_and_copy_safe() -> None:
     assert entry is not None
     assert entry.surface_kind == "library_workflow"
     assert entry.entry_workflow == "generic_run_watchdog/watchdog::watchdog"
-    assert entry.route_label == "wcc_default"
-    assert entry.readiness_label == "promotion_eligible"
-    assert entry.lowering_route == "wcc_m4"
-    assert entry.lowering_schema_version == 2
-    assert entry.copy_safety == "preferred_current_guidance"
+    assert entry.route_label == "historical_negative"
+    assert entry.readiness_label is None
+    assert entry.lowering_route is None
+    assert entry.lowering_schema_version is None
+    assert entry.copy_safety == "not_current_guidance"
 
 
 def test_design_delta_parent_drain_historical_promotion_matches_registry() -> None:
@@ -803,10 +801,11 @@ def test_design_delta_parent_drain_historical_promotion_matches_registry() -> No
     }
     assert report["route_identity"]["readiness_label"] == "promotion_eligible"
     assert report["route_identity"]["lowering_route"] == "wcc_m4"
-    assert entry.readiness_label == "promotion_eligible"
-    assert entry.route_label == "wcc_default"
-    # The route stays promoted; the family is deprecated as a model for new authoring.
-    assert entry.copy_safety == "legacy_compatibility_only"
+    assert entry.readiness_label is None
+    assert entry.route_label == "historical_negative"
+    assert entry.lowering_route is None
+    assert entry.lowering_schema_version is None
+    assert entry.copy_safety == "not_current_guidance"
 
 
 def test_cli_route_readiness_check_valid_registry() -> None:
@@ -891,7 +890,7 @@ def test_compile_registered_route_case_injects_route_and_checks_schema(tmp_path:
         source_path=REPO_ROOT / "workflows/examples/effectful_match_arm_normalization.orc",
         repo_root=REPO_ROOT,
         compile_func=fake_compile,
-        registry_path=REGISTRY_PATH,
+        registry_path=_write_registry(tmp_path, [_base_entry()]),
         workspace_root=tmp_path,
     )
 
@@ -919,7 +918,7 @@ def test_compile_registered_route_case_default_route_does_not_override(tmp_path:
         repo_root=REPO_ROOT,
         default_route_check=True,
         compile_func=fake_compile,
-        registry_path=REGISTRY_PATH,
+        registry_path=_write_registry(tmp_path, [_base_entry()]),
         workspace_root=tmp_path,
     )
 

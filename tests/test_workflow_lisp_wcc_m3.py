@@ -1,33 +1,13 @@
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.effects import (
-    LiveSupervisionEffect,
-    UsesProviderEffect,
-    effect_summary,
-)
-from orchestrator.workflow_lisp.expressions import (
-    LiveProviderBinding,
-    NameExpr,
-    ProviderResultExpr,
-    WithLiveProvidersExpr,
-)
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.syntax import SyntaxNode
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PrimitiveTypeRef
-from orchestrator.workflow_lisp.typecheck_context import TypedExpr
-from orchestrator.workflow_lisp.workflows import (
-    ExternalToolBinding,
-    TypedWorkflowDef,
-    WorkflowDef,
-    WorkflowSignature,
-)
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
@@ -46,12 +26,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccNameAtom,
     WccRecordAtom,
 )
-from orchestrator.workflow_lisp.wcc.route import (
-    LoweringRoute,
-    normalize_lowering_route,
-    validate_wcc_m3_route_supported,
-    validate_wcc_m4_route_supported,
-)
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute, normalize_lowering_route
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -61,23 +36,8 @@ MODULE_FIXTURES = FIXTURES / "modules" / "valid"
 CHARACTERIZATION_FIXTURES = FIXTURES / "characterization" / "sources"
 
 
-def _assert_wcc_route_unsupported(excinfo: pytest.ExceptionInfo[LispFrontendCompileError]) -> None:
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "wcc_lowering_route_unsupported"
-    assert diagnostic.phase == "lowering"
 
 
-def _load_imported_bundle_bindings(tmp_path: Path) -> dict[str, object]:
-    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
-    bindings = build_module.load_imported_workflow_bundle_manifest(
-        FIXTURES / "cli" / "imported_workflow_bundles.json",
-        workspace_root=tmp_path,
-        source_roots=(MODULE_FIXTURES / "imported_bundle_mix",),
-        provider_externs_path=FIXTURES / "cli" / "providers.json",
-        prompt_externs_path=FIXTURES / "cli" / "prompts.json",
-        command_boundaries_path=FIXTURES / "cli" / "commands.json",
-    )
-    return {binding.canonical_key: binding.bundle for binding in bindings}
 
 
 def _compile_fixture(path: Path, *, tmp_path: Path, lowering_route: str | None = None):
@@ -107,138 +67,8 @@ def test_normalize_lowering_route_accepts_wcc_m3(route_value: str | LoweringRout
     assert normalize_lowering_route(route_value) is LoweringRoute.WCC_M3
 
 
-def test_provider_supervision_group_is_admitted_only_by_wcc_m4_route() -> None:
-    start = SourcePosition(
-        path="tests/fixtures/workflow_lisp/provider_supervision/route_probe.orc",
-        line=8,
-        column=3,
-        offset=120,
-    )
-    end = SourcePosition(
-        path=start.path,
-        line=14,
-        column=10,
-        offset=420,
-    )
-    group_span = SourceSpan(start=start, end=end)
-    form_path = ("workflow-lisp", "defworkflow", "route-probe")
-
-    def name(value: str) -> NameExpr:
-        return NameExpr(name=value, span=group_span, form_path=form_path)
-
-    worker_expr = ProviderResultExpr(
-        provider=name("providers.worker"),
-        prompt=name("prompts.worker"),
-        inputs=(),
-        returns_type_name="String",
-        span=group_span,
-        form_path=form_path,
-    )
-    supervisor_expr = ProviderResultExpr(
-        provider=name("providers.supervisor"),
-        prompt=name("prompts.supervisor"),
-        inputs=(),
-        returns_type_name="ProviderSteeringDirective",
-        span=group_span,
-        form_path=form_path,
-    )
-    group = WithLiveProvidersExpr(
-        bindings=(
-            LiveProviderBinding(
-                name="worker",
-                value_expr=worker_expr,
-                observes=None,
-                name_span=group_span,
-                observes_span=None,
-                observed_name_span=None,
-                span=group_span,
-                form_path=form_path,
-            ),
-            LiveProviderBinding(
-                name="supervisor",
-                value_expr=supervisor_expr,
-                observes="worker",
-                name_span=group_span,
-                observes_span=group_span,
-                observed_name_span=group_span,
-                span=group_span,
-                form_path=form_path,
-            ),
-        ),
-        body=name("worker"),
-        span=group_span,
-        form_path=form_path,
-    )
-    effects = effect_summary(
-        direct_effects=(
-            UsesProviderEffect(("providers", "worker")),
-            UsesProviderEffect(("providers", "supervisor")),
-            LiveSupervisionEffect(supervisor="supervisor", worker="worker"),
-        )
-    )
-    result_type = PrimitiveTypeRef(name="String")
-    workflow = TypedWorkflowDef(
-        definition=WorkflowDef(
-            name="route-probe",
-            params=(),
-            body=SyntaxNode(
-                datum="route-probe",
-                span=group_span,
-                module_path=start.path,
-                form_path=form_path,
-            ),
-            span=group_span,
-            form_path=form_path,
-            return_type_name="String",
-        ),
-        signature=WorkflowSignature(
-            name="route-probe",
-            params=(),
-            return_type_ref=result_type,
-            span=group_span,
-            form_path=form_path,
-        ),
-        typed_body=TypedExpr(
-            expr=group,
-            type_ref=result_type,
-            span=group_span,
-            form_path=form_path,
-            effect_summary=effects,
-        ),
-        effect_summary=effects,
-    )
-
-    validate_wcc_m4_route_supported((workflow,), ())
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        validate_wcc_m3_route_supported((workflow,), ())
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "wcc_lowering_route_unsupported"
-    assert diagnostic.span == group_span
 
 
-@pytest.mark.parametrize(
-    "fixture_path",
-        (
-            VALID_FIXTURES / "neurips_implementation_attempt.orc",
-            CHARACTERIZATION_FIXTURES / "design_delta_union_match_projection.orc",
-            CHARACTERIZATION_FIXTURES / "wcc_m3_nested_non_tail_match.orc",
-            CHARACTERIZATION_FIXTURES / "wcc_m3_nested_join_inside_arm.orc",
-        ),
-    )
-def test_wcc_m2_still_rejects_m3_match_shapes(tmp_path: Path, fixture_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            fixture_path,
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m2",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
 
 
 @pytest.mark.parametrize(
@@ -262,138 +92,11 @@ def test_wcc_m3_route_compiles_supported_match_shapes(
         lowering_route="wcc_m3",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
-def test_wcc_m3_route_compiles_union_typed_match_result(tmp_path: Path) -> None:
-    module_path = tmp_path / "union_match_result_probe.orc"
-    module_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule union_match_result_probe)",
-                "  (export summarize)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ImplementationAttempt",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)))",
-                "  (defunion SummaryResult",
-                "    (DONE",
-                "      (execution_report WorkReport))",
-                "    (STALLED",
-                "      (progress_report WorkReport)))",
-                "  (defworkflow summarize",
-                "    ((report WorkReport))",
-                "    -> SummaryResult",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report)",
-                "               :returns ImplementationAttempt)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (variant SummaryResult DONE",
-                "           :execution_report completed.execution_report))",
-                "        ((BLOCKED blocked)",
-                "         (variant SummaryResult STALLED",
-                "           :progress_report blocked.progress_report))))))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        module_path,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m3",
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    assert set(lowered["outputs"]) == {
-        "return__variant",
-        "return__execution_report",
-        "return__progress_report",
-    }
-    cases = lowered["steps"][1]["match"]["cases"]
-    completed_values = cases["COMPLETED"]["steps"][-1]["materialize_artifacts"]["values"]
-    blocked_values = cases["BLOCKED"]["steps"][-1]["materialize_artifacts"]["values"]
-    assert completed_values[0]["source"] == {"literal": "DONE"}
-    assert blocked_values[0]["source"] == {"literal": "STALLED"}
 
 
-def test_wcc_m3_route_compiles_union_typed_match_result_from_provider_arm(tmp_path: Path) -> None:
-    module_path = tmp_path / "union_provider_arm_probe.orc"
-    module_path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule union_provider_arm_probe)",
-                "  (export summarize)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defunion ImplementationAttempt",
-                "    (COMPLETED",
-                "      (execution_report WorkReport))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)))",
-                "  (defunion SummaryResult",
-                "    (DONE",
-                "      (execution_report WorkReport))",
-                "    (STALLED",
-                "      (progress_report WorkReport)))",
-                "  (defworkflow summarize",
-                "    ((report WorkReport))",
-                "    -> SummaryResult",
-                "    (let* ((attempt",
-                "             (provider-result providers.execute",
-                "               :prompt prompts.implementation.execute",
-                "               :inputs (report)",
-                "               :returns ImplementationAttempt)))",
-                "      (match attempt",
-                "        ((COMPLETED completed)",
-                "         (provider-result providers.execute",
-                "           :prompt prompts.implementation.execute",
-                "           :inputs (completed.execution_report)",
-                "           :returns SummaryResult))",
-                "        ((BLOCKED blocked)",
-                "         (variant SummaryResult STALLED",
-                "           :progress_report blocked.progress_report))))))",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        module_path,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m3",
-    )
-
-    lowered = result.lowered_workflows[0].authored_mapping
-    cases = lowered["steps"][1]["match"]["cases"]
-    completed_outputs = cases["COMPLETED"]["outputs"]
-    blocked_values = cases["BLOCKED"]["steps"][-1]["materialize_artifacts"]["values"]
-    assert completed_outputs["return__variant"]["from"]["ref"].endswith(".artifacts.variant")
-    assert blocked_values[0]["source"] == {"literal": "STALLED"}
 
 
 def test_wcc_m3_route_compiles_match_over_provider_result_subject(tmp_path: Path) -> None:
@@ -445,7 +148,7 @@ def test_wcc_m3_route_compiles_match_over_provider_result_subject(tmp_path: Path
         lowering_route="wcc_m3",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
 def test_wcc_m3_route_compiles_provider_input_match(tmp_path: Path) -> None:
@@ -515,7 +218,7 @@ def test_wcc_m3_route_compiles_provider_input_match(tmp_path: Path) -> None:
         lowering_route="wcc_m3",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
 def test_wcc_m3_route_rejects_actual_branch_local_ref_leakage(tmp_path: Path) -> None:
@@ -584,7 +287,7 @@ def test_wcc_m3_route_compiles_record_field_match(tmp_path: Path) -> None:
         lowering_route="wcc_m3",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
 def test_wcc_m3_route_compiles_let_bound_record_field_match(tmp_path: Path) -> None:
@@ -639,7 +342,7 @@ def test_wcc_m3_route_compiles_let_bound_record_field_match(tmp_path: Path) -> N
         lowering_route="wcc_m3",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
 def test_wcc_m3_route_compiles_union_field_match(tmp_path: Path) -> None:
@@ -695,64 +398,13 @@ def test_wcc_m3_route_compiles_union_field_match(tmp_path: Path) -> None:
         lowering_route="wcc_m3",
     )
 
-    assert result.lowered_workflows
+    assert result.typed_workflows
 
 
-def test_wcc_m3_preview_route_rejects_same_file_module_graph_entrypoint_boundary(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "callables" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "callables",),
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m3",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
 
 
-def test_wcc_m3_preview_route_rejects_imported_bundle_mix_entrypoint_boundary(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            MODULE_FIXTURES / "imported_bundle_mix" / "neurips" / "entry.orc",
-            source_roots=(MODULE_FIXTURES / "imported_bundle_mix",),
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            imported_workflow_bundles=_load_imported_bundle_bindings(tmp_path),
-            command_boundaries={
-                "run_checks": ExternalToolBinding(
-                    name="run_checks",
-                    stable_command=("python", "scripts/run_checks.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m3",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
 
 
-def test_wcc_m3_preview_route_rejects_loop_fixture(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            VALID_FIXTURES / "loop_recur_minimal.orc",
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m3",
-        )
-
-    _assert_wcc_route_unsupported(excinfo)
 
 
 def test_wcc_m3_model_instantiates_case_join_and_jump_nodes() -> None:

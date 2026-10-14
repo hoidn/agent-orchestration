@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use `superpowers:subagent-driven-development`. Steps use checkboxes; the coordinator integrates and verifies, with independent review by someone other than the author.
 
-**Status:** the owner requested execution of the plan on 2026-10-12; current execution covers Tasks 0–4 in an isolated worktree. Tasks 0–4/Gates A–D are complete and accepted for bounded extraction at integrated revision `bfd0f324`; the full campaign remains RED (275 failed), with reviewed failure dispositions. Tasks 5–7 remain conditional under evaluated-execution Phases 6b/7.
+**Status:** the owner requested execution of the plan on 2026-10-12; current execution covers Tasks 0–4 in an isolated worktree. Tasks 0–4/Gates A–D are complete and accepted for bounded extraction at integrated revision `bfd0f324`; the full campaign remains RED (275 failed), with reviewed failure dispositions. The selected retirement amendment independently qualifies the finite serial consumers and cutoff: Tasks 0–5/R accepted, physical implementation reviewed PASS. Retained-test migration and R3/R4/native reviews are accepted; the retirement closeout records second full RED with 15 classified failures and zero errors. Final closeout review is PASS and the selected retirement is complete in the commit containing that closeout; this does not close global Phase 5/6b.
 **Goal:** share the existing checked-program contract, migrate maintained consumers, and delete execution infrastructure whose supported uses have ended.
 **Architecture:** extract the existing loader/checker; separate compiler IO preparation from runtime carriers. Keep the evaluated interpreter, performers, coordinator protocol and public CLI.
 **Tech stack:** existing Python packages, Workflow Lisp, pytest and subprocess CLI fixtures; no new dependency.
@@ -16,12 +16,11 @@ Read [the design](../design/workflow_lisp_consolidation.md),
 [State](../../specs/state.md), [CLI](../../specs/cli.md), [IO](../../specs/io.md)
 and [versioning](../../specs/versioning.md) before implementation.
 
-The parent owns order: pure-capture correction → W3 → Phase 5 → Phase 6b →
-Phase 7, following its earlier delivered phases/pilot. The owner authorized plan
-execution; the current scope is bounded contract/IO extraction and qualification
-(Tasks 0–4), preserving currently supported behavior and APIs.
-Consumer migration (Task 5), cutover (Task 6) and
-deletion (Task 7) keep the parent's capability/order/decision 8 gates.
+The parent's original order was pure-capture correction → W3 → Phase 5 →
+Phase 6b → Phase 7. Bounded contract/IO extraction and qualification (Tasks 0–4)
+preserved the supported behavior at that cut. The selected amendment below
+now governs serial consumer migration, cutoff and deletion in Tasks 5–7;
+their gate R does not require full Phase 5.
 The owner separately selected Phase 5 D1 target **2.37** on 2026-10-12;
 2.36 belongs to W3. Parallel-map implementation/admission/qualification remain
 gated by the [Phase 5 plan](2026-10-07-evaluated-execution-phase-5-plan.md).
@@ -39,22 +38,24 @@ owns execution receipts and open gates. Selection alone proves no gate.
 
 The owner requested a [focused completion design](../design/workflow_lisp_executor_retirement.md)
 and [implementation plan](2026-10-13-best-of-n-and-executor-retirement-plan.md)
-after local integration at `44ddb891`. The draft separates serial best-of-N
+after local integration at `44ddb891`. The selected plan separates serial best-of-N
 migration, already supported at 2.35, from optional Phase 5 parallel execution.
-It proposes concrete consumer/run dispositions and deletion of exclusive flat
+It selects finite consumer/run dispositions and deletion of exclusive flat
 infrastructure. Watchdog migration is not a requested prerequisite.
 
 The owner selected this amendment with “proceed” on 2026-10-13. It supersedes
 the canonical serial best-of-N scheduling dependency in Tasks 5–7; optional
 parallel migration still follows Phase 5. Effective cutoff and deletion remain
 conditional on the completion plan's gate R, including finite consumer/run
-dispositions. The [retirement closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
-owns execution evidence; selection alone proves no gate.
+dispositions. R is accepted; the [retirement closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+owns final deleted-tree verification and delivery evidence.
 
 ## Inventory And Evidence Record
 
-Task 0 selects the extraction inventory below; preserve all currently supported
-contracts and APIs, with no behavioral retirement. Private imports migrate
+The inventory below records the extraction cut before retirement; its old
+targets and tests are historical qualification, not current launch guidance.
+The retirement closeout owns current canonical targets and dispositions.
+Task 0 preserved the then-supported contracts and APIs. Private imports migrate
 mechanically to their extracted owner; package-root exports remain unchanged.
 The bounded qualification set preserves the W3 proposal at
 2.36, README `plan_review_execute` at 2.35, canonical reviewed change and best
@@ -75,7 +76,7 @@ extraction while all existing consumers and old routes remain supported.
 | W3 proposal (2.36) | `workflows/examples/improve_experiment_proposal.orc` and `workflows/examples/inputs/improve_experiment_proposal/` | Bounded qualification; retain W3 source graph and lifecycle contracts |
 | README recipe (2.35) | `workflows/examples/plan_review_execute.orc` and `workflows/examples/inputs/plan_review_execute/` | Bounded public preparation/lifecycle qualification; preserve existing bindings |
 | Reviewed change | `experiments/orc_vs_single_call/workflows/reviewed_change.orc`; `tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc` | Distinguish maintained consumer from qualification fixture; preserve prompt/result and phase contracts |
-| Best of N | `experiments/orc_vs_single_call/workflows/best_of_n.orc` and sibling provider manifest | Canonical migration waits for its selected Phase 5 capability and public qualification |
+| Best of N | `experiments/orc_vs_single_call/workflows/best_of_n.orc` and sibling provider manifest | Serial canonical 2.35 migration is selected and qualified by the retirement plan; optional parallel migration waits for Phase 5 |
 | Promoted primaries (2.15) | `workflows/library/generic_run_watchdog/watchdog.orc`; `workflows/library/verified_iteration_drain/drain.orc`; their migration inputs | Bounded preservation qualification; retain current primary routes and phase/artifact contracts |
 | Direct task (2.23) | `workflows/library/control/direct_task.orc` | Preserve its bounded one-call typed control contract; no broadened copy-safety claim |
 | Other workflows/stdlib | `workflows/`, `experiments/`, `orchestrator/workflow_lisp/stdlib_modules/` | Preserve supported reusable modules and teaching examples; enumerate remaining callers and explicit historical dispositions. Design Delta deprecation does not retire its reusable procedures |
@@ -282,7 +283,7 @@ no changed representation or recovery promise concealed as a module move.
 
 ## Task 5 — Migrate Selected Maintained Consumers
 
-**Depends on:** D and each consumer's parent-owned Phase 4/5 prerequisites.
+**Depends on:** D and each consumer's required capability evidence. The selected serial 2.35 migration follows the completion amendment, independently of full Phase 5.
 **Files:** exact selected inventory rows and their existing tests, manifests,
 prompts, launchers, stdlib callers and documentation; expand rows before editing.
 
@@ -297,14 +298,16 @@ or has explicit retirement. A bounded pilot does not close the entire maintained
 
 ## Task 6 — Decide Old-Run Support And New-Run Cutover
 
-**Depends on:** E and parent decision 8. **Files:** inventory, closeout report,
+**Depends on:** E and the selected parent decision 8/retirement gate R. The
+finite dispositions and cutoff are selected; this task qualifies them rather
+than reopening the decision. **Files:** inventory, closeout report,
 `specs/{cli,state,versioning}.md` and affected CLI admission code/tests selected by inventory.
 
 - [ ] Record each old executable family's target/profile, retained release/environment, source/assets/closures/coordinator prerequisites, tested interrupted recovery, support owner and explicit retention/cutoff. No automatic 30-day expiry.
 - [ ] Give unrecoverable families an explicit owner disposition. Do not call newly generated current-package runs proof that an existing family recovers.
 - [ ] Decide archive/read-only access separately, test historical report fixtures, and preserve original run directories and forensic data. Executor retirement authorizes no data deletion.
-- [ ] Select supported new-run targets and a cutover only after those decisions. Test explicit retirement diagnostics/recovery guidance for rejected targets, with no silent conversion or legacy fallback.
-- [ ] Record rollback to the retained release plus original roots and required inputs; after retirement, promise it only where that environment and evidence remain available.
+- [ ] Apply the selected cutoff: retire executable entries through 2.34 and old-profile resume/invalidation; preserve admitted evaluated 2.35/2.36 and bounded 2.37, typed old-header imports/LSP, historical readers and native prompt resume. Test non-mutating diagnostics; no conversion or legacy fallback.
+- [ ] Record rollback availability separately from exact qualified interrupted recovery. Preserve original roots/data and required inputs; promise recovery only for a family with the full retained release/closure and matching evidence.
 
 **Gate F:** explicit owner decisions and tested recovery/read-only boundaries.
 Open disposition blocks deletion even if all new consumers pass.

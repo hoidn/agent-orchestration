@@ -626,10 +626,9 @@ def _assert_task8_baseline_replay_contract(
     for name, path in authority_paths.items():
         authority = authorities[name]
         assert authority["path"] == path
-        current = (REPO_ROOT / path).read_bytes()
-        assert authority["current_sha256"] == _sha256_bytes(current)
+        # Historical receipt hashes its recorded revision, not today's retired helper.
         committed = _git_bytes("show", f"{authority['current_file_commit']}:{path}")
-        assert current == committed
+        assert authority["current_sha256"] == _sha256_bytes(committed)
     normalizer = authorities["normalizer"]
     assert authorities["baseline"]["current_file_commit"] == "50f78791320c540181946fb3a29dce355b19fed3"
     assert authorities["correction"]["current_file_commit"] == "b7212487764bda8ff93dc995c4ca8e1a6eec54ee"
@@ -1069,7 +1068,9 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
     assert "all five content addressed queues are drained" in normalized_yaml_row
     assert "fresh run is orc only" in normalized_yaml_row
     assert "tests/test_yaml_frontend_retirement.py" in yaml_row
-    assert ".orc required" in yaml_row
+    assert "workflow_execution_profile_retired" in yaml_row
+    assert "including `--force-restart`" in yaml_row
+    assert "before source checks or mutation" in yaml_row
     assert "yaml workflow loader is removed" in normalized_yaml_row
     assert "omp configuration" in normalized_yaml_row
     omp_row = _markdown_table_row(
@@ -1754,7 +1755,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_q4_capability_row = _normalized_routing_text(
         q4_capability_row
     )
-    assert "| Implemented |" in q4_capability_row
+    assert "| Retired |" in q4_capability_row
     assert "| Designed |" not in q4_capability_row
     assert "| Planned |" not in q4_capability_row
     assert "original design and q5 era design amendment accepted" in (
@@ -1764,9 +1765,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "3c21ceb4" in normalized_q4_capability_row
     assert "reviewed amended plan 0f21636b" in normalized_q4_capability_row
     assert "implementation not started" not in normalized_q4_capability_row
-    assert "target 2.23 explicit composed panel sibling" in normalized_q4_capability_row
-    assert "current target 2.23 phased" in normalized_q4_capability_row
-    assert "frozen target 2.21 control" in normalized_q4_capability_row
+    assert "target 2.23" in normalized_q4_capability_row
+    assert "frozen target 2.21" in normalized_q4_capability_row
     assert "never an import owner" in normalized_q4_capability_row
     normalized_q4_design = _normalized_routing_text(q4_design)
     normalized_q4_plan = _normalized_routing_text(q4_plan)
@@ -1786,32 +1786,13 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     ]
     assert len(panel_route_rows) == 1
     [panel_route_row] = panel_route_rows
-    assert set(panel_route_row) == {
-        "copy_safety",
-        "evidence",
-        "lowering_route",
-        "lowering_schema_version",
-        "path",
-        "readiness_label",
-        "route_label",
-        "surface_id",
-        "surface_kind",
-    }
-    assert panel_route_row["surface_id"] == (
-        "workflows.examples.review_revise_design_docs_judgment_panel"
-    )
     assert panel_route_row["surface_kind"] == "workflow_example"
-    assert panel_route_row["copy_safety"] == "preferred_current_guidance"
-    assert panel_route_row["lowering_route"] == "wcc_m4"
-    assert panel_route_row["lowering_schema_version"] == 2
-    assert panel_route_row["readiness_label"] == "leaf_runtime_candidate"
-    assert panel_route_row["route_label"] == "wcc_default"
-    assert panel_route_row["evidence"] == [
-        "tests/test_workflow_lisp_examples.py::"
-        "test_review_revise_design_docs_judgment_panel_compiles_from_current_owner",
-        "tests/test_workflow_lisp_judgment_views_e2e.py::"
-        "test_panel_executes_ordered_reviews_then_one_ineligible_synthesis",
-    ]
+    assert panel_route_row["copy_safety"] == "not_current_guidance"
+    assert panel_route_row["route_label"] == "historical_negative"
+    assert "readiness_label" not in panel_route_row
+    assert "lowering_route" not in panel_route_row
+    assert "lowering_schema_version" not in panel_route_row
+    assert all((REPO_ROOT / path).is_file() for path in panel_route_row["evidence"])
     assert "reviewed amended plan 0f21636b" in normalized_q4_plan
     assert "plan status: complete" in normalized_q4_plan
     assert "implemented closure candidate" not in normalized_q4_plan
@@ -2147,7 +2128,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "completed post stage 8 roadmap" in normalized_successor_index
     assert "q0 q5 and l0 l5 are complete" in normalized_successor_index
     assert (
-        "q4's concrete review_revise_design_docs panel consumer is bound"
+        "f3335637b90feb0a87ac4c538bafac7704ac0d87"
         in normalized_successor_index
     )
     assert "its original design is accepted at d7fe4549" in normalized_successor_index
@@ -2435,7 +2416,7 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         )
     )
     assert "q0 q5 and l0 l5 are complete" in active_roadmap_index
-    assert "q4's concrete review_revise_design_docs panel consumer is bound" in (
+    assert "f3335637b90feb0a87ac4c538bafac7704ac0d87" in (
         active_roadmap_index
     )
     assert "its original design is accepted at d7fe4549" in active_roadmap_index
@@ -2605,17 +2586,13 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     ).read_text(encoding="utf-8")
 
     normalized_master = _normalized_routing_text(master)
-    from orchestrator.workflow.validation import DEFAULT_SUPPORTED_VERSIONS
+    from orchestrator.workflow_lisp.syntax import SUPPORTED_TARGET_DSL_VERSIONS
 
-    summary_bounds = re.search(
-        r"\(v([0-9.]+) through v([0-9.]+)\)", master.splitlines()[0]
-    )
-    assert summary_bounds is not None
-    supported_versions = sorted(
-        DEFAULT_SUPPORTED_VERSIONS,
-        key=lambda version: tuple(map(int, version.split("."))),
-    )
-    assert summary_bounds.groups() == (supported_versions[0], supported_versions[-1])
+    # Registered historical syntax remains distinct from executable support.
+    assert "2.22" in SUPPORTED_TARGET_DSL_VERSIONS
+    assert "2.34" in SUPPORTED_TARGET_DSL_VERSIONS
+    assert "2.35" in SUPPORTED_TARGET_DSL_VERSIONS
+    assert "workflow_execution_target_retired" in (REPO_ROOT / "specs/cli.md").read_text(encoding="utf-8")
     assert "v2.22 adds direct fragment prompt attempt identity" in (
         normalized_master
     )
@@ -3693,7 +3670,7 @@ def test_resume_projection_hardening_is_closed_without_claiming_migration() -> N
 
     assert re.search(r"(?m)^- \[ \] \*\*Step", implementation_plan) is None
     assert "complete" in _normalized_routing_text(implementation_plan[:1600])
-    assert "| Implemented |" in hardening_row
+    assert "| Retired |" in hardening_row
     normalized_row = _normalized_routing_text(hardening_row)
     assert "migration waves remain blocked" not in normalized_row
     assert "migration waves are implemented" not in normalized_row
@@ -3879,7 +3856,14 @@ def test_deprecated_design_delta_drain_remains_routed_after_yaml_archive() -> No
     )[0]
     assert orc_path in preferred
     assert yaml_path not in preferred
-    assert "Deprecated" in _markdown_table_row(workflow_catalog_path, orc_path)
+    from orchestrator.workflow_lisp.route_readiness import (
+        load_route_readiness_registry, registry_entry_for_path,
+    )
+    registry = load_route_readiness_registry(REPO_ROOT / "docs/workflow_lisp_route_readiness_registry.json")
+    entry = registry_entry_for_path(registry, orc_path)
+    assert entry.route_label == "historical_negative"
+    assert entry.readiness_label is None
+    assert entry.copy_safety == "not_current_guidance"
     assert yaml_path not in workflow_catalog
 
     migration_record = (
@@ -4897,7 +4881,7 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
         design_router_path,
         "workflow_lisp_phased_contract_delivery.md",
     )
-    assert "| Implemented and complete at `70f4a759` |" in design_router_row
+    assert "Historical executable contract" in design_router_row
     normalized_design_router_row = _normalized_routing_text(design_router_row)
     assert "872a29af" in normalized_design_router_row
     assert "45468c55" in normalized_design_router_row
@@ -4911,7 +4895,7 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
         "Workflow Lisp phased contract delivery Q5",
     )
     normalized_capability_row = _normalized_routing_text(capability_row)
-    assert "| Implemented |" in capability_row
+    assert "| Retired |" in capability_row
     assert "accepted design 872a29af" in normalized_capability_row
     assert "reviewed plan 45468c55" in normalized_capability_row
     assert "complete at 70f4a759, tree fec729cb" in normalized_capability_row
@@ -5376,13 +5360,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "exact value free completion shell" in normalized_state_spec
     assert "validated_frame_entry_replay" in normalized_state_spec
     assert "unknown profile fails closed" in normalized_state_spec
-    assert "typed public .orc run" in normalized_state_spec
-    assert ".orc force restart" in normalized_state_spec
-    assert "fresh non iterative typed workflow lisp child" in normalized_state_spec
-    assert "generic initialization remains explicit opt in" in normalized_state_spec
-    assert "fresh retry" in normalized_state_spec
-    assert "failed predecessor" in normalized_state_spec
-    assert "recurrent" in normalized_state_spec
+    assert "workflow_execution_profile_retired" in state_spec
 
     normalized_checkpoint_design = _normalized_routing_text(checkpoint_design)
     assert "derived_pure_replay.v1 eligible pure projection" in (
@@ -5402,22 +5380,14 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "iteration owned" in normalized_state_layout
 
     normalized_design_index = _normalized_routing_text(design_index)
-    assert "accepted; m2 feasibility complete; m3a activation historical complete" in (
-        normalized_design_index
-    )
-    assert "typed public" in normalized_design_index
-    assert "fresh non iterative" in normalized_design_index
+    replay_row = _markdown_table_row(REPO_ROOT / "docs/design/README.md", "workflow_lisp_pure_result_replay.md")
+    assert "Historical executable contract" in replay_row
 
     normalized_capability_matrix = _normalized_routing_text(capability_matrix)
     assert "workflow lisp derived pure result replay profile" in (
         normalized_capability_matrix
     )
-    assert "| Workflow Lisp derived pure-result replay profile | Implemented |" in (
-        capability_matrix
-    )
-    assert "typed public new root" in (
-        normalized_capability_matrix
-    )
+    assert "| Workflow Lisp derived pure-result replay profile | Retired |" in capability_matrix
     assert "fresh non iterative typed workflow lisp child" in (
         normalized_capability_matrix
     )
@@ -5875,8 +5845,8 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     assert "next unused attempt ordinal" in normalized_providers
 
     normalized_cli = _normalized_routing_text(cli_spec)
-    assert "provider_attempt_interrupted_rerun" in cli_spec
-    assert "force restart is not required" in normalized_cli
+    assert "workflow_execution_profile_retired" in cli_spec
+    assert "workflow_execution_target_retired" in cli_spec
 
     normalized_observability = _normalized_routing_text(observability_spec)
     assert "provider_attempt_interrupted_rerun" in observability_spec

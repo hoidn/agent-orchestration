@@ -61,6 +61,11 @@ unchanged.
 
 ## Current Research Sequence
 
+The later [execution-scope amendment](#current-es-boundary) retires the old
+ES/research/trial executors from the package. Sequence/proposal and scientific
+dispositions below remain distinct from current executable availability; any
+future selected study must use an admitted route rather than the removed SDK.
+
 | Unit | Question and bounded work | Entry and exit |
 | --- | --- | --- |
 | R0 — ES disposition | Owner selected **prelaunch park** on 2026-09-08; preserve the completed prompt correction and frozen scientific evidence. | Complete as a disposition, not scientific completion. [Recorded hand-back](#current-es-boundary); resumption needs explicit owner selection and the existing adoption gate. |
@@ -687,6 +692,15 @@ not a second schedule. Phase 2 order, CF-1c hold and research allocations
 stay unchanged; no executable selector/manifest or active-run state changes.
 
 ## Current ES Boundary
+
+**Execution-scope amendment, 2026-10-13:** the selected
+[executor retirement](../design/workflow_lisp_executor_retirement.md) removes
+ES/research/trial execution and the trial SDK from the current package. The
+prelaunch park below remains the historical scientific disposition; its frozen
+protocol, allowances, results and proposals are preserved, not reopened or
+cancelled by this amendment. E0's evaluated direct-task entry and admitted
+path-mode run references retain their current owners. No live selector/queue
+or active run is advanced by this documentation change.
 
 The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
 retains its completed Tasks 0–5 and fixed-screen protocol. The

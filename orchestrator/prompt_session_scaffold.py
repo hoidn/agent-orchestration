@@ -9,7 +9,7 @@ from typing import Mapping
 from orchestrator._common.safe_tree import SafeTreeError, read_regular_file
 from orchestrator.prompt_contract import canonical_json_bytes, parse_semantic_contract, semantic_contract_sha256
 from orchestrator.prompt_scaffold import (
-    ScaffoldInputs, ScaffoldVerification, ScaffoldVerificationError,
+    ScaffoldInputs, ScaffoldVerification, ScaffoldVerificationError, ScaffoldIdentityError,
     _scaffold_files, identity_for,
 )
 from orchestrator.prompt_scaffold_verify import verify_occupant
@@ -152,6 +152,7 @@ def verify_private_scaffold(scaffold_fd: int, link) -> ScaffoldVerification:
         OSError,
         SafeTreeError,
         ScaffoldVerificationError,
+        ScaffoldIdentityError,
         TypeError,
         ValueError,
     ) as exc:
@@ -229,6 +230,7 @@ def verify_captured_occupant(scaffold_fd: int, verification: ScaffoldVerificatio
         OSError,
         SafeTreeError,
         ScaffoldVerificationError,
+        ScaffoldIdentityError,
         TypeError,
         ValueError,
     ) as exc:

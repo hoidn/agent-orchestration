@@ -391,8 +391,9 @@ def test_compile_missing_source_keeps_the_frontend_missing_diagnostic(tmp_path: 
     assert diagnostic["path"] == str(files["source"])
 
 
-def test_malformed_target_peek_keeps_duplicate_export_diagnostic_precedence(
-    tmp_path: Path,
+@pytest.mark.parametrize("retired_export", (False, True))
+def test_malformed_source_and_retired_exports_refuse_without_publication(
+    tmp_path: Path, retired_export: bool,
 ) -> None:
     files = _write_workspace(tmp_path)
     files["source"].write_bytes(
@@ -405,11 +406,16 @@ def test_malformed_target_peek_keeps_duplicate_export_diagnostic_precedence(
             "--emit-core-ast", "duplicate.json",
             "--emit-core-ast", "duplicate.json",
             "--diagnostics-json",
-        ),
+        ) if retired_export else ("--diagnostics-json",),
     )
     assert completed.returncode == 2
     diagnostic = json.loads(completed.stdout)["diagnostics"][0]
-    assert diagnostic["code"] == "artifact_export_requested_multiple_times"
+    assert diagnostic["code"] == (
+        "workflow_lisp_cli_input_unsupported" if retired_export
+        else "workflow_lisp_cli_io_error"
+    )
+    assert not (tmp_path / "duplicate.json").exists()
+    assert not (tmp_path / ".orchestrate" / "build").exists()
 
 
 def test_compile_requires_closures_and_refuses_retired_entries(
@@ -1278,7 +1284,7 @@ def test_imported_producer_peek_and_compile_share_a_separate_trace(
 
 @pytest.mark.parametrize(
     "producer_target",
-    ["2.34", syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, "2.36"],
+    [syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, "2.36"],
 )
 def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
@@ -1286,25 +1292,17 @@ def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
     from argparse import Namespace
 
     from orchestrator.cli.commands import compile as compile_module
+    from orchestrator.workflow_lisp.closed import target as target_module
 
     files = _write_workspace(tmp_path, target=producer_target)
     monkeypatch.chdir(files["workspace"])
-    original_build = (
-        compile_module.build_closed_program_bundle
-        if syntax.target_dsl_uses_evaluated_execution(producer_target)
-        else compile_module.build_frontend_bundle
-    )
+    original_check = target_module.refuse_retired_entry_target
 
-    def mutate_after_peek(request, *, source_read_trace=None):
+    def mutate_after_peek(path, *, source_read_trace=None):
+        original_check(path, source_read_trace=source_read_trace)
         files["source"].write_bytes(files["source"].read_bytes() + b"\n; concurrent edit\n")
-        return original_build(request, source_read_trace=source_read_trace)
 
-    target_builder_name = (
-        "build_closed_program_bundle"
-        if syntax.target_dsl_uses_evaluated_execution(producer_target)
-        else "build_frontend_bundle"
-    )
-    monkeypatch.setattr(compile_module, target_builder_name, mutate_after_peek)
+    monkeypatch.setattr(target_module, "refuse_retired_entry_target", mutate_after_peek)
     args = Namespace(
         workflow=str(files["source"]),
         source_root=[str(files["source_root"])],
