@@ -41,7 +41,7 @@ root `W`, where agents work, and `run` refuses one inside it. The live layout pu
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` |
 | `P/records/judges/<judge>/` | the judge's shim call records (`calls/<n>/`) and `scan.json` |
-| `P/records/` | `mapping.json`, `patches/`, `score-inputs-<judge>.json`, `score-<judge>.sh`, `results.json`, `results.md` |
+| `P/records/` | `mapping.json`, `patches/`, `score-inputs-<judge>.json`, `score-<judge>.sh`, `resume-<judge>.sh`, `results.json`, `results.md` |
 
 `P/clones` is mode 0311 (traversable, not listable: judges get absolute paths); `chmod u+r` it
 before deleting the pool. `W/agents`, `P` and `P/judges` must stay listable. The runtime opens every
@@ -84,9 +84,9 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
    `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). It passes
-   `--state-dir R/state`. The shims strip `PYTHONPATH`, the `COMPARE_*` variables and their own
-   directory from `PATH` before an agent starts, because these name the frozen runtime and the
-   records.
+   `--state-dir R/state`. Before an agent starts, the shims strip `PYTHONPATH`, `OLDPWD`, the
+   `COMPARE_*` variables and their own directory from `PATH`, because these name the frozen runtime,
+   the launch directory and the records.
 
 2. **Run** in tmux. A run that stops on provider infrastructure is resumed with the same state
    directory, never relaunched.

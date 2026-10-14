@@ -189,10 +189,12 @@ def scan_judge(out, judge, solution, home=None):
     mapping = load(out / "records" / "mapping.json")
     workdir, calls_root = out / "judges" / mapping["judges"][judge]["dir"], out / "records" / "judges" / judge
     run_roots = sorted({str(Path(run).parents[1]) for run in mapping["runs"]})
+    agent_roots = sorted({str(Path(run).parents[2] / "agents") for run in mapping["runs"]})
     compiled = contamination.patterns(
         main=mapping["main"], runtime=mapping["runtime"], solution=solution, home=home,
         others=contamination.siblings(workdir),
-        roots=[("this pool's records", out / "records", ""), *(("run records", root, "") for root in run_roots)])
+        roots=[("this pool's records", out / "records", ""), *(("run records", root, "") for root in run_roots),
+               *(("agents' trees", root, "") for root in agent_roots)])
     hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled)
     dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
                                     "calls": len(list((calls_root / "calls").glob("*")))})

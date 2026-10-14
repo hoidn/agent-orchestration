@@ -15,7 +15,8 @@ the main checkout's path prefix. `collect` adds the
 outcome, call count, wall clock and patches to record.json; `scan` adds the hits and the controller's
 verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
 P/judges/<16 hex>/ (one working and state directory per judge) and P/records/ (mapping.json,
-patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, later results.json and results.md).
+patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, resume-<judge>.sh, judges/<judge>/
+with the judge's calls and scan.json, later results.json and results.md).
 Design: docs/design/orc_effectiveness_comparison_harness.md. Standard library only; needs git on PATH.
 """
 

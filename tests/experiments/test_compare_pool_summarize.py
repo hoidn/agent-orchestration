@@ -152,6 +152,13 @@ def test_judge_scan_finds_the_pool_records_and_other_judges(pooled, world):
     assert sorted(h["pattern"] for h in hits) == ["other tree or judge", "pool record files", "this pool's records"]
 
 
+
+def test_judge_scan_finds_the_agents_trees(pooled, world):
+    agents = Path(next(iter(pooled.mapping["runs"]))).parents[2] / "agents"
+    judge_session(pooled, world, "judge-a", f"ls {agents}")
+    hits = pooling.scan_judge(pooled.out, "judge-a", "f" * 40, home=world.tmp / "home")
+    assert [h["pattern"] for h in hits] == ["agents' trees"]
+
 def test_summarize_refuses_judge_hits_without_a_verdict_and_leaves_out_a_contaminated_judge(pooled, world):
     judge_session(pooled, world, "judge-a", f"cat {pooled.out}/records/mapping.json")
     for judge in ("judge-a", "judge-b"):

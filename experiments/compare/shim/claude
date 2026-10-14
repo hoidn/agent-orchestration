@@ -2,8 +2,9 @@
 # Transparent stand-in for the agent CLI it is named after (shim/codex links here). Runs the real
 # binary (the next one on PATH after this directory) with the same arguments and stdin, tees stdout
 # and stderr live, and records the call under $COMPARE_ROOT/calls/<n>/ with every candidate's patch
-# ($COMPARE_TREE/cand-*) against $COMPARE_BASE. The agent's environment loses PYTHONPATH, the
-# COMPARE_* variables and this directory on PATH: they name the frozen runtime and the records.
+# ($COMPARE_TREE/cand-*) against $COMPARE_BASE. The agent's environment loses PYTHONPATH, OLDPWD
+# (the launch directory), the COMPARE_* variables and this directory on PATH: they name the frozen
+# runtime, the main checkout and the records.
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
 here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0"); real=; path=
 IFS=: read -ra dirs <<< "$PATH"
@@ -21,7 +22,7 @@ done
 call="$COMPARE_ROOT/calls/$n"
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$real" "$@" \
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$real" "$@" \
   < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"

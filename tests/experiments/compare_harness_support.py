@@ -107,7 +107,8 @@ def start(world, arm, candidates=None, sets=(), task=None, root=None):
 
 def call(world, record, script, binary="claude"):
     env = {**os.environ, "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}", "COMPARE_ROOT": record["records"],
-           "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"], "PYTHONPATH": str(world.runtime)}
+           "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"], "PYTHONPATH": str(world.runtime),
+           "OLDPWD": str(world.runtime)}
     return subprocess.run([str(SHIM / binary), "-p"], input=script, text=True, capture_output=True,
                           cwd=record["cwd"], env=env)
 
