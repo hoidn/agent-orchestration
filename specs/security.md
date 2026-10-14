@@ -139,8 +139,9 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     death fails the pending attempt with `run_ref_environment_lost`.
     Admission records `kernel.yama.ptrace_scope >= 1`.
   - Authority outside the clone: the child's control root (run header,
-    checked child artifact, memo, attempt ledger rows, attempt evidence, checkpoint
-    header, holder release gate) is outside the clone and every mount and
+    checked child artifact, memo, attempt evidence, checkpoint header, holder
+    release gate) lives beneath the parent run root, next to
+    `run-ref-attempts.jsonl`, outside the clone and every mount and
     descriptor granted to the guest. The guest sees only the workspace
     execution copy, bounded scratch, the result ingress and, for
     `:model-only`, the relay socket. Host `/`, home, parent and peer
@@ -162,8 +163,10 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     owner on the host clone after quiescence. Clone files named by
     stable-command tokens, document fills and prompt dependencies are bound
     by content at `started` through that no-follow reader: a symlinked token
-    binds its target string and never a host target, and refuses only when
-    the symlink is the executable token.
+    binds its target string and never a host target. Executables, closures
+    and interpreters must be image pinned; one that resolves into the clone
+    refuses at dispatch before `started` with
+    `run_ref_environment_effect_unsupported`.
   - Network: `:none` grants none. `:model-only` keeps the network namespace
     unshared and binds one unix socket to a host-owned inference gateway that
     admits only the selected provider/model API operations with byte limits,

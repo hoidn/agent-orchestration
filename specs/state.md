@@ -988,7 +988,7 @@ configuration bytes and recovery, and the oracle that every pre-parent crash
 of a path child discards the exact workspace and reruns fresh are unchanged.
 Authority:
 [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#lifecycle-cancellation-and-recovery)
-(D3, D5, D-f, R1, R2, N1, P2, P3, Q1);
+(D3, D5, D-f, R1, R2, N1, N5, P2, P3, Q1);
 [evaluated execution](../docs/design/workflow_lisp_evaluated_execution.md)
 carries the named amendments.
 
@@ -1004,27 +1004,40 @@ carries the named amendments.
   `run_ref_confined_child_terminal.v1` (proof of both outcomes),
   `run_ref_attempt_ledger.v2` (rows of this profile),
   `run_ref_checkpoint_header.v1`, `run_ref_image_executable_pins.v1`,
-  `run_ref_environment_admission.v1`, `run_ref_export_manifest.v1` and
-  `run_ref_confined_child_header.v1`.
+  `run_ref_environment_admission.v1` and `run_ref_export_manifest.v1`.
+  Today's ledger reader refuses non-v1 rows, so a `run-ref-attempts.jsonl`
+  that mixes path and confined rows needs a dual-version reader.
+- Identity. Parent program identity covers the child workflow's canonical
+  definition, its signature, its canonical dependency/configuration closure
+  and the image and policy literals. Runtime input identity additionally
+  binds the resolved revision, explicit inputs and path content snapshots.
+  Child admission binds the verified Git tree, materialization policy,
+  imported snapshot digest/platform, executable/config closure and profile
+  version. Source paths and lines are provenance, not identity. Each loop or
+  call activation has a distinct K7 visit, even for identical inputs; the
+  child's sites never alias the parent's.
 - Allocation durably binds, before any candidate process is released: the
   resolved revision (an ordinary reached effect input), child artifact and
-  configuration, inputs, environment admission (imported snapshot
-  digest/platform, effective limits and kernel settings), child run id,
-  workspace and control roots, and the cumulative budget.
-- Control root: outside the clone and every guest mount, it holds the child
-  run header, checked child artifact, memo, attempt ledger rows, attempt
-  evidence, checkpoint header and holder release gate; there is no receipt
-  object. A confined child never compiles in the clone and creates no
-  `.orchestrate` entry there. Its header records image executable pins
-  (snapshot digest/platform, guest executable path, immutable
-  executable/config closure) instead of host interpreter pins, the
+  configuration, inputs, environment, child run id, workspace and control
+  roots, and the cumulative budget.
+- Control root: beneath the parent run root, next to
+  `run-ref-attempts.jsonl`, outside the clone and every guest mount. It holds
+  the child run header, checked child artifact, memo, attempt evidence,
+  checkpoint header and holder release gate; there is no receipt object. The
+  child's attempt ledger rows, the failed terminal row included, are rows of
+  the parent's `run-ref-attempts.jsonl`. A confined child never compiles in
+  the clone and creates no `.orchestrate` entry there. Its header records
+  image executable pins (snapshot digest/platform, guest executable path,
+  immutable executable/config closure) instead of host interpreter pins, the
   child-recipe `resume_request` variant (the parent-bound child artifact
   identity, no `workflow_file` or `source_roots`) and a `result_root` that
-  records the external control root.
-- Per holder launch the parent ledger records the scope unit and cgroup
-  identity and one `DurableLaunchReleaseGate` release fact; recovery
-  inventories them to tell allocated-but-not-released from possibly
-  released, and kills a populated remnant under the writer lock.
+  records the external control root; how the header stores them is a
+  proposed schema fixed with the runtime.
+- Each holder launch has an attempt-bound containment identity (its scope
+  unit and cgroup) and one `DurableLaunchReleaseGate` release fact, held in
+  the control root's holder release gate. Recovery inventories them to tell
+  allocated-but-not-released from possibly released, and kills a populated
+  remnant under the writer lock.
 - Checkpoint header, two-phase and keyed by effect identity and attempt
   ordinal: after provisioning, `committed` with identity `none`, ordinal 0
   and the baseline manifest digest; per checkpointed leaf, `intent`
@@ -1032,7 +1045,19 @@ carries the named amendments.
   manifest digest after the clone's bytes are durable and before the
   effect's memo `committed`. It counts skipped sockets, FIFOs and device
   nodes. A leaf killed by the clamped timeout or wall exhaustion, a
-  cancellation and a holder death are never checkpointed.
+  cancellation and a holder death are never checkpointed. A checkpoint that
+  fails under a live controller kills the scope, re-freezes the partial
+  clone, publishes `committed` for that attempt and ends the child as
+  `FAILED` with holder-death mechanics, coded
+  `run_ref_environment_escape_rejected` when the copier refused and
+  `run_ref_environment_lost` otherwise.
+- Header states on resume, after the recorded scope, including the `host`
+  slot, is killed and empty: an `intent` header is repaired by re-freezing
+  the clone and publishing `committed` for its attempt, which then reruns
+  under §8.1; a `committed` header must match the clone's fresh manifest and
+  name the last committed attempt or an uncommitted attempt newer than it.
+  Only a digest mismatch fails closed, with `run_ref_environment_changed`,
+  before release.
 - Attempt snapshots: at `started`, clone files named by stable-command
   tokens, document fills and prompt dependencies are selected through the
   no-follow reader, checked against the evidence allowance before any byte
@@ -1047,26 +1072,41 @@ carries the named amendments.
   refused site and no attempt), appended under the parent writer lock
   before the child memo's `failed` record and before the parent value is
   prepared. A crash before the row is a controller interruption; after it
-  the child is terminal and never reruns. A row naming a started attempt
-  whose memo lacks `failed` is repaired on resume by appending `failed` and
-  the child's failed terminal from the row under the child writer lock; a
-  dispatch-refusal row invents no record.
+  the child is terminal and never reruns, whatever the number of committed
+  effects, and the row takes precedence over K4 and the §8.1 rerun. A row
+  naming a started attempt whose memo lacks `failed` is repaired on resume
+  by appending `failed` and the child's failed terminal from the row under
+  the child writer lock; a dispatch-refusal row invents no record.
 - Recovery follows the
-  [design's recovery table](../docs/design/workflow_lisp_run_ref_expression_environments.md#lifecycle-cancellation-and-recovery).
-  Resume first kills and empties the recorded scope, including the `host`
-  slot, then reads the checkpoint header: an `intent` header is repaired by
-  re-freezing the clone and publishing `committed` for that attempt; a
-  `committed` header must match the clone's fresh manifest and name the
-  last committed attempt or a newer uncommitted one, otherwise
-  `run_ref_environment_changed` stops the resume before release. A child
-  with a committed effect or a failed terminal row keeps its child run and
-  clone (K4 amendment); committed effects are reused and the pending
-  attempt reruns under §8.1 from a fresh holder unless it declares
-  `must_not_repeat`. A child with neither keeps today's K4. Holder death
-  under a live controller is not retried in the run.
+  [design's recovery table](../docs/design/workflow_lisp_run_ref_expression_environments.md#lifecycle-cancellation-and-recovery)
+  and the K4/K8 amendments. Rules the table does not hold: holder death
+  under a live controller is not retried in the run; cancellation and
+  wall-time exhaustion kill the scope, revoke the model capability, prove
+  quiescence without checkpointing, and end as `FAILED` when the child
+  cannot continue or as a pending child otherwise; `must_not_repeat` on a
+  pending attempt after the first commit stops the run permanently, since
+  K8 forbids `invalidate`; resume validates image executable pins and
+  refuses drift of snapshot/platform, profile, executable or fixed
+  configuration with `run_ref_environment_changed` before dispatch;
   `run_ref_environment_unavailable` and `run_ref_environment_changed` stop a
-  run or resume before release and never produce `FAILED`. Budgets are
+  run or resume before release and never produce `FAILED`; budgets are
   cumulative across resumes.
+- Terminal proofs. `COMPLETED`: capture the protected header, checked
+  artifact and complete memo prefix once under retained roots; require a
+  completed terminal, valid committed-effect proofs and no unfinished or
+  unsettled effect; replay pure control with the ordinary evaluator over
+  the committed values, matching every reached commit in order by
+  site/activation/input authority from retained attempt snapshots, without
+  dispatch, reconciliation or reading mutable clone files; require canonical
+  equality of the replayed halt, terminal value and the child's typed
+  result; bind that evidence to the parent settlement before export rebases
+  the value. `FAILED`: the committed prefix with valid proofs, the failed
+  terminal row and, when it names a started attempt, that attempt's `failed`
+  record, or, for a dispatch refusal, the refused site and no attempt record;
+  no later attempt exists; pure control is replayed to the failed site over
+  the committed values; settlement binds it the same way. Missing snapshots
+  block settlement and cleanup rather than being reconstructed from current
+  source.
 - Retention and cleanup: after terminal validation, export (none for
   `FAILED`) and parent settlement of either outcome, the coordinator deletes
   the clone and its checkpoint header, recording cleanup intent and
@@ -1079,16 +1119,18 @@ carries the named amendments.
   admission, baseline and final manifests, delta, accounting, attempt
   snapshots, export manifest and committed exported bytes are kept for the
   parent run's retention lifetime and suffice for settled reuse without the
-  clone.
+  clone. Nothing is removed automatically: retiring a run means removing its
+  run root, which holds the control roots, and its
+  `<under>/.run-ref-exports/<parent-run>` directories
+  ([IO](io.md#proposed-run-ref-confined-child-io-target-238)).
 - Accounting records host-side time (rehash, seeding, checkpoints, snapshot
   copies, result import) charged to `:wall-seconds`; unavailable provider
   usage is explicit, not zero.
-- Open for the contract owner: the control root's location relative to
-  `run_ref_root`; whether the control root's "attempt ledger rows" are the
-  child memo's attempts or a copy of the parent ledger rows (the failed
-  terminal row lives in the parent's `run-ref-attempts.jsonl`); the header
-  representation of the child-recipe variant and image pins against the
-  evaluated header's mandatory eight-field recipe.
+- Open for the contract owner: the header representation of the
+  child-recipe variant and image pins against the evaluated header's
+  mandatory eight-field recipe, and its schema name; the outcome of a
+  `committed` header whose digest matches but whose ordinal names neither
+  the last committed attempt nor a newer uncommitted one.
 
 ## Target 2.25 Trial State, Settlement, And Replay
 

@@ -307,9 +307,11 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   - Proposed amendment for target 2.38 confined children (unimplemented,
     not current behavior): a completed run that records a pending run-ref
     workspace-cleanup obligation retries that cleanup on resume, records the
-    outcome, dispatches nothing and exits `0`; a completed run without one
-    keeps the no-write rule above
+    outcome and dispatches nothing; a completed run without one keeps the
+    no-write rule above
     ([State](state.md#proposed-run-ref-confined-child-state-target-238)).
+    Open for the contract owner: the exit status and report when the retry
+    fails again (the design states only retry and record).
 - `invalidate RUN_ID IDENTITY [--state-dir DIR]` (also
   `python -m orchestrator invalidate ...`) uses the same path resolution as
   `resume` (`.orchestrate/runs/RUN_ID`, or `DIR/RUN_ID`); unlike `resume`,

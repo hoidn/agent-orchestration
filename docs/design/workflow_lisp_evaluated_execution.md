@@ -1061,8 +1061,8 @@ attempt-snapshot binding** (unimplemented, not copy-safe; [run-ref design D5](wo
 named by stable-command tokens (C2), document fills and prompt dependencies
 (C6) are selected and bound by content at `started` through the no-follow
 reader beneath the clone root and retained in a content-addressed attempt
-snapshot; a symlinked token binds its target string and never a host target,
-and refuses only when it is the executable token. A committed effect's
+snapshot; a symlinked token binds its target string and never a host target.
+A committed effect's
 resolved input and the C7 preflight use that snapshot and the recorded
 evidence map, never the current clone, after its bytes verify against the
 `started` digests (a mismatch fails closed, never `effect_input_diverged`).
@@ -1419,7 +1419,9 @@ invalidated does not pin that explicitly authorized re-execution to old bytes.
 not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): none to this table. §8.1 applies unchanged to a confined
 child's memo: a `started` or `failed` attempt without a commit, including
 a tool-enabled provider attempt, reruns on resume after C4's comparison
-unless its boundary declares `must_not_repeat`.
+unless its boundary declares `must_not_repeat` or the parent ledger holds
+the child's failed terminal row, which makes the child terminal whatever
+the number of committed effects.
 
 ### 8.2 Running an attempt
 
@@ -1533,8 +1535,9 @@ remains `memo_inconsistent`. No legacy state is converted.
 
 **Proposed amendment for target 2.38 confined children** (unimplemented,
 not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): confined workflow children compile at target 2.38, which
-is not admitted for execution; path children keep the internal
-run-reference target 2.35 stated above.
+is registered; confined sites are not admitted for execution until
+Increment A qualifies, and path children keep the internal run-reference
+target 2.35 stated above.
 
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
@@ -2657,12 +2660,14 @@ run's state; the memo replaces that commit.
 **Proposed amendment for target 2.38 confined children, K4 and K8**
 (unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child with at least one
 committed effect or a failed terminal row is never discarded and keeps
-neither K4's discard nor its fresh-child path. With a committed effect it
-resumes in the same child run and clone under §8.1; with a failed terminal
-row it is terminal and never reruns. A confined child with neither keeps today's K4.
-K8's no-supersession applies from the first committed child effect;
-`invalidate` stays available before it. Path children keep K4 and K8
-unchanged.
+neither K4's discard nor its fresh-child path. A failed terminal row takes
+precedence: the child is terminal and never reruns, whatever the number of
+committed effects. Otherwise a child with a committed effect resumes in the
+same child run and clone under §8.1. A confined child with neither keeps
+today's K4. K8's no-supersession applies from the first committed child
+effect; `invalidate` stays available before it, and `must_not_repeat` on a
+pending attempt after the first commit therefore stops the run
+permanently. Path children keep K4 and K8 unchanged.
 
 For §1.2's repeated placements, each iteration instantiates the complete
 activation identity (§6), hence a distinct K7 step id and visit with count 1,

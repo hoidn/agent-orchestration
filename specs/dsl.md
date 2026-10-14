@@ -852,10 +852,12 @@ YAML-fenced snippets are structural notation, not authored workflow files.
 
   - Workflow Lisp run-ref confined workflow children (target 2.38; proposed):
     - Status: proposed, unimplemented, not current admission and not
-      copy-safe. Target 2.38 is reserved for this feature and is not admitted
-      for execution; until the runtime lands, public compile of a workflow
-      child refuses with `run_ref_child_target_unavailable` before any child
-      allocation. Path mode, its admission, configuration bytes, recovery and
+      copy-safe. Target 2.38 is registered; confined sites are not admitted
+      for execution until Increment A qualifies, and until then public
+      compile of a workflow child refuses with
+      `run_ref_child_target_unavailable` before any child allocation. A 2.38
+      entry with no confined site accepts exactly what bounded 2.37 accepts.
+      Path mode, its admission, configuration bytes, recovery and
       internal target `2.35` are unchanged. Authority:
       [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#authored-contract)
       (D2, D4, D6); the
@@ -870,7 +872,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
         :inputs (:name <value-expr> ...)
         :policy (:environment :confined
                  :image "<repository>@sha256:<64-lowercase-hex>"
-                 :network :none
+                 :network <:none | :model-only>
                  :limits (:wall-seconds N :memory-mib N :cpus N :pids N
                           :workspace-mib N :output-mib N)))
       ```
@@ -893,10 +895,12 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       authored order before child allocation, validated as 40 lowercase hex
       and included in the effect input digest; a changed revision is ordinary
       resume input drift.
-    - Policy keys are closed, unique and literal. `:image` names a repository
+    - Policy keys are closed, unique and literal; `:environment :confined`
+      is required. `:image` names a repository
       and a SHA-256 digest; a mutable tag is not authority. `:network` is
       exactly `:none` or `:model-only` and never means general network
-      access. Limits are positive bounded integers: `:cpus` is an integer
+      access. All six limit keys are required, with no defaults, and are
+      positive bounded integers: `:cpus` is an integer
       quota, `:output-mib` bounds exports only, and `:wall-seconds` is the
       child's cumulative budget for guest execution and the host-side work
       done for it. Installation maxima are checked at admission.
@@ -909,7 +913,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       for `:memory-mib` below `:workspace-mib + 960` (the profile's scratch,
       `/dev/shm`, result and process headroom constants).
       `run_ref_child_transport_unsupported` for `provider-bundle-path` in the
-      child, an authority-bearing input or result (`ProcRef`, provider roles,
+      child, an authority-bearing input (`ProcRef`, provider roles,
       Context/session values, resources), and a result path descriptor
       without a nonempty workspace-relative `:under` outside reserved
       control/Git roots or with `:must-exist false`. Shape and literal
@@ -943,10 +947,12 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       [State](state.md#proposed-run-ref-confined-child-state-target-238),
       [IO](io.md#proposed-run-ref-confined-child-io-target-238),
       [Security](security.md) and [Providers](providers.md).
-    - Open for the contract owner: admitted placement contexts (the design
-      states none beyond path mode's; its example reaches the site through
-      `call` from a `loop/recur` body), and whether every limit key is
-      required.
+    - Placement: a confined site is admitted where a 2.35+ path-mode
+      `run-ref` is admitted above, except inside any `list/map-effect` frame,
+      serial or parallel, and inside trial arms.
+    - Open for the contract owner: whether an authority-bearing child result
+      type refuses with the same code; the design states the refusal for
+      inputs only.
 
   - Workflow Lisp bounded static trials (target 2.25):
     - `trial` is one step-level durable `TRIAL` effect over two or more

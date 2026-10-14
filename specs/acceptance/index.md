@@ -327,7 +327,7 @@ Proposed and unimplemented; these scenarios are not current acceptance and
 admit nothing. The
 [design](../../docs/design/workflow_lisp_run_ref_expression_environments.md#verification-and-declarative-acceptance-scenarios)
 owns their full statements and the F1 to F6 gates (with F3b-channel and
-F3b-checkpoint); real-sandbox and real-provider cases skip when `bwrap`,
+F3b-checkpoint); real-sandbox cases skip when `bwrap`,
 `systemd-run` or a reachable user manager is missing.
 
 1. Normal tool-enabled flow: the design's complete module with three
