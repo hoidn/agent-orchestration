@@ -640,7 +640,6 @@ def test_run_ref_invalid_sha_or_program_path_is_literal_diagnostic(
         ":program (:bundle child) :inputs () :policy (:setup ()) :extra true)",
         '(run-ref :source (:repo "file:///workspace") '
         ":program (:bundle child) :inputs () :policy (:setup ()))",
-        _mode_one_source().replace("(:bundle child)", "(:workflow child)"),
     ),
 )
 def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> None:
@@ -651,6 +650,15 @@ def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> N
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_shape_invalid"
+
+
+def test_run_ref_workflow_program_below_target_238_is_unavailable() -> None:
+    source = _mode_one_source().replace("(:bundle child)", "(:workflow child)")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(_expression(source), target_dsl_version="2.24")
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_child_target_unavailable"
 
 
 @pytest.mark.parametrize(

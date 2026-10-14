@@ -66,9 +66,9 @@ def test_module_targeting_233_compiles_with_no_new_forms(tmp_path: Path) -> None
     assert result.typed_program.target == "2.33"
 
 
-def test_module_targeting_238_is_rejected_as_unsupported(tmp_path: Path) -> None:
+def test_module_targeting_239_is_rejected_as_unsupported(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_minimal_module(tmp_path, "2.38")
+        _compile_minimal_module(tmp_path, "2.39")
 
     assert excinfo.value.diagnostics[0].code == "target_dsl_unsupported"
 

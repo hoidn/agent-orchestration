@@ -713,6 +713,9 @@ def _select_and_finalize_typed_program(
     program = result.typed_program
     if not isinstance(program, TypedProgram):
         raise RuntimeError("typed compilation did not produce a TypedProgram")
+    from ..typecheck_run_ref import refuse_unsupported_confined_children
+
+    refuse_unsupported_confined_children(program)
     return replace(
         program,
         entry=program.workflows[canonical_name],

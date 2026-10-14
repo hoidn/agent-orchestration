@@ -6,14 +6,25 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 
-from .definitions import RecordDef, RecordField
+from .definitions import RecordDef, RecordField, UnionDef, UnionVariant
 from .effects import (
+    CapturesSnapshotEffect,
     EffectSummary,
+    HostInputEffect,
+    LivePeerMessagingEffect,
+    LiveSupervisionEffect,
+    MaterializesPointerEffect,
+    MovesResourceEffect,
     RunsRefEffect,
+    RunsTrialEffect,
+    UpdatesLedgerEffect,
+    UpdatesStateEffect,
+    UsesProviderEffect,
     effect_summary_from_direct,
     merge_effect_summaries,
 )
-from .expressions import RunRefBundleProgram, RunRefExpr, RunRefPathProgram
+from . import expressions as ex
+from .expressions import RunRefBundleProgram, RunRefExpr, RunRefPathProgram, RunRefWorkflowProgram
 from .spans import SourcePosition, SourceSpan
 from .type_env import (
     ListTypeRef,
@@ -30,6 +41,7 @@ from .type_env import (
     WorkflowRefTypeRef,
     type_refs_compatible,
 )
+from .expression_traversal import walk_expr
 from .typecheck_context import (
     TypedExpr,
     TypecheckSessionStateCollisionError,
@@ -68,6 +80,15 @@ class RunRefSiteMetadata:
     input_types: tuple[tuple[str, TypeRef], ...]
     type_ref: RecordTypeRef
     compiler_owned_types: tuple[tuple[str, TypeRef], ...]
+    # Workflow mode only: the site's type, `RunRefOutcome$<digest16>` with arms
+    # COMPLETED (result <type_ref>) and FAILED (code, detail, accounting).
+    outcome_type_ref: UnionTypeRef | None = None
+
+    @property
+    def site_type_ref(self) -> TypeRef:
+        """The type of the run-ref expression itself."""
+
+        return self.outcome_type_ref or self.type_ref
 
 
 @dataclass(frozen=True)
@@ -170,6 +191,32 @@ def _record_type(
         name=name,
         definition=definition,
         field_types=dict(fields),
+    )
+
+
+def _union_type(
+    name: str,
+    variants: tuple[tuple[str, tuple[tuple[str, TypeRef], ...]], ...],
+) -> UnionTypeRef:
+    definition = UnionDef(
+        name=name,
+        variants=tuple(
+            UnionVariant(
+                name=variant_name,
+                fields=tuple(
+                    RecordField(name=field_name, type_name=field_type.name, span=_COMPILER_SPAN)
+                    for field_name, field_type in fields
+                ),
+                span=_COMPILER_SPAN,
+            )
+            for variant_name, fields in variants
+        ),
+        span=_COMPILER_SPAN,
+    )
+    return UnionTypeRef(
+        name=name,
+        definition=definition,
+        variant_field_types={variant_name: dict(fields) for variant_name, fields in variants},
     )
 
 
@@ -341,22 +388,36 @@ def compiler_run_ref_fixed_types(
 
 
 def _expression_payload(expr: RunRefExpr) -> dict[str, object]:
-    program = (
-        {"mode": "bundle", "workflow": expr.program.workflow_name}
-        if isinstance(expr.program, RunRefBundleProgram)
-        else {
+    # The workflow-mode commit is a parent operand that WCC rebinds like the
+    # inputs, so (like input values) it stays out of the expression key.
+    workflow_mode = isinstance(expr.program, RunRefWorkflowProgram)
+    commit = None if workflow_mode else expr.source.commit
+    if isinstance(expr.program, RunRefBundleProgram):
+        program = {"mode": "bundle", "workflow": expr.program.workflow_name}
+    elif workflow_mode:
+        policy = expr.program.policy
+        program = {
+            "mode": "workflow",
+            "workflow": expr.program.workflow_name,
+            "policy": {
+                "image": policy.image,
+                "network": policy.network,
+                "limits": [list(row) for row in policy.limits],
+            },
+        }
+    else:
+        program = {
             "mode": "path",
             "path": expr.program.path,
             "entry": expr.program.entry_name,
         }
-    )
     return {
         "position": {
             "start": [expr.span.start.line, expr.span.start.column],
             "end": [expr.span.end.line, expr.span.end.column],
         },
         "form_path": list(expr.form_path),
-        "source": {"repo": expr.source.repo, "commit": expr.source.commit},
+        "source": {"repo": expr.source.repo, "commit": commit},
         "program": program,
         "setup": [
             {
@@ -416,6 +477,26 @@ def _register_result_metadata(
     )
     result_type = replace(result_type, run_ref_origin=(origin, input_types))
     _validate_staged_type(context.type_env, result_type)
+    owned = (*fixed_types, (generated_name, result_type))
+    outcome = None
+    if isinstance(expr.program, RunRefWorkflowProgram):
+        string_type = context.type_env._type_refs["String"]
+        outcome = _union_type(
+            f"RunRefOutcome${site_digest[:16]}",
+            (
+                ("COMPLETED", (("result", result_type),)),
+                (
+                    "FAILED",
+                    (
+                        ("code", string_type),
+                        ("detail", string_type),
+                        ("accounting", fixed_by_name["RunRefAccounting"]),
+                    ),
+                ),
+            ),
+        )
+        _validate_staged_type(context.type_env, outcome)
+        owned = (*owned, (outcome.name, outcome))
     metadata = RunRefSiteMetadata(
         generated_type_name=generated_name,
         site_digest=site_digest,
@@ -424,7 +505,8 @@ def _register_result_metadata(
         value_type_ref=value_type,
         input_types=input_types,
         type_ref=result_type,
-        compiler_owned_types=(*fixed_types, (generated_name, result_type)),
+        compiler_owned_types=owned,
+        outcome_type_ref=outcome,
     )
     existing = context.session_state.run_ref_metadata_by_name.get(generated_name)
     if existing is not None and not run_ref_metadata_equivalent(existing, metadata):
@@ -703,26 +785,75 @@ def known_run_ref_type(type_name: str, *, session_state) -> TypeRef | None:
     return matched
 
 
-def _require_transportable(type_ref, *, expr, role: str, type_env) -> None:
+def _require_transportable(
+    type_ref, *, expr, role: str, type_env, code: str = "workflow_boundary_type_invalid"
+) -> None:
     # Import lazily: contracts owns workflow-signature projection and therefore
     # reaches this dispatch module through the workflow compiler at import time.
     from .contracts import is_transportable_result_type
 
-    if is_transportable_result_type(type_ref, type_env=type_env):
+    if is_transportable_result_type(type_ref, type_env=type_env) and (
+        code == "workflow_boundary_type_invalid" or not _carries_authority(type_ref)
+    ):
         return
     raise_error(
         f"`run-ref` {role} type `{type_ref.name}` is not transportable",
-        code="workflow_boundary_type_invalid",
+        code=code,
         span=expr.span,
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
     )
 
 
+def _type_leaves(type_ref, seen=None):
+    """Yield every nested TypeRef of one type, records and unions included."""
+
+    seen = set() if seen is None else seen
+    if id(type_ref) in seen:
+        return
+    seen.add(id(type_ref))
+    yield type_ref
+    if isinstance(type_ref, RecordTypeRef):
+        children = tuple(type_ref.field_types.values())
+    elif isinstance(type_ref, UnionTypeRef):
+        children = tuple(
+            field_type
+            for fields in type_ref.variant_field_types.values()
+            for field_type in fields.values()
+        )
+    elif isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        children = (type_ref.item_type_ref,)
+    elif isinstance(type_ref, MapTypeRef):
+        children = (type_ref.key_type_ref, type_ref.value_type_ref)
+    else:
+        children = ()
+    for child in children:
+        yield from _type_leaves(child, seen)
+
+
+def _carries_authority(type_ref) -> bool:
+    """Whether a value of this type would carry parent authority into a child."""
+
+    from .context_types import is_contextual_type, is_fixed_context_type
+
+    return any(
+        isinstance(leaf, (ProcRefTypeRef, WorkflowRefTypeRef))
+        or (isinstance(leaf, PrimitiveTypeRef) and leaf.name in {"Provider", "Prompt"})
+        or is_contextual_type(leaf)
+        or is_fixed_context_type(leaf)
+        for leaf in _type_leaves(type_ref)
+    )
+
+
 def _typecheck_mode_one(expr, *, context, recurse):
     if context.workflow_catalog is None:
         raise TypeError("workflow_catalog is required for bundle-mode run-ref")
-    assert isinstance(expr.program, RunRefBundleProgram)
+    confined = isinstance(expr.program, RunRefWorkflowProgram)
+    transport_code = (
+        "run_ref_child_transport_unsupported"
+        if confined
+        else "workflow_boundary_type_invalid"
+    )
     signature = context.workflow_catalog.signatures_by_name.get(
         expr.program.workflow_name
     )
@@ -743,7 +874,7 @@ def _typecheck_mode_one(expr, *, context, recurse):
     if hidden_boundary_state:
         raise_error(
             "run-ref bundle workflows must expose a complete public-only input signature",
-            code="workflow_signature_mismatch",
+            code=transport_code if confined else "workflow_signature_mismatch",
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
@@ -779,6 +910,7 @@ def _typecheck_mode_one(expr, *, context, recurse):
             expr=value_expr,
             role=f"input `:{name}`",
             type_env=context.type_env,
+            code=transport_code,
         )
         typed = recurse(value_expr, expected_type=expected)
         _require_transportable(
@@ -786,6 +918,7 @@ def _typecheck_mode_one(expr, *, context, recurse):
             expr=value_expr,
             role=f"input `:{name}`",
             type_env=context.type_env,
+            code=transport_code,
         )
         if not type_refs_compatible(expected, typed.type_ref):
             raise_error(
@@ -817,13 +950,182 @@ def _typecheck_mode_one(expr, *, context, recurse):
         expr=expr,
         role="child return",
         type_env=context.type_env,
+        code=transport_code,
     )
+    if confined:
+        _refuse_unexportable_child_result(expr, signature)
     return (
         signature.return_type_ref,
         tuple(typed_inputs),
         tuple(input_effects),
         tuple(input_types),
     )
+
+
+_FORBIDDEN_CHILD_ATOMS = (
+    RunsRefEffect,
+    RunsTrialEffect,
+    HostInputEffect,
+    LiveSupervisionEffect,
+    LivePeerMessagingEffect,
+    UpdatesStateEffect,
+    MovesResourceEffect,
+    UpdatesLedgerEffect,
+    CapturesSnapshotEffect,
+    MaterializesPointerEffect,
+)
+_PROVIDER_ATOMS = (UsesProviderEffect, LiveSupervisionEffect, LivePeerMessagingEffect)
+# Effect forms a confined child cannot perform (design: nested run-ref, trial,
+# parallel effects, human input, sessions/context, resources).  The language
+# has no dynamic-evaluation form at this target, so there is none to list.
+_FORBIDDEN_CHILD_FORMS = {
+    ex.RunRefExpr: "nested run-ref",
+    ex.TrialExpr: "trial",
+    ex.WithLiveProvidersExpr: "parallel live providers",
+    ex.WithLiveProviderPeersExpr: "parallel live provider peers",
+    ex.RequestInputExpr: "human input",
+    ex.WithPhaseExpr: "phase context",
+    ex.RunProviderPhaseExpr: "provider session phase",
+    ex.ResumeOrStartExpr: "session resume",
+    ex.ProduceOneOfExpr: "provider session selection",
+    ex.ResourceTransitionExpr: "resource transition",
+    ex.MaterializeViewExpr: "resource view",
+    ex.FinalizeSelectedItemExpr: "resource finalization",
+}
+
+
+def _child_form_refusal(node, *, network_none: bool) -> tuple[str, str] | None:
+    """Return (code, reason) when one reachable child form is refused."""
+
+    if isinstance(node, ex.ProviderBundlePathExpr):
+        return "run_ref_child_transport_unsupported", "provider-bundle-path"
+    reason = _FORBIDDEN_CHILD_FORMS.get(type(node))
+    if isinstance(node, ex.ListMapEffectExpr) and node.parallel_count is not None:
+        reason = "parallel list/map-effect"
+    if isinstance(node, ex.ProviderResultExpr) and (
+        node.context_expr is not None
+        or node.capture_context is not None
+        or node.session_artifact is not None
+    ):
+        reason = "provider session/context"
+    if reason is None and network_none and isinstance(node, ex.ProviderResultExpr):
+        reason = "a provider effect under :network :none"
+    return None if reason is None else ("run_ref_environment_effect_unsupported", reason)
+
+
+def _refuse_unexportable_child_result(expr, signature) -> None:
+    """Refuse a confined child whose result path cannot be exported (site-local)."""
+
+    if any(
+        isinstance(leaf, PathTypeRef) and not leaf.definition.must_exist
+        for leaf in _type_leaves(signature.return_type_ref)
+    ):
+        raise_error(
+            f"confined `run-ref` child `{expr.program.workflow_name}` returns a "
+            "`:must-exist false` path",
+            code="run_ref_child_transport_unsupported",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+
+def _typed_body(definition):
+    typed_body = definition.typed_body
+    return getattr(typed_body, "expr", typed_body)
+
+
+def _reachable_child(name: str, program):
+    """Yield (effect summary, typed body) of every callable the child reaches."""
+
+    pending, seen = [("workflow", name)], set()
+    while pending:
+        kind, callee = pending.pop()
+        if (kind, callee) in seen:
+            continue
+        seen.add((kind, callee))
+        table = program.workflows if kind == "workflow" else program.procedures
+        definition = table.get(callee)
+        if definition is None:
+            raise TypecheckSessionStateCollisionError(
+                f"confined run-ref child reaches unresolved {kind} {callee!r}"
+            )
+        summary = getattr(definition, "transitive_effect_summary", None) or definition.effect_summary
+        yield summary, _typed_body(definition)
+        for node in walk_expr(_typed_body(definition)):
+            if isinstance(node, ex.CallExpr):
+                pending.append(("workflow", node.callee_name))
+            elif isinstance(node, ex.WorkflowRefLiteralExpr):
+                pending.append(("workflow", node.target_name))
+            # Local let-proc bodies are inline in this body; named and
+            # specialized (hook) procedures live in the program table.
+            elif isinstance(node, ex.ProcedureCallExpr) and node.callee_name in program.procedures:
+                pending.append(("procedure", node.callee_name))
+            elif isinstance(node, ex.ProcRefLiteralExpr) and node.target_name in program.procedures:
+                pending.append(("procedure", node.target_name))
+
+
+def _child_refusal(site, program) -> tuple[str, str] | None:
+    network_none = site.program.policy.network == "none"
+    for summary, body in _reachable_child(site.program.workflow_name, program):
+        for effect in (*summary.direct_effects, *summary.transitive_effects):
+            if isinstance(effect, _FORBIDDEN_CHILD_ATOMS):
+                return "run_ref_environment_effect_unsupported", f"the effect {type(effect).__name__}"
+            if network_none and isinstance(effect, _PROVIDER_ATOMS):
+                return "run_ref_environment_effect_unsupported", "a provider effect under :network :none"
+        for node in walk_expr(body):
+            refusal = _child_form_refusal(node, network_none=network_none)
+            if refusal is not None:
+                return refusal
+    return None
+
+
+def refuse_unsupported_confined_children(program) -> None:
+    """Refuse every confined run-ref site whose child reaches an unsupported effect.
+
+    Runs over a finished typed program (workflows and procedures typed, effect
+    summaries at their fixpoint), so the walk follows workflow calls, procedure
+    calls and procedure-reference hooks transitively, local and imported.
+    """
+
+    for definition in (*program.workflows.values(), *program.procedures.values()):
+        for site in walk_expr(_typed_body(definition)):
+            if not (isinstance(site, RunRefExpr) and isinstance(site.program, RunRefWorkflowProgram)):
+                continue
+            refusal = _child_refusal(site, program)
+            if refusal is not None:
+                raise_error(
+                    f"confined `run-ref` child `{site.program.workflow_name}` uses {refusal[1]}",
+                    code=refusal[0],
+                    span=site.span,
+                    form_path=site.form_path,
+                    expansion_stack=site.expansion_stack,
+                )
+
+
+def _typecheck_commit(expr, *, context, recurse):
+    """Type the parent `:commit` operand as one pure String."""
+
+    commit = expr.source.commit
+    string_type = context.type_env._type_refs["String"]
+    typed = recurse(commit, expected_type=string_type)
+    if not type_refs_compatible(string_type, typed.type_ref):
+        raise_error(
+            f"run-ref `:commit` expected `String` but got `{typed.type_ref.name}`",
+            code="type_mismatch",
+            span=commit.span,
+            form_path=commit.form_path,
+            expansion_stack=commit.expansion_stack,
+        )
+    if typed.effect_summary.direct_effects or typed.effect_summary.transitive_effects:
+        raise_error(
+            "run-ref `:commit` must be a pure expression",
+            code="effect_not_permitted",
+            span=commit.span,
+            form_path=commit.form_path,
+            expansion_stack=commit.expansion_stack,
+        )
+    return typed
 
 
 def _typecheck_mode_two(expr, *, context, recurse):
@@ -887,7 +1189,11 @@ def _typecheck_run_ref_expr_with_details(
 ) -> _RunRefTypecheckDetails:
     """Type one run-ref and retain its already-computed input summaries."""
 
-    if isinstance(expr.program, RunRefBundleProgram):
+    typed_expr = expr
+    if isinstance(expr.program, RunRefWorkflowProgram):
+        commit = _typecheck_commit(expr, context=context, recurse=recurse)
+        typed_expr = replace(expr, source=replace(expr.source, commit=commit.expr))
+    if isinstance(expr.program, (RunRefBundleProgram, RunRefWorkflowProgram)):
         value_type, typed_inputs, input_effects, input_types = _typecheck_mode_one(
             expr,
             context=context,
@@ -907,7 +1213,7 @@ def _typecheck_run_ref_expr_with_details(
             RunsRefEffect(subject=(effect_subject,)),
         )
     )
-    typed_expr = replace(expr, inputs=typed_inputs)
+    typed_expr = replace(typed_expr, inputs=typed_inputs)
     metadata = _register_result_metadata(
         typed_expr,
         context=context,
@@ -916,7 +1222,7 @@ def _typecheck_run_ref_expr_with_details(
     )
     typed_expr = typed_factory(
         expr=replace(typed_expr, run_ref_metadata=metadata),
-        type_ref=metadata.type_ref,
+        type_ref=metadata.site_type_ref,
         effect=merge_effect_summaries(*input_effects, run_effect),
     )
     return _RunRefTypecheckDetails(

@@ -24,6 +24,7 @@ from ..type_env import TypeRef
 
 if TYPE_CHECKING:
     from orchestrator.workflow.run_ref.config import RunRefProgram
+    from ..expressions import RunRefConfinedPolicy
     from orchestrator.workflow.run_ref.source import SourceRequest
 
 
@@ -352,6 +353,38 @@ class WccSelect:
 WccValue = WccAtom | WccInject | WccPureOp | WccSelect
 
 
+def _frozen_run_ref_inputs(
+    input_type_descriptors: tuple[tuple[str, Mapping[str, object]], ...],
+    *,
+    allow_nested_structures: bool,
+) -> tuple[tuple[str, bytes], ...]:
+    """Validate ordered, unique, transportable run-ref input descriptors."""
+
+    if not isinstance(input_type_descriptors, tuple):
+        raise TypeError("WCC run-ref input descriptors must be a tuple")
+    frozen_inputs: list[tuple[str, bytes]] = []
+    seen: set[str] = set()
+    for name, descriptor in input_type_descriptors:
+        if (
+            not isinstance(name, str)
+            or _RUN_REF_INPUT_NAME.fullmatch(name) is None
+            or name in seen
+        ):
+            raise ValueError("WCC run-ref input name is invalid or repeated")
+        validate_compiler_normalized_type_descriptor(
+            descriptor,
+            context=f"wcc_run_ref_input.{name}",
+        )
+        if not is_transportable_type_descriptor(
+            descriptor,
+            allow_nested_structures=allow_nested_structures,
+        ):
+            raise ValueError("WCC run-ref input type is not transportable")
+        seen.add(name)
+        frozen_inputs.append((name, canonical_json_bytes(descriptor)))
+    return tuple(frozen_inputs)
+
+
 @dataclass(frozen=True, init=False)
 class WccRunRefPayload:
     """Closed static run-ref facts carried separately from dynamic WCC inputs."""
@@ -423,28 +456,10 @@ class WccRunRefPayload:
                 raise ValueError(
                     "WCC path run-ref refinement does not match its result"
                 )
-        if not isinstance(input_type_descriptors, tuple):
-            raise TypeError("WCC run-ref input descriptors must be a tuple")
-        frozen_inputs: list[tuple[str, bytes]] = []
-        seen: set[str] = set()
-        for name, descriptor in input_type_descriptors:
-            if (
-                not isinstance(name, str)
-                or _RUN_REF_INPUT_NAME.fullmatch(name) is None
-                or name in seen
-            ):
-                raise ValueError("WCC run-ref input name is invalid or repeated")
-            validate_compiler_normalized_type_descriptor(
-                descriptor,
-                context=f"wcc_run_ref_input.{name}",
-            )
-            if not is_transportable_type_descriptor(
-                descriptor,
-                allow_nested_structures=allow_nested_structures,
-            ):
-                raise ValueError("WCC run-ref input type is not transportable")
-            seen.add(name)
-            frozen_inputs.append((name, canonical_json_bytes(descriptor)))
+        frozen_inputs = _frozen_run_ref_inputs(
+            input_type_descriptors,
+            allow_nested_structures=allow_nested_structures,
+        )
 
         canonical_source = source_request_from_dict(
             canonical_source_request(source)
@@ -482,6 +497,77 @@ class WccRunRefPayload:
             (name, json.loads(descriptor_json))
             for name, descriptor_json in self._input_type_descriptor_rows
         )
+
+
+@dataclass(frozen=True, init=False)
+class WccRunRefWorkflowPayload:
+    """Static facts of one confined `run-ref :program (:workflow ...)` site.
+
+    The perform carrying it has the parent-evaluated `:commit` operand as its
+    sole positional argument and the child inputs as ordered keyword
+    arguments; payloads are never substituted, so dynamic values stay there.
+    Task 4 compiles `workflow_name` into the checked private child entry.
+    """
+
+    repo: str
+    workflow_name: str
+    policy: "RunRefConfinedPolicy"
+    site_digest: str
+    generated_result_type: str
+    generated_outcome_type: str
+    result_digest: str
+    allow_nested_structures: bool
+    _result_descriptor_json: bytes = field(repr=False)
+    _input_type_descriptor_rows: tuple[tuple[str, bytes], ...] = field(repr=False)
+
+    def __init__(
+        self,
+        *,
+        repo: str,
+        workflow_name: str,
+        policy: "RunRefConfinedPolicy",
+        site_digest: str,
+        generated_result_type: str,
+        generated_outcome_type: str,
+        result_descriptor: Mapping[str, object],
+        result_digest: str,
+        allow_nested_structures: bool,
+        input_type_descriptors: tuple[tuple[str, Mapping[str, object]], ...],
+    ) -> None:
+        if not isinstance(site_digest, str) or _RUN_REF_SITE_DIGEST.fullmatch(site_digest) is None:
+            raise ValueError("WCC run-ref site digest is invalid")
+        if generated_outcome_type != f"RunRefOutcome${site_digest[:16]}":
+            raise ValueError("WCC run-ref outcome identity is invalid")
+        if type(allow_nested_structures) is not bool:
+            raise TypeError("WCC run-ref nested-transport capability must be boolean")
+        validate_run_ref_result_descriptor(
+            result_descriptor,
+            expected_generated_name=generated_result_type,
+            expected_digest=result_digest,
+            allow_nested_structures=allow_nested_structures,
+        )
+        for name, value in (
+            ("repo", repo),
+            ("workflow_name", workflow_name),
+            ("site_digest", site_digest),
+            ("generated_result_type", generated_result_type),
+            ("generated_outcome_type", generated_outcome_type),
+            ("result_digest", result_digest),
+            ("allow_nested_structures", allow_nested_structures),
+            ("policy", policy),
+            ("_result_descriptor_json", canonical_json_bytes(result_descriptor)),
+            (
+                "_input_type_descriptor_rows",
+                _frozen_run_ref_inputs(
+                    input_type_descriptors,
+                    allow_nested_structures=allow_nested_structures,
+                ),
+            ),
+        ):
+            object.__setattr__(self, name, value)
+
+    result_descriptor = WccRunRefPayload.result_descriptor
+    input_type_descriptors = WccRunRefPayload.input_type_descriptors
 
 
 @dataclass(frozen=True)

@@ -250,7 +250,10 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, CallExpr):
         return tuple(binding_expr for _, binding_expr in expr.bindings)
     if isinstance(expr, RunRefExpr):
-        return tuple(value_expr for _, value_expr in expr.inputs)
+        commit = expr.source.commit
+        return ((commit,) if not isinstance(commit, str) else ()) + tuple(
+            value_expr for _, value_expr in expr.inputs
+        )
     if isinstance(expr, TrialExpr):
         return tuple(arm.run_ref for arm in expr.arms)
     if isinstance(expr, FunctionCallExpr):
