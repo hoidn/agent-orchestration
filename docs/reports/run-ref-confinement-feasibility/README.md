@@ -1175,7 +1175,8 @@ Final group-empty projection occurred at 90,061,534,605 ns; that includes report
 and is not a measurement of exact cleanup latency. No initialized notification
 or account-read followed. Cause, native startup traffic and store effects remain
 unknown; no credential/configuration/log/DB files were inspected. Source-level
-startup diagnosis is pending, with no automatic reactivation. Local SDD
+startup diagnosis and the bounded offline comparison below do not identify
+the real cause; there is no automatic reactivation. Local SDD
 `task-10-native-auth-stage-live-report.md`, SHA-256
 `dbda33a8f9bed0fb49a5401b8575c1b41a00dcba30f75ee92d414e9552b80417`,
 and its adjacent evidence directory retain the exact invocation and result.
@@ -1207,3 +1208,44 @@ secrets and installed pins before the first reservation. The private gateway,
 native owner containment, independent cancellation observer, real provider
 qualification and public integration remain pending. No global suite was
 rerun for this slice; the earlier broad RED classification remains.
+
+
+The subsequent pinned-source disposition selected one offline control and one
+held-bundle comparison in isolated namespaces with fictitious business auth.
+The control received initialize at 605.808698 ms and finished at 1.121769382 s;
+the held-bundle owner exited at 20.354260842 s, before the 90-second deadline,
+without an initialize response. Both groups were observed empty; Holder/carrier
+were N/A. Two bundle requests and no unexpected endpoint were observed in the
+perturbation. This condition did not reproduce the 90-second symptom; it does
+not exclude cloud generally or identify the actual cause. No actual auth or
+inference was repeated. Local SDD `task-10-native-initialize-pair-report.md`
+has SHA-256 `666ec70360478a783e0e17bf9397b2ae0764238f0b505f31ff6c8c8fac829bad`.
+Its observation addendum distinguishes observed worker exits 0/3 from the outer
+runner exit, which was inferred rather than captured and remains UNKNOWN.
+
+## Task 10: private transport core (2026-10-15)
+
+Commit `32e9fda6` adds the private fixed-route transport core, native RPC client,
+semantic policy checks and exact pinned data resources, with no public caller
+or process creation. It consumes the common ledger authority, discards the
+preflight bearer and acquires fresh credentials for each request. Assets are
+verified from an installed wheel outside the source tree. Public provider and
+model-only refusals remain in place.
+
+Independent conformance then code/security review passed after correcting
+native writes after observed revocation and the environment guard after delayed
+binding acknowledgement. HTTP/SSE truncation regressions also passed. Final
+verification: **66 collected**, **66 narrow tests in 10.24 s**, **329 affected
+tests in 11.85 s**, and five independent review regressions. Root read the full
+change and verified all seven committed file hashes against source manifest
+`2755b06181e16155437e66481d4e0efcae3fb76c6fee493e0c33494d881bb83f`.
+Local SDD `task-10-transport-core-review.md` has SHA-256
+`63af9e64fe9707cde05bdcbd0f80b29409cb0327a4091f4d39268ff91946685c`;
+`/tmp/runref-transport-core-validation/` retains original RED/GREEN campaigns.
+
+These checks use synthetic pipes/HTTP and the common ledger; they do not prove
+real authentication or upstream TLS behavior. Public smoke was not repeated
+for the module without callers. Host-slot containment, independent cancellation
+observation during blocked durable acknowledgements, private IPC, scope cleanup
+and their real command smoke are the next internal integration slice. Actual
+provider qualification, public integration and Tasks 11–13 remain pending.
