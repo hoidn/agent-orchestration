@@ -67,9 +67,11 @@ Fresh preferred starting points:
 - For the same four turns with each role keeping one native conversation,
   read the opt-in `workflows/examples/design_review_execute_agents.orc`
   (target 2.38): a designer `Agent` takes the draft and revise turns and a
-  reviewer `Agent` takes the review and execute turns. It compiles with the
-  command in its header; running it requires the agent-session runtime,
-  which is pending, and it is not qualified.
+  reviewer `Agent` takes the review and execute turns. Allocation, turns,
+  recovery, C8 guards and instance views are implemented. The
+  [qualification record](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+  contains deterministic consumer evidence and bounded adapter smokes;
+  comparison with the baseline on real providers remains a separate gate.
 - For a review loop, start with
   `workflows/examples/improve_experiment_proposal.orc`, which calls
   `std/improve`. For generate-and-select, or a review loop written by hand,
@@ -172,7 +174,7 @@ Resolution rules:
 | `workflows/examples/review_revise_design_docs.orc` | Historical reference; executable entry retired | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Historical purpose/evidence (no current compile/run/dry-run): Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Its review call uses explicit phased delivery. Compilation without `--entry-workflow` succeeds; selecting the listed entry explicitly makes `--dry-run` fail with `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. It remains a reference (`not_current_guidance`); it is not a production drain or YAML parity replacement. |
 | `workflows/examples/review_revise_parametric_design_docs.orc` | Historical reference; executable entry retired | `2.14` | `review-revise-parametric-design-docs` | Historical purpose/evidence (no current compile/run/dry-run): Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path; start new authoring from a recent example. |
 | `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp W3 `std/improve` evidence; input-required | `2.36` | `improve_experiment_proposal::run-experiment` | Drafts a typed proposal, uses inferred local review/revise signatures and lexical context with the four-argument graph-selected helper, and passes the returned proposal to the workspace launcher in every outcome. Implemented at 2.36. Bounded public lifecycle evidence uses deterministic provider shims. Compile/dry-run validate manifests and the command closure declaration without certifying launcher bytes. Execution requires configured providers and the workspace-owned `scripts/launch_experiment.py` at that exact path; the example does not supply it; [recipe](../docs/lisp_library_reference.md#review-and-revise-with-stdimprove). |
-| `workflows/examples/design_review_execute_agents.orc` | Workflow Lisp agent-sessions example; input-required; compile-only until the agent-session runtime lands; qualification pending (PQ-1a) | `2.38` | `design_review_execute_agents::run` | Opt-in variant of `design_review_execute.orc`: designer `Agent` on `claude_unrestricted_workspace` (draft, revise) and reviewer `Agent` on `codex` (review, execute), four typed turns, two allocations. Same declarations, models, effort and timeouts as the baseline. Real execution will need both CLIs authenticated in the default home. |
+| `workflows/examples/design_review_execute_agents.orc` | Workflow Lisp agent-sessions example; input-required; implemented, with [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md); acceptance comparison pending (PQ-1c) | `2.38` | `design_review_execute_agents::run` | Opt-in variant of `design_review_execute.orc`: designer `Agent` on `claude_unrestricted_workspace` (draft, revise) and reviewer `Agent` on `codex` (review, execute), four typed committed turns, two allocations and two logical tmux views. Same declarations, models, effort and timeouts as the baseline. Real execution needs both CLIs authenticated in their configured homes. |
 ## Reusable Library Workflows
 
 For API signatures, hooks, complete compositions and prerequisites, use the

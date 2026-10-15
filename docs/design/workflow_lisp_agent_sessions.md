@@ -2,7 +2,7 @@
 
 ## Metadata And Summary
 
-- **Status:** proposed; owner selection recorded 2026-10-14 (additive evaluated target 2.38; first slice `design_review_execute` with two agents on the Claude and Codex session adapters); nothing implemented or qualified.
+- **Status:** first slice implemented at additive evaluated target 2.38: `design_review_execute` with designer and reviewer agents on the Claude and Codex session adapters. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded real-adapter smokes; acceptance comparison (PQ-1c) has not run. The `reviewed_change` coder variant remains a future second slice.
 - **Kind:** architecture decision and bounded language extension.
 - **Created:** 2026-10-13.
 - **Scope:** run-local agent identity, sequential native turns, and a typed result per turn.
@@ -26,17 +26,17 @@ require a general linear type system, a background process, or immutable native 
 | Effect identity, memo, recovery and invalidation | [Evaluated execution](workflow_lisp_evaluated_execution.md), §§6–9; [State](../../specs/state.md) and [CLI](../../specs/cli.md) remain normative for implemented behavior |
 | Provider configuration and typed results | [Providers](../../specs/providers.md), [Step IO](../../specs/io.md); existing composition, validation and result-destination owners remain authoritative |
 | Immutable history and branching | [Provider Context Values](workflow_lisp_provider_context_values.md); portable capture exists in its admitted slice, native immutable checkpoints remain proposed |
-| Historical sequential-turn analysis | [Provider Prompt Queue](workflow_lisp_provider_prompt_queue.md); superseded for first delivery by this proposal; transport/recovery analysis is retained, not a selectable surface |
+| Historical sequential-turn analysis | [Provider Prompt Queue](workflow_lisp_provider_prompt_queue.md); superseded for first delivery by Agent Sessions; transport/recovery analysis is retained, not a selectable surface |
 | Native transport | `ProviderSessionSupport`, `ProviderSessionRequest`, `ProviderExecutor`, and `session_transport.py` in `orchestrator/providers/` |
 | Observation | [Observability](../../specs/observability.md); invocation-local streams remain evidence, never continuation authority |
 | Concrete consumer | [design_review_execute.orc](../../workflows/examples/design_review_execute.orc); four independent provider calls at target 2.35 |
 
-Current evaluated admission rejects session publication/context clauses in
-`orchestrator/workflow_lisp/closed/effects.py`. The evaluated provider path does not bind a native
-session. The built-in Codex template has fresh/resume commands; the built-in Claude template has no
-`session_support`. Those facts establish substrate and gaps, not working agent sessions. In
-particular, `SessionIdentitySnapshot` reports identity and turn-boundary observations, not an
-expected native position or a recoverable append receipt.
+Evaluated admission still rejects session publication/context clauses in
+`orchestrator/workflow_lisp/closed/effects.py`; the bounded `agent_turn` route at 2.38 owns native
+continuation. The built-in Codex template has fresh/resume commands;
+`claude_unrestricted_workspace` carries `session_support` (plain `claude` templates do not).
+`SessionIdentitySnapshot` reports identity and turn-boundary observations, not an expected native
+position or a recoverable append receipt; agent receipts and native-store adapters supply those facts.
 
 ## Decision And Alternatives
 
@@ -72,8 +72,7 @@ selects neither implementation nor an admission target.
 
 ## Authoring And Composition
 
-Proposed fragment only; prompt/type declarations are those of the consumer. This syntax is not
-available at any currently advertised target:
+Fragment admitted at target 2.38; prompt/type declarations are those of the consumer:
 
 ```lisp
 (let* ((designer (agent providers.claude :model planner_model :effort "high"))
@@ -100,11 +99,12 @@ Model/effort/provider/workspace overrides are rejected, even if apparently equal
 constructor instead. The bounded form excludes context capture/binding, session publication, phased
 delivery, supervision and peer groups. These combinations need their own contracts.
 
-| Position | Proposed rule |
+| Position | First-slice rule |
 | --- | --- |
 | Local alias, record/list field, branch selection | Permitted; copying a handle aliases the same agent, never forks it |
 | Same-run `defproc` argument/return, including imported and specialized helpers | Permitted through the ordinary evaluated call path; factories may return agents |
 | Sequential loop | A handle created outside is reused; construction inside creates one instance per activation, including repeated identical inputs |
+| Loop state (`loop-state` fields, `loop/recur` outputs) | Refused in the first slice; an outside handle is reused lexically inside the loop body |
 | Conditional creation/use | Only the selected branch allocates or invokes; joins retain the selected handle |
 | Parallel boundary | No agent may enter or leave a worker, including aggregates/captures; worker-local construction/use is a proposed extension pending public parallel proof |
 | Workflow/child-run boundary | No agent in public `defworkflow`/`call` signatures, run-reference transport or child-run results, even when an evaluated call stays in the same process/run |
@@ -116,11 +116,9 @@ its public signature remains transportable even when `call` stays in the same pr
 no root-only exception. Runtime-owned checkpoint encoding and authorized identity inspection are
 allowed.
 
-Frontend §8.8 currently says: “Runtime state must not carry type parameters, procedure values,
-provider refs, prompt refs, or closure environments.” This proposal requires a versioned, narrow
-exception for runtime-owned `Agent` descriptors whose provider origins are fixed by checked source.
-It admits no arbitrary provider refs, executable values or closure environments. Current normative
-restrictions remain until explicit admission.
+Frontend §8.8 admits the versioned, narrow exception at 2.38 for runtime-owned `Agent` descriptors
+whose provider origins are fixed by checked source. It admits no arbitrary provider refs, executable
+values or closure environments; other runtime-state restrictions remain.
 
 An explicit `Agent` formal borrows run-local authority; an alias/aggregate copy does not snapshot or
 transfer it. Implicit `let-proc`/`bind-proc` capture of an agent is rejected, as is every
@@ -167,9 +165,9 @@ checked against its historical predecessor, then advances this replay cursor. Do
 the latest native position: that conversation may already contain later committed turns. Only before
 a new append must the adapter confirm that the native head matches the recorded current position;
 exclusive continuation is runtime-owned (see Architecture, Compatibility And Feasibility). A
-settled memo hit uses its inline committed proof as sole continuation authority, with no new
+committed memo hit, settled or not, uses its inline proof as sole continuation authority, with no new
 attempt-receipt-file or live-session dependency. Existing artifact-integrity checks remain.
-Unsettled/uncommitted reconciliation still needs its required attempt evidence. Completed runs
+Uncommitted reconciliation still needs its required attempt evidence. Completed runs
 remain readable/replayable after native-session deletion.
 
 Transport closure releases process resources, not agent authority. Do not delete sessions at lexical
@@ -218,6 +216,7 @@ cannot replace an adapter receipt.
 | Memo committed; settlement incomplete | Reconcile/settle from committed proof, with no native append and no comparison of an old turn to the current head |
 | Committed and settled | Reuse result, even if the native session is unavailable |
 | Before a new turn, session missing/advanced elsewhere/configuration incompatible | Refuse `agent_session_unavailable`, `agent_session_diverged` or `agent_policy_mismatch`; never silently create/import another conversation |
+| Operator deletes an attempt directory after launch | Tampering, outside supported crash recovery: missing directory is classified as never created; a first turn may redispatch without an abandonment record, while later turns are backstopped by the native-head check |
 
 A failed/timed-out transport may have advanced. Quiesce it through existing cleanup before
 reconciliation or append; inability to prove it stopped is `agent_turn_unresolved`. Receipt
@@ -258,18 +257,23 @@ edits are not transactional.
 K8/C8 already forbid superseding a committed coordinator. Under the writer lock and after base
 authority/anchor checks, a suffix containing any committed agent turn therefore refuses the existing
 `invalidate_coordinator_committed`. Do this before the additional receipt checks, tail repair or any
-write. Otherwise inspect **all agent attempt history** affected by the cut: unreadable required
-receipts refuse `memo_inconsistent`; dispatched, advanced or uncertain attempts started after the
-cut, or dependent on an allocation/predecessor in the suffix, refuse
+write. Otherwise inspect **all agent attempt history** started at or after the cut: unreadable
+required receipts refuse `memo_inconsistent`; dispatched, advanced or uncertain attempts refuse
 `invalidate_agent_session_advanced`. Include abandoned bootstrap attempts. The start-order rule
 protects undeclared file dependencies, not only typed value edges. Unused
 allocations/proven-undispatched attempts can follow C8. A non-agent tail after the last session turn
 may still invalidate.
 
-`memo.py` and `memo_reducer.py` currently hard-code `run_ref` for committed coordinator protection;
-settlement/readers also need the checked agent-turn classification. Extend both write preflight and
-replay validation, including attempt-history guards; do not merely add a CLI check. Allocation
-remains a non-coordinator. Deleting memo records cannot rewind native history. Consequently the
+`memo_reducer.py::is_coordinator_class` uses the checked coordinator classes `run_ref` and
+`agent_turn`; memo invalidation, settlement and readers use that classification. Replay validation
+performs every journal-only guard; receipt-based guards run at write preflight and resume-time
+prefix validation (R1). A `started` row does not bind its agent, so the reducer's allocation guard
+requires only some active allocation; the receipt and committed proof carry the binding. Start
+order subsumes the dependency rule for before-cut attempts: invalidation receipt checks cover only
+at/after-cut attempts closed with non-dispatched failure codes (R7). Resume validates receipts of
+pending attempts and dispatched-failure attempts. Committed turns, settled or not, use inline
+proofs and never consult receipt sidecars (R8). Allocation remains a non-coordinator.
+Deleting memo records cannot rewind native history. Consequently the
 artifact-handoff consumer can invalidate feedback and rerun its suffix; the session variant cannot
 when that suffix contains a committed turn. A new run may repeat paid design/review work and
 workspace effects. This is a concrete loss of recoverability, not a blanket ban on invalidation.
@@ -301,8 +305,8 @@ active-writer exclusion is defense in depth; an adapter without it may still qua
 check-then-append window against a concurrent external writer (an operator resuming the same native
 session from their own shell) is a documented operator limit, not a qualification blocker: external
 advancement inside that window is detected at the next turn. Reconciliation distinguishes
-completion, non-delivery and uncertainty. Codex resume syntax proves none of this; Claude also needs
-transport. Advertise neither before qualification. PQ-1a is the sole record of this shared mechanism's
+completion, non-delivery and uncertainty. Transport alone proves none of this.
+PQ-1a is the sole record of this shared mechanism's
 qualification and adapter dispositions for both consumers, including delayed delivery, helper/loop
 composition, current prompt sources/input snapshots and both pending-turn commit gaps. This design
 does not create a second qualification record in the drafting plan.
@@ -311,6 +315,8 @@ Native sessions live in the provider's default home (`~/.codex`, `~/.claude`); n
 `CODEX_HOME`/`CLAUDE_CONFIG_DIR` and no credential provisioning are introduced. Locators are
 provider UUIDs; the pre-append position check above detects external advancement. A run-private
 native home is a possible later hardening, not required here.
+The adapters honour `CODEX_HOME`/`CLAUDE_CONFIG_DIR` only when already present in the orchestrator's
+environment; the orchestrator never sets them (D7).
 
 Admission is additive at evaluated target 2.38, selected by the owner on 2026-10-14; the
 2.35/2.36/2.37 contracts are unchanged and the Phase 5 (2.37) gates stay independent. Calls
@@ -321,7 +327,7 @@ delivery, with no separate implementation lane.
 
 ## Instance Observation In Tmux
 
-Propose one read-only logical view per agent instance (designer and reviewer for the two-agent
+Provide one read-only logical view per agent instance (designer and reviewer for the two-agent
 consumer, one coder view for the coder variant), aggregating that agent's normalized attempt
 streams across all of its turns in turn order with turn/attempt boundaries and idle states. The
 view follows the instance, not the call: invoking the same agent again continues its existing view
@@ -333,7 +339,7 @@ tmux target. Show current attach coordinates transiently; never persist them in 
 memo/checkpoints or stable status. Existing durable streams may feed a rebuilt view but never
 authorize a turn, reconcile it or launch a provider.
 
-This needs an explicit proposed observability amendment: ordinary calls retain the current
+The implemented observability amendment keeps ordinary calls under the current
 one-invocation/one-pane contract, while agent instance views are derived above invocation-local
 evidence. Observation failures, missing streams, attach/detach and teardown remain best-effort and
 cannot affect execution. Normalized output provides no promise of complete tool or hidden-reasoning
@@ -388,7 +394,7 @@ storage; native history stays in the provider default home (see Architecture, Co
 Feasibility). Source-free inspection shows logical identities, typed results and continuation status
 without opening a session or exposing its transcript.
 
-Implementation needs an independently reviewed plan, proven feasibility and amendments to
+The implementation plans and qualification record own the reviewed delivery and evidence for
 frontend/closed-program contracts, `specs/{providers,io,state,cli,versioning,observability}.md`,
 adapter documentation, the guide/catalog and consumer. Handoff: reference admission, qualified
 transport, shared turn recovery, C8/readers/observation, then public acceptance. No new framework or
@@ -398,7 +404,10 @@ unverifiable native state, silent replay, stronger snapshot semantics, or a seco
 ## Open Questions Before Selection
 
 Resolved or re-scoped by the owner selection of 2026-10-14. Rows marked as in-plan gates stay open
-until proved under PQ-1a; the selection does not satisfy them.
+until proved under PQ-1a; the selection does not satisfy them. Their current evidence disposition is
+recorded in the [qualification record](../reports/2026-10-14-agent-sessions-pq1a-qualification.md),
+including real-provider limits. The table preserves the selection-time questions; it does not mark
+the separate PQ-1c comparison or second consumer slice complete.
 
 | Question / responsible component | Impact | Disposition at selection (2026-10-14) |
 | --- | --- | --- |

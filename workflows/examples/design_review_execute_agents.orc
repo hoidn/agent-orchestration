@@ -19,8 +19,9 @@
   ;; draft turn's context and the execute turn sees the review turn's.
   ;; Invalidating `feedback`, or any step before a committed turn, is
   ;; refused (C8). The baseline design_review_execute.orc keeps four
-  ;; independent calls. Compiles at 2.38; running it requires the pending
-  ;; agent-session runtime.
+  ;; independent calls. Implemented at 2.38; deterministic consumer checks
+  ;; and bounded adapter smokes are recorded in the PQ-1a qualification
+  ;; report. The real-provider acceptance comparison remains a separate gate.
   ;;
   ;;   python -m orchestrator compile workflows/examples/design_review_execute_agents.orc \
   ;;     --provider-externs-file workflows/examples/inputs/design_review_execute_agents/providers.json

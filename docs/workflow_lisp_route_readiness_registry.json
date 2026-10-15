@@ -397,7 +397,7 @@
       "evidence": [
         "tests/test_workflow_lisp_design_review_execute_agents_example.py::test_documented_command_compiles_two_agents_and_four_turns"
       ],
-      "notes": "Opt-in Agent Sessions variant of design_review_execute.orc at target 2.38: a designer Agent on providers.claude takes the draft and revise turns and a reviewer Agent on providers.codex takes the review and execute turns, with the baseline's declarations, models, effort and timeouts. Compile evidence only (two allocation sites, four agent_turn sites); running it requires the Plan B agent-session runtime, which is pending, and no live provider run or qualification is recorded.",
+      "notes": "Opt-in Agent Sessions variant of design_review_execute.orc at target 2.38: a designer Agent on providers.claude takes draft/revise and a reviewer Agent on providers.codex takes review/execute, preserving the baseline declarations, models, effort and timeouts. Allocation, turns, recovery, C8 guards and instance views are implemented. The PQ-1a qualification record (docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic consumer/mechanism proofs and bounded real-provider adapter smokes, not a real-provider run of this consumer or its acceptance comparison. PQ-1c clean and failed/resumed comparison remains separately authorized.",
       "path": "workflows/examples/design_review_execute_agents.orc",
       "readiness_label": "leaf_compile_candidate",
       "route_label": "evaluated_execution",

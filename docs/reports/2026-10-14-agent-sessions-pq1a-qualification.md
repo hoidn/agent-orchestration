@@ -2,12 +2,14 @@
 
 PQ-1a is the single qualification record for the shared agent-session mechanism and its adapter dispositions
 (`docs/design/workflow_lisp_agent_sessions.md`, Architecture, Compatibility And Feasibility). This record holds the
-deterministic part, written 2026-10-15 on branch `feat/agent-sessions` (Plan B Task 18), target 2.38.
+deterministic part and the bounded Tasks 19–20 adapter smokes, written 2026-10-15 on branch
+`feat/agent-sessions` (Plan B Tasks 18–21), target 2.38.
 
 Scope statement: "deterministic proofs are mechanism proofs, not consumer proofs; no acceptance comparison has run". Every proof below
 drives the evaluated runtime with deterministic `codex`/`claude` CLIs (`tests/agent_session_shims.py`) that write each
-provider's native-store format. No real provider CLI ran for this record. Neither adapter is advertised as qualified
-until the real-provider smokes below are recorded.
+provider's native-store format. No real provider CLI ran for the original Task 18 deterministic section.
+The real-provider smokes appended below are bounded adapter evidence, not a real-provider execution or
+acceptance comparison of the two-agent consumer. Final whole-branch review/verification is a separate closure gate.
 
 ## Verification evidence
 
@@ -133,11 +135,11 @@ bind after `02a0067b`).
 | R3 quiescence | `quiesce` identifies the group by `pgid` plus the leader's start time (`/proc/<pid>/stat` field 22, recorded in the receipt at `launching`) and never signals a live leader whose start time differs. Residual: a leader that exec-replaced itself keeps an identical start time and is still signalled (accepted by R3). On a platform without `/proc` the start time is unavailable and `quiesce` falls back to process-group liveness alone (`killpg(pgid, 0)`). The start-time check is not repeated between SIGTERM and SIGKILL. |
 | Attempt directory deleted by hand after launch | A first turn redispatches without an abandonment record; later turns are backstopped by D1. Tampering, outside the failure table. |
 
-## Real-provider evidence still required
+## Real-provider evidence and remaining limits
 
 | Disposition | Real evidence |
 | --- | --- |
-| Lazy creation, sequential append, completion identification, turn-local contracts, compatible policy, receipt `fresh` then `resume` with a recorded `pgid` | Tasks 19 (Claude, `haiku`/`low`) and 20 (Codex, `gpt-6-luna`/`low`): one two-turn context-retention smoke each, `tests/e2e/test_agent_session_real_claude.py`, `tests/e2e/test_agent_session_real_codex.py`. The Codex smoke model differs from the consumer's default (coordinator ruling) |
+| Lazy creation, sequential append, completion identification, turn-local contracts, compatible policy, receipt `fresh` then `resume` with a recorded `pgid` | Recorded below: Tasks 19 (Claude, `haiku`/`low`) and 20 (Codex, `gpt-6-luna`/`low`), one passing two-turn context-retention smoke each. The Codex smoke model differs from the consumer's default (coordinator ruling) |
 | Exact-locator loss rejection, quiescence after cancel | Observed for both CLIs in the 2026-10-13 native CLI probe, outside this runtime; Tasks 19–20 do not exercise them |
 | External divergence on a real store | Not exercised by Tasks 19–20 |
 | Exact interrupted-turn recovery | Inconclusive in the 2026-10-13 probe; not exercised by Tasks 19–20 |
@@ -145,8 +147,75 @@ bind after `02a0067b`).
 
 ## Gaps
 
-None open.
+Original deterministic gaps G1–G3 are closed by `61a4beb9`: missing typed result, public
+`resume` refusal on unprovable quiescence, and the two additional bootstrap kill points.
+This does not close later whole-branch contract findings. Final review found checked-artifact
+escape, interrupted missing-result classification, missing-result diagnostic disclosure, and
+Claude native locator/session-identity binding issues; their revisions and review disposition
+remain coordinator-owned and pending at this documentation cut.
 
 ## Real-provider smokes (Tasks 19–20)
 
-Pending: appended by the coordinator after the bounded paid runs.
+The coordinator executed the authorized bounded paid runs; this append records that evidence
+without launching another provider. Test modules were committed in `3472bef2` and skip without
+`AGENT_SESSION_REAL_SMOKE`. Both use the actual evaluated runtime, default/configured native
+homes and authenticated CLIs. Each requests two typed turns: the first supplies a secret and
+the second, without supplying it again, returns that secret from the retained conversation.
+
+| Adapter / CLI | Model / effort | Result and elapsed test time | Evidence disposition |
+| --- | --- | --- | --- |
+| Codex / `codex-cli 0.162.1` | `gpt-6-luna` / `low` (owner ruling) | First run PASS, 1 test, 17 s | One session; two committed typed turns; `fresh` → `resume`; current result/input bindings and predecessor lineage |
+| Claude / `2.1.300` | `haiku` / `low` | First run FAILED, `agent_turn_unresolved` | Native turn completed, but SessionStart hooks in the configured home inserted pre-prompt attachment rows; strict direct-parent matching could not bind turn 1 |
+| Claude / `2.1.300`, once-authorized rerun after `23dc52ec` | `haiku` / `low` | PASS, 1 test, 12.4 s | One session; two committed typed turns; `fresh` → `resume`; current result/input bindings and predecessor lineage |
+
+`23dc52ec` permits the submitted Claude prompt to descend through same-session, non-sidechain,
+earlier pre-prompt `attachment` rows without a `promptId`; other lineage shapes still refuse.
+The passing fresh turn used this allowance. On this CLI's `-p --resume` path the second prompt
+parented directly from the first turn's final row. The subsequent offline fix `5cd87d53`
+rejects forward ancestry in this attachment walk (40 native-store tests; separate review).
+There was no new paid smoke after that stricter fix, so the paid evidence remains attached to
+the revisions above. Per-turn elapsed/native usage was not captured for these adapter smokes;
+the totals above are pytest durations and do not satisfy the comparison gate below.
+
+Redacted receipt/proof excerpts (locators and native turn IDs truncated to eight characters;
+positions and process IDs omitted here):
+
+| Adapter | Logical turn | Locator / native turn prefix | Receipt and inline-proof binding |
+| --- | --- | --- | --- |
+| Claude | `workflow:main::run / r1` | `a943de9c…` / `24a9a656…` | `fresh`, completed, attempt 1, predecessor null, result `sha256:4893793e26a69a0d3e00fd35ff93d4894d3a63cbabce8f1bcfc0568dd459cda2` |
+| Claude | `workflow:main::run / r2` | `a943de9c…` / `00c3cdbc…` | `resume`, completed, attempt 1, predecessor `r1`, result `sha256:497685a2f842db52d18ed1dbb66241ce3e3c43e80bc618a23993739f46f770b4` |
+| Codex | `workflow:main::run / r1` | `01a13e62…` / `01a13e62…` | `fresh`, completed, attempt 1, predecessor null, result `sha256:2a578f33abd482593e856bc0f6bf33d925616b55d8fce53b6f2bb5bc4f6bc5ff` |
+| Codex | `workflow:main::run / r2` | `01a13e62…` / `01a13e62…` | `resume`, completed, attempt 1, predecessor `r1`, result `sha256:807725818e29dd66933f6dfdddcaf091b8f81c632a6c60df36aa5c4c15eaed7e` |
+
+Each pair has a stable allocation/configuration digest, distinct per-turn input digests, and
+the second receipt's prior position equals the first inline proof's completed position. The
+gated assertions verify a recorded process group for both adapters. The retained source
+evidence redacts locators/IDs to eight characters and replaces Claude process IDs with
+`recorded`; no native paths, positions, process IDs or tmux targets are added to general views
+by this record. Coordinator post-run inspection found no provider-process or observation/tmux leak.
+
+Source evidence lives under the execution scratchpad's `smoke/` directory (identified by the
+SDD handoff), not under a provider's native store. Digests pin the files used for this append:
+
+| Evidence file | SHA-256 |
+| --- | --- |
+| `claude-evidence.md` | `992236c5ea088ef0c4c5dda540c4f49697465fff7a3c2ddc0cce3d2dc065271a` |
+| `codex-evidence.md` | `5dadffce3269b25dfa1075b9392e4460f259120617e5fd887d6ab3dd29ae43bb` |
+| `versions.txt` | `ead75d9c69f5904b26bbf0065944ec21a187d7c4cc653d64f64eea309ea85bed` |
+| `claude.txt` (failed first run) | `7b9254a5fff2d9f7acbee0f9276f66ce6039c1b1a8cffe400e0b710ac1465f47` |
+| `claude2.txt` (passing rerun) | `90b0204a5460d4c9aef964486070927fd4b1c35753f8630bbc25c6d14e8c140c` |
+| `codex.txt` (passing first run) | `bff8a1fd5458781a4e275ba6df74e65b2322fc01a905e20b888ab7f836c32472` |
+
+These smokes establish bounded successful continuation/current bindings with retained context;
+they do not exercise real-provider runtime interruption, exact interrupted-turn recovery,
+external divergence, cancel quiescence or the four-turn consumer. The deterministic tables
+remain the source for those runtime proofs; the earlier native CLI probe supplies only its
+separately scoped observations. No acceptance/benefit claim follows from the passing smokes.
+
+## Acceptance comparison gate — not authorized by this plan
+
+- Runs required: the variant `design_review_execute_agents.orc` and the baseline `design_review_execute.orc` on the same task input, same models/effort/timeouts, (a) one clean run each, (b) one failed/resumed run each (kill after the first reviewer turn commits; resume), both with real providers.
+- Evidence per run: run root (memo, receipts, attempt files), elapsed time per turn, provider usage from each CLI's native accounting, the produced documents, the four typed results, dispatch counts, any `agent_bootstrap_restarted`/`effect_rerun` rows, and for the variant the refusal of `invalidate <feedback>`.
+- Axes judged (PQ-1c): retained useful context, repeated investigation, friction, elapsed time, total provider usage (first-turn repeats included), inability to invalidate feedback after session commits.
+- Decision rule: acceptance requires both clean and failed/resumed evidence plus an explicit owner judgment that retained context justifies lost suffix recoverability and any repeated paid work; a clean success alone is insufficient. Outcomes: retain, improve, or retire (PQ-1c).
+- Authorization: the owner authorizes these runs separately (D8). This plan stops here.

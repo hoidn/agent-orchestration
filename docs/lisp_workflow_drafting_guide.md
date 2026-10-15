@@ -354,8 +354,8 @@ any library helper.
 
 At target 2.38 the surface also includes `agent`, which allocates a run-local
 `Agent`, and `provider-result` on an `Agent`, which takes one turn in that
-agent's native conversation. Both compile today; running them requires the
-agent-session runtime, which is pending. See
+agent's native conversation. Both compile and run; acceptance comparison
+remains pending. See
 [Agent sessions](#agent-sessions-target-238).
 
 Native transportable results need no one-field record wrapper: use the actual
@@ -1410,9 +1410,11 @@ its executable route is retired, with no evaluated capture port selected.
 
 ### Agent sessions (target 2.38)
 
-Status: the forms below compile at target 2.38. Running them requires the
-agent-session runtime (allocation, turns, recovery), which is pending, and
-the surface is not qualified; PQ-1a in the
+Status: allocation, turns, recovery, C8 guards and instance views are implemented
+at target 2.38. The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+contains deterministic mechanism/consumer proofs and bounded real-provider adapter smokes.
+It does not establish a benefit over the artifact-handoff baseline; PQ-1c's clean and
+failed/resumed comparison remains separately authorized. PQ-1a in the
 [evaluated execution plan](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
 owns qualification. The [Agent Sessions design](design/workflow_lisp_agent_sessions.md)
 owns the contract.
@@ -1465,8 +1467,8 @@ Refused at compile time:
 `workflows/examples/design_review_execute_agents.orc` is the worked example:
 the four-turn [`design_review_execute.orc`](../workflows/examples/design_review_execute.orc)
 with a designer agent on Claude and a reviewer agent on Codex. The
-[state spec](../specs/state.md) will own the allocation and turn memo
-records when the runtime lands. Agent sessions supersede the proposed
+[state spec](../specs/state.md) owns the allocation and turn memo
+records. Agent sessions supersede the proposed
 `prompt-queue` form, which is not implemented.
 
 ### Durable Host Input
