@@ -190,6 +190,31 @@ def test_lost_designer_session_refuses_before_dispatch(tmp_path, monkeypatch) ->
     assert len(shim_requests(tmp_path)) == 2
 
 
+def test_claude_filename_session_mismatch_refuses_before_dispatch_without_native_details(tmp_path, monkeypatch) -> None:
+    frontend = _setup(tmp_path, monkeypatch)
+    run_root, locator = _stop_after_feedback(tmp_path, frontend)
+    native_path = _claude_store(tmp_path, locator)
+    rows = [json.loads(line) for line in native_path.read_text().splitlines()]
+    foreign_id = "a35c7d52-28a9-4c42-a589-f206f2e112c9"
+    for row in rows:
+        row["sessionId"] = foreign_id
+    native_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    resumed = _cli(tmp_path, "resume", run_root.name)
+
+    assert resumed.returncode == 1 and "agent_session_unavailable" in resumed.stderr, resumed.stderr
+    _root, _authority, _classes, memo = memo_of(tmp_path)
+    assert not any(row.data["record"] == "started" and row.data["identity"].endswith("/ revised") for row in memo.entries)
+    assert len(shim_requests(tmp_path)) == 2
+    outputs = [resumed.stderr, (run_root / "state.json").read_text()]
+    for fmt in ("json", "md"):
+        report = _cli(tmp_path, "report", "--run-id", run_root.name, "--format", fmt)
+        assert report.returncode == 0, report.stderr
+        outputs.append(report.stdout)
+    secrets = (locator, foreign_id, str(native_path), str(tmp_path / "claude"))
+    assert all(secret not in output for secret in secrets for output in outputs)
+
+
 @pytest.mark.parametrize("hook, env, retried", [
     (STOP_AFTER_RECORD, {"STOP_RECORD": "started", "STOP_TURN": "/ draft"}, "draft"),          # before intent
     (STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "intent", "STOP_TURN": "/ feedback"}, "feedback"),  # after intent

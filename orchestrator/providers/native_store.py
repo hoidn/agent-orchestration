@@ -396,12 +396,12 @@ def _claude_submitted(row: dict[str, Any]) -> bool:
     return row.get("type") == "user" and not _claude_tool_result(row)
 
 
-def _claude_users(records: Records) -> tuple[str, Records]:
+def _claude_users(records: Records, expected_session_id: str) -> tuple[str, Records]:
     """The session id and its submitted (non-tool-result) user rows."""
     first = next((row for _line, row in records if _claude_submitted(row)), {})
     session_id = first.get("sessionId")
-    if not _identity(session_id):
-        raise NativeStoreError("native store exposes no submitted user turn with a session id")
+    if not _identity(session_id) or session_id != expected_session_id:
+        raise NativeStoreError("native session identity does not match its store filename")
     session_rows = [(line, row) for line, row in records if row.get("sessionId") == session_id]
     users = [(line, row) for line, row in session_rows if _claude_submitted(row)]
     if any(row.get("type") == "assistant" for line, row in session_rows if line < users[0][0]):
@@ -440,7 +440,7 @@ def _claude_turns(path: Path) -> tuple[str, Records, list[NativePosition | None]
     """Session id, submitted user rows, and per submitted turn its position (None: incomplete or unsupported)."""
     records = _read_jsonl(path)
     by_id = _claude_by_id(records)
-    session_id, users = _claude_users(records)
+    session_id, users = _claude_users(records, path.stem)
     positions: list[NativePosition | None] = []
     prior_final_id: object = None
     prompts: set[str] = set()

@@ -87,6 +87,22 @@ def test_open_turn_and_ambiguity_are_reported_not_guessed(tmp_path, monkeypatch,
     assert located.path is None and located.ambiguous is True
 
 
+def test_claude_store_identity_must_match_its_filename(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "home"))
+    path = tmp_path / "home" / "projects" / "p" / f"{CLAUDE_SID}.jsonl"
+    rows = _claude_rows([("t1", "m1", True)])
+    foreign_id = "a35c7d52-28a9-4c42-a589-f206f2e112c9"
+    for row in rows:
+        row["sessionId"] = foreign_id
+    _jsonl(path, rows)
+    adapter = native_store_adapter("claude_stream_json_stdout")
+    assert adapter.locate(CLAUDE_SID).path == path
+    with pytest.raises(NativeStoreError, match="session identity does not match"):
+        adapter.head(path)
+    with pytest.raises(NativeStoreError, match="session identity does not match"):
+        adapter.completed_turn(path, after=None, prompt_marker="m1")
+
+
 def test_unknown_mode_has_no_adapter_and_env_is_not_required(monkeypatch) -> None:
     monkeypatch.delenv("CODEX_HOME", raising=False)
     assert native_store_adapter("omp_json_stdout") is None
