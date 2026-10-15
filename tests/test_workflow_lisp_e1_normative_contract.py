@@ -125,7 +125,7 @@ def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:
 
     assert re.search(r"(?m)^\| 2\.24 \|[^\n]*`run-ref`", versioning)
     master_version = re.search(
-        r"(?m)^# .*v1\.1 through v(?P<major>\d+)\.(?P<minor>\d+)",
+        r"(?m)^# .*v1\.1 through (?:bounded )?v(?P<major>\d+)\.(?P<minor>\d+)",
         index,
     )
     assert master_version is not None

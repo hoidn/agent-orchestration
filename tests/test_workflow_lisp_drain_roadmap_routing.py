@@ -1782,11 +1782,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         surface
         for surface in route_registry["surfaces"]
         if surface["path"]
-        == "workflows/examples/review_revise_design_docs_judgment_panel.orc"
+        == "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs_judgment_panel.orc"
     ]
     assert len(panel_route_rows) == 1
     [panel_route_row] = panel_route_rows
-    assert panel_route_row["surface_kind"] == "workflow_example"
+    assert panel_route_row["surface_kind"] == "test_fixture"
     assert panel_route_row["copy_safety"] == "not_current_guidance"
     assert panel_route_row["route_label"] == "historical_negative"
     assert "readiness_label" not in panel_route_row
@@ -2553,7 +2553,7 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
         assert "pair validated" in normalized_ir
 
     assert "(review_report_target_path :path :out ReviewReportTargetPath)" in guide
-    assert "workflows/examples/review_revise_design_docs.orc" in guide
+    assert "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc" in guide
     assert "](design/workflow_lisp_prompt_calculus.md)" in guide
     assert (REPO_ROOT / "docs/design/workflow_lisp_prompt_calculus.md").is_file()
 

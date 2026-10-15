@@ -71,20 +71,20 @@ EXPECTED = {
     "experiments/orc_vs_single_call/workflows/best_of_n.orc::best-of-n": Built(2),
     "experiments/orc_vs_single_call/workflows/best_of_n.orc::select-only": Built(1),
     "experiments/orc_vs_single_call/workflows/reviewed_change.orc::reviewed-change": Built(4),
-    "workflows/examples/cycle_guard_demo.orc::cycle-guard-demo": Built(1),
-    "workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack": Built(6),
-    "workflows/examples/effectful_let_star_normalization.orc::run-effectful-let-star-normalization": Built(4),
-    "workflows/examples/effectful_match_arm_normalization.orc::run-effectful-match-arm-normalization": Built(3),
+    "tests/fixtures/workflow_lisp/retired_examples/cycle_guard_demo.orc::cycle-guard-demo": Built(1),
+    "tests/fixtures/workflow_lisp/retired_examples/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack": Built(6),
+    "tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc::run-effectful-let-star-normalization": Built(4),
+    "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc::run-effectful-match-arm-normalization": Built(3),
     "workflows/examples/improve_experiment_proposal.orc::run-experiment": Built(5),
-    "workflows/examples/kiss_backlog_item.orc::run-backlog-item": Built(12),
+    "tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc::run-backlog-item": Built(12),
     "workflows/examples/plan_review_execute.orc::run": Built(4),
     "workflows/examples/design_review_execute.orc::run": Built(4),
     "workflows/examples/design_review_execute_agents.orc::run": Built(6),
-    "workflows/examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
-    "workflows/examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel": Built(2),
-    "workflows/examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
-    "workflows/examples/same_file_record_call_binding.orc::run-same-file-record-call-binding": Built(1),
-    "workflows/examples/with_phase_composed_binding.orc::run-with-phase-composed-binding": Built(1),
+    "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
+    "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel": Built(2),
+    "tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
+    "tests/fixtures/workflow_lisp/retired_examples/same_file_record_call_binding.orc::run-same-file-record-call-binding": Built(1),
+    "tests/fixtures/workflow_lisp/retired_examples/with_phase_composed_binding.orc::run-with-phase-composed-binding": Built(1),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::design-qa": Built(4),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::direct": Built(1),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::product-qa": Built(3),
@@ -506,8 +506,8 @@ def _assert_control_edge(
 
 
 ORIGINAL_TARGET_FLAT_OUTCOMES = {
-    "workflows/examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
-    "workflows/examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
+    "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
+    "tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
     "workflows/library/lisp_frontend_design_delta/drain.orc::drain": "passed",
     "workflows/library/lisp_frontend_design_delta/selector.orc::select-next-work": "passed",
 }
@@ -787,7 +787,7 @@ def _phase_reference_targets(row):
 
 
 def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
-    (workflow,) = [row for row in corpus() if row.key == 'workflows/examples/kiss_backlog_item.orc::run-backlog-item']
+    (workflow,) = [row for row in corpus() if row.key == 'tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc::run-backlog-item']
     result = try_build(workflow, tmp_path)
     assert result.program is not None
     tree = result.program.tree

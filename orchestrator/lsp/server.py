@@ -10,6 +10,7 @@ from lsprotocol import types
 from pygls.exceptions import JsonRpcInvalidParams
 from pygls.lsp.server import LanguageServer
 
+from orchestrator import __version__
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 from .compile_driver import (
@@ -88,7 +89,7 @@ class WorkflowLispLanguageServer(LanguageServer):
     ) -> None:
         super().__init__(
             "workflow-lisp",
-            "0.1.0",
+            __version__,
             text_document_sync_kind=types.TextDocumentSyncKind.Full,
         )
         self.driver: LspCompileDriver | None = None

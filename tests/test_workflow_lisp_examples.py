@@ -9,15 +9,15 @@ from orchestrator.workflow_lisp.compiler import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = REPO_ROOT / "workflows" / "examples"
-PARAMETRIC_REVIEW_EXAMPLE = WORKFLOWS / "review_revise_parametric_design_docs.orc"
+RETIRED_EXAMPLES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "retired_examples"
+PARAMETRIC_REVIEW_EXAMPLE = RETIRED_EXAMPLES / "review_revise_parametric_design_docs.orc"
 PARAMETRIC_REVIEW_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_parametric_design_docs" / "review.md"
 )
 PARAMETRIC_FIX_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_parametric_design_docs" / "fix.md"
 )
-DESIGN_DOCS_REVIEW_EXAMPLE = WORKFLOWS / "review_revise_design_docs.orc"
+DESIGN_DOCS_REVIEW_EXAMPLE = RETIRED_EXAMPLES / "review_revise_design_docs.orc"
 DESIGN_DOCS_REVIEW_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_design_docs" / "review.md"
 )
@@ -38,10 +38,10 @@ FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL = (
     / "review_revise_design_docs_target_2_21.orc"
 )
 DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE = (
-    WORKFLOWS / "review_revise_design_docs_judgment_panel.orc"
+    RETIRED_EXAMPLES / "review_revise_design_docs_judgment_panel.orc"
 )
 DESIGN_DOCS_JUDGMENT_PANEL_INPUTS = (
-    WORKFLOWS
+    RETIRED_EXAMPLES
     / "inputs"
     / "review_revise_design_docs_judgment_panel"
 )
@@ -62,7 +62,7 @@ def compile_stage3_module(*args, **kwargs):
 
 
 def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
-    workflow_source = (WORKFLOWS / "kiss_backlog_item.orc").read_text(encoding="utf-8")
+    workflow_source = (RETIRED_EXAMPLES / "kiss_backlog_item.orc").read_text(encoding="utf-8")
     assert "(import std/phase :only" in workflow_source
     assert ":review-provider" not in workflow_source
     assert ":fix-provider" not in workflow_source
@@ -71,7 +71,7 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
     assert ":returns ReviewLoopResult" not in workflow_source
 
     result = compile_stage3_module(
-        WORKFLOWS / "kiss_backlog_item.orc",
+        RETIRED_EXAMPLES / "kiss_backlog_item.orc",
         provider_externs={
             "providers.plan": "fake-plan",
             "providers.plan-review": "fake-plan-review",
@@ -165,9 +165,18 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
 def test_review_revise_design_docs_exports_compile_for_same_target_importer(
     tmp_path: Path,
 ) -> None:
+    # The importer's root (tests/fixtures/workflow_lisp) contains
+    # retired_examples/, and the first containing root decides a module's
+    # expected path; compile a copy so each module has one owning root.
+    importer_root = tmp_path / "importer"
+    importer = importer_root / DESIGN_DOCS_EXPORT_IMPORT_FIXTURE.relative_to(
+        WORKFLOW_LISP_FIXTURES
+    )
+    importer.parent.mkdir(parents=True)
+    importer.write_bytes(DESIGN_DOCS_EXPORT_IMPORT_FIXTURE.read_bytes())
     result = compile_stage3_entrypoint(
-        DESIGN_DOCS_EXPORT_IMPORT_FIXTURE,
-        source_roots=(WORKFLOW_LISP_FIXTURES, WORKFLOWS),
+        importer,
+        source_roots=(importer_root, RETIRED_EXAMPLES),
         provider_externs={
             "providers.design-docs.review": "codex",
             "providers.design-docs.fix": "codex",
@@ -240,7 +249,7 @@ def test_review_revise_design_docs_judgment_panel_compiles_from_current_owner(
 
     result = compile_stage3_entrypoint(
         DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE,
-        source_roots=(WORKFLOWS,),
+        source_roots=(RETIRED_EXAMPLES,),
         entry_workflow=(
             "review-revise-design-docs-judgment-panel"
         ),

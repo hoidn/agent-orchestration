@@ -21,8 +21,9 @@ from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO_ROOT / "workflows"
-EXAMPLE = WORKFLOWS / "examples" / "design_plan_impl_review_stack_v2_call.orc"
-MIGRATION_INPUTS = WORKFLOWS / "examples" / "inputs" / "workflow_lisp_migrations"
+RETIRED_EXAMPLES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "retired_examples"
+EXAMPLE = RETIRED_EXAMPLES / "examples" / "design_plan_impl_review_stack_v2_call.orc"
+MIGRATION_INPUTS = RETIRED_EXAMPLES / "inputs" / "workflow_lisp_migrations"
 BASELINE = REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
 PILOT_EVIDENCE = (
     REPO_ROOT
@@ -67,7 +68,7 @@ STACK_IMPLEMENTATION_KNOWN_STORE_SCAN = (
 STACK_IMPLEMENTATION_IDENTITY_WITNESS = (
     STACK_IMPLEMENTATION_ELIGIBILITY_STOP.parent / "identity_delta_witness.json"
 )
-SAME_FILE_EXAMPLE = WORKFLOWS / "examples" / "same_file_record_call_binding.orc"
+SAME_FILE_EXAMPLE = RETIRED_EXAMPLES / "same_file_record_call_binding.orc"
 SAME_FILE_RETIREMENT_DECISION = (
     REPO_ROOT
     / "docs"
@@ -1677,7 +1678,11 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers(
 
     readiness_paths = {row["path"] for row in registry["surfaces"]}
     assert active_by_id[drain_id]["source_path"] in readiness_paths
-    assert active_by_id[stack_id]["source_path"] in readiness_paths
+    # The dated inventory records the stack's pre-v0.2.0 examples path.
+    assert active_by_id[stack_id]["source_path"] == (
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
+    )
+    assert EXAMPLE.relative_to(REPO_ROOT).as_posix() in readiness_paths
 
 
 def test_same_file_build_checks_stays_workflow_on_live_route() -> None:
@@ -1691,16 +1696,17 @@ def test_same_file_build_checks_stays_workflow_on_live_route() -> None:
         "build-checks:1"
     )
     record = next(row for row in inventory["records"] if row["id"] == record_id)
+    route_path = SAME_FILE_EXAMPLE.relative_to(REPO_ROOT).as_posix()
     route = next(
         row
         for row in registry["surfaces"]
-        if row["path"] == "workflows/examples/same_file_record_call_binding.orc"
+        if row["path"] == route_path
     )
 
     assert record["classification"] == "effect-adapter"
     assert record["live_status"] == "live"
     assert "strict_compatibility" in record["named_substrate_gap"]
-    assert route["path"] == "workflows/examples/same_file_record_call_binding.orc"
+    assert route["path"] == route_path
     assert route["route_label"] == "historical_negative"
     assert "readiness_label" not in route
     assert route["copy_safety"] == "not_current_guidance"
@@ -3027,7 +3033,7 @@ def _assert_callee_characterization(
 def tracked_plan_compile():
     return compile_stage3_entrypoint(
         EXAMPLE,
-        source_roots=(WORKFLOWS,),
+        source_roots=(RETIRED_EXAMPLES,),
         provider_externs=_load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json"),
         prompt_externs=_load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json"),
         command_boundaries=_load_json(MIGRATION_INPUTS / "design_plan_impl_stack.commands.json"),

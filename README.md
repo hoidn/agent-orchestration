@@ -7,10 +7,10 @@ A workflow is a program in Workflow Lisp (`.orc`). Its steps invoke coding
 agents and shell commands. The compiler checks, before anything runs, what
 each step must produce, what it may touch, and how its outcome routes the
 rest of the program. The runtime enforces those contracts on what the agents
-actually produce, commits nothing that fails them, and can resume evaluated runs
+actually produce, commits nothing that fails them, and can resume a run
 from its last committed effect. There is no service: a run is a directory
 under `.orchestrate/runs/<run_id>/` holding state, composed prompts, logs,
-and the source map back to the authored program.
+and the checked program with the source location of every node.
 
 ## Motivation
 
@@ -132,16 +132,15 @@ Nothing routes on them.
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
-- **Evaluated execution** (targets 2.35/2.36, with bounded 2.37 and 2.38 extensions): values are computed in a
+- **Evaluated execution** (targets 2.35 to 2.38): values are computed in a
   lexical environment and have no stored copy. An effect is identified by its
   site and the path of activations that reached it, and nothing else. An
   effect runs only when the memo holds no committed result for that identity.
   Resume evaluates the program again from its entry and takes each committed
   result from the memo. What a reader sees as "steps" is a view derived from
-  the memo and the program. The bounded 2.38 [Agent Sessions guide](docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)
-  shows native conversations with a typed result and memo commit per turn;
-  the separate 2.37 parallel-map qualification gates remain in its
-  [Phase 5 plan](docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions).
+  the memo and the program. At 2.38 an agent keeps its native conversation
+  across turns, with a typed result and a memo commit per turn
+  ([agent sessions](docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)).
 - **Identity is semantic and versioned.** It derives from the effect's site
   and the activations that reached it, loop ordinals included, under the run's
   schema version; never from source spans, file paths, or formatting. Resume
@@ -169,10 +168,10 @@ and the normative [spec index](specs/index.md).
 | | |
 | --- | --- |
 | First commit | 2025-09-14 |
-| Commits on `main` | about 2,900 |
-| Python in `orchestrator/` | about 350k lines |
-| Tests collected | about 24,300 |
-| Core contract versions | DSL v1.1 through v2.36, each with a normative spec and migration rules |
+| Commits on `main` | about 3,200 |
+| Python in `orchestrator/` | about 260k lines |
+| Tests collected | about 16,100 |
+| Core contract versions | DSL v1.1 through v2.38, each with a normative spec and migration rules |
 | Agent CLIs driven | Codex, Claude Code, Gemini CLI, oh-my-pi |
 | Runtime dependencies | `jsonschema`, `PyYAML`; Python 3.11+ and `bash` |
 
@@ -184,34 +183,23 @@ codebases outside this repository, among them ptychographic reconstruction and
 EPR spectroscopy simulation; those runs used an earlier YAML frontend that has
 since been retired in favor of `.orc`.
 
-## Planned and partial capabilities
+## Roadmap
 
 Statuses follow the
 [capability status matrix](docs/capability_status_matrix.md).
 
-- **Checked program evaluation** (proposed). An agent produces source text; the
-  ordinary compiler checks it against input and result types, permitted
-  imports, an effect bound, and a budget fixed by the parent program; the
-  ordinary runtime evaluates it. A rejected program returns located
-  diagnostics that feed a normal repair loop.
 - **Provider isolation** (versioned contract; run integration pending). The
   contract launches agents under `bubblewrap` from a sealed, digest-verified
   root filesystem snapshot, with the runtime's own state masked and every
   mismatch failing closed. The backend exists; `run` and `resume` do not use
   it yet. See [`specs/providers.md`](specs/providers.md).
-- **Human in the loop** (historical, target 2.32). `request-input` is not
-  admitted by evaluated execution. Its former executor is retired; historical
-  input records remain readable.
-- **Editor support** (implemented). A read-only language server over the
-  production compiler: diagnostics, definitions, symbols. Install with the
-  `[lsp]` extra and run `python -m orchestrator.lsp`.
 
 ## Try it
 
 ```bash
-git clone git@github.com:hoidn/agent-orchestration.git
+git clone https://github.com/hoidn/agent-orchestration.git
 cd agent-orchestration
-python3.11 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate   # Python 3.11 or later
 pip install -e ".[dev]"
 python -m orchestrator --help
 ```
@@ -237,30 +225,49 @@ python -m orchestrator run workflows/examples/plan_review_execute.orc \
   --dry-run
 ```
 
-Run for real once your agent CLI works in the same shell, and resume if it
-stops partway:
+Drop `--dry-run` to run it for real. The example calls the `claude` and
+`codex` CLIs, so both must be installed and logged in. A run that stops
+partway resumes from its last committed effect:
 
 ```bash
-python -m orchestrator run <workflow.orc> --entry-workflow <module::entry> \
-  --provider-externs-file <providers.json> --prompt-externs-file <prompts.json> \
-  --input-file <inputs.json> --stream-output
-
 python -m orchestrator resume <run_id> --stream-output
 ```
+
+A read-only language server over the same compiler gives editors diagnostics,
+definitions and symbols: install the `[lsp]` extra and run
+`python -m orchestrator.lsp`.
 
 Inspect a run:
 
 | Question | Where |
 | --- | --- |
-| What did each step produce, and what failed? | `.orchestrate/runs/<run_id>/state.json`; for evaluated targets, the effect memo `memo.jsonl` beside it, or `orchestrator repl --run-id <run_id>` |
-| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/prompt.txt`; historical flat runs used `logs/<Step>.prompt.txt` |
+| What did each step produce, and what failed? | `.orchestrate/runs/<run_id>/state.json`, the effect memo `memo.jsonl` beside it, or `orchestrator repl --run-id <run_id>` |
+| What did the agent actually see, including the injected contract? | `.orchestrate/runs/<run_id>/effects/<effect>/attempt-<n>/prompt.txt` |
 | Readable report | `python -m orchestrator report --run-id <run_id> --format md` |
 | Local read-only dashboard | `python -m orchestrator dashboard --workspace "$(pwd)"` |
-| Headless email alerts on completion, failure, or stall | `python -m orchestrator monitor`; see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md) |
+| Headless email alerts on completion, failure, or crash | `python -m orchestrator monitor`; see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md) |
 
 If agent behavior looks wrong, read the composed prompt before changing
 workflow logic. If routing looks wrong, read `state.json` and the declared
 contracts before changing prompts.
+
+## Versions and compatibility
+
+Releases are tagged. A workflow names its target in its header
+(`(:target-dsl "2.35")`), and each release executes a fixed set of targets:
+
+| Release | Executes |
+| --- | --- |
+| `v0.2.0` | Targets 2.35 and 2.36; 2.37 adds parallel `list/map-effect` and 2.38 adds agent sessions and command-only confined child workflows |
+| `v0.1.0` (2026-10-13) | Targets 2.14 through 2.34 on the earlier flat runtime, and 2.35 through 2.37 |
+
+Compiling a workflow checks it against the installed release without running
+anything. A target the release no longer executes is refused at its header
+with `workflow_execution_target_retired`; check out the release that executes
+it (`git checkout v0.1.0`) and reinstall. Retiring a target bumps the minor
+version, and the previous release stays tagged.
+[`specs/versioning.md`](specs/versioning.md#version-gating-summary) records
+what each target admits.
 
 ## Reading paths
 

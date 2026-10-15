@@ -9,10 +9,10 @@ import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = REPO_ROOT / "workflows" / "examples"
-PANEL = WORKFLOWS / "review_revise_design_docs_judgment_panel.orc"
+RETIRED_EXAMPLES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "retired_examples"
+PANEL = RETIRED_EXAMPLES / "review_revise_design_docs_judgment_panel.orc"
 PANEL_INPUTS = (
-    WORKFLOWS
+    RETIRED_EXAMPLES
     / "inputs"
     / "review_revise_design_docs_judgment_panel"
 )

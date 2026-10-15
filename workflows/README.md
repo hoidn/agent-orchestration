@@ -83,18 +83,11 @@ Fresh preferred starting points:
   the Design Delta family is deprecated, apart from its reusable library
   procedures. Its authored YAML family is archived; the historical promotion
   report remains preserved as evidence of the route decision.
-- `workflows/examples/review_revise_design_docs.orc` remains a historical
-  document-review reference. Its old executable entry is retired; current
-  compile/run guidance starts with the evaluated examples above.
-- For the real-life-tested `.orc` review/fix path that revised the parametric
-  design docs, inspect
-  `workflows/examples/review_revise_parametric_design_docs.orc` as provenance.
+- The earlier examples that targeted 2.14 or 2.23 are test fixtures under
+  `tests/fixtures/workflow_lisp/retired_examples/`; release `v0.1.0` runs them.
 
 Reference corpus:
 
-- For the smallest Workflow Lisp `.orc` teaching example, read
-  `workflows/examples/kiss_backlog_item.orc` as a compact reference, not as a
-  direct template for new workflows.
 - For structured variant/materialization behavior, inspect the v2.14 drain
   examples as reference corpus before copying patterns.
 - For historical migration review, preserve the recorded YAML baseline and
@@ -128,10 +121,8 @@ registry metadata. Preserved parity reports are frozen historical records.
 ## Directory Map
 
 - `workflows/examples/`: `.orc` examples and validation fixtures
-- `workflows/examples/*.orc`: Workflow Lisp authoring examples; `compile`
-  refuses a retired target (through 2.34) with
-  `workflow_execution_target_retired`, so check each catalog entry before
-  treating one as a compilable or runnable route
+- `workflows/examples/*.orc`: Workflow Lisp authoring examples at evaluated
+  targets (2.35 and later); check each catalog entry for required inputs
 - `workflows/templates/`: frozen non-running compatibility-template inventory;
   new template work starts from a registry-approved `.orc` example
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
@@ -171,11 +162,6 @@ Resolution rules:
 | `workflows/library/generic_run_watchdog/watchdog.orc` | Historical reference; executable entry retired | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Retired generic watchdog. Promotion/parity evidence was recorded at `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json` (untracked; absent from the checkout); no new launches. |
 | `workflows/library/lisp_frontend_design_delta/drain.orc` | Historical reference; executable entry retired | `2.14` | `lisp_frontend_design_delta/drain::drain` | Retired Design Delta entry; reusable typed procedures remain only where admitted. Historical promotion/parity reports remain preserved; the current registry supplies no launch promotion. |
 | `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.35` | `verified_iteration_drain/drain::drain` | Evaluated verified-iteration primary with command closures, captured ledger history and public run/resume evidence. New launches use this `.orc` route; the final typed parity report was recorded at `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json` (untracked; absent from the checkout). |
-| `workflows/examples/kiss_backlog_item.orc` | Historical reference; executable entry retired | `2.14` | `run-backlog-item` | Historical purpose/evidence (no current compile/run/dry-run): Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiled through shared validation and dry-ran through the retired `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the retired stack baselines. |
-| `workflows/examples/cycle_guard_demo.orc` | Historical reference; executable entry retired | `2.14` | `cycle-guard-demo` | Historical purpose/evidence (no current compile/run/dry-run): Preserved `.orc` surface from the cycle-guard migration tranche. Its certified command boundary and frozen historical contract/evidence remain useful migration context; it is not a live YAML-parity target or preferred authoring route. |
-| `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical reference; executable entry retired | `2.14` | `design-plan-impl-review-stack` | Historical purpose/evidence (no current compile/run/dry-run): Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |
-| `workflows/examples/review_revise_design_docs.orc` | Historical reference; executable entry retired | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Historical purpose/evidence (no current compile/run/dry-run): Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Its review call uses explicit phased delivery. `compile` now refuses its target 2.23 with `workflow_execution_target_retired`; historically, compilation without `--entry-workflow` succeeded and selecting the listed entry explicitly made `--dry-run` fail with `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. It remains a reference (`not_current_guidance`); it is not a production drain or YAML parity replacement. |
-| `workflows/examples/review_revise_parametric_design_docs.orc` | Historical reference; executable entry retired | `2.14` | `review-revise-parametric-design-docs` | Historical purpose/evidence (no current compile/run/dry-run): Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path; start new authoring from a recent example. |
 | `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp W3 `std/improve` evidence; input-required | `2.36` | `improve_experiment_proposal::run-experiment` | Drafts a typed proposal, uses inferred local review/revise signatures and lexical context with the four-argument graph-selected helper, and passes the returned proposal to the workspace launcher in every outcome. Implemented at 2.36. Bounded public lifecycle evidence uses deterministic provider shims. Compile/dry-run validate manifests and the command closure declaration without certifying launcher bytes. Execution requires configured providers and the workspace-owned `scripts/launch_experiment.py` at that exact path; the example does not supply it; [recipe](../docs/lisp_library_reference.md#review-and-revise-with-stdimprove). |
 | `workflows/examples/plan_review_execute.orc` | Workflow Lisp preferred current guidance; compile evidence | `2.35` | `plan_review_execute::run` | README example: a planner drafts, a reviewer from another model family gives feedback, the planner revises, and the reviewer's model executes the revised plan, as one typed sequence. Compile evidence: `tests/test_workflow_lisp_plan_review_execute_example.py`; public dry run recorded in the [consolidation closeout](../docs/reports/2026-10-12-workflow-lisp-consolidation-closeout.md); no live provider run is recorded. |
 | `workflows/examples/design_review_execute.orc` | Workflow Lisp preferred current guidance; compile evidence | `2.35` | `design_review_execute::run` | File-based variant of the README example: the planner drafts `artifacts/design/<slug>.md`, the reviewer reads it through a `:doc` fill, the planner writes the final `docs/design/<slug>.md` as a new file so the review's input never changes and `resume` can retry any step, and the reviewer's model executes it. Compile evidence: `tests/test_workflow_lisp_design_review_execute_example.py`; live provider runs are recorded by [E-B](../docs/reports/2026-10-14-design-review-execute-versus-single-call.md) and [E-B2](../docs/reports/2026-10-15-calibrated-orc-versus-single-call.md). Both are mechanics records on tasks that were not calibration-qualified, not performance evidence. |

@@ -8,17 +8,11 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONSUMER = REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc"
-JUDGMENT_PANEL = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "review_revise_design_docs_judgment_panel.orc"
-)
+RETIRED_EXAMPLES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "retired_examples"
+CONSUMER = RETIRED_EXAMPLES / "review_revise_design_docs.orc"
+JUDGMENT_PANEL = RETIRED_EXAMPLES / "review_revise_design_docs_judgment_panel.orc"
 JUDGMENT_PANEL_INPUTS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
+    RETIRED_EXAMPLES
     / "inputs"
     / "review_revise_design_docs_judgment_panel"
 )
@@ -44,9 +38,7 @@ Q2_COMPOSED_FIXTURE = (
     / "review_revise_design_docs_target_2_21.orc"
 )
 CONSUMER_INPUTS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
+    RETIRED_EXAMPLES
     / "inputs"
     / "review_revise_design_docs"
 )

@@ -23,11 +23,12 @@ CLI_FIXTURES = FIXTURES / "cli"
 ENTRYPOINT = CLI_FIXTURES / "current" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
 CALLABLE_SOURCE_ROOT = FIXTURES / "modules" / "valid" / "callables"
-KISS_ENTRYPOINT = REPO_ROOT / "workflows" / "examples" / "kiss_backlog_item.orc"
-KISS_PROVIDERS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "providers.json"
-KISS_PROMPTS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "prompts.json"
-CYCLE_GUARD_ENTRYPOINT = REPO_ROOT / "workflows" / "examples" / "cycle_guard_demo.orc"
-CYCLE_GUARD_SOURCE_ROOT = REPO_ROOT / "workflows" / "examples"
+RETIRED_EXAMPLES = FIXTURES / "retired_examples"
+KISS_ENTRYPOINT = RETIRED_EXAMPLES / "kiss_backlog_item.orc"
+KISS_PROVIDERS = RETIRED_EXAMPLES / "inputs" / "kiss_backlog_item" / "providers.json"
+KISS_PROMPTS = RETIRED_EXAMPLES / "inputs" / "kiss_backlog_item" / "prompts.json"
+CYCLE_GUARD_ENTRYPOINT = RETIRED_EXAMPLES / "cycle_guard_demo.orc"
+CYCLE_GUARD_SOURCE_ROOT = RETIRED_EXAMPLES
 
 
 def _build_module():

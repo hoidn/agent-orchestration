@@ -193,7 +193,7 @@ def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
     assert "not an OS sandbox" in version
     assert "| 2.25 |" in versioning
     summary_bounds = re.fullmatch(
-        r"# Multi-Agent Orchestration — Master Spec \(v([0-9.]+) through v([0-9.]+)\)",
+        r"# Multi-Agent Orchestration — Master Spec \(v([0-9.]+) through (?:bounded )?v([0-9.]+)\)",
         index.splitlines()[0],
     )
     assert summary_bounds is not None

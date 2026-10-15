@@ -2,6 +2,11 @@
 
 ## Executable support and historical version gates
 
+Package releases are tagged `vMAJOR.MINOR.PATCH`. A release that retires an
+executable target increments the minor version, and the last release that
+executes that target stays tagged (`v0.1.0` executes targets 2.14 through 2.37,
+including the flat runtime through 2.34).
+
 Language versions govern syntax/types and remain registered for typed imports
 and analysis; they are distinct from executable support. The owner-selected
 2026-10-13 retirement cutoff follows the CLI support boundary; the

@@ -29,15 +29,10 @@ HISTORICAL_DESIGN_DELTA_REPORT_PATH = (
 )
 
 INITIAL_REQUIRED_PATHS = {
-    "workflows/examples/cycle_guard_demo.orc",
-    "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-    "workflows/examples/effectful_let_star_normalization.orc",
-    "workflows/examples/effectful_match_arm_normalization.orc",
-    "workflows/examples/kiss_backlog_item.orc",
-    "workflows/examples/review_revise_design_docs.orc",
-    "workflows/examples/review_revise_parametric_design_docs.orc",
-    "workflows/examples/same_file_record_call_binding.orc",
-    "workflows/examples/with_phase_composed_binding.orc",
+    "workflows/examples/design_review_execute.orc",
+    "workflows/examples/design_review_execute_agents.orc",
+    "workflows/examples/improve_experiment_proposal.orc",
+    "workflows/examples/plan_review_execute.orc",
     "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
     "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
     "workflows/library/lisp_frontend_design_delta/drain.orc",
@@ -73,9 +68,9 @@ INITIAL_REQUIRED_PATHS = {
 
 def _base_entry(**overrides: object) -> dict[str, object]:
     entry: dict[str, object] = {
-        "surface_id": "workflows.examples.effectful_match_arm_normalization",
-        "path": "workflows/examples/effectful_match_arm_normalization.orc",
-        "surface_kind": "workflow_example",
+        "surface_id": "tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization",
+        "path": "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
+        "surface_kind": "test_fixture",
         "route_label": "wcc_default",
         "readiness_label": "leaf_runtime_candidate",
         "lowering_route": DEFAULT_LOWERING_ROUTE.value,
@@ -720,8 +715,8 @@ def test_checked_in_registry_omits_retired_generator_evidence() -> None:
 
 
 def test_duplicate_surface_id_and_path_fail_deterministically(tmp_path: Path) -> None:
-    duplicate_id = _base_entry(path="workflows/examples/effectful_let_star_normalization.orc")
-    duplicate_path = _base_entry(surface_id="workflows.examples.effectful_match_arm_normalization.copy")
+    duplicate_id = _base_entry(path="tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc")
+    duplicate_path = _base_entry(surface_id="tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization.copy")
     registry = load_route_readiness_registry(
         _write_registry(tmp_path, [_base_entry(), duplicate_id, duplicate_path])
     )
@@ -734,10 +729,10 @@ def test_duplicate_surface_id_and_path_fail_deterministically(tmp_path: Path) ->
 def test_registry_entry_for_path_returns_normalized_entry() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
 
-    entry = registry_entry_for_path(registry, "workflows/examples/effectful_match_arm_normalization.orc")
+    entry = registry_entry_for_path(registry, "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc")
 
     assert entry is not None
-    assert entry.path == "workflows/examples/effectful_match_arm_normalization.orc"
+    assert entry.path == "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc"
     assert registry_entry_for_path(registry, "./unknown.orc") is None
 
 
@@ -886,8 +881,8 @@ def test_compile_registered_route_case_injects_route_and_checks_schema(tmp_path:
         return Result()
 
     result, entry = compile_registered_route_case(
-        "workflows.examples.effectful_match_arm_normalization",
-        source_path=REPO_ROOT / "workflows/examples/effectful_match_arm_normalization.orc",
+        "tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization",
+        source_path=REPO_ROOT / "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
         repo_root=REPO_ROOT,
         compile_func=fake_compile,
         registry_path=_write_registry(tmp_path, [_base_entry()]),
@@ -913,8 +908,8 @@ def test_compile_registered_route_case_default_route_does_not_override(tmp_path:
         return Result()
 
     compile_registered_route_case(
-        "workflows.examples.effectful_match_arm_normalization",
-        source_path=REPO_ROOT / "workflows/examples/effectful_match_arm_normalization.orc",
+        "tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization",
+        source_path=REPO_ROOT / "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
         repo_root=REPO_ROOT,
         default_route_check=True,
         compile_func=fake_compile,

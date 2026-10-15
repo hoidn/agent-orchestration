@@ -402,9 +402,6 @@ For a complete ORC consumer, see
 [`improve_experiment_proposal.orc`](../../workflows/examples/improve_experiment_proposal.orc)
 and the library it uses,
 [`std/improve`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc).
-[`review_revise_design_docs.orc`](../../workflows/examples/review_revise_design_docs.orc)
-is a historical document-review prompt/output-position reference; its entry
-is retired.
 
 The conceptual contracts above are implemented surfaces, but historical flat lowering and current evaluated admission are distinct. A valid
 fragment is not evidence that every surrounding program shape executes; use

@@ -31,9 +31,17 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = REPO_ROOT / "workflows"
-EXAMPLES = WORKFLOWS / "examples"
-MIGRATION_INPUTS = EXAMPLES / "inputs" / "workflow_lisp_migrations"
+# Retained evidence records the pre-v0.2.0 path `workflows/examples/...`;
+# the bytes it binds now live in the retired-examples fixture tree.
+TRACKED_PLAN_STACK_SOURCE = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_lisp"
+    / "retired_examples"
+    / "examples"
+    / "design_plan_impl_review_stack_v2_call.orc"
+)
 LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 LISP_INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid"
 EXPERIMENT_CTX_FIXTURE = LISP_FIXTURES / "context_generalization_experiment_ctx.orc"
@@ -1094,9 +1102,7 @@ def _tracked_plan_phase_projection_fixtures() -> tuple[dict[str, object], dict[s
         "workflow_outputs": _tracked_plan_phase_expected_outputs(),
         "source": {
             "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-            "sha256": _sha256_path(
-                EXAMPLES / "design_plan_impl_review_stack_v2_call.orc"
-            ),
+            "sha256": _sha256_path(TRACKED_PLAN_STACK_SOURCE),
         },
         "fresh_child_resume_recovery_authorization": (
             _tracked_plan_phase_recovery_authorization_binding(
@@ -1258,7 +1264,7 @@ def _validate_tracked_plan_phase_retained_projection_contract(
         )
     expected_source = {
         "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-        "sha256": _sha256_path(EXAMPLES / "design_plan_impl_review_stack_v2_call.orc"),
+        "sha256": _sha256_path(TRACKED_PLAN_STACK_SOURCE),
     }
     assert clean.get("source") == expected_source, "clean source binding is invalid"
     assert interruption.get("source") == expected_source, "interrupted source binding is invalid"

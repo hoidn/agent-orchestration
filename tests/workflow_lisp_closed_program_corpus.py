@@ -40,6 +40,7 @@ CORPUS_ROOTS = (
     Path("workflows/experiments"),
     Path("experiments/orc_vs_single_call"),
     Path("experiments/mlevolve_pair"),
+    Path("tests/fixtures/workflow_lisp/retired_examples"),
 )
 
 

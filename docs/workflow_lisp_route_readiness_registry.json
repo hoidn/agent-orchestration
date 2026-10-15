@@ -311,50 +311,50 @@
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/cycle_guard_demo.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/cycle_guard_demo.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_compiles_with_bounded_loop; tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_runtime_materializes_output_bundle.",
-      "path": "workflows/examples/cycle_guard_demo.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_compiles_with_bounded_loop; tests/test_workflow_lisp_key_migrations.py::test_cycle_guard_demo_orc_runtime_materializes_output_bundle. Formerly `workflows/examples/cycle_guard_demo.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/cycle_guard_demo.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.cycle_guard_demo",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.cycle_guard_demo",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/examples/design_plan_impl_review_stack_v2_call.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap.",
-      "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: migration_candidate. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable; tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap. Formerly `workflows/examples/design_plan_impl_review_stack_v2_call.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/examples/design_plan_impl_review_stack_v2_call.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.design_plan_impl_review_stack_v2_call",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.examples.design_plan_impl_review_stack_v2_call",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/effectful_let_star_normalization.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_effectful_let_star_normalization_orc_compiles_with_shared_validation.",
-      "path": "workflows/examples/effectful_let_star_normalization.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_effectful_let_star_normalization_orc_compiles_with_shared_validation. Formerly `workflows/examples/effectful_let_star_normalization.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.effectful_let_star_normalization",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.effectful_let_star_normalization",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/effectful_match_arm_normalization.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_effectful_match_arm_normalization_orc_compiles_with_shared_validation.",
-      "path": "workflows/examples/effectful_match_arm_normalization.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_effectful_match_arm_normalization_orc_compiles_with_shared_validation. Formerly `workflows/examples/effectful_match_arm_normalization.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.effectful_match_arm_normalization",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "preferred_current_guidance",
@@ -407,76 +407,76 @@
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/kiss_backlog_item.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: legacy_schema1_compat. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack.",
-      "path": "workflows/examples/kiss_backlog_item.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: legacy_schema1_compat. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack. Formerly `workflows/examples/kiss_backlog_item.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.kiss_backlog_item",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.kiss_backlog_item",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/review_revise_design_docs.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_example_validates_with_parameterized_context_docs; tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_runtime_private_collection_lane.",
-      "path": "workflows/examples/review_revise_design_docs.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_example_validates_with_parameterized_context_docs; tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_runtime_private_collection_lane. Formerly `workflows/examples/review_revise_design_docs.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.review_revise_design_docs",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.review_revise_design_docs",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/review_revise_design_docs_judgment_panel.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs_judgment_panel.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_judgment_panel_compiles_from_current_owner; tests/test_workflow_lisp_judgment_views_e2e.py::test_panel_executes_ordered_reviews_then_one_ineligible_synthesis.",
-      "path": "workflows/examples/review_revise_design_docs_judgment_panel.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_judgment_panel_compiles_from_current_owner; tests/test_workflow_lisp_judgment_views_e2e.py::test_panel_executes_ordered_reviews_then_one_ineligible_synthesis. Formerly `workflows/examples/review_revise_design_docs_judgment_panel.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs_judgment_panel.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.review_revise_design_docs_judgment_panel",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.review_revise_design_docs_judgment_panel",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/review_revise_parametric_design_docs.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: stale_needs_update. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_parametric_design_docs_example_remains_one_off_source_shape.",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: stale_needs_update. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_review_revise_parametric_design_docs_example_remains_one_off_source_shape. Formerly `workflows/examples/review_revise_parametric_design_docs.orc`; release v0.1.0 runs it.",
       "owner": "workflow-lisp",
-      "path": "workflows/examples/review_revise_parametric_design_docs.orc",
-      "replacement_or_retirement_path": "workflows/examples/review_revise_design_docs.orc",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc",
+      "replacement_or_retirement_path": "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.review_revise_parametric_design_docs",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.review_revise_parametric_design_docs",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/same_file_record_call_binding.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/same_file_record_call_binding.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_same_file_record_call_binding_orc_compiles_with_shared_validation.",
-      "path": "workflows/examples/same_file_record_call_binding.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_same_file_record_call_binding_orc_compiles_with_shared_validation. Formerly `workflows/examples/same_file_record_call_binding.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/same_file_record_call_binding.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.same_file_record_call_binding",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.same_file_record_call_binding",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "not_current_guidance",
       "evidence": [
-        "workflows/examples/with_phase_composed_binding.orc",
+        "tests/fixtures/workflow_lisp/retired_examples/with_phase_composed_binding.orc",
         "docs/design/workflow_lisp_executor_retirement.md"
       ],
-      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack.",
-      "path": "workflows/examples/with_phase_composed_binding.orc",
+      "notes": "Executable entry retired; retained source/type history is not flat compile/run or promotion evidence. Admitted typed imports remain independent of entry execution. Former route: wcc_default. Historical owner references (not current pytest selectors): tests/test_workflow_lisp_examples.py::test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack. Formerly `workflows/examples/with_phase_composed_binding.orc`; release v0.1.0 runs it.",
+      "path": "tests/fixtures/workflow_lisp/retired_examples/with_phase_composed_binding.orc",
       "route_label": "historical_negative",
-      "surface_id": "workflows.examples.with_phase_composed_binding",
-      "surface_kind": "workflow_example"
+      "surface_id": "tests.fixtures.workflow_lisp.retired_examples.with_phase_composed_binding",
+      "surface_kind": "test_fixture"
     },
     {
       "copy_safety": "preferred_current_guidance",
@@ -770,5 +770,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-10-14"
+  "updated": "2026-10-15"
 }

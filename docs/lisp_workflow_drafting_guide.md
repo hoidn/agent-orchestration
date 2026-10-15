@@ -192,32 +192,12 @@ authority. For current claims, validate
 `docs/workflow_lisp_route_readiness_registry.json` and run the direct owner
 compile/runtime/resume tests cited by the selected registry entry.
 
-For targeted design-doc review/fix semantics, read
-`workflows/examples/review_revise_design_docs.orc` as a reference, not as a
-preferred copy target. It targets DSL 2.23, whose execution is retired:
-`compile` rejects it at its target declaration with
-`workflow_execution_target_retired`, so no compile check or dry run completes on it today.
-The [README](../README.md#first-compile-check) compile check uses
-`plan_review_execute.orc` at 2.35 instead.
-
-The subject is file-oriented: `fix-design-doc` edits the document artifact and
-returns the same subject paths. The loop returns findings and report paths,
-not a revised subject value for a downstream value-based handoff.
 Choose new examples from the workflow
 catalog's [copy-safety table](../workflows/README.md#which-example-should-i-copy).
-The earlier `workflows/examples/review_revise_parametric_design_docs.orc`
-remains provenance for the real-life-tested review path, but hardcodes one
-design set.
-
-For the smallest concrete Workflow Lisp teaching example, read
-`workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
-flowing through typed plan and implementation provider results plus bounded
-review/fix loops. Treat it as a compact historical reference and
-inspiration corpus, not as a direct template for new workflows, not as the main
-`.orc` model, and not as a production queue drain: it targets DSL 2.14, whose
-execution is retired (`compile` rejects it with
-`workflow_execution_target_retired`), and it does not include the selector, queue
-movement, recovery, and evidence required of a production backlog drain.
+The earlier examples that targeted DSL 2.14 or 2.23, such as
+`review_revise_design_docs.orc` and `kiss_backlog_item.orc`, are now test
+fixtures under `tests/fixtures/workflow_lisp/retired_examples/`; release
+`v0.1.0` runs them.
 
 ## Core Rule
 
@@ -1742,8 +1722,8 @@ file postcondition. The prompt still owns one structured result:
 `ReviewDecision` remains semantic authority for the decision and its declared
 fields, while the generated file contract validates the human-facing report.
 The historical first consumer, `review-design-docs` in
-`workflows/examples/review_revise_design_docs.orc`, is not an evaluated copy
-target; the slot contract itself remains admitted.
+`tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc`,
+is not an evaluated copy target; the slot contract itself remains admitted.
 
 Do not add a call-site output declaration, duplicate the path in another
 contract, or infer a general relationship between an output slot and a result

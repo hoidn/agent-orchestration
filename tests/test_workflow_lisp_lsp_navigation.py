@@ -75,12 +75,7 @@ L5_PRIVATE_ROOT = (
 L5_AMBIGUOUS_ROOT = (
     FIXTURES / "modules" / "invalid" / "ambiguous"
 )
-REVIEW_REVISE_DESIGN_DOCS = (
-    Path(__file__).resolve().parents[1]
-    / "workflows"
-    / "examples"
-    / "review_revise_design_docs.orc"
-)
+REVIEW_REVISE_DESIGN_DOCS = FIXTURES / "retired_examples" / "review_revise_design_docs.orc"
 STDLIB_CALLER = FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
 
 

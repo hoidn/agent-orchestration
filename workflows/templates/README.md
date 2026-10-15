@@ -8,4 +8,4 @@ YAML/YML template here.
 
 | Purpose | Starting point | Status |
 | --- | --- | --- |
-| New template | [Workflow Lisp review/revise example](../examples/review_revise_design_docs.orc) | Registry-approved current `.orc` guidance; adapt it only when its typed review/fix shape fits. |
+| New template | [`std/improve` review/revise example](../examples/improve_experiment_proposal.orc) | Registry-approved current `.orc` guidance; adapt it only when its typed review/revise shape fits. |

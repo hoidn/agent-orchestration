@@ -21,33 +21,21 @@ from tests.test_workflow_lisp_lsp_stdio import _initialize_request
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CYCLE_GUARD_ENTRY = REPO_ROOT / "workflows" / "examples" / "cycle_guard_demo.orc"
+RETIRED_EXAMPLES_RELPATH = Path("tests/fixtures/workflow_lisp/retired_examples")
+RETIRED_EXAMPLES = REPO_ROOT / RETIRED_EXAMPLES_RELPATH
+CYCLE_GUARD_ENTRY = RETIRED_EXAMPLES / "cycle_guard_demo.orc"
 CYCLE_GUARD_COMMANDS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
+    RETIRED_EXAMPLES
     / "inputs"
     / "workflow_lisp_migrations"
     / "cycle_guard_demo.commands.json"
 )
-KISS_BACKLOG_ENTRY = (
-    REPO_ROOT / "workflows" / "examples" / "kiss_backlog_item.orc"
-)
-KISS_BACKLOG_INPUTS = (
-    REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item"
-)
+KISS_BACKLOG_ENTRY = RETIRED_EXAMPLES / "kiss_backlog_item.orc"
+KISS_BACKLOG_INPUTS = RETIRED_EXAMPLES / "inputs" / "kiss_backlog_item"
 KISS_BACKLOG_PROVIDERS = KISS_BACKLOG_INPUTS / "providers.json"
 KISS_BACKLOG_PROMPTS = KISS_BACKLOG_INPUTS / "prompts.json"
-REVIEW_DESIGN_DOCS_ENTRY = (
-    REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc"
-)
-REVIEW_DESIGN_DOCS_INPUTS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "review_revise_design_docs"
-)
+REVIEW_DESIGN_DOCS_ENTRY = RETIRED_EXAMPLES / "review_revise_design_docs.orc"
+REVIEW_DESIGN_DOCS_INPUTS = RETIRED_EXAMPLES / "inputs" / "review_revise_design_docs"
 REVIEW_DESIGN_DOCS_PROVIDERS = REVIEW_DESIGN_DOCS_INPUTS / "providers.json"
 REVIEW_DESIGN_DOCS_PROMPTS = REVIEW_DESIGN_DOCS_INPUTS / "prompts.json"
 L3_ENTRY_SELECTION_ROOT = (
@@ -118,7 +106,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only(
             workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(workspace / "workflows" / "examples")
+                    str(workspace / RETIRED_EXAMPLES_RELPATH)
                 ],
                 "entry_workflows": {
                     str(entry_path): "cycle-guard-demo",
@@ -282,7 +270,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(workspace / "workflows" / "examples")
+                    str(workspace / RETIRED_EXAMPLES_RELPATH)
                 ],
                 "entry_workflows": {
                     str(entry_path): "run-backlog-item",
@@ -577,7 +565,7 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only(
             workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(workspace / "workflows" / "examples")
+                    str(workspace / RETIRED_EXAMPLES_RELPATH)
                 ],
                 "provider_externs_path": str(providers_path),
                 "prompt_externs_path": str(prompts_path),
