@@ -1,0 +1,1428 @@
+"""Tests for State Manager (AT-4)."""
+
+import json
+import os
+import pytest
+import tempfile
+import shutil
+import time
+from pathlib import Path
+from datetime import datetime, timezone
+
+from orchestrator.state import StateManager, RunState, StepResult, ForEachState
+from orchestrator.workflow.pure_result_replay import PureReplayVisitWitness
+
+
+def _run_tree_snapshot(run_root: Path) -> dict[str, tuple[str, bytes]]:
+    """Return a deterministic snapshot of every persisted run-tree entry."""
+    snapshot: dict[str, tuple[str, bytes]] = {}
+    for path in sorted(run_root.rglob("*")):
+        relative_path = path.relative_to(run_root).as_posix()
+        if path.is_symlink():
+            snapshot[relative_path] = ("symlink", os.readlink(path).encode())
+        elif path.is_dir():
+            snapshot[relative_path] = ("directory", b"")
+        else:
+            snapshot[relative_path] = ("file", path.read_bytes())
+    return snapshot
+
+
+def _pure_replay_witness() -> PureReplayVisitWitness:
+    return PureReplayVisitWitness(
+        presentation_key="ComputeDerived",
+        step_index=4,
+        step_id="root.compute_derived",
+        visit_count=1,
+    )
+
+
+def _expected_pure_completion_shell(
+    witness: PureReplayVisitWitness,
+) -> dict[str, object]:
+    return {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": witness.visit_count,
+        "status": "completed",
+        "exit_code": 0,
+        "outcome": {
+            "status": "completed",
+            "phase": "execution",
+            "class": "completed",
+            "retryable": False,
+        },
+        "result_storage": "derived_pure_replay.v1",
+    }
+
+
+def _assert_matching_pure_cursor(
+    cursor: object,
+    witness: PureReplayVisitWitness,
+) -> None:
+    assert isinstance(cursor, dict)
+    assert set(cursor) == {
+        "name",
+        "index",
+        "type",
+        "status",
+        "started_at",
+        "last_heartbeat_at",
+        "step_id",
+        "visit_count",
+    }
+    assert cursor["name"] == witness.presentation_key
+    assert cursor["index"] == witness.step_index
+    assert cursor["type"] == "pure_projection"
+    assert cursor["status"] == "running"
+    assert cursor["step_id"] == witness.step_id
+    assert cursor["visit_count"] == witness.visit_count
+    assert isinstance(cursor["started_at"], str) and cursor["started_at"]
+    assert (
+        isinstance(cursor["last_heartbeat_at"], str)
+        and cursor["last_heartbeat_at"]
+    )
+
+
+def _inject_state_write_crash(
+    monkeypatch: pytest.MonkeyPatch,
+    manager: StateManager,
+    *,
+    timing: str,
+) -> None:
+    original_write = manager._write_state
+
+    if timing == "before":
+        def crash_before_write() -> None:
+            raise RuntimeError("injected before state write")
+
+        monkeypatch.setattr(manager, "_write_state", crash_before_write)
+        return
+
+    if timing == "after":
+        def crash_after_write() -> None:
+            original_write()
+            raise RuntimeError("injected after state write")
+
+        monkeypatch.setattr(manager, "_write_state", crash_after_write)
+        return
+
+    raise AssertionError(f"unsupported crash timing: {timing}")
+
+
+class TestStateManager:
+    """Test state manager functionality per AT-4."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        """Create a temporary workspace."""
+        workspace = tempfile.mkdtemp()
+        yield Path(workspace)
+        shutil.rmtree(workspace)
+
+    @pytest.fixture
+    def workflow_file(self, temp_workspace):
+        """Create a test workflow file."""
+        workflow_path = temp_workspace / "test.yaml"
+        workflow_path.write_text("""
+version: "1.1"
+steps:
+  - name: Test
+    command: echo test
+""")
+        return "test.yaml"
+
+    def test_at4_state_file_write_read(self, temp_workspace, workflow_file):
+        """AT-4: Write/read state.json with v1 schema."""
+        # Initialize state manager
+        manager = StateManager(temp_workspace)
+
+        # Initialize state
+        state = manager.initialize(workflow_file, context={"key": "value"})
+
+        # Verify state structure
+        assert state.schema_version == StateManager.SCHEMA_VERSION
+        assert state.run_id == manager.run_id
+        assert state.workflow_file == workflow_file
+        assert state.workflow_checksum.startswith("sha256:")
+        assert state.status == "running"
+        assert state.context == {"key": "value"}
+
+        # Verify state file was written
+        state_file = temp_workspace / ".orchestrate" / "runs" / manager.run_id / "state.json"
+        assert state_file.exists()
+
+        # Read state file directly
+        with open(state_file, 'r') as f:
+            data = json.load(f)
+
+        # Verify JSON structure matches spec
+        assert data["schema_version"] == StateManager.SCHEMA_VERSION
+        assert data["run_id"] == manager.run_id
+        assert data["workflow_file"] == workflow_file
+        assert data["workflow_checksum"].startswith("sha256:")
+        assert data["started_at"]
+        assert data["updated_at"]
+        assert data["status"] == "running"
+        assert data["context"] == {"key": "value"}
+        assert data["steps"] == {}
+        assert data["transition_count"] == 0
+        assert data["step_visits"] == {}
+
+        # Load state in new manager
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        # Verify loaded state matches
+        assert loaded_state.schema_version == state.schema_version
+        assert loaded_state.run_id == state.run_id
+        assert loaded_state.workflow_file == state.workflow_file
+        assert loaded_state.workflow_checksum == state.workflow_checksum
+        assert loaded_state.status == state.status
+        assert loaded_state.context == state.context
+        assert loaded_state.transition_count == 0
+        assert loaded_state.step_visits == {}
+
+    def test_persistence_profile_absent_round_trip_remains_omitted(self):
+        state = RunState(
+            schema_version=StateManager.SCHEMA_VERSION,
+            run_id="historical-profile-round-trip",
+            workflow_file="workflow.orc",
+            workflow_checksum="sha256:historical",
+            started_at="2026-07-30T00:00:00+00:00",
+            updated_at="2026-07-30T00:00:00+00:00",
+            status="running",
+        )
+
+        historical_payload = state.to_dict()
+        assert "result_persistence_profile" not in historical_payload
+
+        reloaded = RunState.from_dict(historical_payload)
+
+        assert reloaded.result_persistence_profile is None
+        assert reloaded.to_dict() == historical_payload
+        assert "result_persistence_profile" not in reloaded.to_dict()
+
+    def test_persistence_profile_unknown_direct_construction_fails_closed(self):
+        constructed_states = []
+
+        with pytest.raises(ValueError, match="profile"):
+            constructed_states.append(
+                RunState(
+                    schema_version=StateManager.SCHEMA_VERSION,
+                    run_id="unknown-profile-direct-construction",
+                    workflow_file="workflow.orc",
+                    workflow_checksum="sha256:unknown-profile",
+                    started_at="2026-07-30T00:00:00+00:00",
+                    updated_at="2026-07-30T00:00:00+00:00",
+                    status="running",
+                    result_persistence_profile="derived_pure_replay.v2",
+                )
+            )
+
+        assert constructed_states == []
+
+    def test_persistence_profile_exact_value_initializes_and_reloads(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="derived-profile-initialize",
+        )
+
+        state = manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        loaded = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert state.result_persistence_profile == "derived_pure_replay.v1"
+        assert persisted["result_persistence_profile"] == "derived_pure_replay.v1"
+        assert loaded.result_persistence_profile == "derived_pure_replay.v1"
+
+    def test_persistence_profile_unknown_initialize_value_fails_closed(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="unknown-profile-initialize",
+        )
+
+        with pytest.raises(ValueError, match="profile"):
+            manager.initialize(
+                workflow_file,
+                result_persistence_profile="derived_pure_replay.v2",
+            )
+
+        assert not manager.state_file.exists()
+
+    @pytest.mark.parametrize(
+        "invalid_profile",
+        [None, "derived_pure_replay.v2"],
+        ids=["explicit-null", "unknown-value"],
+    )
+    def test_persistence_profile_unknown_on_disk_fails_without_rewrite(
+        self,
+        temp_workspace,
+        workflow_file,
+        invalid_profile,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id=f"invalid-profile-{invalid_profile!s}",
+        )
+        manager.initialize(workflow_file)
+        payload = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        payload["result_persistence_profile"] = invalid_profile
+        manager.state_file.write_text(
+            json.dumps(payload, indent=2),
+            encoding="utf-8",
+        )
+        invalid_bytes = manager.state_file.read_bytes()
+
+        with pytest.raises(ValueError, match="profile"):
+            StateManager(
+                temp_workspace,
+                run_id=manager.run_id,
+            ).load()
+
+        assert manager.state_file.read_bytes() == invalid_bytes
+
+    def test_persistence_profile_absent_load_never_backfills(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="historical-profile-no-backfill",
+        )
+        manager.initialize(workflow_file)
+        historical_bytes = manager.state_file.read_bytes()
+
+        loaded = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert loaded.result_persistence_profile is None
+        assert manager.state_file.read_bytes() == historical_bytes
+        assert "result_persistence_profile" not in json.loads(
+            historical_bytes
+        )
+
+    @pytest.mark.parametrize("timing", ["before", "after"])
+    def test_atomic_pure_begin_exposes_only_unstarted_or_matching_cursor(
+        self,
+        temp_workspace,
+        workflow_file,
+        monkeypatch,
+        timing,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id=f"atomic-pure-begin-{timing}",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        _inject_state_write_crash(monkeypatch, manager, timing=timing)
+
+        with pytest.raises(RuntimeError, match=f"injected {timing} state write"):
+            manager.begin_eligible_pure_visit(
+                step_name=witness.presentation_key,
+                step_index=witness.step_index,
+                step_id=witness.step_id,
+            )
+
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        if timing == "before":
+            assert observed.step_visits == {}
+            assert observed.current_step is None
+            assert observed.steps == {}
+        else:
+            assert observed.step_visits == {witness.presentation_key: 1}
+            _assert_matching_pure_cursor(observed.current_step, witness)
+            assert observed.steps == {}
+
+        assert manager.state is not None
+        assert manager.state.to_dict() == observed.to_dict()
+
+    def test_atomic_pure_interrupted_visit_reuse_is_same_visit_and_read_only(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="atomic-pure-same-visit",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        visit_count = manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+        interrupted_bytes = manager.state_file.read_bytes()
+
+        reused_visit_count = manager.reuse_interrupted_eligible_pure_visit(
+            witness
+        )
+
+        assert visit_count == witness.visit_count
+        assert reused_visit_count == witness.visit_count
+        assert manager.state_file.read_bytes() == interrupted_bytes
+        assert manager.state is not None
+        assert manager.state.step_visits == {witness.presentation_key: 1}
+        _assert_matching_pure_cursor(manager.state.current_step, witness)
+
+    @pytest.mark.parametrize("settlement", ["success", "failure"])
+    @pytest.mark.parametrize("timing", ["before", "after"])
+    def test_atomic_pure_settlement_exposes_only_cursor_or_settled_row(
+        self,
+        temp_workspace,
+        workflow_file,
+        monkeypatch,
+        settlement,
+        timing,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id=f"atomic-pure-{settlement}-{timing}",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+        failure = StepResult(
+            status="failed",
+            name=witness.presentation_key,
+            step_id=witness.step_id,
+            visit_count=witness.visit_count,
+            exit_code=1,
+            error={
+                "type": "pure_evaluation_failed",
+                "message": "fixture failure",
+            },
+            outcome={
+                "status": "failed",
+                "phase": "execution",
+                "class": "failed",
+                "retryable": False,
+            },
+        )
+        _inject_state_write_crash(monkeypatch, manager, timing=timing)
+
+        with pytest.raises(RuntimeError, match=f"injected {timing} state write"):
+            if settlement == "success":
+                manager.settle_eligible_pure_success(witness)
+            else:
+                manager.settle_eligible_pure_failure(witness, failure)
+
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        assert observed.step_visits == {witness.presentation_key: 1}
+        if timing == "before":
+            _assert_matching_pure_cursor(observed.current_step, witness)
+            assert observed.steps == {}
+        else:
+            assert observed.current_step is None
+            if settlement == "success":
+                assert observed.steps == {
+                    witness.presentation_key: _expected_pure_completion_shell(
+                        witness
+                    )
+                }
+            else:
+                assert observed.steps == {
+                    witness.presentation_key: failure.to_dict()
+                }
+
+        assert manager.state is not None
+        assert manager.state.to_dict() == observed.to_dict()
+
+    def test_atomic_pure_success_returns_and_persists_exact_shell(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="atomic-pure-success",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+
+        shell = manager.settle_eligible_pure_success(witness)
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert shell == _expected_pure_completion_shell(witness)
+        assert observed.steps == {witness.presentation_key: shell}
+        assert observed.current_step is None
+        assert observed.step_visits == {witness.presentation_key: 1}
+
+    def test_atomic_pure_failure_persists_full_result_and_clears_cursor(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="atomic-pure-failure",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+        failure = StepResult(
+            status="failed",
+            name=witness.presentation_key,
+            step_id=witness.step_id,
+            visit_count=witness.visit_count,
+            exit_code=3,
+            output="ordinary failure evidence",
+            error={
+                "type": "output_contract_invalid",
+                "message": "fixture failure",
+            },
+            outcome={
+                "status": "failed",
+                "phase": "execution",
+                "class": "failed",
+                "retryable": False,
+            },
+        )
+
+        result = manager.settle_eligible_pure_failure(witness, failure)
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert result is None
+        assert observed.steps == {
+            witness.presentation_key: failure.to_dict()
+        }
+        assert observed.current_step is None
+        assert observed.step_visits == {witness.presentation_key: 1}
+
+    def test_custom_state_dir_overrides_default_runs_root(self, temp_workspace, workflow_file):
+        """Custom state-dir roots should store runs outside WORKSPACE/.orchestrate."""
+        custom_state_dir = temp_workspace / "external-runs"
+        manager = StateManager(temp_workspace, state_dir=custom_state_dir, run_id="custom-run")
+
+        state = manager.initialize(workflow_file)
+
+        expected_state_file = custom_state_dir / "custom-run" / "state.json"
+        default_state_file = temp_workspace / ".orchestrate" / "runs" / "custom-run" / "state.json"
+
+        assert state.run_root == str(custom_state_dir / "custom-run")
+        assert expected_state_file.exists()
+        assert not default_state_file.exists()
+
+        manager2 = StateManager(temp_workspace, state_dir=custom_state_dir, run_id="custom-run")
+        loaded_state = manager2.load()
+        assert loaded_state.run_root == str(custom_state_dir / "custom-run")
+
+    def test_control_flow_counters_persist_across_writes(self, temp_workspace, workflow_file):
+        """Cycle-guard counters are durable in state.json."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_control_flow_counters(
+            transition_count=4,
+            step_visits={"LoopStart": 2, "GuardLoop": 2},
+        )
+
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        assert loaded_state.transition_count == 4
+        assert loaded_state.step_visits == {"LoopStart": 2, "GuardLoop": 2}
+
+    def test_bound_inputs_and_workflow_outputs_persist_across_reload(self, temp_workspace, workflow_file):
+        """Workflow-boundary inputs and outputs survive state reloads."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file, bound_inputs={"max_cycles": 3})
+        manager.update_workflow_outputs({"report_ready": True})
+
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        assert loaded_state.bound_inputs == {"max_cycles": 3}
+        assert loaded_state.workflow_outputs == {"report_ready": True}
+
+    def test_call_frames_persist_across_reload(self, temp_workspace, workflow_file):
+        """Call-frame state survives reload under the Task 11 schema boundary."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+        manager.update_call_frame(
+            "root.run_review_loop::visit::1",
+            {
+                "call_frame_id": "root.run_review_loop::visit::1",
+                "call_step_name": "RunReviewLoop",
+                "call_step_id": "root.run_review_loop",
+                "import_alias": "review_loop",
+                "workflow_file": "workflows/library/review_loop_fixture.yaml",
+                "status": "running",
+                "body_status": None,
+                "finalization_status": "not_configured",
+                "export_status": "pending",
+                "bound_inputs": {"write_root": "state/review-loop"},
+                "state": {
+                    "schema_version": StateManager.SCHEMA_VERSION,
+                    "run_id": manager.run_id,
+                    "workflow_file": "workflows/library/review_loop_fixture.yaml",
+                    "workflow_checksum": "call_frame",
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "running",
+                    "context": {},
+                    "bound_inputs": {"write_root": "state/review-loop"},
+                    "workflow_outputs": {},
+                    "finalization": {},
+                    "steps": {
+                        "WriteHistory": {
+                            "status": "completed",
+                            "exit_code": 0,
+                        }
+                    },
+                    "for_each": {},
+                    "call_frames": {},
+                    "artifact_versions": {},
+                    "artifact_consumes": {},
+                    "transition_count": 0,
+                    "step_visits": {"WriteHistory": 1},
+                },
+            },
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert "root.run_review_loop::visit::1" in loaded_state.call_frames
+        frame = loaded_state.call_frames["root.run_review_loop::visit::1"]
+        assert frame["import_alias"] == "review_loop"
+        assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
+
+    def test_finalize_step_with_dataflow_persists_atomically_for_matching_visit(self, temp_workspace, workflow_file):
+        """Session-style finalization writes step result, lineage, and current_step clearance together."""
+        manager = StateManager(temp_workspace, run_id="provider-session-finalize")
+        manager.initialize(workflow_file)
+        manager.start_step(
+            "StartImplementation",
+            0,
+            "provider",
+            step_id="root.startimplementation",
+            visit_count=1,
+        )
+
+        manager.finalize_step_with_dataflow(
+            "StartImplementation",
+            StepResult(
+                status="completed",
+                name="StartImplementation",
+                step_id="root.startimplementation",
+                exit_code=0,
+                artifacts={"implementation_session_id": "sess-123"},
+                visit_count=1,
+            ),
+            artifact_versions={
+                "implementation_session_id": [
+                    {
+                        "version": 1,
+                        "value": "sess-123",
+                        "producer": "root.startimplementation",
+                        "producer_name": "StartImplementation",
+                        "step_index": 0,
+                    }
+                ]
+            },
+            expected_step_id="root.startimplementation",
+            expected_visit_count=1,
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id="provider-session-finalize").load()
+
+        assert loaded_state.current_step is None
+        assert loaded_state.steps["StartImplementation"]["artifacts"] == {
+            "implementation_session_id": "sess-123"
+        }
+        assert loaded_state.artifact_versions["implementation_session_id"][0]["value"] == "sess-123"
+
+    def test_finalize_step_with_dataflow_guard_rejects_before_any_mutation(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="guarded-provider-finalize",
+        )
+        manager.initialize(workflow_file)
+        manager.start_step(
+            "Review",
+            0,
+            "provider",
+            step_id="root.review",
+            visit_count=1,
+        )
+
+        with pytest.raises(TimeoutError, match="state commit guard"):
+            manager.finalize_step_with_dataflow(
+                "Review",
+                StepResult(
+                    status="completed",
+                    name="Review",
+                    step_id="root.review",
+                    exit_code=0,
+                    visit_count=1,
+                ),
+                expected_step_id="root.review",
+                expected_visit_count=1,
+                commit_guard=lambda: False,
+            )
+
+        state = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        assert "Review" not in state.steps
+        assert state.current_step["step_id"] == "root.review"
+
+    def test_private_artifact_versions_persist_across_reload(self, temp_workspace, workflow_file):
+        """Private artifact lineage persists additively beside the public ledger."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_dataflow_state(
+            artifact_versions={},
+            artifact_consumes={},
+            private_artifact_versions={
+                "context_docs": [{
+                    "version": 1,
+                    "value": ["state-layout.md"],
+                    "producer": "root.collect_context",
+                    "producer_name": "CollectContext",
+                    "step_index": 2,
+                    "catalog_ref": "context_docs",
+                }]
+            },
+            private_artifact_consumes={},
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.private_artifact_versions == {
+            "context_docs": [{
+                "version": 1,
+                "value": ["state-layout.md"],
+                "producer": "root.collect_context",
+                "producer_name": "CollectContext",
+                "step_index": 2,
+                "catalog_ref": "context_docs",
+            }]
+        }
+        assert loaded_state.artifact_versions == {}
+
+    def test_private_artifact_consumes_persist_across_reload(self, temp_workspace, workflow_file):
+        """Private consume freshness survives reloads without reusing the public ledger."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_dataflow_state(
+            artifact_versions={},
+            artifact_consumes={},
+            private_artifact_versions={},
+            private_artifact_consumes={
+                "root.review": {"context_docs": 2},
+                "__global__": {"context_docs": 2},
+            },
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.private_artifact_consumes == {
+            "root.review": {"context_docs": 2},
+            "__global__": {"context_docs": 2},
+        }
+        assert loaded_state.artifact_consumes == {}
+
+    def test_call_frame_private_artifact_ledgers_remain_local(self, temp_workspace, workflow_file):
+        """Nested call-frame state keeps private ledgers under the frame snapshot only."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        frame_state = RunState(
+            schema_version=StateManager.SCHEMA_VERSION,
+            run_id=manager.run_id,
+            workflow_file="workflows/library/review_loop_fixture.yaml",
+            workflow_checksum="call_frame",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            status="running",
+            context={},
+            bound_inputs={"write_root": "state/review-loop"},
+            private_artifact_versions={
+                "context_docs": [{
+                    "version": 1,
+                    "value": ["state-layout.md"],
+                    "producer": "root.collect_context",
+                    "producer_name": "CollectContext",
+                    "step_index": 0,
+                    "catalog_ref": "context_docs",
+                }]
+            },
+            private_artifact_consumes={
+                "root.review": {"context_docs": 1},
+                "__global__": {"context_docs": 1},
+            },
+        )
+
+        manager.update_call_frame(
+            "root.run_review_loop::visit::1",
+            {
+                "call_frame_id": "root.run_review_loop::visit::1",
+                "call_step_name": "RunReviewLoop",
+                "call_step_id": "root.run_review_loop",
+                "import_alias": "review_loop",
+                "workflow_file": "workflows/library/review_loop_fixture.yaml",
+                "status": "running",
+                "body_status": None,
+                "finalization_status": "not_configured",
+                "export_status": "pending",
+                "bound_inputs": {"write_root": "state/review-loop"},
+                "state": frame_state.to_dict(),
+            },
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.private_artifact_versions == {}
+        assert loaded_state.private_artifact_consumes == {}
+        frame = loaded_state.call_frames["root.run_review_loop::visit::1"]["state"]
+        assert frame["private_artifact_versions"]["context_docs"][0]["catalog_ref"] == "context_docs"
+        assert frame["private_artifact_consumes"]["root.review"]["context_docs"] == 1
+
+    def test_at4_step_result_recording(self, temp_workspace, workflow_file):
+        """AT-4: Record step results in state."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        # Add step result
+        result = StepResult(
+            status="completed",
+            exit_code=0,
+            started_at=datetime.now(timezone.utc).isoformat(),
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            duration_ms=1234,
+            output="test output",
+            truncated=False,
+            step_id="root.test_step",
+            name="TestStep",
+        )
+
+        manager.update_step("TestStep", result)
+
+        # Verify in memory
+        assert "TestStep" in manager.state.steps
+
+        # Load and verify persistence
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        assert "TestStep" in loaded_state.steps
+        step_data = loaded_state.steps["TestStep"]
+        assert step_data["status"] == "completed"
+        assert step_data["exit_code"] == 0
+        assert step_data["duration_ms"] == 1234
+        assert step_data["output"] == "test output"
+        assert step_data["truncated"] is False
+        assert step_data["step_id"] == "root.test_step"
+        assert step_data["name"] == "TestStep"
+
+    def test_at4_loop_state_indexing(self, temp_workspace, workflow_file):
+        """AT-4/AT-43: Loop state stored as steps.<LoopName>[i].<StepName>."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        # Add for_each state
+        loop_state = ForEachState(
+            items=["item1", "item2", "item3"],
+            completed_indices=[0],
+            current_index=1
+        )
+        manager.update_for_each("ProcessItems", loop_state)
+
+        # Add loop step results
+        for i in range(2):
+            result = StepResult(
+                status="completed",
+                exit_code=0,
+                output=f"processed item{i+1}"
+            )
+            manager.update_loop_step("ProcessItems", i, "Process", result)
+
+        # Verify state structure
+        assert "ProcessItems" in manager.state.for_each
+        assert manager.state.for_each["ProcessItems"].items == ["item1", "item2", "item3"]
+        assert manager.state.for_each["ProcessItems"].completed_indices == [0]
+        assert manager.state.for_each["ProcessItems"].current_index == 1
+
+        # Verify loop step indexing
+        assert "ProcessItems[0].Process" in manager.state.steps
+        assert "ProcessItems[1].Process" in manager.state.steps
+
+        # Load and verify persistence
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        assert "ProcessItems" in loaded_state.for_each
+        assert "ProcessItems[0].Process" in loaded_state.steps
+        assert loaded_state.steps["ProcessItems[0].Process"]["output"] == "processed item1"
+        assert loaded_state.steps["ProcessItems[1].Process"]["output"] == "processed item2"
+
+    def test_if_else_lowered_step_entries_persist_across_reload(self, temp_workspace, workflow_file):
+        """Structured-control lowered step names and ids survive state reloads."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_step(
+            "RouteReview.then.WriteApproved",
+            StepResult(
+                status="completed",
+                exit_code=0,
+                step_id="root.route_review.approve_path.write_approved",
+                artifacts={"review_decision": "APPROVE"},
+            ),
+        )
+        manager.update_step(
+            "RouteReview",
+            StepResult(
+                status="completed",
+                exit_code=0,
+                step_id="root.route_review",
+                artifacts={"review_decision": "APPROVE"},
+                debug={"structured_if": {"selected_branch": "then"}},
+            ),
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.steps["RouteReview.then.WriteApproved"]["step_id"] == (
+            "root.route_review.approve_path.write_approved"
+        )
+        assert loaded_state.steps["RouteReview"]["step_id"] == "root.route_review"
+        assert loaded_state.steps["RouteReview"]["artifacts"] == {"review_decision": "APPROVE"}
+        assert loaded_state.steps["RouteReview"]["debug"] == {"structured_if": {"selected_branch": "then"}}
+
+    def test_at4_atomic_writes(self, temp_workspace, workflow_file):
+        """AT-4: Verify atomic write behavior."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        state_file = manager.state_file
+
+        # Update state multiple times
+        for i in range(5):
+            result = StepResult(status="completed", exit_code=0, output=f"step{i}")
+            manager.update_step(f"Step{i}", result)
+
+            # Verify no .tmp file left behind
+            assert not state_file.with_suffix('.tmp').exists()
+
+            # Verify state file is valid JSON
+            with open(state_file, 'r') as f:
+                data = json.load(f)
+                assert f"Step{i}" in data["steps"]
+
+    def test_at4_backup_and_rotation(self, temp_workspace, workflow_file):
+        """AT-4: Test backup creation and rotation."""
+        manager = StateManager(temp_workspace, backup_enabled=True)
+        manager.initialize(workflow_file)
+
+        # Create backups for multiple steps
+        step_names = ["Step1", "Step2", "Step3", "Step4", "Step5"]
+        for step_name in step_names:
+            manager.backup_state(step_name)
+            result = StepResult(status="completed", exit_code=0)
+            manager.update_step(step_name, result)
+
+        # Check that only last 3 backups exist
+        backup_files = list(manager.state_file.parent.glob("state.json.step_*.bak"))
+        assert len(backup_files) == 3
+
+        # Verify the remaining backups are the most recent ones
+        backup_names = [f.stem for f in backup_files]
+        assert "state.json.step_Step3" in str(backup_files)
+        assert "state.json.step_Step4" in str(backup_files)
+        assert "state.json.step_Step5" in str(backup_files)
+
+    def test_at4_checksum_validation(self, temp_workspace, workflow_file):
+        """AT-4: Test workflow checksum validation."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        # Checksum should match
+        assert manager.validate_checksum(workflow_file)
+
+        # Modify workflow file
+        workflow_path = temp_workspace / workflow_file
+        workflow_path.write_text("""
+version: "1.1"
+steps:
+  - name: Modified
+    command: echo modified
+""")
+
+        # Checksum should not match
+        assert not manager.validate_checksum(workflow_file)
+
+    def test_at4_repair_from_backup(self, temp_workspace, workflow_file):
+        """AT-4: Test state repair from backup."""
+        manager = StateManager(temp_workspace, backup_enabled=True)
+        manager.initialize(workflow_file)
+
+        # Create a valid backup
+        manager.backup_state("GoodStep")
+        result = StepResult(status="completed", exit_code=0, output="good")
+        manager.update_step("GoodStep", result)
+
+        # Corrupt the main state file
+        manager.state_file.write_text("invalid json {")
+
+        # Attempt repair
+        assert manager.attempt_repair()
+
+        # Verify state was recovered
+        loaded_state = manager.load()
+        assert loaded_state.status == "running"
+        assert loaded_state.workflow_file == workflow_file
+
+    def test_at4_run_id_format(self, temp_workspace):
+        """AT-4: Verify run_id format YYYYMMDDTHHMMSSZ-<6char>."""
+        manager = StateManager(temp_workspace)
+
+        # Check format
+        run_id = manager.run_id
+        assert len(run_id) == 23  # 16 for timestamp, 1 for dash, 6 for suffix
+        assert run_id[15] == 'Z'
+        assert run_id[16] == '-'
+        assert run_id[:8].isdigit()  # YYYYMMDD
+        assert run_id[9:15].isdigit()  # HHMMSS
+
+    def test_at4_status_transitions(self, temp_workspace, workflow_file):
+        """AT-4: Test status transitions."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        # Initial status
+        assert manager.state.status == "running"
+
+        # Update to completed
+        manager.update_status("completed")
+        assert manager.state.status == "completed"
+
+        # Load and verify
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded = manager2.load()
+        assert loaded.status == "completed"
+
+        # Update to failed
+        manager.update_status("failed")
+        assert manager.state.status == "failed"
+
+    def test_projection_failure_recorder_changes_exactly_three_root_fields(
+        self,
+        temp_workspace,
+        workflow_file,
+        monkeypatch,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="projection-recorder",
+            backup_enabled=True,
+        )
+        manager.initialize(workflow_file)
+        raw_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        raw_state.update(
+            {
+                "updated_at": "2026-07-15T00:00:00+00:00",
+                "status": "running",
+                "error": {
+                    "type": "prior_failure",
+                    "message": "preserve nothing from this prior root error",
+                },
+                "current_step": {
+                    "name": "Test",
+                    "step_id": "root.test",
+                    "status": "running",
+                    "visit_count": 2,
+                    "started_at": "2026-07-15T00:00:00+00:00",
+                    "last_heartbeat_at": "2026-07-15T00:00:01+00:00",
+                },
+                "steps": {
+                    "Test": {
+                        "status": "running",
+                        "name": "Test",
+                        "step_id": "root.test",
+                        "unknown_compatible_result_field": {"keep": True},
+                    },
+                    "HistoricalWithoutId": {
+                        "status": "completed",
+                        "name": "HistoricalWithoutId",
+                        "exit_code": 0,
+                    },
+                },
+                "step_visits": {"Test": 2},
+                "for_each": {
+                    "Batch": {
+                        "items": ["a", "b"],
+                        "completed_indices": [0],
+                        "current_index": 1,
+                    }
+                },
+                "repeat_until": {
+                    "Retry": {
+                        "completed_iterations": [0],
+                        "current_iteration": 1,
+                        "unknown_compatible_loop_field": "keep",
+                    }
+                },
+                "call_frames": {
+                    "root.call::visit::1": {
+                        "call_step_id": "root.call",
+                        "status": "running",
+                        "state": {"unknown_compatible_child_state": {"keep": True}},
+                    }
+                },
+                "observability": {"enabled": True, "unknown": ["keep"]},
+                "runtime_observability": {
+                    "executor_sessions": [{"session_id": "session-1", "status": "running"}]
+                },
+                "unknown_compatible_root": {"keep": ["exactly", 1]},
+            }
+        )
+        manager.state_file.write_text(
+            json.dumps(raw_state, indent=2),
+            encoding="utf-8",
+        )
+        manager.load()
+
+        sidecar_path = manager.run_root / "sidecars" / "provider.json"
+        sidecar_path.parent.mkdir(parents=True)
+        sidecar_path.write_bytes(b'{"status":"running"}\n')
+        backup_path = manager.run_root / "state.json.step_Test.bak"
+        backup_path.write_bytes(b"preserved backup bytes\n")
+        child_directory = manager.run_root / "call_frames" / "child"
+        child_directory.mkdir(parents=True)
+
+        error = {
+            "type": "resume_projection_integrity_error",
+            "message": "Persisted resume state does not match the current workflow projection",
+            "context": {
+                "diagnostic_schema": "resume_projection_integrity_error.v1",
+                "reason": "unknown_explicit_step_id",
+                "scope_path": ["root"],
+                "field": "steps.Test.step_id",
+                "offending_value": "root.stale",
+                "expected_owner": {
+                    "workflow_file": workflow_file,
+                    "workflow_checksum": raw_state["workflow_checksum"],
+                    "projection_scope": "root",
+                },
+                "candidate_count": 0,
+                "call_boundary_step_id": None,
+            },
+        }
+        before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        before_tree = _run_tree_snapshot(manager.run_root)
+        atomic_writes = []
+        original_atomic_write = manager._write_json_atomic
+
+        def tracked_atomic_write(path, payload):
+            atomic_writes.append((Path(path), payload))
+            original_atomic_write(path, payload)
+
+        monkeypatch.setattr(manager, "_write_json_atomic", tracked_atomic_write)
+        monkeypatch.setattr(
+            manager,
+            "fail_run",
+            lambda *args, **kwargs: pytest.fail("projection recorder must not call fail_run"),
+        )
+
+        manager.record_resume_projection_integrity_failure(error)
+
+        after_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        after_tree = _run_tree_snapshot(manager.run_root)
+        changed_root_fields = {
+            key
+            for key in before_state.keys() | after_state.keys()
+            if before_state.get(key) != after_state.get(key)
+        }
+        changed_tree_entries = {
+            path
+            for path in before_tree.keys() | after_tree.keys()
+            if before_tree.get(path) != after_tree.get(path)
+        }
+
+        assert changed_root_fields == {"status", "error", "updated_at"}
+        assert after_state["status"] == "failed"
+        assert after_state["error"] == error
+        assert after_state["updated_at"] != before_state["updated_at"]
+        assert changed_tree_entries == {"state.json"}
+        assert after_tree.keys() == before_tree.keys()
+        assert after_state["current_step"] == before_state["current_step"]
+        assert after_state["steps"] == before_state["steps"]
+        assert after_state["step_visits"] == before_state["step_visits"]
+        assert after_state["for_each"] == before_state["for_each"]
+        assert after_state["repeat_until"] == before_state["repeat_until"]
+        assert after_state["call_frames"] == before_state["call_frames"]
+        assert after_state["observability"] == before_state["observability"]
+        assert after_state["runtime_observability"] == before_state["runtime_observability"]
+        assert after_state["unknown_compatible_root"] == before_state["unknown_compatible_root"]
+        assert atomic_writes == [(manager.state_file, after_state)]
+        assert not manager.state_file.with_suffix(".json.tmp").exists()
+        assert manager.state is not None
+        assert manager.state.status == "failed"
+        assert manager.state.error == error
+        assert manager.state.current_step == before_state["current_step"]
+
+    @pytest.mark.parametrize(
+        (
+            "reason",
+            "workflow_file_value",
+            "persisted_checksum",
+            "current_checksum",
+        ),
+        [
+            (
+                "workflow_modified",
+                "workflows/root.yaml",
+                "sha256:persisted",
+                "sha256:current",
+            ),
+            (
+                "missing_recorded_checksum",
+                "workflows/root.yaml",
+                None,
+                "sha256:current",
+            ),
+            (
+                "missing_workflow_path",
+                None,
+                "sha256:persisted",
+                None,
+            ),
+            (
+                "workflow_unavailable",
+                "workflows/missing.yaml",
+                "sha256:persisted",
+                None,
+            ),
+        ],
+    )
+    def test_checksum_mismatch_recorder_persists_exact_structured_error(
+        self,
+        temp_workspace,
+        workflow_file,
+        reason,
+        workflow_file_value,
+        persisted_checksum,
+        current_checksum,
+        monkeypatch,
+    ):
+        manager = StateManager(temp_workspace, run_id=f"checksum-recorder-{reason}")
+        manager.initialize(workflow_file)
+        raw_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        raw_state.update(
+            {
+                "updated_at": "2026-07-15T00:00:00+00:00",
+                "status": "running",
+                "current_step": {
+                    "name": "Test",
+                    "step_id": "root.test",
+                    "status": "running",
+                    "last_heartbeat_at": "2026-07-15T00:00:01+00:00",
+                },
+                "steps": {
+                    "Test": {
+                        "status": "running",
+                        "name": "Test",
+                    }
+                },
+                "unknown_compatible_root": {"keep": reason},
+            }
+        )
+        manager.state_file.write_text(
+            json.dumps(raw_state, indent=2),
+            encoding="utf-8",
+        )
+        manager.load()
+        sidecar_path = manager.run_root / "child" / "sidecar.bin"
+        sidecar_path.parent.mkdir(parents=True)
+        sidecar_path.write_bytes(b"\x00preserve\xff")
+
+        before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        before_tree = _run_tree_snapshot(manager.run_root)
+        monkeypatch.setattr(
+            manager,
+            "fail_run",
+            lambda *args, **kwargs: pytest.fail("checksum recorder must not call fail_run"),
+        )
+
+        manager.record_workflow_checksum_mismatch(
+            workflow_file=workflow_file_value,
+            persisted_checksum=persisted_checksum,
+            current_checksum=current_checksum,
+            reason=reason,
+        )
+
+        after_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        after_tree = _run_tree_snapshot(manager.run_root)
+        expected_error = {
+            "type": "workflow_checksum_mismatch",
+            "message": "Workflow has been modified since the run started",
+            "context": {
+                "workflow_file": workflow_file_value,
+                "persisted_checksum": persisted_checksum,
+                "current_checksum": current_checksum,
+                "reason": reason,
+            },
+        }
+
+        assert {
+            key
+            for key in before_state.keys() | after_state.keys()
+            if before_state.get(key) != after_state.get(key)
+        } == {"status", "error", "updated_at"}
+        assert after_state["status"] == "failed"
+        assert after_state["error"] == expected_error
+        assert after_state["current_step"] == before_state["current_step"]
+        assert after_state["steps"] == before_state["steps"]
+        assert after_state["unknown_compatible_root"] == before_state["unknown_compatible_root"]
+        assert {
+            path
+            for path in before_tree.keys() | after_tree.keys()
+            if before_tree.get(path) != after_tree.get(path)
+        } == {"state.json"}
+        assert after_tree.keys() == before_tree.keys()
+        assert manager.state is not None
+        assert manager.state.error == expected_error
+
+    def test_at4_error_context_recording(self, temp_workspace, workflow_file):
+        """AT-4: Test error context recording in step results."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        # Add failed step with error context
+        result = StepResult(
+            status="failed",
+            exit_code=2,
+            error={
+                "type": "ValidationError",
+                "message": "Missing required dependency",
+                "context": {
+                    "missing_files": ["config.yaml"],
+                    "step": "ValidateConfig"
+                }
+            }
+        )
+
+        manager.update_step("ValidateConfig", result)
+
+        # Load and verify
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded = manager2.load()
+
+        step = loaded.steps["ValidateConfig"]
+        assert step["status"] == "failed"
+        assert step["exit_code"] == 2
+        assert step["error"]["type"] == "ValidationError"
+        assert step["error"]["context"]["missing_files"] == ["config.yaml"]
+
+    def test_current_step_lifecycle_with_heartbeat(self, temp_workspace, workflow_file):
+        """Current step should be persisted while running and cleared on completion."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.start_step("LongStep", 3, "command")
+        loaded = manager.load()
+        assert loaded.current_step is not None
+        assert loaded.current_step["name"] == "LongStep"
+        assert loaded.current_step["index"] == 3
+        assert loaded.current_step["type"] == "command"
+        assert loaded.current_step["status"] == "running"
+        first_heartbeat = loaded.current_step["last_heartbeat_at"]
+
+        time.sleep(0.01)
+        manager.heartbeat_step("LongStep")
+        loaded = manager.load()
+        assert loaded.current_step is not None
+        assert loaded.current_step["last_heartbeat_at"] != first_heartbeat
+
+        manager.update_step("LongStep", StepResult(status="completed", exit_code=0))
+        loaded = manager.load()
+        assert loaded.current_step is None
+
+    def test_step_id_metadata_is_persisted_for_loop_steps(self, temp_workspace, workflow_file):
+        """Loop step presentation keys persist the durable internal step id in the payload."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_loop_step(
+            "ProcessItems",
+            0,
+            "Process",
+            StepResult(
+                status="completed",
+                exit_code=0,
+                output="processed item1",
+                step_id="root.process_items#0.process",
+                name="Process",
+            ),
+        )
+
+        loaded = StateManager(temp_workspace, run_id=manager.run_id).load()
+        assert loaded.steps["ProcessItems[0].Process"]["step_id"] == "root.process_items#0.process"
+        assert loaded.steps["ProcessItems[0].Process"]["name"] == "Process"

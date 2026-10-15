@@ -1,0 +1,4875 @@
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 740638af..7a5934f4 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -26,6 +26,9 @@ from orchestrator.workflow.resume_projection_integrity import (
+     ResumeScopePath,
+     audit_scope,
+ )
++from orchestrator.workflow.pure_result_replay import (
++    DERIVED_PURE_REPLAY_PROFILE,
++)
+ from orchestrator.monitor.process import (
+     process_start_time_token,
+     read_process_metadata,
+@@ -445,12 +448,6 @@ def _resume_workflow_with_writer_lock_held(
+             live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+             live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+         )
+-        if observability is not None:
+-            # Preserve the existing force-restart override lifecycle.
+-            with state_manager.state_transaction() as transaction_state:
+-                transaction_state.observability = observability
+-            state = state_manager.state
+-            assert state is not None
+ 
+     # Validate checksum unless force restart
+     if not force_restart:
+@@ -533,6 +530,7 @@ def _resume_workflow_with_writer_lock_held(
+                 ),
+             bound_inputs=bound_inputs,
+             observability=observability,
++            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+         )
+     else:
+         # Find the next step to execute
+diff --git a/orchestrator/cli/commands/run.py b/orchestrator/cli/commands/run.py
+index 73891c8d..ea58c52a 100644
+--- a/orchestrator/cli/commands/run.py
++++ b/orchestrator/cli/commands/run.py
+@@ -21,6 +21,9 @@ from orchestrator.workflow.loaded_bundle import (
+     workflow_public_input_contracts,
+ )
+ from orchestrator.workflow.linting import lint_workflow
++from orchestrator.workflow.pure_result_replay import (
++    DERIVED_PURE_REPLAY_PROFILE,
++)
+ from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+ from orchestrator.runtime_observability import close_executor_session, open_executor_session
+ from orchestrator.runtime_observability import record_compiled_frontend_provenance
+@@ -438,6 +441,7 @@ def run_workflow(args: Namespace) -> int:
+             context,
+             bound_inputs=bound_inputs,
+             observability=observability,
++            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+         )
+         if frontend_build is not None:
+             with state_manager.state_transaction() as transaction_state:
+diff --git a/orchestrator/state.py b/orchestrator/state.py
+index c6b5a5e1..97d075ff 100644
+--- a/orchestrator/state.py
++++ b/orchestrator/state.py
+@@ -82,6 +82,7 @@ class RunState:
+     started_at: str
+     updated_at: str
+     status: StateStatus
++    result_persistence_profile: Optional[str] = None
+     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
+     context: Dict[str, Any] = field(default_factory=dict)
+     bound_inputs: Dict[str, Any] = field(default_factory=dict)
+@@ -103,6 +104,14 @@ class RunState:
+     step_visits: Dict[str, int] = field(default_factory=dict)
+     provider_attempt_allocations: Dict[str, Any] = field(default_factory=dict)
+ 
++    def __post_init__(self) -> None:
++        if self.result_persistence_profile is None:
++            return
++        from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
++
++        if self.result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
++            raise ValueError("result persistence profile is unsupported")
++
+     def to_dict(self) -> Dict[str, Any]:
+         """Convert to dict for JSON serialization."""
+         result: Dict[str, Any] = {
+@@ -132,6 +141,10 @@ class RunState:
+         # Include run_root if set
+         if self.run_root:
+             result["run_root"] = self.run_root
++        if self.result_persistence_profile is not None:
++            result[
++                "result_persistence_profile"
++            ] = self.result_persistence_profile
+         if self.observability is not None:
+             result["observability"] = self.observability
+         if self.runtime_observability is not None:
+@@ -164,6 +177,17 @@ class RunState:
+     @classmethod
+     def from_dict(cls, data: Dict[str, Any]) -> "RunState":
+         """Create RunState from dict."""
++        result_persistence_profile = data.get("result_persistence_profile")
++        if "result_persistence_profile" in data:
++            from .workflow.pure_result_replay import (
++                DERIVED_PURE_REPLAY_PROFILE,
++            )
++
++            if result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
++                raise ValueError(
++                    "result persistence profile is unsupported"
++                )
++
+         # Convert for_each entries to ForEachState objects
+         for_each = {}
+         if "for_each" in data:
+@@ -196,6 +220,7 @@ class RunState:
+             started_at=data["started_at"],
+             updated_at=data["updated_at"],
+             status=data["status"],
++            result_persistence_profile=result_persistence_profile,
+             run_root=data.get("run_root"),  # Optional, may not be present in older states
+             context=data.get("context", {}),
+             bound_inputs=data.get("bound_inputs", {}),
+@@ -219,6 +244,116 @@ class RunState:
+         )
+ 
+ 
++def _require_derived_pure_replay_profile(state: RunState) -> None:
++    from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
++
++    if state.result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
++        raise ValueError(
++            "eligible pure witness operations require the derived pure "
++            "replay persistence profile"
++        )
++
++
++def _begin_eligible_pure_visit_state(
++    state: RunState,
++    *,
++    step_name: str,
++    step_index: int,
++    step_id: str,
++) -> int:
++    from .workflow.pure_result_replay import (
++        PROGRESS_WITNESS_INVALID,
++        PureReplayVisitWitness,
++        classify_pure_replay_progress,
++    )
++
++    _require_derived_pure_replay_profile(state)
++    witness = PureReplayVisitWitness(
++        presentation_key=step_name,
++        step_index=step_index,
++        step_id=step_id,
++        visit_count=1,
++    )
++    if (
++        state.current_step is not None
++        or classify_pure_replay_progress(state, witness=witness)
++        != "unstarted"
++    ):
++        raise ValueError(PROGRESS_WITNESS_INVALID)
++
++    now = datetime.now(timezone.utc).isoformat()
++    state.step_visits[step_name] = witness.visit_count
++    state.current_step = {
++        "name": witness.presentation_key,
++        "index": witness.step_index,
++        "type": "pure_projection",
++        "status": "running",
++        "started_at": now,
++        "last_heartbeat_at": now,
++        "step_id": witness.step_id,
++        "visit_count": witness.visit_count,
++    }
++    return witness.visit_count
++
++
++def _require_interrupted_eligible_pure_visit(
++    state: RunState,
++    witness: Any,
++) -> None:
++    from .workflow.pure_result_replay import (
++        PROGRESS_WITNESS_INVALID,
++        PureReplayVisitWitness,
++        classify_pure_replay_progress,
++    )
++
++    _require_derived_pure_replay_profile(state)
++    if not isinstance(witness, PureReplayVisitWitness):
++        raise TypeError("PureReplayVisitWitness required")
++    if (
++        classify_pure_replay_progress(state, witness=witness)
++        != "interrupted"
++    ):
++        raise ValueError(PROGRESS_WITNESS_INVALID)
++
++
++def _settle_eligible_pure_success_state(
++    state: RunState,
++    witness: Any,
++) -> Dict[str, Any]:
++    from .workflow.pure_result_replay import build_pure_completion_shell
++
++    _require_interrupted_eligible_pure_visit(state, witness)
++    shell = build_pure_completion_shell(witness)
++    state.steps[witness.presentation_key] = shell
++    state.current_step = None
++    return shell
++
++
++def _settle_eligible_pure_failure_state(
++    state: RunState,
++    witness: Any,
++    result: StepResult,
++) -> None:
++    _require_interrupted_eligible_pure_visit(state, witness)
++    if not isinstance(result, StepResult):
++        raise TypeError("StepResult required")
++    if result.status not in {"failed", "skipped"}:
++        raise ValueError(
++            "eligible pure failure settlement requires a failed or skipped result"
++        )
++    if (
++        result.name != witness.presentation_key
++        or result.step_id != witness.step_id
++        or isinstance(result.visit_count, bool)
++        or result.visit_count != witness.visit_count
++    ):
++        raise ValueError(
++            "eligible pure failure result does not match its visit"
++        )
++    state.steps[witness.presentation_key] = deepcopy(result)
++    state.current_step = None
++
++
+ class StateManager:
+     """Manages run state with atomic writes and recovery."""
+ 
+@@ -294,11 +429,11 @@ class StateManager:
+                 raise RuntimeError("State not initialized")
+             try:
+                 yield self.state
++                self._write_state()
+             except BaseException:
+-                self.state = self._read_state_from_disk()
++                if self.state_file.exists():
++                    self.state = self._read_state_from_disk()
+                 raise
+-            else:
+-                self._write_state()
+ 
+     def allocate_provider_attempt(
+         self,
+@@ -411,6 +546,7 @@ class StateManager:
+         context: Optional[Dict[str, Any]] = None,
+         bound_inputs: Optional[Dict[str, Any]] = None,
+         observability: Optional[Dict[str, Any]] = None,
++        result_persistence_profile: Optional[str] = None,
+     ) -> RunState:
+         """Initialize a new run state.
+ 
+@@ -421,6 +557,16 @@ class StateManager:
+         Returns:
+             Initialized RunState
+         """
++        if result_persistence_profile is not None:
++            from .workflow.pure_result_replay import (
++                DERIVED_PURE_REPLAY_PROFILE,
++            )
++
++            if result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
++                raise ValueError(
++                    "result persistence profile is unsupported"
++                )
++
+         with self._state_mutation():
+             # Create run directory structure
+             self.run_root.mkdir(parents=True, exist_ok=True)
+@@ -443,6 +589,7 @@ class StateManager:
+                 started_at=now,
+                 updated_at=now,
+                 status="running",
++                result_persistence_profile=result_persistence_profile,
+                 run_root=str(self.run_root),  # Store run_root path
+                 context=context or {},
+                 bound_inputs=bound_inputs or {},
+@@ -1084,7 +1231,12 @@ class StateManager:
+                 updated_child = parent
+ 
+             self.state = candidate_root
+-            self._write_state()
++            try:
++                self._write_state()
++            except BaseException:
++                if self.state_file.exists():
++                    self.state = self._read_state_from_disk()
++                raise
+             return committed_leaf
+ 
+     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]):
+@@ -1146,6 +1298,58 @@ class StateManager:
+             self.state.step_visits = step_visits
+             self._write_state()
+ 
++    def begin_eligible_pure_visit(
++        self,
++        *,
++        step_name: str,
++        step_index: int,
++        step_id: str,
++    ) -> int:
++        """Atomically publish one new eligible-pure visit and cursor."""
++
++        visit_count = 0
++        with self.state_transaction() as state:
++            visit_count = _begin_eligible_pure_visit_state(
++                state,
++                step_name=step_name,
++                step_index=step_index,
++                step_id=step_id,
++            )
++        return visit_count
++
++    def reuse_interrupted_eligible_pure_visit(
++        self,
++        witness: Any,
++    ) -> int:
++        """Validate and reuse one interrupted eligible-pure visit read-only."""
++
++        with self._state_mutation():
++            if self.state is None:
++                raise RuntimeError("State not initialized")
++            _require_interrupted_eligible_pure_visit(self.state, witness)
++            return witness.visit_count
++
++    def settle_eligible_pure_success(
++        self,
++        witness: Any,
++    ) -> Dict[str, Any]:
++        """Atomically replace one eligible-pure cursor with its exact shell."""
++
++        shell: Dict[str, Any] = {}
++        with self.state_transaction() as state:
++            shell = _settle_eligible_pure_success_state(state, witness)
++        return shell
++
++    def settle_eligible_pure_failure(
++        self,
++        witness: Any,
++        result: StepResult,
++    ) -> None:
++        """Atomically replace one eligible-pure cursor with a full failure."""
++
++        with self.state_transaction() as state:
++            _settle_eligible_pure_failure_state(state, witness, result)
++
+     def update_status(self, status: StateStatus):
+         """Update overall run status.
+ 
+diff --git a/orchestrator/workflow/call_frame_state.py b/orchestrator/workflow/call_frame_state.py
+index df32636a..1a22d000 100644
+--- a/orchestrator/workflow/call_frame_state.py
++++ b/orchestrator/workflow/call_frame_state.py
+@@ -12,7 +12,16 @@ from hashlib import sha256
+ from pathlib import Path
+ from typing import Any, Callable, Dict, List, Mapping, Optional
+ 
+-from ..state import ForEachState, RunState, StateManager, StepResult
++from ..state import (
++    ForEachState,
++    RunState,
++    StateManager,
++    StepResult,
++    _begin_eligible_pure_visit_state,
++    _require_interrupted_eligible_pure_visit,
++    _settle_eligible_pure_failure_state,
++    _settle_eligible_pure_success_state,
++)
+ from .executable_ir import ManagedJobsConfig, ManagedJobsRoutes
+ from .executor_runtime import ParentCallStateManager
+ from .loaded_bundle import (
+@@ -83,6 +92,19 @@ def _managed_jobs_config_from_step(step: Mapping[str, Any]) -> Optional[ManagedJ
+         return None
+ 
+ 
++def load_existing_call_frame_read_only(
++    existing_frame: Mapping[str, Any],
++) -> RunState:
++    """Load one detached existing call-frame state without allocating storage."""
++
++    if not isinstance(existing_frame, Mapping):
++        raise ValueError("existing call-frame state container is invalid")
++    candidate_state = existing_frame.get("state")
++    if not isinstance(candidate_state, Mapping):
++        raise ValueError("existing call-frame state is missing or invalid")
++    return RunState.from_dict(deepcopy(dict(candidate_state)))
++
++
+ class _CallFrameStateManager:
+     """Persist a nested workflow state snapshot under the parent run state."""
+ 
+@@ -99,7 +121,27 @@ class _CallFrameStateManager:
+         existing_frame: Optional[Dict[str, Any]] = None,
+         observability: Optional[Dict[str, Any]] = None,
+         resume_scope_path: Optional[ResumeScopePath] = None,
++        result_persistence_profile: Optional[str] = None,
+     ) -> None:
++        from .pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
++
++        if (
++            result_persistence_profile is not None
++            and result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE
++        ):
++            raise ValueError("result persistence profile is unsupported")
++        existing_state: Optional[Mapping[str, Any]] = None
++        if existing_frame is not None:
++            if not isinstance(existing_frame, Mapping):
++                raise ValueError(
++                    "existing call-frame state container is invalid"
++                )
++            candidate_existing_state = existing_frame.get("state")
++            if not isinstance(candidate_existing_state, Mapping):
++                raise ValueError(
++                    "existing call-frame state is missing or invalid"
++                )
++            existing_state = candidate_existing_state
+         self.parent_manager = parent_manager
+         self.workspace = parent_manager.workspace
+         self.workflow = workflow
+@@ -112,8 +154,6 @@ class _CallFrameStateManager:
+         frame_root_name = _path_safe_frame_scope_token(frame_id)
+         self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
+         self.logs_dir = self.run_root / "logs"
+-        self.run_root.mkdir(parents=True, exist_ok=True)
+-        self.logs_dir.mkdir(exist_ok=True)
+         recorded_validation = (
+             existing_frame.get("bound_input_resume_validation")
+             if isinstance(existing_frame, dict)
+@@ -127,9 +167,17 @@ class _CallFrameStateManager:
+                 "diagnostics": [],
+             }
+ 
+-        existing_state = existing_frame.get("state") if isinstance(existing_frame, dict) else None
+-        if isinstance(existing_state, dict):
+-            self.state = RunState.from_dict(existing_state)
++        if existing_state is not None:
++            self.state = RunState.from_dict(dict(existing_state))
++            if (
++                result_persistence_profile is not None
++                and self.state.result_persistence_profile
++                != result_persistence_profile
++            ):
++                raise ValueError(
++                    "existing call-frame result persistence profile "
++                    "cannot be changed"
++                )
+         else:
+             provenance = workflow_provenance(workflow)
+             workflow_path = str(provenance.workflow_path) if provenance is not None else ""
+@@ -145,11 +193,14 @@ class _CallFrameStateManager:
+                 started_at=now,
+                 updated_at=now,
+                 status="running",
++                result_persistence_profile=result_persistence_profile,
+                 run_root=str(self.run_root),
+                 context=dict(workflow_context(workflow)),
+                 bound_inputs=dict(bound_inputs),
+                 observability=observability,
+             )
++        self.run_root.mkdir(parents=True, exist_ok=True)
++        self.logs_dir.mkdir(exist_ok=True)
+         self._persist()
+ 
+     def _snapshot(self) -> Dict[str, Any]:
+@@ -481,6 +532,96 @@ class _CallFrameStateManager:
+         self.state.step_visits = step_visits
+         self._persist()
+ 
++    def _mutate_eligible_pure_state(
++        self,
++        mutation: Callable[[RunState], Any],
++    ) -> Any:
++        """Commit one eligible-pure frame mutation through the aggregate root."""
++
++        from .provider_attempts import resolve_aggregate_run_owner
++
++        owner = resolve_aggregate_run_owner(self)
++        result: list[Any] = []
++
++        def apply(leaf: RunState) -> None:
++            result.append(mutation(leaf))
++
++        try:
++            owner.root_manager._mutate_scoped_state(
++                owner.resume_scope_path,
++                commit_guard=lambda _leaf: True,
++                mutation=apply,
++            )
++        finally:
++            self._refresh_state_chain_from_root()
++        return result[0] if result else None
++
++    def begin_eligible_pure_visit(
++        self,
++        *,
++        step_name: str,
++        step_index: int,
++        step_id: str,
++    ) -> int:
++        """Atomically publish one nested eligible-pure visit and cursor."""
++
++        result = self._mutate_eligible_pure_state(
++            lambda state: _begin_eligible_pure_visit_state(
++                state,
++                step_name=step_name,
++                step_index=step_index,
++                step_id=step_id,
++            )
++        )
++        if isinstance(result, bool) or not isinstance(result, int):
++            raise RuntimeError("eligible pure visit allocation failed")
++        return result
++
++    def reuse_interrupted_eligible_pure_visit(
++        self,
++        witness: Any,
++    ) -> int:
++        """Validate and reuse one nested interrupted visit read-only."""
++
++        from .provider_attempts import resolve_aggregate_run_owner
++
++        owner = resolve_aggregate_run_owner(self)
++        with owner.root_manager._state_mutation():
++            self._refresh_state_chain_from_root()
++            _require_interrupted_eligible_pure_visit(self.state, witness)
++            return witness.visit_count
++
++    def settle_eligible_pure_success(
++        self,
++        witness: Any,
++    ) -> Dict[str, Any]:
++        """Atomically replace a nested pure cursor with its exact shell."""
++
++        result = self._mutate_eligible_pure_state(
++            lambda state: _settle_eligible_pure_success_state(
++                state,
++                witness,
++            )
++        )
++        if not isinstance(result, dict):
++            raise RuntimeError("eligible pure success settlement failed")
++        return result
++
++    def settle_eligible_pure_failure(
++        self,
++        witness: Any,
++        result: StepResult,
++    ) -> None:
++        """Atomically replace a nested pure cursor with its full failure."""
++
++        self._mutate_eligible_pure_state(
++            lambda state: _settle_eligible_pure_failure_state(
++                state,
++                witness,
++                result,
++            )
++        )
++
+     def update_status(self, status: str) -> None:
+         self.state.status = status
+         self._persist()
+diff --git a/orchestrator/workflow/calls.py b/orchestrator/workflow/calls.py
+index 1e79f430..934efdc2 100644
+--- a/orchestrator/workflow/calls.py
++++ b/orchestrator/workflow/calls.py
+@@ -27,6 +27,7 @@ from .loaded_bundle import (
+     workflow_runtime_context_inputs,
+ )
+ from .predicates import PredicateEvaluationError
++from .pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+ from .references import ReferenceResolutionError
+ from .resume_projection_integrity import (
+     CallFrameRetryLineage,
+@@ -910,7 +911,10 @@ class CallExecutor:
+         step_name_override: Optional[str] = None,
+     ) -> Dict[str, Any]:
+         """Execute an imported workflow inline and persist call-frame state."""
+-        from .call_frame_state import _CallFrameStateManager
++        from .call_frame_state import (
++            _CallFrameStateManager,
++            load_existing_call_frame_read_only,
++        )
+         from .executor import WorkflowExecutor
+ 
+         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
+@@ -1182,6 +1186,21 @@ class CallExecutor:
+             except ResumeProjectionIntegrityError as exc:
+                 return projection_integrity_failed_result(exc.error)
+ 
++        if child_resume and child_existing_frame is not None:
++            replay_audit = getattr(
++                self.executor,
++                "_audit_existing_pure_replay_call_frame",
++                None,
++            )
++            if callable(replay_audit):
++                replay_audit(
++                    imported_target,
++                    load_existing_call_frame_read_only(
++                        child_existing_frame
++                    ),
++                    self._resume_scope_path().child(frame_id),
++                )
++
+         if force_fresh_workflow_lisp_retry:
+             assert retry_lineage is not None
+             assert provisional_retry_frame_id is not None
+@@ -1212,6 +1231,15 @@ class CallExecutor:
+             existing_frame=child_existing_frame,
+             observability=self.executor.observability,
+             resume_scope_path=self._resume_scope_path().child(frame_id),
++            result_persistence_profile=(
++                DERIVED_PURE_REPLAY_PROFILE
++                if (
++                    workflow_lisp_target
++                    and child_existing_frame is None
++                    and boundary.iteration_owner_node_id is None
++                )
++                else None
++            ),
+         )
+         child_state_manager.update_bound_input_resume_validation(
+             status=str(resume_validation.get("status", "fresh")),
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 03fd5688..61b199a7 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -411,6 +411,8 @@ class WorkflowExecutor:
+         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
+         self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
+         self._lexical_restore_overlay: Optional[Dict[str, Any]] = None
++        self._pure_replay_runtime: Any | None = None
++        self._active_pure_replay_witnesses: Dict[str, Any] = {}
+         self.resume_mode = False
+         self._adjudication_runner = AdjudicationRunner(
+             AdjudicationBindings(
+@@ -482,8 +484,6 @@ class WorkflowExecutor:
+                 ),
+             )
+         )
+-        self._initialize_provider_observation_manager()
+-
+     def _initialize_provider_observation_manager(self) -> None:
+         """Acquire the owned run manager after fallible executor initialization."""
+         if (
+@@ -1071,6 +1071,430 @@ class WorkflowExecutor:
+ 
+         raise ReferenceResolutionError(f"Bound address target step '{node_id}' is unavailable")
+ 
++    def _configure_pure_replay_runtime(
++        self,
++        run_state: Any,
++        *,
++        resume: bool,
++    ) -> None:
++        """Activate and audit the exact value-free persistence profile."""
++
++        from .pure_result_replay import (
++            DERIVED_PURE_REPLAY_PROFILE,
++            PureReplayRuntime,
++        )
++
++        self._pure_replay_runtime = None
++        self._active_pure_replay_witnesses.clear()
++        if (
++            getattr(run_state, "result_persistence_profile", None)
++            != DERIVED_PURE_REPLAY_PROFILE
++        ):
++            return
++
++        runtime = PureReplayRuntime(
++            bundle=self.loaded_bundle,
++            scope_path=self.resume_scope_path,
++        )
++        runtime.audit_persisted_surfaces(
++            state=run_state.to_dict(),
++            state_manager=self.state_manager,
++            resolve_bundle_path=lambda node_id: (
++                self._pure_replay_bundle_path_for_audit(
++                    node_id,
++                    state=run_state.to_dict(),
++                    require_resolved=resume,
++                )
++            ),
++        )
++        self._pure_replay_runtime = runtime
++
++    def _pure_replay_bundle_path_for_audit(
++        self,
++        node_id: str,
++        *,
++        state: Dict[str, Any],
++        require_resolved: bool,
++    ) -> Path | None:
++        """Resolve one compiled pure bundle through ordinary path guards."""
++
++        step = self._runtime_step_for_node_id(node_id)
++        _, resolved_output_bundle, path_error = (
++            self._resolve_output_contract_paths(
++                step,
++                state,
++            )
++        )
++        if path_error is not None:
++            if require_resolved:
++                from .pure_result_replay import (
++                    PROFILE_CONFLICT,
++                    PureResultReplayIndexError,
++                )
++
++                raise PureResultReplayIndexError(
++                    PROFILE_CONFLICT,
++                    "replay-profile pure bundle path is unresolved",
++                    context={
++                        "node_id": node_id,
++                        "surface": "pure_bundle",
++                    },
++                )
++            return None
++        raw_path = (
++            resolved_output_bundle.get("path")
++            if isinstance(resolved_output_bundle, dict)
++            else None
++        )
++        if not isinstance(raw_path, str) or not raw_path:
++            from .pure_result_replay import (
++                PROFILE_CONFLICT,
++                PureResultReplayIndexError,
++            )
++
++            raise PureResultReplayIndexError(
++                PROFILE_CONFLICT,
++                "replay-profile pure bundle path is invalid",
++                context={
++                    "node_id": node_id,
++                    "surface": "pure_bundle",
++                },
++            )
++        return self._bounded_private_runtime_bundle_path(
++            (self.workspace / raw_path).resolve(),
++            namespace="pure_projection",
++        )
++
++    def _audit_existing_pure_replay_call_frame(
++        self,
++        imported_workflow: Any,
++        detached_state: Any,
++        scope_path: ResumeScopePath,
++    ) -> None:
++        """Audit one existing replay-profile frame before its manager exists."""
++
++        from .pure_result_replay import (
++            DERIVED_PURE_REPLAY_PROFILE,
++            PureReplayRuntime,
++        )
++
++        if (
++            getattr(
++                detached_state,
++                "result_persistence_profile",
++                None,
++            )
++            != DERIVED_PURE_REPLAY_PROFILE
++        ):
++            return
++        bundle = workflow_bundle(imported_workflow)
++        if bundle is None:
++            raise TypeError(
++                "existing replay-profile call frame requires a loaded bundle"
++            )
++        child_state = detached_state.to_dict()
++        runtime = PureReplayRuntime(
++            bundle=bundle,
++            scope_path=scope_path,
++        )
++        runtime.audit_persisted_surfaces(
++            state=child_state,
++            state_manager=self.state_manager,
++            resolve_bundle_path=lambda node_id: (
++                self._pure_replay_detached_bundle_path_for_audit(
++                    bundle,
++                    node_id,
++                    state=child_state,
++                )
++            ),
++        )
++
++    def _pure_replay_detached_bundle_path_for_audit(
++        self,
++        bundle: Any,
++        node_id: str,
++        *,
++        state: Dict[str, Any],
++    ) -> Path:
++        """Resolve a detached frame bundle with ordinary path substitution."""
++
++        from .pure_result_replay import (
++            PROFILE_CONFLICT,
++            PureResultReplayIndexError,
++        )
++
++        node = bundle.ir.nodes.get(node_id)
++        common = getattr(
++            getattr(node, "execution_config", None),
++            "common",
++            None,
++        )
++        output_bundle = getattr(common, "output_bundle", None)
++        raw_path = (
++            output_bundle.get("path")
++            if isinstance(output_bundle, Mapping)
++            else None
++        )
++        if not isinstance(raw_path, str) or not raw_path:
++            raise PureResultReplayIndexError(
++                PROFILE_CONFLICT,
++                "replay-profile call-frame bundle path is invalid",
++                context={
++                    "node_id": node_id,
++                    "surface": "pure_bundle",
++                },
++            )
++        resolved_path, path_error = self._substitute_path_template(
++            raw_path,
++            state,
++            step_name=str(getattr(node, "presentation_name", node_id)),
++            field_name="output_bundle.path",
++        )
++        if (
++            path_error is not None
++            or not isinstance(resolved_path, str)
++            or not resolved_path
++        ):
++            raise PureResultReplayIndexError(
++                PROFILE_CONFLICT,
++                "replay-profile call-frame bundle path is unresolved",
++                context={
++                    "node_id": node_id,
++                    "surface": "pure_bundle",
++                },
++            )
++        return self._bounded_private_runtime_bundle_path(
++            (self.workspace / resolved_path).resolve(),
++            namespace="pure_projection",
++        )
++
++    def _pure_replay_node_is_eligible(self, node_id: Any) -> bool:
++        """Return whether the active profile owns this exact executable node."""
++
++        return (
++            isinstance(node_id, str)
++            and self._pure_replay_runtime is not None
++            and self._pure_replay_runtime.is_eligible(node_id)
++        )
++
++    def _pure_replay_profile_enabled_for_step(
++        self,
++        step: RuntimeStepInput,
++    ) -> bool:
++        """Return whether one exact runtime step uses value-free replay."""
++
++        return (
++            self._pure_replay_runtime is not None
++            and self._pure_replay_runtime.node_id_for_step_id(
++                self._step_id(step)
++            )
++            is not None
++        )
++
++    def _pure_replay_success_checkpoint_is_suppressed(
++        self,
++        step: RuntimeStepInput,
++    ) -> bool:
++        """Return whether this persisted point is an exact derived success."""
++
++        runtime = self._pure_replay_runtime
++        manager_state = getattr(self.state_manager, "state", None)
++        if runtime is None or manager_state is None:
++            return False
++        node_id = runtime.node_id_for_step_id(self._step_id(step))
++        if node_id is None:
++            return False
++        state = (
++            manager_state.to_dict()
++            if hasattr(manager_state, "to_dict")
++            else manager_state
++        )
++        if not isinstance(state, Mapping):
++            return False
++        return runtime.successful_checkpoint_is_suppressed(
++            node_id,
++            state=state,
++        )
++
++    def _checkpoint_node_id_for_step_id(
++        self,
++        step_id: str,
++    ) -> str:
++        """Resolve one durable step identity through audited node catalogs."""
++
++        candidates: set[str] = set()
++        if self.projection is not None:
++            projected_node_id = self.projection.node_id_for_step_id(
++                step_id
++            )
++            if isinstance(projected_node_id, str):
++                candidates.add(projected_node_id)
++        runtime = self._pure_replay_runtime
++        if runtime is not None:
++            replay_node_id = runtime.node_id_for_step_id(step_id)
++            if isinstance(replay_node_id, str):
++                candidates.add(replay_node_id)
++        if len(candidates) > 1:
++            raise ValueError(
++                "Durable step identity maps to ambiguous executable nodes"
++            )
++        if candidates:
++            return next(iter(candidates))
++        if (
++            self.projection is None
++            and self.executable_ir is not None
++            and step_id in self.executable_ir.nodes
++        ):
++            return step_id
++        raise ValueError(
++            f"Durable step identity '{step_id}' is absent from the "
++            "audited executable projection"
++        )
++
++    def _pure_replay_source_step_is_derived(
++        self,
++        source_step_id: Any,
++    ) -> bool:
++        """Return whether an exact restore source belongs in the overlay."""
++
++        return (
++            self._pure_replay_runtime is not None
++            and self._pure_replay_runtime.source_step_is_derived(
++                source_step_id
++            )
++        )
++
++    def _prepare_pure_replay_visit(
++        self,
++        state: Dict[str, Any],
++        *,
++        node_id: str,
++        resume_current_step: bool,
++    ) -> Any | None:
++        """Atomically begin or reuse one eligible single-visit projection."""
++
++        runtime = self._pure_replay_runtime
++        if runtime is None or not runtime.is_eligible(node_id):
++            return None
++        if resume_current_step:
++            witness = runtime.witness_from_state(node_id, state)
++            self.state_manager.reuse_interrupted_eligible_pure_visit(
++                witness
++            )
++        else:
++            replay_node = runtime.index.nodes[node_id]
++            visit_count = self.state_manager.begin_eligible_pure_visit(
++                step_name=replay_node.presentation_key,
++                step_index=self._execution_index_for_node_id(node_id),
++                step_id=replay_node.step_id,
++            )
++            witness = runtime.witness(
++                node_id,
++                visit_count=visit_count,
++            )
++
++        state.setdefault("step_visits", {})[
++            witness.presentation_key
++        ] = witness.visit_count
++        manager_state = getattr(self.state_manager, "state", None)
++        state["current_step"] = deepcopy(
++            getattr(manager_state, "current_step", None)
++        )
++        return witness
++
++    def _evaluate_pure_replay_node(
++        self,
++        node_id: str,
++        state: Mapping[str, Any],
++    ) -> Mapping[str, Any]:
++        """Evaluate one replay node without progress or persistence actions."""
++
++        step = self._runtime_step_for_node_id(node_id)
++        result = self._execute_pure_projection(
++            step,
++            deepcopy(dict(state)),
++        )
++        finalized = self.outcome_recorder.attach_outcome(
++            step,
++            dict(result),
++        )
++        replay_node = self._pure_replay_runtime.index.nodes[node_id]
++        finalized.setdefault("name", replay_node.presentation_key)
++        finalized.setdefault("step_id", replay_node.step_id)
++        finalized.setdefault("visit_count", 1)
++        return finalized
++
++    def _prepare_pure_replay_boundary(
++        self,
++        state: Dict[str, Any],
++        *,
++        restart_node_id: str | None,
++    ) -> None:
++        """Reconstruct only the selected boundary's typed pure closure."""
++
++        runtime = getattr(self, "_pure_replay_runtime", None)
++        if runtime is None:
++            return
++        for node_id in runtime.required_node_ids_for_boundary(
++            restart_node_id,
++            state=state,
++        ):
++            runtime.replay_node(
++                node_id,
++                state=state,
++                evaluate_node=self._evaluate_pure_replay_node,
++            )
++
++    def _audit_pure_replay_boundary_leaves(
++        self,
++        state: Mapping[str, Any],
++        *,
++        restart_node_id: str | None,
++    ) -> None:
++        """Validate replay leaves without evaluating the rejected boundary."""
++
++        runtime = getattr(self, "_pure_replay_runtime", None)
++        if runtime is None or not isinstance(restart_node_id, str):
++            return
++        runtime.audit_boundary_leaves(
++            restart_node_id,
++            state=state,
++        )
++
++    def _resolve_pure_replay_ref(
++        self,
++        ref: str,
++        state: Dict[str, Any],
++        *,
++        scope: Optional[Dict[str, Dict[str, Any]]],
++    ) -> Any:
++        """Resolve an exact surface ref after process-local reconstruction."""
++
++        runtime = self._pure_replay_runtime
++        if runtime is None:
++            return _RESTORE_REF_MISSING
++        address = runtime.replay_address_for_ref(ref)
++        if address is None:
++            return _RESTORE_REF_MISSING
++        runtime.replay_node(
++            address.node_id,
++            state=state,
++            evaluate_node=self._evaluate_pure_replay_node,
++        )
++        found, value = runtime.resolve_state_address(address, state)
++        if found:
++            return value
++        from .pure_result_replay import (
++            BINDING_UNRESOLVED,
++            PureResultReplayIndexError,
++        )
++
++        raise PureResultReplayIndexError(
++            BINDING_UNRESOLVED,
++            "replayed result could not satisfy its exact reference",
++            context={"node_id": address.node_id},
++        )
++
+     def _restore_overlay_match_case_for_node_id(
+         self,
+         node_id: str,
+@@ -1191,8 +1615,30 @@ class WorkflowExecutor:
+                 )
+             return bound_inputs[address.input_name]
+ 
+-        result = self._result_for_node_id(address.node_id, state, scope=scope)
+         if isinstance(address, NodeResultAddress):
++            replay_runtime = self._pure_replay_runtime
++            if (
++                replay_runtime is not None
++                and replay_runtime.is_eligible(address.node_id)
++            ):
++                replay_runtime.replay_node(
++                    address.node_id,
++                    state=state,
++                    evaluate_node=self._evaluate_pure_replay_node,
++                )
++                found, replay_value = (
++                    replay_runtime.resolve_state_address(
++                        address,
++                        state,
++                    )
++                )
++                if found:
++                    return replay_value
++            result = self._result_for_node_id(
++                address.node_id,
++                state,
++                scope=scope,
++            )
+             if address.field == "exit_code":
+                 if "exit_code" not in result:
+                     raise ReferenceResolutionError(
+@@ -1206,6 +1652,7 @@ class WorkflowExecutor:
+                 )
+             return container[address.member]
+ 
++        result = self._result_for_node_id(address.node_id, state, scope=scope)
+         if isinstance(address, (BlockOutputAddress, LoopOutputAddress, CallOutputAddress)):
+             artifacts = result.get("artifacts")
+             output_name = address.output_name
+@@ -1496,10 +1943,16 @@ class WorkflowExecutor:
+             projection=self.projection,
+         )
+ 
+-    def _determine_resume_default_resume_decision(self, state: Dict[str, Any]) -> Dict[str, Any]:
++    def _determine_resume_default_resume_decision(
++        self,
++        state: Dict[str, Any],
++        *,
++        restart_node_id: str | None,
++    ) -> Dict[str, Any]:
+         """Determine the R6 default-resume mode for one resumed run."""
+         return self.resume_planner.determine_default_resume_decision(
+             state,
++            restart_node_id=restart_node_id,
+             runtime_plan=self.runtime_plan,
+             state_manager=self.state_manager,
+             executable_workflow=self.executable_ir,
+@@ -3717,6 +4170,11 @@ class WorkflowExecutor:
+                 root_guard_result = self._revalidate_root_resume(run_state)
+                 if root_guard_result is not None:
+                     return root_guard_result
++            self._configure_pure_replay_runtime(
++                run_state,
++                resume=resume,
++            )
++            self._initialize_provider_observation_manager()
+             state = run_state.to_dict()
+             completed_phased_resume_boundary = None
+             completed_resume_candidate = (
+@@ -3734,14 +4192,19 @@ class WorkflowExecutor:
+                 if early_result is not None:
+                     return early_result
+ 
++            resume_restart_node_id: str | None = None
+             if resume:
+                 try:
+-                    resume_restart = (
++                    resume_restart_node_id = (
+                         self._determine_resume_restart_node_id(state)
+                     )
+-                except ResumeStateIntegrityError:
+-                    resume_restart = False
+-                if resume_restart is None:
++                except ResumeStateIntegrityError as exc:
++                    return self._fail_resume_state_integrity(
++                        "resume_state_integrity_error",
++                        str(exc),
++                        dict(exc.context),
++                    )
++                if resume_restart_node_id is None:
+                     completed_phased_resume_boundary = (
+                         self._completed_phased_provider_resume_boundary(
+                             state
+@@ -3777,6 +4240,8 @@ class WorkflowExecutor:
+                 completed_phased_resume_boundary=(
+                     completed_phased_resume_boundary
+                 ),
++                resume_restart_node_id=resume_restart_node_id,
++                resume_from_completed_state=completed_resume_candidate,
+             )
+             if loop_result.early_result is not None:
+                 return loop_result.early_result
+@@ -4039,24 +4504,20 @@ class WorkflowExecutor:
+         on_error: str,
+         terminal_status: str,
+         completed_phased_resume_boundary: Mapping[str, Any] | None,
++        resume_restart_node_id: str | None = None,
++        resume_from_completed_state: bool = False,
+     ) -> _ExecuteStepLoopResult:
+ 
+         try:
+             active_step_context: Dict[str, Any] = {}
+             # Execute steps with control flow support
+-            try:
+-                resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
+-            except ResumeStateIntegrityError as exc:
+-                return _ExecuteStepLoopResult(
+-                    terminal_status,
+-                    self._fail_resume_state_integrity(
+-                        "resume_state_integrity_error",
+-                        str(exc),
+-                        dict(exc.context),
+-                    ),
+-                )
+             if resume:
+-                default_resume_decision = self._determine_resume_default_resume_decision(state)
++                default_resume_decision = (
++                    self._determine_resume_default_resume_decision(
++                        state,
++                        restart_node_id=resume_restart_node_id,
++                    )
++                )
+                 self._write_default_resume_report(default_resume_decision)
+                 restore_decision = None
+                 restore_kind = None
+@@ -4072,6 +4533,35 @@ class WorkflowExecutor:
+                         decision=restore_decision,
+                     )
+                 if default_resume_decision.get("mode") == "FAIL_CLOSED":
++                    try:
++                        self._audit_pure_replay_boundary_leaves(
++                            state,
++                            restart_node_id=resume_restart_node_id,
++                        )
++                    except Exception as exc:
++                        from .pure_result_replay import (
++                            PureResultReplayIndexError,
++                        )
++
++                        if not isinstance(
++                            exc,
++                            PureResultReplayIndexError,
++                        ):
++                            raise
++                        return _ExecuteStepLoopResult(
++                            terminal_status,
++                            self._fail_resume_state_integrity(
++                                exc.code,
++                                str(exc),
++                                {
++                                    **dict(exc.context),
++                                    "reason": exc.reason,
++                                    "restart_node_id": (
++                                        resume_restart_node_id
++                                    ),
++                                },
++                            ),
++                        )
+                     error_type = "lexical_default_resume_invalid"
+                     error_message = "Workflow Lisp default resume policy rejected this resume path."
+                     if restore_kind == "INVALID":
+@@ -4098,17 +4588,48 @@ class WorkflowExecutor:
+                     self._activate_resume_restore_overlay(restore_decision)
+                 else:
+                     self._lexical_restore_overlay = None
++                try:
++                    self._prepare_pure_replay_boundary(
++                        state,
++                        restart_node_id=resume_restart_node_id,
++                    )
++                except Exception as exc:
++                    from .pure_result_replay import (
++                        PureResultReplayIndexError,
++                    )
++
++                    if not isinstance(
++                        exc,
++                        PureResultReplayIndexError,
++                    ):
++                        raise
++                    return _ExecuteStepLoopResult(
++                        terminal_status,
++                        self._fail_resume_state_integrity(
++                            exc.code,
++                            str(exc),
++                            {
++                                **dict(exc.context),
++                                "reason": exc.reason,
++                                "restart_node_id": (
++                                    resume_restart_node_id
++                                ),
++                            },
++                        ),
++                    )
+             else:
+                 self._lexical_restore_overlay = None
+             step_index = 0
+             current_node_id = resume_restart_node_id
+-            if (
+-                current_node_id is None
+-                and not (
+-                    resume
+-                    and completed_phased_resume_boundary is not None
+-                    and completed_phased_resume_boundary.get("kind")
+-                    == "reuse"
++            completed_phased_reuse = (
++                completed_phased_resume_boundary is not None
++                and completed_phased_resume_boundary.get("kind") == "reuse"
++            )
++            if current_node_id is None and (
++                not resume
++                or (
++                    resume_from_completed_state
++                    and not completed_phased_reuse
+                 )
+             ):
+                 current_node_id = self._first_execution_node_id()
+@@ -4398,7 +4919,21 @@ class WorkflowExecutor:
+                     self.state_manager.backup_state(step_name)
+ 
+                 consume_error = self._enforce_consumes_contract(step, step_name, state)
+-                visit_count = self._increment_step_visit(state, step_name)
++                pure_replay_witness = self._prepare_pure_replay_visit(
++                    state,
++                    node_id=current_node_id,
++                    resume_current_step=resume_current_step,
++                )
++                if pure_replay_witness is not None:
++                    visit_count = pure_replay_witness.visit_count
++                    self._active_pure_replay_witnesses[
++                        pure_replay_witness.step_id
++                    ] = pure_replay_witness
++                else:
++                    visit_count = self._increment_step_visit(
++                        state,
++                        step_name,
++                    )
+                 if isinstance(visit_count, int):
+                     active_step_context["visit_count"] = visit_count
+                 max_visits = step.get('max_visits')
+@@ -4528,13 +5063,14 @@ class WorkflowExecutor:
+                         visit_count=visit_count,
+                     )
+ 
+-                self.state_manager.start_step(
+-                    identity.name,
+-                    identity.step_index if identity.step_index is not None else step_index,
+-                    self._resolve_step_type(step),
+-                    step_id=identity.step_id,
+-                    visit_count=visit_count,
+-                )
++                if pure_replay_witness is None:
++                    self.state_manager.start_step(
++                        identity.name,
++                        identity.step_index if identity.step_index is not None else step_index,
++                        self._resolve_step_type(step),
++                        step_id=identity.step_id,
++                        visit_count=visit_count,
++                    )
+                 self._arm_interrupted_provider_rerun(
+                     interrupted_rerun_context
+                 )
+@@ -4635,9 +5171,15 @@ class WorkflowExecutor:
+         # Preserve historical behavior for stop-on-error returns, which include
+         # in-memory step payloads that may not have been mirrored to state.json.
+         if terminal_status == 'completed':
++            if self._pure_replay_runtime is not None:
++                return self._pure_replay_runtime.overlay_active_state(
++                    persisted_state,
++                )
+             return persisted_state
+ 
+         state['status'] = terminal_status
++        if self._pure_replay_runtime is not None:
++            return self._pure_replay_runtime.overlay_active_state(state)
+         return state
+ 
+     def _resolve_step_type(self, step: RuntimeStepInput) -> str:
+@@ -9559,6 +10101,13 @@ class WorkflowExecutor:
+                             return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
+                         except ReferenceResolutionError:
+                             continue
++                replay_value = self._resolve_pure_replay_ref(
++                    candidate_ref,
++                    state,
++                    scope=scope,
++                )
++                if replay_value is not _RESTORE_REF_MISSING:
++                    return replay_value, None
+                 overlay_value = self._resolve_restore_overlay_ref(candidate_ref, state)
+                 if overlay_value is not _RESTORE_REF_MISSING:
+                     return overlay_value, None
+@@ -11635,15 +12184,46 @@ class WorkflowExecutor:
+         class_hint: Optional[str] = None,
+         retryable_hint: Optional[bool] = None,
+     ) -> Dict[str, Any]:
+-        return self.outcome_recorder.persist_step_result(
+-            state,
+-            step_name,
+-            step,
+-            result,
+-            phase_hint=phase_hint,
+-            class_hint=class_hint,
+-            retryable_hint=retryable_hint,
++        step_id = self._step_id(step)
++        pure_replay_witness = self._active_pure_replay_witnesses.get(
++            step_id
+         )
++        try:
++            finalized = self.outcome_recorder.persist_step_result(
++                state,
++                step_name,
++                step,
++                result,
++                phase_hint=phase_hint,
++                class_hint=class_hint,
++                retryable_hint=retryable_hint,
++                eligible_pure_settlement=pure_replay_witness,
++            )
++            if pure_replay_witness is not None:
++                state["current_step"] = None
++                if (
++                    finalized.get("status") == "completed"
++                    and self._pure_replay_runtime is not None
++                ):
++                    node_id = (
++                        self._pure_replay_runtime.node_id_for_step_id(
++                            step_id
++                        )
++                    )
++                    if node_id is None:
++                        raise ValueError(
++                            "eligible pure settlement lost executable "
++                            "node authority"
++                        )
++                    self._pure_replay_runtime.record_full_result(
++                        node_id,
++                        witness=pure_replay_witness,
++                        result=finalized,
++                    )
++            return finalized
++        finally:
++            if pure_replay_witness is not None:
++                self._active_pure_replay_witnesses.pop(step_id, None)
+ 
+     def _emit_lexical_checkpoint_shadow_after_step_commit(
+         self,
+@@ -11656,7 +12236,8 @@ class WorkflowExecutor:
+         step_id = finalized.get("step_id")
+         if not isinstance(step_id, str) or not step_id:
+             step_id = self._step_id(step)
+-        execution_index = self._execution_index_for_node_id(step_id)
++        node_id = self._checkpoint_node_id_for_step_id(step_id)
++        execution_index = self._execution_index_for_node_id(node_id)
+         if not isinstance(execution_index, int):
+             return
+         step_visits = self.state_manager.state.step_visits if self.state_manager.state is not None else {}
+@@ -11681,6 +12262,7 @@ class WorkflowExecutor:
+             execution_index=execution_index,
+             visit_count=visit_count,
+             call_frame_id=call_frame_id,
++            committed_step_state=finalized,
+         )
+ 
+     def _emit_lexical_checkpoint_shadow_after_repeat_until_commit(
+diff --git a/orchestrator/workflow/outcomes.py b/orchestrator/workflow/outcomes.py
+index 7626c1ff..402fda41 100644
+--- a/orchestrator/workflow/outcomes.py
++++ b/orchestrator/workflow/outcomes.py
+@@ -12,6 +12,10 @@ from .resume_projection_integrity import (
+     classify_terminal_result,
+ )
+ from .runtime_types import NormalizedStepOutcome
++from .pure_result_replay import (
++    PureReplayVisitWitness,
++    validate_pure_completion_shell,
++)
+ 
+ 
+ class OutcomeRecorder:
+@@ -44,6 +48,9 @@ class OutcomeRecorder:
+         phase_hint: Optional[str] = None,
+         class_hint: Optional[str] = None,
+         retryable_hint: Optional[bool] = None,
++        eligible_pure_settlement: Optional[
++            PureReplayVisitWitness
++        ] = None,
+     ) -> Dict[str, Any]:
+         if "steps" not in state:
+             state["steps"] = {}
+@@ -53,11 +60,64 @@ class OutcomeRecorder:
+         finalized.setdefault("step_id", self.step_id_resolver(step))
+         step_visits = state.get("step_visits", {})
+         visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
+-        if isinstance(visit_count, int):
++        if isinstance(visit_count, int) and not isinstance(visit_count, bool):
+             finalized.setdefault("visit_count", visit_count)
++        if eligible_pure_settlement is not None:
++            if not isinstance(
++                eligible_pure_settlement,
++                PureReplayVisitWitness,
++            ):
++                raise TypeError("PureReplayVisitWitness required")
++            if (
++                finalized.get("name")
++                != eligible_pure_settlement.presentation_key
++                or finalized.get("step_id")
++                != eligible_pure_settlement.step_id
++                or type(finalized.get("visit_count")) is not int
++                or finalized.get("visit_count")
++                != eligible_pure_settlement.visit_count
++            ):
++                raise ValueError(
++                    "eligible pure settlement authority does not match result"
++                )
+         state["steps"][step_name] = finalized
+ 
+-        self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
++        summary_row = finalized
++        eligible_success = (
++            eligible_pure_settlement is not None
++            and finalized.get("status") == "completed"
++        )
++        if eligible_success:
++            summary_row = self.state_manager.settle_eligible_pure_success(
++                eligible_pure_settlement
++            )
++            validate_pure_completion_shell(
++                summary_row,
++                witness=eligible_pure_settlement,
++            )
++        elif eligible_pure_settlement is not None:
++            if finalized.get("status") not in {"failed", "skipped"}:
++                raise ValueError(
++                    "eligible pure settlement requires a terminal result"
++                )
++            self.state_manager.settle_eligible_pure_failure(
++                eligible_pure_settlement,
++                result=StepResult(
++                    **{
++                        key: value
++                        for key, value in finalized.items()
++                        if key in StepResult.__dataclass_fields__
++                    }
++                ),
++            )
++        else:
++            self.state_manager.update_step(
++                step_name,
++                self.to_step_result(
++                    finalized,
++                    finalized.get("name", step_name),
++                ),
++            )
+         if (
+             classify_terminal_result(finalized)
+             is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+@@ -70,9 +130,9 @@ class OutcomeRecorder:
+             if isinstance(error, dict) and not existing_sticky_error:
+                 state["error"] = error
+                 self.state_manager.update_run_error(error)
+-        if self.post_persist_hook is not None:
++        if self.post_persist_hook is not None and not eligible_success:
+             self.post_persist_hook(state, step_name, step, finalized)
+-        self.summary_emitter(step_name, step, finalized)
++        self.summary_emitter(step_name, step, summary_row)
+         return finalized
+ 
+     def attach_outcome(
+diff --git a/orchestrator/workflow/pure_result_replay.py b/orchestrator/workflow/pure_result_replay.py
+new file mode 100644
+index 00000000..d94db96e
+--- /dev/null
++++ b/orchestrator/workflow/pure_result_replay.py
+@@ -0,0 +1,2706 @@
++"""Identity-neutral dependency indexing for deterministic pure-result replay."""
++
++from __future__ import annotations
++
++import json
++from collections.abc import Mapping, Sequence
++from copy import deepcopy
++from dataclasses import dataclass, fields, is_dataclass
++from pathlib import Path
++from types import MappingProxyType
++from typing import Any, Callable, NoReturn
++
++from orchestrator.contracts.output_contract import (
++    OutputContractError,
++    validate_contract_value,
++)
++
++from .executable_ir import (
++    ExecutableNodeKind,
++    ExecutableWorkflow,
++    ForEachNode,
++    NodeResultAddress,
++    PureProjectionStepConfig,
++    RepeatUntilFrameNode,
++    WorkflowInputAddress,
++)
++from .loaded_bundle import (
++    LoadedWorkflowBundle,
++    workflow_runtime_input_contracts,
++)
++from .pure_expr import (
++    PureExprEvaluationError,
++    _coerce_value,
++    canonical_json_for_pure_value,
++)
++from .references import (
++    ReferenceResolutionError,
++    SelfOutputReference,
++    StructuredStepReference,
++    SurfaceRefScopeCatalog,
++    WorkflowInputReference,
++    parse_surface_ref,
++)
++from .resume_projection_integrity import ResumeScopePath
++from .runtime_plan import (
++    WorkflowRuntimePlan,
++    validate_workflow_runtime_plan,
++)
++
++
++PURE_RESULT_REPLAY_DIAGNOSTIC = "pure_result_replay_unavailable"
++DEPENDENCY_INDEX_INVALID = "dependency_index_invalid"
++REACHABILITY_AMBIGUOUS = "reachability_ambiguous"
++MULTIPLE_VISIT_REGION = "multiple_visit_region"
++DERIVED_PURE_REPLAY_PROFILE = "derived_pure_replay.v1"
++PROGRESS_WITNESS_INVALID = "progress_witness_invalid"
++PROFILE_CONFLICT = "profile_conflict"
++DURABLE_INPUT_MISSING = "durable_input_missing"
++DURABLE_INPUT_INVALID = "durable_input_invalid"
++BINDING_UNRESOLVED = "binding_unresolved"
++EVALUATION_FAILED = "evaluation_failed"
++OUTPUT_CONTRACT_INVALID = "output_contract_invalid"
++DURABLE_ROUTED_SKIP = "durable_routed_skip"
++_OVERLAY_VALUE_MISSING = object()
++_DURABLE_VALUE_MISSING = object()
++
++_INTRINSIC_DURABLE_RESULT_CONTRACTS = MappingProxyType(
++    {
++        ("exit_code", None): MappingProxyType(
++            {"type": "integer"}
++        ),
++        ("outcome", "status"): MappingProxyType(
++            {"type": "string"}
++        ),
++        ("outcome", "phase"): MappingProxyType(
++            {"type": "string"}
++        ),
++        ("outcome", "class"): MappingProxyType(
++            {"type": "string"}
++        ),
++        ("outcome", "retryable"): MappingProxyType(
++            {"type": "bool"}
++        ),
++    }
++)
++_INTRINSIC_DURABLE_RESULT_TYPES = MappingProxyType(
++    {
++        ("exit_code", None): int,
++        ("outcome", "status"): str,
++        ("outcome", "phase"): str,
++        ("outcome", "class"): str,
++        ("outcome", "retryable"): bool,
++    }
++)
++
++_PURE_COMPLETION_SHELL_KEYS = frozenset(
++    {
++        "name",
++        "step_id",
++        "visit_count",
++        "status",
++        "exit_code",
++        "outcome",
++        "result_storage",
++    }
++)
++_PURE_RUNNING_CURSOR_KEYS = frozenset(
++    {
++        "name",
++        "index",
++        "type",
++        "status",
++        "started_at",
++        "last_heartbeat_at",
++        "step_id",
++        "visit_count",
++    }
++)
++
++BindingPathPart = str | int
++ReplayAddress = WorkflowInputAddress | NodeResultAddress
++
++
++def _typed_node_result_addresses(value: Any) -> tuple[NodeResultAddress, ...]:
++    """Collect exact typed result addresses from one validated IR consumer."""
++
++    addresses: list[NodeResultAddress] = []
++    seen_addresses: set[NodeResultAddress] = set()
++    seen_containers: set[int] = set()
++
++    def visit(candidate: Any) -> None:
++        if isinstance(candidate, NodeResultAddress):
++            if candidate not in seen_addresses:
++                seen_addresses.add(candidate)
++                addresses.append(candidate)
++            return
++        if candidate is None or isinstance(
++            candidate,
++            (str, bytes, int, float, bool, Path),
++        ):
++            return
++        if isinstance(candidate, Mapping):
++            identity = id(candidate)
++            if identity in seen_containers:
++                return
++            seen_containers.add(identity)
++            for item in candidate.values():
++                visit(item)
++            return
++        if isinstance(candidate, Sequence):
++            identity = id(candidate)
++            if identity in seen_containers:
++                return
++            seen_containers.add(identity)
++            for item in candidate:
++                visit(item)
++            return
++        if is_dataclass(candidate) and not isinstance(candidate, type):
++            identity = id(candidate)
++            if identity in seen_containers:
++                return
++            seen_containers.add(identity)
++            for field_definition in fields(candidate):
++                visit(getattr(candidate, field_definition.name))
++
++    visit(value)
++    return tuple(addresses)
++
++
++class PureResultReplayIndexError(ValueError):
++    """A replay dependency index could not be derived without guessing."""
++
++    code = PURE_RESULT_REPLAY_DIAGNOSTIC
++
++    def __init__(
++        self,
++        reason: str,
++        message: str,
++        *,
++        context: Mapping[str, Any] | None = None,
++    ) -> None:
++        super().__init__(message)
++        self.reason = reason
++        self.context = MappingProxyType(dict(context or {}))
++
++
++@dataclass(frozen=True)
++class PureReplayVisitWitness:
++    """Exact identity of one single-visit pure projection execution."""
++
++    presentation_key: str
++    step_index: int
++    step_id: str
++    visit_count: int
++
++    def __post_init__(self) -> None:
++        if not isinstance(self.presentation_key, str) or not self.presentation_key:
++            raise ValueError("pure replay presentation key must be non-empty")
++        if (
++            isinstance(self.step_index, bool)
++            or not isinstance(self.step_index, int)
++            or self.step_index < 0
++        ):
++            raise ValueError("pure replay step index must be a non-negative integer")
++        if not isinstance(self.step_id, str) or not self.step_id:
++            raise ValueError("pure replay step identity must be non-empty")
++        if type(self.visit_count) is not int or self.visit_count != 1:
++            raise ValueError("pure replay visit count must be exactly one")
++
++
++def build_pure_completion_shell(
++    witness: PureReplayVisitWitness,
++) -> dict[str, Any]:
++    """Build the only successful durable row admitted by the replay profile."""
++
++    if not isinstance(witness, PureReplayVisitWitness):
++        raise TypeError("PureReplayVisitWitness required")
++    return {
++        "name": witness.presentation_key,
++        "step_id": witness.step_id,
++        "visit_count": witness.visit_count,
++        "status": "completed",
++        "exit_code": 0,
++        "outcome": {
++            "status": "completed",
++            "phase": "execution",
++            "class": "completed",
++            "retryable": False,
++        },
++        "result_storage": DERIVED_PURE_REPLAY_PROFILE,
++    }
++
++
++def validate_pure_completion_shell(
++    row: Mapping[str, Any],
++    *,
++    witness: PureReplayVisitWitness,
++) -> None:
++    """Reject any successful replay row that is not the exact value-free shell."""
++
++    if not isinstance(row, Mapping):
++        raise ValueError("pure replay completion shell must be an object")
++    if set(row) != _PURE_COMPLETION_SHELL_KEYS:
++        raise ValueError("pure replay completion shell fields are invalid")
++    if not _same_json_shape_and_value(
++        row,
++        build_pure_completion_shell(witness),
++    ):
++        raise ValueError("pure replay completion shell does not match its visit")
++
++
++def _same_json_shape_and_value(left: Any, right: Any) -> bool:
++    """Compare JSON-like values without Python's bool/int equivalence."""
++
++    if type(left) is not type(right):
++        return False
++    if isinstance(left, Mapping):
++        return (
++            set(left) == set(right)
++            and all(
++                _same_json_shape_and_value(left[key], right[key])
++                for key in left
++            )
++        )
++    if isinstance(left, list):
++        return len(left) == len(right) and all(
++            _same_json_shape_and_value(left_item, right_item)
++            for left_item, right_item in zip(left, right)
++        )
++    return bool(left == right)
++
++
++def _progress_state_mapping(state: Any) -> Mapping[str, Any]:
++    if isinstance(state, Mapping):
++        return state
++    to_dict = getattr(state, "to_dict", None)
++    if callable(to_dict):
++        payload = to_dict()
++        if isinstance(payload, Mapping):
++            return payload
++    raise TypeError("pure replay progress state must be an object")
++
++
++def _is_matching_running_cursor(
++    cursor: Any,
++    witness: PureReplayVisitWitness,
++) -> bool:
++    if not isinstance(cursor, Mapping) or set(cursor) != _PURE_RUNNING_CURSOR_KEYS:
++        return False
++    expected = {
++        "name": witness.presentation_key,
++        "index": witness.step_index,
++        "type": "pure_projection",
++        "status": "running",
++        "step_id": witness.step_id,
++        "visit_count": witness.visit_count,
++    }
++    if any(
++        not _same_json_shape_and_value(cursor.get(field), value)
++        for field, value in expected.items()
++    ):
++        return False
++    return all(
++        isinstance(cursor.get(field), str) and bool(cursor.get(field))
++        for field in ("started_at", "last_heartbeat_at")
++    )
++
++
++def _cursor_targets_witness(
++    cursor: Any,
++    witness: PureReplayVisitWitness,
++) -> bool:
++    return isinstance(cursor, Mapping) and (
++        cursor.get("name") == witness.presentation_key
++        or cursor.get("step_id") == witness.step_id
++    )
++
++
++def _is_matching_failure_or_skip(
++    row: Any,
++    witness: PureReplayVisitWitness,
++) -> bool:
++    if not isinstance(row, Mapping) or row.get("status") not in {"failed", "skipped"}:
++        return False
++    return (
++        row.get("name") == witness.presentation_key
++        and row.get("step_id") == witness.step_id
++        and type(row.get("visit_count")) is int
++        and row.get("visit_count") == witness.visit_count
++    )
++
++
++def _is_matching_unvisited_routed_skip(
++    row: Any,
++    witness: PureReplayVisitWitness,
++) -> bool:
++    """Recognize the ordinary route-skip row written before visit start."""
++
++    return (
++        isinstance(row, Mapping)
++        and row.get("status") == "skipped"
++        and row.get("name") == witness.presentation_key
++        and row.get("step_id") == witness.step_id
++        and "visit_count" not in row
++        and row.get("skipped") is True
++        and type(row.get("exit_code")) is int
++        and row.get("exit_code") == 0
++        and _same_json_shape_and_value(
++            row.get("outcome"),
++            {
++                "status": "skipped",
++                "phase": "pre_execution",
++                "class": "skipped",
++                "retryable": False,
++            },
++        )
++    )
++
++
++def classify_pure_replay_progress(
++    state: Any,
++    *,
++    witness: PureReplayVisitWitness,
++) -> str:
++    """Classify the closed visit/cursor/result witness state."""
++
++    if not isinstance(witness, PureReplayVisitWitness):
++        raise TypeError("PureReplayVisitWitness required")
++    payload = _progress_state_mapping(state)
++    visits = payload.get("step_visits", {})
++    steps = payload.get("steps", {})
++    cursor = payload.get("current_step")
++    if not isinstance(visits, Mapping) or not isinstance(steps, Mapping):
++        return PROGRESS_WITNESS_INVALID
++
++    recorded_visit = visits.get(witness.presentation_key)
++    row = steps.get(witness.presentation_key)
++    cursor_is_relevant = _cursor_targets_witness(cursor, witness)
++    if cursor is not None and not cursor_is_relevant:
++        cursor = None
++    if (
++        recorded_visit is None
++        and cursor is None
++        and _is_matching_unvisited_routed_skip(row, witness)
++    ):
++        return DURABLE_ROUTED_SKIP
++    if recorded_visit is None and cursor is None and row is None:
++        return "unstarted"
++    if (
++        isinstance(recorded_visit, bool)
++        or not isinstance(recorded_visit, int)
++        or recorded_visit != witness.visit_count
++    ):
++        return PROGRESS_WITNESS_INVALID
++    if cursor is not None and row is not None:
++        return PROGRESS_WITNESS_INVALID
++    if cursor is not None:
++        return (
++            "interrupted"
++            if _is_matching_running_cursor(cursor, witness)
++            else PROGRESS_WITNESS_INVALID
++        )
++    if row is None:
++        return PROGRESS_WITNESS_INVALID
++    try:
++        validate_pure_completion_shell(row, witness=witness)
++    except ValueError:
++        if _is_matching_failure_or_skip(row, witness):
++            return "durable_failure_skip"
++        return PROGRESS_WITNESS_INVALID
++    return "derived_complete"
++
++
++@dataclass(frozen=True)
++class PureReplayOverlayKey:
++    """Exact process-local authority key for one reconstructed result."""
++
++    scope_path: ResumeScopePath
++    node_id: str
++    visit_count: int
++    output_addresses: tuple[NodeResultAddress, ...]
++
++
++class PureReplayRuntime:
++    """Audited replay-profile classification and transient result authority."""
++
++    def __init__(
++        self,
++        *,
++        bundle: LoadedWorkflowBundle,
++        scope_path: ResumeScopePath,
++    ) -> None:
++        if not isinstance(scope_path, ResumeScopePath):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay requires a validated resume scope path",
++            )
++        self.bundle = bundle
++        # Compiled ``root.steps`` refs are local to this loaded workflow.
++        # ResumeScopePath carries any enclosing call-frame identity separately.
++        self.index = derive_pure_result_replay_index(
++            bundle,
++            scope_kind="root",
++        )
++        self.scope_path = scope_path
++        self._overlay: dict[
++            PureReplayOverlayKey,
++            dict[str, Any],
++        ] = {}
++        self._execution_index_by_node_id = {
++            node_id: index
++            for index, node_id in enumerate(
++                tuple(bundle.ir.body_region)
++                + tuple(bundle.ir.finalization_region)
++            )
++        }
++        self._eligible_step_ids = frozenset(
++            replay_node.step_id
++            for replay_node in self.index.nodes.values()
++        )
++        self._node_id_by_step_id = {
++            replay_node.step_id: node_id
++            for node_id, replay_node in self.index.nodes.items()
++        }
++        if len(self._node_id_by_step_id) != len(self.index.nodes):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay step identities are not unique",
++            )
++        self._selector_to_node_id = _validated_projection_catalog(bundle)
++        self._reference_catalog = SurfaceRefScopeCatalog(
++            root_step_names=(
++                tuple(self._selector_to_node_id)
++                if self.index.scope_kind == "root"
++                else ()
++            ),
++            self_step_names=(
++                tuple(self._selector_to_node_id)
++                if self.index.scope_kind == "self"
++                else ()
++            ),
++        )
++        self._eligible_restore_source_step_ids = (
++            self._derive_restore_source_step_ids()
++        )
++        self._replay_in_progress: set[str] = set()
++
++    def is_eligible(self, node_id: str) -> bool:
++        return node_id in self.index.nodes
++
++    def successful_checkpoint_is_suppressed(
++        self,
++        node_id: str,
++        *,
++        state: Mapping[str, Any],
++    ) -> bool:
++        """Suppress only the exact checkpoint of a derived-complete shell."""
++
++        if node_id not in self.index.nodes:
++            return False
++        classification = classify_pure_replay_progress(
++            state,
++            witness=self.witness_from_state(node_id, state),
++        )
++        if classification == PROGRESS_WITNESS_INVALID:
++            raise PureResultReplayIndexError(
++                PROGRESS_WITNESS_INVALID,
++                "pure replay checkpoint suppression requires valid progress",
++                context={"node_id": node_id},
++            )
++        return classification == "derived_complete"
++
++    def default_resume_checkpoint_excluded_node_ids(
++        self,
++        *,
++        state: Mapping[str, Any],
++        restart_node_id: str,
++    ) -> frozenset[str]:
++        """Exclude derived shells plus the exact interrupted restart point."""
++
++        excluded: set[str] = set()
++        for node_id in self.index.topological_node_ids:
++            classification = classify_pure_replay_progress(
++                state,
++                witness=self.witness_from_state(node_id, state),
++            )
++            if classification == PROGRESS_WITNESS_INVALID:
++                raise PureResultReplayIndexError(
++                    PROGRESS_WITNESS_INVALID,
++                    "pure replay default checkpoint filtering requires valid progress",
++                    context={"node_id": node_id},
++                )
++            if classification == "derived_complete":
++                excluded.add(node_id)
++            elif classification == "interrupted":
++                if node_id != restart_node_id:
++                    raise PureResultReplayIndexError(
++                        PROGRESS_WITNESS_INVALID,
++                        "interrupted pure replay point is not the selected restart",
++                        context={
++                            "node_id": node_id,
++                            "restart_node_id": restart_node_id,
++                        },
++                    )
++                excluded.add(node_id)
++        return frozenset(excluded)
++
++    def node_id_for_step_id(self, step_id: Any) -> str | None:
++        return (
++            self._node_id_by_step_id.get(step_id)
++            if isinstance(step_id, str)
++            else None
++        )
++
++    def witness(
++        self,
++        node_id: str,
++        *,
++        visit_count: int = 1,
++    ) -> PureReplayVisitWitness:
++        replay_node = self.index.nodes.get(node_id)
++        step_index = self._execution_index_by_node_id.get(node_id)
++        if replay_node is None or not isinstance(step_index, int):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay witness requires an eligible executable node",
++                context={"node_id": node_id},
++            )
++        return PureReplayVisitWitness(
++            presentation_key=replay_node.presentation_key,
++            step_index=step_index,
++            step_id=replay_node.step_id,
++            visit_count=visit_count,
++        )
++
++    def witness_from_state(
++        self,
++        node_id: str,
++        state: Mapping[str, Any],
++    ) -> PureReplayVisitWitness:
++        replay_node = self.index.nodes.get(node_id)
++        visits = state.get("step_visits")
++        recorded_visit = (
++            visits.get(replay_node.presentation_key)
++            if replay_node is not None and isinstance(visits, Mapping)
++            else None
++        )
++        if recorded_visit is not None and (
++            type(recorded_visit) is not int
++            or recorded_visit != 1
++        ):
++            raise PureResultReplayIndexError(
++                PROGRESS_WITNESS_INVALID,
++                "pure replay persisted visit must be exactly one",
++                context={"node_id": node_id},
++            )
++        return self.witness(node_id, visit_count=1)
++
++    def record_full_result(
++        self,
++        node_id: str,
++        *,
++        witness: PureReplayVisitWitness,
++        result: Mapping[str, Any],
++    ) -> None:
++        replay_node = self.index.nodes.get(node_id)
++        if replay_node is None or witness != self.witness(
++            node_id,
++            visit_count=witness.visit_count,
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay result identity does not match its executable node",
++                context={"node_id": node_id},
++            )
++        _validate_replay_result_output_members(
++            replay_node,
++            result=result,
++        )
++        if (
++            result.get("status") != "completed"
++            or type(result.get("exit_code")) is not int
++            or result.get("exit_code") != 0
++            or result.get("step_id") != witness.step_id
++            or result.get("name") != witness.presentation_key
++            or type(result.get("visit_count")) is not int
++            or result.get("visit_count") != 1
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay result is not the normalized completed visit",
++                context={"node_id": node_id},
++            )
++        key = PureReplayOverlayKey(
++            scope_path=self.scope_path,
++            node_id=node_id,
++            visit_count=witness.visit_count,
++            output_addresses=replay_node.output_addresses,
++        )
++        self._overlay[key] = deepcopy(dict(result))
++
++    def _result_row(
++        self,
++        node_id: str,
++        *,
++        visit_count: int,
++    ) -> dict[str, Any] | None:
++        replay_node = self.index.nodes.get(node_id)
++        if replay_node is None:
++            return None
++        key = PureReplayOverlayKey(
++            scope_path=self.scope_path,
++            node_id=node_id,
++            visit_count=visit_count,
++            output_addresses=replay_node.output_addresses,
++        )
++        result = self._overlay.get(key)
++        return deepcopy(result) if result is not None else None
++
++    def value_for_state_address(
++        self,
++        address: NodeResultAddress,
++        state: Mapping[str, Any],
++    ) -> Any:
++        """Resolve only one exact typed address from the scoped overlay."""
++
++        if not isinstance(address, NodeResultAddress):
++            raise TypeError("NodeResultAddress required")
++        replay_node = self.index.nodes.get(address.node_id)
++        if (
++            replay_node is None
++            or address not in replay_node.output_addresses
++        ):
++            return _OVERLAY_VALUE_MISSING
++        visits = state.get("step_visits")
++        visit_count = (
++            visits.get(replay_node.presentation_key)
++            if isinstance(visits, Mapping)
++            else None
++        )
++        if type(visit_count) is not int or visit_count != 1:
++            return _OVERLAY_VALUE_MISSING
++        row = self._result_row(
++            address.node_id,
++            visit_count=visit_count,
++        )
++        if row is None:
++            return _OVERLAY_VALUE_MISSING
++        container = row.get(address.field)
++        if not isinstance(container, Mapping) or address.member not in container:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay overlay does not contain its exact result address",
++                context={
++                    "node_id": address.node_id,
++                    "field": address.field,
++                    "member": address.member,
++                },
++            )
++        return deepcopy(container[address.member])
++
++    def resolve_state_address(
++        self,
++        address: NodeResultAddress,
++        state: Mapping[str, Any],
++    ) -> tuple[bool, Any]:
++        value = self.value_for_state_address(address, state)
++        return (
++            (False, None)
++            if value is _OVERLAY_VALUE_MISSING
++            else (True, value)
++        )
++
++    def replay_address_for_ref(
++        self,
++        ref: Any,
++    ) -> NodeResultAddress | None:
++        """Resolve one closed surface ref to an eligible exact address."""
++
++        if not isinstance(ref, str) or not ref:
++            return None
++        try:
++            parsed = parse_surface_ref(ref, self._reference_catalog)
++        except ReferenceResolutionError:
++            return None
++        if (
++            not isinstance(parsed, StructuredStepReference)
++            or parsed.scope != self.index.scope_kind
++        ):
++            return None
++        node_id = self._selector_to_node_id.get(parsed.step_name)
++        if node_id not in self.index.nodes:
++            return None
++        address = NodeResultAddress(
++            node_id=node_id,
++            field=parsed.field,
++            member=parsed.member,
++        )
++        return (
++            address
++            if address in self.index.nodes[node_id].output_addresses
++            else None
++        )
++
++    def required_node_ids_for_boundary(
++        self,
++        restart_node_id: str | None,
++        *,
++        state: Mapping[str, Any],
++    ) -> tuple[str, ...]:
++        """Derive the exact pure closure named by one selected boundary."""
++
++        seed_addresses: list[NodeResultAddress] = []
++        if restart_node_id is None:
++            for contract in self.bundle.ir.outputs.values():
++                source_address = getattr(contract, "source_address", None)
++                if isinstance(source_address, NodeResultAddress):
++                    seed_addresses.append(source_address)
++            points: tuple[Any, ...] = ()
++        else:
++            restart_node = self.bundle.ir.nodes.get(restart_node_id)
++            if restart_node is None:
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    "resume boundary names an unknown executable node",
++                    context={"node_id": restart_node_id},
++                )
++            seed_addresses.extend(
++                _typed_node_result_addresses(restart_node)
++            )
++            points = tuple(
++                point
++                for point in (
++                    getattr(
++                        self.bundle.runtime_plan,
++                        "lexical_checkpoint_points",
++                        (),
++                    )
++                    or ()
++                )
++                if getattr(point, "node_id", None) == restart_node_id
++            )
++        if len(points) > 1:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "resume boundary has ambiguous checkpoint metadata",
++                context={"node_id": restart_node_id},
++            )
++        if points:
++            details = getattr(points[0], "details", None)
++            restore = (
++                details.get("restore")
++                if isinstance(details, Mapping)
++                else None
++            )
++            descriptors = (
++                restore.get("binding_descriptors")
++                if isinstance(restore, Mapping)
++                else ()
++            )
++            if not isinstance(descriptors, Sequence) or isinstance(
++                descriptors,
++                (str, bytes),
++            ):
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    "resume boundary binding metadata is invalid",
++                    context={"node_id": restart_node_id},
++                )
++            for descriptor in descriptors:
++                if not isinstance(descriptor, Mapping):
++                    raise PureResultReplayIndexError(
++                        DEPENDENCY_INDEX_INVALID,
++                        "resume boundary binding descriptor is invalid",
++                        context={"node_id": restart_node_id},
++                    )
++                value_document = descriptor.get("value_document")
++                if "value_document" not in descriptor:
++                    continue
++                for _, ref in _walk_value_document_refs(
++                    {"boundary": value_document}
++                ):
++                    address = _resolve_replay_ref(
++                        ref,
++                        executable=self.bundle.ir,
++                        selector_to_node_id=self._selector_to_node_id,
++                        catalog=self._reference_catalog,
++                        scope_kind=self.index.scope_kind,
++                    )
++                    if isinstance(address, NodeResultAddress):
++                        seed_addresses.append(address)
++
++        reached_node_ids = []
++        for node_id in self.index.topological_node_ids:
++            witness = self.witness_from_state(node_id, state)
++            if (
++                classify_pure_replay_progress(
++                    state,
++                    witness=witness,
++                )
++                == "derived_complete"
++            ):
++                reached_node_ids.append(node_id)
++        return self.index.required_pure_node_ids(
++            tuple(seed_addresses),
++            reached_node_ids=tuple(reached_node_ids),
++        )
++
++    def replay_node(
++        self,
++        node_id: str,
++        *,
++        state: Mapping[str, Any],
++        evaluate_node: Callable[
++            [str, Mapping[str, Any]],
++            Mapping[str, Any],
++        ],
++    ) -> None:
++        """Reconstruct one exact completed shell and its pure closure."""
++
++        replay_node = self.index.nodes.get(node_id)
++        if replay_node is None:
++            return
++
++        witness = self.witness_from_state(node_id, state)
++        classification = classify_pure_replay_progress(
++            state,
++            witness=witness,
++        )
++        cached_result = self._result_row(
++            node_id,
++            visit_count=witness.visit_count,
++        )
++        if cached_result is not None:
++            visits = state.get("step_visits")
++            steps = state.get("steps")
++            # The active executor keeps its validated full result while the
++            # state manager persists the value-free shell. Only that exact
++            # process-local row may accompany a non-shell state view.
++            active_result_matches_cache = (
++                isinstance(visits, Mapping)
++                and type(visits.get(witness.presentation_key)) is int
++                and visits.get(witness.presentation_key)
++                == witness.visit_count
++                and isinstance(steps, Mapping)
++                and _same_json_shape_and_value(
++                    steps.get(witness.presentation_key),
++                    cached_result,
++                )
++                and not _cursor_targets_witness(
++                    state.get("current_step"),
++                    witness,
++                )
++            )
++            if (
++                classification == "derived_complete"
++                or active_result_matches_cache
++            ):
++                return
++            raise PureResultReplayIndexError(
++                PROGRESS_WITNESS_INVALID,
++                "pure replay requires an exact completed persistence shell",
++                context={"node_id": node_id},
++            )
++        if classification != "derived_complete":
++            raise PureResultReplayIndexError(
++                PROGRESS_WITNESS_INVALID,
++                "pure replay requires an exact completed persistence shell",
++                context={"node_id": node_id},
++            )
++        if node_id in self._replay_in_progress:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay evaluation re-entered its dependency closure",
++                context={"node_id": node_id},
++            )
++
++        self._replay_in_progress.add(node_id)
++        try:
++            for dependency_node_id in replay_node.pure_dependency_node_ids:
++                self.replay_node(
++                    dependency_node_id,
++                    state=state,
++                    evaluate_node=evaluate_node,
++                )
++            self._validate_replay_leaves(
++                replay_node,
++                state=state,
++            )
++            result = evaluate_node(
++                node_id,
++                self.overlay_active_state(state),
++            )
++            if not isinstance(result, Mapping):
++                self._raise_replay_result_failure(
++                    node_id,
++                    reason=EVALUATION_FAILED,
++                    message="pure replay evaluator returned a non-object result",
++                )
++            if result.get("status") != "completed":
++                error = result.get("error")
++                error_type = (
++                    error.get("type")
++                    if isinstance(error, Mapping)
++                    else None
++                )
++                reason = (
++                    BINDING_UNRESOLVED
++                    if error_type == "materialize_ref_unresolved"
++                    else OUTPUT_CONTRACT_INVALID
++                    if error_type
++                    in {
++                        "pure_projection_contract_invalid",
++                        "invalid_reused_pure_projection_result",
++                    }
++                    else EVALUATION_FAILED
++                )
++                self._raise_replay_result_failure(
++                    node_id,
++                    reason=reason,
++                    message="pure replay evaluation did not complete",
++                    cause_type=error_type,
++                )
++            self.record_full_result(
++                node_id,
++                witness=witness,
++                result=result,
++            )
++            if self._result_row(
++                node_id,
++                visit_count=witness.visit_count,
++            ) is None:
++                self._raise_replay_result_failure(
++                    node_id,
++                    reason=EVALUATION_FAILED,
++                    message="pure replay result was not retained in the overlay",
++                )
++        finally:
++            self._replay_in_progress.discard(node_id)
++
++    def audit_boundary_leaves(
++        self,
++        restart_node_id: str | None,
++        *,
++        state: Mapping[str, Any],
++    ) -> None:
++        """Validate one boundary's durable replay leaves without evaluation."""
++
++        for node_id in self.required_node_ids_for_boundary(
++            restart_node_id,
++            state=state,
++        ):
++            replay_node = self.index.nodes.get(node_id)
++            if replay_node is None:
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    "pure replay boundary names an unknown eligible node",
++                    context={"node_id": node_id},
++                )
++            witness = self.witness_from_state(node_id, state)
++            if (
++                classify_pure_replay_progress(
++                    state,
++                    witness=witness,
++                )
++                != "derived_complete"
++            ):
++                raise PureResultReplayIndexError(
++                    PROGRESS_WITNESS_INVALID,
++                    "pure replay requires an exact completed persistence shell",
++                    context={"node_id": node_id},
++                )
++            self._validate_replay_leaves(
++                replay_node,
++                state=state,
++            )
++
++    def _validate_replay_leaves(
++        self,
++        replay_node: "PureReplayNode",
++        *,
++        state: Mapping[str, Any],
++    ) -> None:
++        bound_inputs = state.get("bound_inputs")
++        steps = state.get("steps")
++        if not isinstance(bound_inputs, Mapping):
++            bound_inputs = {}
++        if not isinstance(steps, Mapping):
++            steps = {}
++        input_contracts = workflow_runtime_input_contracts(self.bundle)
++        for binding in replay_node.bindings:
++            address = binding.address
++            if isinstance(address, WorkflowInputAddress):
++                if address.input_name not in bound_inputs:
++                    self._raise_replay_result_failure(
++                        replay_node.node_id,
++                        reason=DURABLE_INPUT_MISSING,
++                        message="pure replay workflow input is missing",
++                    )
++                input_contract = input_contracts.get(address.input_name)
++                if not isinstance(input_contract, Mapping):
++                    self._raise_replay_result_failure(
++                        replay_node.node_id,
++                        reason=DURABLE_INPUT_INVALID,
++                        message=(
++                            "pure replay workflow input contract is invalid"
++                        ),
++                    )
++                try:
++                    validate_contract_value(
++                        bound_inputs[address.input_name],
++                        dict(input_contract),
++                        workspace=self.bundle.provenance.source_root,
++                    )
++                except OutputContractError:
++                    self._raise_replay_result_failure(
++                        replay_node.node_id,
++                        reason=DURABLE_INPUT_INVALID,
++                        message="pure replay workflow input is invalid",
++                    )
++                continue
++            if (
++                not isinstance(address, NodeResultAddress)
++                or address.node_id
++                not in replay_node.durable_dependency_node_ids
++            ):
++                continue
++            presentation_key = (
++                self.bundle.projection.presentation_key_by_node_id.get(
++                    address.node_id
++                )
++            )
++            row = (
++                steps.get(presentation_key)
++                if isinstance(presentation_key, str)
++                else None
++            )
++            if row is None:
++                self._raise_replay_result_failure(
++                    replay_node.node_id,
++                    reason=DURABLE_INPUT_MISSING,
++                    message="pure replay durable dependency is missing",
++                )
++            if not isinstance(row, Mapping) or row.get("status") != "completed":
++                self._raise_replay_result_failure(
++                    replay_node.node_id,
++                    reason=DURABLE_INPUT_INVALID,
++                    message="pure replay durable dependency is invalid",
++                )
++            durable_value, contract = _durable_node_result_value(
++                self.bundle,
++                address,
++                row,
++            )
++            if (
++                durable_value is _DURABLE_VALUE_MISSING
++                or contract is None
++            ):
++                self._raise_replay_result_failure(
++                    replay_node.node_id,
++                    reason=DURABLE_INPUT_INVALID,
++                    message="pure replay durable result address is invalid",
++                )
++            intrinsic_type = _INTRINSIC_DURABLE_RESULT_TYPES.get(
++                (address.field, address.member)
++            )
++            if (
++                intrinsic_type is not None
++                and type(durable_value) is not intrinsic_type
++            ):
++                self._raise_replay_result_failure(
++                    replay_node.node_id,
++                    reason=DURABLE_INPUT_INVALID,
++                    message="pure replay durable result value is invalid",
++                )
++            try:
++                validate_contract_value(
++                    durable_value,
++                    dict(contract),
++                    workspace=self.bundle.provenance.source_root,
++                )
++            except OutputContractError:
++                self._raise_replay_result_failure(
++                    replay_node.node_id,
++                    reason=DURABLE_INPUT_INVALID,
++                    message="pure replay durable result value is invalid",
++                )
++
++    @staticmethod
++    def _raise_replay_result_failure(
++        node_id: str,
++        *,
++        reason: str,
++        message: str,
++        cause_type: str | None = None,
++    ) -> None:
++        context: dict[str, Any] = {"node_id": node_id}
++        if isinstance(cause_type, str) and cause_type:
++            context["cause"] = {"type": cause_type}
++        raise PureResultReplayIndexError(
++            reason,
++            message,
++            context=context,
++        )
++
++    def overlay_active_state(
++        self,
++        state: Mapping[str, Any],
++    ) -> dict[str, Any]:
++        active = deepcopy(dict(state))
++        steps = active.get("steps")
++        visits = active.get("step_visits")
++        if not isinstance(steps, dict) or not isinstance(visits, Mapping):
++            return active
++        for node_id, replay_node in self.index.nodes.items():
++            visit_count = visits.get(replay_node.presentation_key)
++            if isinstance(visit_count, bool) or not isinstance(
++                visit_count,
++                int,
++            ):
++                continue
++            result = self._result_row(
++                node_id,
++                visit_count=visit_count,
++            )
++            if result is not None:
++                steps[replay_node.presentation_key] = result
++        return active
++
++    def _derive_restore_source_step_ids(self) -> frozenset[str]:
++        """Bind restore source spellings through validated point metadata."""
++
++        presentation_to_node_id = {
++            replay_node.presentation_key: node_id
++            for node_id, replay_node in self.index.nodes.items()
++        }
++        source_step_ids: set[str] = set()
++        for point in tuple(
++            getattr(
++                self.bundle.runtime_plan,
++                "lexical_checkpoint_points",
++                (),
++            )
++            or ()
++        ):
++            details = getattr(point, "details", None)
++            restore = (
++                details.get("restore")
++                if isinstance(details, Mapping)
++                else None
++            )
++            descriptors = (
++                restore.get("binding_descriptors")
++                if isinstance(restore, Mapping)
++                else ()
++            )
++            if not isinstance(descriptors, Sequence) or isinstance(
++                descriptors,
++                (str, bytes),
++            ):
++                continue
++            for descriptor in descriptors:
++                if not isinstance(descriptor, Mapping):
++                    continue
++                source_step_name = descriptor.get("source_step_name")
++                node_id = (
++                    presentation_to_node_id.get(source_step_name)
++                    if isinstance(source_step_name, str)
++                    else None
++                )
++                if node_id is None:
++                    continue
++                source_step_id = descriptor.get("source_step_id")
++                value_document = descriptor.get("value_document")
++                if (
++                    not isinstance(source_step_id, str)
++                    or not source_step_id
++                    or "value_document" not in descriptor
++                ):
++                    raise PureResultReplayIndexError(
++                        DEPENDENCY_INDEX_INVALID,
++                        "pure replay restore source metadata is incomplete",
++                        context={"node_id": node_id},
++                    )
++                addresses = tuple(
++                    _resolve_replay_ref(
++                        ref,
++                        executable=self.bundle.ir,
++                        selector_to_node_id=self._selector_to_node_id,
++                        catalog=self._reference_catalog,
++                        scope_kind=self.index.scope_kind,
++                    )
++                    for _, ref in _walk_value_document_refs(
++                        {"source": value_document}
++                    )
++                )
++                if not addresses or any(
++                    not isinstance(address, NodeResultAddress)
++                    or address.node_id != node_id
++                    for address in addresses
++                ):
++                    raise PureResultReplayIndexError(
++                        DEPENDENCY_INDEX_INVALID,
++                        "pure replay restore source identity is inconsistent",
++                        context={"node_id": node_id},
++                    )
++                source_step_ids.add(source_step_id)
++        return frozenset(source_step_ids)
++
++    def source_step_is_derived(self, source_step_id: Any) -> bool:
++        return (
++            isinstance(source_step_id, str)
++            and source_step_id
++            in (
++                self._eligible_step_ids
++                | self._eligible_restore_source_step_ids
++            )
++        )
++
++    def audit_persisted_surfaces(
++        self,
++        *,
++        state: Mapping[str, Any],
++        state_manager: Any,
++        resolve_bundle_path: Callable[[str], Path | None],
++    ) -> None:
++        forbidden_checkpoint_node_ids: set[str] = set()
++        for node_id, replay_node in self.index.nodes.items():
++            witness = self.witness_from_state(node_id, state)
++            classification = classify_pure_replay_progress(
++                state,
++                witness=witness,
++            )
++            if classification == PROGRESS_WITNESS_INVALID:
++                self._raise_profile_conflict(
++                    node_id,
++                    "steps",
++                )
++            if classification not in {
++                "durable_failure_skip",
++                DURABLE_ROUTED_SKIP,
++            }:
++                forbidden_checkpoint_node_ids.add(node_id)
++            self._audit_bundle_surface(
++                node_id=node_id,
++                resolve_bundle_path=resolve_bundle_path,
++            )
++
++        self._audit_private_lineage(state)
++        self._audit_checkpoint_records(
++            state_manager,
++            forbidden_node_ids=frozenset(
++                forbidden_checkpoint_node_ids
++            ),
++        )
++
++    def _audit_bundle_surface(
++        self,
++        *,
++        node_id: str,
++        resolve_bundle_path: Callable[[str], Path | None],
++    ) -> None:
++        node = self.bundle.ir.nodes.get(node_id)
++        common = getattr(getattr(node, "execution_config", None), "common", None)
++        output_bundle = getattr(common, "output_bundle", None)
++        if not isinstance(output_bundle, Mapping):
++            return
++        raw_path = output_bundle.get("path")
++        if not isinstance(raw_path, str) or not raw_path:
++            self._raise_profile_conflict(node_id, "pure_bundle")
++        path = resolve_bundle_path(node_id)
++        if path is None:
++            return
++        if not isinstance(path, Path) or not path.is_absolute():
++            self._raise_profile_conflict(node_id, "pure_bundle")
++        if path.exists():
++            self._raise_profile_conflict(node_id, "pure_bundle")
++
++    def _audit_private_lineage(self, state: Mapping[str, Any]) -> None:
++        versions = state.get("private_artifact_versions")
++        if not isinstance(versions, Mapping):
++            self._raise_profile_conflict(None, "private_artifact_versions")
++        for entries in versions.values():
++            if not isinstance(entries, Sequence) or isinstance(
++                entries,
++                (str, bytes),
++            ):
++                self._raise_profile_conflict(
++                    None,
++                    "private_artifact_versions",
++                )
++            for entry in entries:
++                if not isinstance(entry, Mapping):
++                    self._raise_profile_conflict(
++                        None,
++                        "private_artifact_versions",
++                    )
++                if (
++                    self.source_step_is_derived(entry.get("producer"))
++                    or self.source_step_is_derived(entry.get("step_id"))
++                ):
++                    self._raise_profile_conflict(
++                        str(entry.get("producer") or ""),
++                        "private_artifact_versions",
++                    )
++
++    def _audit_checkpoint_records(
++        self,
++        state_manager: Any,
++        *,
++        forbidden_node_ids: frozenset[str],
++    ) -> None:
++        from orchestrator.workflow_lisp.lexical_checkpoints import (
++            resolve_checkpoint_record_family_path,
++        )
++
++        if not forbidden_node_ids.issubset(self.index.nodes):
++            self._raise_profile_conflict(None, "checkpoint_record")
++        expected_frame_id = (
++            self.scope_path.call_frame_ids[-1]
++            if self.scope_path.call_frame_ids
++            else None
++        )
++        eligible_checkpoint_ids = {
++            getattr(point, "checkpoint_id", None)
++            for point in self.bundle.runtime_plan.lexical_checkpoint_points
++            if getattr(point, "node_id", None) in forbidden_node_ids
++        }
++        for point in self.bundle.runtime_plan.lexical_checkpoint_points:
++            checkpoint_id = getattr(point, "checkpoint_id", None)
++            if not isinstance(checkpoint_id, str) or not checkpoint_id:
++                self._raise_profile_conflict(None, "checkpoint_record")
++            details = getattr(point, "details", None)
++            storage = (
++                details.get("storage")
++                if isinstance(details, Mapping)
++                else None
++            )
++            storage_scope = (
++                storage.get("resume_scope")
++                if isinstance(storage, Mapping)
++                else None
++            )
++            family_root = resolve_checkpoint_record_family_path(
++                state_manager=state_manager,
++                workflow_name=self.bundle.runtime_plan.workflow_name,
++                checkpoint_id=checkpoint_id,
++                storage_scope=(
++                    storage_scope
++                    if isinstance(storage_scope, str)
++                    else None
++                ),
++            )
++            if not family_root.exists():
++                continue
++            for path in sorted(family_root.glob("*.json")):
++                try:
++                    record = json.loads(
++                        path.read_text(encoding="utf-8")
++                    )
++                except (OSError, json.JSONDecodeError):
++                    self._raise_profile_conflict(
++                        None,
++                        "checkpoint_record",
++                    )
++                if (
++                    not isinstance(record, Mapping)
++                    or record.get("checkpoint_id") != checkpoint_id
++                ):
++                    self._raise_profile_conflict(
++                        None,
++                        "checkpoint_record",
++                    )
++                frame_identity = record.get("frame_identity")
++                record_frame_id = (
++                    frame_identity.get("call_frame_id")
++                    if isinstance(frame_identity, Mapping)
++                    else None
++                )
++                if record_frame_id != expected_frame_id:
++                    continue
++                if checkpoint_id in eligible_checkpoint_ids:
++                    self._raise_profile_conflict(
++                        getattr(point, "node_id", None),
++                        "checkpoint_record",
++                    )
++                restore = record.get("restore_payload")
++                if restore is None:
++                    continue
++                bindings = (
++                    restore.get("bindings")
++                    if isinstance(restore, Mapping)
++                    else None
++                )
++                if not isinstance(bindings, Sequence) or isinstance(
++                    bindings,
++                    (str, bytes),
++                ):
++                    self._raise_profile_conflict(
++                        None,
++                        "restore_payload",
++                    )
++                if any(
++                    isinstance(binding, Mapping)
++                    and self.source_step_is_derived(
++                        binding.get("source_step_id")
++                    )
++                    for binding in bindings
++                ):
++                    self._raise_profile_conflict(
++                        None,
++                        "restore_payload",
++                    )
++
++    def _raise_profile_conflict(
++        self,
++        node_id: str | None,
++        surface: str,
++    ) -> None:
++        raise PureResultReplayIndexError(
++            PROFILE_CONFLICT,
++            "replay-profile persistence surfaces conflict",
++            context={
++                "node_id": node_id,
++                "surface": surface,
++            },
++        )
++
++
++@dataclass(frozen=True)
++class PureReplayBinding:
++    """One validator-owned binding path resolved to a typed address."""
++
++    path: tuple[BindingPathPart, ...]
++    address: ReplayAddress
++
++
++@dataclass(frozen=True)
++class PureReplayNode:
++    """One replay-eligible pure projection and its exact dependencies."""
++
++    node_id: str
++    step_id: str
++    presentation_key: str
++    bindings: tuple[PureReplayBinding, ...]
++    output_addresses: tuple[NodeResultAddress, ...]
++    output_contracts: Mapping[str, Mapping[str, Any]]
++    pure_dependency_node_ids: tuple[str, ...]
++    durable_dependency_node_ids: tuple[str, ...]
++
++
++def _validate_replay_result_output_members(
++    replay_node: PureReplayNode,
++    *,
++    result: Mapping[str, Any],
++) -> None:
++    """Require exactly the output members active for one normalized result."""
++
++    artifacts = result.get("artifacts")
++    if not isinstance(artifacts, Mapping) or any(
++        not isinstance(member, str) or not member
++        for member in artifacts
++    ):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay result artifacts must be a named object",
++            context={"node_id": replay_node.node_id},
++        )
++
++    expected_members: set[str] = set()
++    for member, contract in replay_node.output_contracts.items():
++        projection = contract.get("projection")
++        if (
++            not isinstance(projection, Mapping)
++            or projection.get("projection_class")
++            != "union_workflow_boundary"
++        ):
++            expected_members.add(member)
++            continue
++
++        role = projection.get("field_role")
++        discriminant_member = projection.get("discriminant_output")
++        active_variants = projection.get("active_variants")
++        if (
++            role not in {"discriminant", "shared", "variant"}
++            or not isinstance(discriminant_member, str)
++            or not discriminant_member
++            or discriminant_member not in replay_node.output_contracts
++            or not isinstance(active_variants, (list, tuple))
++            or not active_variants
++            or any(
++                not isinstance(variant, str) or not variant
++                for variant in active_variants
++            )
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay union output projection metadata is invalid",
++                context={
++                    "node_id": replay_node.node_id,
++                    "member": member,
++                },
++            )
++        active_variant = artifacts.get(discriminant_member)
++        if not isinstance(active_variant, str) or not active_variant:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay union result omits its discriminant",
++                context={
++                    "node_id": replay_node.node_id,
++                    "member": discriminant_member,
++                },
++            )
++        if role == "discriminant" and active_variant not in set(
++            active_variants
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay union result has an unknown discriminant",
++                context={
++                    "node_id": replay_node.node_id,
++                    "member": discriminant_member,
++                    "variant": active_variant,
++                },
++            )
++        if role != "variant" or active_variant in set(active_variants):
++            expected_members.add(member)
++
++    actual_members = set(artifacts)
++    if actual_members != expected_members:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay result output members do not match the active contract",
++            context={
++                "node_id": replay_node.node_id,
++                "missing_members": sorted(expected_members - actual_members),
++                "unexpected_members": sorted(actual_members - expected_members),
++            },
++        )
++
++
++@dataclass(frozen=True)
++class PureResultReplayIndex:
++    """Immutable replay index derived from validated in-memory program facts."""
++
++    scope_kind: str
++    nodes: Mapping[str, PureReplayNode]
++    topological_node_ids: tuple[str, ...]
++    ineligible_pure_reasons: Mapping[str, str]
++    _pure_node_ids: frozenset[str]
++
++    def required_pure_node_ids(
++        self,
++        seed_addresses: Sequence[NodeResultAddress],
++        *,
++        reached_node_ids: Sequence[str],
++    ) -> tuple[str, ...]:
++        """Return the exact reached pure dependency closure for consumers."""
++
++        reached = frozenset(reached_node_ids)
++        required: set[str] = set()
++
++        def include(node_id: str) -> None:
++            if node_id in required:
++                return
++            if node_id in self.ineligible_pure_reasons:
++                raise PureResultReplayIndexError(
++                    self.ineligible_pure_reasons[node_id],
++                    "replay consumer requires an ineligible pure projection",
++                    context={"node_id": node_id},
++                )
++            replay_node = self.nodes.get(node_id)
++            if replay_node is None:
++                if node_id in self._pure_node_ids:
++                    raise PureResultReplayIndexError(
++                        DEPENDENCY_INDEX_INVALID,
++                        "replay consumer requires an unindexed pure projection",
++                        context={"node_id": node_id},
++                    )
++                return
++            if node_id not in reached:
++                raise PureResultReplayIndexError(
++                    REACHABILITY_AMBIGUOUS,
++                    "replay dependency is not in the validated reached prefix",
++                    context={"node_id": node_id},
++                )
++            required.add(node_id)
++            for dependency_node_id in replay_node.pure_dependency_node_ids:
++                include(dependency_node_id)
++
++        for address in seed_addresses:
++            if not isinstance(address, NodeResultAddress):
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    "replay closure seeds must be typed node-result addresses",
++                )
++            replay_node = self.nodes.get(address.node_id)
++            if replay_node is not None and address not in replay_node.output_addresses:
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    "replay closure seed is not a declared pure result address",
++                    context={
++                        "node_id": address.node_id,
++                        "field": address.field,
++                        "member": address.member,
++                    },
++                )
++            include(address.node_id)
++
++        return tuple(
++            node_id
++            for node_id in self.topological_node_ids
++            if node_id in required
++        )
++
++
++def derive_pure_result_replay_index(
++    bundle: LoadedWorkflowBundle,
++    *,
++    scope_kind: str = "root",
++) -> PureResultReplayIndex:
++    """Derive replay dependencies without mutating or serializing the program."""
++
++    if scope_kind not in {"root", "self"}:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "replay scope kind must be root or self",
++            context={"scope_kind": scope_kind},
++        )
++    if not isinstance(bundle, LoadedWorkflowBundle):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "replay dependency derivation requires one loaded workflow bundle",
++        )
++
++    executable = bundle.ir
++    runtime_plan = bundle.runtime_plan
++    projection = bundle.projection
++    selector_to_node_id = _validated_projection_catalog(bundle)
++    program_node_ids = (
++        tuple(runtime_plan.ordered_node_ids)
++        + tuple(
++            sorted(
++                set(executable.nodes)
++                - set(runtime_plan.ordered_node_ids)
++            )
++        )
++    )
++
++    iterative_node_ids = _iterative_node_ids(executable, runtime_plan)
++    pure_node_ids = frozenset(
++        node_id
++        for node_id, node in executable.nodes.items()
++        if node.kind is ExecutableNodeKind.PURE_PROJECTION
++    )
++    ineligible: dict[str, str] = {}
++    eligible_node_ids: set[str] = set()
++    for node_id in program_node_ids:
++        if node_id not in pure_node_ids:
++            continue
++        node = executable.nodes[node_id]
++        config = node.execution_config
++        if not isinstance(config, PureProjectionStepConfig):
++            ineligible[node_id] = DEPENDENCY_INDEX_INVALID
++            continue
++        if (
++            node_id in iterative_node_ids
++            or config.common.max_visits not in (None, 1)
++        ):
++            ineligible[node_id] = MULTIPLE_VISIT_REGION
++            continue
++        if (
++            node_id not in executable.body_region
++            or node_id in executable.finalization_region
++            or config.common.publishes
++        ):
++            ineligible[node_id] = DEPENDENCY_INDEX_INVALID
++            continue
++        eligible_node_ids.add(node_id)
++
++    catalog = SurfaceRefScopeCatalog(
++        root_step_names=(
++            tuple(selector_to_node_id) if scope_kind == "root" else ()
++        ),
++        self_step_names=(
++            tuple(selector_to_node_id) if scope_kind == "self" else ()
++        ),
++    )
++    raw_bindings: dict[str, tuple[PureReplayBinding, ...]] = {}
++    output_addresses: dict[str, tuple[NodeResultAddress, ...]] = {}
++    output_contracts_by_node: dict[
++        str,
++        Mapping[str, Mapping[str, Any]],
++    ] = {}
++    dependency_addresses: dict[str, tuple[NodeResultAddress, ...]] = {}
++
++    for node_id in program_node_ids:
++        if node_id not in eligible_node_ids:
++            continue
++        node = executable.nodes[node_id]
++        config = node.execution_config
++        assert isinstance(config, PureProjectionStepConfig)
++        pure_projection = config.pure_projection
++        binding_refs = pure_projection.get("binding_refs")
++        payload = pure_projection.get("payload")
++        output_contracts = pure_projection.get("output_contracts")
++        if (
++            not isinstance(binding_refs, Mapping)
++            or not isinstance(payload, Mapping)
++            or not isinstance(output_contracts, Mapping)
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure projection replay metadata is incomplete",
++                context={"node_id": node_id},
++            )
++        payload_bindings = payload.get("bindings")
++        if (
++            not isinstance(payload_bindings, Mapping)
++            or set(payload_bindings) != set(binding_refs)
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure projection binding catalog is inconsistent",
++                context={"node_id": node_id},
++            )
++
++        resolved: list[PureReplayBinding] = []
++        node_dependencies: list[NodeResultAddress] = []
++        for path, ref in _walk_typed_binding_ref_documents(
++            binding_refs,
++            payload_bindings=payload_bindings,
++        ):
++            address = _resolve_replay_ref(
++                ref,
++                executable=executable,
++                selector_to_node_id=selector_to_node_id,
++                catalog=catalog,
++                scope_kind=scope_kind,
++            )
++            resolved.append(PureReplayBinding(path=path, address=address))
++            if isinstance(address, NodeResultAddress):
++                node_dependencies.append(address)
++        raw_bindings[node_id] = tuple(resolved)
++        dependency_addresses[node_id] = tuple(node_dependencies)
++        normalized_output_contracts: dict[str, Mapping[str, Any]] = {}
++        for member, contract in output_contracts.items():
++            if (
++                not isinstance(member, str)
++                or not member
++                or not isinstance(contract, Mapping)
++            ):
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    "pure projection output contracts are invalid",
++                    context={"node_id": node_id},
++                )
++            normalized_output_contracts[member] = MappingProxyType(
++                dict(contract)
++            )
++        output_contracts_by_node[node_id] = MappingProxyType(
++            normalized_output_contracts
++        )
++        output_addresses[node_id] = tuple(
++            NodeResultAddress(
++                node_id=node_id,
++                field="artifacts",
++                member=member,
++            )
++            for member in sorted(normalized_output_contracts)
++        )
++
++    eligible_node_ids, ineligible = _propagate_pure_ineligibility(
++        eligible_node_ids=eligible_node_ids,
++        pure_node_ids=pure_node_ids,
++        dependency_addresses=dependency_addresses,
++        ineligible_reasons=ineligible,
++        program_node_ids=program_node_ids,
++    )
++
++    pure_dependencies: dict[str, tuple[str, ...]] = {}
++    durable_dependencies: dict[str, tuple[str, ...]] = {}
++    for node_id in program_node_ids:
++        if node_id not in eligible_node_ids:
++            continue
++        pure_dependencies[node_id] = _unique_in_program_order(
++            (
++                address.node_id
++                for address in dependency_addresses[node_id]
++                if address.node_id in eligible_node_ids
++            ),
++            runtime_plan=runtime_plan,
++        )
++        durable_dependencies[node_id] = _unique_in_program_order(
++            (
++                address.node_id
++                for address in dependency_addresses[node_id]
++                if address.node_id not in pure_node_ids
++            ),
++            runtime_plan=runtime_plan,
++        )
++
++    topological_node_ids = _topological_pure_order(
++        eligible_node_ids,
++        pure_dependencies,
++        runtime_plan=runtime_plan,
++    )
++    nodes = {
++        node_id: PureReplayNode(
++            node_id=node_id,
++            step_id=executable.nodes[node_id].step_id,
++            presentation_key=(
++                projection.entries_by_node_id[node_id].presentation_key
++            ),
++            bindings=raw_bindings[node_id],
++            output_addresses=output_addresses[node_id],
++            output_contracts=output_contracts_by_node[node_id],
++            pure_dependency_node_ids=pure_dependencies[node_id],
++            durable_dependency_node_ids=durable_dependencies[node_id],
++        )
++        for node_id in topological_node_ids
++    }
++    return PureResultReplayIndex(
++        scope_kind=scope_kind,
++        nodes=MappingProxyType(nodes),
++        topological_node_ids=topological_node_ids,
++        ineligible_pure_reasons=MappingProxyType(dict(ineligible)),
++        _pure_node_ids=pure_node_ids,
++    )
++
++
++def _propagate_pure_ineligibility(
++    *,
++    eligible_node_ids: set[str],
++    pure_node_ids: frozenset[str],
++    dependency_addresses: Mapping[
++        str,
++        tuple[NodeResultAddress, ...],
++    ],
++    ineligible_reasons: Mapping[str, str],
++    program_node_ids: Sequence[str],
++) -> tuple[set[str], dict[str, str]]:
++    """Propagate pure ineligibility in deterministic simultaneous rounds."""
++
++    eligible = set(eligible_node_ids)
++    reasons = dict(ineligible_reasons)
++    ordered_node_ids = tuple(program_node_ids)
++    if not eligible.issubset(ordered_node_ids):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "eligible pure node is absent from program order",
++        )
++
++    while True:
++        round_eligible = frozenset(eligible)
++        rejected: list[tuple[str, str]] = []
++        for node_id in ordered_node_ids:
++            if node_id not in round_eligible:
++                continue
++            for address in dependency_addresses.get(node_id, ()):
++                if (
++                    address.node_id not in pure_node_ids
++                    or address.node_id in round_eligible
++                ):
++                    continue
++                rejected.append(
++                    (
++                        node_id,
++                        reasons.get(
++                            address.node_id,
++                            DEPENDENCY_INDEX_INVALID,
++                        ),
++                    )
++                )
++                break
++        if not rejected:
++            return eligible, reasons
++        for node_id, reason in rejected:
++            eligible.remove(node_id)
++            reasons[node_id] = reason
++
++
++def _validated_projection_catalog(
++    bundle: LoadedWorkflowBundle,
++) -> dict[str, str]:
++    executable = bundle.ir
++    runtime_plan = bundle.runtime_plan
++    projection = bundle.projection
++    node_ids = set(executable.nodes)
++    if (
++        set(runtime_plan.nodes) != node_ids
++        or set(projection.entries_by_node_id) != node_ids
++        or set(projection.presentation_key_by_node_id) != node_ids
++        or set(projection.node_id_by_step_id.values()) != node_ids
++        or len(projection.node_id_by_step_id) != len(node_ids)
++    ):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "loaded workflow node and projection catalogs differ",
++        )
++    try:
++        validate_workflow_runtime_plan(
++            runtime_plan,
++            executable,
++            projection,
++        )
++    except (KeyError, TypeError, ValueError) as exc:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "loaded workflow runtime plan does not match its projection",
++            context={"error": str(exc)},
++        ) from exc
++
++    expected_order = (
++        tuple(executable.body_region)
++        + tuple(executable.finalization_region)
++    )
++    if (
++        runtime_plan.ordered_node_ids != expected_order
++        or projection.ordered_execution_node_ids() != expected_order
++    ):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "loaded workflow execution order does not match its projection",
++        )
++
++    selector_to_node_id: dict[str, str] = {}
++    for node_id in executable.nodes:
++        executable_node = executable.nodes[node_id]
++        plan_node = runtime_plan.nodes[node_id]
++        entry = projection.entries_by_node_id[node_id]
++        selector = entry.presentation_key
++        if (
++            entry.node_id != node_id
++            or executable_node.node_id != node_id
++            or plan_node.node_id != node_id
++            or entry.step_id != executable_node.step_id
++            or entry.step_id != plan_node.step_id
++            or projection.node_id_by_step_id.get(entry.step_id) != node_id
++            or projection.presentation_key_by_node_id.get(node_id) != selector
++            or selector != executable_node.presentation_name
++            or selector != plan_node.presentation_key
++            or entry.region != executable_node.region
++            or plan_node.region != executable_node.region.value
++            or plan_node.kind != executable_node.kind.value
++        ):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "loaded workflow projection identity disagrees",
++                context={"node_id": node_id},
++            )
++        if not isinstance(selector, str) or not selector:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "projection presentation selector is missing",
++                context={"node_id": node_id},
++            )
++        previous = selector_to_node_id.setdefault(selector, node_id)
++        if previous != node_id:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "projection presentation selector is ambiguous",
++                context={
++                    "presentation_key": selector,
++                    "node_ids": [previous, node_id],
++                },
++            )
++    return selector_to_node_id
++
++
++def _walk_value_document_refs(
++    value_document: Any,
++) -> tuple[tuple[tuple[BindingPathPart, ...], str], ...]:
++    """Extract exact ref leaves while preserving ordinary JSON literals."""
++
++    try:
++        canonical_json_for_pure_value(value_document)
++    except (PureExprEvaluationError, TypeError, ValueError) as exc:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "value document must contain canonical JSON values",
++            context={"cause": type(exc).__name__},
++        ) from exc
++
++    resolved: list[tuple[tuple[BindingPathPart, ...], str]] = []
++
++    def walk(value: Any, path: tuple[BindingPathPart, ...]) -> None:
++        if isinstance(value, Mapping):
++            if "ref" in value:
++                if (
++                    set(value) != {"ref"}
++                    or not isinstance(value["ref"], str)
++                    or not value["ref"]
++                ):
++                    raise PureResultReplayIndexError(
++                        DEPENDENCY_INDEX_INVALID,
++                        "value-document ref must contain only one non-empty string",
++                        context={"binding_path": list(path)},
++                    )
++                resolved.append((path, value["ref"]))
++                return
++            for key in sorted(value, key=str):
++                if not isinstance(key, str):
++                    raise PureResultReplayIndexError(
++                        DEPENDENCY_INDEX_INVALID,
++                        "value-document keys must be strings",
++                        context={"binding_path": list(path)},
++                    )
++                walk(value[key], (*path, key))
++            return
++        if isinstance(value, (list, tuple)):
++            for index, item in enumerate(value):
++                walk(item, (*path, index))
++            return
++        if value is None or type(value) in {bool, int, float, str}:
++            return
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "value document contains a non-JSON value",
++            context={"binding_path": list(path)},
++        )
++
++    walk(value_document, ())
++    return tuple(resolved)
++
++
++def _document_contains_ref_key(value: Any) -> bool:
++    if isinstance(value, Mapping):
++        return "ref" in value or any(
++            _document_contains_ref_key(item)
++            for item in value.values()
++        )
++    if isinstance(value, (list, tuple)):
++        return any(_document_contains_ref_key(item) for item in value)
++    return False
++
++
++def _typed_descriptor_contains_union(
++    descriptor: Mapping[str, Any],
++) -> bool:
++    kind = descriptor.get("kind")
++    if kind in {"union", "variant_case"}:
++        return True
++    if kind in {"optional", "list"}:
++        item = descriptor.get("item")
++        return isinstance(item, Mapping) and _typed_descriptor_contains_union(
++            item
++        )
++    if kind == "map":
++        return any(
++            isinstance(item, Mapping)
++            and _typed_descriptor_contains_union(item)
++            for item in (descriptor.get("key"), descriptor.get("value"))
++        )
++    if kind == "record":
++        fields_value = descriptor.get("fields")
++        return (
++            isinstance(fields_value, Sequence)
++            and not isinstance(fields_value, (str, bytes))
++            and any(
++                isinstance(field, Mapping)
++                and isinstance(field.get("type"), Mapping)
++                and _typed_descriptor_contains_union(field["type"])
++                for field in fields_value
++            )
++        )
++    return False
++
++
++def _raise_typed_binding_document_error(
++    message: str,
++    *,
++    path: tuple[BindingPathPart, ...],
++    cause: PureExprEvaluationError | None = None,
++) -> NoReturn:
++    context: dict[str, Any] = {"binding_path": list(path)}
++    if cause is not None:
++        context["cause"] = {
++            "code": cause.code,
++            "message": str(cause),
++        }
++    raise PureResultReplayIndexError(
++        DEPENDENCY_INDEX_INVALID,
++        message,
++        context=context,
++    ) from cause
++
++
++def _validate_typed_literal(
++    value: Any,
++    descriptor: Mapping[str, Any],
++    *,
++    path: tuple[BindingPathPart, ...],
++) -> None:
++    try:
++        _coerce_value(
++            value,
++            descriptor,
++            context="pure replay binding literal",
++        )
++    except PureExprEvaluationError as exc:
++        _raise_typed_binding_document_error(
++            "pure replay binding literal does not match its declared type",
++            path=path,
++            cause=exc,
++        )
++
++
++def _descriptor_fields(
++    descriptor: Mapping[str, Any],
++    *,
++    path: tuple[BindingPathPart, ...],
++) -> dict[str, Mapping[str, Any]]:
++    fields_value = descriptor.get("fields")
++    if (
++        not isinstance(fields_value, Sequence)
++        or isinstance(fields_value, (str, bytes))
++    ):
++        _raise_typed_binding_document_error(
++            "pure replay binding type has invalid field metadata",
++            path=path,
++        )
++    fields_by_name: dict[str, Mapping[str, Any]] = {}
++    for field in fields_value:
++        if (
++            not isinstance(field, Mapping)
++            or not isinstance(field.get("name"), str)
++            or not field["name"]
++            or not isinstance(field.get("type"), Mapping)
++            or field["name"] in fields_by_name
++        ):
++            _raise_typed_binding_document_error(
++                "pure replay binding type has invalid field metadata",
++                path=path,
++            )
++        fields_by_name[field["name"]] = field["type"]
++    return fields_by_name
++
++
++def _walk_typed_binding_value(
++    value: Any,
++    descriptor: Mapping[str, Any],
++    *,
++    path: tuple[BindingPathPart, ...],
++    resolved: list[tuple[tuple[BindingPathPart, ...], str]],
++) -> None:
++    if isinstance(value, Mapping) and "ref" in value:
++        if (
++            set(value) != {"ref"}
++            or not isinstance(value["ref"], str)
++            or not value["ref"]
++        ):
++            _raise_typed_binding_document_error(
++                "binding ref document must contain only one non-empty string ref",
++                path=path,
++            )
++        resolved.append((path, value["ref"]))
++        return
++
++    kind = descriptor.get("kind")
++    if kind == "primitive" and descriptor.get("name") == "Json":
++        for nested_path, ref in _walk_value_document_refs(value):
++            resolved.append(((*path, *nested_path), ref))
++        return
++    if (
++        not _typed_descriptor_contains_union(descriptor)
++        and not _document_contains_ref_key(value)
++    ):
++        _validate_typed_literal(value, descriptor, path=path)
++        return
++
++    if kind == "optional":
++        item_descriptor = descriptor.get("item")
++        if not isinstance(item_descriptor, Mapping):
++            _raise_typed_binding_document_error(
++                "pure replay optional binding metadata is invalid",
++                path=path,
++            )
++        if value is None:
++            _validate_typed_literal(value, descriptor, path=path)
++            return
++        _walk_typed_binding_value(
++            value,
++            item_descriptor,
++            path=path,
++            resolved=resolved,
++        )
++        return
++
++    if kind == "list":
++        item_descriptor = descriptor.get("item")
++        if (
++            not isinstance(item_descriptor, Mapping)
++            or not isinstance(value, (list, tuple))
++        ):
++            _raise_typed_binding_document_error(
++                "pure replay list binding metadata is invalid",
++                path=path,
++            )
++        for index, item in enumerate(value):
++            _walk_typed_binding_value(
++                item,
++                item_descriptor,
++                path=(*path, index),
++                resolved=resolved,
++            )
++        return
++
++    if kind == "map":
++        key_descriptor = descriptor.get("key")
++        value_descriptor = descriptor.get("value")
++        if (
++            not isinstance(value, Mapping)
++            or not isinstance(key_descriptor, Mapping)
++            or not isinstance(value_descriptor, Mapping)
++        ):
++            _raise_typed_binding_document_error(
++                "pure replay map binding metadata is invalid",
++                path=path,
++            )
++        for key in sorted(value, key=str):
++            _validate_typed_literal(
++                key,
++                key_descriptor,
++                path=(*path, str(key)),
++            )
++            _walk_typed_binding_value(
++                value[key],
++                value_descriptor,
++                path=(*path, str(key)),
++                resolved=resolved,
++            )
++        return
++
++    if kind == "record":
++        if not isinstance(value, Mapping):
++            _raise_typed_binding_document_error(
++                "pure replay record binding must be an object",
++                path=path,
++            )
++        fields_by_name = _descriptor_fields(descriptor, path=path)
++        if set(value) != set(fields_by_name):
++            _raise_typed_binding_document_error(
++                "pure replay record binding fields do not match its type",
++                path=path,
++            )
++        for field_name, field_descriptor in fields_by_name.items():
++            _walk_typed_binding_value(
++                value[field_name],
++                field_descriptor,
++                path=(*path, field_name),
++                resolved=resolved,
++            )
++        return
++
++    if kind in {"union", "variant_case"}:
++        if not isinstance(value, Mapping):
++            _raise_typed_binding_document_error(
++                "pure replay union binding must be an object",
++                path=path,
++            )
++        variant_value = value.get("variant", _DURABLE_VALUE_MISSING)
++        variant_descriptor: Mapping[str, Any] | None = None
++        if kind == "variant_case":
++            variant_name = descriptor.get("variant")
++            union_name = descriptor.get("union_name")
++            if (
++                not isinstance(variant_name, str)
++                or not variant_name
++                or not isinstance(union_name, str)
++                or not union_name
++                or variant_value is _DURABLE_VALUE_MISSING
++            ):
++                _raise_typed_binding_document_error(
++                    "pure replay variant-case binding metadata is invalid",
++                    path=path,
++                )
++            variant_descriptor = descriptor
++            _walk_typed_binding_value(
++                variant_value,
++                {
++                    "kind": "enum",
++                    "name": union_name,
++                    "allowed": [variant_name],
++                },
++                path=(*path, "variant"),
++                resolved=resolved,
++            )
++        else:
++            variants = descriptor.get("variants")
++            if (
++                not isinstance(variants, Sequence)
++                or isinstance(variants, (str, bytes))
++            ):
++                _raise_typed_binding_document_error(
++                    "pure replay union binding type is invalid",
++                    path=path,
++                )
++            variant_name = variant_value
++            if not isinstance(variant_name, str) or not variant_name:
++                _raise_typed_binding_document_error(
++                    "pure replay union binding must have a literal variant",
++                    path=path,
++                )
++            variant_descriptor = next(
++                (
++                    variant
++                    for variant in variants
++                    if isinstance(variant, Mapping)
++                    and variant.get("name") == variant_name
++                ),
++                None,
++            )
++        if not isinstance(variant_descriptor, Mapping):
++            _raise_typed_binding_document_error(
++                "pure replay union binding selects an unknown variant",
++                path=path,
++            )
++        fields_by_name = _descriptor_fields(
++            variant_descriptor,
++            path=path,
++        )
++        missing = set(fields_by_name) - set(value)
++        if missing:
++            _raise_typed_binding_document_error(
++                "pure replay union binding omits active fields",
++                path=path,
++            )
++        field_descriptors: dict[str, list[Mapping[str, Any]]] = {
++            field_name: [field_descriptor]
++            for field_name, field_descriptor in fields_by_name.items()
++        }
++        if kind == "union":
++            for variant in descriptor.get("variants", ()):
++                if not isinstance(variant, Mapping):
++                    continue
++                for field_name, field_descriptor in _descriptor_fields(
++                    variant,
++                    path=path,
++                ).items():
++                    candidates = field_descriptors.setdefault(
++                        field_name,
++                        [],
++                    )
++                    if not any(
++                        field_descriptor == candidate
++                        for candidate in candidates
++                    ):
++                        candidates.append(field_descriptor)
++        known_union_fields = set(field_descriptors)
++        unknown = set(value) - known_union_fields - {"variant"}
++        if unknown:
++            _raise_typed_binding_document_error(
++                "pure replay union binding has unknown fields",
++                path=path,
++            )
++        for field_name, field_descriptor in fields_by_name.items():
++            _walk_typed_binding_value(
++                value[field_name],
++                field_descriptor,
++                path=(*path, field_name),
++                resolved=resolved,
++            )
++        for inactive_name in known_union_fields - set(fields_by_name):
++            inactive_value = value.get(inactive_name, _DURABLE_VALUE_MISSING)
++            if (
++                inactive_value is not _DURABLE_VALUE_MISSING
++                and _document_contains_ref_key(inactive_value)
++            ):
++                _raise_typed_binding_document_error(
++                    "pure replay inactive union binding fields cannot contain refs",
++                    path=(*path, inactive_name),
++                )
++            if inactive_value is _DURABLE_VALUE_MISSING:
++                continue
++            for inactive_descriptor in field_descriptors[inactive_name]:
++                _walk_typed_binding_value(
++                    inactive_value,
++                    inactive_descriptor,
++                    path=(*path, inactive_name),
++                    resolved=resolved,
++                )
++        return
++
++    _raise_typed_binding_document_error(
++        "pure replay binding ref appears outside a typed container",
++        path=path,
++    )
++
++
++def _walk_typed_binding_ref_documents(
++    binding_refs: Mapping[str, Any],
++    *,
++    payload_bindings: Mapping[str, Any],
++) -> tuple[tuple[tuple[BindingPathPart, ...], str], ...]:
++    resolved: list[tuple[tuple[BindingPathPart, ...], str]] = []
++    for binding_name in sorted(binding_refs):
++        if not isinstance(binding_name, str) or not binding_name:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "binding names must be non-empty strings",
++            )
++        binding_spec = payload_bindings.get(binding_name)
++        descriptor = (
++            binding_spec.get("type")
++            if isinstance(binding_spec, Mapping)
++            else None
++        )
++        if not isinstance(descriptor, Mapping):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay binding type metadata is missing",
++                context={"binding_path": [binding_name]},
++            )
++        _walk_typed_binding_value(
++            binding_refs[binding_name],
++            descriptor,
++            path=(binding_name,),
++            resolved=resolved,
++        )
++    return tuple(resolved)
++
++
++def _resolve_replay_ref(
++    ref: str,
++    *,
++    executable: ExecutableWorkflow,
++    selector_to_node_id: Mapping[str, str],
++    catalog: SurfaceRefScopeCatalog,
++    scope_kind: str,
++) -> ReplayAddress:
++    try:
++        parsed = parse_surface_ref(ref, catalog)
++    except ReferenceResolutionError as exc:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay binding ref is invalid",
++            context={"ref": ref, "error": str(exc)},
++        ) from exc
++
++    if isinstance(parsed, WorkflowInputReference):
++        if parsed.input_name not in executable.inputs:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay binding references an unknown workflow input",
++                context={"ref": ref, "input_name": parsed.input_name},
++            )
++        return WorkflowInputAddress(parsed.input_name)
++    if isinstance(parsed, SelfOutputReference):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "self output refs are not replay dependency addresses",
++            context={"ref": ref},
++        )
++    if not isinstance(parsed, StructuredStepReference):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay binding ref has an unsupported parsed form",
++            context={"ref": ref},
++        )
++    if parsed.scope != scope_kind:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay binding crosses the indexed frame scope",
++            context={
++                "ref": ref,
++                "expected_scope": scope_kind,
++                "actual_scope": parsed.scope,
++            },
++        )
++    node_id = selector_to_node_id.get(parsed.step_name)
++    if node_id is None:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay binding references an unknown presentation selector",
++            context={"ref": ref, "step_name": parsed.step_name},
++        )
++    _validate_result_member(
++        executable.nodes[node_id].execution_config,
++        field=parsed.field,
++        member=parsed.member,
++        ref=ref,
++    )
++    return NodeResultAddress(
++        node_id=node_id,
++        field=parsed.field,
++        member=parsed.member,
++    )
++
++
++def _validate_result_member(
++    config: Any,
++    *,
++    field: str,
++    member: str | None,
++    ref: str,
++) -> None:
++    if field == "exit_code" and member is None:
++        return
++    if field == "outcome" and member in {
++        "status",
++        "phase",
++        "class",
++        "retryable",
++    }:
++        return
++    if field != "artifacts" or not isinstance(member, str) or not member:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay binding field is not a supported result address",
++            context={"ref": ref, "field": field, "member": member},
++        )
++    common = getattr(config, "common", None)
++    output_bundle = getattr(common, "output_bundle", None)
++    fields = (
++        output_bundle.get("fields")
++        if isinstance(output_bundle, Mapping)
++        else None
++    )
++    members = {
++        field_record.get("name")
++        for field_record in fields
++        if isinstance(field_record, Mapping)
++        and isinstance(field_record.get("name"), str)
++    } if isinstance(fields, (list, tuple)) else set()
++    if member not in members:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure replay binding references an unknown result member",
++            context={"ref": ref, "member": member},
++        )
++
++
++def _compiled_node_result_contract(
++    bundle: LoadedWorkflowBundle,
++    address: NodeResultAddress,
++) -> Mapping[str, Any] | None:
++    """Return the exact compiled artifact-member contract for one address."""
++
++    if address.field != "artifacts" or not isinstance(address.member, str):
++        return None
++    node = bundle.ir.nodes.get(address.node_id)
++    common = getattr(
++        getattr(node, "execution_config", None),
++        "common",
++        None,
++    )
++    output_bundle = getattr(common, "output_bundle", None)
++    fields = (
++        output_bundle.get("fields")
++        if isinstance(output_bundle, Mapping)
++        else None
++    )
++    if not isinstance(fields, (list, tuple)):
++        return None
++    matches = tuple(
++        field
++        for field in fields
++        if isinstance(field, Mapping)
++        and field.get("name") == address.member
++    )
++    if len(matches) != 1:
++        return None
++    return matches[0]
++
++
++def _durable_node_result_value(
++    bundle: LoadedWorkflowBundle,
++    address: NodeResultAddress,
++    row: Mapping[str, Any],
++) -> tuple[Any, Mapping[str, Any] | None]:
++    """Resolve one admitted durable result address and its exact contract."""
++
++    intrinsic_contract = _INTRINSIC_DURABLE_RESULT_CONTRACTS.get(
++        (address.field, address.member)
++    )
++    if intrinsic_contract is not None:
++        if address.field == "exit_code":
++            return (
++                row.get("exit_code", _DURABLE_VALUE_MISSING),
++                intrinsic_contract,
++            )
++        outcome = row.get("outcome")
++        if not isinstance(outcome, Mapping):
++            return _DURABLE_VALUE_MISSING, intrinsic_contract
++        return (
++            outcome.get(
++                address.member,
++                _DURABLE_VALUE_MISSING,
++            ),
++            intrinsic_contract,
++        )
++
++    contract = _compiled_node_result_contract(bundle, address)
++    field_value = row.get(address.field)
++    if (
++        contract is None
++        or not isinstance(field_value, Mapping)
++        or address.member not in field_value
++    ):
++        return _DURABLE_VALUE_MISSING, contract
++    return field_value[address.member], contract
++
++
++def _iterative_node_ids(
++    executable: ExecutableWorkflow,
++    runtime_plan: WorkflowRuntimePlan,
++) -> set[str]:
++    iterative: set[str] = set()
++    for node in executable.nodes.values():
++        if isinstance(node, (ForEachNode, RepeatUntilFrameNode)):
++            iterative.update(node.body_node_ids)
++    for node in runtime_plan.nodes.values():
++        iterative.update(node.nested_body_node_ids)
++    return iterative
++
++
++def _unique_in_program_order(
++    node_ids: Any,
++    *,
++    runtime_plan: WorkflowRuntimePlan,
++) -> tuple[str, ...]:
++    requested = set(node_ids)
++    order = {
++        node_id: index
++        for index, node_id in enumerate(runtime_plan.ordered_node_ids)
++    }
++    return tuple(
++        sorted(
++            requested,
++            key=lambda node_id: (order.get(node_id, len(order)), node_id),
++        )
++    )
++
++
++def _topological_pure_order(
++    node_ids: set[str],
++    dependencies: Mapping[str, tuple[str, ...]],
++    *,
++    runtime_plan: WorkflowRuntimePlan,
++) -> tuple[str, ...]:
++    order = {
++        node_id: index
++        for index, node_id in enumerate(runtime_plan.ordered_node_ids)
++    }
++    remaining = set(node_ids)
++    emitted: list[str] = []
++    while remaining:
++        ready = sorted(
++            (
++                node_id
++                for node_id in remaining
++                if not (set(dependencies[node_id]) & remaining)
++            ),
++            key=lambda node_id: (order.get(node_id, len(order)), node_id),
++        )
++        if not ready:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "pure replay dependency graph contains a cycle",
++                context={"node_ids": sorted(remaining)},
++            )
++        for node_id in ready:
++            remaining.remove(node_id)
++            emitted.append(node_id)
++    return tuple(emitted)
+diff --git a/orchestrator/workflow/resume_planner.py b/orchestrator/workflow/resume_planner.py
+index 01ed7255..2c553b2f 100644
+--- a/orchestrator/workflow/resume_planner.py
++++ b/orchestrator/workflow/resume_planner.py
+@@ -190,6 +190,7 @@ class ResumePlanner:
+         self,
+         state: Dict[str, Any],
+         *,
++        restart_node_id: str | None,
+         runtime_plan: Any,
+         state_manager: Any,
+         executable_workflow: Any | None = None,
+@@ -200,7 +201,6 @@ class ResumePlanner:
+         if not isinstance(projection, WorkflowStateProjection):
+             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
+ 
+-        restart_node_id = self.determine_restart_node_id(state, projection=projection)
+         from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
+             determine_runtime_default_resume_decision,
+         )
+diff --git a/orchestrator/workflow/steps/pure_projection.py b/orchestrator/workflow/steps/pure_projection.py
+index 047cd56a..3c3354c5 100644
+--- a/orchestrator/workflow/steps/pure_projection.py
++++ b/orchestrator/workflow/steps/pure_projection.py
+@@ -38,22 +38,31 @@ def execute_pure_projection(
+             "Pure projection execution failed",
+             {"reason": "invalid_pure_projection_config"},
+         )
+-    resolved_expected_outputs, resolved_output_bundle, path_error = runtime._resolve_output_contract_paths(
+-        step,
+-        state,
+-        context=scope,
++    replay_profile_enabled = (
++        runtime._pure_replay_profile_enabled_for_step(step)
+     )
+-    if path_error is not None:
+-        return path_error
++    resolved_output_bundle = None
+     bundle_path = None
+-    if isinstance(resolved_output_bundle, dict):
+-        raw_path = resolved_output_bundle.get("path")
+-        if isinstance(raw_path, str) and raw_path:
+-            bundle_path = (runtime.workspace / raw_path).resolve()
+-            bundle_path = runtime._bounded_private_runtime_bundle_path(
+-                bundle_path,
+-                namespace="pure_projection",
+-            )
++    if not replay_profile_enabled:
++        (
++            _resolved_expected_outputs,
++            resolved_output_bundle,
++            path_error,
++        ) = runtime._resolve_output_contract_paths(
++            step,
++            state,
++            context=scope,
++        )
++        if path_error is not None:
++            return path_error
++        if isinstance(resolved_output_bundle, dict):
++            raw_path = resolved_output_bundle.get("path")
++            if isinstance(raw_path, str) and raw_path:
++                bundle_path = (runtime.workspace / raw_path).resolve()
++                bundle_path = runtime._bounded_private_runtime_bundle_path(
++                    bundle_path,
++                    namespace="pure_projection",
++                )
+     resolved_bindings, binding_error = runtime._resolve_pure_projection_bindings(
+         binding_refs,
+         state,
+@@ -61,10 +70,13 @@ def execute_pure_projection(
+     )
+     if binding_error is not None:
+         return binding_error
+-    bindings_digest = (
+-        f"sha256:{sha256(canonical_json_for_pure_value(resolved_bindings).encode('utf-8')).hexdigest()}"
+-    )
++    bindings_digest = None
++    if not replay_profile_enabled:
++        bindings_digest = (
++            f"sha256:{sha256(canonical_json_for_pure_value(resolved_bindings).encode('utf-8')).hexdigest()}"
++        )
+     if bundle_path is not None:
++        assert bindings_digest is not None
+         bundle_parent_error = runtime._prepare_runtime_output_bundle_parent(resolved_output_bundle)
+         if bundle_parent_error is not None:
+             return bundle_parent_error
+diff --git a/orchestrator/workflow/steps/runtime.py b/orchestrator/workflow/steps/runtime.py
+index 90f78041..48a75061 100644
+--- a/orchestrator/workflow/steps/runtime.py
++++ b/orchestrator/workflow/steps/runtime.py
+@@ -60,6 +60,11 @@ class StepRuntime(Protocol):
+         resolved_output_bundle: Optional[Dict[str, Any]],
+     ) -> Optional[Dict[str, Any]]: ...
+ 
++    def _pure_replay_profile_enabled_for_step(
++        self,
++        step: RuntimeStepInput,
++    ) -> bool: ...
++
+     def _pure_projection_artifacts(
+         self,
+         result_value: Any,
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py b/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py
+index 4eda14ea..cabd5671 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py
+@@ -70,6 +70,7 @@ def _nearest_prior_effect_boundary(
+     *,
+     runtime_plan: Any,
+     restart_node_id: str,
++    excluded_node_ids: frozenset[str] = frozenset(),
+ ) -> tuple[Any | None, str | None]:
+     ordered_node_ids = tuple(getattr(runtime_plan, "ordered_node_ids", ()) or ())
+     if len(set(ordered_node_ids)) != len(ordered_node_ids):
+@@ -82,9 +83,14 @@ def _nearest_prior_effect_boundary(
+     checkpoint_points = tuple(
+         getattr(runtime_plan, "lexical_checkpoint_points", ()) or ()
+     )
+-    effect_points = tuple(
++    candidate_points = tuple(
+         point
+         for point in checkpoint_points
++        if getattr(point, "node_id", None) not in excluded_node_ids
++    )
++    effect_points = tuple(
++        point
++        for point in candidate_points
+         if getattr(point, "point_kind", None) == "effect_boundary"
+     )
+     checkpoint_ids = tuple(
+@@ -162,7 +168,7 @@ def _nearest_prior_effect_boundary(
+         sum(
+             getattr(point, "checkpoint_id", None)
+             == nearest_checkpoint_ids[0]
+-            for point in checkpoint_points
++            for point in candidate_points
+         )
+         != 1
+     ):
+@@ -170,6 +176,120 @@ def _nearest_prior_effect_boundary(
+     return nearest_points[0], None
+ 
+ 
++def _replay_runtime(
++    *,
++    state: Mapping[str, Any],
++    loaded_workflow: Any,
++    state_manager: Any,
++) -> Any | None:
++    from orchestrator.workflow.pure_result_replay import (
++        DERIVED_PURE_REPLAY_PROFILE,
++        PureReplayRuntime,
++    )
++    from orchestrator.workflow.resume_projection_integrity import (
++        ResumeScopePath,
++    )
++
++    profile = state.get("result_persistence_profile")
++    if profile is None:
++        return None
++    if profile != DERIVED_PURE_REPLAY_PROFILE:
++        raise ValueError("pure_result_replay_unavailable")
++    if loaded_workflow is None:
++        raise ValueError("pure_result_replay_unavailable")
++    scope_path = getattr(state_manager, "resume_scope_path", None)
++    if not isinstance(scope_path, ResumeScopePath):
++        workflow_file = state.get("workflow_file")
++        if not isinstance(workflow_file, str) or not workflow_file:
++            provenance = workflow_provenance(loaded_workflow)
++            workflow_path = (
++                provenance.workflow_path
++                if provenance is not None
++                else None
++            )
++            workflow_file = (
++                str(workflow_path)
++                if workflow_path is not None
++                else ""
++            )
++        if not workflow_file:
++            raise ValueError("pure_result_replay_unavailable")
++        scope_path = ResumeScopePath.root(workflow_file)
++    return PureReplayRuntime(
++        bundle=loaded_workflow,
++        scope_path=scope_path,
++    )
++
++
++def _validated_frame_entry_replay(
++    *,
++    replay_runtime: Any,
++    runtime_plan: Any,
++    state: Mapping[str, Any],
++    restart_node_id: str,
++) -> bool:
++    """Admit only a reached all-pure prefix with complete shell witnesses."""
++
++    from orchestrator.workflow.executable_ir import WorkflowInputAddress
++    from orchestrator.workflow.pure_result_replay import (
++        classify_pure_replay_progress,
++    )
++
++    ordered_node_ids = tuple(
++        getattr(runtime_plan, "ordered_node_ids", ()) or ()
++    )
++    if (
++        len(set(ordered_node_ids)) != len(ordered_node_ids)
++        or ordered_node_ids.count(restart_node_id) != 1
++    ):
++        return False
++    prefix = ordered_node_ids[: ordered_node_ids.index(restart_node_id)]
++
++    bound_inputs = state.get("bound_inputs")
++    if not isinstance(bound_inputs, Mapping):
++        return False
++    if not prefix:
++        replay_node = replay_runtime.index.nodes.get(restart_node_id)
++        if replay_node is None:
++            return False
++        witness = replay_runtime.witness_from_state(
++            restart_node_id,
++            state,
++        )
++        return (
++            classify_pure_replay_progress(
++                state,
++                witness=witness,
++            )
++            == "interrupted"
++            and not any(
++                isinstance(binding.address, WorkflowInputAddress)
++                and binding.address.input_name not in bound_inputs
++                for binding in replay_node.bindings
++            )
++        )
++    for node_id in prefix:
++        replay_node = replay_runtime.index.nodes.get(node_id)
++        if replay_node is None:
++            return False
++        witness = replay_runtime.witness_from_state(node_id, state)
++        if (
++            classify_pure_replay_progress(
++                state,
++                witness=witness,
++            )
++            != "derived_complete"
++        ):
++            return False
++        if any(
++            isinstance(binding.address, WorkflowInputAddress)
++            and binding.address.input_name not in bound_inputs
++            for binding in replay_node.bindings
++        ):
++            return False
++    return True
++
++
+ def _current_committed_nested_effect_boundary(
+     *,
+     runtime_plan: Any,
+@@ -429,11 +549,33 @@ def determine_runtime_default_resume_decision(
+         payload["mode"] = MODE_LEXICAL_CHECKPOINT_DEFAULT
+         return payload
+ 
+-    if restore_selector is None:
+-        from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
+-            select_restore_candidate,
++    try:
++        replay_runtime = _replay_runtime(
++            state=state,
++            loaded_workflow=loaded_workflow,
++            state_manager=state_manager,
+         )
++        replay_checkpoint_excluded_node_ids = (
++            replay_runtime.default_resume_checkpoint_excluded_node_ids(
++                state=state,
++                restart_node_id=restart_node_id,
++            )
++            if replay_runtime is not None
++            else frozenset()
++        )
++    except (TypeError, ValueError):
++        payload["mode"] = MODE_FAIL_CLOSED
++        payload["diagnostics"] = ["pure_result_replay_unavailable"]
++        return payload
+ 
++    from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
++        RESTORE_DECISION_NOT_RESTORABLE,
++        RESTORE_SELECTION_RECORD_ABSENT,
++        RestoreDecision,
++        select_restore_candidate,
++    )
++
++    if restore_selector is None:
+         restore_selector = select_restore_candidate
+ 
+     (
+@@ -461,6 +603,9 @@ def determine_runtime_default_resume_decision(
+         "executable_workflow": executable_workflow,
+         "loaded_workflow": loaded_workflow,
+     }
++    restart_point_checkpoint_is_excluded = (
++        restart_node_id in replay_checkpoint_excluded_node_ids
++    )
+     if required_effect_point is not None:
+         restore_kwargs.update(
+             {
+@@ -473,7 +618,14 @@ def determine_runtime_default_resume_decision(
+         )
+     else:
+         restore_kwargs["restart_node_id"] = restart_node_id
+-    restore_decision = restore_selector(**restore_kwargs)
++    restore_decision = (
++        RestoreDecision(
++            kind=RESTORE_DECISION_NOT_RESTORABLE,
++            selection_observation=RESTORE_SELECTION_RECORD_ABSENT,
++        )
++        if restart_point_checkpoint_is_excluded
++        else restore_selector(**restore_kwargs)
++    )
+     payload.update(
+         {
+             "restore_decision": getattr(restore_decision, "kind", None),
+@@ -530,7 +682,7 @@ def determine_runtime_default_resume_decision(
+                 *decision_diagnostics,
+             ]
+             return payload
+-        if relevant_points:
++        if relevant_points or restart_point_checkpoint_is_excluded:
+             if (
+                 getattr(restore_decision, "selection_observation", None)
+                 == "record_absent"
+@@ -538,8 +690,56 @@ def determine_runtime_default_resume_decision(
+                 prior_point, prior_diagnostic = _nearest_prior_effect_boundary(
+                     runtime_plan=runtime_plan,
+                     restart_node_id=restart_node_id,
++                    excluded_node_ids=(
++                        replay_checkpoint_excluded_node_ids
++                    ),
+                 )
+                 if prior_diagnostic is not None:
++                    if (
++                        prior_diagnostic
++                        == "lexical_default_resume_prior_boundary_missing"
++                        and replay_runtime is not None
++                        and not decision_diagnostics
++                        and _validated_frame_entry_replay(
++                            replay_runtime=replay_runtime,
++                            runtime_plan=runtime_plan,
++                            state=state,
++                            restart_node_id=restart_node_id,
++                        )
++                    ):
++                        payload.update(
++                            {
++                                "mode": MODE_LEXICAL_CHECKPOINT_DEFAULT,
++                                "restore_decision": (
++                                    "VALIDATED_FRAME_ENTRY_REPLAY"
++                                ),
++                                "restore_candidate": {
++                                    "kind": (
++                                        "VALIDATED_FRAME_ENTRY_REPLAY"
++                                    ),
++                                    "checkpoint_id": None,
++                                    "record_id": None,
++                                    "source_map_origin_key": None,
++                                    "restore_payload": None,
++                                    "policy_decision": None,
++                                    "diagnostics": [],
++                                    "transition_resume": None,
++                                    "selection_observation": (
++                                        "validated_frame_entry"
++                                    ),
++                                    "selection_reason": (
++                                        "validated_frame_entry_replay"
++                                    ),
++                                },
++                                "checkpoint_id": None,
++                                "record_id": None,
++                                "source_map_origin_key": None,
++                                "selection_reason": (
++                                    "validated_frame_entry_replay"
++                                ),
++                            }
++                        )
++                        return payload
+                     payload["mode"] = MODE_FAIL_CLOSED
+                     payload["diagnostics"] = [prior_diagnostic]
+                     return payload
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoint_restore.py b/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
+index cb8e5bf3..eefd142d 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
+@@ -415,6 +415,27 @@ def _match_subject_from_match_step(step_name: str) -> str | None:
+     return suffix
+ 
+ 
++def _source_binding_is_replay_derived(
++    executor: Any,
++    descriptor: Mapping[str, Any],
++) -> bool:
++    """Ask the executor's replay authority about one exact source identity."""
++
++    source_is_derived = getattr(
++        executor,
++        "_pure_replay_source_step_is_derived",
++        None,
++    )
++    source_step_id = descriptor.get("source_step_id")
++    if (
++        not callable(source_is_derived)
++        or not isinstance(source_step_id, str)
++        or not source_step_id
++    ):
++        return False
++    return source_is_derived(source_step_id) is True
++
++
+ def capture_restore_payload(
+     *,
+     executor: Any,
+@@ -447,6 +468,8 @@ def capture_restore_payload(
+     ]
+ 
+     for descriptor in binding_descriptors:
++        if _source_binding_is_replay_derived(executor, descriptor):
++            continue
+         step_name = descriptor.get("source_step_name")
+         value_document = descriptor.get("value_document")
+         value = None
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoints.py b/orchestrator/workflow_lisp/lexical_checkpoints.py
+index 56573b01..0677064f 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoints.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoints.py
+@@ -458,6 +458,22 @@ def _runtime_step_for_point(executor: Any, point: Any) -> Any:
+     )
+ 
+ 
++def _point_success_checkpoint_is_suppressed(
++    executor: Any,
++    point: Any,
++) -> bool:
++    """Ask whether this exact persisted point is a derived success."""
++
++    suppression = getattr(
++        executor,
++        "_pure_replay_success_checkpoint_is_suppressed",
++        None,
++    )
++    if not callable(suppression):
++        return False
++    return suppression(_runtime_step_for_point(executor, point)) is True
++
++
+ def _state_snapshot(executor: Any) -> Mapping[str, Any]:
+     current_state = getattr(executor.state_manager, "state", None)
+     if current_state is None:
+@@ -1778,6 +1794,8 @@ def emit_runtime_shadow_record(
+         validate_checkpoint_point_payload(point_payload)
+         if workflow_name != getattr(runtime_plan, "workflow_name", ""):
+             raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
++        if _point_success_checkpoint_is_suppressed(executor, point):
++            return None
+ 
+         checkpoint_id = str(point_payload.get("checkpoint_id") or "")
+         program_point_id = str(point_payload.get("program_point_id") or "")
+diff --git a/specs/state.md b/specs/state.md
+index 26bd1082..137e2e3d 100644
+--- a/specs/state.md
++++ b/specs/state.md
+@@ -10,6 +10,18 @@
+   - Timestamps: `started_at`, `updated_at`
+   - `status`: `running | completed | failed`
+   - `context`: key/value map
++  - `result_persistence_profile`: optional additive schema-2.1 selector. Absence
++    means historical bundle-backed result persistence. The only supported
++    present value is `derived_pure_replay.v1`; an unknown profile fails closed.
++    The field is written atomically when a root or nested call-frame state is
++    created under that profile, before any visit begins. The supported
++    automatic creation policy selects it for a successfully compiled typed
++    public `.orc` run, a new `.orc` root created by
++    `orchestrate resume --force-restart`, and a fresh non-iterative child whose
++    validated loaded-bundle provenance has
++    `frontend_kind == "workflow_lisp"`. Generic initialization remains
++    explicit opt-in. Ordinary resume never infers, backfills, or upgrades the
++    field from source kind, rows, or sidecar presence.
+   - `bound_inputs`: v2.1+ typed workflow inputs bound before execution starts
+   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
+   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
+@@ -100,6 +112,79 @@
+   - v2.7 `repeat_until` extends schema `2.1` additively; loop-frame bookkeeping lives under the new top-level `repeat_until` map.
+   - v2.13 managed provider jobs extend schema `2.1` additively; managed recovery metadata lives on the step result and run-owned sidecars rather than the artifact lineage surfaces.
+ 
++## Derived Pure-Result Persistence Profile
++
++Under exact `result_persistence_profile: derived_pure_replay.v1`, a successful
++eligible, acyclic, single-visit compiler-generated `pure_projection` persists
++this exact value-free completion shell:
++
++```json
++{
++  "name": "<presentation-key>",
++  "step_id": "<qualified-node-id>",
++  "visit_count": 1,
++  "status": "completed",
++  "exit_code": 0,
++  "outcome": {
++    "status": "completed",
++    "phase": "execution",
++    "class": "completed",
++    "retryable": false
++  },
++  "result_storage": "derived_pure_replay.v1"
++}
++```
++
++The exact value-free completion shell permits no other keys. In particular it
++contains no `output`, `lines`, `json`, `text`, `artifacts`, private-lineage
++value, `error`, `debug`, duration/timestamp field, bundle reference, or result
++value. A value-bearing or structurally different purported shell is a
++`pure_result_replay_unavailable` failure with reason `profile_conflict`.
++Failed and skipped rows remain full durable rows. Historical-profile,
++noneligible, recurrent, and loop-owned pure nodes retain their existing durable
++row and bundle behavior.
++
++Eligible-pure visit increment plus matching `current_step` publication is one
++atomic state transaction. Successful exact-shell settlement or ordinary
++full-failure settlement plus cursor clearing is another atomic state
++transaction. A positive visit without a matching current cursor or exact shell,
++a mismatched visit, or a conflicting bundle/private-lineage/checkpoint/restore
++surface fails closed before mutation or effect dispatch. Replay validates only
++the required dependency leaves and reconstructs typed values into a
++process-local overlay; it never executes an effect or writes durable state.
++Pure binding value documents may contain exact `{"ref": ...}` leaves and
++ordinary literal leaves. Exact refs alone form dependency edges; every literal
++subtree must match its declared pure binding type, and malformed ref objects
++fail closed. Consumer/checkpoint value documents may additionally carry
++compiler metadata and JSON literals that form no edge. For a union pure result,
++the static replay catalog retains every possible typed address, while the
++transient result row contains exactly the discriminant, shared outputs, and
++active variant outputs. Missing active or extra inactive members are invalid;
++row presence, not presence of every possible union address, proves that the
++transient overlay has been reconstructed. A retained overlay row never
++overrides current state authority: every cache hit must revalidate the exact
++visit and must observe either the exact durable completion shell or the exact
++validated active-executor full result already held in that private cache. The
++active-result form is valid only when `current_step` is absent or belongs to an
++unrelated node; a cursor targeting the same presentation name or step identity
++conflicts with the completed row and fails closed. Missing or non-one visits,
++missing or malformed rows, and mismatched active rows also fail closed.
++
++The supported automatic creation policy selects this profile for a typed public
++`.orc` run, a new `.orc` force-restart root, and a fresh non-iterative typed
++Workflow Lisp child. Child selection comes from the callee's validated typed
++provenance and resolved non-iterative boundary, not from the parent profile,
++path suffix, alias, or step identity. A fresh retry after a failed
++non-iterative Workflow Lisp predecessor is new state and selects the profile;
++the failed predecessor remains byte-for-byte unchanged.
++
++Generic `StateManager.initialize(...)` callers remain explicit opt-in.
++Ordinary resume uses only the profile already persisted in the selected root
++or frame. Existing roots and frames, non-Workflow-Lisp callees, and
++iteration-owned child frames remain historical-profile. Recurrent, loop-owned,
++and other multiply visited pure nodes remain fully durable even inside a
++profiled root.
++
+ - Output contract failure shape
+   - If `expected_outputs`, `output_bundle`, or another deterministic structured
+     output contract fails validation after a successful execution
+@@ -739,12 +824,26 @@ Checksum-compatible resume projection integrity:
+ 
+ Workflow Lisp lexical-checkpoint default resume:
+ - Node-local restore selection is primary. A prior-boundary fallback is allowed only when the restart node owns lexical checkpoint metadata and restore selection positively reports typed `record_absent` for that node's next boundary.
++- Under exact `derived_pure_replay.v1`, replay-eligible pure points are filtered
++  from the durable checkpoint candidate set before unique-nearest selection.
++  They are replay-only: the runtime validates exact shells and dependency
++  leaves without reading, reusing, or writing a pure-result bundle or
++  pure-boundary checkpoint. Historical and noneligible pure points retain their
++  existing replay-or-reuse policy.
++- `VALIDATED_FRAME_ENTRY_REPLAY` is the only admitted zero-record case. It
++  requires validated bound-input leaves and exact profile/progress witnesses.
++  It neither relaxes root/callee checksum or projection validation nor creates
++  a durable checkpoint.
+ - Only the canonical checkpoint index whose `program_point_id` matches the runtime-plan point and whose `storage_allocation_id` matches the canonical lexical-checkpoint-index allocation may establish absence. A missing canonical index or a valid canonical index with an empty `records` list is `record_absent`; a present unreadable, malformed, incomplete, foreign, stale, or otherwise invalid index is `record_present_unusable` and fails closed with a stable diagnostic.
+ - Every index `record_id` must be one safe filename component and cannot introduce absolute or relative path structure, separators, traversal components, NULs, or unsupported filename characters. Its record reference must equal the canonical workspace-relative record path derived from that ID, checkpoint point, and storage scope. The lexical path must be a direct child of the canonical record family; after normalization and symlink resolution it must remain a direct child of the resolved family and below the resolved workspace. Absolute paths, parent escapes, record-path symlinks, and symlinked components below the workspace fail closed before record I/O. Entry `record_id`, `program_point_id`, `point_kind`, and `frame_identity` must match the runtime-plan point and loaded record as applicable, and the loaded record plus restore payload must pass the ordinary checkpoint-record and restore validators.
+ - Canonical checkpoint index and record JSON must be read beneath a trusted workspace directory descriptor. Each parent component is opened descriptor-relative as a directory with no-follow semantics, and the final file is opened descriptor-relative with no-follow and nonblocking semantics, verified as a regular file with `fstat`, and decoded from that already-open descriptor; pathname validation followed by pathname reopen is not permitted. Nonblocking final-open support is required so a FIFO or other nonregular target is rejected without waiting for a peer; unavailable support fails closed. Missing canonical index state is `record_absent` only when the descriptor-relative open reports `FileNotFoundError`; symlink, permission, invalid-parent, nonregular target, unsupported descriptor-relative operation, or mutation-during-read state is present-unusable and fails closed. Record-side equivalents fail as reference-invalid or unreadable without weakening malformed-JSON diagnostics.
+ - The runtime must derive the complete nearest-prior effect-boundary candidate set only from canonical `runtime_plan.ordered_node_ids`. The restart node and every eligible point must be uniquely ordered, and exactly one nearest candidate is required. That candidate's checkpoint ID must occur exactly once across all `runtime_plan.lexical_checkpoint_points`, including older, later, and non-effect points; missing, unordered, duplicate, or ambiguous state fails closed before checkpoint-ID restore selection.
+ - The globally unique prior checkpoint ID must pass the same restore validator used for node-local selection. Root/callee checksum, checkpoint/program identity, effect policy, completed-effect reference, source lineage, binding schema, and authoritative-state validation remain unchanged.
+ - A successful prior-boundary selection activates its validated restore payload but preserves the original restart node. An invalid, unsafe, absent, or non-restorable nearest point fails closed; default resume never searches an older point. Any coarse or older-boundary recovery is explicit/operator-directed or future functionality.
++- Pure-replay leaf audit and reconstruction do not dispatch effects, increment
++  visits, settle results, or mutate state. An invalid nearest durable boundary
++  remains terminal; filtering an admitted pure point never permits scanning
++  past that boundary.
+ 
+ Recovery mechanisms:
+ ```bash

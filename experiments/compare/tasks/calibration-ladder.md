@@ -85,7 +85,7 @@ rung is reached; only rung 1 (`cf1-generic-unions`) has a package now. `eb-repl`
 | 1 | `cf1-generic-unions` | `c77e7ec0` | `1798fc70` | 2060 | 33 | 8 (609) | 18 | 103 | 0 | **164** (166 qualify, 2 dropped) | Target 2.33 with first-order generic unions, `std/improve`, the loop-exhaustion and checkpoint-restore repairs, and an example (CF-1). |
 | 2 | `resume-projection-integrity` | `1cd60767` | `db988993` | 2555 | 16 | 5 (1390) | 18 | 76 | 0 (corrected, see note) | **169** (175 qualify, 6 dropped) | Audit resume projections: exact projection slots, scoped auditor, atomic failure recorders, retry lineage. |
 | 3 | `adopted-attempt-lineage` | `db210752` | `1eb06773` | 3214 | 5 | 0 (0) | 3 | 43 | 0 | **52** (61 qualify, 9 dropped) | Retirement tooling: lineage incident contracts, adopted-attempt disposition v2, restart authority (`orchestrator/retirement/`). |
-| 4 | `pure-result-replay` | `f80e551a` | `76427bde` | 4161 | 14 | 5 (1061) | 13 | 94 | 14 (0.3%) | at its build | Pure-result replay feasibility (dependency index, atomic witnesses, runtime) and its activation. |
+| 4 | `pure-result-replay` | `f80e551a` | `76427bde` | 4161 | 14 | 5 (1061) | 13 | 94 | 14 (0.3%) | **134** (828 qualify, 694 dropped) | Pure-result replay feasibility (dependency index, atomic witnesses, runtime) and its activation. |
 | 5 | `dsl-232-composition` | `2effff14` | `2574fa2b` | 10478 | 74 | 19 (3835) | 44 | 308 | 0 | at its build | Value and continuation composition, targets 2.28 to 2.32: union prompt inputs, rich loop values, pure-call composition, portable context, durable host input. |
 | 6 | `provider-peer-messaging` | `31f3aedf` | `b08c04a6` | 12835 | 54 | 7 (1425) | 19 | 253 | 0 | at its build | Provider peer groups (`with-live-provider-peers`): contracts, ledgers, protocol, coordinator, runtime, frontend and lowering. |
 
@@ -388,6 +388,112 @@ Limits of the search:
   results for all 855 nodes; `adopted-attempt-lineage-anchor-upstream.txt` and
   `adopted-attempt-lineage-anchor-stub.txt` cover the 61.
 - **Rung 3's scan solution hash:** `1eb06773029df5c62d81c10e0d60ea6f72c81ab7`.
+
+## Rung 4 package: `pure-result-replay`
+
+- **Base check.** The base's `.gitignore` ignores `.orchestrate/` and `artifacts/` (lines 10 and 11, confirmed with
+  `git check-ignore`).
+- **Files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/` (14 files: 13 test files and the
+  `pure_result_replay_effect_barrier.orc` fixture) and `hidden_tests.txt` (134 node ids, `LC_ALL=C` sorted).
+  Anchors:
+  - `anchors/pure-result-replay-upstream.diff` is `base..solution` restricted to `orchestrator/`, `specs/` and
+    `workflows/` (R48). It has 15 files; there are no merges in the range. It includes `ce02cd17` (14 lines),
+    earlier listed as foreign.
+  - `anchors/pure-result-replay-stub.diff` registers the entry points and does nothing useful:
+    - a `pure_result_replay` module with the constants, the error and witness types and an empty
+      `PureReplayRuntime`, whose functions (including `_propagate_pure_ineligibility`) raise;
+    - the four `StateManager` pure-visit methods, which raise;
+    - `load_existing_call_frame_read_only`, which raises;
+    - the new keywords `result_persistence_profile` (`initialize`), `eligible_pure_settlement`
+      (`persist_step_result`) and `restart_node_id` (`determine_default_resume_decision`), accepted and ignored.
+
+    Both anchors pass `git apply --check` at the base.
+  - There is no `seed/`.
+- **Hidden set.**
+  - Verification ran with **TMPDIR unset**, so pytest uses the default `/tmp`, as `summarize` does.
+  - The 13 test files hold 971 node ids, each run alone. At the base, 141 pass and 830 fail; almost all fail
+    because nine of the files import the new module at collection. At the solution, 969 pass; the 2 that fail
+    there (documentation-routing tests) fail at the base too.
+  - Qualifying: 828.
+- **Dropped (694).**
+  - R49: 643 node ids the stub passes. They failed at the base only because the new module or a new name was
+    missing. The list is in the evidence file `pure-result-replay-drops-r49.txt`.
+  - R44: 37 tests that call, patch or read private functions or attributes the solution added or changed:
+    `_configure_pure_replay_runtime`, `_pure_replay_runtime`, `_evaluate_pure_replay_node`,
+    `_audit_existing_pure_replay_call_frame`, `_replay_runtime`, `_walk_typed_binding_ref_documents`,
+    `_walk_value_document_refs`, `_propagate_pure_ineligibility`, `_determine_resume_default_resume_decision`
+    (new `restart_node_id` keyword), `_execute_step_loop` (new keywords), and `_CallFrameStateManager` called with
+    the new `result_persistence_profile` keyword:
+      - `test_resume_command.py::test_executor_defers_provider_observation_until_profile_audit_with_unloaded_state`
+      - `test_resume_command.py::test_fail_closed_resume_audits_leaves_without_replaying_or_masking_checkpoint_error`
+      - `test_runtime_step_lifecycle.py::test_call_frame_persistence_profile_cannot_backfill_existing_frame`
+      - `test_runtime_step_lifecycle.py::test_call_frame_persistence_profile_is_explicit_on_fresh_frame`
+      - `test_runtime_step_lifecycle.py::test_call_frame_same_visit_reuse_is_read_only`
+      - `test_subworkflow_calls.py::test_existing_absent_replay_profile_workflow_lisp_frame_is_unchanged_before_execution`
+      - `test_subworkflow_calls.py::test_existing_reached_call_frame_audit_hook_is_read_only_and_precedes_constructor`
+      - `test_subworkflow_calls.py::test_existing_replay_profile_call_frame_audit_rejects_mixed_surfaces[private-lineage]`
+      - `test_subworkflow_calls.py::test_existing_replay_profile_call_frame_audit_rejects_mixed_surfaces[pure-bundle]`
+      - `test_subworkflow_calls.py::test_existing_replay_profile_call_frame_audit_rejects_mixed_surfaces[restore-binding]`
+      - `test_subworkflow_calls.py::test_existing_replay_profile_call_frame_audit_rejects_mixed_surfaces[same-frame-pure-checkpoint]`
+      - `test_subworkflow_calls.py::test_existing_replay_profile_call_frame_audit_rejects_mixed_surfaces[value-row]`
+      - `test_subworkflow_calls.py::test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame`
+      - `test_subworkflow_calls.py::test_resumed_parent_starts_never_entered_child_call_fresh`
+      - `test_subworkflow_calls.py::test_resumed_parent_still_fails_closed_for_persisted_child_without_prior_boundary`
+      - `test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_filtered_nearest_failure_never_scans_older_point[ambiguous]`
+      - `test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_filtered_nearest_failure_never_scans_older_point[unusable]`
+      - `test_workflow_lisp_lexical_checkpoint_restore.py::test_replay_profile_restore_payload_omits_derivable_pure_bindings`
+      - `test_workflow_lisp_lexical_checkpoints.py::test_replay_profile_eligible_pure_point_emits_no_checkpoint_record`
+      - `test_workflow_lisp_lexical_checkpoints.py::test_replay_profile_pure_evaluation_failure_keeps_full_row_and_checkpoint_authority`
+      - `test_workflow_lisp_lexical_checkpoints.py::test_replay_profile_routed_skipped_pure_keeps_ordinary_checkpoint_authority`
+      - `test_workflow_lisp_phased_delivery_runtime.py::test_two_completed_phased_boundaries_reuse_and_skip_execution`
+      - `test_workflow_lisp_pure_result_replay.py::test_interrupted_pure_current_reuses_visit_and_evaluates_once[a-before-first-durable-boundary]`
+      - `test_workflow_lisp_pure_result_replay.py::test_interrupted_pure_current_reuses_visit_and_evaluates_once[b-after-e1]`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_propagates_reasons_deterministically`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_e1_boundary_reconstructs_only_required_a_before_dispatch`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_finalization_seeds_only_exact_typed_predicate_closure`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_never_evaluates_inactive_route_projection`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_settlement_seeds_only_exact_typed_output_closure`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_accepts_typed_inactive_union_literal`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_accepts_variant_case_discriminant_ref`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_rejects_nested_wrong_inactive_union_literal`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_rejects_wrong_inactive_union_literal[literal-active-field]`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_rejects_wrong_inactive_union_literal[ref-active-field]`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_rejects_wrong_nested_union_in_inactive_field`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_typed_binding_walker_validates_mixed_json_literals`
+      - `test_workflow_lisp_pure_result_replay.py::test_pure_replay_value_document_ref_walker_ignores_typed_literals`
+  - R50: 12 tests that crash `StateManager._write_state` (unchanged at the base) before or after the write. They
+    pass only if the new pure-visit methods persist through that helper:
+      - `test_runtime_step_lifecycle.py::test_call_frame_atomic_pure_begin_never_splits_visit_and_cursor[after]`
+      - `test_runtime_step_lifecycle.py::test_call_frame_atomic_pure_begin_never_splits_visit_and_cursor[before]`
+      - `test_runtime_step_lifecycle.py::test_call_frame_atomic_pure_settlement_is_cursor_or_terminal_row[failure-after]`
+      - `test_runtime_step_lifecycle.py::test_call_frame_atomic_pure_settlement_is_cursor_or_terminal_row[failure-before]`
+      - `test_runtime_step_lifecycle.py::test_call_frame_atomic_pure_settlement_is_cursor_or_terminal_row[success-after]`
+      - `test_runtime_step_lifecycle.py::test_call_frame_atomic_pure_settlement_is_cursor_or_terminal_row[success-before]`
+      - `test_state_manager.py::TestStateManager::test_atomic_pure_begin_exposes_only_unstarted_or_matching_cursor[after]`
+      - `test_state_manager.py::TestStateManager::test_atomic_pure_begin_exposes_only_unstarted_or_matching_cursor[before]`
+      - `test_state_manager.py::TestStateManager::test_atomic_pure_settlement_exposes_only_cursor_or_settled_row[after-failure]`
+      - `test_state_manager.py::TestStateManager::test_atomic_pure_settlement_exposes_only_cursor_or_settled_row[after-success]`
+      - `test_state_manager.py::TestStateManager::test_atomic_pure_settlement_exposes_only_cursor_or_settled_row[before-failure]`
+      - `test_state_manager.py::TestStateManager::test_atomic_pure_settlement_exposes_only_cursor_or_settled_row[before-success]`
+  - Documentation wording: 2 tests that check routing text in `docs/` (outside the anchor's paths):
+      - `test_workflow_lisp_drain_roadmap_routing.py::test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_plan`
+      - `test_workflow_lisp_drain_roadmap_routing.py::test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds`
+- **Kept on base definitions.**
+  - Spies or interruptions on unchanged private executor paths, used to set up interruptions or count effects:
+    `_execute_command`, `_execute_pure_projection`, `_step_id`, `_execute_prologue` (as must-not-run),
+    `_resolve_pure_projection_bindings`, `_public_runtime_plan_payload` and `_write_state` (as must-not-write).
+  - `_CallFrameStateManager` called with base-compatible arguments.
+  - The test file `test_workflow_lisp_pure_result_replay.py` imports the private name
+    `_propagate_pure_ineligibility` at module level. Its 104 kept nodes therefore need that name to exist, so
+    task.txt names it as an importable callable whose behaviour is not checked.
+- **Verification.** Each node id was run alone, on all 828 qualifying ids:
+  - Upstream anchor applied at the base: 826 of 828 pass (the 2 documentation tests fail), so 134 of the 134 kept.
+  - Stub applied at the base: 643 of 828 pass (the R49 drops), so 0 of the 134 kept.
+- **Evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
+  `pure-result-replay-hidden-base.txt` and `pure-result-replay-hidden-solution.txt` give per-node results for all
+  971 nodes; `pure-result-replay-anchor-upstream.txt` and `pure-result-replay-anchor-stub.txt` cover the 828; the
+  drop lists are `pure-result-replay-drops-r49.txt`, `-r44.txt` and `-r50.txt`.
+- **Rung 4's scan solution hash:** `76427bdedbbac300bbd82d45db7fa6e24a770f84`.
 
 ## Contamination
 
