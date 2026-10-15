@@ -837,3 +837,39 @@ TDD note: the harness change and the tests were written together, so RED was obs
 - Launch to `ready` is now a median of 138 ms (max 152), up from 59 ms. This is not attributed: the launcher now loads the shim by path, and the host was busy with parallel work (the rootfs rehash was also slower, 0.47 s against 0.27 s). The leaf round trip is 75 ms.
 - The filter-semantics test takes 2.5 s (three fresh interpreters).
 - The keyring test takes 1.0 s.
+
+## Task 5ck: F3b-checkpoint on the throwaway holder (2026-10-14)
+
+Gate: F3b-checkpoint, which is limited to the copier (N3). It uses the approved copier in `orchestrator/workflow/run_ref/checkpoint.py` (Task 5c, `9617b72e..53f27781`) between a clone on host disk and the holder's tmpfs `/workspace`. The tmpfs is reached through the root descriptor the harness opens from `/proc/<holder>/root/workspace` at ready. Tests: `tests/e2e/test_e2e_run_ref_checkpoint.py` (221 lines, ruling P24). It uses the shared fixtures and needed no harness or orchestrator change. **Verdict: PASS.** Holder death after a commit and wall charging are Task 6 witnesses; resume repair is Task 7.
+
+The clone contains:
+- `src/main.py` and `notes.txt`;
+- `tool` with mode `0o4755` (setuid);
+- the symlinks `entry -> src/main.py` and `host-link -> /etc/hostname`;
+- `.git/config`.
+
+The harness runs the copier in the pytest process; placing it in a `host` slot of the scope is Task 6.
+
+| Witness | Test | Status | Observable (verbatim from the evidence run) |
+| --- | --- | --- | --- |
+| Seeding reproduces the clone in a fresh holder | `test_host_seeding_reproduces_the_clone_with_symlinks_preserved_and_setuid_masked` | **PASS** | `publish_initial_header` gives `committed`/`none`/0. `seed_workspace` (45 bytes, 0.001 s): the tmpfs manifest equals the clone manifest with modes masked to `0o777`, and the copy result's digest is the tmpfs manifest's. The clone keeps `0o4755`. Guest view: `{"entry": ["lrwxrwxrwx", "src/main.py"], "host-link": ["lrwxrwxrwx", "/etc/hostname"], "notes.txt": ["-rw-r--r--", null], "src": ["drwxr-xr-x", null], "src/main.py": ["-rw-r--r--", null], "tool": ["-rwxr-xr-x", null]}`, so symlinks stay strings, setuid is masked and `.git` is absent. |
+| Checkpoint after a leaf: clone equals the tmpfs under `committed` | `test_checkpoint_after_a_leaf_makes_the_clone_equal_to_the_tmpfs_under_a_committed_header` | **PASS** | The leaf edits `src/main.py`, adds `new-leaf-1/deep/data.bin` and a relative symlink, removes `notes.txt`, creates a `0o4755` file, a hard link and a FIFO. `checkpoint_workspace` (1.33 s, including the global `os.sync()`) gives `{"state": "committed", "effect_identity": "effect-1", "ordinal": 1, "manifest_digest": "sha256:ab4e9e22...", "skipped_special": 1}`, where the digest equals the clone's fresh manifest. The masked clone and tmpfs manifests are equal. On the clone: the setuid file is `0o755`, `notes.txt` and the FIFO are absent, the hard link is flattened (`st_nlink` 1), `.git/config` is untouched. `preflight_checkpoint` accepts the header. |
+| Crash mid-copy leaves `intent`; preflight repairs to `committed` | `test_a_checkpoint_killed_mid_copy_leaves_intent_that_preflight_repairs_by_refreezing` | **PASS** | A second leaf edits. A subprocess inheriting the tmpfs root descriptor runs `checkpoint_workspace` and SIGKILLs itself at the first file `fchmod` (temporary written, not renamed), as the 5c recovery tests do. Result: exit `-9`, header `{"state": "intent", "effect_identity": "effect-2", "ordinal": 2, "manifest_digest": null}`, one copier temporary (`.rr-<16 hex>.tmp`). The clone is partial: in the test's walk order `src/main.py` is still the base and `new-leaf-2/deep/data.bin` is missing. `preflight_checkpoint` (0.015 s) publishes `committed`/`effect-2`/2 with the re-frozen clone's digest and removes the temporary, and a second preflight accepts it. |
+
+### Mutation RED
+
+A scratch pytest plugin patched names in the test module at setup; no file was edited.
+
+| Mutation | Result |
+| --- | --- |
+| C1 naive seeding (`shutil.copytree`, following symlinks) | RED: `tmpfs_equals_masked_clone False`; the guest sees `.git`, `.git/config`, and `entry`/`host-link` as regular files |
+| C2 no checkpoint (the header is left as published) | RED: `FileNotFoundError: 'guest-setuid'` on the clone |
+| C3 preflight without repair | RED: the clone's copier temporary makes `workspace_manifest` refuse (`run_ref_environment_escape_rejected: entry uses the copier's temporary name`) |
+| C4 no injected kill | RED: exit `0`, header `committed`, no temporary, the clone carries the leaf-2 edits |
+
+### Commands, durations, teardown
+
+- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q` over the three holder modules (`test_e2e_run_ref_confined.py`, `test_e2e_run_ref_keyring.py`, `test_e2e_run_ref_checkpoint.py`): six consecutive runs, each `16 passed` (16.9 to 19.1 s).
+- Without `ORCHESTRATE_E2E`: `16 skipped`. `--collect-only` -> `16 tests collected`. `pyright` 0 errors.
+- Afterwards no `run-ref-*` units or cgroups remained.
+- The intermittent teardown error did not recur in these six runs, or in five runs of the two older modules after fix round 3 (`18802b53`, ENOENT/ENODEV treated as vanished).
