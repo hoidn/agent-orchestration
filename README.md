@@ -163,7 +163,7 @@ and the normative [spec index](specs/index.md).
 | --- | --- | --- |
 | [Workflows versus single calls on the evaluated route](docs/reports/2026-10-14-orc-versus-single-call-evaluated.md) | A real compiler defect, criterion frozen before any run; six runs per workflow and six single calls, sandboxed agents, two blind judges | Review-and-revise replicated (+0.67 over its first patch, no run worse); generate-four-select-one fell one run short (4 of 6 runs gained, mean +1.02); both scored under half a point above the single calls |
 | [Workflows versus a single call on a calibrated, harder task](docs/reports/2026-10-15-calibrated-orc-versus-single-call.md) | A 3200-line feature on which single calls passed 31–52% of 52 hidden tests and every review raised a blocker; criterion frozen before any run, three runs per arm, hidden tests as the primary measure | Neither claim held. Plan, review, then execute passed the same share of hidden tests as the single call (0.49 each) at about five times the wall clock. Review-and-revise never raised its first patch's hidden-test score (0 in 3 runs), although its reviewer blocked in every run |
-| [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Independent candidates plus a judge with different knowledge than the author were the only measured sources of gain |
+| [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Gains come from independent candidates and from a judge with different knowledge than the author |
 
 ## Scale and provenance
 
