@@ -780,15 +780,20 @@ This is an anonymous Docker Hub pull, with each blob verified and the store seal
 
 ## Task 5b: F3b-keyring witness and F3b gate re-record (2026-10-14)
 
-Design row F3b-2 was added after the Task 5a gate ran (commit `6841bea7`). The throwaway holder in `tests/e2e/run_ref_holder.py` now has the F3b-2 launcher and argv, and the whole module was rerun with it.
+Design row F3b-2 was added after the Task 5a gate ran (commit `6841bea7`). The throwaway holder in `tests/e2e/run_ref_holder.py` now has the F3b-2 launcher and argv, and the whole module was rerun with it. Fix round 1 (ruling P24) split the e2e tests by gate, so each module stays under 500 lines:
+
+- `tests/e2e/test_e2e_run_ref_confined.py`: Task 1 F3 and F3b-channel.
+- `tests/e2e/test_e2e_run_ref_keyring.py`: F3b-keyring.
+- `tests/e2e/run_ref_fixtures.py`: the shared fixtures `sealed_rootfs` and `launch`, the user-manager skip, and the image pin.
 
 | Gate | Run | Status | Evidence |
 | --- | --- | --- | --- |
 | F3b-channel (Task 5a) | launcher without keyring join, filter or `/proc/keys` masks | **PASS** (record of what that run measured; unchanged) | section "Task 5a" above |
-| F3b-channel + F3b-keyring (Task 5b) | F3b-2 launcher and argv; channel witnesses rerun | **PASS**: the keyring witnesses pass and every channel witness passes again | `13 passed in 13.82s`; table below |
+| F3b-channel + F3b-keyring (Task 5b) | F3b-2 launcher and argv; channel witnesses rerun | **PASS**: the keyring witnesses pass and every channel witness passes again | both modules `13 passed in 12.48s` (fix round 1); table below |
 
 ### Changes to the holder
 
+- **Launcher failure.** If the launcher fails after release (for example, the keyring join raises), `launch()` raises with the launcher's exit code and stderr, e.g. `launcher exited 1 before bwrap: ... PermissionError: [Errno 1] fresh session keyring unavailable`. Before fix round 1 it returned as if the release had been refused.
 - **Launcher.** After the release token, the launcher loads `orchestrator/providers/provider_launch_shim.py` by file path (it runs under `python3 -I`) and calls `_join_fresh_session_keyring()`. Only then does it exec `bwrap`. It keeps three more descriptors, all of which `bwrap` consumes: fd 7 and fd 8 are empty memfds for the masks, fd 9 is the filter program.
 - **bwrap argv additions** (after `--proc /proc`): `--perms 0000 --ro-bind-data 7 /proc/keys --perms 0000 --ro-bind-data 8 /proc/key-users --seccomp 9`.
 - **Ruling P19 deviation.** P19 says `--ro-bind-data <fd>` followed by `--chmod 0000`, but bwrap 0.9.0 refuses that with `bwrap: Can't chmod 0 /proc/keys: Read-only file system`. The `--perms 0000` modifier before `--ro-bind-data` does what P19 intends: `---------- 0 1000 1000 0 /proc/keys`, and a read gives `Permission denied`. There is still no host-path bind source. Cost: one argv change in Task 6.
@@ -799,14 +804,15 @@ Design row F3b-2 was added after the Task 5a gate ran (commit `6841bea7`). The t
 
 ### Witnesses (verbatim from the evidence run)
 
-The test process first joins its own anonymous session keyring (`_join_fresh_session_keyring`) and adds a `user` canary key to it, so no host keyring is touched. In this run the test session was `763493425` and the canary `1013664960`.
+The test process first joins its own anonymous session keyring (`_join_fresh_session_keyring`) and adds a `user` canary key to it, so no host keyring is touched. Values were re-recorded in fix round 1 from a run in the fixture's order (join, canary, probes): test session `430183544`, canary `360029808`.
 
 | Witness | Test | Status | Observable |
 | --- | --- | --- | --- |
-| Harness filter = shim filter semantics | `test_harness_key_filter_has_the_shim_filter_semantics` | **PASS** | Shim-installed and harness-installed both give `{"add_key:native": "EPERM", "add_key:x32": "EPERM", "request_key:native": "EPERM", "request_key:x32": "EPERM", "keyctl:native": "EPERM", "keyctl:x32": "EPERM", "getpid": "ok", "i386_int80": "SIGSYS"}`. Unfiltered: `add_key`/`keyctl` native `EKEYREVOKED`, `request_key` `ENOKEY`, x32 `ENOSYS`, i386 `exit 0`. |
+| Harness filter = shim filter semantics | `test_harness_key_filter_has_the_shim_filter_semantics` | **PASS** | Shim-installed and harness-installed both give `{"add_key:native": "EPERM", "add_key:x32": "EPERM", "request_key:native": "EPERM", "request_key:x32": "EPERM", "keyctl:native": "EPERM", "keyctl:x32": "EPERM", "getpid": "ok", "i386_int80": "SIGSYS"}`. Unfiltered (inheriting the test session keyring): `add_key`/`keyctl` native `ok`, `request_key` `ENOKEY`, x32 `ENOSYS` (no x32 ABI), i386 `exit 0`. |
 | Leaf key syscalls refused, `/proc/keys` unreadable | `test_holder_keyring_is_fresh_and_key_syscalls_are_refused` | **PASS** | Leaf: the same eight `EPERM`/`ok`/`SIGSYS` values, plus `"/proc/keys": "EACCES", "/proc/key-users": "EACCES"`. |
-| Key quota unchanged | same | **PASS** | The leaf loops `add_key` 50 times: `add_key_ok 0`. The host's `/proc/key-users` `qnkeys` for uid 1000 was `9` before and `9` after. |
-| Control launch, identical except for `--seccomp` (diagnostic, not the profile) | same | **PASS** | Leaf session keyring `73487681` is not `763493425`. `KEYCTL_READ` of it returns `0` bytes (no key). Canary `KEYCTL_READ` `EACCES`, `KEYCTL_LINK` to its session `EACCES`. In the control, `add_key`/`keyctl` native are `ok`, so the filter is what refuses them in the profile. |
+| Key quota unchanged | same | **PASS** | The leaf loops `add_key` 50 times: `add_key_ok 0`, which is the main observable. The host's `/proc/key-users` `qnkeys` for uid 1000 was `12` before and `12` after. The test asserts only that the delta is below 50, because other same-uid processes may create keys during a parallel run. |
+| Control launch, identical except for `--seccomp` (diagnostic, not the profile) | same | **PASS** | The leaf session keyring `638619947` is not `430183544`, and `KEYCTL_READ` of it returns `0` bytes (it is read before the probe's own `add_key`). Canary `KEYCTL_READ` `EACCES`, `KEYCTL_LINK` `EACCES`. Asserted: in the control, `add_key`/`keyctl` native are `ok`, so the filter is what refuses them in the profile. |
+| Positive control: no join and no filter (diagnostic, kept permanently; was mutation K1) | same | **PASS** | The leaf session keyring `430183544` equals the test session, and the canary `KEYCTL_READ` returns `14` bytes (`canary-payload`), so the probe sees the canary whenever it is reachable. `KEYCTL_READ` of the session returns 8 bytes here: the canary plus the key the unfiltered host probe added to the inherited test session. |
 | Channel witnesses rerun with the new launcher | `test_holder_channels_descriptors_and_scope_shape`, `test_fifo_and_pipe_placed_like_the_channels_reopen_from_a_leaf` and the rest of the module | **PASS** | The in-namespace descriptor set is unchanged (`/dev/null`, the two sockets, pid 1's eventfd), so `bwrap` consumed fds 7, 8 and 9. The FIFO and pipe controls still reopen and the sockets are `ENXIO`. |
 
 ### Mutation RED
@@ -824,9 +830,9 @@ TDD note: the harness change and the tests were written together, so RED was obs
 
 ### Commands and durations
 
-- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `13 passed in 13.82s`.
+- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py tests/e2e/test_e2e_run_ref_keyring.py` -> `13 passed in 12.48s` (fix round 1; before the split, `13 passed in 13.82s` from one module).
 - Without `ORCHESTRATE_E2E`: `13 skipped`.
-- `pytest --collect-only -q` -> `13 tests collected`.
+- `pytest --collect-only -q` over both modules -> `13 tests collected` (11 + 2).
 - Afterwards, `systemctl --user list-units 'run-ref-*' --all` showed 0 units and no `run-ref-*` cgroup remained.
 - Launch to `ready` is now a median of 138 ms (max 152), up from 59 ms. This is not attributed: the launcher now loads the shim by path, and the host was busy with parallel work (the rootfs rehash was also slower, 0.47 s against 0.27 s). The leaf round trip is 75 ms.
 - The filter-semantics test takes 2.5 s (three fresh interpreters).

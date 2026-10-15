@@ -18,14 +18,13 @@ waits for `go` on the gate, drops it and execs `setsid` over the host-written
 membership and moves it into its own leaf slot before releasing the gate.
 
 Dependencies: user systemd manager with cpu/memory/pids delegation, `bwrap`
-0.9.0, `systemctl`, x86_64, the sealed rootfs of `IMAGE_RECORD`. Effects: one
+0.9.0, `systemctl`, x86_64, a sealed rootfs (`run_ref_fixtures`). Effects: one
 scope per launch, killed by `stop()`; files only under `workdir`.
 """
 
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import json
 import os
 import secrets
@@ -40,10 +39,6 @@ from pathlib import Path
 
 from orchestrator.providers import provider_launch_shim as shim
 
-# Task 1 image (docs/reports/run-ref-confinement-feasibility/README.md, F3).
-IMAGE_RECORD = Path.home() / ".cache/run-ref-spike-images/records" / (
-    "sha256-2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe.json")
-TREE_DIGEST = "sha256:973cd37339e7ef7627c497292983fa6b110ef784f121f41d8a52edc6385fadae"  # pinned, not read from the cache
 GUEST_PATH = "/usr/local/bin:/usr/bin:/bin"
 ACK_SECONDS = 2.0       # spawner acknowledgement deadline
 STATUS_GRACE = 2.0      # status line deadline once the leaf slot is empty or killed
@@ -64,10 +59,11 @@ while not line.endswith(b"\n"):
 if line != token:
     os._exit(98)
 import importlib.util
-spec = importlib.util.spec_from_file_location("provider_launch_shim", sys.argv[4])
+spec = importlib.util.spec_from_file_location("provider_launch_shim", sys.argv[5])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module._join_fresh_session_keyring()
+if sys.argv[4] != "-":  # "-": positive-control launch that keeps the caller's session keyring
+    module._join_fresh_session_keyring()
 high = [fcntl.fcntl(fd, fcntl.F_DUPFD, 100) for fd in kept]
 null = os.open("/dev/null", os.O_RDWR)
 for fd in (0, 1, 2):
@@ -76,7 +72,7 @@ os.closerange(3, 100)
 for target, fd in enumerate(high, start=3):
     os.dup2(fd, target)
 os.closerange(3 + len(high), 4096)
-os.execvp(sys.argv[5], sys.argv[5:])
+os.execvp(sys.argv[6], sys.argv[6:])
 '''
 
 SPAWNER = r'''echo ready >&3
@@ -117,25 +113,6 @@ def _memfd(data: bytes) -> int:
     os.write(fd, data)
     os.lseek(fd, 0, os.SEEK_SET)
     return fd
-
-
-def tree_digest(rootfs: Path) -> str:
-    """Canonical digest of the sealed tree, as recorded by the Task 1 importer."""
-    rows = []
-    for directory, dirs, files in os.walk(rootfs):
-        dirs.sort()
-        for name in sorted(dirs + files):
-            path = Path(directory, name)
-            rel = path.relative_to(rootfs).as_posix()
-            info = os.lstat(path)
-            if stat.S_ISLNK(info.st_mode):
-                rows.append([rel, "symlink", os.readlink(path)])
-            elif stat.S_ISDIR(info.st_mode):
-                rows.append([rel, "dir", stat.S_IMODE(info.st_mode)])
-            else:
-                rows.append([rel, "file", stat.S_IMODE(info.st_mode), info.st_size,
-                             hashlib.sha256(path.read_bytes()).hexdigest()])
-    return "sha256:" + hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
 
 
 def members(cgroup: Path) -> set[int]:
@@ -202,9 +179,9 @@ class Holder:
 
     def __init__(self, rootfs: Path, workdir: Path, *, memory_mib: int = 256, tasks: int = 64,
                  cpu_percent: int = 100, oom_policy: str = "continue", shm_mib: int = 8,
-                 extra_fds: tuple[int, ...] = (), key_filter: bool = True) -> None:
-        """`extra_fds` reach the spawner after the bwrap-consumed descriptors (positive controls only);
-        `key_filter=False` is the diagnostic control launch without `--seccomp`."""
+                 extra_fds: tuple[int, ...] = (), key_filter: bool = True, join_keyring: bool = True) -> None:
+        """`extra_fds` reach the spawner after the bwrap-consumed descriptors; `key_filter=False` (no
+        `--seccomp`) and `join_keyring=False` are diagnostic control launches, never the profile."""
         self.token = secrets.token_hex(16)
         self.unit = f"run-ref-{self.token[:16]}.scope"
         self.limits = {"MemoryMax": memory_mib << 20, "MemorySwapMax": 0, "TasksMax": tasks,
@@ -225,7 +202,7 @@ class Holder:
                      "--size", str(16 << 20), "--tmpfs", "/result",
                      "--tmpfs", "/run", "--ro-bind", str(self.runref), "/run/runref", "--remount-ro", "/run",
                      "--info-fd", "5", "--", "/bin/sh", "-c", SPAWNER]
-        self.rootfs, self.extra_fds, self.key_filter = rootfs, extra_fds, key_filter
+        self.rootfs, self.extra_fds, self.key_filter, self.join = rootfs, extra_fds, key_filter, join_keyring
         self.process: subprocess.Popen | None = None
         self.scope: Path | None = None
         self.child_pid: int | None = None
@@ -260,7 +237,7 @@ class Holder:
         argv = ["systemd-run", "--user", "--scope", "--quiet", "--unit", self.unit,
                 *(arg for prop in properties for arg in ("-p", prop)), "--",
                 sys.executable, "-I", "-c", LAUNCHER, self.token, str(launch_guest.fileno()),
-                ",".join(map(str, kept)), shim.__file__, *self.argv]
+                ",".join(map(str, kept)), "join" if self.join else "-", shim.__file__, *self.argv]
         self.process = subprocess.Popen(argv, pass_fds=(launch_guest.fileno(), *kept), stdin=subprocess.DEVNULL,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         for fd in (launch_guest.detach(), ctrl_guest.detach(), gate_guest.detach(), info_write, root, *masks,
@@ -294,6 +271,10 @@ class Holder:
         info = _drain(info_read, deadline=time.monotonic() + 15)
         if not info:
             self.process.wait(timeout=10)
+            if release == "token":  # released but bwrap never ran: the launcher failed (e.g. the keyring join)
+                assert self.process.stderr is not None
+                raise RuntimeError(f"launcher exited {self.process.returncode} before bwrap: "
+                                   f"{self.process.stderr.read().decode(errors='replace')[-2000:]}")
             return self
         self.child_pid = json.loads(info)["child-pid"]
         if self._line(time.monotonic() + 15) != "ready":
