@@ -336,10 +336,12 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
                   *, error: Exception | None = None, fatal_publication: bool = False) -> EvaluatedValue:
     """Validate, rehash, publish and settle on the run's coordinator."""
     authority, node = attempt.authority, attempt.node
+    projected = False
     try:
         if error is not None:
             raise error
         result, digest, proof, prepared = _validate_attempt_outcome(attempt, outcome)
+        projected = node['class'] == 'agent_turn'   # prepared proof durable: commit the same attempt later, never `failed`
         implementation = (_rehash_command_implementation(node, attempt.workspace,
             attempt.implementation_files, attempt.launch_cwd) if node['class'] == 'command' else {})
         _require_retained_root(authority.run_files)
@@ -362,6 +364,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
     except Exception as exc:
         if _keeps_start_unfailed(exc, fatal_publication):
             raise
+        if projected:
+            raise agent_turns.unresolved_after_projection(attempt, exc) from exc
         publication_error = _fail_started_effect(
             authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
         _raise_if_publication_fatal(publication_error, fatal_publication)

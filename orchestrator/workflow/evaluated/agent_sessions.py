@@ -121,14 +121,23 @@ class Receipt:
     schema: str = RECEIPT_SCHEMA
 
 
-_COMPLETION_RANK = {"intent": 0, "launching": 1, "not_dispatched": 2, "unknown": 2, "completed": 2, "abandoned": 3}
+# Allowed `completion` moves; `completed -> completed` adds the prepared `result_digest`. A move into
+# `not_dispatched` is only possible before the adapter saw an advance, so it never licenses a retry over one.
+_TRANSITIONS = {
+    "intent": {"launching", "not_dispatched", "unknown"},
+    "launching": {"unknown", "completed", "not_dispatched"},
+    "unknown": {"completed", "abandoned"},
+    "completed": {"completed", "abandoned"},
+    "not_dispatched": set(),
+    "abandoned": set(),
+}
 _BINDING_FIELDS = ("run_id", "agent", "turn", "attempt", "input_digest", "predecessor")
 _TEXT, _OPTIONAL_TEXT, _OPTIONAL_INT = (str,), (str, type(None)), (int, type(None))
 _FIELD_TYPES = {"run_id": _TEXT, "agent": _TEXT, "turn": _TEXT, "attempt": (int,), "predecessor": _OPTIONAL_TEXT,
                 "input_digest": _TEXT, "adapter": _TEXT, "config_digest": _TEXT, "mode": _TEXT, "locator": _OPTIONAL_TEXT,
                 "pgid": _OPTIONAL_INT, "leader_start_time": _OPTIONAL_INT, "completion": _TEXT, "result_digest": _OPTIONAL_TEXT,
                 "schema": _TEXT}
-_ENUMS = {"mode": {"fresh", "resume"}, "completion": set(_COMPLETION_RANK), "schema": {RECEIPT_SCHEMA}}
+_ENUMS = {"mode": {"fresh", "resume"}, "completion": set(_TRANSITIONS), "schema": {RECEIPT_SCHEMA}}
 
 
 def _check_receipt(receipt: Receipt) -> None:
@@ -150,14 +159,13 @@ def _check_receipt(receipt: Receipt) -> None:
 def write_receipt(files: WorkspaceFiles, receipt: Receipt) -> None:
     """The one receipt writer: creation, or a monotone update of the stored receipt.
 
-    Binding fields never change and `completion` never moves backwards (intent < launching <
-    not_dispatched | unknown | completed < abandoned).
+    Binding fields never change and `completion` moves only along `_TRANSITIONS`.
     """
     _check_receipt(receipt)
     current = read_receipt(files)
     if current is not None:
         changed = [name for name in _BINDING_FIELDS if getattr(current, name) != getattr(receipt, name)]
-        if changed or _COMPLETION_RANK[receipt.completion] < _COMPLETION_RANK[current.completion]:
+        if changed or receipt.completion not in _TRANSITIONS[current.completion]:
             raise MemoError("memo_inconsistent", f"receipt update is not monotone: binding {changed}, "
                             f"completion {current.completion} -> {receipt.completion}")
     files.write_atomic("receipt.json", canonical_json_bytes(asdict(receipt)))

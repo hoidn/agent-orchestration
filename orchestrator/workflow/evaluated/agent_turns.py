@@ -136,21 +136,32 @@ def _session_template(provider: str):
 def resolve_turn_input(authority, node, operands, identity, workspace, reader, *, snapshot, result_path, launch_cwd,
                        committed_offset: int | None = None, delivery_name: str | None = None) -> ResolvedTurn:
     """`committed_offset` is the replayed commit's offset (replay and reuse paths): the predecessor is then the agent's
-    latest turn committed *before* it, and the current template is not re-pinned (a committed turn's proof is its own
-    authority); `delivery_name` is then the committed rendering."""
+    latest turn committed *before* it, and the current template is neither consulted nor re-pinned (a committed turn's
+    proof is its own authority, design "Committed and settled"); `delivery_name` is then the committed rendering, and
+    `template`/`adapter` are None."""
     agent = resolve_agent_reference(snapshot, operands[0].json_value(), run_id=authority.header["run_id"])
-    template, adapter = _session_template(agent.provider)
-    check_origins(node, agent, template if committed_offset is None else None, effective_cwd(launch_cwd, workspace))
+    if committed_offset is None:
+        template, adapter = _session_template(agent.provider)
+        check_origins(node, agent, template, effective_cwd(launch_cwd, workspace))
+        delivery = provider_delivery_name_for_template(template)
+    else:
+        template = adapter = None
+        check_origins(node, agent)
+        delivery = delivery_name
     view = provider_view(node, agent)
-    delivery = delivery_name or provider_delivery_name_for_template(template)
     provider = resolve_provider_input(view, operands[1:], workspace=workspace, reader=reader,
                                       result_path=workspace_relative_path(workspace, authority.run_root / result_path),
                                       delivery_name=delivery, logical_workspace=launch_cwd is not None)
-    provider = replace(provider, policy={**agent.policy, **provider.policy})
+    provider = replace(provider, policy=turn_policy(agent.policy, provider.policy))
     predecessor = predecessor_commit(snapshot, agent.identity, before_offset=committed_offset)
     continuation = None if predecessor is None else {"turn": predecessor.data["identity"], "proof": predecessor.data["proof"]}
     parts = {**provider.input_parts, "agent": canonical_sha256(agent.record()), "predecessor": canonical_sha256(continuation)}
     return ResolvedTurn(agent, predecessor, provider, view, template, adapter, parts, delivery)
+
+
+def turn_policy(allocation_policy, turn_policy_values) -> dict:
+    """Model/effort come from the allocation only: its keys win over anything the turn carries (defense in depth)."""
+    return {**turn_policy_values, **allocation_policy}
 
 
 def turn_dependencies(resolved: ResolvedTurn, operand_dependencies) -> tuple[str, ...]:
@@ -251,7 +262,7 @@ def perform_turn(attempt, *, views=None):
         if session.get("is_error"):     # Claude `is_error: true` finalizes as metadata, never as a valid result
             raise _result_invalid(resolved, f"{attempt.identity}: provider reported is_error ({session.get('result_subtype')})")
     except ProviderPerformerError as exc:
-        raise _unresolved_or_failed(attempt, read_receipt(attempt.attempt_files), exc) from exc
+        raise _unresolved_or_failed(attempt, exc) from exc
     except AgentTurnError:
         raise                                               # already classified
     except Exception as exc:
@@ -286,8 +297,18 @@ def _verify_completion(attempt, resolved, session_id, before):
 
 
 def _unresolved(attempt, locator, detail):
-    update_receipt(attempt.attempt_files, locator=locator, completion="unknown")
+    """Always an unresolved, keep-pending error: failing to record `unknown` never turns uncertainty into `failed`."""
+    try:
+        update_receipt(attempt.attempt_files, locator=locator, completion="unknown")
+    except Exception as err:
+        detail = f"{detail}; recording `unknown` failed: {type(err).__name__}: {err}"
     return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {detail}", keep_pending=True)
+
+
+def unresolved_after_projection(attempt, exc: Exception) -> AgentTurnError:
+    """Failure table rows 6/7: after confirmed completion, only an invalid typed result may close `failed`."""
+    return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {type(exc).__name__} after native completion: {exc}",
+                          keep_pending=True)
 
 
 def _result_invalid(resolved: ResolvedTurn, detail, *, exit_info=None, violations=None):
@@ -297,34 +318,45 @@ def _result_invalid(resolved: ResolvedTurn, detail, *, exit_info=None, violation
 
 def _head_unchanged(resolved: ResolvedTurn, receipt: Receipt) -> bool:
     """True only when the adapter proves the resumed conversation did not advance."""
-    located = resolved.adapter.locate(receipt.locator)
-    if located.path is None:
-        return False
     try:
-        head = resolved.adapter.head(located.path)
+        located = resolved.adapter.locate(receipt.locator)
+        head = None if located.path is None else resolved.adapter.head(located.path)
     except NativeStoreError:
         return False
-    return not head.open_turn and head.position == NativePosition.from_record(receipt.position_before)
+    return head is not None and not head.open_turn and head.position == NativePosition.from_record(receipt.position_before)
 
 
-def _unresolved_or_failed(attempt, receipt: Receipt, exc: ProviderPerformerError):
-    """Design failure table rows 3 and 4: only the adapter can prove non-dispatch; exit codes and stdout never do."""
+def _proves_no_dispatch(resolved: ResolvedTurn, receipt: Receipt, exc: ProviderPerformerError) -> bool:
+    """No child was ever spawned, or the adapter proves the resumed conversation did not advance."""
     if exc.code == "provider_preparation_failed" and receipt.completion == "intent":
-        update_receipt(attempt.attempt_files, completion="not_dispatched")
-        return exc                                       # no child was ever spawned
-    if receipt.mode == "resume":
-        if _head_unchanged(attempt.resolved, receipt):
+        return True
+    return receipt.mode == "resume" and _head_unchanged(resolved, receipt)
+
+
+def _unresolved_or_failed(attempt, exc: ProviderPerformerError):
+    """Design failure table rows 3 and 4: only the adapter can prove non-dispatch; exit codes and stdout never do.
+
+    The failure is returned (closing `failed`) only once `not_dispatched` is durable; anything else stays unresolved.
+    """
+    try:
+        receipt = read_receipt(attempt.attempt_files)
+    except MemoError as err:        # receipt evidence is broken: never permission to retry, so keep `started` pending
+        return AgentTurnError(err.code, f"{attempt.identity}: {err}", keep_pending=True)
+    if receipt is not None and _proves_no_dispatch(attempt.resolved, receipt, exc):
+        try:
             update_receipt(attempt.attempt_files, completion="not_dispatched")
-            return exc                                   # adapter proves the existing conversation did not advance
-        return _unresolved(attempt, receipt.locator, f"{exc.code}: the native head advanced, is open, or cannot be read")
-    locator = _session_from_stdout(attempt)              # fresh: a locator exists only if the CLI created a conversation
-    return _unresolved(attempt, locator, f"{exc.code} on a fresh turn (locator {locator!r}): uncertainty, not proof of non-dispatch")
+            return exc
+        except Exception as err:
+            return _unresolved(attempt, receipt.locator, f"{exc.code}; recording `not_dispatched` failed: {err}")
+    # fresh: a locator exists only if the CLI created a conversation
+    locator = receipt.locator if receipt is not None and receipt.locator else _session_from_stdout(attempt)
+    return _unresolved(attempt, locator, f"{exc.code}: native advance not disproved (locator {locator!r})")
 
 
 def _session_from_stdout(attempt) -> str | None:
     try:
         text = attempt.attempt_files.read("stdout.txt").decode("utf-8", "replace")
-    except FileNotFoundError:
+    except (OSError, ValueError):
         return None
     for line in text.splitlines():
         try:
@@ -352,8 +384,7 @@ def project_turn(attempt, outcome):
     except ProviderPerformerError as exc:
         raise _result_invalid(resolved, str(exc), exit_info=exc.exit_info, violations=exc.violations) from exc
     except Exception as exc:
-        raise AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {type(exc).__name__} during projection: {exc}",
-                             keep_pending=True) from exc
+        raise unresolved_after_projection(attempt, exc) from exc
     proof = {"adapter": resolved.adapter.metadata_mode, "locator": receipt.locator, "position": receipt.position_after,
              "predecessor": receipt.predecessor, "agent": resolved.agent.identity, "config_digest": resolved.agent.config_digest}
     return result, digest, proof, proof
@@ -371,11 +402,12 @@ def settle_turn(authority, resolved, identity, attempt, workspace, site_classes,
 
 
 def validate_turn(authority, resolved: ResolvedTurn, identity, commit, *, settled) -> None:
-    """Replay: the committed proof must agree with the resolved agent and its historical predecessor; no native read."""
+    """Replay: the committed proof must agree with the resolved agent and its historical predecessor; no native read
+    and no current template (the proof's `adapter` is its own authority)."""
     proof = commit.data["proof"]
     expected = None if resolved.predecessor is None else resolved.predecessor.data["identity"]
-    if (proof["agent"], proof["predecessor"], proof["adapter"], proof["config_digest"]) != (
-            resolved.agent.identity, expected, resolved.adapter.metadata_mode, resolved.agent.config_digest):
+    if (proof["agent"], proof["predecessor"], proof["config_digest"]) != (
+            resolved.agent.identity, expected, resolved.agent.config_digest):
         raise MemoError("memo_inconsistent", f"agent turn proof of {identity} disagrees with its replayed agent or predecessor")
 
 

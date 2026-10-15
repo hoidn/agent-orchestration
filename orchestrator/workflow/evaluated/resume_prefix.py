@@ -14,7 +14,13 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from . import effect_inputs
 from .memo import MemoError, read_memo
 from .replay import discover_prefix
-from .run_ref import reconcile_evaluated_run_ref
+
+
+def _runtime():
+    """`reconcile_evaluated_run_ref` and `_resume_refusal` are called through `runtime`, the names existing
+    spies and patches observe (they predate this module)."""
+    from . import runtime
+    return runtime
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +53,7 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     inventory_parallel_run_ref_recovery(authority, run_ref_obligations, workspace)
     for reached in run_ref_obligations:
         resolved, _parts = resolve_run_ref_input(reached.node, reached.operands)
-        reconcile_evaluated_run_ref(authority, resolved, reached.identity, workspace, reached.commit, site_classes)
+        _runtime().reconcile_evaluated_run_ref(authority, resolved, reached.identity, workspace, reached.commit, site_classes)
     return frozenset(reached.identity for reached in prefix.frontiers)
 
 
@@ -75,12 +81,12 @@ def _replayed_halt_result(snapshot, value, reached_boundary):
     if reached_boundary:
         return None
     if snapshot.pending_starts:
-        return _resume_refusal(
+        return _runtime()._resume_refusal(
             MemoError("memo_inconsistent", "evaluated halt leaves active effect evidence unsettled")
         )
     terminal = snapshot.terminal
     if terminal is None or terminal.data["outcome"] != "completed":
         return None
     if canonical_sha256(value) != canonical_sha256(terminal.data["value"]):
-        return _resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
+        return _runtime()._resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
     return 0, terminal.data["value"]

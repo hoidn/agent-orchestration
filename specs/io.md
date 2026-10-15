@@ -486,8 +486,9 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     turn's `timeout_sec`; environment and prompt as for providers, run from
     the workspace (the allocation pins that directory). The delivery
     rendering is selected structurally from the template's metadata mode
-    (`legacy` for OMP JSON, else the current file rendering); a committed
-    turn replays with its committed rendering.
+    (`legacy` for OMP JSON, else the current file rendering). A committed
+    turn replays with its committed rendering and its inline proof alone: no
+    current template, session support or native store is consulted.
   - Resolved input parts are the provider parts plus `agent` (digest of the
     Agent descriptor, which carries the pinned configuration digest) and
     `predecessor` (digest of `{turn, proof}` of the agent's previous
@@ -505,8 +506,12 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     `completed` with the native locator and position once the store shows
     exactly one completed turn after the predecessor whose user message
     carries this attempt's `result.json` path. Receipt updates are monotone:
-    binding fields never change and `completion` never moves backwards; a
-    malformed receipt is `memo_inconsistent`.
+    binding fields never change and `completion` moves only `intent` ->
+    `launching` | `not_dispatched` | `unknown`, `launching` -> `unknown` |
+    `completed` | `not_dispatched`, `unknown` -> `completed` | `abandoned`,
+    `completed` -> `completed` (adding the result digest) | `abandoned`
+    (`not_dispatched` and `abandoned` are final); a malformed receipt is
+    `memo_inconsistent`.
   - Commit requires that exact native completion and the ordinary
     typed-result validation; a result file alone is never a result, and a
     Claude `result` with `is_error: true` is an invalid result. An invalid
@@ -517,8 +522,9 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     (receipt `not_dispatched`). Every other exception after `launching`
     keeps the `started` row pending with `agent_turn_unresolved` (receipt
     `unknown` before the adapter confirmed completion, `completed` after
-    it); no `failed` or terminal is appended and resume reconciles the same
-    ordinal without redispatch.
+    it), including a failure to record that state and a failed memo commit
+    after the prepared proof; no `failed` or terminal is appended and resume
+    reconciles the same ordinal without redispatch.
 - Run references: the resolved input parts are `config` (the step-config
   digest) and `inputs`; the child runs in its clone workspace under the
   ledger of [State](state.md#target-224-run-ref-state-settlement-and-resume)

@@ -133,3 +133,30 @@ def test_binding_field_change_is_refused(tmp_path, field, value) -> None:
         write_receipt(files, _receipt(**{field: value}, completion="launching"))
     assert read_receipt(files) == _receipt()
     files.close()
+
+
+_ALLOWED = [("intent", "launching"), ("intent", "not_dispatched"), ("intent", "unknown"), ("launching", "unknown"),
+            ("launching", "completed"), ("launching", "not_dispatched"), ("unknown", "completed"), ("unknown", "abandoned"),
+            ("completed", "completed"), ("completed", "abandoned")]
+_REFUSED = [("completed", "not_dispatched"), ("unknown", "not_dispatched"), ("completed", "unknown"), ("unknown", "unknown"),
+            ("not_dispatched", "launching"), ("not_dispatched", "unknown"), ("launching", "intent"), ("intent", "completed"),
+            ("abandoned", "completed"), ("completed", "launching")]
+
+
+@pytest.mark.parametrize("before, after", _ALLOWED)
+def test_receipt_completion_transition_allowed(tmp_path, before, after) -> None:
+    files = WorkspaceFiles(tmp_path)
+    write_receipt(files, _receipt(completion=before))
+    write_receipt(files, _receipt(completion=after))
+    assert read_receipt(files).completion == after
+    files.close()
+
+
+@pytest.mark.parametrize("before, after", _REFUSED)
+def test_receipt_completion_transition_refused(tmp_path, before, after) -> None:
+    files = WorkspaceFiles(tmp_path)
+    write_receipt(files, _receipt(completion=before))
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        write_receipt(files, _receipt(completion=after))
+    assert read_receipt(files).completion == before
+    files.close()

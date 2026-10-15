@@ -401,3 +401,89 @@ def test_transport_failure_closes_failed_only_when_the_adapter_proves_no_advance
     else:
         assert "agent_turn_unresolved" in run.stderr and started[-1]["identity"] in memo.pending_starts
         assert memo.terminal is None and not _failed_rows(memo)
+
+
+def _assert_kept_pending(run, memo, turn: str) -> None:
+    assert run.returncode == 1 and "agent_turn_unresolved" in run.stderr, run.stderr
+    tail = memo.entries[-1].data
+    assert tail["record"] == "started" and tail["identity"].endswith(turn) and tail["identity"] in memo.pending_starts
+    assert memo.terminal is None and not _failed_rows(memo)
+
+
+UNKNOWN_WRITE_FAILS = r'''import sys
+from orchestrator.workflow.evaluated import agent_turns
+write = agent_turns.write_receipt
+def broken(files, receipt):
+    if receipt.completion == "unknown" and receipt.turn.endswith("/ a2"):
+        raise OSError("disk full writing unknown")
+    return write(files, receipt)
+agent_turns.write_receipt = broken
+from orchestrator.cli import main
+sys.argv = ["orchestrator", *sys.argv[1:]]
+sys.exit(main())
+'''
+
+
+def test_failed_unknown_receipt_write_still_keeps_started_pending(tmp_path, monkeypatch) -> None:
+    """Failure table row 3: an unresolved outcome stays unresolved even when recording `unknown` fails."""
+    plan = {**PLAN, "claude": [PLAN["claude"][0], {"mode": "nonzero"}]}
+    install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=plan)
+    run = _driven(tmp_path, UNKNOWN_WRITE_FAILS, {}, "run", *fixture(tmp_path))
+    _root, _a, _classes, memo = memo_of(tmp_path)
+    _assert_kept_pending(run, memo, "/ a2")
+
+
+COMMIT_FAILS = r'''import sys
+from orchestrator.workflow.evaluated import runtime
+append = runtime.append_record
+def broken(path, row, **kw):
+    if row.get("record") == "committed" and row["identity"].endswith("/ a2"):
+        raise OSError("disk full appending commit")
+    return append(path, row, **kw)
+runtime.append_record = broken
+from orchestrator.cli import main
+sys.argv = ["orchestrator", *sys.argv[1:]]
+sys.exit(main())
+'''
+
+
+def test_commit_failure_after_the_prepared_proof_keeps_started_pending(tmp_path, monkeypatch) -> None:
+    """Failure table row 7: a durable prepared proof whose memo commit failed is committed later, never `failed`."""
+    install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=PLAN)
+    run = _driven(tmp_path, COMMIT_FAILS, {}, "run", *fixture(tmp_path))
+    run_root, _a, _classes, memo = memo_of(tmp_path)
+    _assert_kept_pending(run, memo, "/ a2")
+    receipt = json.loads((run_root / Path(memo.entries[-1].data["result_path"]).parent / "receipt.json").read_text())
+    assert receipt["completion"] == "completed" and receipt["result_digest"] is not None
+
+
+def test_allocation_model_and_effort_win_over_turn_policy() -> None:
+    from orchestrator.workflow.evaluated.agent_turns import turn_policy
+    assert turn_policy({"model": "pinned", "effort": "high"}, {"model": "turn", "effort": "low", "timeout_sec": 60}) == \
+        {"model": "pinned", "effort": "high", "timeout_sec": 60}
+
+
+NO_SESSION_SUPPORT = r'''import sys
+from orchestrator.providers import registry as registry_module
+from orchestrator.providers.types import ProviderTemplate
+load = registry_module.ProviderRegistry._load_builtin_providers
+def stripped(self):
+    templates = load(self)
+    for name in ("codex", "claude_unrestricted_workspace"):
+        templates[name] = ProviderTemplate(**{**templates[name].__dict__, "session_support": None})
+    return templates
+registry_module.ProviderRegistry._load_builtin_providers = stripped
+from orchestrator.cli import main
+sys.argv = ["orchestrator", *sys.argv[1:]]
+sys.exit(main())
+'''
+
+
+def test_completed_run_replays_without_current_session_support(tmp_path, monkeypatch) -> None:
+    """A settled memo hit is its own authority: the current template need not support sessions any more."""
+    install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=PLAN)
+    assert _cli(tmp_path, "run", *fixture(tmp_path)).returncode == 0
+    run_root, *_ = memo_of(tmp_path)
+    resumed = _driven(tmp_path, NO_SESSION_SUPPORT, {}, "resume", run_root.name)
+    assert resumed.returncode == 0, resumed.stderr
+    assert len(shim_requests(tmp_path)) == 4
