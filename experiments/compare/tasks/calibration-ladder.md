@@ -84,7 +84,7 @@ rung is reached; only rung 1 (`cf1-generic-unions`) has a package now. `eb-repl`
 | --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | --- | --- | --- |
 | 1 | `cf1-generic-unions` | `c77e7ec0` | `1798fc70` | 2060 | 33 | 8 (609) | 18 | 103 | 0 | **164** (166 qualify, 2 dropped) | Target 2.33 with first-order generic unions, `std/improve`, the loop-exhaustion and checkpoint-restore repairs, and an example (CF-1). |
 | 2 | `resume-projection-integrity` | `1cd60767` | `db988993` | 2555 | 16 | 5 (1390) | 18 | 76 | 0 (corrected, see note) | **169** (175 qualify, 6 dropped) | Audit resume projections: exact projection slots, scoped auditor, atomic failure recorders, retry lineage. |
-| 3 | `adopted-attempt-lineage` | `db210752` | `1eb06773` | 3214 | 5 | 0 (0) | 3 | 43 | 0 | at its build | Retirement tooling: lineage incident contracts, adopted-attempt disposition v2, restart authority (`orchestrator/retirement/`). |
+| 3 | `adopted-attempt-lineage` | `db210752` | `1eb06773` | 3214 | 5 | 0 (0) | 3 | 43 | 0 | **52** (61 qualify, 9 dropped) | Retirement tooling: lineage incident contracts, adopted-attempt disposition v2, restart authority (`orchestrator/retirement/`). |
 | 4 | `pure-result-replay` | `f80e551a` | `76427bde` | 4161 | 14 | 5 (1061) | 13 | 94 | 14 (0.3%) | at its build | Pure-result replay feasibility (dependency index, atomic witnesses, runtime) and its activation. |
 | 5 | `dsl-232-composition` | `2effff14` | `2574fa2b` | 10478 | 74 | 19 (3835) | 44 | 308 | 0 | at its build | Value and continuation composition, targets 2.28 to 2.32: union prompt inputs, rich loop values, pure-call composition, portable context, durable host input. |
 | 6 | `provider-peer-messaging` | `31f3aedf` | `b08c04a6` | 12835 | 54 | 7 (1425) | 19 | 253 | 0 | at its build | Provider peer groups (`with-live-provider-peers`): contracts, ledgers, protocol, coordinator, runtime, frontend and lowering. |
@@ -329,6 +329,65 @@ Limits of the search:
   per-node results for all 1130 nodes; `resume-projection-integrity-anchor-upstream.txt` and
   `resume-projection-integrity-anchor-stub.txt` cover the 169.
 - **Rung 2's scan solution hash:** `db9889937a895d67810dee1ea0b1b53552d30eca`.
+
+## Rung 3 package: `adopted-attempt-lineage`
+
+- **Base check.** The base's `.gitignore` ignores `.orchestrate/` and `artifacts/` (lines 10 and 11, confirmed with
+  `git check-ignore`).
+- **Files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/` (4 files) and `hidden_tests.txt` (52 node ids,
+  `LC_ALL=C` sorted). Anchors:
+  - `anchors/adopted-attempt-lineage-upstream.diff` is `base..solution` restricted to `orchestrator/`, `specs/` and
+    `workflows/` (R48). It has 5 files, all under `orchestrator/retirement/`, and there are no merges in the range.
+  - `anchors/adopted-attempt-lineage-stub.diff` registers the entry points and does nothing useful:
+    - `build_attempt_migration_incident`, `validate_attempt_migration_incident` and `capture_invalidated_adopted`
+      raise `AttemptMigrationError`;
+    - a `capture-invalidated-adopted` CLI subcommand calls the stub;
+    - `derive_committed_predecessor_lineage` raises;
+    - the new keywords `bound_file_bytes` and `require_committed_fallback` are accepted by `validate_generation`
+      and `validate_bound_record` and ignored;
+    - the two exports are added to `orchestrator.retirement.__all__`.
+
+    Both anchors pass `git apply --check` at the base.
+  - There is no `seed/`.
+- **Hidden set.** `hidden/` holds the range's three changed test files and the new helper
+  `retirement_broad_evidence_support.py`. Their 855 node ids were each run alone, with TMPDIR under the scratch
+  directory:
+  - At the base, 790 pass and 65 fail.
+  - At the solution, 851 pass. The 4 that fail there (`test_retirement_broad_evidence.py` repository-fixture and
+    temp-root probe tests) fail at the base too.
+  - Qualifying: 61.
+- **Dropped (9).**
+  - R49, the 7 node ids the stub passes:
+    - `test_retirement_attempt_migration.py::`
+      - `test_incident_v1_rejects_current_head_outside_predecessor_ancestry`
+      - `test_incident_v1_rejects_failure_baseline_candidate_head_mismatch`
+      - `test_incident_v1_rejects_non_owner_confirmed_lifecycle[identity_mismatch]` and `[pending]`
+      - `test_incident_v1_requires_an_uncovered_predecessor_path`
+      - `test_invalidated_adopted_incident_only_recovery_rejects_unrelated_status_drift`
+    - `test_retirement_broad_evidence.py::test_retirement_public_surface_is_cold_lazy_and_cli_sets_are_exact`
+
+    These are rejection tests that a stub which raises satisfies, plus the export and CLI-set registration check.
+  - R44 extension, fault injection through a private helper the base defines unchanged. Each test passes only if
+    the implementation routes that step through the helper:
+    - `test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_duplicate_path_projection`
+      patches `source_bindings._git` and duplicates `diff-tree` output.
+    - `test_retirement_attempt_migration.py::test_invalidated_adopted_recovers_only_after_incident_publication`
+      patches `attempt_migration._publish_exclusive` to crash at its second publication.
+  - No test checks documentation wording.
+- **Kept on base definitions.**
+  - Tests compute expectations with base helpers whose call shape is unchanged: `attempt_migration._repository_state`,
+    `materialization._evidence_root_from_request_path`, `_request_path`, `_snapshot_path` and `_json_output`.
+  - They also use `_input_binding(repository_root, role, path)`, which the solution extends only with keyword-only
+    arguments that have defaults.
+  - task.txt describes the resulting data, not the helpers.
+- **Verification.** Each node id was run alone, on all 61 qualifying ids:
+  - Upstream anchor applied at the base: 61 of 61 pass, so 52 of the 52 kept.
+  - Stub applied at the base: 7 of 61 pass (the R49 drops), so 0 of the 52 kept.
+- **Evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
+  `adopted-attempt-lineage-hidden-base.txt` and `adopted-attempt-lineage-hidden-solution.txt` give per-node
+  results for all 855 nodes; `adopted-attempt-lineage-anchor-upstream.txt` and
+  `adopted-attempt-lineage-anchor-stub.txt` cover the 61.
+- **Rung 3's scan solution hash:** `1eb06773029df5c62d81c10e0d60ea6f72c81ab7`.
 
 ## Contamination
 

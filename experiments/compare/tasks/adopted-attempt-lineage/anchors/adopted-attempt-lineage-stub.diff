@@ -1,0 +1,139 @@
+diff --git a/orchestrator/retirement/__init__.py b/orchestrator/retirement/__init__.py
+index 34aaac6..df2900c 100644
+--- a/orchestrator/retirement/__init__.py
++++ b/orchestrator/retirement/__init__.py
+@@ -15,6 +15,8 @@ __all__ = [
+     "compare_failure_sets",
+     "derive_broad_baseline_comparison",
+     "derive_review_binding",
++    "derive_committed_predecessor_lineage",
++    "validate_attempt_migration_incident",
+     "build_broad_evidence_bootstrap_subject",
+     "build_broad_known_failure_baseline",
+     "build_broad_outcome",
+@@ -52,7 +54,12 @@ _MATERIALIZATION_EXPORTS = {
+ def __getattr__(name: str) -> Any:
+     if name not in __all__:
+         raise AttributeError(name)
+-    module_name = "materialization" if name in _MATERIALIZATION_EXPORTS else "broad_evidence"
++    module_name = (
++        "source_bindings" if name == "derive_committed_predecessor_lineage"
++        else "attempt_migration" if name == "validate_attempt_migration_incident"
++        else "materialization" if name in _MATERIALIZATION_EXPORTS
++        else "broad_evidence"
++    )
+     value = getattr(import_module(f"{__name__}.{module_name}"), name)
+     globals()[name] = value
+     return value
+diff --git a/orchestrator/retirement/attempt_migration.py b/orchestrator/retirement/attempt_migration.py
+index 9a24939..30d6430 100644
+--- a/orchestrator/retirement/attempt_migration.py
++++ b/orchestrator/retirement/attempt_migration.py
+@@ -2138,6 +2138,21 @@ def postvalidate(
+     return report
+ 
+ 
++def build_attempt_migration_incident(repository_root: Path, **_bindings: Any) -> dict[str, Any]:
++    """First cut: incident construction is not implemented."""
++    raise AttemptMigrationError("build_attempt_migration_incident is not implemented")
++
++
++def validate_attempt_migration_incident(repository_root: Path, record: Any) -> list[Any]:
++    """First cut: incident validation is not implemented."""
++    raise AttemptMigrationError("validate_attempt_migration_incident is not implemented")
++
++
++def capture_invalidated_adopted(repository_root: Path, **_bindings: Any) -> dict[str, Any]:
++    """First cut: invalidated-adopted capture is not implemented."""
++    raise AttemptMigrationError("capture_invalidated_adopted is not implemented")
++
++
+ def _parser() -> argparse.ArgumentParser:
+     parser = argparse.ArgumentParser(prog="python -m orchestrator.retirement.attempt_migration")
+     subparsers = parser.add_subparsers(dest="mode", required=True)
+@@ -2168,6 +2183,21 @@ def _parser() -> argparse.ArgumentParser:
+     capture_parser.add_argument("--pending-snapshot-path", required=True)
+     capture_parser.add_argument("--pending-record-path", required=True)
+ 
++    invalidated_parser = subparsers.add_parser("capture-invalidated-adopted")
++    invalidated_parser.add_argument("--repository-root", required=True)
++    for name in (
++        "incident-path", "disposition-path", "source-root", "archive-root", "governing-plan-path",
++        "migration-plan-path", "authority-subject-path", "authority-specification-review-path",
++        "authority-quality-review-path", "intended-predecessor-head", "restoration-commit",
++        "restoration-tree", "expected-paths-manifest-path", "generation5-request-path",
++        "generation5-snapshot-path", "generation11-request-path", "generation11-snapshot-path",
++        "live-ledger-path", "baseline-path", "baseline-specification-review-path",
++        "baseline-quality-review-path", "workspace-baseline-path", "attestation-request-path",
++        "attestation-snapshot-path", "attestation-record-path",
++    ):
++        invalidated_parser.add_argument("--" + name)
++    invalidated_parser.add_argument("--protected-path", action="append", default=[])
++
+     validate_parser = subparsers.add_parser("validate")
+     validate_parser.add_argument("--repository-root", required=True)
+     validate_parser.add_argument("--disposition-path", required=True)
+@@ -2190,6 +2220,9 @@ def main(argv: list[str] | None = None) -> int:
+         if mode == "capture":
+             arguments["protected_paths"] = arguments.pop("protected_path")
+             result = capture(**arguments)
++        elif mode == "capture-invalidated-adopted":
++            arguments["protected_paths"] = arguments.pop("protected_path")
++            result = capture_invalidated_adopted(**arguments)
+         elif mode == "validate":
+             result = validate(**arguments)
+         elif mode == "apply":
+diff --git a/orchestrator/retirement/broad_evidence.py b/orchestrator/retirement/broad_evidence.py
+index 810478f..8d90bba 100644
+--- a/orchestrator/retirement/broad_evidence.py
++++ b/orchestrator/retirement/broad_evidence.py
+@@ -3065,6 +3065,7 @@ def validate_bound_record(
+     permitted_manifest_exclusions: Sequence[str] = (),
+     review_subject_path: str | None = None,
+     bound_file_bytes: Mapping[str, bytes] | None = None,
++    require_committed_fallback: bool = False,
+     check_ledger_future_absence: bool = True,
+ ) -> list[Issue]:
+     """Validate nested bytes and same-candidate relationships for review subjects.
+diff --git a/orchestrator/retirement/materialization.py b/orchestrator/retirement/materialization.py
+index fd26c23..206ed00 100644
+--- a/orchestrator/retirement/materialization.py
++++ b/orchestrator/retirement/materialization.py
+@@ -1814,8 +1814,14 @@ def _validate_generation_captured(
+ 
+ 
+ def validate_generation(
+-    repository_root: Path, request_path: Path, snapshot_path: Path
++    repository_root: Path,
++    request_path: Path,
++    snapshot_path: Path,
++    *,
++    bound_file_bytes: Mapping[str, bytes] | None = None,
++    require_committed_fallback: bool = False,
+ ) -> list[Issue]:
++    """First cut: the overlay arguments are accepted and ignored."""
+     try:
+         request_path = _validated_relative(request_path)
+         snapshot_path = _validated_relative(snapshot_path)
+diff --git a/orchestrator/retirement/source_bindings.py b/orchestrator/retirement/source_bindings.py
+index e98a799..cd644a3 100644
+--- a/orchestrator/retirement/source_bindings.py
++++ b/orchestrator/retirement/source_bindings.py
+@@ -722,6 +722,17 @@ def _capture_from_git(root: Path, protected_paths: Sequence[str] = ()) -> dict[s
+     return record
+ 
+ 
++def derive_committed_predecessor_lineage(
++    repository_root: Path | str,
++    *,
++    baseline_head: str,
++    intended_predecessor_head: str,
++    require_uncovered_paths: bool = False,
++) -> dict[str, Any]:
++    """First cut: committed predecessor lineage is not derived."""
++    raise NotImplementedError("derive_committed_predecessor_lineage")
++
++
+ def capture_workspace_baseline(repository_root: Path | str, protected_paths: Sequence[str] = ()) -> dict[str, Any]:
+     """Capture the complete dirty operand and semantic-index baseline."""
+     return _capture_from_git(_repository_root(repository_root), protected_paths)
