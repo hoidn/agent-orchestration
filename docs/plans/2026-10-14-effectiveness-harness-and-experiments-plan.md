@@ -18,7 +18,9 @@ rulings, and every ruling made during execution is listed in the appendix below.
 was executed the same day ([calibration report](../reports/2026-10-14-task-difficulty-calibration.md)). No rung qualified:
 the blocker condition held at every rung, but the single-call condition never did. On 2026-10-15 the owner chose rung 3
 on the blocker rule alone, and Task 9 ran ([E-B2 report](../reports/2026-10-15-calibrated-orc-versus-single-call.md)):
-both claims were evaluated and neither held.
+both claims were evaluated and neither held. Later on 2026-10-15 the owner removed the single-call hidden-acceptance
+condition from calibration (R55): future qualification rests on review blockers alone, and the Task 8 outcome above
+stays as recorded.
 **Design:** [comparison harness and experiments](../design/orc_effectiveness_comparison_harness.md).
 **Goal:** a comparison between a maintained workflow and a single call can be
 run on current `main` with one command per arm, scored blind side by side
@@ -405,11 +407,14 @@ apparatus, and `review_code_compare_calibration` (Opus) reviews it. A distinct O
 owner decisions are listed at the end of this task.
 
 The owner's rule (design, "Difficulty calibration for follow-on experiments"): later experiments raise task
-difficulty until the expected number of review blockers is at least 1, and a single call must pass less than half
-of the hidden acceptance tests. Both are measured before any treatment run, on single-call patches made with the
-control's binding. Calibration runs are never treatment or control data.
+difficulty until the expected number of review blockers is at least 1. It is measured before any treatment run, on
+single-call patches made with the control's binding; the hidden fraction of those patches is measured and reported
+as description. Calibration runs are never treatment or control data. Task 8 ran under an earlier rule that also
+required a single call to pass less than half of the hidden acceptance tests; the owner removed that condition on
+2026-10-15 (R55, the criterion's `amends_4`), after Task 8 and Task 9.
 
-**Definitions, frozen in the calibration criterion before any calibration run:**
+**Definitions, to be frozen in the calibration criterion before any future calibration run** (current criterion after
+`amends_4`; Task 8 ran under `3149bc36…`):
 - **Single-call patch:** the final patch of a `direct_task` run with the control's binding (`gpt-6.1-sol`, effort
   high, `:timeout-sec 14400`), on the rung's package.
 - **Hidden fraction:** `summarize.hidden_fraction`, run over a calibration pool built without running any judge,
@@ -423,7 +428,9 @@ control's binding. Calibration runs are never treatment or control data.
   "work left to do". This is recorded as a ruling and as a known difference.
 - **Expected review blockers:** the mean over the rung's `k = 2` patches. If 1 ≤ mean < 1.5, one more single call
   and its review run, and the rung qualifies on all three.
-- **Qualifies:** every patch's hidden fraction is below 0.5, and expected review blockers are at least 1.
+- **Qualifies:** expected review blockers are at least 1. The hidden fraction does not enter qualification. Until
+  `amends_4` (R55) a rung also needed every patch's hidden fraction below 0.5, and the third sample ran only if both
+  hidden fractions were below 0.5; Task 8's results were judged under that rule.
 - **Failed runs:**
   - Infrastructure failures are resumed (R3).
   - A `direct_task` run that fails any other way, `provider_timeout` included, has no patch, and the rung does not
@@ -554,7 +561,8 @@ report](../reports/2026-10-15-calibrated-orc-versus-single-call.md), neither cla
 
 The coordinator recorded each decision the design and plan did not settle as `Ruling: what — why — cost if
 wrong`. The rulings are copied verbatim from the execution ledger. Code, the design, the criteria and the reports
-cite them by number. Later rulings amend earlier ones where they say so: R8 and R52 are amended once, and R34 reverses
+cite them by number. Later rulings amend earlier ones where they say so: R8 and R52 are amended once, R55 amends the
+calibration criterion after Task 8 and Task 9 ran, and R34 reverses
 R31. The number R17 was never assigned.
 
 - Ruling R1 (Q1): delete the lean-pilot apparatus as design D1 — treatment cannot run, evidence frozen elsewhere, deletion is git-reversible — cost if wrong: one revert commit.
@@ -612,3 +620,4 @@ R31. The number R17 was never assigned.
 - Ruling R53: reviewed_change's primary threshold is hidden_paired_gain_mean >= 0.1 with no run negative (about 5 of 52 node ids per run), set before any E-B2 data — cost if wrong: a threshold the owner would have set differently; per-run values are reported.
 - Ruling R52 amendment (criterion review M3; the R52 entry above is kept as first recorded): its premise named the wrong commit. The Task 8 direct_task smoke ran at 26bb4d73 (calibration/runs/smoke/direct_task-run-1/record.json runtime_commit); 2b9efd81 is review_once's smoke commit. Between 26bb4d73 and e8882086 the shim changed twice (shim/codex links to shim/claude; 76274ce6 index mtime, 2b9efd81 empty /var/tmp, with repos.py refusing /var/tmp roots), so "harness changed only in summarize" was false for that smoke. The stronger mechanics evidence is rung 3's direct_task run-5 and run-6 at 490f6dc8 (both completed), whose harness code differs from e8882086 only in summarize.py. Decision unchanged: no E-B2 direct_task smoke — cost if wrong: unchanged.
 - Ruling R54: gpt-6-sol judges E-B2 although it is reviewed_change's reviewer, departing from R2 and design Q3; judges bear only on secondary entries — cost if wrong: secondary judge entries for reviewed_change carry self-preference.
+- Ruling R55 (owner amendment, 2026-10-15, after Task 8 and Task 9): calibration qualification rests on mean review blockers >= 1 alone; the single-call hidden-acceptance condition (every patch < 0.5) is removed, and hidden fractions stay measured and reported as description. The borderline rule keeps its third single call and review for 1 <= mean < 1.5 without the hidden < 0.5 prerequisite; 'exactly 0.5 fails' is removed; stop rule, failed-run, validity and package rules unchanged. Criterion amends_4 (previous sha256 3149bc36...; original archived in agent-orchestration-compare-evidence/calibration/blocker-only-amendment/). Not retroactive: Task 8's frozen outcome (no rung qualified) stands; rungs 2 and 4 meet the new rule on their two recorded patches, rungs 1 and 3 are borderline without a third sample; no run is launched; Task 9's owner choice of rung 3 and E-B2's criterion and results are unchanged — cost if wrong: a future task may qualify on which a single call already passes most hidden tests, so a treatment's hidden-acceptance gain has less room; hidden fractions are reported so readers can see it.
