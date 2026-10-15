@@ -1273,10 +1273,11 @@ verified all seven committed file hashes against manifest
 
 Policy validation here establishes retained structure and canonical bytes;
 future admission must establish semantic validity, provenance, absence of
-secrets and installed pins before the first reservation. The private gateway,
-native owner containment, independent cancellation observer, real provider
-qualification and public integration remain pending. No global suite was
-rerun for this slice; the earlier broad RED classification remains.
+secrets and installed pins before the first reservation. Private transport and
+containment were outside this ledger slice; their subsequent bounded evidence
+is recorded below. Real provider qualification and public integration remain
+pending. No global suite was rerun for this slice; the earlier broad RED
+classification remains.
 
 ## Task 10: private transport core (2026-10-15)
 
@@ -1301,6 +1302,37 @@ Local SDD `task-10-transport-core-review.md` has SHA-256
 These checks use synthetic pipes/HTTP and the common ledger; they do not prove
 real authentication or upstream TLS behavior. Public smoke was not repeated
 for the module without callers. Host-slot containment, independent cancellation
-observation during blocked durable acknowledgements, private IPC, scope cleanup
-and their real command smoke are the next internal integration slice. Actual
-provider qualification, public integration and Tasks 11–13 remain pending.
+observation during blocked durable acknowledgements, private IPC and scope cleanup
+are covered by the subsequent private integration below. Actual provider
+qualification, public integration and Tasks 11–13 remain pending.
+
+## Task 10: private Holder integration (2026-10-15)
+
+Commit `5299133c` connects one worker/native owner per leaf to the existing host
+slot and common ledger acknowledgements. The independent cancellation observer
+can revoke channels and empty the validated scope while the writer is blocked.
+Verified transport shutdown and script retirement precede result import and
+checkpoint. Public provider dispatch remains closed. Independent code/security
+review accepted this private slice after fixing exhausted-quota error masking
+and preserving OS error classification while removing guest filenames from
+diagnostics. Root inspected the diff and matched all 23 source pins to the commit.
+
+Verification includes 613 affected tests before the final Session correction,
+295 relevant tests and eight focal cases after it, and 221 collected tests.
+The serial campaign retained its exit 1: 51 cases passed and one fixture closure
+recursed. A fixture-only correction and three focal passes cover all 52 cases
+as a union; these overlapping campaigns are not added as distinct test counts.
+The public command lifecycle smoke passed again after the Session correction
+in 16.67 seconds, including interruption, same-child resume, report and repeated
+completed resumes. Source manifest `source09-sha256.json` has SHA-256
+`ffc4cdc0208e7df9cef3273ef65a33c805e510a4803caa6ce296ec745e5a8f52`;
+local SDD `task-10-holder-transport-code-review.md` has SHA-256
+`67bf87318a7dabfe217fef40a9e42f56fe553c65ffe033f2374c3f4f6f5a9bd4`.
+The evidence is retained under `/tmp/runref-holder-transport-validation/`.
+
+Native tests used fictitious auth/state and local HTTP/UDS substitutions, with
+a Python guest client. They do not qualify real auth/TLS or the final public
+CLI/relay invocation. An earlier intermittent serve failure has no established
+cause and remains a recorded availability concern; later passes do not explain
+it. No global suite was repeated. The [managed-policy gate](#native-managed-policy-gate-blocked)
+still blocks real qualification and the dependent complete use case.
