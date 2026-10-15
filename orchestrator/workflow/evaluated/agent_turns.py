@@ -194,18 +194,21 @@ def prepare_agent_attempt(authority, node, operands, identity, snapshot, *, ordi
                           resolved: ResolvedTurn, parts, implementation_files, dependencies, context):
     """All agent-turn start decisions, behind one dispatch line in `runtime.prepare_effect`.
 
-    Order: pending-turn classification (Task 11: recover / bootstrap / refuse) -> D1 head check -> `started` +
+    Order: pending-turn classification (recover / bootstrap / refuse), or with no pending attempt the latest failure
+    (later-turn invalid result refuses; first-turn bootstrap abandons) -> D1 head check -> `started` +
     exclusive attempt directory through `allocate_attempt` (so the kill-point hooks on `attempts.append_record`
     fire exactly as for every other class). Other pending effects were refused by `_ensure_effect_can_start`.
     """
     from .effect_execution import PreparedAttempt
 
+    from .agent_turn_recovery import prepare_pending, restart_failed_turn
     if identity in snapshot.pending_starts:
-        from .agent_turn_recovery import prepare_pending
         recovered = prepare_pending(authority, node, operands, identity, snapshot, resolved=resolved,
                                     dependencies=dependencies, context=context)
-        if recovered is not None:       # else the pending attempt was proven not dispatched: allocate the next one
+        if recovered is not None:       # else the pending attempt was closed (not dispatched, or bootstrap): allocate the next one
             return recovered
+    else:
+        restart_failed_turn(authority, identity, snapshot, context)
     _head_or_refuse(resolved)
     started = dict(record="started", identity=identity, attempt=ordinal, input_digest=canonical_sha256(parts), input_parts=parts,
                    implementation_files=implementation_files, result_path=result_path, time=time.time())

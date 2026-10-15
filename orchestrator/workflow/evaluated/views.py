@@ -187,8 +187,10 @@ def _update_effect_row(target, row, snapshot):
         elif row["effect_class"] == "agent":
             target["agent"] = row["identity"]
     elif kind == "failed":
-        target.update(status="failed", error={"type": row["code"], "code": row["code"],
-                                               "exit_info": row["exit_info"]})
+        exit_info = row["exit_info"]
+        if target["effect_class"] == "agent_turn" and isinstance(exit_info, dict):   # a bootstrap row's locator stays in the journal
+            exit_info = {key: value for key, value in exit_info.items() if key != "locator"}
+        target.update(status="failed", error={"type": row["code"], "code": row["code"], "exit_info": exit_info})
 
 
 def report_snapshot(view: dict[str, Any], run_root: Path) -> dict[str, Any]:

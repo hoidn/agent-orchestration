@@ -5,30 +5,38 @@ generic retry rule, and no prompt is sent while classifying. Quiescence comes fi
 group is probed (read-only preflight, `probe_only=True`) or stopped (under the writer lock) before any
 native read decides the outcome; inability to prove it stopped is `unresolved`.
 
-Depends on: the attempt directory's receipt and `result.json` (through `run_files.subroot`), the native
-store adapter carried by `ResolvedTurn`, `/proc/<pid>/stat` (leader start time), `os.killpg`, and
-`agent_turns.update_receipt` (the hookable receipt writer used by kill-point drivers).
+Bootstrap (design "Bootstrap retry policy"; only an agent with no committed turn, only by explicit `resume`): after
+quiescence and reconciliation, an uncertain first turn is abandoned — receipt `abandoned` and `abandoned.json`, then
+`failed agent_bootstrap_restarted` while the attempt is still pending — before the caller appends the next `started`.
+
+Depends on: the attempt directory's receipt, `result.json` and `abandoned.json` (through `run_files.subroot`), the
+native store adapter carried by `ResolvedTurn`, `/proc/<pid>/stat` (leader start time), `os.killpg`, the memo journal,
+and `agent_turns.update_receipt` / `agent_turns.append_record` (the hookable writers used by kill-point drivers).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from orchestrator.providers.native_store import NativePosition, NativeStoreError
-from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 
 from . import agent_turns
 from .agent_sessions import Receipt, read_receipt
 from .agent_turns import AgentTurnError
 from .authority import _require_retained_root
 from .commands import workspace_relative_path
-from .memo import MemoError
+from .memo import MemoError, read_memo
+from .memo_reducer_agents import DISPATCHED_FAILURE_CODES
 
+logger = logging.getLogger(__name__)
 _STOP_STEPS = ((0, 0.0), (signal.SIGTERM, 2.0), (signal.SIGKILL, 5.0))   # probe (signal 0), then the executor's termination shape
 
 
@@ -102,14 +110,14 @@ def classify_pending_turn(authority, node, identity, snapshot, workspace, resolv
     undispatched = _undispatched(receipt)
     if undispatched is not None:
         return PendingTurn("not_dispatched", receipt, None, undispatched)
-    first_turn = resolved.predecessor is None
-    if receipt.completion == "abandoned":
-        return _uncertain(first_turn, receipt, None, "candidate already abandoned")
     stopped = quiesce(receipt, probe_only=probe_only)
     if stopped == "alive":
         return PendingTurn("needs_quiescence", receipt, None, "the dispatched process group is still alive; quiesce under the writer lock")
     if stopped == "unprovable":
         return PendingTurn("unresolved", receipt, None, "the dispatched process group cannot be proven stopped")
+    first_turn = resolved.predecessor is None
+    if receipt.completion == "abandoned":       # an abandoned candidate is never adopted, even with a completed turn
+        return _uncertain(first_turn, receipt, None, "candidate already abandoned")
     marker = workspace_relative_path(workspace, authority.run_root / pending.data["result_path"])
     return _classify_native(first_turn, receipt, resolved.adapter, marker, result_present)
 
@@ -169,10 +177,15 @@ def prepare_pending(authority, node, operands, identity, snapshot, *, resolved, 
     `provider_preparation_failed` (R5: delivery never reached the native session; outside `DISPATCHED_FAILURE_CODES`;
     the reducer refuses a new start beside a pending one) and its proof in `exit_info.error`; None is returned, so the
     caller allocates the next attempt;
-    anything else keeps the start pending as `agent_turn_unresolved` (`bootstrap` is Task 12).
+    `bootstrap` (first turn, quiesced, nothing recoverable) -> `abandon_candidate`, then None (the next attempt);
+    anything else keeps the start pending as `agent_turn_unresolved`.
     """
     classified = classify_pending_turn(authority, node, identity, snapshot, context["workspace"], resolved)
     pending = snapshot.pending_starts[identity]
+    if classified.disposition == "bootstrap":
+        with _attempt_files(context["run_files"], pending) as files:
+            abandon_candidate(authority, files, pending, classified.receipt, context["site_classes"])
+        return None
     if classified.disposition == "not_dispatched":
         if classified.receipt is not None and classified.receipt.completion != "not_dispatched":
             _update(context["run_files"], pending, completion="not_dispatched")       # R6: the receipt records the proof
@@ -189,11 +202,68 @@ def prepare_pending(authority, node, operands, identity, snapshot, *, resolved, 
 
 
 def _update(run_files, pending, **changes) -> None:
-    files = run_files.subroot(Path(pending.data["result_path"]).parent)
-    try:
+    with _attempt_files(run_files, pending) as files:
         agent_turns.update_receipt(files, **changes)
+
+
+@contextmanager
+def _attempt_files(run_files, start):
+    files = run_files.subroot(Path(start.data["result_path"]).parent)
+    try:
+        yield files
     finally:
         files.close()
+
+
+def latest_failure(snapshot, identity) -> dict | None:
+    """The `failed` row closing the turn's latest attempt, or None (no attempt, pending, or committed)."""
+    latest = snapshot.latest_starts.get(identity)
+    if latest is None or identity in snapshot.pending_starts:
+        return None
+    return next((e.data for e in reversed(snapshot.entries) if e.data["record"] == "failed"
+                 and e.data["identity"] == identity and e.data["attempt"] == latest.data["attempt"]), None)
+
+
+def abandon_candidate(authority, pending_files, pending, receipt, site_classes) -> dict:
+    """Durably mark the old native candidate abandoned, then close its attempt `failed` while it is still pending.
+
+    Idempotent at every kill point: an `abandoned` receipt, an existing `abandoned.json` and an existing `failed` row are
+    each left as they are, so the next resume completes the ordering without adopting the candidate or duplicating
+    `failed`. Returns the `failed` row it appended or would append.
+    """
+    attempt, locator = pending.data["attempt"], None if receipt is None else receipt.locator
+    if receipt is not None and receipt.completion == "launching":
+        agent_turns.update_receipt(pending_files, completion="unknown")     # the receipt has no launching -> abandoned edge
+    if receipt is not None and receipt.completion != "abandoned":
+        agent_turns.update_receipt(pending_files, completion="abandoned")
+    if not pending_files.exists("abandoned.json"):
+        pending_files.write_atomic("abandoned.json", canonical_json_bytes(
+            {"schema": "agent_turn_abandoned.v1", "attempt": attempt, "locator": locator}))
+    identity = pending.data["identity"]
+    failure = {"record": "failed", "identity": identity, "attempt": attempt, "code": "agent_bootstrap_restarted",
+               "exit_info": {"abandoned_attempt": attempt, "locator": locator}}
+    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
+    if identity in snapshot.pending_starts:
+        _require_retained_root(authority.run_files)
+        agent_turns.append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
+    logger.warning("[agent_bootstrap_restarted] %s abandoned attempt %s locator=%s", identity, attempt, locator)
+    return failure
+
+
+def restart_failed_turn(authority, identity, snapshot, context) -> None:
+    """Before a new `started` with no pending attempt: a later turn whose latest attempt returned an invalid result
+    refuses (checked before D1, which would otherwise report the failed turn's own append as divergence); a first turn
+    whose latest attempt failed after dispatch (`provider_result_invalid`, or `agent_bootstrap_restarted` after a crash
+    before the next start) is a bootstrap: its candidate is marked abandoned if not yet, and the diagnostic is logged."""
+    failure = latest_failure(snapshot, identity)
+    if failure is None or failure["code"] not in DISPATCHED_FAILURE_CODES:
+        return
+    if failure["code"] == "agent_turn_result_invalid":
+        raise AgentTurnError("agent_turn_result_invalid", f"{identity}: attempt {failure['attempt']} returned an invalid "
+                             "result after the agent's first committed turn; it cannot be restarted")
+    latest = snapshot.latest_starts[identity]
+    with _attempt_files(context["run_files"], latest) as files:
+        abandon_candidate(authority, files, latest, read_receipt(files), context["site_classes"])
 
 
 def _recovered_attempt(authority, node, operands, identity, snapshot, classified: PendingTurn, dependencies, context):

@@ -430,7 +430,15 @@ authority, memo, attempts or views, in this order:
     adapter-proven unchanged predecessor head) closes the attempt `failed`
     and allocates the next one; `unresolved` refuses `agent_turn_unresolved`
     after the agent's first committed turn and takes the bootstrap path
-    before it; `agent_turn_result_invalid` refuses.
+    before it. Bootstrap is admitted at preflight without writing and executed
+    under the writer lock before the next `started`: the old candidate's
+    receipt becomes `abandoned` and `abandoned.json` is written, the attempt is
+    closed `failed agent_bootstrap_restarted` if still pending (never twice
+    after a crash), and `[agent_bootstrap_restarted]` is logged; a first turn
+    whose latest attempt failed after dispatch (`provider_result_invalid`)
+    restarts the same way. A later turn whose latest attempt closed
+    `agent_turn_result_invalid` refuses with that code, before any
+    native-head check.
 11. Only then is a torn tail repaired (a failure there is still a refusal,
     exit `2`) and evaluation continued. A condition of step 10 that is first
     reached after continuation has committed new effects fails the run with

@@ -2599,7 +2599,7 @@ run's state; the memo replaces that commit.
 | K1 | A coordinator receives the effect node and the resolved input as values, keeps its ledger under the run root, and reads and writes no run state |
 | K2 | The protocol has three calls. `prepare(node, resolved, identity, attempt)` runs the effect to the coordinator's pending commit and returns the value and a proof. The evaluator validates the value and appends `committed` with the proof. `settle(node, identity, proof)` makes the coordinator's final commit; the evaluator then appends `settled` |
 | K3 | On a memo hit, `reconcile(node, resolved, identity, proof)` completes a pending final commit from the proof, and the evaluator appends `settled` (`by: reconcile`) when the memo lacks it |
-| K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1) |
+| K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1). Agent turns (target 2.38) are the scoped exception: a pending turn is reconciled from its receipt and native store; only an agent with no committed turn may be restarted, by explicit public `resume`, abandoning the old candidate first ([Agent Sessions](workflow_lisp_agent_sessions.md), Bootstrap retry policy); later turns refuse |
 | K5 | The proof is the coordinator's settled result record and its artifacts, stored inline in the `committed` record. It is what `settle` and `reconcile` need, and nothing else |
 | K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release |
 | K7 | A run reference: its static configuration is built at build time, each input bound as the reference `inputs.<name>`; the name rule of the child's inputs is the reference rule, so no valid name is unsafe. The coordinator resolves the references against a parent state that holds only the resolved input values. The visit key is derived from the identity: parent run id the run root's name, execution frame `root`, no call frame, step id `root.<digest of the identity>`, visit count 1. The runtime's ledger, `run-ref-attempts.jsonl`, retains its wire contract; physical IO and child authority follow §9.3.1 |
@@ -2700,10 +2700,12 @@ Authored native-session turns retain completed turn progress before the
 parent result commits, which K4's discard-and-restart rule does not provide.
 They are admitted at target 2.38 by the [Agent Sessions
 design](workflow_lisp_agent_sessions.md) with a scoped K4 exception: a
-pending agent turn is never discarded and restarted; resume quiesces its
-process group, classifies it from its receipt and the native store, and may
-commit the same ordinal without dispatch (§8.1). K4 is unchanged for every
-other class.
+pending agent turn is never discarded; resume quiesces its process group,
+classifies it from its receipt and the native store, and may commit the same
+ordinal without dispatch (§8.1). Only an agent with no committed turn may
+restart, and only by explicit public `resume`: the old candidate is marked
+abandoned and its attempt closed `failed agent_bootstrap_restarted` before the
+next `started`. K4 is unchanged for every other class.
 
 ### 9.4 The request contract
 

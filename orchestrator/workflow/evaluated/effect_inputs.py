@@ -21,7 +21,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
 from .agent_sessions import resolve_allocation_input
 from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
-from .agent_turn_recovery import classify_pending_turn
+from .agent_turn_recovery import classify_pending_turn, latest_failure
 from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
@@ -96,10 +96,16 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
 
 
 def _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd) -> None:
-    """Read-only: classify a pending agent turn at its own result path (probe only, nothing signalled) and refuse only
-    `unresolved`; `needs_quiescence`, `recoverable`, `not_dispatched` and `bootstrap` are admitted."""
+    """Read-only: a later turn whose latest attempt closed `agent_turn_result_invalid` refuses with that code; a pending
+    agent turn is classified at its own result path (probe only, nothing signalled) and only `unresolved` refuses;
+    `needs_quiescence`, `recoverable`, `not_dispatched` and `bootstrap` are admitted (bootstrap writes under the lock)."""
+    if node["class"] != "agent_turn":
+        return
+    failure = latest_failure(snapshot, identity)
+    if failure is not None and failure["code"] == "agent_turn_result_invalid":
+        raise _PreflightRefusal("agent_turn_result_invalid", f"{identity}: attempt {failure['attempt']} returned an invalid result")
     pending = snapshot.pending_starts.get(identity)
-    if node["class"] != "agent_turn" or pending is None:
+    if pending is None:
         return
     resolved, _parts, _files = _resolve_effect_input(authority, node, operands, identity, workspace, reader, None, pending,
         None, pending.data["result_path"], owner=None, launch_cwd=launch_cwd, snapshot=snapshot)
