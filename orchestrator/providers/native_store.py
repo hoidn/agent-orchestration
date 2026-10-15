@@ -424,7 +424,7 @@ def _claude_follows(prior_final_id: object, line: int, submitted: dict[str, Any]
         ):
             return False
         current = row.get("parentUuid")
-    return current == prior_final_id
+    return current == prior_final_id and (current is None or by_id[current][0] < line)
 
 
 def _claude_links(line: int, submitted: dict[str, Any], prior_final_id: object, prompts: set[str], by_id, session_id: str) -> bool:

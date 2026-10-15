@@ -153,6 +153,20 @@ def test_claude_turn_after_a_broken_turn_is_not_a_position(tmp_path) -> None:
     assert (head.position, head.open_turn) == (NativePosition("p1", 2), True)
 
 
+def test_claude_prompt_attachment_cannot_point_forward_to_prior_final(tmp_path) -> None:
+    rows = _claude_rows([("p1", "m1", True), ("p2", "m2", True)])
+    rows.insert(1, {"type": "attachment", "uuid": "pre-p2", "parentUuid": "assistant-p1", "sessionId": CLAUDE_SID,
+                    "isSidechain": False, "attachment": {"type": "hook_success", "hookEvent": "SessionStart"}})
+    rows[3]["parentUuid"] = "pre-p2"
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, rows)
+    adapter = native_store_adapter("claude_stream_json_stdout")
+    first = NativePosition("p1", 3)
+    head = adapter.head(path)
+    assert head.position == first and head.open_turn is True
+    assert adapter.completed_turn(path, after=first, prompt_marker="m2") is None
+
+
 def test_position_record_round_trips_and_rejects_malformed_rows() -> None:
     position = NativePosition("t1", 3)
     assert NativePosition.from_record(position.record()) == position
