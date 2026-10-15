@@ -35,6 +35,15 @@ from .commands import (
 from .prompts import provider_expected_outputs
 
 
+DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file"}
+DELIVERY_NAMES_BY_DIGEST = {canonical_sha256(name): name for name in DELIVERY_SELECTORS}
+
+
+def current_provider_delivery_name(provider_name: str) -> str:
+    """Select the rendering for fresh calls in both runtime profiles."""
+    return "legacy" if provider_name.startswith("omp") else "file/1"
+
+
 class ProviderPerformerError(RuntimeError):
     def __init__(self, code: str, message: str, *, exit_info=None, violations=None):
         self.code = code
@@ -187,8 +196,8 @@ def _snapshot_dependencies(node, values, workspace):
     )
 
 
-def resolve_provider_input(node, operands, *, workspace, reader, result_path):
-    """Capture a reached provider's request and all content-bound input parts."""
+def resolve_provider_input(node, operands, *, workspace, reader, result_path, delivery_name=None):
+    """Capture the request with its rendering identity; None preserves pre-versioned rows."""
     values = _checked_provider_values(node, operands)
     return _resolve_provider_input_values(
         node,
@@ -196,6 +205,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path):
         workspace=workspace,
         reader=reader,
         result_path=result_path,
+        delivery_name=delivery_name,
     )
 
 
@@ -206,6 +216,7 @@ def _resolve_provider_input_values(
     workspace,
     reader,
     result_path,
+    delivery_name=None,
 ):
     """Prepare a provider request from plain values checked at its caller boundary."""
     reads = _resolve_provider_io_values(
@@ -225,6 +236,7 @@ def _resolve_provider_input_values(
     prompt = _assemble_provider_prompt_values(
         node, values, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path,
+        delivery=DELIVERY_SELECTORS["legacy" if delivery_name is None else delivery_name],
     )
     dependency_rows = (
         [] if reads.dependency_snapshot is None
@@ -238,6 +250,8 @@ def _resolve_provider_input_values(
         "prompt": "sha256:" + sha256(prompt.encode("utf-8")).hexdigest(),
         "dependency_rows": canonical_sha256(dependency_rows),
     }
+    if delivery_name is not None:
+        parts["delivery"] = canonical_sha256(delivery_name)
     if reads.source_kind is not None:
         parts[f"source:{reads.source_kind}:{reads.source_path}"] = (
             reads.source_sha256 or canonical_sha256(None)

@@ -27,6 +27,7 @@ from orchestrator.workflow.evaluated.interpreters import InterpreterError, check
 from orchestrator.workflow.evaluated.providers import (
     ProviderPerformerError,
     _resolve_provider_input_values,
+    current_provider_delivery_name,
     perform_provider,
 )
 from orchestrator.workflow.evaluated.values import _thaw
@@ -270,6 +271,7 @@ def _perform_dynamic_provider(
             workspace=workspace_files.workspace,
             reader=reader,
             result_path=result_path,
+            delivery_name=current_provider_delivery_name(native_node["provider"]),
         )
     except Exception as exc:
         raise _safe_provider_error(

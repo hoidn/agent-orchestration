@@ -146,8 +146,20 @@ def test_public_provider_selects_closure_and_runs_later_command(tmp_path, monkey
     _stage_tools(tmp_path, monkeypatch)
     _forbid_workflow_executor(monkeypatch)
 
+    from orchestrator.workflow.dynamic import runtime as runtime_module
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+    original_resolve = runtime_module._resolve_provider_input_values
+    prepared = []
+
+    def capture(*args, **kwargs):
+        resolved = original_resolve(*args, **kwargs)
+        prepared.append(resolved)
+        return resolved
+
+    monkeypatch.setattr(runtime_module, "_resolve_provider_input_values", capture)
     result = run_workflow(_args(path, providers, commands, _values()))
 
+    assert prepared[0].input_parts["delivery"] == canonical_sha256("file/1")
     assert result.exit_code == 0
     assert result.workflow_outputs == {
         "literal": "approved", "computed": "7", "opaque": "selected",

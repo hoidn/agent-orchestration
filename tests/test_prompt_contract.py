@@ -584,3 +584,117 @@ def test_inference_asset_output_is_only_output_contract_draft(tmp_path: Path) ->
     items = fields_spec["items"]
     assert items["record_name"] == "OutputContractField"
     assert [f["name"] for f in items["fields"]] == ["name", "type"]
+
+
+# --- output contract delivery rendering (orchestrator.contracts.prompt_contract) ---
+
+from orchestrator.contracts.prompt_contract import (  # noqa: E402
+    _RELPATH_GUIDANCE,
+    render_output_bundle_contract_block,
+    render_variant_output_contract_block,
+)
+
+_RESULT_PATH = ".orchestrate/runs/run-1/effects/abc/attempt-1/result.json"
+_PATH_LINE = f"- path: {_RESULT_PATH}"
+_RELPATH = {"type": "relpath", "under": "artifacts/work"}
+_SCHEMAS = {
+    "plain": ({"type": "string"}, False),
+    "relpath": (_RELPATH, True),
+    "list": ({"type": "list", "items": _RELPATH}, True),
+    "optional": ({"type": "optional", "item": _RELPATH}, True),
+    "map": ({"type": "map", "keys": {"type": "string"}, "values": _RELPATH}, True),
+    "record": ({"type": "record", "fields": [{"name": "report", **_RELPATH}]}, True),
+    "union": ({
+        "type": "union",
+        "discriminant": {"name": "kind", "type": "enum", "allowed": ["Done"]},
+        "variants": {"Done": {"fields": [{"name": "report", **_RELPATH}]}},
+    }, True),
+    "nested-plain": ({"type": "list", "items": {"type": "record", "fields": [{"name": "n", "type": "integer"}]}}, False),
+}
+
+
+def _variant(spec, *, shared=False):
+    field = {"name": "item", "json_pointer": "/item", **spec}
+    return {
+        "path": _RESULT_PATH,
+        "discriminant": {"name": "variant", "json_pointer": "/variant", "type": "enum", "allowed": ["Ready", "Skip"]},
+        **({"shared_fields": [field]} if shared else {}),
+        "variants": {
+            "Ready": {"fields": [] if shared else [field]},
+            "Skip": {"fields": [{"name": "reason", "json_pointer": "/reason", "type": "string"}]},
+        },
+    }
+
+
+_SHAPES = {
+    "root": (render_output_bundle_contract_block, "## Output Contract",
+             lambda spec: {"path": _RESULT_PATH, "fields": [{"name": "__result__", "json_pointer": "", **spec}]}),
+    "record": (render_output_bundle_contract_block, "## Output Contract",
+               lambda spec: {"path": _RESULT_PATH, "fields": [
+                   {"name": "ok", "json_pointer": "/ok", "type": "bool"},
+                   {"name": "item", "json_pointer": "/item", **spec}]}),
+    "variant": (render_variant_output_contract_block, "## Variant Output Contract", _variant),
+    "variant-shared": (render_variant_output_contract_block, "## Variant Output Contract",
+                       lambda spec: _variant(spec, shared=True)),
+}
+
+
+def _render(shape, schema, delivery):
+    render, heading, payload = _SHAPES[shape]
+    return heading, render(payload(_SCHEMAS[schema][0]), delivery=delivery)
+
+
+@pytest.mark.parametrize("delivery", ["legacy", "file"])
+@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_contract_block_has_one_path_line_before_its_schema(shape, schema, delivery):
+    heading, rendered = _render(shape, schema, delivery)
+    lines = rendered.splitlines()
+    format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: "))
+    assert lines.count(heading) == 1
+    assert lines.count(_PATH_LINE) == 1 and rendered.count(_RESULT_PATH) == 1
+    assert lines.index(heading) == 0 < lines.index(_PATH_LINE) < format_at
+
+
+@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_file_delivery_changes_only_the_lines_before_the_path_line(shape, schema):
+    _heading, legacy = _render(shape, schema, "legacy")
+    _heading, file = _render(shape, schema, "file")
+    marker = f"\n{_PATH_LINE}\n"
+    assert file[file.index(marker):] == legacy[legacy.index(marker):]
+    assert file[: file.index(marker)] != legacy[: legacy.index(marker)]
+
+
+@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_relpath_guidance_is_unconditional_under_legacy_and_typed_under_file(shape, schema):
+    has_relpath = _SCHEMAS[schema][1]
+    assert _RELPATH_GUIDANCE in _render(shape, schema, "legacy")[1].splitlines()
+    assert (_RELPATH_GUIDANCE in _render(shape, schema, "file")[1].splitlines()) == has_relpath
+
+
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_unknown_delivery_selector_is_rejected(shape):
+    with pytest.raises(ValueError):
+        _render(shape, "plain", "file/1")
+
+
+@pytest.mark.parametrize(("kind", "payload", "digest"), [
+    ("record", {"path": "effects/site/attempt-1/result.json", "fields": [
+        {"name": "ok", "json_pointer": "/ok", "type": "bool", "required": True}]},
+     "7a11b604dbddf5bc28d8487787672fdeec86dfa7199cca41d14581924aad357d"),
+    ("root", {"path": "effects/site/attempt-1/result.json", "fields": [
+        {"name": "__result__", "json_pointer": "", "type": "string", "required": True}]},
+     "e5e264aab53504eaa47aa36b1f010be778d62164d00603802703f9dbee023bdf"),
+    ("union", {"path": "effects/site/attempt-1/result.json", "discriminant": {
+        "name": "variant", "json_pointer": "/variant", "type": "enum", "allowed": ["OK", "FAIL"]},
+        "variants": {"OK": {"fields": [{"name": "ok", "json_pointer": "/ok", "type": "bool", "required": True}]},
+                     "FAIL": {"fields": [{"name": "reason", "json_pointer": "/reason", "type": "string", "required": True}]}},
+        "shared_fields": []},
+     "ec58c36b756c5a982a547c076886cbb6f8ef878a386375ed53e0a5f95aabcbaf"),
+])
+def test_legacy_delivery_preserves_pre_change_rendering_identity(kind, payload, digest):
+    from hashlib import sha256
+    renderer = render_variant_output_contract_block if kind == "union" else render_output_bundle_contract_block
+    assert sha256(renderer(payload, delivery="legacy").encode()).hexdigest() == digest

@@ -81,12 +81,12 @@ Store execution receipts and logs outside the repo in a new evidence directory; 
 
 The branch's `_resolve_effect_input` remains in `evaluated/runtime.py`; do not import upstream `effect_inputs.py` or split the runtime just to match upstream paths. Adapt upstream typed wrappers and plain-value shared helpers together.
 
-- [ ] Inventory all `resolve_provider_input`, `_resolve_provider_input_values`, `assemble_provider_prompt`, `_assemble_provider_prompt_values` and structured renderer callers. Establish pinned legacy renderer digests before any rendering edit.
-- [ ] Add behavior tests for current delivery selection, old committed rows lacking a delivery part, recognized historical digest, unknown digest refusal before provider launch, and native shared-performer delivery. Run collection and narrow failing selectors before editing production code.
-- [ ] Import the small renderer owner and thread delivery through both typed/plain-value helpers. Preserve `native_result`, `strict_transport_values`, `require_int64`, `redact_runtime_keys`, strict JSON/output validation, existing native attempt path handling and all present schema fixes.
-- [ ] On typed replay, a missing recorded delivery part means legacy rendering and no synthesized part; a known digest selects its exact historical rendering; unknown digests raise `effect_input_diverged` before launch. New calls select current delivery through one shared selector. Do not add native memo/replay state.
-- [ ] Run `pytest -q tests/test_prompt_contract.py tests/test_workflow_evaluated_prompts.py tests/test_workflow_evaluated_providers.py tests/test_workflow_evaluated_resume_replay.py tests/test_workflow_dynamic_providers.py`; require old committed provider requests to remain reusable without dispatch.
-- [ ] Review and commit with message `feat: preserve versioned provider delivery rendering`.
+- [x] Inventory all `resolve_provider_input`, `_resolve_provider_input_values`, `assemble_provider_prompt`, `_assemble_provider_prompt_values` and structured renderer callers. Establish pinned legacy renderer digests before any rendering edit.
+- [x] Add behavior tests for current delivery selection, old committed rows lacking a delivery part, recognized historical digest, unknown digest refusal before provider launch, and native shared-performer delivery. Run collection and narrow failing selectors before editing production code.
+- [x] Import the small renderer owner and thread delivery through both typed/plain-value helpers. Preserve `native_result`, `strict_transport_values`, `require_int64`, `redact_runtime_keys`, strict JSON/output validation, existing native attempt path handling and all present schema fixes.
+- [x] On typed replay, a missing recorded delivery part means legacy rendering and no synthesized part; a known digest selects its exact historical rendering; unknown digests raise `effect_input_diverged` before launch. New calls select current delivery through one shared selector. Do not add native memo/replay state.
+- [x] Run `pytest -q tests/test_prompt_contract.py tests/test_workflow_evaluated_prompts.py tests/test_workflow_evaluated_providers.py tests/test_workflow_evaluated_resume_replay.py tests/test_workflow_dynamic_providers.py`; require old committed provider requests to remain reusable without dispatch.
+- [x] Review and commit with message `feat: preserve versioned provider delivery rendering`.
 
 ### Task 3b: Port frozen OMP transport correction and file/2
 

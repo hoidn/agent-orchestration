@@ -38,7 +38,10 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow_lisp.closed.frontend import ProviderIOContext
-from .providers import perform_provider, resolve_provider_input
+from .providers import (
+    DELIVERY_NAMES_BY_DIGEST, current_provider_delivery_name,
+    perform_provider, resolve_provider_input,
+)
 from .run_ref import (
     prepare_evaluated_run_ref, require_run_ref_root, resolve_run_ref_input,
     settle_evaluated_run_ref, validate_evaluated_run_ref, reconcile_evaluated_run_ref,
@@ -396,9 +399,11 @@ def _resolve_effect_input(
         resolved, parts = resolve_run_ref_input(node, operands)
         implementation_files = {}
     else:
+        delivery_name = _provider_delivery_name(node, commit, identity)
         try:
             resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
-                result_path=workspace_relative_path(workspace, authority.run_root / result_path))
+                result_path=workspace_relative_path(workspace, authority.run_root / result_path),
+                delivery_name=delivery_name)
         except Exception as exc:
             if commit is not None:
                 raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
@@ -406,6 +411,18 @@ def _resolve_effect_input(
         parts = dict(resolved.input_parts)
         implementation_files = {}
     return resolved, parts, implementation_files
+
+
+def _provider_delivery_name(node, commit, identity):
+    """Replay only the committed rendering; missing parts predate versioning."""
+    if commit is None:
+        return current_provider_delivery_name(node["provider"])
+    digest = commit.data["input_parts"].get("delivery")
+    if digest is None:
+        return None
+    if digest not in DELIVERY_NAMES_BY_DIGEST:
+        raise _EffectInputDiverged(identity, "delivery rendering unknown")
+    return DELIVERY_NAMES_BY_DIGEST[digest]
 
 
 def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_unsettled=False) -> None:
