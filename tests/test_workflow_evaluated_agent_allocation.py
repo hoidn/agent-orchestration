@@ -136,9 +136,9 @@ def test_binding_field_change_is_refused(tmp_path, field, value) -> None:
 
 
 _ALLOWED = [("intent", "launching"), ("intent", "not_dispatched"), ("intent", "unknown"), ("launching", "unknown"),
-            ("launching", "completed"), ("launching", "not_dispatched"), ("unknown", "completed"), ("unknown", "abandoned"),
+            ("launching", "completed"), ("launching", "not_dispatched"), ("unknown", "completed"), ("unknown", "abandoned"), ("unknown", "not_dispatched"),
             ("completed", "completed"), ("completed", "abandoned")]
-_REFUSED = [("completed", "not_dispatched"), ("unknown", "not_dispatched"), ("completed", "unknown"), ("unknown", "unknown"),
+_REFUSED = [("completed", "not_dispatched"), ("completed", "unknown"), ("unknown", "unknown"),
             ("not_dispatched", "launching"), ("not_dispatched", "unknown"), ("launching", "intent"), ("intent", "completed"),
             ("abandoned", "completed"), ("completed", "launching")]
 

@@ -100,7 +100,7 @@ def classify_pending_turn(authority, node, identity, snapshot, workspace, resolv
             identity, pending.data["attempt"], pending.data["input_digest"]):
         raise MemoError("memo_inconsistent", f"receipt of {identity} disagrees with its started reservation")
     if receipt is None or receipt.completion in {"intent", "not_dispatched"}:
-        return PendingTurn("not_dispatched", receipt, None, "reserved; the executor never bound a child (no `launching`)")
+        return PendingTurn("not_dispatched", receipt, None, "no child bound (no `launching` receipt)")
     first_turn = resolved.predecessor is None
     if receipt.completion == "abandoned":
         return _uncertain(first_turn, receipt, None, "candidate already abandoned")
@@ -126,7 +126,7 @@ def _classify_native(first_turn, receipt: Receipt, adapter, marker, result_prese
     if turn is not None and result_present and _agrees(receipt, turn):
         return PendingTurn("recoverable", receipt, turn, "native completion and result evidence intact")
     if turn is None and _head_unchanged(receipt, head, before):
-        return PendingTurn("not_dispatched", receipt, None, "group stopped and the adapter proves the predecessor head unchanged")
+        return PendingTurn("not_dispatched", receipt, None, "head unchanged, process group quiescent")
     return _uncertain(first_turn, receipt, turn, "native state advanced, open or uncertain without an intact result")
 
 
@@ -157,20 +157,21 @@ def prepare_pending(authority, node, operands, identity, snapshot, *, resolved, 
     """Writer-locked half of recovery, behind `prepare_agent_attempt`: quiesce, re-classify, then act.
 
     `recoverable` -> a `PreparedAttempt` for the pending ordinal (`recovered=True`, no new `started`);
-    `not_dispatched` -> the pending attempt is closed `failed` (`provider_preparation_failed`, outside
-    `DISPATCHED_FAILURE_CODES`; the reducer refuses a new start beside a pending one) and None is returned, so the
-    caller allocates the next attempt; an `intent`/`launching` receipt is closed `not_dispatched`, an `unknown` one is
-    preserved as it was (the receipt owner never moves `unknown` back);
+    `not_dispatched` -> the receipt records `not_dispatched` first, then the pending attempt is closed `failed` with
+    `provider_preparation_failed` (R5: delivery never reached the native session; outside `DISPATCHED_FAILURE_CODES`;
+    the reducer refuses a new start beside a pending one) and its proof in `exit_info.error`; None is returned, so the
+    caller allocates the next attempt;
     anything else keeps the start pending as `agent_turn_unresolved` (`bootstrap` is Task 12).
     """
     classified = classify_pending_turn(authority, node, identity, snapshot, context["workspace"], resolved)
     pending = snapshot.pending_starts[identity]
     if classified.disposition == "not_dispatched":
-        if classified.receipt is not None and classified.receipt.completion in {"intent", "launching"}:
-            _update(context["run_files"], pending, completion="not_dispatched")
+        if classified.receipt is not None and classified.receipt.completion != "not_dispatched":
+            _update(context["run_files"], pending, completion="not_dispatched")       # R6: the receipt records the proof
         _require_retained_root(authority.run_files)
         agent_turns.append_record(authority.memo_path, {"record": "failed", "identity": identity, "attempt": pending.data["attempt"],
-                                                        "code": "provider_preparation_failed", "exit_info": {}},
+                                                        "code": "provider_preparation_failed",
+                                                        "exit_info": {"error": f"interrupted before native append: {classified.detail}"}},
                                   run_files=authority.run_files, checked_authority=authority)
         return None
     if classified.disposition != "recoverable":

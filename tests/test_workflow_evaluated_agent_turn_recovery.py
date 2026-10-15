@@ -245,6 +245,7 @@ def test_kill_after_intent_before_launch_allocates_the_next_attempt_on_resume(tm
     assert turns(after, classes)["a2"]["attempt"] == 2 and _receipt(run_root, pending)["completion"] == "not_dispatched"
     (closed,) = [e.data for e in after.entries if e.data["record"] == "failed"]     # the reducer admits one pending start
     assert closed["attempt"] == 1 and closed["code"] not in DISPATCHED_FAILURE_CODES   # never blocks an invalidation cut
+    assert closed["code"] == "provider_preparation_failed" and closed["exit_info"]["error"]   # R5: the proof is recorded
     assert len(shim_requests(tmp_path)) == 4
 
 

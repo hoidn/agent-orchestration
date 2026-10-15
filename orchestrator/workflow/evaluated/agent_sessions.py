@@ -122,11 +122,12 @@ class Receipt:
 
 
 # Allowed `completion` moves; `completed -> completed` adds the prepared `result_digest`. A move into
-# `not_dispatched` is only possible before the adapter saw an advance, so it never licenses a retry over one.
+# `not_dispatched` is only possible before the adapter saw an advance, so it never licenses a retry over one; the
+# caller holds that proof obligation (for `unknown`: resume proved a quiescent group and an unchanged, closed head).
 _TRANSITIONS = {
     "intent": {"launching", "not_dispatched", "unknown"},
     "launching": {"unknown", "completed", "not_dispatched"},
-    "unknown": {"completed", "abandoned"},
+    "unknown": {"completed", "abandoned", "not_dispatched"},
     "completed": {"completed", "abandoned"},
     "not_dispatched": set(),
     "abandoned": set(),
