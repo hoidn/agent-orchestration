@@ -462,6 +462,7 @@ def test_admission_refuses_a_child_with_a_provider_site_until_its_transport_exis
         _admit(world)
 
     assert caught.value.code == "run_ref_provider_transport_unavailable"
+    assert not world["store"].exists()
 
 
 def test_admission_admits_a_child_whose_effects_are_commands(tmp_path, store_image):

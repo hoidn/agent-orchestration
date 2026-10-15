@@ -10,8 +10,8 @@ parent run root, the terminal witness over committed command effects (the parent
 resume revalidates it), a holder death after a committed effect (a leaf stops the
 spawner) settling FAILED with `run_ref_environment_lost` and the clone at its last
 header, host time charged in accounting and a tiny `:wall-seconds` settling FAILED
-with `run_ref_budget_exhausted`, and a provider site refused with
-`run_ref_provider_transport_unavailable` before any run state or holder.
+with `run_ref_budget_exhausted`. Provider refusal is qualified by the Increment A
+lifecycle test in `test_e2e_run_ref_confined.py`.
 Cases skip without ORCHESTRATE_E2E, the CLIs, a user manager or the image record.
 """
 
@@ -210,30 +210,3 @@ def test_a_tiny_wall_budget_settles_failed_budget_exhausted(tmp_path, refs):
     assert (completed.returncode, memo.terminal.data["value"], site["value"]["accounting"]["terminal_status"],
             900 <= budget["charged_ms"] < 5000, budget["host_ms"] > 0, _scope_units()) == (
         0, "run_ref_budget_exhausted", "failed", True, True, []), completed.stderr
-
-
-def test_a_provider_site_is_refused_before_any_run_state_or_holder(tmp_path, refs):
-    def provider_child(source: str) -> str:
-        return source.replace('(command-result first :argv ("python3" "write.py") :returns Int)',
-                              "(provider-result providers.review :prompt prompts.base :inputs (seed) :returns Int)"
-                              ).replace(":network :none", ":network :model-only")
-
-    root, image = refs
-    repository, commit = _candidate(tmp_path, READ)
-    parent = tmp_path / "parent"
-    parent.mkdir()
-    (parent / "controller.orc").write_text(provider_child(
-        PARENT.replace("REPO", repository.as_uri()).replace("IMAGE", image).replace("WALL", "60")))
-    (parent / "boundaries.json").write_text(json.dumps({
-        "second": {"stable_command": ["python3", "read.py"], "closure": []}}))
-    (parent / "providers.json").write_text(json.dumps({"providers.review": "probe-provider"}))
-    (parent / "prompts.json").write_text(json.dumps({"prompts.base": "prompt.md"}))
-    (parent / "prompt.md").write_text("review\n")
-
-    refused = _cli(parent, "run", "controller.orc", "--entry-workflow", "controller::run",
-                   "--command-boundaries-file", "boundaries.json", "--provider-externs-file", "providers.json",
-                   "--prompt-externs-file", "prompts.json", "--run-ref-root", str(root),
-                   "--input", "seed=1", "--input", f"revision={commit}")
-
-    assert (refused.returncode, "run_ref_provider_transport_unavailable" in refused.stderr,
-            (parent / ".orchestrate" / "runs").exists(), _scope_units()) == (2, True, False, []), refused.stderr

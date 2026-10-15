@@ -19,7 +19,9 @@ is unreachable. The F3b-keyring witnesses live in `test_e2e_run_ref_keyring.py`.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -29,8 +31,18 @@ from pathlib import Path
 
 import pytest
 
-from tests.e2e.run_ref_fixtures import launch, sealed_rootfs, skip_unless_user_manager  # noqa: F401 (fixtures)
+from tests.e2e.run_ref_fixtures import (
+    IMAGE_RECORD, TREE_DIGEST, launch, sealed_rootfs, skip_unless_user_manager,
+)  # noqa: F401 (fixtures)
 from tests.e2e.run_ref_holder import Holder, keyed, members, populated
+from tests.e2e.test_e2e_run_ref_confined_child import (
+    PARENT, READ, REPOSITORY, _candidate, _child_memo, _git, _retained_checkpoint,
+    _scope_units, _settled, refs,
+)
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.workflow.evaluated.authority import load_run_authority
+from orchestrator.workflow.run_ref.holder_scope import recover_holder_scopes
+from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 
 pytestmark = pytest.mark.e2e
 
@@ -381,3 +393,364 @@ def test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected(launch):
         "prompt": True,
         "scope_populated": False,
     }, elapsed
+
+
+TASK9_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+  (defmodule run_ref_confined) (export main)
+  (defpath Artifact :kind relpath :under "out" :must-exist true)
+  (defworkflow candidate-body ((seed Int)) -> Artifact
+    (let* ((produced (command-result produce :argv ("python3" "produce.py") :returns Artifact))
+           (verified (command-result verify :argv ("python3" "verify.py") :returns Artifact)))
+      verified))
+  (defworkflow main ((seed Int) (revision String)) -> String
+    (let* ((child (run-ref :source (:repo "REPO" :commit revision)
+                    :program (:workflow candidate-body) :inputs (:seed seed)
+                    :policy (:environment :confined :image "IMAGE" :network :none
+                             :limits (:wall-seconds 300 :memory-mib 1024 :cpus 1 :pids 64
+                                      :workspace-mib 32 :output-mib 8)))))
+      (match child
+        ((COMPLETED c)
+          (command-result consume :argv ("python3" "consume.py" c.result.value) :returns String))
+        ((FAILED f) f.code)))))'''
+TASK9_PRODUCE = '''import json, os
+from pathlib import Path
+path = Path("out/result.txt")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text("hello from the confined child\\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps("out/result.txt"))
+'''
+TASK9_VERIFY = '''import json, os
+from pathlib import Path
+path = Path("out/result.txt")
+assert path.read_text() == "hello from the confined child\\n"
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps("out/result.txt"))
+'''
+TASK9_CONSUME = '''import json, os, sys
+from pathlib import Path
+payload = Path(sys.argv[1]).read_text()
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps("parent consumed: " + payload))
+'''
+
+TASK9_OBSERVER = r'''
+import json, os, time
+from pathlib import Path
+from orchestrator.workflow.run_ref import holder
+from orchestrator.workflow.evaluated import runtime
+control = Path(os.environ["TASK9_CONTROL"])
+def log(name, row):
+    with (control / name).open("ab", buffering=0) as stream:
+        stream.write(json.dumps(row, sort_keys=True).encode() + b"\n")
+def pause():
+    (control / "committed.json").write_text(json.dumps({"pid": os.getpid()}))
+    while True: time.sleep(1)
+real_launch = holder.Holder.launch
+def launch(self):
+    log("holders.jsonl", {"unit": self.unit})
+    return real_launch(self)
+holder.Holder.launch = launch
+real_leaf = holder.Holder.run_leaf
+def run_leaf(self, request):
+    log("dispatches.jsonl", {"unit": self.unit, "leaf": request.leaf_id})
+    return real_leaf(self, request)
+holder.Holder.run_leaf = run_leaf
+real_append = runtime.append_record
+paused = False
+def append(path, row, **kwargs):
+    global paused
+    result = real_append(path, row, **kwargs)
+    authority = kwargs.get("checked_authority")
+    if (not paused and authority is not None and authority.confined
+            and row.get("record") == "committed" and row.get("effect_class") == "command"):
+        paused = True
+        log("boundary.jsonl", {"identity": row["identity"], "record": row["record"], "effect_class": row["effect_class"]})
+        if os.environ.get("TASK9_PAUSE_AFTER_COMMIT") == "1": pause()
+    return result
+runtime.append_record = append
+'''
+
+
+def _task9_cli(parent: Path, *arguments: str, control: Path | None = None,
+               pause_after_commit: bool = False) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PYTHONPATH": str(REPOSITORY)}
+    command = [sys.executable, "-m", "orchestrator", *arguments]
+    if control is not None:
+        (control / "sitecustomize.py").write_text(TASK9_OBSERVER)
+        env.update(TASK9_CONTROL=str(control), TASK9_PAUSE_AFTER_COMMIT=str(int(pause_after_commit)))
+        env["PYTHONPATH"] = os.pathsep.join((str(control), str(REPOSITORY)))
+    return subprocess.run(command, cwd=parent, env=env, capture_output=True, text=True, timeout=600)
+
+
+def _task9_start(parent: Path, control: Path, arguments: list[str], *, pause_after_commit: bool):
+    number = len(list(control.glob("run-*.stdout.log")))
+    stdout_path, stderr_path = control / f"run-{number}.stdout.log", control / f"run-{number}.stderr.log"
+    stdout, stderr = stdout_path.open("wb"), stderr_path.open("wb")
+    env = {**os.environ, "PYTHONPATH": str(REPOSITORY), "TASK9_CONTROL": str(control),
+           "TASK9_PAUSE_AFTER_COMMIT": str(int(pause_after_commit))}
+    (control / "sitecustomize.py").write_text(TASK9_OBSERVER)
+    env["PYTHONPATH"] = os.pathsep.join((str(control), str(REPOSITORY)))
+    command = [sys.executable, "-m", "orchestrator", *arguments]
+    process = subprocess.Popen(command, cwd=parent, env=env, stdout=stdout, stderr=stderr,
+                               start_new_session=True)
+    return process, stdout, stderr, stdout_path, stderr_path, command
+
+
+def _task9_wait_for_commit(process, control: Path, stderr_path: Path) -> None:
+    deadline = time.monotonic() + 180
+    marker = control / "committed.json"
+    while not marker.exists():
+        if process.poll() is not None:
+            pytest.fail(f"CLI exited {process.returncode} before a child commit: {stderr_path.read_text()}")
+        if time.monotonic() > deadline:
+            pytest.fail(f"CLI did not reach a child commit: {stderr_path.read_text()}")
+        time.sleep(0.02)
+
+
+def _task9_run_tree(root: Path, *, exclude_image_store: bool = False) -> dict[str, tuple[int, int, int, bytes | None]]:
+    rows = {}
+    for path in sorted(root.rglob("*")):
+        if exclude_image_store and path.relative_to(root).parts[0] == "images":
+            continue
+        stat = path.lstat()
+        rows[path.relative_to(root).as_posix()] = (
+            stat.st_mode, stat.st_size, stat.st_mtime_ns, path.read_bytes() if path.is_file() else None)
+    return rows
+
+
+def test_increment_a_public_lifecycle_with_commands(tmp_path, refs, request):
+    root, image = refs
+    repository = tmp_path / "candidate"
+    repository.mkdir()
+    _git(repository, "init", "--quiet")
+    _git(repository, "config", "user.name", "Run Ref Task 9")
+    _git(repository, "config", "user.email", "run-ref-task9@example.invalid")
+    (repository / "produce.py").write_text(TASK9_PRODUCE)
+    (repository / "verify.py").write_text(TASK9_VERIFY)
+    _git(repository, "add", ".")
+    _git(repository, "commit", "--quiet", "-m", "candidate")
+    commit = _git(repository, "rev-parse", "HEAD")
+
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    source = parent / "run_ref_confined.orc"
+    source.write_text(TASK9_SOURCE.replace("REPO", repository.as_uri()).replace("IMAGE", image))
+    commands = parent / "commands.json"
+    commands.write_text(json.dumps({
+        "produce": {"stable_command": ["python3", "produce.py"], "closure": []},
+        "verify": {"stable_command": ["python3", "verify.py"], "closure": []},
+        "consume": {"stable_command": ["python3", "consume.py"], "closure": []},
+    }))
+    providers = parent / "providers.json"
+    providers.write_text("{}")
+    inputs = parent / "inputs.json"
+    inputs.write_text(json.dumps({"revision": commit, "seed": 1}))
+    (parent / "consume.py").write_text(TASK9_CONSUME)
+    runs = parent / ".orchestrate" / "runs"
+    runs.mkdir(parents=True)
+    run_roots_before = set(runs.iterdir())
+
+    def recover_only_this_tests_scopes():
+        for owned_run in set(runs.iterdir()) - run_roots_before:
+            for child in (owned_run / "run-ref-children").glob("*"):
+                recover_holder_scopes(child / "holder")
+
+    request.addfinalizer(recover_only_this_tests_scopes)
+    control = tmp_path / "control"
+    control.mkdir()
+    evidence_dir = Path(os.environ.get("TASK9_EVIDENCE_DIR", tmp_path / "evidence"))
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    frontend = ["--entry-workflow", "run_ref_confined::main", "--source-root", str(parent),
+                "--command-boundaries-file", str(commands), "--provider-externs-file", str(providers)]
+    compile_argv = ["compile", str(source), *frontend]
+    compiled = _task9_cli(parent, *compile_argv)
+    assert compiled.returncode == 0, compiled.stderr
+    summary = json.loads(compiled.stdout)
+    artifact_path = Path(summary["artifact_paths"]["closed_program"])
+    artifact = ClosedProgram.from_artifact(artifact_path.read_text())
+    assert summary["program_digest"] == artifact.digest
+
+    run_argv = ["run", str(source), *frontend, "--input-file", str(inputs), "--state-dir", str(runs),
+                "--run-ref-root", str(root)]
+    process, stdout, stderr, stdout_path, stderr_path, observed_run_argv = _task9_start(
+        parent, control, run_argv, pause_after_commit=True)
+    run_root = None
+    controller_killed = False
+    try:
+        _task9_wait_for_commit(process, control, stderr_path)
+        (run_root,) = tuple(runs.iterdir())
+        initial_ledger = load_attempt_ledger(run_root / "run-ref-attempts.jsonl")
+        initial_attempt = initial_ledger.rows[-1]
+        (initial_child_root,) = (run_root / "run-ref-children").iterdir()
+        initial_child_authority = load_run_authority(initial_child_root)
+        initial_child_memo = _child_memo(initial_child_root)
+        initial_commits = [entry.data for entry in initial_child_memo.active_commits.values()]
+        initial_dispatches = [json.loads(line) for line in (control / "dispatches.jsonl").read_text().splitlines()]
+        assert len(initial_commits) == len(initial_dispatches) == 1
+        assert initial_commits[0]["effect_class"] == "command"
+        assert initial_child_authority.run_root == initial_child_root
+        paused_authority = load_run_authority(run_root)
+        child_commit_boundary = json.loads((control / "boundary.jsonl").read_text().splitlines()[0])
+        assert child_commit_boundary["effect_class"] == "command"
+        os.kill(process.pid, signal.SIGKILL)
+        assert process.wait(timeout=30) == -signal.SIGKILL
+        controller_killed = True
+    finally:
+        if process.poll() is None:
+            os.kill(process.pid, signal.SIGKILL)
+            process.wait(timeout=30)
+        stdout.close()
+        stderr.close()
+        if not controller_killed:
+            for owned_run in set(runs.iterdir()) - run_roots_before:
+                for child in (owned_run / "run-ref-children").glob("*"):
+                    recover_holder_scopes(child / "holder")
+
+    run_id = run_root.name
+    resume_argv = ["resume", run_id, "--state-dir", str(runs), "--run-ref-root", str(root)]
+    resumed = _task9_cli(parent, *resume_argv, control=control)
+    if resumed.returncode != 0:
+        for child in (run_root / "run-ref-children").glob("*"):
+            recover_holder_scopes(child / "holder")
+    assert resumed.returncode == 0, resumed.stderr
+    authority, memo, site, workspace, child_root = _settled(parent)
+    header, final = _retained_checkpoint(workspace, child_root)
+    child_authority = load_run_authority(child_root)
+    child_memo = _child_memo(child_root)
+    ledger = load_attempt_ledger(run_root / "run-ref-attempts.jsonl")
+    child_commits = [entry.data for entry in child_memo.active_commits.values()]
+    dispatches_after_resume = [json.loads(line) for line in (control / "dispatches.jsonl").read_text().splitlines()]
+    report_argv = ["report", "--run-id", run_id, "--runs-root", str(runs), "--format", "json"]
+    report = _task9_cli(parent, *report_argv)
+    assert report.returncode == 0, report.stderr
+    rendered = json.loads(report.stdout)
+
+    exported = site["value"]["result"]["value"]
+    assert Path(parent / exported).read_text() == "hello from the confined child\n"
+    assert memo.terminal.data["value"] == "parent consumed: hello from the confined child\n"
+    assert authority.header["program_digest"] == artifact.digest == paused_authority.program.digest
+    assert child_authority.header["program_digest"] == child_authority.program.digest
+    assert child_memo.terminal.data["outcome"] == "completed"
+    assert [row["effect_class"] for row in child_commits] == ["command", "command"]
+    assert len(dispatches_after_resume) == 2
+    assert dispatches_after_resume[0] == initial_dispatches[0]
+    assert dispatches_after_resume[1]["leaf"] != initial_dispatches[0]["leaf"]
+    assert all(row.attempt_ordinal == initial_attempt.attempt_ordinal == 1
+               and row.bindings.child_run_id == initial_attempt.bindings.child_run_id
+               for row in ledger.rows)
+    assert ledger.rows[-1].bindings.child_run_id == initial_child_root.name
+    assert final.digest == header.manifest_digest and not workspace.exists()
+    assert not (child_root / "checkpoint.json").exists()
+    assert ledger.rows[-1].event_kind == "cleanup_complete"
+    assert site["value"]["result"]["workspace_delta"]
+    assert rendered["run"]["workflow_outputs"] == memo.terminal.data["value"]
+
+    before = _task9_run_tree(run_root)
+    run_ref_before = _task9_run_tree(root, exclude_image_store=True)
+    exported_bytes_before = Path(parent / exported).read_bytes()
+    holders_before = (control / "holders.jsonl").read_bytes()
+    dispatches_before = (control / "dispatches.jsonl").read_bytes()
+    scopes_before = _scope_units()
+    repeated = [_task9_cli(parent, *resume_argv, control=control) for _ in range(2)]
+    assert [item.returncode for item in repeated] == [0, 0]
+    assert _task9_run_tree(run_root) == before
+    assert _task9_run_tree(root, exclude_image_store=True) == run_ref_before
+    assert (control / "holders.jsonl").read_bytes() == holders_before
+    assert (control / "dispatches.jsonl").read_bytes() == dispatches_before
+    assert _scope_units() == scopes_before
+    assert Path(parent / exported).read_bytes() == exported_bytes_before
+
+    report_again = _task9_cli(parent, *report_argv)
+    assert report_again.returncode == 0, report_again.stderr
+    assert json.loads(report_again.stdout) == rendered
+    assert _task9_run_tree(run_root) == before
+    assert _task9_run_tree(root, exclude_image_store=True) == run_ref_before
+    assert Path(parent / exported).read_bytes() == exported_bytes_before
+
+    (evidence_dir / "compile.stdout.log").write_text(compiled.stdout)
+    (evidence_dir / "compile.stderr.log").write_text(compiled.stderr)
+    (evidence_dir / "run-interrupted.stdout.log").write_bytes(stdout_path.read_bytes())
+    (evidence_dir / "run-interrupted.stderr.log").write_bytes(stderr_path.read_bytes())
+    (evidence_dir / "resume.stdout.log").write_text(resumed.stdout)
+    (evidence_dir / "resume.stderr.log").write_text(resumed.stderr)
+    for number, item in enumerate(repeated, start=1):
+        (evidence_dir / f"completed-resume-{number}.stdout.log").write_text(item.stdout)
+        (evidence_dir / f"completed-resume-{number}.stderr.log").write_text(item.stderr)
+    (evidence_dir / "report.stdout.json").write_text(report.stdout)
+    (evidence_dir / "report.stderr.log").write_text(report.stderr)
+    (evidence_dir / "report-again.stdout.json").write_text(report_again.stdout)
+    (evidence_dir / "report-again.stderr.log").write_text(report_again.stderr)
+    image_record = json.loads(IMAGE_RECORD.read_text())
+    binary_pins = {}
+    for binary in ("bwrap", "systemd-run", "systemctl", sys.executable):
+        path = shutil.which(binary) if not Path(binary).is_absolute() else binary
+        binary_pins[binary] = {"path": path, "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
+    (evidence_dir / "task9-evidence.json").write_text(json.dumps({
+        "compile": {"argv": [sys.executable, "-m", "orchestrator", *compile_argv],
+                    "returncode": compiled.returncode, "build_key": summary["build_key"],
+                    "closed_artifact": str(artifact_path), "program_digest": artifact.digest},
+        "run_interrupted": {"argv": observed_run_argv, "returncode": -signal.SIGKILL,
+                            "run_id": run_id, "committed_child_effect": child_commit_boundary,
+                            "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)},
+        "resume": {"argv": [sys.executable, "-m", "orchestrator", *resume_argv],
+                   "returncode": resumed.returncode},
+        "completed_resumes": [{"argv": [sys.executable, "-m", "orchestrator", *resume_argv],
+                                "returncode": item.returncode} for item in repeated],
+        "report": {"argv": [sys.executable, "-m", "orchestrator", *report_argv],
+                   "returncode": report.returncode},
+        "memo_terminal": memo.terminal.data["value"], "exported_path": exported,
+        "ledger_events": [row.event_kind for row in ledger.rows],
+        "attempt_ordinal": initial_attempt.attempt_ordinal,
+        "child_run_id": initial_attempt.bindings.child_run_id,
+        "initial_committed_effects": initial_commits,
+        "final_committed_effects": child_commits,
+        "holders": [json.loads(line) for line in (control / "holders.jsonl").read_text().splitlines()],
+        "dispatches": [json.loads(line) for line in (control / "dispatches.jsonl").read_text().splitlines()],
+        "image": image, "image_record": image_record, "image_record_sha256": hashlib.sha256(
+            IMAGE_RECORD.read_bytes()).hexdigest(), "tree_digest": TREE_DIGEST,
+        "binary_pins": binary_pins, "scope_units_after": _scope_units(),
+    }, indent=2, sort_keys=True))
+
+
+def test_provider_effects_refuse_before_holder_launch(tmp_path, refs):
+    root, image = refs
+    repository, commit = _candidate(tmp_path, READ)
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    control = tmp_path / "control"
+    control.mkdir()
+    source = PARENT.replace("REPO", repository.as_uri()).replace("IMAGE", image).replace("WALL", "60")
+    source = source.replace('(command-result first :argv ("python3" "write.py") :returns Int)',
+        "(provider-result providers.review :prompt prompts.base :inputs (seed) :returns Int)")
+    source = source.replace(":network :none", ":network :model-only")
+    (parent / "controller.orc").write_text(source)
+    (parent / "boundaries.json").write_text(json.dumps({
+        "second": {"stable_command": ["python3", "read.py"], "closure": []}}))
+    (parent / "providers.json").write_text(json.dumps({"providers.review": "probe-provider"}))
+    (parent / "prompts.json").write_text(json.dumps({"prompts.base": "prompt.md"}))
+    (parent / "prompt.md").write_text("review\n")
+    inputs = parent / "inputs.json"
+    inputs.write_text(json.dumps({"revision": commit, "seed": 1}))
+    units_before = _scope_units()
+
+    refused_argv = ["run", str(parent / "controller.orc"), "--entry-workflow", "controller::run",
+        "--source-root", str(parent), "--command-boundaries-file", str(parent / "boundaries.json"),
+        "--provider-externs-file", str(parent / "providers.json"),
+        "--prompt-externs-file", str(parent / "prompts.json"), "--input-file", str(inputs),
+        "--state-dir", str(parent / ".orchestrate" / "runs"), "--run-ref-root", str(root)]
+    refused = _task9_cli(parent, *refused_argv, control=control)
+    units_after = _scope_units()
+
+    assert refused.returncode == 2 and "run_ref_provider_transport_unavailable" in refused.stderr
+    assert not (parent / ".orchestrate" / "runs").exists()
+    assert units_after == units_before
+    assert not (control / "holders.jsonl").exists()
+    assert not (control / "dispatches.jsonl").exists()
+    evidence_dir = Path(os.environ.get("TASK9_EVIDENCE_DIR", tmp_path / "evidence"))
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "provider-refusal.stdout.log").write_text(refused.stdout)
+    (evidence_dir / "provider-refusal.stderr.log").write_text(refused.stderr)
+    (evidence_dir / "provider-refusal.json").write_text(json.dumps({
+        "argv": [sys.executable, "-m", "orchestrator", *refused_argv],
+        "returncode": refused.returncode, "diagnostic": "run_ref_provider_transport_unavailable",
+        "run_state_created": False, "scope_units_before": units_before, "scope_units_after": units_after,
+    }, indent=2, sort_keys=True))
