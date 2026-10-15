@@ -334,7 +334,13 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   Repeating the command after the record survived, including after a lost
   acknowledgment, reports `invalidate_not_committed` and leaves the run
   resumable with the whole suffix cancelled. A suffix containing a committed
-  run reference refuses whole with `invalidate_coordinator_committed`. A
+  run reference or a committed agent turn refuses whole with
+  `invalidate_coordinator_committed`; a suffix (by journal order of starts,
+  including abandoned bootstrap attempts) containing an agent turn attempt that
+  was dispatched, advanced its native session or is of uncertain outcome
+  refuses `invalidate_agent_session_advanced`; an unreadable required receipt
+  is `memo_inconsistent`; unused allocations and proven-undispatched attempts
+  invalidate normally. All checks precede tail repair or any write. A
   journal or view failure after the checks (`memo_*`, `view_write_failed`)
   also exits `2`; after `view_write_failed` the range record is already
   durable, which is the lost-acknowledgment case above. Invalidation cancels

@@ -1015,8 +1015,10 @@ the ordinal rule's moves are measured against the alternative (gate report,
 A failed terminal does not require the failed effect to have committed.
 Failure during settlement leaves a committed, unsettled effect and no new
 terminal; resume must reconcile it. The checked program maps each
-`effect_class` to ordinary or coordinator execution (only `run_ref` is a
-coordinator in the first release). The record's class must agree with its
+`effect_class` to ordinary or coordinator execution (`run_ref` and, at
+target 2.38, `agent_turn` are the admitted coordinators; the agent
+attempt-history guard is `invalidate_agent_session_advanced` (Agent Sessions,
+Persistence)). The record's class must agree with its
 site, and coordinator proof is required, not inferred from an optional field.
 
 A terminal is reopened by `invalidated`, or, after a failed terminal, the
@@ -1668,7 +1670,7 @@ does not bypass that guard.
 
 | Rule | Statement |
 | --- | --- |
-| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run is never superseded (K8) |
+| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run or agent turn is never superseded (K8); at target 2.38 refuse `invalidate_agent_session_advanced` for agent turn attempt history the cut would cancel that was dispatched, advanced or is of uncertain outcome (Agent Sessions, Persistence) |
 | C9 | Each `committed` record keeps `depends_on`: the identities whose results its resolved input read, through names, arguments, results, loop state, join parameters, `case` bindings and the conditions that chose a value; an effect inside a branch does not depend on the branch's condition. `depends_on` is computed per value, not per field: a record, list or loop state carries the union of its parts' dependencies and a field or item taken from it keeps them all (§4.2.3). It is therefore a superset of the identities actually read and never omits one; in a serial `list/map-effect`, whose items pass through a loop state that also accumulates their results, each item depends on every earlier item. Evidence that one effect consumed another's output rests on C6 read digests, not on `depends_on` alone. Narrowing `depends_on` to the parts actually read is an entry condition of the release that scopes invalidation by C9. In the first release this is evidence, not the scope of an invalidation: a dependence through a file, where one effect writes a path that a later one reads, leaves no trace in values, and a shipped workflow has that shape (`workflows/library/verified_iteration_drain/drain.orc`). Narrowing an invalidation to dependents through values and declared files is a later release, entered when command boundaries declare the files they read and write, with the file-dependence fixture of §17 as its evidence |
 
 The range's `from_commit` names the chosen commit's immutable byte offset in

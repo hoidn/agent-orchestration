@@ -11,7 +11,8 @@ import logging
 
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
-from . import effect_inputs
+from . import agent_guards, effect_inputs
+from .machine import site_classes
 from .memo import MemoError, read_memo
 from .replay import discover_prefix
 
@@ -62,6 +63,7 @@ def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
             launch_workspace=reached.launch_workspace)
+    agent_guards.validate_prefix_receipts(authority, snapshot, site_classes(authority.program))
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)
     for reached in prefix.frontiers:
         effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,

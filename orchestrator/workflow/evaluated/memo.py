@@ -168,6 +168,8 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     suffix = [item for item in snapshot.active_commits.values() if item.offset >= chosen.offset]
     if any(is_coordinator_class(item.data["effect_class"]) for item in suffix):
         raise MemoError("invalidate_coordinator_committed", identity)
+    from .agent_guards import check_invalidation_suffix
+    check_invalidation_suffix(snapshot, chosen, run_files, site_classes)     # receipt-aware agent history, before any write
     if snapshot.tail:
         repair_torn_tail(path, snapshot, run_files=run_files)
     row = {"record": "invalidated", "from_commit": chosen.offset, "time": time.time()}
