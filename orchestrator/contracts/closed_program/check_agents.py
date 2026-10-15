@@ -180,14 +180,19 @@ def _check_agent(checker, node, env, walk) -> None:
     _allocated_providers(checker)[id(node["result"])] = node["provider"]
 
 
-def _check_agent_turn(checker, node, env, walk) -> None:
-    if set(node) - _TURN_KEYS or not _TURN_REQUIRED <= set(node):
-        checker.fail("effect_shape", "agent turn has missing or class-inappropriate fields", node)
+def _check_agent_origins(checker, node) -> list[str]:
     origins = node["origins"]
     if (not isinstance(origins, list) or not origins
             or not all(isinstance(origin, str) and origin.strip() for origin in origins)
             or origins != sorted(set(origins))):
         checker.fail("effect_shape", "agent turn origins must be a non-empty sorted unique provider list", node)
+    return origins
+
+
+def _check_agent_turn(checker, node, env, walk) -> None:
+    if set(node) - _TURN_KEYS or not _TURN_REQUIRED <= set(node):
+        checker.fail("effect_shape", "agent turn has missing or class-inappropriate fields", node)
+    origins = _check_agent_origins(checker, node)
     if not isinstance(node["policy"], Mapping) or set(node["policy"]) - {"timeout_sec"}:
         checker.fail("effect_shape", "agent turn policy may only carry timeout_sec", node)
     agent = node["agent"]

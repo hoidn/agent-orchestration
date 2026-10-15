@@ -82,32 +82,40 @@ def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
 
     kind = node.get("class")
     if kind == "command":
-        children = list(node.get("argv", []))
-        for plan in node.get("argv_transport", []):
-            children.extend(part["value"] for part in plan.get("parts", [])
-                if part.get("kind") == "slot")
-        children.extend(row[1] for row in node.get("document", []))
-        return children
+        return _command_value_children(node)
     if kind == "agent":
         return [value for value in (node.get("policy") or {}).values() if isinstance(value, dict)]
     if kind in {"provider", "agent_turn"}:
-        children = [node.get("agent")] if kind == "agent_turn" else []
-        children.extend(row[2] for row in node.get("inputs", []))
-        prompt = node.get("prompt")
-        fills = prompt.get("fills", []) if isinstance(prompt, dict) else []
-        if isinstance(fills, list):
-            children.extend(row.get("value") for row in fills if isinstance(row, dict))
-        dependencies = node.get("dependencies")
-        if isinstance(dependencies, dict):
-            children.extend(dependencies.get("required", []))
-            children.extend(dependencies.get("optional", []))
-        policy = node.get("policy")
-        if isinstance(policy, dict):
-            children.extend(policy.values())
-        return [child for child in children if isinstance(child, dict)]
+        return _provider_value_children(node)
     if kind == "run_ref":
         return [row[1] for row in node.get("inputs", [])]
     return []
+
+
+def _command_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
+    children = list(node.get("argv", []))
+    for plan in node.get("argv_transport", []):
+        children.extend(part["value"] for part in plan.get("parts", [])
+            if part.get("kind") == "slot")
+    children.extend(row[1] for row in node.get("document", []))
+    return children
+
+
+def _provider_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
+    children = [node.get("agent")] if node.get("class") == "agent_turn" else []
+    children.extend(row[2] for row in node.get("inputs", []))
+    prompt = node.get("prompt")
+    fills = prompt.get("fills", []) if isinstance(prompt, dict) else []
+    if isinstance(fills, list):
+        children.extend(row.get("value") for row in fills if isinstance(row, dict))
+    dependencies = node.get("dependencies")
+    if isinstance(dependencies, dict):
+        children.extend(dependencies.get("required", []))
+        children.extend(dependencies.get("optional", []))
+    policy = node.get("policy")
+    if isinstance(policy, dict):
+        children.extend(policy.values())
+    return [child for child in children if isinstance(child, dict)]
 
 
 def _value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
