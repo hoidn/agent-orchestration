@@ -1,0 +1,163 @@
+{
+  "experiment": "E-B2: on rung 3 of the difficulty calibration (adopted-attempt-lineage), where two single gpt-6.1-sol calls passed 27/52 and 16/52 hidden tests and their reviews raised one blocker per patch, (a) does design_review_execute (Opus plans and revises, gpt-6.1-sol reviews and executes) deliver more of the hidden acceptance tests than one gpt-6.1-sol call with the same task text and time limit, and (b) does reviewed_change's review loop raise its own first patch's hidden acceptance?",
+  "task": "experiments/compare/tasks/adopted-attempt-lineage",
+  "base_commit": "db2107526a7000c6ea9e8e4041e8d786ff624e79",
+  "solution": "1eb06773029df5c62d81c10e0d60ea6f72c81ab7",
+  "arms": [
+    "design_review_execute",
+    "reviewed_change",
+    "direct_task"
+  ],
+  "comparator": {
+    "design_review_execute": "direct_task runs in the same pool (hidden_minus_control primary; minus_control secondary)",
+    "reviewed_change": "its own first patch (hidden_paired_gain primary; paired_gain secondary); direct_task for hidden_minus_control, secondary only",
+    "direct_task": "none: the control, gpt-6.1-sol through the codex binding the treatment's executor uses, effort high, :timeout-sec 14400 like the executor"
+  },
+  "calibration": {
+    "report": "docs/reports/2026-10-14-task-difficulty-calibration.md",
+    "criterion_sha256": "3149bc36e6b822eba5e7d735abacad6bb145487259c0d0b090feb837daedab66",
+    "rung_3": "single calls 27/52 (0.519) and 16/52 (0.308); reviews REQUEST_CHANGES with 1 and 1 blockers (mean 1.0); upstream anchor 52/52, stub 0/52",
+    "qualification": "rung 3 does not meet the frozen calibration criterion (one single call passed 0.519 >= 0.5). The owner chose it on 2026-10-15 under the owner's blocker rule (mean >= 1) alone; of the four rungs it has the lowest single-call hidden mean (0.41).",
+    "isolation": "calibration runs (direct_task run-5 and run-6, review_once run-5 and run-6 under /home/ollie/calib-work), the E-B2 smoke runs (/home/ollie/compare-smoke-eb2) and the Task 8 direct_task smoke (/home/ollie/calib-work/smoke) are never pooled"
+  },
+  "primary": [
+    {
+      "measure": "design_review_execute.hidden_minus_control",
+      "op": ">=",
+      "value": 0.3
+    },
+    {
+      "measure": "design_review_execute.runs",
+      "op": ">=",
+      "value": 3
+    },
+    {
+      "measure": "direct_task.runs",
+      "op": ">=",
+      "value": 3
+    },
+    {
+      "measure": "reviewed_change.hidden_paired_gain_mean",
+      "op": ">=",
+      "value": 0.1
+    },
+    {
+      "measure": "reviewed_change.hidden_paired_gain_runs_negative",
+      "op": "<=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.runs",
+      "op": ">=",
+      "value": 3
+    }
+  ],
+  "secondary": [
+    {
+      "measure": "design_review_execute.minus_control",
+      "op": ">=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.paired_gain_mean",
+      "op": ">=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.hidden_minus_control",
+      "op": ">=",
+      "value": 0
+    }
+  ],
+  "claims": {
+    "design_review_execute": [
+      "design_review_execute.hidden_minus_control",
+      "design_review_execute.runs",
+      "direct_task.runs"
+    ],
+    "reviewed_change": [
+      "reviewed_change.hidden_paired_gain_mean",
+      "reviewed_change.hidden_paired_gain_runs_negative",
+      "reviewed_change.runs"
+    ]
+  },
+  "scale": "hidden: a node id passes iff pytest exits 0 within 1800 s, run alone in a copy of the clone (no .git) with hidden/ copied over it; a clone's value is its passed/52; a run's hidden value is its final clone's; reviewed_change's hidden paired gain is its final clone's fraction minus its first clone's (0 when the first and final patches are identical after D8 stripping, as when the reviewer approves the first patch). Failed and contaminated runs have none. Judge score 0-8 as in E-A.",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
+  "judge_bindings": {
+    "claude-opus-5-5": "experiments/compare/score.providers.json",
+    "gpt-6-sol": "experiments/compare/providers/score_codex.json"
+  },
+  "runs_per_arm": {
+    "design_review_execute": 3,
+    "reviewed_change": 3,
+    "direct_task": 3
+  },
+  "anchors": [
+    "adopted-attempt-lineage-upstream",
+    "adopted-attempt-lineage-stub"
+  ],
+  "anchor_roles": {
+    "adopted-attempt-lineage-upstream": "the repository's own change (db210752..1eb06773, restricted to orchestrator/, specs/ and workflows/, tests excluded)",
+    "adopted-attempt-lineage-stub": "low anchor: registers the entry points and the capture-invalidated-adopted subcommand and does nothing useful"
+  },
+  "known_differences": [
+    "rung 3 qualified by the owner's decision on the blocker rule alone; one calibration single call passed 0.519 of the hidden tests, above the calibration criterion's 0.5",
+    "design_review_execute's planner is claude-opus-5-5 (owner decision, 2026-10-15), not the claude-fable-5-1 the arm was designed with; it is the same model as the Claude judge, whose view excludes the planner's documents (D8)",
+    "reviewed_change's coder is claude-sonnet-5-5 with 5400 s per call, the control is gpt-6.1-sol with 14400 s: reviewed_change.hidden_minus_control measures the model and the time limit as well as the workflow, so it is secondary only",
+    "judges: gpt-6-sol is reviewed_change's reviewer model (departing from R2 and design Q3; ruling R54) and shares the OpenAI family with design_review_execute's reviewer and executor and with the control (gpt-6.1-sol); judge scores bear only on secondary entries",
+    "three runs per arm with run floors of three (owner decision): any failed or contaminated run leaves its claim not evaluated",
+    "the task text names the entry points, record schemas and CLI subcommand the hidden tests drive (calibration rulings R44 and R50)",
+    "the solution is public and present in the main checkout and sibling worktrees on this machine; detection by scan, adjudicated per run",
+    "design artifacts (docs/design/, artifacts/) are stripped from every pooled patch so judges cannot tell the arms apart",
+    "design_review_execute makes four calls (three of up to 3600 s before the 14400 s executor) and reviewed_change up to six calls of 5400 s, against the control's one; only the executor's limit is equalized with the control; calls_mean and wall_clock_mean are reported",
+    "failed runs carry no value: a timeout drops a run instead of scoring its partial patch; with a floor equal to the runs per arm any failed run leaves its claim not evaluated, and failures are reported per arm",
+    "one hidden node id is 1/52 = 0.019 of the scale",
+    "agents run under bubblewrap with a private /tmp, /dev/shm and process list and an empty /var/tmp (R35, R45); home, other sessions' transcripts and the network stay reachable and are covered by the scan only",
+    "direct_task has no E-B2 smoke (R52): its mechanics rest on the Task 8 smoke at 26bb4d73 and on rung 3's direct_task run-5 and run-6 at 490f6dc8, whose harness differs from runtime.commit only in summarize.py",
+    "reviewed_change's first and final patches sit in different stage batches, so its judge paired_gain compares scores across batches"
+  ],
+  "exclusions": "Only runs the controller adjudicates as contaminated are excluded (R20; scan hash 1eb06773029df5c62d81c10e0d60ea6f72c81ab7), every verdict recorded before pool. Infrastructure failures (rate limit, auth, CLI crash before agent output; R3) are resumed. Every other failure, provider_timeout included, stays a failed run: never resumed, relaunched or replaced, never pooled. A contaminated run is not replaced. No run beyond three per arm; if budget or quota stops the batch before three per arm exist, the affected claim is 'not evaluated'.",
+  "written_before_scoring": true,
+  "runtime": {
+    "path": "/home/ollie/compare-runtime",
+    "commit": "e88820864c894c96ec2023f85b95db7a9ef59d6d",
+    "why_one_checkout": "the scan's frozen-runtime pattern names this one path, and the checkout holds the package and its anchors"
+  },
+  "package_sha256": "c5ebb75803cbdb19eabff4c1f0e5e9627ab399fb6733192581961f5957e628b9",
+  "package_sha256_method": "cd <runtime>/<task>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum",
+  "work_root": "/home/ollie/compare-work-eb2c",
+  "pool": "/home/ollie/compare-work-eb2c/pool",
+  "inputs": {
+    "design_review_execute": {
+      "planner_model": "claude-opus-5-5",
+      "reviewer_model": "gpt-6.1-sol"
+    },
+    "reviewed_change": "task, intent and repo from the package; models fixed by the workflow (coder claude-sonnet-5-5, reviewer gpt-6-sol)",
+    "direct_task": {
+      "model": "gpt-6.1-sol",
+      "effort": "high"
+    }
+  },
+  "hidden_acceptance": "summarize.py --python /home/ollie/miniconda3/bin/python (the interpreter that gave the upstream anchor 52/52 and the stub 0/52 in calibration); the first summarize over the final pool (all batch runs, both judges verified and adjudicated) stands; any later summarize is reported beside it; readouts from any other pool are labelled partial and never stand.",
+  "reported": [
+    "design_review_execute.hidden_mean",
+    "reviewed_change.hidden_mean",
+    "direct_task.hidden_mean",
+    "reviewed_change.hidden_paired_gain_runs_positive",
+    "design_review_execute.calls_mean",
+    "reviewed_change.calls_mean",
+    "direct_task.calls_mean",
+    "design_review_execute.wall_clock_mean",
+    "reviewed_change.wall_clock_mean",
+    "direct_task.wall_clock_mean"
+  ],
+  "verdict_rules": "Each claim is judged separately. A claim is 'not evaluated' if any of its <arm>.runs entries is not met or not emitted; otherwise it holds iff all its other entries are met, and a measure summarize does not emit counts as not met. Secondary entries never change a verdict; a gain of exactly 0 is neither positive nor negative.",
+  "validity": "Void unless mapping.json's task is <runtime>/<task>, the package hash matches at the runtime commit, its judges equal `judges` (summarize refuses otherwise), every batch carries exactly the `anchors` stems, mapping.json's runtime_commit and every pooled run's record.json runtime_commit equal runtime.commit (checked by the controller; pool does not compare them), mapping.json's runs are exactly records/<arm>/run-1..run-3 under work_root for the three arms, and the upstream anchor's hidden fraction is 1.0 in every batch.",
+  "anchor_use": "Anchor judge scores and hidden fractions are reported; apart from the upstream validity check nothing is adjusted, excluded or re-scored because of them.",
+  "judge_rules": "Judge scores bear only on secondary entries, but summarize needs at least one judge to emit any measure (a run with no judge score has no value and is not counted in <arm>.runs). A judge is left out only by a contaminated scan verdict recorded, with its reason, before summarize; with one left the report says so; with none, summarize refuses and both claims are not evaluated.",
+  "threshold_provenance": "design_review_execute +0.3 is the design's E-B threshold, set before any E-B data; on rung 3 the calibration single calls averaged 0.41, so the claim needs about 0.71, roughly 16 node ids above the control. reviewed_change +0.1 with no run worse was set by the coordinator before any E-B2 data (ruling R53): 0.1 × 52 ≈ 5 node ids per run, a judgement not derived from calibration data, which did not measure how many node ids a fixed blocker moves. Both thresholds were fixed after rung 3's calibration numbers were known; E-A's judge-scale threshold was +0.5 of 8. Neither is a power calculation; per-run values are reported.",
+  "owner_decisions": "2026-10-15: rung 3; planner claude-opus-5-5 instead of claude-fable-5-1; three runs per arm; best_of_n not run."
+}
