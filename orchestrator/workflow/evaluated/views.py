@@ -180,6 +180,12 @@ def _update_effect_row(target, row, snapshot):
         target["duration_ms"] = int((row["time"] - snapshot.latest_starts[row["identity"]].data["time"]) * 1000)
         if (row["identity"], row["attempt"]) in snapshot.unsettled_coordinators:
             target["status"] = "settling"
+        if row["effect_class"] == "agent_turn":     # logical identities only: never the locator or position
+            proof = row["proof"]
+            target.update(agent=proof["agent"], predecessor=proof["predecessor"], locator_present=True,
+                          continuation="initial" if proof["predecessor"] is None else "continued")
+        elif row["effect_class"] == "agent":
+            target["agent"] = row["identity"]
     elif kind == "failed":
         target.update(status="failed", error={"type": row["code"], "code": row["code"],
                                                "exit_info": row["exit_info"]})
