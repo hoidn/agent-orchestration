@@ -491,8 +491,10 @@ Both measurements and their thresholds are frozen in the criterion. A task
 that misses either one is replaced by a harder task, not run. Census commits
 of a few hundred lines are not candidates. The E-B qualification rule above
 is the first of the two checks. The procedure, the review-only arm and the
-candidate ladder are planned in the plan's Task 8, and the calibrated experiment
-in its Task 9.
+candidate ladder are in the plan's Task 8, and the calibrated experiment is in its
+Task 9. The first calibration ([report](../reports/2026-10-14-task-difficulty-calibration.md))
+found the blocker condition met on every rung tried, but no rung where a single call
+passed less than half of the hidden tests.
 
 Budget, serial, approximate. E-A: six `best_of_n` runs of five calls, six
 `reviewed_change` runs of two to six calls and six single-call control runs,

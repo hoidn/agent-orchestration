@@ -285,6 +285,11 @@ navigation are complete.
 **Keywords:** orc, effectiveness, experiment, comparison, best-of-n, reviewed-change, design-review-execute, judges, criterion, sandbox
 **Use this when:** Running or designing a workflow-versus-single-call comparison. The results are in the [E-A report](reports/2026-10-14-orc-versus-single-call-evaluated.md) (reviewed_change replicated; best_of_n fell one run short) and the [E-B report](reports/2026-10-14-design-review-execute-versus-single-call.md) (not evaluated; the task did not qualify). The [postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md) records what went wrong in running them.
 
+### [Task-Difficulty Calibration](reports/2026-10-14-task-difficulty-calibration.md)
+**Description:** Plan Task 8 result (2026-10-14). Four rungs of 2000–4000-line features were measured with two `gpt-6.1-sol` single calls and one `gpt-6-sol` review each. Review blockers averaged 1.0–2.5 on every rung, but single calls passed 31–91% of the hidden tests, so no rung met the frozen "below half" condition.
+**Keywords:** calibration, difficulty, review blockers, hidden acceptance, single call, ladder
+**Use this when:** Choosing a task for a workflow-versus-single-call experiment, or deciding how Task 9 proceeds.
+
 ### [Effectiveness Harness And Experiments Plan](plans/2026-10-14-effectiveness-harness-and-experiments-plan.md)
 **Description:** Executed plan (2026-10-14) that built the comparison harness, retired the lean pilot and ran E-A and E-B; its appendix lists every ruling made during execution (R1–R41).
 **Keywords:** orc, effectiveness, harness, plan, rulings, e-a, e-b

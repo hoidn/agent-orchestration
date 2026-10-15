@@ -14,8 +14,10 @@ qualify. The outcomes are in the [E-A report](../reports/2026-10-14-orc-versus-s
 [E-B report](../reports/2026-10-14-design-review-execute-versus-single-call.md) and the
 [postmortem](../reports/2026-10-14-effectiveness-experiments-postmortem.md). Q1–Q5 were answered by coordinator
 rulings, and every ruling made during execution is listed in the appendix below. Tasks 8 and 9
-(task-difficulty calibration and the calibrated experiment) were added at the owner's request on 2026-10-14. They
-are planned, not executed.
+(task-difficulty calibration and the calibrated experiment) were added at the owner's request on 2026-10-14. Task 8
+was executed the same day ([calibration report](../reports/2026-10-14-task-difficulty-calibration.md)). No rung qualified:
+the blocker condition held at every rung, but the single-call condition never did. Task 9 has not run and waits on the
+owner's choice in that report.
 **Design:** [comparison harness and experiments](../design/orc_effectiveness_comparison_harness.md).
 **Goal:** a comparison between a maintained workflow and a single call can be
 run on current `main` with one command per arm, scored blind side by side
