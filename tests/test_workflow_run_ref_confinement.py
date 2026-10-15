@@ -684,7 +684,7 @@ def test_child_run_authority_lives_only_in_external_control_root(world):
     in_clone = sorted(path.name for path in clone.rglob("*") if path.name in REJECTED_IN_CLONE)
 
     assert (in_clone, sorted(path.name for path in root.iterdir())) == (
-        [], ["child-recipe.json", "closed_program.json", "memo.jsonl", "run.json", "run.lock", "state.json"])
+        [], ["child-recipe.json", "closed_program.json", "image-inventory.json", "memo.jsonl", "run.json", "run.lock", "state.json"])
 
 
 def test_external_control_root_memo_carries_the_terminal_value(world):
@@ -798,3 +798,57 @@ def test_confined_revision_has_no_setup_and_accounting_charges_no_setup(world):
 def test_confinement_profile_is_not_a_registered_isolation_backend():
     with pytest.raises(ProviderIsolationBackendUnavailable):
         get_provider_isolation_backend("run_ref_confinement.v1")
+
+
+def test_retained_image_inventory_reconstructs_live_file_and_directory_rows(tmp_path):
+    layout, name = _oci_layout(tmp_path)
+    store = tmp_path / 'store'
+    image_store.import_oci_layout(store, name, layout)
+    image = image_store.open_sealed_image(store, name)
+    try:
+        from orchestrator.workflow.evaluated.confined_dispatch import _image_row
+        expected = {path: _image_row(image, path) for path in ('/bin/sh', '/usr/bin', '/etc/hostname')}
+        payload = image_store.capture_inventory(image)
+        admission = dict(image.record)
+    finally:
+        image.close()
+    store.rename(tmp_path / 'withdrawn-store')
+    inventory = image_store.validate_inventory(payload, admission)
+    assert {path: inventory.implementation_row(path) for path in expected} == expected
+    assert inventory.interpreter_pin('/bin/sh') == {
+        'image': admission['tree_digest'], 'path': '/bin/sh', 'resolved': '/usr/bin/dash',
+        'digest': 'sha256:' + hashlib.sha256(b'#!dash\n').hexdigest()}
+
+
+@pytest.mark.parametrize('change', ['noncanonical', 'missing', 'target', 'order', 'parent', 'shape', 'admission'])
+def test_retained_image_inventory_rejects_tamper(tmp_path, change):
+    layout, name = _oci_layout(tmp_path)
+    store = tmp_path / 'store'
+    admission = image_store.import_oci_layout(store, name, layout)
+    image = image_store.open_sealed_image(store, name)
+    try:
+        payload = image_store.capture_inventory(image)
+    finally:
+        image.close()
+    rows = json.loads(payload)
+    if change == 'noncanonical':
+        payload += b'\n'
+    elif change == 'admission':
+        admission = {**admission, 'tree_digest': 'sha256:' + '0' * 64}
+    else:
+        if change == 'missing':
+            rows.pop()
+        elif change == 'target':
+            next(row for row in rows if row[1] == 'symlink')[2] = '/foreign'
+        elif change == 'order':
+            rows.reverse()
+        elif change == 'parent':
+            rows[0][0] = 'missing/child'
+        elif change == 'shape':
+            next(row for row in rows if row[1] == 'file')[3] = True
+        payload = json.dumps(rows, separators=(',', ':')).encode()
+        # Shape/parent/order must fail even when a digest is internally self-consistent.
+        if change in {'shape', 'parent', 'order'}:
+            admission = {**admission, 'tree_digest': 'sha256:' + hashlib.sha256(payload).hexdigest()}
+    with pytest.raises(image_store.ImageStoreError):
+        image_store.validate_inventory(payload, admission)

@@ -103,11 +103,12 @@ class ConfinedChildSession:
 
     def __init__(self, admission: Any, provisioned: Any, *, holder_factory: Callable[..., Any] | None = None,
                  clock: Callable[[], float] | None = None, started_at: float | None = None,
-                 budget_context=None, failure_callback=None) -> None:
+                 budget_context=None, failure_callback=None, evidence_ledger=None, evidence_visit=None) -> None:
         from orchestrator.workflow.workspace_files import WorkspaceFiles
         from .evaluated_child import SNAPSHOTS_DIRNAME
 
         self.image = admission.image
+        self.evidence_ledger, self.evidence_visit = evidence_ledger, evidence_visit
         self.limits = dict(admission.config.policy.limits)
         self.budget = float(self.limits["wall-seconds"])
         self.layout = provisioned.layout
@@ -115,8 +116,6 @@ class ConfinedChildSession:
         (self.layout.child_root / SNAPSHOTS_DIRNAME).mkdir(mode=0o700, exist_ok=True)
         self.snapshots = WorkspaceFiles(self.layout.child_root / SNAPSHOTS_DIRNAME)
         self.clone_files = WorkspaceFiles(self.layout.workspace)
-        self._stored = sum(entry.stat(follow_symlinks=False).st_size
-                           for entry in os.scandir(self.snapshots.root_fd))
         self._holder_factory = holder_factory or Holder
         self._clock = clock or (lambda: boottime_ns() / 1_000_000_000)
         self.budget_context, self.failure_callback = budget_context, failure_callback
@@ -191,12 +190,34 @@ class ConfinedChildSession:
 
         self._require_wall_budget()
         cwd = guest_cwd(self.layout.workspace, launch_cwd).removeprefix(GUEST_WORKSPACE).lstrip("/") or "."
-        allowance = EVIDENCE_ALLOWANCE_BYTES - self._stored
+        allowance = EVIDENCE_ALLOWANCE_BYTES - self.check_evidence()
         document_rows = document_clone_rows(node, operands, self.clone_files)
         rows = [*command_clone_rows(node, cwd), *document_rows]
         binding = bind_clone_inputs(rows, self.clone_files, max_bytes=allowance, directory_rows=document_rows)
-        self._stored += store_attempt_snapshot(self.snapshots, binding.blobs, allowance_bytes=allowance)
+        store_attempt_snapshot(self.snapshots, binding.blobs, allowance_bytes=allowance)
         return binding.parts
+
+    def check_evidence(self, *, extra_bytes=0):
+        from .confined_evidence import evidence_usage, IMAGE_INVENTORY
+        from .image_store import validate_inventory
+        from orchestrator.workflow.evaluated.authority import load_run_authority
+        from orchestrator.workflow.evaluated.machine import site_classes
+        from orchestrator.workflow.evaluated.memo import read_memo
+        from orchestrator.workflow.evaluated.confined_dispatch import verify_attempt_snapshot
+        used = evidence_usage(self.layout, ledger_path=self.evidence_ledger,
+                              visit=self.evidence_visit, extra_bytes=extra_bytes)
+        from orchestrator.workflow.workspace_files import WorkspaceFiles
+        files = WorkspaceFiles(self.layout.child_root)
+        try:
+            validate_inventory(files.read(IMAGE_INVENTORY, max_bytes=EVIDENCE_ALLOWANCE_BYTES), self.image.record)
+            authority = load_run_authority(self.layout.child_root, run_files=files)
+            snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=files)
+            for entry in snapshot.entries:
+                if entry.data['record'] == 'started':
+                    verify_attempt_snapshot(self.snapshots, entry.data['input_parts'])
+        finally:
+            files.close()
+        return used
 
     def verified_parts(self, input_parts: Mapping[str, str]) -> dict[str, str]:
         """A committed effect's clone inputs, from its verified snapshot, never the clone (P1)."""

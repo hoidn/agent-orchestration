@@ -223,30 +223,13 @@ def _verify_confined_effect_inputs(authority, snapshot, prefix, clone_root, reci
     """Recompute reached inputs using sealed image bytes and captured snapshots, never the clone."""
     if not prefix.commits:
         return
-    import json
-    from types import SimpleNamespace
-    from orchestrator.workflow.evaluated.confined_dispatch import require_confinable, verify_attempt_snapshot
+    from orchestrator.workflow.evaluated.confined_dispatch import require_confinable
     from orchestrator.workflow.evaluated.runtime import _validate_discovered_prefix
-    from .image_store import open_sealed_image
-
-    recorded_image = json.loads(recipe_bytes)["admission"]["image"]
-    owned_image = image is None
-    if owned_image:
-        image = open_sealed_image(Path(authority.header["run_ref_root"]) / "images", recorded_image["image"])
-    try:
-        if image.record["tree_digest"] != recorded_image["tree_digest"]:
-            raise ValueError("confined witness image differs from its admission")
-        store = WorkspaceFiles(authority.run_root / SNAPSHOTS_DIRNAME)
-        try:
-            for reached in prefix.commits:
-                require_confinable(reached.node, authority.header["interpreters"])
-            context = SimpleNamespace(image=image, verified_parts=lambda parts: verify_attempt_snapshot(store, parts))
-            _validate_discovered_prefix(authority, prefix, snapshot, clone_root, confined=context, proof_only=True)
-        finally:
-            store.close()
-    finally:
-        if owned_image:
-            image.close()
+    from .confined_evidence import replay_context
+    with replay_context(authority, recipe_bytes, image) as context:
+        for reached in prefix.commits:
+            require_confinable(reached.node, authority.header["interpreters"])
+        _validate_discovered_prefix(authority, prefix, snapshot, clone_root, confined=context, proof_only=True)
 
 
 def _captured_confined_authority(child_root, clone_root, expected_header, recipe_bytes, image_digest):
@@ -256,7 +239,7 @@ def _captured_confined_authority(child_root, clone_root, expected_header, recipe
         raise ValueError("confined child recipe differs from the provisioned recipe")
     authority = load_run_authority_from_bytes(child_root, header_bytes=header_bytes, program_bytes=program_bytes)
     require_confined_child_header(authority.header, expected_header, image_digest)
-    if Path(os.path.realpath(clone_root / authority.header["result_root"])) != Path(os.path.realpath(child_root)):
+    if Path(os.path.abspath(clone_root / authority.header["result_root"])) != Path(os.path.abspath(child_root)):
         raise ValueError("confined child result_root does not record its control root")
     return authority, header_bytes, program_bytes, memo_bytes
 
@@ -320,6 +303,8 @@ def execute_confined_child(admission, provisioned, *, run_ref_root, session=None
     from .runtime import RunRefRuntimeError
 
     layout = provisioned.layout
+    from .confined_evidence import retain_image
+    retain_image(layout, admission.image)
     program = admission.program
     header = confined_child_header(program=program, child_run_id=layout.child_run_id,
         child_root=layout.child_root, clone_root=layout.workspace, run_ref_root=run_ref_root,

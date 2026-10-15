@@ -205,7 +205,9 @@ def _resolve_command_input(authority, node, operands, identity, owner, workspace
         include_input=external and document is not None)
         if commit is None and check_destinations else ())
     if confined is not None:
-        implementation_files = image_implementation_files(node, authority.header["interpreters"], confined.image)
+        implementation_files = (confined.implementation_files(node, authority.header["interpreters"])
+            if hasattr(confined, 'implementation_files') else
+            image_implementation_files(node, authority.header["interpreters"], confined.image))
     else:
         implementation_files = _resolve_command_implementation(node, workspace, identity,
             None if previous is None else previous.data["implementation_files"], destinations, launch_cwd)

@@ -125,6 +125,28 @@ def _clone_digest(workspace: Path) -> str:
         os.close(fd)
 
 
+def _retained_checkpoint(workspace: Path, child_root: Path):
+    """Keep the last-checkpoint oracle after the disposable clone/header have been retired."""
+    from dataclasses import asdict
+    import hashlib
+    from orchestrator.workflow.run_ref.checkpoint import CheckpointHeader, _HEADER_SCHEMA
+    from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+    from orchestrator.workflow.run_ref.workspace import TreeEntry, manifest_from_entries
+    evidence = json.loads((workspace.parent / 'evidence-manifest.json').read_bytes())
+    trees = json.loads((workspace.parent / 'retained-trees.json').read_bytes())
+    final = manifest_from_entries(TreeEntry(**entry) for entry in trees['final']['entries'])
+    assert final.digest == trees['final']['digest'] == evidence['final_workspace_digest']
+    commits = list(_child_memo(child_root).active_commits.values())
+    last = max(commits, key=lambda entry: entry.offset).data if commits else None
+    path = Path(last['result_path']) if last else None
+    header = CheckpointHeader('committed', path.parent.parent.name if path else 'none',
+                              int(path.parent.name.removeprefix('attempt-')) if path else 0, final.digest)
+    encoded = canonical_json_bytes({'schema': _HEADER_SCHEMA, **asdict(header)})
+    assert evidence['cleanup_checkpoint']['digest'] == 'sha256:' + hashlib.sha256(encoded).hexdigest()
+    assert not workspace.exists() and not (child_root / 'checkpoint.json').exists()
+    return header, final
+
+
 def _child_memo(child_root: Path):
     child = load_run_authority(child_root)
     return read_memo(child.memo_path, site_classes(child.program))
@@ -139,7 +161,7 @@ def _scope_units() -> list[str]:
 def test_two_command_leaves_complete_through_the_public_run(tmp_path, refs):
     parent, completed = _run(tmp_path, refs)
     authority, memo, site, workspace, child_root = _settled(parent)
-    header = read_checkpoint_header(child_root / "checkpoint.json")
+    header, final = _retained_checkpoint(workspace, child_root)
     budget = json.loads((child_root / "budget.json").read_bytes())
     accounting = site["value"]["result"]["accounting"]
     child_commits = [entry.data["effect_class"] for entry in _child_memo(child_root).active_commits.values()]
@@ -147,15 +169,15 @@ def test_two_command_leaves_complete_through_the_public_run(tmp_path, refs):
 
     assert {
         "run": completed.returncode, "terminal": memo.terminal.data["value"],
-        "value": site["value"]["result"]["value"], "clone_out": (workspace / "out.txt").read_text(),
-        "header": (header.state, header.ordinal), "clone_is_last_header": header.manifest_digest == _clone_digest(workspace),
+        "value": site["value"]["result"]["value"], "clone_out": next(row for row in final.entries if row.path == "out.txt").sha256,
+        "header": (header.state, header.ordinal), "clone_is_last_header": header.manifest_digest == final.digest,
         "child_root_under_parent_run": child_root.is_relative_to(authority.run_root),
-        "no_authority_in_clone": [path.name for path in workspace.rglob(".orchestrate")],
+        "no_authority_in_clone": [entry.path for entry in final.entries if entry.path.split("/")[0] == ".orchestrate"],
         "child_commits": child_commits, "resume_revalidates_witness": resumed.returncode,
         "elapsed_is_charged_wall": accounting["elapsed_ms"] == budget["charged_ms"],
         "host_time_charged": budget["host_ms"] > 0, "scopes_left": _scope_units(),
     } == {
-        "run": 0, "terminal": "completed", "value": 24, "clone_out": "written by leaf one\n",
+        "run": 0, "terminal": "completed", "value": 24, "clone_out": "sha256:" + __import__("hashlib").sha256(b"written by leaf one\n").hexdigest(),
         "header": ("committed", 1), "clone_is_last_header": True, "child_root_under_parent_run": True,
         "no_authority_in_clone": [], "child_commits": ["command", "command"], "resume_revalidates_witness": 0,
         "elapsed_is_charged_wall": True, "host_time_charged": True, "scopes_left": [],
@@ -165,13 +187,13 @@ def test_two_command_leaves_complete_through_the_public_run(tmp_path, refs):
 def test_a_holder_death_after_a_committed_effect_settles_failed_lost(tmp_path, refs):
     parent, completed = _run(tmp_path, refs, second=STOP)
     _authority, memo, site, workspace, child_root = _settled(parent)
-    header = read_checkpoint_header(child_root / "checkpoint.json")
+    header, final = _retained_checkpoint(workspace, child_root)
     failed = [row.data["code"] for row in _child_memo(child_root).entries if row.data["record"] == "failed"]
 
     assert {
         "run": completed.returncode, "terminal": memo.terminal.data["value"], "variant": site["value"]["variant"],
-        "header": (header.state, header.ordinal), "clone_is_last_header": header.manifest_digest == _clone_digest(workspace),
-        "late_file_in_clone": (workspace / "late.txt").exists(), "child_failed": failed, "scopes_left": _scope_units(),
+        "header": (header.state, header.ordinal), "clone_is_last_header": header.manifest_digest == final.digest,
+        "late_file_in_clone": any(entry.path == "late.txt" for entry in final.entries), "child_failed": failed, "scopes_left": _scope_units(),
     } == {
         "run": 0, "terminal": "run_ref_environment_lost", "variant": "FAILED", "header": ("committed", 1),
         "clone_is_last_header": True, "late_file_in_clone": False, "child_failed": ["run_ref_environment_lost"],

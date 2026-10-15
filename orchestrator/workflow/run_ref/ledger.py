@@ -20,6 +20,9 @@ from .contracts import canonical_json_bytes, canonical_sha256
 
 RUN_REF_ATTEMPT_LEDGER_SCHEMA = "run_ref_attempt_ledger.v1"
 RUN_REF_CONFINED_LEDGER_SCHEMA = "run_ref_attempt_ledger.v2"
+CONFINED_SIDE_EVENTS = frozenset({'budget_open', 'budget_close', 'failed_terminal', 'export_prepared',
+                                  'cleanup_intent', 'cleanup_error', 'cleanup_complete'})
+_CLEANUP_EVENTS = frozenset({'cleanup_intent', 'cleanup_error', 'cleanup_complete'})
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _GIT_TREE_RE = re.compile(r"git-tree:[0-9a-f]{40}\Z")
@@ -132,7 +135,8 @@ def _canonical_absolute_path(value: object, *, field: str) -> Path:
     if "\0" in path.as_posix() or not path.is_absolute():
         _fail(f"{field} must be an absolute path")
     try:
-        resolved = path.resolve(strict=False)
+        # A settled clone may be gone or replaced; this field is a durable locator, not live authority.
+        resolved = Path(os.path.normpath(path)) if field == 'workspace_path' else path.resolve(strict=False)
     except OSError as exc:
         raise RunRefLedgerError(f"{field} cannot be normalized") from exc
     if resolved != path:
@@ -636,7 +640,7 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
         _validate_stage_bindings(row)
 
         attempts = by_visit.setdefault(row.visit, {})
-        if row.stage == "allocated" and row.event_kind not in {"budget_open", "budget_close", "failed_terminal"}:
+        if row.stage == "allocated" and row.event_kind not in CONFINED_SIDE_EVENTS:
             existing = attempts.get(row.attempt_ordinal)
             if existing is None:
                 expected_ordinal = max(attempts, default=0) + 1
@@ -677,10 +681,13 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
             _fail("attempt transition targets a superseded ordinal")
         if row.schema_version != previous.schema_version:
             _fail("attempt ledger version changed")
-        if row.event_kind in {"budget_open", "budget_close", "failed_terminal"}:
+        if row.event_kind in CONFINED_SIDE_EVENTS:
             if row.stage != previous.stage or row.status != previous.status or row.bindings != previous.bindings:
                 _fail("confined event changed work stage or bindings")
-            if previous.status != "in_progress":
+            if row.event_kind in _CLEANUP_EVENTS:
+                if previous.status != 'committed':
+                    _fail('cleanup requires the committed attempt')
+            elif previous.status != "in_progress":
                 _fail("confined event follows a terminal work stage")
             attempts[row.attempt_ordinal] = row
             continue
@@ -706,10 +713,23 @@ def _nonnegative_ns(value, field):
     return value
 
 
+def _safe_relative(value, field):
+    text = _nonempty_text(value, field=field)
+    if '\\' in text or any(part in ('', '.', '..') for part in text.split('/')):
+        _fail(f'{field} path invalid')
+    return text
+
+
+def _root_identity(value):
+    _closed_mapping(value, frozenset({'device', 'inode', 'mount_id'}), field='root identity')
+    for key in value:
+        _nonnegative_ns(value[key], key)
+
+
 def confined_budget(rows, visit):
     """Reduce the one visit's BOOTTIME intervals; never derive usage from UTC."""
     state = None
-    failed = set()
+    failed, exports, cleanup = set(), {}, {}
     for row in rows:
         if row.visit != visit or row.schema_version != RUN_REF_CONFINED_LEDGER_SCHEMA:
             continue
@@ -771,6 +791,58 @@ def confined_budget(rows, visit):
                 else:
                     _nonempty_text(boundary[name], field=name)
             failed.add(row.attempt_ordinal)
+        elif kind == 'export_prepared':
+            if state['active'] is not None or row.stage != 'child_completed':
+                _fail('export preparation requires the closed terminal child')
+            keys = {'source', 'destination', 'staged_name', 'parent_root', 'parent', 'staged_identity',
+                    'inventory_digest', 'bytes'}
+            _closed_mapping(event, frozenset(keys), field='export preparation')
+            for name in ('source', 'destination'):
+                _safe_relative(event[name], name)
+            if not re.fullmatch(r'\.run-ref-stage-[0-9a-f]{32}', event['staged_name']):
+                _fail('export staging name invalid')
+            for name in ('parent_root', 'parent', 'staged_identity'):
+                _root_identity(event[name])
+            _sha256(event['inventory_digest'], field='inventory_digest')
+            _nonnegative_ns(event['bytes'], 'export bytes')
+            coordinate = row.attempt_ordinal, event['source']
+            if coordinate in exports:
+                _fail('export source prepared twice')
+            exports[coordinate] = event
+        elif kind in _CLEANUP_EVENTS:
+            if state['active'] is not None or row.stage != 'committed':
+                _fail('cleanup requires the closed committed attempt')
+            previous = cleanup.get(row.attempt_ordinal)
+            if kind == 'cleanup_intent':
+                if previous is not None:
+                    _fail('cleanup intent repeated')
+                _closed_mapping(event, frozenset({'identity', 'attempt', 'settled_digest', 'private_name',
+                    'root', 'parent', 'control', 'control_parent', 'checkpoint_digest'}), field='cleanup intent')
+                _nonempty_text(event['identity'], field='identity')
+                _positive_integer(event['attempt'], field='attempt')
+                for name in ('settled_digest', 'checkpoint_digest'):
+                    _sha256(event[name], field=name)
+                for name in ('root', 'parent', 'control', 'control_parent'):
+                    _root_identity(event[name])
+                if not re.fullmatch(r'\.run-ref-cleanup-[0-9a-f]{64}', event['private_name']):
+                    _fail('cleanup private name invalid')
+                cleanup[row.attempt_ordinal] = dict(intent=row.row_digest, complete=False)
+            else:
+                if previous is None or previous['complete']:
+                    _fail('cleanup outcome has no pending intent')
+                expected = {'intent_digest', 'error'} if kind == 'cleanup_error' else {'intent_digest'}
+                _closed_mapping(event, frozenset(expected), field='cleanup outcome')
+                if event['intent_digest'] != previous['intent']:
+                    _fail('cleanup outcome intent disagrees')
+                if kind == 'cleanup_error':
+                    _closed_mapping(event['error'], frozenset({'code', 'message'}), field='cleanup error')
+                    if event['error']['code'] != 'run_ref_cleanup_pending':
+                        _fail('cleanup error code invalid')
+                    message = _nonempty_text(event['error']['message'], field='cleanup message')
+                    if len(message.encode('utf-8')) > 4096:
+                        _fail('cleanup diagnostic unbounded')
+                else:
+                    previous['complete'] = True
         elif kind == "progress":
             if event:
                 _fail("work event carries unexpected evidence")
@@ -783,9 +855,9 @@ def confined_budget(rows, visit):
     return state
 
 
-def append_confined_event(path, *, visit, attempt_ordinal, event_kind, event, run_files=None):
+def append_confined_event(path, *, visit, attempt_ordinal, event_kind, event, run_files=None, before_append=None):
     """Append through the parent-owned ledger without advancing a work stage."""
-    if event_kind not in {"budget_open", "budget_close", "failed_terminal"}:
+    if event_kind not in CONFINED_SIDE_EVENTS:
         _fail("not a confined side event")
     ledger = load_attempt_ledger(path, run_files=run_files)
     previous = _latest_attempt(ledger, visit=visit, attempt_ordinal=attempt_ordinal)
@@ -796,6 +868,8 @@ def append_confined_event(path, *, visit, attempt_ordinal, event_kind, event, ru
         recorded_at=_utc_timestamp(), bindings=previous.bindings,
         schema_version=previous.schema_version, event_kind=event_kind, event=dict(event))
     _validate_lifecycle((*ledger.rows, row))
+    if before_append is not None:
+        before_append(len(canonical_json_bytes(row.record)) + 1)
     _persist_append(path, ledger, row, run_files=run_files)
     return row
 
@@ -1161,7 +1235,7 @@ def reconcile_pending_parent_commit(
         for row in ledger.rows
         if row.visit == pending.visit
         and row.attempt_ordinal == pending.attempt_ordinal
-        and row.stage == "committed"
+        and row.stage == "committed" and row.event_kind not in _CLEANUP_EVENTS
     ]
     if len(committed) > 1:
         _fail("settled parent result has ambiguous committed rows")
@@ -1218,7 +1292,7 @@ def select_committed_reuse(
         for row in ledger.rows
         if row.visit == settled_result.visit
         and row.attempt_ordinal == settled_result.attempt_ordinal
-        and row.stage == "committed"
+        and row.stage == "committed" and row.event_kind not in _CLEANUP_EVENTS
     ]
     if len(committed) != 1:
         _fail("settled parent result does not have one committed row")

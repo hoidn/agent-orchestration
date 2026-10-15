@@ -197,7 +197,7 @@ class RunRefLifecycleEvent:
     ) -> RunRefLifecycleEvent:
         if type(sequence) is not int or sequence < 1:
             raise ValueError("run-ref lifecycle sequence must be positive")
-        side_event = event_kind in {"budget_open", "budget_close", "failed_terminal"}
+        side_event = event_kind in {"budget_open", "budget_close", "failed_terminal", "export_prepared"}
         expected_kind = event_kind if side_event else (
             "allocation"
             if stage == "allocated"
@@ -873,10 +873,16 @@ def build_run_ref_accounting(
 def declared_artifacts_from_value(
     value: Any,
     descriptor: Mapping[str, Any],
+    *, pointer_locations: bool = False,
 ) -> tuple[DeclaredArtifact, ...]:
     """Derive the complete deterministic artifact catalog from path leaves."""
 
     rows: list[DeclaredArtifact] = []
+    def child_location(parent, key, *, indexed=False):
+        if pointer_locations:
+            escaped = str(key).replace('~', '~0').replace('/', '~1')
+            return parent + '/' + escaped
+        return f'{parent}[{key}]' if indexed else f'{parent}.{key}'
 
     def visit(item: Any, shape: Mapping[str, Any], path: str) -> None:
         kind = shape.get("kind")
@@ -889,16 +895,16 @@ def declared_artifacts_from_value(
             return
         if kind == "list":
             for index, child in enumerate(item):
-                visit(child, shape["item"], f"{path}[{index}]")
+                visit(child, shape["item"], child_location(path, index, indexed=True))
             return
         if kind == "map":
             for key in sorted(item, key=lambda candidate: candidate.encode("utf-8")):
-                visit(item[key], shape["value"], f"{path}[{key}]")
+                visit(item[key], shape["value"], child_location(path, key, indexed=True))
             return
         if kind == "record":
             for field in shape["fields"]:
                 name = field["name"]
-                visit(item[name], field["type"], f"{path}.{name}")
+                visit(item[name], field["type"], child_location(path, name))
             return
         if kind == "union":
             selected = next(
@@ -908,7 +914,7 @@ def declared_artifacts_from_value(
             )
             for field in selected["fields"]:
                 name = field["name"]
-                visit(item[name], field["type"], f"{path}.{name}")
+                visit(item[name], field["type"], child_location(path, name))
 
     visit(value, descriptor, "value")
     return tuple(sorted(rows, key=lambda row: (row.name.encode("utf-8"), row.path.encode("utf-8"))))
@@ -2404,7 +2410,7 @@ def _validate_lifecycle_acknowledgement_authority(
     ):
         raise ValueError("run-ref lifecycle acknowledgement authority disagrees")
     payload = event.payload
-    if event.event_kind in {"budget_open", "budget_close", "failed_terminal"}:
+    if event.event_kind in {"budget_open", "budget_close", "failed_terminal", "export_prepared"}:
         if row.event_kind != event.event_kind or row.event != payload["event"]:
             raise ValueError("run-ref confined event acknowledgement disagrees")
         return
@@ -2910,7 +2916,7 @@ def persist_run_ref_lifecycle_event(
     payload = event.payload
     ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
     try:
-        if event.event_kind in {"budget_open", "budget_close", "failed_terminal"}:
+        if event.event_kind in {"budget_open", "budget_close", "failed_terminal", "export_prepared"}:
             from .ledger import append_confined_event
             current = load_attempt_ledger(ledger_path, run_files=request.run_files)
             head = next((row for row in reversed(current.rows) if row.visit == event.visit
@@ -3149,6 +3155,7 @@ def _validate_bound_authority(
     if _is_confined(request.step_config):
         from .confined_lifecycle import validate_confined_bound_authority
         return validate_confined_bound_authority(request, row)
+    _canonical_absolute(row.bindings.workspace_path, field='workspace_path')
     if row.visit != request.visit:
         raise RunRefRuntimeError(
             "run_ref_evidence_invalid",

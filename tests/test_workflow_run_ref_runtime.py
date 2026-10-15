@@ -1503,3 +1503,22 @@ def test_path_mode_request_and_completed_authority_use_full_child_contract(
     )
     assert reused.envelope == prepared.envelope
     assert len(harness.launches) == 1
+
+
+@pytest.mark.parametrize('mode', ['bundle', 'path'])
+def test_legacy_live_workspace_symlink_refuses_after_lexical_ledger_loading(tmp_path, mode):
+    request = _runtime_request(tmp_path, mode=mode)
+    harness = _RuntimeHarness()
+    prepared = prepare_run_ref_settlement(request, dependencies=harness.dependencies())
+    finalize_run_ref_parent_commit(request, prepared, persisted_settled_result=prepared.settled_result.record)
+    workspace = prepared.settled_result.workspace_path
+    original = workspace.with_name('original-live-workspace')
+    workspace.rename(original)
+    workspace.symlink_to(original, target_is_directory=True)
+    before = request.ledger_path.read_bytes()
+    assert load_attempt_ledger(request.ledger_path).rows[-1].bindings.workspace_path == workspace
+    with pytest.raises(RunRefRuntimeError):
+        validate_completed_run_ref_authority(request, settled_result=prepared.settled_result.record,
+            artifacts=prepared.artifacts, reconcile_pending=False)
+    assert workspace.is_symlink() and (original / 'artifacts/work/result.txt').read_text() == 'child result\n'
+    assert request.ledger_path.read_bytes() == before and len(harness.launches) == 1

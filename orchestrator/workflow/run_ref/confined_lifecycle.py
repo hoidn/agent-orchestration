@@ -29,7 +29,7 @@ from .confinement import (
     provision_confined_child,
 )
 from .contracts import RUN_REF_CONFINED_MATERIALIZER_VERSION, canonical_json_bytes, canonical_sha256
-from .delta import build_workspace_delta, validate_workspace_delta
+from .delta import build_workspace_delta, validate_workspace_delta, validate_retained_workspace_delta
 from .evaluated_child import (
     confined_child_header,
     execute_confined_child,
@@ -128,6 +128,8 @@ def _checked_child(request, layout, recipe_bytes: bytes, inputs: Mapping[str, An
                    status: str, direct_value: Any, image=None) -> tuple[dict[str, Any], str]:
     """The child result document and terminal digest from the control root's witness."""
     config = request.step_config.run_ref
+    from .confined_evidence import evidence_usage
+    evidence_usage(layout, ledger_path=request.ledger_path, visit=request.visit)
     try:
         recipe = json.loads(recipe_bytes)
         image_digest = recipe["admission"]["image"]["tree_digest"]
@@ -151,12 +153,12 @@ def _checked_child(request, layout, recipe_bytes: bytes, inputs: Mapping[str, An
         raise _invalid("confined_child_terminal_invalid") from exc
 
 
-def _outcome(request, document, delta_record, accounting) -> tuple[dict[str, Any], dict[str, Any]]:
+def _outcome(request, document, delta_record, accounting, *, value=None) -> tuple[dict[str, Any], dict[str, Any]]:
     """The site's union value and its artifact projection."""
     if document["status"] == "failed":
         return {"variant": "FAILED", "code": document["code"], "detail": document["detail"],
                 "accounting": dict(accounting)}, {}
-    envelope = {"value": document["value"], "workspace_delta": dict(delta_record), "accounting": dict(accounting)}
+    envelope = {"value": document["value"] if value is None else value, "workspace_delta": dict(delta_record), "accounting": dict(accounting)}
     artifacts = flatten_run_ref_result_artifacts(envelope, request.step_config.run_ref.result_descriptor["envelope"])
     return {"variant": "COMPLETED", "result": envelope}, artifacts
 
@@ -165,7 +167,7 @@ def _declared(request, document):
     if document["status"] != "completed":
         return ()
     descriptor = request.step_config.run_ref.result_descriptor["envelope"]["fields"][0]["type"]
-    return declared_artifacts_from_value(document["value"], descriptor)
+    return declared_artifacts_from_value(document["value"], descriptor, pointer_locations=True)
 
 
 def _evidence(request, ordinal: int, bindings: RunRefAttemptBindings, layout, *,
@@ -269,7 +271,7 @@ def drive_confined_lifecycle(request, *, allocation, emit: Callable[..., Any], e
         nonlocal bindings, stage
         bindings = replace(bindings, **updates)
         ack = emit(stage=target, event_kind=kind, attempt_ordinal=ordinal,
-                   payload={'binding_updates': dict(updates), **(extra or {})})
+                   payload=(dict(extra) if kind == 'export_prepared' else {'binding_updates': dict(updates), **(extra or {})}))
         stage = target
         return ack
 
@@ -337,6 +339,7 @@ def drive_confined_lifecycle(request, *, allocation, emit: Callable[..., Any], e
             advance('launched', {'child_launch_digest': canonical_sha256(record)})
             effects.crash_hook('launch')
         session = ConfinedChildSession(admission, provisioned, budget_context=budget,
+            evidence_ledger=request.ledger_path, evidence_visit=request.visit,
             failure_callback=lambda authority, exc: record_failure(request, provisioned, authority, exc, budget, side))
         status, value = 'completed', None
         try:
@@ -389,16 +392,43 @@ def _finish_confined(request, allocation, bindings, stage, advance, document, st
 
     delta = build_workspace_delta(base=confined_revision(request.step_config.run_ref.repo, request.parent_state["commit"])[1],
                                   baseline_root=attempt_root / _BASELINE_DIRECTORY, baseline_manifest=baseline,
-                                  workspace_root=layout.workspace, declared_artifacts=_declared(request, document))
+                                  workspace_root=layout.workspace, declared_artifacts=_declared(request, document), allow_aliases=True)
+    validate_workspace_delta(delta.record, expected_digest=delta.digest,
+        base=confined_revision(request.step_config.run_ref.repo, request.parent_state["commit"])[1],
+        baseline_root=attempt_root / _BASELINE_DIRECTORY, baseline_manifest=baseline,
+        workspace_root=layout.workspace, declared_artifacts=_declared(request, document), allow_aliases=True)
     accounting = confined_child_accounting(layout, attempt_ordinal=ordinal, terminal_status=status,
                                            elapsed_ms=elapsed_ms)
     _write_canonical_document(attempt_root / _WORKSPACE_DELTA_FILENAME, delta.record)
     _write_canonical_document(attempt_root / _ACCOUNTING_FILENAME, accounting)
-    envelope, artifacts = _outcome(request, document, delta.record, accounting)
+    from .confined_exports import export_value
+    from .ledger import load_attempt_ledger
+    rows = load_attempt_ledger(request.ledger_path, run_files=request.run_files).rows
+    events = [dict(row.event) for row in rows if row.visit == request.visit and row.attempt_ordinal == ordinal
+              and row.event_kind == 'export_prepared']
+    if document['status'] == 'completed':
+        exported, export_proof = export_value(document['value'],
+            request.step_config.run_ref.result_descriptor['envelope']['fields'][0]['type'],
+            clone=layout.workspace, parent=request.parent_workspace, parent_run=request.visit.parent_run_id,
+            activation=canonical_sha256(request.visit.record).removeprefix('sha256:'), attempt=ordinal,
+            max_bytes=dict(request.step_config.run_ref.policy.limits)['output-mib'] << 20,
+            prepared_events=events,
+            persist=lambda event: advance('child_completed', {}, kind='export_prepared', extra={'event': event}),
+            crash_hook=effects.crash_hook)
+    else:
+        exported, export_proof = None, None
+    envelope, artifacts = _outcome(request, document, delta.record, accounting, value=exported)
     updates = {"workspace_delta_digest": delta.digest, "accounting_digest": canonical_sha256(accounting)}
     evidence = _evidence(request, ordinal, replace(bindings, **updates), layout,
                          envelope_digest=canonical_sha256(envelope), final_digest=delta.final_manifest.digest)
+    from .confined_evidence import retain_trees, evidence_usage, authority_inventory
+    evidence['retained_trees_digest'] = retain_trees(layout, baseline, delta.final_manifest, delta.digest)
+    evidence['authority_inventory'] = authority_inventory(layout)
+    evidence['exports'] = export_proof
+    from .confined_cleanup import checkpoint_binding
+    evidence['cleanup_checkpoint'] = checkpoint_binding(layout)
     _write_canonical_document(attempt_root / _EVIDENCE_FILENAME, evidence)
+    evidence_usage(layout, ledger_path=request.ledger_path, visit=request.visit)
     if bindings.evidence_manifest_digest is None:
         advance("delta_captured", {**updates, "evidence_manifest_digest": canonical_sha256(evidence)})
         bindings = replace(bindings, **updates, evidence_manifest_digest=canonical_sha256(evidence))
@@ -439,14 +469,19 @@ def validate_confined_bound_authority(request, row) -> tuple[dict[str, Any], dic
         if getattr(row.bindings, name) != getattr(expected, name):
             raise _invalid(f"{name}_binding_invalid")
     bindings, attempt_root = row.bindings, layout.workspace.parent
-    from .confinement import _read_recipe, require_owned_roots, _recover_checkpoint
-    from .holder_scope import recover_holder_scopes
+    from .confinement import _read_recipe
     recipe = _read_recipe(layout)
     if canonical_sha256(recipe) != bindings.setup_evidence_digest:
         raise _invalid('setup_evidence_binding_invalid')
-    require_owned_roots(layout, request.run_ref_root, recipe)
-    recover_holder_scopes(layout.child_root / 'holder')
-    _recover_checkpoint(layout)
+    from .confinement import _owned_root_identity
+    # The retained control/parents stay authoritative after the disposable clone is retired.
+    for name, path in (('control', layout.child_root), ('clone_parent', layout.workspace.parent),
+                       ('run_ref_root', request.run_ref_root), ('control_parent', layout.child_root.parent),
+                       ('run_ref_parent', request.run_ref_root.parent)):
+        if name in recipe['owned_roots'] and _owned_root_identity(path) != recipe['owned_roots'][name]:
+            raise _invalid('retained_root_identity_changed')
+    from .holder_scope import validate_holder_scopes_quiescent
+    validate_holder_scopes_quiescent(layout.child_root / 'holder')
     record = _request_record(request, parent_values)
     stored = _read_canonical_document(attempt_root / _REQUEST_FILENAME, label="child_request")
     if (stored != record or canonical_sha256(record) != bindings.child_launch_digest
@@ -466,16 +501,21 @@ def validate_confined_bound_authority(request, row) -> tuple[dict[str, Any], dic
                                            document.get("status"), document.get("value"))
     if checked != document or state_digest != bindings.child_terminal_state_digest:
         raise _invalid("child_terminal_state_digest_invalid")
-    baseline_root = attempt_root / _BASELINE_DIRECTORY
-    baseline = freeze_tree(baseline_root)
-    if baseline.digest != bindings.post_setup_baseline_digest:
-        raise _invalid("baseline_digest_invalid")
+    evidence = _read_canonical_document(attempt_root / _EVIDENCE_FILENAME, label="evidence_manifest")
+    if not isinstance(evidence, dict) or canonical_sha256(evidence) != bindings.evidence_manifest_digest:
+        raise _invalid('evidence_manifest_binding_invalid')
     delta_record = _read_canonical_document(attempt_root / _WORKSPACE_DELTA_FILENAME, label="workspace_delta")
-    final = validate_workspace_delta(delta_record, expected_digest=bindings.workspace_delta_digest,
-                                     base=confined_revision(request.step_config.run_ref.repo,
-                                                            request.parent_state["commit"])[1],
-                                     baseline_root=baseline_root, baseline_manifest=baseline,
-                                     workspace_root=layout.workspace, declared_artifacts=_declared(request, document))
+    if canonical_sha256(delta_record) != bindings.workspace_delta_digest:
+        raise _invalid('workspace_delta_binding_invalid')
+    from .confined_evidence import retained_trees, evidence_usage
+    baseline, final = retained_trees(layout, expected_digest=evidence.get('retained_trees_digest'),
+        baseline_digest=bindings.post_setup_baseline_digest, final_digest=evidence.get('final_workspace_digest'),
+        delta_digest=bindings.workspace_delta_digest)
+    validate_retained_workspace_delta(delta_record, expected_digest=bindings.workspace_delta_digest,
+        base=confined_revision(request.step_config.run_ref.repo, request.parent_state["commit"])[1],
+        baseline_manifest=baseline, final_manifest=final,
+        declared_artifacts=_declared(request, document), allow_aliases=True)
+    evidence_usage(layout, ledger_path=request.ledger_path, visit=request.visit)
     accounting = _read_canonical_document(attempt_root / _ACCOUNTING_FILENAME, label="accounting")
     if (not isinstance(accounting, Mapping) or canonical_sha256(accounting) != bindings.accounting_digest
             or build_run_ref_accounting(**accounting) != accounting
@@ -486,10 +526,21 @@ def validate_confined_bound_authority(request, row) -> tuple[dict[str, Any], dic
     state = confined_budget(load_attempt_ledger(request.ledger_path, run_files=request.run_files).rows, request.visit)
     if state is None or state['active'] is not None or accounting['elapsed_ms'] != state['charged_ns'] // 1_000_000:
         raise _invalid('accounting_budget_binding_invalid')
-    envelope, artifacts = _outcome(request, document, delta_record, accounting)
-    evidence = _read_canonical_document(attempt_root / _EVIDENCE_FILENAME, label="evidence_manifest")
-    if (evidence != _evidence(request, row.attempt_ordinal, bindings, layout,
-                              envelope_digest=canonical_sha256(envelope), final_digest=final.digest)
+    from .confined_exports import validate_exports
+    exported = None if document['status'] == 'failed' else validate_exports(document['value'],
+        request.step_config.run_ref.result_descriptor['envelope']['fields'][0]['type'],
+        evidence.get('exports'), parent=request.parent_workspace)
+    if document['status'] == 'failed' and evidence.get('exports') is not None:
+        raise _invalid('failed_result_has_exports')
+    envelope, artifacts = _outcome(request, document, delta_record, accounting, value=exported)
+    expected_evidence = _evidence(request, row.attempt_ordinal, bindings, layout,
+        envelope_digest=canonical_sha256(envelope), final_digest=final.digest)
+    expected_evidence['retained_trees_digest'] = evidence['retained_trees_digest']
+    from .confined_evidence import authority_inventory
+    expected_evidence['authority_inventory'] = authority_inventory(layout)
+    expected_evidence['exports'] = evidence['exports']
+    expected_evidence['cleanup_checkpoint'] = evidence['cleanup_checkpoint']
+    if (evidence != expected_evidence
             or canonical_sha256(evidence) != bindings.evidence_manifest_digest):
         raise _invalid("evidence_manifest_binding_invalid")
     return envelope, artifacts

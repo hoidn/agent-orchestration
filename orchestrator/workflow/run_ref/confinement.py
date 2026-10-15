@@ -278,7 +278,9 @@ def _recipe(admission: ConfinedAdmission, layout: ConfinedAttemptLayout, source:
         "baseline_digest": source.source_tree_manifest.digest,
         "admission": admission.record,
         "owned_roots": {name: _owned_root_identity(path) for name, path in (
-            ("clone", layout.workspace), ("control", layout.child_root), ("run_ref_root", run_ref_root))},
+            ("clone", layout.workspace), ("control", layout.child_root), ("run_ref_root", run_ref_root),
+            ("clone_parent", layout.workspace.parent), ("control_parent", layout.child_root.parent),
+            ("run_ref_parent", run_ref_root.parent))},
     }
 
 

@@ -183,16 +183,38 @@ def execute_pure_resume(
         return _resume_refusal(MemoError("memo_inconsistent", "active commits remain after replay"))
     terminal_result = _replayed_halt_result(snapshot, value, reached_boundary)
     if terminal_result is not None:
+        if terminal_result[0] == 0:
+            from .run_ref import retry_evaluated_cleanup
+            try:
+                pending = retry_evaluated_cleanup(authority, snapshot, workspace)
+                for row in pending:
+                    logger.error('[run_ref_cleanup_pending] %s attempt=%s: %s', row['identity'], row['attempt'], row['error'])
+                if pending:
+                    return 2, terminal_result[1]
+            except Exception as exc:
+                return _resume_refusal(exc)
         return terminal_result
     if snapshot.tail:
         try:
             repair_torn_tail(authority.memo_path, snapshot, run_files=authority.run_files)
         except Exception as exc:
             return _resume_refusal(exc)
-    return execute_pure_run(
+    result = execute_pure_run(
         authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
         stream_output=stream_output, confined=confined,
     )
+    if result[0] == 0:
+        from .run_ref import retry_evaluated_cleanup
+        try:
+            completed = read_memo(authority.memo_path, checked_site_classes, run_files=authority.run_files)
+            pending = retry_evaluated_cleanup(authority, completed, workspace)
+            for row in pending:
+                logger.error('[run_ref_cleanup_pending] %s attempt=%s: %s', row['identity'], row['attempt'], row['error'])
+            if pending:
+                return 2, result[1]
+        except Exception as exc:
+            return _resume_refusal(exc)
+    return result
 
 
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
@@ -373,6 +395,9 @@ def prepare_effect(
     started = dict(record='started', identity=identity, attempt=ordinal,
         input_digest=input_digest, input_parts=parts, implementation_files=implementation_files,
         result_path=result_path, time=time.time())
+    if confined is not None:
+        from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+        confined.check_evidence(extra_bytes=len(canonical_json_bytes(started)) + 1)
     _require_retained_root(run_files)
     attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority,
         before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc))
@@ -422,6 +447,9 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
             depends_on=list(attempt.dependencies), effect_class=node['class'], time=time.time())
         if proof is not None:
             committed['proof'] = proof
+        if attempt.confined is not None:
+            from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+            attempt.confined.runner.check_evidence(extra_bytes=len(canonical_json_bytes(committed)) + 1)
         _append_effect_commit(authority, committed, fatal_publication)
         if prepared is not None:
             settle_evaluated_run_ref(authority, attempt.resolved, attempt.identity, attempt.ordinal,

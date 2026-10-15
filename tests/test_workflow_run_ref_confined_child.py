@@ -198,16 +198,43 @@ def _attempt(site):
     return workspace, child_root
 
 
-def test_two_command_leaves_complete_and_settle_through_the_lifecycle(world):
+def _defer_cleanup(monkeypatch):
+    """Keep live-state fixtures at the durable settlement / cleanup boundary."""
+    from orchestrator.workflow.evaluated import run_ref
+    monkeypatch.setattr(run_ref, '_cleanup_if_confined', lambda *args: None)
+
+
+def _observe_cleanup(monkeypatch):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from orchestrator.workflow.run_ref.confined_lifecycle import _layout
+    real = confined_cleanup.cleanup_settled
+    captures = {}
+    def observe(request, **kwargs):
+        ordinal = load_attempt_ledger(request.ledger_path).rows[-1].attempt_ordinal
+        layout = _layout(request, ordinal)
+        fd = os.open(layout.workspace, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            captures[layout.child_root] = dict(header=read_checkpoint_header(layout.child_root / 'checkpoint.json'),
+                manifest=workspace_manifest(fd), names=sorted(path.name for path in layout.workspace.iterdir()),
+                out=(layout.workspace / 'out.txt').read_text() if (layout.workspace / 'out.txt').exists() else None,
+                identity=(os.fstat(fd).st_dev, os.fstat(fd).st_ino))
+        finally:
+            os.close(fd)
+        return real(request, **kwargs)
+    monkeypatch.setattr(confined_cleanup, 'cleanup_settled', observe)
+    return captures
+
+
+def test_two_command_leaves_complete_and_settle_through_the_lifecycle(world, monkeypatch):
+    captures = _observe_cleanup(monkeypatch)
     status, (authority, memo) = _run(world)
     site = _site(memo)
     workspace, child_root = _attempt(site)
-    header = read_checkpoint_header(child_root / "checkpoint.json")
-    clone_fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        clone_digest = workspace_manifest(clone_fd).digest
-    finally:
-        os.close(clone_fd)
+    captured = captures[child_root]
+    header, clone_digest = captured['header'], captured['manifest'].digest
+    recipe = json.loads((child_root / 'child-recipe.json').read_bytes())
+    assert captured['identity'] == (recipe['owned_roots']['clone']['device'], recipe['owned_roots']['clone']['inode'])
+    assert not workspace.exists() and not (child_root / 'checkpoint.json').exists()
     ledger = load_attempt_ledger(authority.run_root / "run-ref-attempts.jsonl")
     budget = json.loads((child_root / "budget.json").read_bytes())
     result = site["value"]["result"]
@@ -217,8 +244,8 @@ def test_two_command_leaves_complete_and_settle_through_the_lifecycle(world):
     assert {
         "status": status, "terminal": memo.terminal.data["value"], "variant": site["value"]["variant"],
         "value": result["value"], "settled": (site["identity"], site["attempt"]) in memo.settlements,
-        "stages": [row.stage for row in ledger.rows][-2:],
-        "clone_out": (workspace / "out.txt").read_text(), "header": (header.state, header.ordinal),
+        "stages": [row.stage for row in ledger.rows if row.event_kind == "progress"][-2:],
+        "clone_out": captured["out"], "header": (header.state, header.ordinal),
         "clone_is_last_header": header.manifest_digest == clone_digest,
         "child_root_under_parent": child_root.parent == authority.run_root / "run-ref-children",
         "untracked": [row["path"] for row in result["workspace_delta"]["untracked_files"]],
@@ -254,18 +281,21 @@ def test_a_tampered_attempt_snapshot_refuses_the_parent_resume(world):
     assert _cli("resume", authority.run_root.name, "--run-ref-root", str(world["refs"])) != 0
 
 
-def test_a_holder_death_after_a_committed_effect_settles_failed_with_the_clone_at_its_header(world):
+def test_a_holder_death_after_a_committed_effect_settles_failed_with_the_clone_at_its_header(world, monkeypatch):
+    captures = _observe_cleanup(monkeypatch)
     status, (_authority, memo) = _run(world, second="touch late.txt # kill-the-holder")
     site = _site(memo)
     workspace, child_root = _attempt(site)
-    header = read_checkpoint_header(child_root / "checkpoint.json")
+    captured = captures[child_root]
+    header = captured['header']
+    assert not workspace.exists() and not (child_root / 'checkpoint.json').exists()
     child_memo = _child_memo(child_root)
 
     assert {
         "status": status, "terminal": memo.terminal.data["value"],
         "failed": {key: site["value"][key] for key in ("variant", "code")},
         "terminal_status": site["value"]["accounting"]["terminal_status"],
-        "clone": sorted(path.name for path in workspace.iterdir()), "header": (header.state, header.ordinal),
+        "clone": captured["names"], "header": (header.state, header.ordinal),
         "child_failed": [row.data["code"] for row in child_memo.entries if row.data["record"] == "failed"],
     } == {
         "status": 0, "terminal": "run_ref_environment_lost",
@@ -299,11 +329,12 @@ def test_a_clone_resolving_executable_is_refused_before_started_and_settles_fail
         0, "run_ref_environment_effect_unsupported", [])
 
 
-def test_a_leaf_writing_a_reserved_root_fails_its_checkpoint_as_escape_after_refreezing(world):
+def test_a_leaf_writing_a_reserved_root_fails_its_checkpoint_as_escape_after_refreezing(world, monkeypatch):
+    captures = _observe_cleanup(monkeypatch)
     status, (_authority, memo) = _run(world, first='mkdir .orchestrate; echo 3 > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"')
     _workspace, child_root = _attempt(_site(memo))
 
-    assert (status, memo.terminal.data["value"], read_checkpoint_header(child_root / "checkpoint.json").state) == (
+    assert (status, memo.terminal.data["value"], captures[child_root]["header"].state) == (
         0, "run_ref_environment_escape_rejected", "committed")
 
 
@@ -362,7 +393,8 @@ def _rebuilt_child(world, authority, site):
                                                parent_workspace=world["parent"])
 
 
-def test_a_reused_attempt_is_checked_against_its_last_checkpoint_not_its_baseline(world):
+def test_a_reused_attempt_is_checked_against_its_last_checkpoint_not_its_baseline(world, monkeypatch):
+    _defer_cleanup(monkeypatch)
     _status, (authority, memo) = _run(world)
     workspace, _child_root = _attempt(_site(memo))
     admission, provisioned = _rebuilt_child(world, authority, _site(memo))
@@ -375,10 +407,11 @@ def test_a_reused_attempt_is_checked_against_its_last_checkpoint_not_its_baselin
     assert (provisioned.layout.workspace, caught.value.code) == (workspace, "run_ref_environment_changed")
 
 
-def test_resume_of_the_child_refuses_image_pins_that_drifted(world):
+def test_resume_of_the_child_refuses_image_pins_that_drifted(world, monkeypatch):
     from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
     from orchestrator.workflow.run_ref.evaluated_child import execute_confined_child
 
+    _defer_cleanup(monkeypatch)
     _status, (authority, memo) = _run(world)
     _workspace, child_root = _attempt(_site(memo))
     header = json.loads((child_root / "run.json").read_bytes())

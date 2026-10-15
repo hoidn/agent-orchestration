@@ -1043,7 +1043,9 @@ def test_retained_checkpoint_identity_and_manifest_are_independent(world, monkey
     status = fixture._cli('resume', run_root.name, '--run-ref-root', str(world['refs']))
     if change == 'intent':
         assert status == 0
-        assert json.loads(header_path.read_text())['state'] == 'committed'
+        assert not header_path.exists() and not head.bindings.workspace_path.exists()
+        evidence = json.loads((head.bindings.workspace_path.parent / 'evidence-manifest.json').read_bytes())
+        assert evidence['cleanup_checkpoint']['digest'].startswith('sha256:')
     else:
         assert status != 0
         code = 'run_ref_evidence_invalid' if change == 'impossible_identity' else 'run_ref_environment_changed'
@@ -1356,3 +1358,525 @@ def test_zero_commit_k4_checks_present_checkpoint_identity_without_repair(world,
         assert not [row for row in rows if row.event_kind == 'failed_terminal']
     else:
         assert rows[-1].attempt_ordinal == 2
+
+
+@pytest.mark.parametrize('failed', [False, True])
+def test_settled_replay_survives_clone_baseline_and_image_withdrawal(world, monkeypatch, failed):
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    status, (authority, memo) = _run(world, second='exit 7' if failed else 'test -f out.txt; echo 4 > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"')
+    assert status == 0
+    site = _site(memo)
+    clone, child = _attempt(site)
+    assert not clone.exists()  # successful settlement retired the disposable clone
+    from orchestrator.workflow.run_ref.runtime import _BASELINE_DIRECTORY
+    (clone.parent / _BASELINE_DIRECTORY).rename(clone.parent / 'withdrawn-baseline')
+    (world['refs'] / 'images').rename(world['refs'] / 'withdrawn-images')
+    before = len(FakeHolder.launched), len(FakeHolder.leaves), authority.memo_path.read_bytes()
+    assert _cli('resume', authority.run_root.name) == 0
+    assert (len(FakeHolder.launched), len(FakeHolder.leaves), authority.memo_path.read_bytes()) == before
+
+
+def test_complete_evidence_allowance_counts_physical_copies_and_excludes_live_state(tmp_path):
+    from types import SimpleNamespace
+    from orchestrator.workflow.run_ref.confined_evidence import evidence_usage
+    from orchestrator.workflow.run_ref.runtime import RunRefRuntimeError
+    control, attempt = tmp_path / 'control', tmp_path / 'attempt'
+    control.mkdir(); attempt.mkdir()
+    (control / 'snapshots').mkdir()
+    blob = control / 'snapshots' / 'blob'
+    blob.write_bytes(b'abcd')
+    os.link(blob, control / 'snapshots' / 'alias')
+    (control / 'run.json').write_bytes(b'abcd')
+    (control / 'checkpoint.json').write_bytes(b'x' * 100)
+    for name in ('workspace', 'baseline'):
+        (attempt / name).mkdir()
+        (attempt / name / 'large').write_bytes(b'x' * 100)
+    (attempt / 'child-result.json').write_bytes(b'12')
+    layout = SimpleNamespace(child_root=control, workspace=attempt / 'workspace')
+    assert evidence_usage(layout, limit=10) == 10
+    with pytest.raises(RunRefRuntimeError, match='evidence_allowance'):
+        evidence_usage(layout, limit=9)
+
+
+@pytest.mark.parametrize('target', ['result', 'snapshot', 'image', 'trees', 'delta', 'recipe'])
+def test_settled_retained_authority_tamper_refuses_without_dispatch(world, target):
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    status, (authority, memo) = _run(world)
+    assert status == 0
+    clone, child = _attempt(_site(memo))
+    paths = {'result': next((child / 'effects').rglob('result.json')),
+             'snapshot': next((child / 'snapshots').iterdir()), 'image': child / 'image-inventory.json',
+             'trees': clone.parent / 'retained-trees.json', 'delta': clone.parent / 'workspace-delta.json',
+             'recipe': child / 'child-recipe.json'}
+    path = paths[target]
+    path.write_bytes(path.read_bytes() + b' ')
+    before = authority.memo_path.read_bytes(), len(FakeHolder.leaves), len(FakeHolder.launched)
+    assert _cli('resume', authority.run_root.name) == 2
+    assert (authority.memo_path.read_bytes(), len(FakeHolder.leaves), len(FakeHolder.launched)) == before
+
+
+@pytest.mark.parametrize("interruption", [None, "prepared", "renamed"])
+def test_confined_typed_path_is_exported_and_reused_from_parent(world, monkeypatch, interruption):
+    from tests.test_workflow_run_ref_confined_child import _write, _cli, _site, _attempt, FakeHolder
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.memo import read_memo
+    from orchestrator.workflow.evaluated.machine import site_classes
+    _write(world, first='mkdir -p out; echo retained > out/item; printf \'"out/item"\' > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"')
+    path = world['parent'] / 'controller.orc'
+    source = path.read_text()
+    start, end = source.index('  (defworkflow candidate-body'), source.index('  (defworkflow run')
+    source = source[:start] + '''  (defpath Artifact :kind relpath :under "out" :must-exist true)
+  (defworkflow candidate-body ((seed Int)) -> Artifact
+    (command-result first :argv ("sh" "first.sh") :returns Artifact))
+''' + source[end:]
+    path.write_text(source)
+    from orchestrator.workflow.run_ref import runtime as owner, confined_exports
+    captured = []
+    persist, rename = owner.persist_run_ref_lifecycle_event, confined_exports.rename_noreplace_at
+    def persist_then_interrupt(request, event):
+        result = persist(request, event)
+        if event.event_kind == 'export_prepared':
+            captured.append((ledger.load_attempt_ledger(request.ledger_path).rows[-1].bindings.child_run_id,
+                             event.attempt_ordinal, dict(event.payload['event'])))
+            if interruption == 'prepared':
+                raise InjectedControllerCrash()
+        return result
+    def rename_then_interrupt(*args):
+        result = rename(*args)
+        if interruption == 'renamed':
+            raise InjectedControllerCrash()
+        return result
+    args = ('run', 'controller.orc', '--entry-workflow', 'controller::run', '--command-boundaries-file',
+        'boundaries.json', '--run-ref-root', str(world['refs']), '--input', 'seed=1',
+        '--input', f"revision={world['commit']}")
+    with monkeypatch.context() as patch:
+        patch.setattr(owner, 'persist_run_ref_lifecycle_event', persist_then_interrupt)
+        patch.setattr(confined_exports, 'rename_noreplace_at', rename_then_interrupt)
+        if interruption:
+            with pytest.raises(InjectedControllerCrash):
+                _cli(*args)
+        else:
+            assert _cli(*args) == 0
+    (root,) = (world['parent'] / '.orchestrate/runs').iterdir()
+    if interruption:
+        before = len(FakeHolder.leaves), len(FakeHolder.launched)
+        child_id, ordinal, publication = captured[0]
+        destination = world['parent'] / publication['destination']
+        staged = destination.parent / publication['staged_name']
+        owned = staged if interruption == 'prepared' else destination
+        identity = owned.stat().st_dev, owned.stat().st_ino
+        assert ledger.load_attempt_ledger(root / 'run-ref-attempts.jsonl').rows[-1].event_kind == 'export_prepared'
+        assert _cli('resume', root.name) == 0
+        assert (len(FakeHolder.leaves), len(FakeHolder.launched)) == before
+        rows = ledger.load_attempt_ledger(root / 'run-ref-attempts.jsonl').rows
+        assert {(row.bindings.child_run_id, row.attempt_ordinal) for row in rows} == {(child_id, ordinal)}
+        assert (destination.stat().st_dev, destination.stat().st_ino) == identity
+        assert not staged.exists()
+        assert sum(row.event_kind == 'export_prepared' for row in rows) == 1
+    authority = load_run_authority(root)
+    memo = read_memo(authority.memo_path, site_classes(authority.program))
+    site = _site(memo)
+    exported = site['value']['result']['value']
+    assert exported.startswith('out/.run-ref-exports/')
+    assert (world['parent'] / exported).read_text() == 'retained\n'
+    assert any(row.event_kind == 'export_prepared' for row in ledger.load_attempt_ledger(root / 'run-ref-attempts.jsonl').rows)
+    before = len(FakeHolder.leaves), authority.memo_path.read_bytes()
+    assert _cli('resume', root.name) == 0
+    assert (len(FakeHolder.leaves), authority.memo_path.read_bytes()) == before
+
+
+def test_settled_cleanup_removes_clone_and_exact_checkpoint_after_parent_settled(world):
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    status, (authority, memo) = _run(world)
+    assert status == 0
+    clone, child = _attempt(_site(memo))
+    assert not clone.exists()
+    assert not (child / 'checkpoint.json').exists()
+    assert (child / 'memo.jsonl').exists()
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    assert [row.event_kind for row in rows][-2:] == ['cleanup_intent', 'cleanup_complete']
+    before = authority.memo_path.read_bytes(), (authority.run_root / 'run-ref-attempts.jsonl').read_bytes(), len(FakeHolder.launched)
+    assert _cli('resume', authority.run_root.name) == 0
+    assert (authority.memo_path.read_bytes(), (authority.run_root / 'run-ref-attempts.jsonl').read_bytes(), len(FakeHolder.launched)) == before
+
+
+def test_completed_resume_retries_pending_cleanup_and_report_is_readonly(world, monkeypatch, caplog):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    from orchestrator.workflow.evaluated.views import load_evaluated_view, report_snapshot
+    from orchestrator.observability.report import render_status_markdown
+    real_delete = confined_cleanup._delete_contents
+    monkeypatch.setattr(confined_cleanup, '_delete_contents', lambda fd: (_ for _ in ()).throw(OSError('busy-canary')))
+    status, (authority, memo) = _run(world)
+    assert status == 0 and memo.terminal.data['outcome'] == 'completed'
+    clone, child = _attempt(_site(memo))
+    before = authority.memo_path.read_bytes(), len(FakeHolder.launched), len(FakeHolder.leaves)
+    assert _cli('resume', authority.run_root.name) == 2
+    assert '[run_ref_cleanup_pending]' in caplog.text
+    files_before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in authority.run_root.rglob('*') if path.is_file()}
+    view = load_evaluated_view(authority.run_root)
+    assert view['status'] == 'completed' and view['workflow_outputs'] == 'completed' and view['error'] is None
+    assert view['run_ref_cleanup'][0]['error']['code'] == 'run_ref_cleanup_pending'
+    assert 'busy-canary' in render_status_markdown(report_snapshot(view, authority.run_root))
+    assert _cli('report', '--run-id', authority.run_root.name, '--format', 'json') == 0
+    assert _cli('report', '--run-id', authority.run_root.name, '--format', 'md') == 0
+    assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in files_before} == files_before
+    monkeypatch.setattr(confined_cleanup, '_delete_contents', real_delete)
+    assert _cli('resume', authority.run_root.name) == 0
+    assert 'run_ref_cleanup' not in load_evaluated_view(authority.run_root)
+    assert (authority.memo_path.read_bytes(), len(FakeHolder.launched), len(FakeHolder.leaves)) == before
+    assert not clone.exists() and not (child / 'checkpoint.json').exists()
+
+
+@pytest.mark.parametrize('race', [False, True])
+@pytest.mark.parametrize('crash', [False, True])
+def test_cleanup_preserves_replacement_and_private_location_across_retries(world, monkeypatch, race, crash):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    from orchestrator.workflow.evaluated.views import load_evaluated_view
+    real_delete = confined_cleanup._delete_contents
+    monkeypatch.setattr(confined_cleanup, '_delete_contents', lambda fd: (_ for _ in ()).throw(OSError('pause-cleanup')))
+    status, (authority, memo) = _run(world)
+    assert status == 0
+    clone, child = _attempt(_site(memo))
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    intent = next(row.event for row in rows if row.event_kind == 'cleanup_intent')
+    private = clone.parent / intent['private_name']
+    # Put the original back to test replacement immediately before the no-overwrite move.
+    private.rename(clone)
+    displaced = clone.with_name('displaced-original')
+    def replace_clone():
+        clone.rename(displaced)
+        clone.mkdir()
+        (clone / 'canary').write_bytes(b'foreign-canary')
+    real_rename = confined_cleanup.rename_noreplace_at
+    if race:
+        def substitute(source_fd, source_name, destination_fd, destination_name):
+            replace_clone()
+            return real_rename(source_fd, source_name, destination_fd, destination_name)
+        monkeypatch.setattr(confined_cleanup, 'rename_noreplace_at', substitute)
+    else:
+        replace_clone()
+    monkeypatch.setattr(confined_cleanup, '_delete_contents', real_delete)
+    before = authority.memo_path.read_bytes(), len(FakeHolder.leaves), len(FakeHolder.launched)
+    if crash:
+        real_append = confined_cleanup.append_confined_event
+        def lost_ack(*args, **kwargs):
+            row = real_append(*args, **kwargs)
+            if kwargs['event_kind'] == 'cleanup_error':
+                raise InjectedControllerCrash()
+            return row
+        with monkeypatch.context() as patch:
+            patch.setattr(confined_cleanup, 'append_confined_event', lost_ack)
+            with pytest.raises(InjectedControllerCrash):
+                _cli('resume', authority.run_root.name)
+    else:
+        assert _cli('resume', authority.run_root.name) == 2
+    replacement = private if race else clone
+    canary_inode = replacement.stat().st_ino
+    monkeypatch.setattr(confined_cleanup, 'rename_noreplace_at', real_rename)
+    assert _cli('resume', authority.run_root.name) == 2
+    assert replacement.stat().st_ino == canary_inode
+    assert (replacement / 'canary').read_bytes() == b'foreign-canary'
+    assert displaced.exists()
+    pending = load_evaluated_view(authority.run_root)['run_ref_cleanup'][0]
+    assert str(replacement) in pending['error']['message']
+    assert (authority.memo_path.read_bytes(), len(FakeHolder.leaves), len(FakeHolder.launched)) == before
+
+
+def test_cleanup_checkpoint_rename_race_preserves_foreign_header(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli
+    real_rename = confined_cleanup.rename_noreplace_at
+    foreign = []
+    def replace_checkpoint(source_fd, source_name, destination_fd, destination_name):
+        if source_name == 'checkpoint.json':
+            root = Path(f'/proc/self/fd/{source_fd}')
+            original = root / source_name
+            original.rename(root / 'displaced-checkpoint')
+            original.write_bytes(b'foreign-header-canary')
+            foreign.append(destination_name)
+        return real_rename(source_fd, source_name, destination_fd, destination_name)
+    monkeypatch.setattr(confined_cleanup, 'rename_noreplace_at', replace_checkpoint)
+    status, (authority, memo) = _run(world)
+    assert status == 0
+    clone, child = _attempt(_site(memo))
+    assert foreign
+    private = child / foreign[0]
+    assert private.read_bytes() == b'foreign-header-canary'
+    identity = private.stat().st_ino
+    monkeypatch.setattr(confined_cleanup, 'rename_noreplace_at', real_rename)
+    assert _cli('resume', authority.run_root.name) == 2
+    assert private.stat().st_ino == identity and private.read_bytes() == b'foreign-header-canary'
+
+
+def test_resume_finishes_cleanup_after_crash_before_cleanup_completion(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.memo import read_memo
+    from orchestrator.workflow.evaluated.machine import site_classes
+    real_delete = confined_cleanup._delete_contents
+    with monkeypatch.context() as patch:
+        patch.setattr(confined_cleanup, '_delete_contents', lambda fd: (_ for _ in ()).throw(InjectedControllerCrash()))
+        with pytest.raises(InjectedControllerCrash):
+            _run(world)
+    (root,) = (world['parent'] / '.orchestrate/runs').iterdir()
+    authority = load_run_authority(root)
+    memo = read_memo(authority.memo_path, site_classes(authority.program))
+    site = _site(memo)
+    clone, child = _attempt(site)
+    intent = next(row.event for row in ledger.load_attempt_ledger(root / 'run-ref-attempts.jsonl').rows if row.event_kind == 'cleanup_intent')
+    private = clone.parent / intent['private_name']
+    assert private.exists() and memo.terminal is None
+    before = len(FakeHolder.leaves), len(FakeHolder.launched)
+    assert _cli('resume', root.name) == 0
+    assert not clone.exists() and not private.exists() and not (child / 'checkpoint.json').exists()
+    assert (len(FakeHolder.leaves), len(FakeHolder.launched)) == before
+
+
+def test_evidence_allowance_does_not_charge_independent_child_ledger_rows(tmp_path):
+    from types import SimpleNamespace
+    from orchestrator.workflow.run_ref.confined_evidence import evidence_usage
+    control, attempt = tmp_path / 'control', tmp_path / 'attempt'
+    control.mkdir(); attempt.mkdir()
+    layout = SimpleNamespace(child_root=control, workspace=attempt / 'workspace')
+    path = tmp_path / 'ledger.jsonl'
+    own = ledger.allocate_attempt(path, visit=_visit(), bindings=_allocated_bindings(tmp_path),
+        confined_opening=dict(limit_ns=1000, boot_id='boot', since_ns=1))
+    other = replace(_visit(), step_id='unrelated-child')
+    ledger.allocate_attempt(path, visit=other, bindings=replace(_allocated_bindings(tmp_path),
+        workspace_path=tmp_path / 'run-ref-root' / 'other', child_run_id='other'),
+        confined_opening=dict(limit_ns=1000, boot_id='boot', since_ns=1))
+    expected = len(canonical_json_bytes(own.record)) + 1
+    assert path.stat().st_size > expected
+    assert evidence_usage(layout, ledger_path=path, visit=_visit(), limit=expected) == expected
+
+
+@pytest.mark.parametrize('boundary', ['started', 'commit', 'settlement'])
+def test_evidence_allowance_blocks_boundary_without_deleting_or_reclassifying_child(world, monkeypatch, boundary):
+    from orchestrator.workflow.run_ref import confined_lifecycle, confined_session
+    from tests.test_workflow_run_ref_confined_child import _run, FakeHolder, _child_memo
+    if boundary == 'started':
+        real = confined_session.ConfinedChildSession.clone_input_parts
+        def lower(self, *args, **kwargs):
+            value = real(self, *args, **kwargs)
+            monkeypatch.setattr(confined_session, 'EVIDENCE_ALLOWANCE_BYTES', 0)
+            return value
+        monkeypatch.setattr(confined_session.ConfinedChildSession, 'clone_input_parts', lower)
+    elif boundary == 'commit':
+        real = FakeHolder.run_leaf
+        def lower(self, request):
+            value = real(self, request)
+            monkeypatch.setattr(confined_session, 'EVIDENCE_ALLOWANCE_BYTES', 0)
+            return value
+        monkeypatch.setattr(FakeHolder, 'run_leaf', lower)
+    else:
+        real = confined_lifecycle._checked_child
+        def lower(*args, **kwargs):
+            value = real(*args, **kwargs)
+            monkeypatch.setattr(confined_session, 'EVIDENCE_ALLOWANCE_BYTES', 0)
+            return value
+        monkeypatch.setattr(confined_lifecycle, '_checked_child', lower)
+    status, (authority, parent_memo) = _run(world)
+    assert status != 0 and not parent_memo.active_commits
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    head = rows[-1]
+    child = authority.run_root / 'run-ref-children' / head.bindings.child_run_id
+    memo = _child_memo(child)
+    assert head.bindings.workspace_path.exists()
+    assert not [row for row in rows if row.event_kind in {'cleanup_intent', 'cleanup_complete'}]
+    if boundary == 'started':
+        assert not memo.latest_starts and FakeHolder.leaves == []
+    elif boundary == 'commit':
+        assert len(memo.latest_starts) == 1 and not memo.active_commits and len(FakeHolder.leaves) == 1
+    else:
+        assert memo.terminal.data['outcome'] == 'completed' and memo.terminal.data['value'] == 8
+
+
+def test_live_scope_refuses_cleanup_without_killing_or_moving_clone(world, monkeypatch):
+    from orchestrator.workflow.evaluated import run_ref
+    from orchestrator.workflow.run_ref import holder_scope
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    real_cleanup = run_ref._cleanup_if_confined
+    def live(request, *args):
+        with monkeypatch.context() as patch:
+            patch.setattr(holder_scope, 'populated', lambda path: True)
+            patch.setattr(holder_scope, 'kill_cgroup', lambda path: (_ for _ in ()).throw(AssertionError('reader killed scope')))
+            return real_cleanup(request, *args)
+    with monkeypatch.context() as patch:
+        patch.setattr(run_ref, '_cleanup_if_confined', live)
+        status, (authority, memo) = _run(world)
+    assert status != 0 and memo.terminal is None
+    clone, child = _attempt(_site(memo))
+    assert clone.exists() and (child / 'checkpoint.json').exists()
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    assert rows[-1].stage == 'committed' and rows[-1].event_kind == 'progress'
+    before = len(FakeHolder.leaves), len(FakeHolder.launched)
+    assert _cli('resume', authority.run_root.name) == 0
+    assert not clone.exists() and (len(FakeHolder.leaves), len(FakeHolder.launched)) == before
+
+
+def test_cleanup_crash_after_absence_recovers_completion_without_recreating_source(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.memo import read_memo
+    from orchestrator.workflow.evaluated.machine import site_classes
+    real_append = confined_cleanup.append_confined_event
+    def crash(*args, **kwargs):
+        if kwargs['event_kind'] == 'cleanup_complete':
+            raise InjectedControllerCrash()
+        return real_append(*args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(confined_cleanup, 'append_confined_event', crash)
+        with pytest.raises(InjectedControllerCrash):
+            _run(world)
+    (root,) = (world['parent'] / '.orchestrate/runs').iterdir()
+    authority = load_run_authority(root)
+    memo = read_memo(authority.memo_path, site_classes(authority.program))
+    clone, child = _attempt(_site(memo))
+    assert not clone.exists() and not (child / 'checkpoint.json').exists()
+    before = len(FakeHolder.leaves), len(FakeHolder.launched)
+    assert _cli('resume', root.name) == 0
+    assert ledger.load_attempt_ledger(root / 'run-ref-attempts.jsonl').rows[-1].event_kind == 'cleanup_complete'
+    assert (len(FakeHolder.leaves), len(FakeHolder.launched)) == before
+
+
+def test_cleanup_rejects_same_device_nested_mount_before_any_content_deletion(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli
+    real = confined_cleanup._statx_mount_id
+    def mounted(fd, *args):
+        path = Path(os.readlink(f'/proc/self/fd/{fd}'))
+        if args and args[0] == 'out.txt':
+            return real(fd, *args) + 1
+        return real(fd, *args)
+    with monkeypatch.context() as patch:
+        patch.setattr(confined_cleanup, '_statx_mount_id', mounted)
+        status, (authority, memo) = _run(world)
+    assert status == 0 and memo.terminal.data['outcome'] == 'completed'
+    clone, child = _attempt(_site(memo))
+    intent = next(row.event for row in ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+                  if row.event_kind == 'cleanup_intent')
+    private = clone.parent / intent['private_name']
+    assert (private / 'out.txt').read_text() == 'first\n'
+    assert (private / 'first.sh').exists() and (child / 'checkpoint.json').exists()
+    assert _cli('resume', authority.run_root.name) == 0
+    assert not private.exists()
+
+
+def test_settled_replay_does_not_resolve_a_replaced_clone_symlink(world):
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli
+    status, (authority, memo) = _run(world)
+    assert status == 0
+    clone, _ = _attempt(_site(memo))
+    foreign = world['parent'] / 'foreign'; foreign.mkdir()
+    (foreign / 'canary').write_bytes(b'foreign')
+    clone.symlink_to(foreign, target_is_directory=True)
+    before = authority.memo_path.read_bytes(), (authority.run_root / 'run-ref-attempts.jsonl').read_bytes()
+    assert _cli('resume', authority.run_root.name) == 0
+    assert clone.is_symlink() and (foreign / 'canary').read_bytes() == b'foreign'
+    assert (authority.memo_path.read_bytes(), (authority.run_root / 'run-ref-attempts.jsonl').read_bytes()) == before
+
+
+def test_retained_checkpoint_digest_keeps_the_real_last_checkpoint_oracle(world):
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt
+    from tests.e2e.test_e2e_run_ref_confined_child import _retained_checkpoint
+    status, (_authority, memo) = _run(world)
+    assert status == 0
+    clone, child = _attempt(_site(memo))
+    header, manifest = _retained_checkpoint(clone, child)
+    assert header.ordinal == 1 and header.manifest_digest == manifest.digest
+
+
+def test_missing_or_corrupt_prior_snapshot_blocks_the_next_leaf(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confined_session
+    from tests.test_workflow_run_ref_confined_child import _run, FakeHolder
+    real = confined_session.ConfinedChildSession.clone_input_parts
+    seen = []
+    def corrupt(self, *args, **kwargs):
+        parts = real(self, *args, **kwargs)
+        if seen:
+            self.snapshots.write_atomic(seen[0], b'corrupt committed snapshot')
+        else:
+            seen.append(next(entry.name for entry in os.scandir(self.snapshots.root_fd)))
+        return parts
+    monkeypatch.setattr(confined_session.ConfinedChildSession, 'clone_input_parts', corrupt)
+    status, (authority, memo) = _run(world)
+    assert status != 0 and not memo.active_commits
+    assert len(FakeHolder.leaves) == 1
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    assert not any(row.event_kind == 'cleanup_intent' for row in rows)
+
+
+def test_report_pending_projection_requires_exact_coordinator_ledger_binding(world, monkeypatch):
+    from tests.test_workflow_run_ref_confined_child import _run, _defer_cleanup
+    from orchestrator.workflow.evaluated.views import load_evaluated_view
+    _defer_cleanup(monkeypatch)
+    status, (authority, memo) = _run(world)
+    assert status == 0
+    rows = [json.loads(line) for line in authority.memo_path.read_bytes().splitlines()]
+    for row in rows:
+        if row['record'] == 'committed' and row['effect_class'] == 'run_ref':
+            row['proof']['settled_result']['child_run_id'] = 'foreign-child'
+    authority.memo_path.write_bytes(b''.join(canonical_json_bytes(row) + b'\n' for row in rows))
+    before = authority.memo_path.read_bytes(), (authority.run_root / 'run-ref-attempts.jsonl').read_bytes()
+    with pytest.raises(ValueError):
+        load_evaluated_view(authority.run_root)
+    assert (authority.memo_path.read_bytes(), (authority.run_root / 'run-ref-attempts.jsonl').read_bytes()) == before
+
+
+@pytest.mark.parametrize('corruption', ['catalog', 'diff'])
+def test_confined_delta_capture_is_live_validated_before_retirement(world, monkeypatch, corruption):
+    from orchestrator.workflow.run_ref import confined_lifecycle, delta as owner
+    from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
+    from tests.test_workflow_run_ref_confined_child import _run
+    capture = confined_lifecycle.build_workspace_delta
+    def corrupt(**kwargs):
+        result = capture(**kwargs)
+        record = result.record
+        assert record['untracked_files'] and record['normalized_diff']['entries']
+        if corruption == 'catalog':
+            record['untracked_files'] = []
+        else:
+            record['normalized_diff'].update(entries=[], omitted_entries=0, omitted_bytes=0, truncated=False)
+        return owner.WorkspaceDeltaCapture(canonical_json_bytes(record), canonical_sha256(record), result.final_manifest)
+    monkeypatch.setattr(confined_lifecycle, 'build_workspace_delta', corrupt)
+    status, (authority, memo) = _run(world)
+    assert status == 1
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    assert not any(row.event_kind.startswith('cleanup_') for row in rows)
+    assert rows[-1].stage == 'child_completed'
+    assert Path(rows[-1].bindings.workspace_path).is_dir()
+    from tests.test_workflow_run_ref_confined_child import _child_memo
+    recipe, = authority.run_root.rglob('child-recipe.json')
+    child_memo = _child_memo(recipe.parent)
+    assert child_memo.terminal.data['outcome'] == 'completed'
+
+
+@pytest.mark.parametrize('replacement_name', ['original', 'private'])
+def test_cleanup_checkpoint_recreated_after_unlink_stays_pending(world, monkeypatch, replacement_name):
+    from orchestrator.workflow.run_ref import confined_cleanup
+    from tests.test_workflow_run_ref_confined_child import _run, _site, _attempt, _cli, FakeHolder
+    unlink = confined_cleanup.os.unlink
+    def recreate(name, *, dir_fd=None):
+        result = unlink(name, dir_fd=dir_fd)
+        if str(name).startswith('.run-ref-checkpoint-cleanup-'):
+            replacement = 'checkpoint.json' if replacement_name == 'original' else name
+            (Path(f'/proc/self/fd/{dir_fd}') / replacement).write_bytes(b'foreign-after-unlink')
+        return result
+    with monkeypatch.context() as patch:
+        patch.setattr(confined_cleanup.os, 'unlink', recreate)
+        status, (authority, memo) = _run(world)
+    assert status == 0
+    clone, child = _attempt(_site(memo))
+    canary = child / 'checkpoint.json' if replacement_name == 'original' else next(child.glob('.run-ref-checkpoint-cleanup-*'))
+    assert canary.read_bytes() == b'foreign-after-unlink'
+    inode = canary.stat().st_ino
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    assert rows[-1].event_kind == 'cleanup_error'
+    before = authority.memo_path.read_bytes(), len(FakeHolder.leaves), len(FakeHolder.launched)
+    assert _cli('resume', authority.run_root.name) == 2
+    assert canary.stat().st_ino == inode and canary.read_bytes() == b'foreign-after-unlink'
+    assert (authority.memo_path.read_bytes(), len(FakeHolder.leaves), len(FakeHolder.launched)) == before

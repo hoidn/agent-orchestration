@@ -86,25 +86,16 @@ def _verify_started_input(authority, snapshot, reached, started, clone_root, rec
     """Recompute a past start through its snapshot, with no retry authorization or live clone reads."""
     from orchestrator.workflow.evaluated import effect_inputs
     from orchestrator.workflow.evaluated.confined_dispatch import verify_attempt_snapshot
-    from .image_store import open_sealed_image
-    own_image = image is None
-    if own_image:
-        record = json.loads(recipe_bytes)['admission']['image']
-        image = open_sealed_image(Path(authority.header['run_ref_root']) / 'images', record['image'])
-    try:
-        with closing(WorkspaceFiles(authority.run_root / 'snapshots')) as store:
-            context = SimpleNamespace(image=image, verified_parts=lambda parts: verify_attempt_snapshot(store, parts))
-            cwd = effect_inputs.resolve_launch_cwd(clone_root, reached.launch_workspace,
-                identity=reached.identity, previous=started, recorded=True)
-            _resolved, parts, files = effect_inputs._resolve_effect_input(authority, reached.node, reached.operands,
-                reached.identity, clone_root, reached.reader, started, None, None, started.data['result_path'],
-                check_command_destinations=False, owner=reached.owner, launch_cwd=cwd, confined=context)
-            if (parts != started.data['input_parts'] or canonical_sha256(parts) != started.data['input_digest']
-                    or files != started.data['implementation_files']):
-                raise _invalid('failed_started_input_disagrees')
-    finally:
-        if own_image:
-            image.close()
+    from .confined_evidence import replay_context
+    with replay_context(authority, recipe_bytes, image) as context:
+        cwd = effect_inputs.resolve_launch_cwd(clone_root, reached.launch_workspace,
+            identity=reached.identity, previous=started, recorded=True)
+        _resolved, parts, files = effect_inputs._resolve_effect_input(authority, reached.node, reached.operands,
+            reached.identity, clone_root, reached.reader, started, None, None, started.data['result_path'],
+            check_command_destinations=False, owner=reached.owner, launch_cwd=cwd, confined=context)
+        if (parts != started.data['input_parts'] or canonical_sha256(parts) != started.data['input_digest']
+                or files != started.data['implementation_files']):
+            raise _invalid('failed_started_input_disagrees')
 
 
 def record_failure(request, provisioned, authority, exc, budget, side):

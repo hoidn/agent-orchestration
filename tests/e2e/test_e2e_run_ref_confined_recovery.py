@@ -18,7 +18,7 @@ import pytest
 from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
 from orchestrator.workflow.run_ref.holder_scope import recover_holder_scopes
 from tests.e2e.test_e2e_run_ref_confined_child import (
-    refs, _candidate, PARENT, READ, STOP, REPOSITORY, _cli, _settled, _child_memo, _clone_digest,
+    refs, _candidate, PARENT, READ, STOP, REPOSITORY, _cli, _settled, _child_memo, _clone_digest, _retained_checkpoint,
 )
 
 pytestmark = pytest.mark.e2e
@@ -183,9 +183,13 @@ def test_external_controller_kill_recovery(tmp_path, refs, gap):
         retained = gap not in {'before_release', 'after_release'}
         assert (final_row.attempt_ordinal == 1) is retained
         if retained:
-            assert (final_row.bindings.child_run_id, workspace, (workspace.stat().st_dev, workspace.stat().st_ino)) == (
+            recipe = json.loads((child_root / 'child-recipe.json').read_bytes())
+            original = recipe['owned_roots']['clone']
+            assert (final_row.bindings.child_run_id, workspace, (original['device'], original['inode'])) == (
                 child_id, clone, clone_identity)
-        assert _clone_digest(workspace) == json.loads((child_root / 'checkpoint.json').read_text())['manifest_digest']
+        header, final_tree = _retained_checkpoint(workspace, child_root)
+        assert header.manifest_digest == final_tree.digest
+        assert not workspace.exists() and not (child_root / 'checkpoint.json').exists()
         expected = 'FAILED' if gap in {'failed_row', 'failed_terminal'} else 'COMPLETED'
         assert site['value']['variant'] == expected
         if gap in {'child_terminal', 'failed_row', 'failed_terminal', 'pending', 'parent_commit', 'before_settlement'}:

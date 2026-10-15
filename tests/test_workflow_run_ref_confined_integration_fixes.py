@@ -39,6 +39,7 @@ def test_completed_witness_rejects_internally_consistent_forged_effect_inputs(wo
 
 
 def test_completed_witness_uses_prior_snapshot_after_clone_script_changes(world, monkeypatch):
+    child._defer_cleanup(monkeypatch)
     _, (_, memo) = child._run(world)
     workspace, _ = child._attempt(child._site(memo))
     (workspace / 'first.sh').write_text('changed after the committed effect\n')
@@ -59,6 +60,7 @@ def test_empty_pins_confined_authority_never_uses_the_host_route(world, monkeypa
     boundaries = json.loads((world['parent'] / 'boundaries.json').read_text())
     boundaries['second']['stable_command'] = ['./second.sh', 'second.sh']
     (world['parent'] / 'boundaries.json').write_text(json.dumps(boundaries))
+    child._defer_cleanup(monkeypatch)
     _, (parent, memo) = child._run(world, first_exe='./first.sh')
     _, root = child._attempt(child._site(memo))
     authority = child.load_run_authority(root)
@@ -89,6 +91,7 @@ class Clock:
 
 
 def _session(world, monkeypatch):
+    child._defer_cleanup(monkeypatch)
     _, (parent, memo) = child._run(world, first_exe='./tool.sh')
     admission, provisioned = child._rebuilt_child(world, parent, child._site(memo))
     clock = Clock()
@@ -249,6 +252,7 @@ def test_legacy_host_authority_without_resume_request_stays_host(tmp_path):
 
 @pytest.mark.parametrize('directory', [False, True])
 def test_typed_document_path_inputs_remain_witnessable_from_captured_snapshots(world, monkeypatch, directory):
+    child._defer_cleanup(monkeypatch)
     from dataclasses import replace
 
     source = child.PARENT.replace('(export run)', '(export run) (defpath Asset :kind relpath :under "data" :must-exist true)')

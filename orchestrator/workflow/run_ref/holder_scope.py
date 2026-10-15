@@ -131,7 +131,7 @@ def kill_cgroup(cgroup: Path, timeout: float = 10.0) -> bool:
     return True
 
 
-def recover_holder_scopes(control_dir: Path) -> bool:
+def recover_holder_scopes(control_dir: Path, *, readonly: bool = False) -> bool:
     """Validate all recorded incarnations, then kill and empty their exact scopes, host included."""
     control_dir = Path(control_dir)
     try:
@@ -202,9 +202,17 @@ def recover_holder_scopes(control_dir: Path) -> bool:
             except FileNotFoundError:
                 continue
             root.revalidate()
-        if not kill_cgroup(scope):
+        if readonly:
+            if populated(scope):
+                raise RunRefRuntimeError('run_ref_evidence_invalid', 'holder_scope_still_live')
+        elif not kill_cgroup(scope):
             raise RunRefRuntimeError(LOST, "recovery_scope_not_empty")
     return any(released for _scope, released, _root in records)
+
+
+def validate_holder_scopes_quiescent(control_dir: Path) -> None:
+    """Validate original scope authority and emptiness without killing or repairing anything."""
+    recover_holder_scopes(control_dir, readonly=True)
 
 
 def process_state(pid: int) -> str:

@@ -112,8 +112,9 @@ def settle_evaluated_run_ref(authority, resolved, identity, attempt, workspace, 
     finalize_run_ref_parent_commit(request, prepared,
         persisted_settled_result=commit.data["proof"]["settled_result"])
     _require_retained_root(authority.run_files)
-    append_record(authority.memo_path, {"record": "settled", "identity": identity,
+    settlement = append_record(authority.memo_path, {"record": "settled", "identity": identity,
         "attempt": attempt, "by": "settle"}, run_files=authority.run_files, checked_authority=authority)
+    _cleanup_if_confined(request, identity, attempt, settlement)
 
 
 def validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, *, settled):
@@ -140,8 +141,36 @@ def reconcile_evaluated_run_ref(authority, resolved, identity, workspace, expect
     recover_run_ref_settlement(request, settled_result=commit.data["proof"]["settled_result"],
         reconcile_pending=True)
     _require_retained_root(authority.run_files)
-    append_record(authority.memo_path, {"record": "settled", "identity": identity,
+    settlement = append_record(authority.memo_path, {"record": "settled", "identity": identity,
         "attempt": attempt, "by": "reconcile"}, run_files=authority.run_files, checked_authority=authority)
+    _cleanup_if_confined(request, identity, attempt, settlement)
+
+
+def _cleanup_if_confined(request, identity, attempt, settlement):
+    if type(request.step_config.run_ref) is RunRefConfinedStaticConfig:
+        from orchestrator.workflow.run_ref.confined_cleanup import cleanup_settled
+        try:
+            return cleanup_settled(request, identity=identity, attempt=attempt, settlement=settlement)
+        except Exception as exc:
+            exc.preflight = True  # settlement is durable; a cleanup refusal cannot append a workflow failure
+            raise
+
+
+def retry_evaluated_cleanup(authority, snapshot, workspace):
+    from orchestrator.workflow.run_ref.confined_cleanup import cleanup_projection, settlement_entry
+    pending = cleanup_projection(authority, snapshot)
+    if not pending:
+        return []
+    from .replay import discover_prefix
+    prefix = discover_prefix(authority, snapshot)
+    requested = {(row['identity'], row['attempt']) for row in pending}
+    for reached in prefix.commits:
+        attempt = reached.commit.data['attempt']
+        if (reached.identity, attempt) in requested:
+            resolved, _ = resolve_run_ref_input(reached.node, reached.operands)
+            request = _request(authority, resolved, reached.identity, attempt, workspace)
+            _cleanup_if_confined(request, reached.identity, attempt, settlement_entry(snapshot, reached.identity, attempt))
+    return cleanup_projection(authority, snapshot)
 
 
 def guard_confined_invalidation(authority, snapshot, from_offset):
@@ -190,7 +219,8 @@ def inventory_parallel_run_ref_recovery(authority, obligations, workspace):
         settled = settled_result_binding_from_record(proof)
         ledger = load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl', run_files=authority.run_files)
         committed = [row for row in ledger.rows if row.visit == settled.visit
-            and row.attempt_ordinal == settled.attempt_ordinal and row.stage == 'committed']
+            and row.attempt_ordinal == settled.attempt_ordinal and row.stage == 'committed'
+            and row.event_kind not in {'cleanup_intent', 'cleanup_error', 'cleanup_complete'}]
         if not committed:
             missing += 1
             if missing > 1 or not ledger.rows or ledger.rows[-1].row_digest != settled.pending_row_digest:

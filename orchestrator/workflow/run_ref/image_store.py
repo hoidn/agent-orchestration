@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 import posixpath
+import re
 import shutil
 import stat
 import tarfile
@@ -255,11 +256,136 @@ def _walk(dir_fd: int, prefix: str, rows: list[list[Any]]) -> None:
             os.close(fd)
 
 
+def _inventory_bytes(rows) -> bytes:
+    return json.dumps(rows, separators=(",", ":")).encode()
+
+
+def capture_inventory(image: SealedImage) -> bytes:
+    """Capture the complete admitted tree inventory, without retaining executable binaries."""
+    rows: list[list[Any]] = []
+    _walk(image.root_fd, "", rows)
+    payload = _inventory_bytes(rows)
+    validate_inventory(payload, image.record)
+    return payload
+
+
+@dataclass(frozen=True)
+class ImageInventory:
+    """Authenticated image membership for read-only terminal replay; never a launchable image."""
+
+    rows: list[list[Any]]
+    indexed: dict[str, list[Any]]
+    digest: str
+
+    def resolve(self, path: str) -> str:
+        pending, resolved, hops = path.split("/"), [], _SYMLINK_HOPS
+        while pending:
+            part = pending.pop(0)
+            if part in ("", "."):
+                continue
+            if part == "..":
+                resolved = resolved[:-1]
+                continue
+            candidate = "/".join([*resolved, part])
+            row = self.indexed.get(candidate)
+            if row is None:
+                raise ImageStoreError(f"retained image path is absent: {path}")
+            if row[1] == "symlink":
+                hops -= 1
+                if hops < 0:
+                    raise ImageStoreError("retained image symlink loop")
+                target = row[2]
+                if target.startswith("/"):
+                    resolved = []
+                pending = target.split("/") + pending
+            else:
+                if pending and row[1] != "dir":
+                    raise ImageStoreError("retained image parent is not a directory")
+                resolved.append(part)
+        return "/" + "/".join(resolved)
+
+    def implementation_row(self, path: str) -> dict[str, Any]:
+        from orchestrator.workflow.evaluated.interpreters import image_resolvable
+        target = self.resolve(path)
+        if not image_resolvable(target):
+            raise ImageStoreError("retained image path resolves into mutable guest storage")
+        row = self.indexed.get(target.lstrip("/"))
+        if target == "/" or row[1] == "dir":
+            prefix = target.lstrip("/") + "/" if target != "/" else ""
+            subtree = [[entry[0][len(prefix):], *entry[1:]] for entry in self.rows if entry[0].startswith(prefix)]
+            result = {"kind": "directory", "digest": "sha256:" + hashlib.sha256(_inventory_bytes(subtree)).hexdigest()}
+        elif row[1] == "file":
+            result = {"kind": "file", "digest": "sha256:" + row[4]}
+        else:
+            raise ImageStoreError("retained image path is not a file or directory")
+        return {**result, "target": target} if target != path else result
+
+    def interpreter_pin(self, path: str) -> dict[str, str]:
+        target = self.resolve(path)
+        row = self.indexed.get(target.lstrip("/"))
+        if row is None or row[1] != "file" or not row[2] & 0o111:
+            raise ImageStoreError("retained interpreter is not executable")
+        evidence = self.implementation_row(path)
+        return dict(image=self.digest, path=path, resolved=target, digest=evidence["digest"])
+
+
+def validate_inventory(payload: bytes, admission: dict[str, Any]) -> ImageInventory:
+    """Authenticate canonical shape, membership and image traversal order against admission."""
+    try:
+        if (admission.get("platform") != "linux/amd64"
+                or CONFINED_IMAGE_RE.fullmatch(admission.get("image", "")) is None):
+            raise ValueError("image/platform binding invalid")
+        rows = json.loads(payload)
+        if (not isinstance(rows, list) or _inventory_bytes(rows) != payload
+                or "sha256:" + hashlib.sha256(payload).hexdigest() != admission["tree_digest"]):
+            raise ValueError("inventory canonical bytes or admission digest differs")
+        indexed, children = {}, {"": []}
+        for row in rows:
+            if not isinstance(row, list) or len(row) < 3:
+                raise ValueError("inventory row shape invalid")
+            path, kind = row[:2]
+            if (not isinstance(path, str) or "\0" in path
+                    or any(part in ("", ".", "..") for part in path.split("/")) or path in indexed):
+                raise ValueError("inventory path invalid or duplicate")
+            path.encode("utf-8")
+            if kind == "symlink":
+                if len(row) != 3 or not isinstance(row[2], str) or not row[2] or "\0" in row[2]:
+                    raise ValueError("inventory symlink invalid")
+                row[2].encode("utf-8")
+            elif kind in {"dir", "file"}:
+                if type(row[2]) is not int or not 0 <= row[2] <= 0o7777:
+                    raise ValueError("inventory mode invalid")
+                if kind == "dir":
+                    if len(row) != 3:
+                        raise ValueError("inventory directory invalid")
+                    children[path] = []
+                elif (len(row) != 5 or type(row[3]) is not int or row[3] < 0
+                        or not isinstance(row[4], str) or re.fullmatch("[0-9a-f]{64}", row[4]) is None):
+                    raise ValueError("inventory file invalid")
+            else:
+                raise ValueError("inventory entry kind invalid")
+            indexed[path] = row
+        for path in indexed:
+            children[path.rpartition("/")[0]].append(path)
+        def walk(parent):
+            paths = sorted(children[parent])
+            ordered = [indexed[path] for path in paths]
+            for path in paths:
+                if indexed[path][1] == "dir":
+                    ordered.extend(walk(path))
+            return ordered
+        if walk("") != rows:
+            raise ValueError("inventory traversal order invalid")
+        return ImageInventory(rows, indexed, admission["tree_digest"])
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        raise ImageStoreError(f"retained image inventory invalid: {exc}") from exc
+
+
 def tree_digest(root_fd: int) -> str:
     """Canonical digest of the tree beneath `root_fd`, never following a symlink."""
     rows: list[list[Any]] = []
     _walk(root_fd, "", rows)
-    return "sha256:" + hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+    return "sha256:" + hashlib.sha256(_inventory_bytes(rows)).hexdigest()
 
 
 def resolve_in_root(root_fd: int, path: str) -> str:
@@ -432,6 +558,9 @@ def open_sealed_image(store: Path, image: str) -> SealedImage:
 
 __all__ = [
     "ImageStoreError",
+    "ImageInventory",
+    "capture_inventory",
+    "validate_inventory",
     "MOUNT_POINTS",
     "PINNED_EXECUTABLES",
     "SealedImage",
