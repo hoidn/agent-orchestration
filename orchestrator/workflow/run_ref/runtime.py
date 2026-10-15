@@ -1594,21 +1594,33 @@ def _workspace_for_ordinal(
     *,
     effect_instance_digest: str | None = None,
 ) -> Path:
+    return run_ref_visit_workspace(request.run_ref_root, request.visit, attempt_ordinal,
+                                   effect_instance_digest=effect_instance_digest)
+
+
+def run_ref_visit_workspace(
+    run_ref_root: Path,
+    visit: RunRefVisitKey,
+    attempt_ordinal: int,
+    *,
+    effect_instance_digest: str | None = None,
+) -> Path:
+    """The one clone path of a visit attempt beneath the run-reference root."""
     parent_segment = _safe_workspace_segment(
-        request.visit.parent_run_id,
+        visit.parent_run_id,
         fallback="parent",
     )
     step_segment = _safe_workspace_segment(
-        request.visit.step_id,
+        visit.step_id,
         fallback="step",
     )
     visit_segment = "visit-" + canonical_sha256(
         {
             "schema_version": "run_ref_workspace_visit_identity.v1",
-            "visit": request.visit.record,
+            "visit": visit.record,
         }
     ).removeprefix("sha256:")
-    workspace_root = request.run_ref_root
+    workspace_root = run_ref_root
     if effect_instance_digest is not None:
         if _SHA256_RE.fullmatch(effect_instance_digest) is None:
             raise RunRefRuntimeError(

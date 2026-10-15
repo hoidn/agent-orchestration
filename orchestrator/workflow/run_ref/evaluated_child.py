@@ -1,13 +1,20 @@
-"""One readonly terminal/value proof for a checked evaluated path child."""
+"""Readonly terminal/value proofs for checked evaluated children.
+
+The path profile keeps its sole-terminal witness over `<clone>/.orchestrate/runs/<id>`.
+The confined profile (`run_ref_confinement.v1`) reads the external control root that
+the child header's `result_root` records and replays its committed memo.
+"""
 
 from collections.abc import Mapping
 from hashlib import sha256
+import os
 from pathlib import Path
 
 from orchestrator.run_lock import run_root_matches_fd
 from orchestrator.workflow.evaluated.authority import load_run_authority_from_bytes, _validate_run_ref_root
-from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+from orchestrator.workflow.evaluated.machine import evaluate_closed_program, site_classes
 from orchestrator.workflow.evaluated.memo import reduce_memo
+from orchestrator.workflow.evaluated.replay import discover_prefix
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.type_descriptor import validate_transport_value
@@ -17,14 +24,16 @@ from .contracts import canonical_json_bytes, canonical_sha256
 
 
 RESULT_SCHEMA = "run_ref_path_child_result.v2"
+CONFINED_TERMINAL_SCHEMA = "run_ref_confined_child_terminal.v1"
+AUTHORITY_FILES = ("run.json", "closed_program.json", "memo.jsonl")
 
 
-def _captured_child_authority(root):
+def _captured_child_authority(root, names=AUTHORITY_FILES):
     files = WorkspaceFiles(root)
     try:
         if not run_root_matches_fd(root, files.root_fd):
             raise ValueError("child root and retained descriptor disagree")
-        captured = tuple(files.read(root / name) for name in ("run.json", "closed_program.json", "memo.jsonl"))
+        captured = tuple(files.read(root / name) for name in names)
         if not run_root_matches_fd(root, files.root_fd):
             raise ValueError("child root changed during authority capture")
     finally:
@@ -133,3 +142,74 @@ def validate_evaluated_child_terminal(*, workspace, child_run_id, child_request,
         "header_sha256": hashed(header_bytes), "program_sha256": hashed(program_bytes),
         "memo_sha256": hashed(memo_bytes[:complete_bytes])})
     return value, root / "run.json", digest
+
+
+def confined_child_header(*, program, child_run_id, child_root, clone_root, run_ref_root, inputs):
+    """The header facts of the child-recipe variant (no `workflow_file` source to rebuild).
+
+    `workflow_file` names the checked child artifact in the control root, the recipe has
+    no source roots, and `result_root` is the control root seen from the clone.
+    """
+    return {
+        "run_id": child_run_id,
+        "workflow_file": (Path(child_root) / "closed_program.json").as_posix(),
+        "workflow_checksum": program.digest,
+        "program_digest": program.digest,
+        "bound_inputs": _pure_bound_inputs(program, inputs),
+        "resume_request": {"source_roots": [], "entry_workflow": program.tree["entry"],
+            "provider_externs_path": None, "prompt_externs_path": None,
+            "imported_workflow_bundles_path": None, "command_boundaries_path": None,
+            "input_file": None, "input_overrides": dict(inputs)},
+        "run_ref_root": Path(run_ref_root).as_posix(),
+        "result_root": os.path.relpath(child_root, clone_root),
+    }
+
+
+def require_confined_child_header(header, expected):
+    if {name: header.get(name) for name in expected} != expected or set(header) - set(expected) - {
+            "schema_version", "result_persistence_profile", "started_at", "input_digest",
+            "representation", "interpreters"} or header["interpreters"]:
+        raise ValueError("confined child header differs from its child recipe")
+
+
+def _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_value):
+    """Committed-memo witness: completed terminal, no unfinished effect, replayed halt."""
+    snapshot = reduce_memo(memo_bytes, site_classes(authority.program))
+    terminal = snapshot.terminal
+    if (snapshot.tail or terminal is None or terminal.data["outcome"] != "completed"
+            or snapshot.pending_starts or snapshot.unsettled_coordinators):
+        raise ValueError("confined child requires a completed terminal with every effect settled")
+    prefix = discover_prefix(authority, snapshot)
+    if not prefix.halted or prefix.frontiers or prefix.fault is not None:
+        raise ValueError("confined child replay does not halt over its committed effects")
+    value = terminal.data["value"]
+    checked_values = (
+        prefix.value,
+        coerce_evaluated_value(value, authority.program.tree["result"], context="child terminal").json_value(),
+        coerce_evaluated_value(value, value_descriptor, context="static child result").json_value(),
+        direct_value,
+    )
+    encoded = canonical_json_bytes(value)
+    if any(canonical_json_bytes(other) != encoded for other in checked_values):
+        raise ValueError("child terminal, replayed halt and direct result disagree")
+    return value, snapshot.complete_bytes
+
+
+def validate_confined_child_terminal(*, child_root, clone_root, expected_header, recipe_bytes,
+                                     value_descriptor, direct_value):
+    """Return the checked value, header path and terminal digest from the external control root."""
+    child_root, clone_root = Path(child_root), Path(clone_root)
+    header_bytes, program_bytes, memo_bytes, captured_recipe = _captured_child_authority(
+        child_root, (*AUTHORITY_FILES, "child-recipe.json"))
+    if captured_recipe != recipe_bytes:
+        raise ValueError("confined child recipe differs from the provisioned recipe")
+    authority = load_run_authority_from_bytes(child_root, header_bytes=header_bytes, program_bytes=program_bytes)
+    require_confined_child_header(authority.header, expected_header)
+    if Path(os.path.realpath(clone_root / authority.header["result_root"])) != Path(os.path.realpath(child_root)):
+        raise ValueError("confined child result_root does not record its control root")
+    value, complete_bytes = _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_value)
+    hashed = lambda payload: "sha256:" + sha256(payload).hexdigest()  # noqa: E731
+    digest = canonical_sha256({"domain": CONFINED_TERMINAL_SCHEMA,
+        "header_sha256": hashed(header_bytes), "program_sha256": hashed(program_bytes),
+        "memo_sha256": hashed(memo_bytes[:complete_bytes]), "recipe_sha256": hashed(recipe_bytes)})
+    return value, child_root / "run.json", digest

@@ -20,6 +20,8 @@ from urllib.parse import quote, unquote_to_bytes, urlsplit, urlunsplit
 from orchestrator._common.io_atomic import durable_atomic_write
 
 from .contracts import (
+    RUN_REF_CONFINED_MATERIALIZER_VERSION,
+    RUN_REF_NO_SETUP_IDENTITY,
     PostSetupBaselineIdentity,
     RepositoryRevisionId,
     RunRefSourceRefusal,
@@ -220,8 +222,9 @@ def _run_git(
     *,
     check: bool = True,
     text: bool = True,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[Any]:
-    """Run one argument-bounded Git command for the materializer."""
+    """Run one argument-bounded Git command; `env` None inherits the host's."""
 
     return subprocess.run(
         argv,
@@ -229,18 +232,19 @@ def _run_git(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=text,
+        **({} if env is None else {"env": dict(env)}),
     )
 
 
-def _git_stdout(argv: tuple[str, ...]) -> str:
-    stdout = _run_git(argv).stdout
+def _git_stdout(argv: tuple[str, ...], env: Mapping[str, str] | None = None) -> str:
+    stdout = _run_git(argv, env=env).stdout
     if not isinstance(stdout, str):
         raise TypeError("text Git command returned non-text stdout")
     return stdout.strip()
 
 
-def _git_bytes(argv: tuple[str, ...]) -> bytes:
-    stdout = _run_git(argv, text=False).stdout
+def _git_bytes(argv: tuple[str, ...], env: Mapping[str, str] | None = None) -> bytes:
+    stdout = _run_git(argv, text=False, env=env).stdout
     if not isinstance(stdout, bytes):
         raise TypeError("binary Git command returned non-bytes stdout")
     return stdout
@@ -452,6 +456,7 @@ def _source_policy_refusal(
 def _git_tree_objects(
     git_dir: Path,
     commit: str,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[_GitTreeObject, ...]:
     raw = _git_bytes(
         (
@@ -463,7 +468,8 @@ def _git_tree_objects(
             "-r",
             "-t",
             commit,
-        )
+        ),
+        env,
     )
     objects: list[_GitTreeObject] = []
     for record in raw.split(b"\0"):
@@ -492,7 +498,7 @@ def _git_tree_objects(
     return tuple(objects)
 
 
-def _blob_bytes(git_dir: Path, object_id: str) -> bytes:
+def _blob_bytes(git_dir: Path, object_id: str, env: Mapping[str, str] | None = None) -> bytes:
     return _git_bytes(
         (
             "git",
@@ -501,7 +507,8 @@ def _blob_bytes(git_dir: Path, object_id: str) -> bytes:
             "cat-file",
             "blob",
             object_id,
-        )
+        ),
+        env,
     )
 
 
@@ -515,8 +522,8 @@ def _attributes_enable_lfs(payload: bytes) -> bool:
     return False
 
 
-def _validate_source_policy(git_dir: Path, commit: str) -> None:
-    for entry in _git_tree_objects(git_dir, commit):
+def _validate_source_policy(git_dir: Path, commit: str, env: Mapping[str, str] | None = None) -> None:
+    for entry in _git_tree_objects(git_dir, commit, env):
         leaf_name = PurePosixPath(entry.path).name
         if leaf_name == ".gitmodules":
             raise _source_policy_refusal(
@@ -531,7 +538,7 @@ def _validate_source_policy(git_dir: Path, commit: str) -> None:
                 "committed Git links are unsupported",
             )
         if leaf_name == ".gitattributes" and _attributes_enable_lfs(
-            _blob_bytes(git_dir, entry.object_id)
+            _blob_bytes(git_dir, entry.object_id, env)
         ):
             raise _source_policy_refusal(
                 "trial_source_lfs_unsupported",
@@ -543,9 +550,10 @@ def _validate_source_policy(git_dir: Path, commit: str) -> None:
 def _expected_checkout_tree_manifest(
     git_dir: Path,
     commit: str,
+    env: Mapping[str, str] | None = None,
 ) -> TreeManifest:
     entries: list[TreeEntry] = []
-    for entry in _git_tree_objects(git_dir, commit):
+    for entry in _git_tree_objects(git_dir, commit, env):
         if entry.mode == "040000" and entry.object_type == "tree":
             entries.append(
                 TreeEntry(
@@ -558,7 +566,7 @@ def _expected_checkout_tree_manifest(
             )
             continue
         if entry.mode in {"100644", "100755"} and entry.object_type == "blob":
-            payload = _blob_bytes(git_dir, entry.object_id)
+            payload = _blob_bytes(git_dir, entry.object_id, env)
             entries.append(
                 TreeEntry(
                     path=entry.path,
@@ -570,7 +578,7 @@ def _expected_checkout_tree_manifest(
             )
             continue
         if entry.mode == "120000" and entry.object_type == "blob":
-            target_bytes = _blob_bytes(git_dir, entry.object_id)
+            target_bytes = _blob_bytes(git_dir, entry.object_id, env)
             try:
                 target = target_bytes.decode("utf-8", errors="strict")
             except UnicodeDecodeError as exc:
@@ -854,11 +862,13 @@ def _verify_local_mirror(
     mirror_path: Path,
     seal_path: Path,
     source: _MirrorSourceIdentity,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[VerifiedGitTreeIdentity, TreeManifest]:
     payload = _read_seal(seal_path, source)
     try:
         is_bare = _git_stdout(
-            ("git", "--git-dir", str(mirror_path), "rev-parse", "--is-bare-repository")
+            ("git", "--git-dir", str(mirror_path), "rev-parse", "--is-bare-repository"),
+            env,
         )
         resolved = _git_stdout(
             (
@@ -867,7 +877,8 @@ def _verify_local_mirror(
                 str(mirror_path),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{commit}}",
-            )
+            ),
+            env,
         )
         tree = _git_stdout(
             (
@@ -876,7 +887,8 @@ def _verify_local_mirror(
                 str(mirror_path),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{tree}}",
-            )
+            ),
+            env,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise _materialization_refusal(
@@ -887,6 +899,7 @@ def _verify_local_mirror(
     expected_checkout_tree_manifest = _expected_checkout_tree_manifest(
         mirror_path,
         source.resolved_commit_sha,
+        env,
     )
     if (
         is_bare != "true"
@@ -907,6 +920,7 @@ def _initialize_mirror(
     source: _MirrorSourceIdentity,
     mirrors_root: Path,
     mirror_path: Path,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[VerifiedGitTreeIdentity, TreeManifest]:
     staging = Path(
         tempfile.mkdtemp(
@@ -915,7 +929,7 @@ def _initialize_mirror(
         )
     )
     try:
-        _run_git(("git", "init", "--bare", "--quiet", str(staging)))
+        _run_git(("git", "init", "--bare", "--quiet", str(staging)), env=env)
         _run_git(
             (
                 "git",
@@ -927,7 +941,8 @@ def _initialize_mirror(
                 "--force",
                 source.normalized_locator,
                 f"{source.resolved_commit_sha}:{_SEALED_BRANCH}",
-            )
+            ),
+            env=env,
         )
         resolved = _git_stdout(
             (
@@ -936,7 +951,8 @@ def _initialize_mirror(
                 str(staging),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{commit}}",
-            )
+            ),
+            env,
         )
         tree = _git_stdout(
             (
@@ -945,18 +961,20 @@ def _initialize_mirror(
                 str(staging),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{tree}}",
-            )
+            ),
+            env,
         )
         if resolved != source.resolved_commit_sha:
             raise _materialization_refusal(
                 resolved,
                 "source resolved to a commit other than the exact authored revision",
             )
-        _validate_source_policy(staging, source.resolved_commit_sha)
+        _validate_source_policy(staging, source.resolved_commit_sha, env)
         verified = VerifiedGitTreeIdentity(f"git-tree:{tree}")
         expected_checkout_tree_manifest = _expected_checkout_tree_manifest(
             staging,
             source.resolved_commit_sha,
+            env,
         )
         durable_atomic_write(
             staging / _MIRROR_SEAL_FILENAME,
@@ -989,6 +1007,7 @@ def _sealed_mirror(
     *,
     source: _MirrorSourceIdentity,
     run_ref_root: Path,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[Path, Path, VerifiedGitTreeIdentity, TreeManifest]:
     digest = source.digest.removeprefix("sha256:")
     mirrors_root = run_ref_root / "mirrors"
@@ -1007,6 +1026,7 @@ def _sealed_mirror(
                     mirror_path,
                     seal_path,
                     source,
+                    env,
                 )
             else:
                 if mirror_path.exists() or mirror_path.is_symlink():
@@ -1015,6 +1035,7 @@ def _sealed_mirror(
                     source=source,
                     mirrors_root=mirrors_root,
                     mirror_path=mirror_path,
+                    env=env,
                 )
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
@@ -1024,6 +1045,79 @@ def _sealed_mirror(
         verified,
         expected_checkout_tree_manifest,
     )
+
+
+def _clone_detached(
+    *,
+    mirror_path: Path,
+    workspace_path: Path,
+    source: _MirrorSourceIdentity,
+    verified_tree: VerifiedGitTreeIdentity,
+    expected_checkout_tree_manifest: TreeManifest,
+    env: Mapping[str, str] | None = None,
+) -> TreeManifest:
+    """Clone the sealed mirror into a fresh detached checkout and verify its manifest."""
+
+    _run_git(
+        (
+            "git",
+            "clone",
+            "--quiet",
+            "--no-checkout",
+            "--no-local",
+            str(mirror_path),
+            str(workspace_path),
+        ),
+        env=env,
+    )
+    _run_git(
+        (
+            "git",
+            "-C",
+            str(workspace_path),
+            "checkout",
+            "--quiet",
+            "--detach",
+            source.resolved_commit_sha,
+        ),
+        env=env,
+    )
+    checked_commit = _git_stdout(
+        ("git", "-C", str(workspace_path), "rev-parse", "HEAD"),
+        env,
+    )
+    checked_tree = _git_stdout(
+        (
+            "git",
+            "-C",
+            str(workspace_path),
+            "rev-parse",
+            "HEAD^{tree}",
+        ),
+        env,
+    )
+    if (
+        checked_commit != source.resolved_commit_sha
+        or f"git-tree:{checked_tree}" != verified_tree.value
+    ):
+        raise _materialization_refusal(
+            source.resolved_commit_sha,
+            "detached clone does not match the sealed source revision",
+        )
+    _normalize_checkout_modes(
+        workspace_path,
+        expected_checkout_tree_manifest,
+    )
+    source_tree_manifest = freeze_tree(
+        workspace_path,
+        excluded_roots=(".git",),
+    )
+    if source_tree_manifest != expected_checkout_tree_manifest:
+        raise _materialization_refusal(
+            source_tree_manifest.digest,
+            "detached clone manifest does not match the sealed Git object manifest",
+        )
+    return source_tree_manifest
 
 
 def materialize_source(
@@ -1085,62 +1179,14 @@ def materialize_source(
         ) from exc
     workspace_created = False
     try:
-        _run_git(
-            (
-                "git",
-                "clone",
-                "--quiet",
-                "--no-checkout",
-                "--no-local",
-                str(mirror_path),
-                str(workspace_path),
-            )
-        )
         workspace_created = True
-        _run_git(
-            (
-                "git",
-                "-C",
-                str(workspace_path),
-                "checkout",
-                "--quiet",
-                "--detach",
-                source.resolved_commit_sha,
-            )
+        source_tree_manifest = _clone_detached(
+            mirror_path=mirror_path,
+            workspace_path=workspace_path,
+            source=source,
+            verified_tree=verified_tree,
+            expected_checkout_tree_manifest=expected_checkout_tree_manifest,
         )
-        checked_commit = _git_stdout(
-            ("git", "-C", str(workspace_path), "rev-parse", "HEAD")
-        )
-        checked_tree = _git_stdout(
-            (
-                "git",
-                "-C",
-                str(workspace_path),
-                "rev-parse",
-                "HEAD^{tree}",
-            )
-        )
-        if (
-            checked_commit != source.resolved_commit_sha
-            or f"git-tree:{checked_tree}" != verified_tree.value
-        ):
-            raise _materialization_refusal(
-                source.resolved_commit_sha,
-                "detached clone does not match the sealed source revision",
-            )
-        _normalize_checkout_modes(
-            workspace_path,
-            expected_checkout_tree_manifest,
-        )
-        source_tree_manifest = freeze_tree(
-            workspace_path,
-            excluded_roots=(".git",),
-        )
-        if source_tree_manifest != expected_checkout_tree_manifest:
-            raise _materialization_refusal(
-                source_tree_manifest.digest,
-                "detached clone manifest does not match the sealed Git object manifest",
-            )
         if progress_hook is not None:
             progress_hook("materialized")
         setup_evidence_path, setup_evidence_digest = _run_setup(
@@ -1193,14 +1239,157 @@ def materialize_source(
     )
 
 
+# --- Confined profile (run_ref_confinement.v1) -------------------------------
+#
+# Host Git runs with a sanitized environment (no credential helpers, SSH agent,
+# global/system configuration, templates or proxies); the clone's `.git` is
+# rewritten to a self-contained repository with no remote, hooks, reflogs or
+# alternates, so nothing in it links back to a host path. There is no setup.
+
+_CONFINED_GIT_CONFIG = (
+    b"[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n"
+    b"\tbare = false\n\tlogallrefupdates = false\n"
+)
+_CONFINED_GIT_DROPPED = ("hooks", "logs", "description", "FETCH_HEAD", "ORIG_HEAD", "packed-refs")
+_CONFINED_GIT_FORBIDDEN = ("objects/info/alternates", "objects/info/http-alternates", "commondir", "gitdir")
+
+
+@dataclass(frozen=True)
+class ConfinedSource:
+    """A verified sanitized clone; its source manifest is the setup-free baseline."""
+
+    repository_revision_id: RepositoryRevisionId
+    verified_git_tree: VerifiedGitTreeIdentity
+    mirror_path: Path
+    workspace_path: Path
+    source_tree_manifest: TreeManifest
+
+
+def sanitized_git_environment(scratch: Path) -> dict[str, str]:
+    """Environment for host Git in this profile: built from scratch, never copied.
+
+    `scratch` is an empty private directory serving as HOME and template dir.
+    """
+
+    return {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "HOME": str(scratch),
+        "LC_ALL": "C",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TEMPLATE_DIR": str(scratch),
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_SSH_COMMAND": "ssh -F /dev/null -o BatchMode=yes -o IdentityAgent=none",
+    }
+
+
+def _confined_revision(locator: str, commit: str) -> tuple[_MirrorSourceIdentity, RepositoryRevisionId]:
+    components = {
+        "normalized_locator": normalize_repository_locator(locator),
+        "resolved_commit_sha": validate_commit_sha(commit),
+        "materializer_version": RUN_REF_CONFINED_MATERIALIZER_VERSION,
+        "submodule_policy": _SUBMODULE_POLICY,
+        "lfs_policy": _LFS_POLICY,
+    }
+    source = _MirrorSourceIdentity(
+        digest=canonical_sha256({"schema_version": _SOURCE_SCHEMA, **components}), **components)
+    revision = RepositoryRevisionId.build(**components, authored_setup_identity=RUN_REF_NO_SETUP_IDENTITY)
+    return source, revision
+
+
+def _sanitize_clone_git(workspace: Path, env: Mapping[str, str]) -> None:
+    git_dir = workspace / ".git"
+    _run_git(("git", "-C", str(workspace), "remote", "remove", "origin"), env=env)
+    for name in _CONFINED_GIT_DROPPED:
+        if os.path.lexists(git_dir / name):
+            _discard_path(git_dir / name)
+    remotes = git_dir / "refs" / "remotes"
+    if os.path.lexists(remotes):
+        _discard_path(remotes)
+    durable_atomic_write(git_dir / "config", _CONFINED_GIT_CONFIG)
+
+
+def _verify_sanitized_git(git_dir: Path, *, forbidden: tuple[bytes, ...]) -> None:
+    """Refuse a `.git` that could link or execute back into the host."""
+
+    if not stat.S_ISDIR(git_dir.lstat().st_mode):
+        raise _materialization_refusal(str(git_dir), "sanitized clone .git is not a directory")
+    for name in _CONFINED_GIT_FORBIDDEN + _CONFINED_GIT_DROPPED:
+        if os.path.lexists(git_dir / name):
+            raise _materialization_refusal(name, "sanitized clone .git keeps a forbidden entry")
+    if (git_dir / "config").read_bytes() != _CONFINED_GIT_CONFIG:
+        raise _materialization_refusal("config", "sanitized clone .git config is not the fixed config")
+    for directory, dirs, files in os.walk(git_dir):
+        for name in dirs + files:
+            path = Path(directory, name)
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode) or (not stat.S_ISDIR(info.st_mode) and (
+                    not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o111)):
+                raise _materialization_refusal(str(path.relative_to(git_dir)),
+                                               "sanitized clone .git holds a link, executable or special file")
+            if stat.S_ISREG(info.st_mode) and "objects" not in path.relative_to(git_dir).parts:
+                payload = path.read_bytes()
+                if any(token in payload for token in forbidden):
+                    raise _materialization_refusal(str(path.relative_to(git_dir)),
+                                                   "sanitized clone .git names a host path")
+
+
+def materialize_confined_source(
+    locator: str,
+    commit: str,
+    *,
+    run_ref_root: Path,
+    workspace: Path,
+) -> ConfinedSource:
+    """Seal the exact revision with sanitized host Git and produce one fresh sanitized clone."""
+
+    workspace_path = Path(workspace)
+    if os.path.lexists(workspace_path):
+        raise RunRefSourceRefusal("trial_workspace_preexisting", str(workspace_path),
+                                  "run-reference workspace must not preexist")
+    workspace_path = _canonical_absolute_local_path(workspace_path, label="run-reference workspace")
+    run_ref_root_path = _canonical_absolute_local_path(Path(run_ref_root), label="run-reference root")
+    _require_directory_or_absent(run_ref_root_path, label="run-reference root")
+    _require_directory_or_absent(workspace_path.parent, label="run-reference workspace parent")
+    source, revision = _confined_revision(locator, commit)
+    with tempfile.TemporaryDirectory(prefix="run-ref-git-") as scratch:
+        env = sanitized_git_environment(Path(scratch))
+        try:
+            mirror_path, _seal, verified_tree, expected = _sealed_mirror(
+                source=source, run_ref_root=run_ref_root_path, env=env)
+            workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise _materialization_refusal(str(run_ref_root_path),
+                                           "run-reference mirror coordination failed") from exc
+        try:
+            manifest = _clone_detached(mirror_path=mirror_path, workspace_path=workspace_path, source=source,
+                                       verified_tree=verified_tree, expected_checkout_tree_manifest=expected,
+                                       env=env)
+            _sanitize_clone_git(workspace_path, env)
+            _verify_sanitized_git(workspace_path / ".git",
+                                  forbidden=(str(mirror_path).encode(), source.normalized_locator.encode()))
+        except RunRefSourceRefusal:
+            _discard_path(workspace_path)
+            raise
+        except (OSError, subprocess.CalledProcessError, WorkspaceFreezeError) as exc:
+            _discard_path(workspace_path)
+            raise _materialization_refusal(source.resolved_commit_sha,
+                                           "failed to create and verify the sanitized source clone") from exc
+    return ConfinedSource(repository_revision_id=revision, verified_git_tree=verified_tree,
+                          mirror_path=mirror_path, workspace_path=workspace_path, source_tree_manifest=manifest)
+
+
 __all__ = [
+    "ConfinedSource",
     "MaterializedSource",
     "RunRefSourceRefusal",
     "SourceRequest",
     "canonical_repository_revision_result",
     "canonical_source_request",
+    "materialize_confined_source",
     "materialize_source",
     "normalize_repository_locator",
+    "sanitized_git_environment",
     "source_request_from_dict",
     "validate_commit_sha",
 ]

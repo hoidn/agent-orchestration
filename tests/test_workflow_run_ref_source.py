@@ -1761,3 +1761,161 @@ def test_materialize_source_closes_mirror_coordination_filesystem_error(
     assert caught.value.rejected_value == str(run_ref_root)
     assert mirrors_path.read_text(encoding="utf-8") == "caller-owned file\n"
     assert not workspace.exists()
+
+
+# Confined profile (run_ref_confinement.v1): sanitized host Git, no setup.
+
+from orchestrator.workflow.run_ref.contracts import (  # noqa: E402
+    RUN_REF_CONFINED_MATERIALIZER_VERSION,
+    RUN_REF_NO_SETUP_IDENTITY,
+)
+from orchestrator.workflow.run_ref.source import (  # noqa: E402
+    materialize_confined_source,
+    sanitized_git_environment,
+)
+
+
+def _revision(**overrides: str) -> RepositoryRevisionId:
+    components = {
+        "normalized_locator": "file:///repo",
+        "resolved_commit_sha": "a" * 40,
+        "materializer_version": "git-detached-clone-v1",
+        "submodule_policy": "reject-v1",
+        "lfs_policy": "reject-v1",
+        "authored_setup_identity": authored_setup_identity(SetupPolicy()),
+        **overrides,
+    }
+    return RepositoryRevisionId.build(**components)
+
+
+def test_path_mode_revision_refuses_the_confined_none_setup_identity() -> None:
+    with pytest.raises(ValueError, match="confined materializer"):
+        _revision(authored_setup_identity=RUN_REF_NO_SETUP_IDENTITY)
+
+
+def test_confined_revision_carries_the_literal_none_setup_identity() -> None:
+    revision = _revision(
+        materializer_version=RUN_REF_CONFINED_MATERIALIZER_VERSION,
+        authored_setup_identity=RUN_REF_NO_SETUP_IDENTITY,
+    )
+
+    assert revision.authored_setup_identity == "none"
+
+
+def test_sanitized_git_environment_drops_credentials_agents_and_proxies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("SSH_AUTH_SOCK", "https_proxy", "HTTP_PROXY", "GIT_ASKPASS",
+                 "GIT_CONFIG_GLOBAL", "GIT_SSH_COMMAND", "GIT_DIR"):
+        monkeypatch.setenv(name, "/host/secret")
+
+    env = sanitized_git_environment(tmp_path)
+
+    assert "/host/secret" not in env.values()
+
+
+def _hostile_source(root: Path) -> str:
+    first, _second = _repository_with_two_commits(root)
+    hook = root / ".git" / "hooks" / "post-checkout"
+    hook.write_text("#!/bin/sh\ntouch \"$0.ran\"\n", encoding="utf-8")
+    hook.chmod(0o755)
+    other = root.parent / "other-objects"
+    other.mkdir()
+    (root / ".git" / "objects" / "info" / "alternates").write_text(f"{other}\n", encoding="utf-8")
+    _git(root, "remote", "add", "upstream", "https://user:token@example.invalid/x.git")
+    return first
+
+
+def test_confined_clone_has_no_setup_and_a_self_contained_sanitized_git_dir(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    commit = _hostile_source(repository)
+    run_ref_root = tmp_path / "run-ref"
+    workspace = tmp_path / "attempt" / "workspace"
+
+    source = materialize_confined_source(repository.as_uri(), commit, run_ref_root=run_ref_root,
+                                         workspace=workspace)
+
+    git_dir = workspace / ".git"
+    leaked = [path for path in git_dir.rglob("*") if path.is_file() and "objects" not in path.parts
+              and (str(repository).encode() in path.read_bytes() or str(run_ref_root).encode() in path.read_bytes())]
+    findings = {
+        "setup": source.repository_revision_id.authored_setup_identity,
+        "materializer": source.repository_revision_id.materializer_version,
+        "hooks": sorted(path.name for path in (git_dir / "hooks").glob("*")) if (git_dir / "hooks").exists() else [],
+        "alternates": (git_dir / "objects" / "info" / "alternates").exists(),
+        "remotes": _git(workspace, "remote").stdout.strip(),
+        "executables_or_links": [path.name for path in git_dir.rglob("*")
+                                 if path.is_symlink() or (path.is_file() and os.stat(path).st_mode & 0o111)],
+        "leaked_host_paths": leaked,
+        "head": _git(workspace, "rev-parse", "HEAD").stdout.strip(),
+        "payload": (workspace / "payload.txt").read_text(encoding="utf-8"),
+    }
+    assert findings == {"setup": "none", "materializer": RUN_REF_CONFINED_MATERIALIZER_VERSION,
+                        "hooks": [], "alternates": False, "remotes": "", "executables_or_links": [],
+                        "leaked_host_paths": [], "head": commit, "payload": "first\n"}
+
+
+def _hostile_host_git_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    hooks = tmp_path / "host-hooks"
+    hooks.mkdir()
+    marker = tmp_path / "host-hook-ran"
+    hook = hooks / "post-checkout"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+    hook.chmod(0o755)
+    config = tmp_path / "hostile.gitconfig"
+    config.write_text(f"[core]\n\thooksPath = {hooks}\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    return marker
+
+
+def test_hostile_host_git_configuration_runs_a_hook_under_the_path_materializer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Positive control: the hostile host configuration is effective outside the profile.
+    repository = tmp_path / "repository"
+    commit, _second = _repository_with_two_commits(repository)
+    marker = _hostile_host_git_config(tmp_path, monkeypatch)
+
+    materialize_source(SourceRequest(locator=repository.as_uri(), commit=commit),
+                       run_ref_root=tmp_path / "run-ref", workspace=tmp_path / "attempt" / "workspace")
+
+    assert marker.exists()
+
+
+def test_confined_materializer_ignores_hostile_host_git_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = tmp_path / "repository"
+    commit, _second = _repository_with_two_commits(repository)
+    marker = _hostile_host_git_config(tmp_path, monkeypatch)
+
+    materialize_confined_source(repository.as_uri(), commit, run_ref_root=tmp_path / "run-ref",
+                                workspace=tmp_path / "attempt" / "workspace")
+
+    assert not marker.exists()
+
+
+def test_confined_materializer_refuses_a_commit_absent_from_the_repository(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    _repository_with_two_commits(repository)
+    workspace = tmp_path / "attempt" / "workspace"
+
+    with pytest.raises(RunRefSourceRefusal) as caught:
+        materialize_confined_source(repository.as_uri(), "b" * 40, run_ref_root=tmp_path / "run-ref",
+                                    workspace=workspace)
+
+    assert (caught.value.code, os.path.lexists(workspace)) == ("trial_source_unresolvable", False)
+
+
+def test_confined_materializer_refuses_a_preexisting_workspace(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    commit, _second = _repository_with_two_commits(repository)
+    workspace = tmp_path / "attempt" / "workspace"
+    materialize_confined_source(repository.as_uri(), commit, run_ref_root=tmp_path / "run-ref",
+                                workspace=workspace)
+
+    with pytest.raises(RunRefSourceRefusal) as caught:
+        materialize_confined_source(repository.as_uri(), commit, run_ref_root=tmp_path / "run-ref",
+                                    workspace=workspace)
+
+    assert caught.value.code == "trial_workspace_preexisting"
