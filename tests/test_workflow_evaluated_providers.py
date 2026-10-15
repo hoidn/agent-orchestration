@@ -21,6 +21,7 @@ from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bund
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.contracts.prompt_contract import _RELPATH_GUIDANCE, render_output_bundle_contract_block
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.test_workflow_evaluated_prompts import _run_flat
 
@@ -186,7 +187,7 @@ def test_public_provider_dispatches_once_and_commits_its_typed_result(tmp_path):
 
 def _contract_lines(prompt, result_path):
     lines = prompt.splitlines()
-    format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: "))
+    format_at = next(index for index, line in enumerate(lines) if line.startswith("  format: ") or line == "{")
     assert lines.count("## Output Contract") == 1
     assert lines.count(f"- path: {result_path}") == 1
     assert lines.index("## Output Contract") < lines.index(f"- path: {result_path}") < format_at
@@ -201,7 +202,7 @@ def test_public_provider_prompt_renders_the_file_delivery_contract_once(tmp_path
     prompt = (run_root / Path(commit.data["result_path"]).parent / "prompt.txt").read_text()
     lines = _contract_lines(prompt, os.path.relpath(run_root / commit.data["result_path"], tmp_path))
     assert _RELPATH_GUIDANCE not in lines
-    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
+    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/2")
 
 
 def test_public_omp_provider_records_the_legacy_delivery_rendering(tmp_path):
@@ -243,7 +244,7 @@ def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tm
     (request,) = _requests(tmp_path)
     _assert_public_request_contract(tmp_path, run_root, commit.data, request)
     _assert_attempt_evidence(run_root, commit.data, request)
-    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
+    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/2")
     from orchestrator.cli.commands.resume import resume_workflow
 
     monkeypatch.chdir(tmp_path)
@@ -388,12 +389,14 @@ def _assert_prepare_parity(observed, flat, built, workspace):
 
 
 def _assert_prompt_path_parity(node, current, previous, workspace, *, previous_delivery="legacy"):
-    """The prompts differ only in the contract block: the flat route renders `legacy`, a new evaluated attempt `file`."""
+    """The prompts differ only in the contract block: the flat route renders `legacy`, a new evaluated attempt `file/2`."""
     payload, key = node["contract"]["payload"], "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
-    flat_block = render_output_bundle_contract_block(
-        {**payload, "path": workspace_relative(previous["env"][key], workspace)}, delivery=previous_delivery)
-    current_block = render_output_bundle_contract_block(
-        {**payload, "path": workspace_relative(current["env"][key], workspace)}, delivery="file")
+    previous_path = workspace_relative(previous["env"][key], workspace)
+    flat_block = (render_json_shape_contract_block(node["contract"], node["result"], previous_path)
+        if previous_delivery == "file/2" else render_output_bundle_contract_block(
+            {**payload, "path": previous_path}, delivery=previous_delivery))
+    current_block = render_json_shape_contract_block(node["contract"], node["result"],
+        workspace_relative(current["env"][key], workspace))
     assert flat_block in previous["prompt_content"]
     assert current["prompt_content"] == previous["prompt_content"].replace(flat_block, current_block, 1)
     return flat_block, current_block
@@ -410,7 +413,7 @@ def _assert_retry_request_parity(program, current, previous):
         if isinstance(row, dict) and row.get("class") == "provider"]
     _assert_prompt_path_parity(node,
         {"env": current["env"], "prompt_content": current["prompt"]},
-        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"], previous_delivery="file")
+        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"], previous_delivery="file/2")
 
 
 def _assert_invocation_parity(current, previous, flat_block, current_block):

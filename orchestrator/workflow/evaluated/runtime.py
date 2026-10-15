@@ -358,6 +358,7 @@ def _execute_effect(
     resolved, parts, implementation_files = _resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files,
+        provider_registry=provider_executor.registry if provider_executor is not None else None,
     )
     input_digest = canonical_sha256(parts)
     dependencies = sorted({dependency for value in operands for dependency in value.dependencies})
@@ -388,7 +389,7 @@ def _reuse_reached_commit(authority, node, identity, parts, input_digest, depend
 
 def _resolve_effect_input(
     authority, node, operands, identity, workspace, reader,
-    commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True,
+    commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True, provider_registry=None,
 ):
     """Resolve only the reached effect; command closure checks stay local."""
     if node["class"] == "command":
@@ -399,7 +400,7 @@ def _resolve_effect_input(
         resolved, parts = resolve_run_ref_input(node, operands)
         implementation_files = {}
     else:
-        delivery_name = _provider_delivery_name(node, commit, identity)
+        delivery_name = _provider_delivery_name(node, commit, identity, provider_registry)
         try:
             resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
                 result_path=workspace_relative_path(workspace, authority.run_root / result_path),
@@ -413,10 +414,10 @@ def _resolve_effect_input(
     return resolved, parts, implementation_files
 
 
-def _provider_delivery_name(node, commit, identity):
+def _provider_delivery_name(node, commit, identity, registry=None):
     """Replay only the committed rendering; missing parts predate versioning."""
     if commit is None:
-        return current_provider_delivery_name(node["provider"])
+        return current_provider_delivery_name(node["provider"], registry)
     digest = commit.data["input_parts"].get("delivery")
     if digest is None:
         return None

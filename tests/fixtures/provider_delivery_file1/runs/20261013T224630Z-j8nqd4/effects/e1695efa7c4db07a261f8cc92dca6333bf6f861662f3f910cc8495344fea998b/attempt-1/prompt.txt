@@ -1,0 +1,13 @@
+ASSET SOURCE
+
+## Typed Prompt Input: message
+"typed input"
+
+## Output Contract
+Write the JSON object specified below to the file on the `- path:` line, with a file-writing or shell tool, before you finish. The environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.
+- path: .orchestrate/runs/20261013T224630Z-j8nqd4/effects/e1695efa7c4db07a261f8cc92dca6333bf6f861662f3f910cc8495344fea998b/attempt-1/result.json
+  format: JSON object
+  fields:
+    - name: ok
+      json_pointer: /ok
+      type: bool

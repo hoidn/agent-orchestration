@@ -1,0 +1,14 @@
+ASSET SOURCE
+
+## Typed Prompt Input: message
+"typed input"
+
+## Output Contract
+Produce the following JSON bundle exactly as specified. If ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that runtime-owned authoritative target. Otherwise, do not create or modify the listed path; emit the JSON object as final assistant text only so the runtime can materialize it.
+# Relpath values are workspace-relative. Include the declared `under` prefix in the value: for `under: artifacts/work`, write `artifacts/work/...`; for `under: artifacts/review`, write `artifacts/review/...`.
+- path: .orchestrate/runs/20261013T200020Z-4ihtxh/effects/e1695efa7c4db07a261f8cc92dca6333bf6f861662f3f910cc8495344fea998b/attempt-1/result.json
+  format: JSON object
+  fields:
+    - name: ok
+      json_pointer: /ok
+      type: bool

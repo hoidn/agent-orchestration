@@ -22,7 +22,8 @@ from orchestrator.workflow_lisp.closed.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.providers.types import ProviderParams
+from orchestrator.providers.types import ProviderParams, ProviderSessionMetadataMode
+from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.contracts.output_contract import (
     ContractViolation, OutputContractError, validate_expected_outputs,
 )
@@ -35,13 +36,19 @@ from .commands import (
 from .prompts import provider_expected_outputs
 
 
-DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file"}
+DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file", "file/2": "file/2"}
+FILE_DELIVERY_NAME = "file/2"
 DELIVERY_NAMES_BY_DIGEST = {canonical_sha256(name): name for name in DELIVERY_SELECTORS}
 
 
-def current_provider_delivery_name(provider_name: str) -> str:
-    """Select the rendering for fresh calls in both runtime profiles."""
-    return "legacy" if provider_name.startswith("omp") else "file/1"
+def current_provider_delivery_name(provider_name: str, registry=None) -> str:
+    """Match the command variant prepared with session_request=None in both runtimes."""
+    template = (registry if registry is not None else ProviderRegistry()).get(provider_name)
+    if template is None:
+        raise ValueError(f"provider template unavailable: {provider_name}")
+    if template.command_metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
+        return "legacy"
+    return FILE_DELIVERY_NAME
 
 
 class ProviderPerformerError(RuntimeError):
@@ -313,6 +320,12 @@ def perform_provider(
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
+    if invocation.metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
+        if not execution.normalized_stdout:
+            raise ProviderPerformerError(
+                "provider_result_missing", f"provider did not provide normalized output for {result_path}"
+            )
+        attempt_files.create("result.json", execution.normalized_stdout, exclusive=True)
     return _provider_result(
         node,
         resolved,

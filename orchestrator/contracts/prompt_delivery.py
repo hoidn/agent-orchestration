@@ -1,8 +1,15 @@
 """Opening lines of a structured-result contract block: how the result reaches the runtime.
 
 `legacy` is the text composed before the delivery was selected; the flat route
-and evaluated rows committed before `file/1` existed render it. `file` is the
-evaluated route's file transport (docs/design/provider_result_delivery.md).
+and evaluated rows committed before `file/1` existed render it. `file` preserves
+file/1; `file/2` opens the current nested presentation.
+
+`_LEGACY`, `_FILE`, `_FILE_2`, `RELPATH_GUIDANCE` and the relpath walk are replay identity
+for committed rows: the `prompt` input part digests the bytes they produce. A
+change needs a new rendering name registered beside the existing versions in
+`orchestrator.workflow.evaluated.providers.DELIVERY_SELECTORS`, never an
+in-place edit. The resume test over tests/fixtures/provider_delivery_pre_change
+(a run committed under `legacy`) fails when those bytes drift.
 """
 
 from __future__ import annotations
@@ -29,6 +36,13 @@ _FILE = (
     "variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. "
     "Returning the value in your reply does not deliver it."
 )
+_FILE_2 = (
+    "Write the JSON result to the file on the `- path:` line, with a file-writing "
+    "or shell tool, before you finish. ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the "
+    "same file. Returning the value in your reply does not deliver it."
+)
+
+
 _BUNDLE = ("the following JSON bundle", "JSON object")
 _KINDS = {"value": ("one JSON value", "JSON value"), "bundle": _BUNDLE, "variant": _BUNDLE}
 
@@ -55,8 +69,11 @@ def delivery_opening(kind: str, delivery: str, payload: Mapping[str, Any]) -> Li
     `kind` is `value` (direct JSON root), `bundle` (record) or `variant` (tagged
     union) and `payload` its contract payload. `legacy` always appends the relpath
     guidance; `file` appends it only when the payload's fields, variant fields or
-    shared fields contain a `relpath` type.
+    shared fields contain a `relpath` type. `file/2` leaves path notes to the
+    nested renderer, which attaches them to the corresponding nodes.
     """
+    if delivery == "file/2":
+        return [_FILE_2]
     if delivery not in ("legacy", "file"):
         raise ValueError(f"unknown output contract delivery: {delivery!r}")
     subject, noun = _KINDS[kind]

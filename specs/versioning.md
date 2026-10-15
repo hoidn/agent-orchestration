@@ -801,6 +801,18 @@
     have different digests.
 
 - v2.35 additions
+  - Ordinary composed-provider delivery has independent rendering identities:
+    `legacy`, `file/1` and current `file/2`. The latter presents nested JSON
+    type shapes and preserves actual keys, constraints and authored guidance.
+    Fresh selection uses command transport metadata; `omp_json_stdout` keeps
+    `legacy` and exclusively materializes normalized output after success.
+    Typed memo replay uses the committed delivery digest; historical absent
+    parts remain absent and render `legacy`. Unknown digests refuse before
+    dispatch. The shared fresh native performer uses the same delivery rule
+    while retaining its strict result boundary and no-recovery profile.
+    This changes neither target admission nor state schema. See
+    [Providers](providers.md#composed-provider-result-delivery) and
+    [State](state.md#evaluated-provider-delivery-identity).
   - Closed-program compilation is implemented: `orchestrator compile` writes
     `closed_program.json` (`workflow-lisp/closed-program/1`, `table/1`)
     and `manifest.json`, with canonical configuration, typed callee

@@ -29,6 +29,37 @@ Deterministic local transport qualification does not establish live-provider
 acceptance. [IO](io.md#dynamic-boundary-io) and
 [State](state.md#dynamic-fresh-run-authority) own transport and fresh authority.
 
+## Composed-provider result delivery
+
+For ordinary evaluated calls (targets 2.35/2.36) and fresh native calls
+(target 3.0), select delivery from the registry template's `command_metadata_mode`.
+These calls prepare `session_request=None`, so a session command's metadata mode
+has no effect on selection. Provider identifiers and aliases do not select a
+transport.
+
+- `omp_json_stdout` selects `legacy`. After a successful execution with no
+  transport error, the shared performer exclusively creates its attempt-owned
+  `result.json` from `normalized_stdout`. Missing/empty normalized output is
+  `provider_result_missing`; an existing file or symlink refuses the exclusive
+  write. `stdout.txt` retains raw transport evidence and `stderr.txt` retains
+  stderr, including on failures. Nonzero/error executions never materialize a
+  normalized result.
+- Other command transports select `file/2`. The provider must write the
+  authoritative attempt result named by `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+  Reply-only output or a result at another path does not deliver the result.
+  The prompt presents the actual nested JSON type shape: records use real keys,
+  unions show complete alternatives including shared fields, containers retain
+  their item/value types, and nullable/omittable fields remain distinct.
+  Enum/path constraints and JSON-encoded authored guidance stay at their nodes;
+  the renderer invents no example values.
+
+Both transports feed the existing captured-result validator and required output
+checks. Native results retain strict whole-root validation, integer range checks
+and diagnostic redaction. Typed replay selects the recorded rendering, as
+specified in [State](state.md#evaluated-provider-delivery-identity); native state
+has no memo/reuse. `legacy` and `file/1` bytes remain immutable historical
+renderings. See [result delivery design](../docs/design/provider_result_delivery.md).
+
 ## Retained-profile provider lifecycle
 
 - Provider attempt lifecycle

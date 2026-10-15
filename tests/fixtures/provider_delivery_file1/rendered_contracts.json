@@ -1,0 +1,105 @@
+{
+  "root": {
+    "payload": {
+      "path": "result.json",
+      "guidance": {
+        "description": "root guidance"
+      },
+      "fields": [
+        {
+          "name": "__result__",
+          "json_pointer": "",
+          "type": "value",
+          "example": null
+        }
+      ]
+    },
+    "rendered": {
+      "legacy": "## Output Contract\nProduce one JSON value exactly as specified. If ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that runtime-owned authoritative target. Otherwise, do not create or modify the listed path; emit the JSON value as final assistant text only so the runtime can materialize it.\n# Relpath values are workspace-relative. Include the declared `under` prefix in the value: for `under: artifacts/work`, write `artifacts/work/...`; for `under: artifacts/review`, write `artifacts/review/...`.\n- path: result.json\n  format: JSON value\n  guidance:\n    description: \"root guidance\"\n  type: value\n  example: null\n",
+      "file": "## Output Contract\nWrite the JSON value specified below to the file on the `- path:` line, with a file-writing or shell tool, before you finish. The environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.\n- path: result.json\n  format: JSON value\n  guidance:\n    description: \"root guidance\"\n  type: value\n  example: null\n"
+    }
+  },
+  "record": {
+    "payload": {
+      "path": "result.json",
+      "fields": [
+        {
+          "name": "evidence__notes",
+          "json_pointer": "/evidence/notes",
+          "type": "string",
+          "description": "notes",
+          "guidance_context": [
+            {
+              "json_pointer": "/evidence",
+              "description": "context"
+            }
+          ]
+        },
+        {
+          "name": "report",
+          "json_pointer": "/report",
+          "type": "relpath",
+          "under": "artifacts/review",
+          "must_exist_target": true
+        }
+      ]
+    },
+    "rendered": {
+      "legacy": "## Output Contract\nProduce the following JSON bundle exactly as specified. If ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that runtime-owned authoritative target. Otherwise, do not create or modify the listed path; emit the JSON object as final assistant text only so the runtime can materialize it.\n# Relpath values are workspace-relative. Include the declared `under` prefix in the value: for `under: artifacts/work`, write `artifacts/work/...`; for `under: artifacts/review`, write `artifacts/review/...`.\n- path: result.json\n  format: JSON object\n  fields:\n    - name: evidence__notes\n      json_pointer: /evidence/notes\n      type: string\n      description: \"notes\"\n      guidance_context:\n        - json_pointer: /evidence\n          description: \"context\"\n    - name: report\n      json_pointer: /report\n      type: relpath\n      under: artifacts/review\n      must_exist_target: true\n",
+      "file": "## Output Contract\nWrite the JSON object specified below to the file on the `- path:` line, with a file-writing or shell tool, before you finish. The environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.\n# Relpath values are workspace-relative. Include the declared `under` prefix in the value: for `under: artifacts/work`, write `artifacts/work/...`; for `under: artifacts/review`, write `artifacts/review/...`.\n- path: result.json\n  format: JSON object\n  fields:\n    - name: evidence__notes\n      json_pointer: /evidence/notes\n      type: string\n      description: \"notes\"\n      guidance_context:\n        - json_pointer: /evidence\n          description: \"context\"\n    - name: report\n      json_pointer: /report\n      type: relpath\n      under: artifacts/review\n      must_exist_target: true\n"
+    }
+  },
+  "union": {
+    "payload": {
+      "path": "result.json",
+      "discriminant": {
+        "name": "variant",
+        "json_pointer": "/variant",
+        "type": "enum",
+        "allowed": [
+          "Yes",
+          "No"
+        ]
+      },
+      "shared_fields": [
+        {
+          "name": "ok",
+          "json_pointer": "/ok",
+          "type": "bool",
+          "guidance_by_variant": {
+            "Yes": {
+              "example": true
+            },
+            "No": {
+              "example": false
+            }
+          }
+        }
+      ],
+      "variants": {
+        "Yes": {
+          "fields": [
+            {
+              "name": "n",
+              "json_pointer": "/n",
+              "type": "integer"
+            }
+          ]
+        },
+        "No": {
+          "fields": [
+            {
+              "name": "reason",
+              "json_pointer": "/reason",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    "rendered": {
+      "legacy": "## Variant Output Contract\nProduce the following JSON bundle exactly as specified. If ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that runtime-owned authoritative target. Otherwise, do not create or modify the listed path; emit the JSON object as final assistant text only so the runtime can materialize it.\n# Relpath values are workspace-relative. Include the declared `under` prefix in the value: for `under: artifacts/work`, write `artifacts/work/...`; for `under: artifacts/review`, write `artifacts/review/...`.\n- path: result.json\n  format: JSON object\n  discriminant:\n    name: variant\n    json_pointer: /variant\n    type: enum\n    allowed: Yes, No\n  shared_fields:\n    - name: ok\n      json_pointer: /ok\n      type: bool\n      guidance_by_variant:\n        Yes:\n          example: true\n        No:\n          example: false\n  variants:\n    Yes:\n      fields:\n        - name: n\n          json_pointer: /n\n          type: integer\n    No:\n      fields:\n        - name: reason\n          json_pointer: /reason\n          type: string\n",
+      "file": "## Variant Output Contract\nWrite the JSON object specified below to the file on the `- path:` line, with a file-writing or shell tool, before you finish. The environment variable ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.\n- path: result.json\n  format: JSON object\n  discriminant:\n    name: variant\n    json_pointer: /variant\n    type: enum\n    allowed: Yes, No\n  shared_fields:\n    - name: ok\n      json_pointer: /ok\n      type: bool\n      guidance_by_variant:\n        Yes:\n          example: true\n        No:\n          example: false\n  variants:\n    Yes:\n      fields:\n        - name: n\n          json_pointer: /n\n          type: integer\n    No:\n      fields:\n        - name: reason\n          json_pointer: /reason\n          type: string\n"
+    }
+  }
+}

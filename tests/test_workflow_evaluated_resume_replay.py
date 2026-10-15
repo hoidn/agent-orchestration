@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import sys
 from pathlib import Path
 
 from orchestrator.workflow_lisp.closed.sites import _ast_nodes
@@ -369,7 +371,8 @@ def _record_as_pre_delivery_package(root: Path, run_root: Path, identity: str) -
                "path": Path(os.path.relpath(run_root / commit["result_path"], root)).as_posix()}
     prompt_file = run_root / Path(commit["result_path"]).parent / "prompt.txt"
     prompt = prompt_file.read_text(encoding="utf-8")
-    file_block = render_output_bundle_contract_block(payload, delivery="file")
+    from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
+    file_block = render_json_shape_contract_block(provider["contract"], provider["result"], payload["path"])
     assert prompt.count(file_block) == 1
     legacy_prompt = prompt.replace(file_block, render_output_bundle_contract_block(payload, delivery="legacy"))
     prompt_file.write_text(legacy_prompt, encoding="utf-8")
@@ -403,7 +406,7 @@ def test_resume_reuses_a_provider_commit_recorded_before_the_delivery_part(tmp_p
     assert rows[:2] == first_rows
     second = [row for row in rows if row["record"] in {"started", "committed"} and row["identity"] != first]
     assert [row["record"] for row in second] == ["started", "committed"]
-    assert {row["input_parts"]["delivery"] for row in second} == {canonical_sha256("file/1")}
+    assert {row["input_parts"]["delivery"] for row in second} == {canonical_sha256("file/2")}
     assert rows[-1]["record"] == "terminal" and rows[-1]["value"] == expected
     (_first_request, second_request) = _requests(interrupted)
     assert second_request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == (
@@ -441,3 +444,78 @@ def test_resume_reuses_a_provider_commit_with_known_legacy_delivery(tmp_path):
     assert resumed.returncode == 0, resumed.stderr
     assert _snapshot(tmp_path / ".orchestrate") == before
     assert (tmp_path / "requests.jsonl").read_bytes() == requests_before
+
+
+_PRE_CHANGE = Path(__file__).parent / "fixtures" / "provider_delivery_pre_change"
+
+
+def _pre_change_workspace(root: Path, fixture: Path = _PRE_CHANGE) -> list[str]:
+    """The fixture's sources and fake provider in `root`; returns the `run` arguments."""
+    root.mkdir(parents=True)
+    for name in ("main.orc", "providers.json", "prompts.json", "prompt.md"):
+        shutil.copy2(fixture / name, root / name)
+    shim = root / "bin" / "codex"
+    shim.parent.mkdir()
+    shim.write_text(f"#!{sys.executable}\n" + (fixture / "codex_shim.py").read_text(encoding="utf-8"),
+                    encoding="utf-8")
+    shim.chmod(0o700)
+    return ["run", str(root / "main.orc"), "--source-root", str(root), "--provider-externs-file",
+            str(root / "providers.json"), "--prompt-externs-file", str(root / "prompts.json"),
+            "--input", "message=typed input"]
+
+
+def test_resume_reuses_the_checked_in_pre_change_provider_commit(tmp_path: Path) -> None:
+    """The fixture run was committed by the package before the `delivery` part existed and is never regenerated,
+    so this fails when the bytes the `legacy` rendering composes drift."""
+    baseline, root = tmp_path / "baseline", tmp_path / "resumed"
+    assert _env_cli(baseline, _pre_change_workspace(baseline), _env(baseline, provider=True)).returncode == 0
+    (baseline_run,) = (baseline / ".orchestrate" / "runs").iterdir()
+    _pre_change_workspace(root)
+    shutil.copytree(_PRE_CHANGE / "runs", root / ".orchestrate" / "runs")
+    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
+    committed = (run_root / "memo.jsonl").read_bytes()
+
+    resumed = _env_cli(root, ["resume", run_root.name], _env(root, provider=True))
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert (run_root / "memo.jsonl").read_bytes().startswith(committed)
+    rows = _memo_rows(run_root)
+    second = [row for row in rows[2:] if row["record"] in {"started", "committed"}]
+    assert [row["record"] for row in second] == ["started", "committed"]
+    assert second[0]["identity"] != rows[1]["identity"]
+    assert {row["input_parts"]["delivery"] for row in second} == {canonical_sha256("file/2")}
+    (request,) = _requests(root)
+    assert request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == (
+        "sha256:" + hashlib.sha256(second[0]["identity"].encode()).hexdigest())
+    assert rows[-1]["record"] == "terminal" and rows[-1]["value"] == _memo_rows(baseline_run)[-1]["value"]
+
+
+def test_resume_reuses_the_frozen_file1_provider_commit_and_selects_file2(tmp_path):
+    fixture = Path(__file__).parent / 'fixtures/provider_delivery_file1'
+    hashes = json.loads((fixture / 'hashes.json').read_text())
+    assert {name: hashlib.sha256((fixture / name).read_bytes()).hexdigest() for name in hashes} == hashes
+    root = tmp_path / 'resumed'
+    _pre_change_workspace(root, fixture)
+    shutil.copytree(fixture / 'runs', root / '.orchestrate/runs')
+    (run_root,) = (root / '.orchestrate/runs').iterdir()
+    committed = (run_root / 'memo.jsonl').read_bytes()
+    before_rows = _memo_rows(run_root)
+    assert {row['input_parts']['delivery'] for row in before_rows} == {canonical_sha256('file/1')}
+    old_attempts = {p.relative_to(run_root).as_posix(): p.read_bytes()
+                    for p in run_root.glob('effects/*/attempt-1/*') if p.is_file()}
+
+    resumed = _env_cli(root, ['resume', run_root.name], _env(root, provider=True))
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert (run_root / 'memo.jsonl').read_bytes().startswith(committed)
+    rows = _memo_rows(run_root)
+    assert rows[:2] == before_rows
+    assert {row['input_parts']['delivery'] for row in rows[2:] if row['record'] in {'started', 'committed'}} == {canonical_sha256('file/2')}
+    assert len(_requests(root)) == 1 and rows[-1]['record'] == 'terminal'
+    assert {name: (run_root / name).read_bytes() for name in old_attempts} == old_attempts
+    completed = _snapshot(root / '.orchestrate')
+    requests = (root / 'requests.jsonl').read_bytes()
+    for _ in range(2):
+        assert _env_cli(root, ['resume', run_root.name], _env(root, provider=True)).returncode == 0
+        assert _snapshot(root / '.orchestrate') == completed
+        assert (root / 'requests.jsonl').read_bytes() == requests

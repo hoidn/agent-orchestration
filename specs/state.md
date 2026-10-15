@@ -28,6 +28,21 @@
     recovery use that retained root, with historical-root refusals defined by
     the linked evaluated contract.
 
+## Evaluated provider delivery identity
+
+At targets 2.35/2.36, the provider `input_parts.delivery` value in started and
+committed memo rows is the canonical SHA-256 digest of the rendering name:
+`legacy`, `file/1` or `file/2`. New ordinary file transports select `file/2`;
+command-mode `omp_json_stdout` selects `legacy` by transport metadata.
+
+Replay recomputes a committed request using exactly its recorded rendering.
+An absent part selects the pre-versioned `legacy` rendering and remains absent
+from recomputed input parts. A recognized digest selects its historical bytes;
+an unknown digest refuses `effect_input_diverged` before provider dispatch.
+Replay never infers a committed rendering from current provider metadata.
+These parts are typed memo identity only; target 3.0 retains fresh state without
+memo, completed-result reuse or a synthesized delivery field.
+
 ## REPL read-only reconstruction
 
 The [REPL](cli.md#workflow-lisp-repl) adds an explicit inspection consumer;

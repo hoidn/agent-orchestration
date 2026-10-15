@@ -271,7 +271,7 @@ def _perform_dynamic_provider(
             workspace=workspace_files.workspace,
             reader=reader,
             result_path=result_path,
-            delivery_name=current_provider_delivery_name(native_node["provider"]),
+            delivery_name=current_provider_delivery_name(native_node["provider"], executor.registry),
         )
     except Exception as exc:
         raise _safe_provider_error(

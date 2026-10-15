@@ -10,6 +10,7 @@ from orchestrator.contracts.prompt_contract import (
     render_output_contract_block,
     render_variant_output_contract_block,
 )
+from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
 from orchestrator.deps.content_snapshot import (
     DependencyContentSnapshot,
     render_content_snapshot,
@@ -150,7 +151,11 @@ def _output_contract_prompt(
         if not isinstance(payload, Mapping):
             raise ValueError("checked provider result contract is invalid")
         contract_payload = {**payload, "path": result_path}
-        if contract.get("kind") == "output_bundle":
+        if delivery == "file/2":
+            if contract.get("kind") not in {"output_bundle", "variant_output"}:
+                raise ValueError("checked provider result contract kind is invalid")
+            block = render_json_shape_contract_block(contract, node["result"], result_path)
+        elif contract.get("kind") == "output_bundle":
             block = render_output_bundle_contract_block(contract_payload, delivery=delivery)
         elif contract.get("kind") == "variant_output":
             block = render_variant_output_contract_block(contract_payload, delivery=delivery)
