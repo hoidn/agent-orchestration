@@ -190,6 +190,9 @@ class LeafCommandExecutor:
         if outcome.timed_out and wall_bound:
             raise CommandPerformerError(BUDGET_EXHAUSTED, "confined leaf ran out of the child wall budget",
                 exit_info={"exit_code": None, **flags})
+        if outcome.lingered:  # P29: exited, but left processes the holder had to kill
+            raise CommandPerformerError("command_exit_nonzero", "confined leaf left lingering processes behind",
+                exit_info={"exit_code": outcome.exit_code, "lingered": True, **flags})
         exit_code = 124 if outcome.timed_out else (-1 if outcome.exit_code is None else outcome.exit_code)
         error = ({"type": "timeout", "message": f"Command timed out after {timeout_sec} seconds",
                   "context": {"timeout_sec": timeout_sec}} if outcome.timed_out else None)

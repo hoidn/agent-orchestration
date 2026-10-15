@@ -474,3 +474,14 @@ def test_provider_doc_fills_and_dependencies_name_clone_rows() -> None:
 
     assert required == [("report", "docs/r.md"), ("required:0", "a.txt")]
     assert optional == [("optional:0", "b.txt")]
+
+
+def test_a_leaf_that_left_processes_behind_fails_naming_it(owners, image) -> None:
+    runner = FakeRunner(exit_code=0, quiesced_by_exit=False, lingered=True)
+
+    with pytest.raises(CommandPerformerError) as excinfo:
+        perform_external(_attempt(owners, image, _count_node(owners), runner=runner))
+
+    assert excinfo.value.code == "command_exit_nonzero"
+    assert excinfo.value.exit_info["lingered"] is True
+    assert "linger" in str(excinfo.value)
