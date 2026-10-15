@@ -30,7 +30,13 @@ schema notation, not authored workflow files.
     - `input_mode: 'argv' | 'stdin'` (default: 'argv').
   - `defaults`: map of provider parameters (e.g., `model`).
   - v2.10 session-capable templates may also declare `session_support`:
-    - `metadata_mode`
+    - `metadata_mode`, one of `codex_exec_jsonl_stdout`, `omp_json_stdout`,
+      or `claude_stream_json_stdout`. The last decodes
+      `claude -p --output-format stream-json --verbose` stdout: it binds
+      `session_id` from the `system/init` and later events, assistant text
+      from `assistant` events, and completion from the terminal `result`
+      event (finalize metadata adds `result_subtype` and `is_error`). It has
+      no resume-boundary observation, so `turn_boundary_resume` stays `false`.
     - `fresh_command`
     - optional `resume_command`
     - optional boolean `turn_boundary_resume` (default `false`)
@@ -250,6 +256,14 @@ schema notation, not authored workflow files.
     `model -> model` and `effort -> effort`, and has exact command
     `["claude", "-p", "--model", "${model}", "--effort", "${effort}",
     "--permission-mode", "bypassPermissions"]`.
+    It additionally declares `session_support` with metadata mode
+    `claude_stream_json_stdout`, `turn_boundary_resume: false`, fresh command
+    `["claude", "-p", "--output-format", "stream-json", "--verbose",
+    "--model", "${model}", "--effort", "${effort}", "--permission-mode",
+    "bypassPermissions"]`, and resume command `["claude", "-p", "--resume",
+    "${SESSION_ID}", "--output-format", "stream-json", "--verbose", "--model",
+    "${model}", "--effort", "${effort}", "--permission-mode",
+    "bypassPermissions"]`. Ordinary (non-session) calls keep `command`.
   - These profiles are generic provider data. Their presence does not prove
     workflow-family parity or promotion eligibility.
 
@@ -1024,6 +1038,7 @@ steps:
 | claude_haiku_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in low-cost observability summary alias. Default model: `claude-3-5-haiku-20241022`. Advisory only; not for control-flow gates. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config model_reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.5`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
+| claude_unrestricted_workspace | `claude -p --model ${model} --effort ${effort} --permission-mode bypassPermissions` (prompt via stdin) | stdin | Session-capable (`claude_stream_json_stdout`); used by agent sessions at 2.38. |
 
 Exit code mapping:
 - 0 = Success

@@ -592,6 +592,9 @@ def create_session_transport_accumulator(
         return CodexExecJsonlAccumulator(
             assistant_text_callback=assistant_text_callback,
         )
+    if metadata_mode == ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value:
+        from .session_transport_claude import ClaudeStreamJsonAccumulator
+        return ClaudeStreamJsonAccumulator(assistant_text_callback=assistant_text_callback)
     if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if expectation is None:
             raise TypeError(
