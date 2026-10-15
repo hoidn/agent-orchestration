@@ -132,13 +132,16 @@ Nothing routes on them.
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
-- **Evaluated execution** (targets 2.35 and 2.36): values are computed in a
+- **Evaluated execution** (targets 2.35/2.36, with bounded 2.37 and 2.38 extensions): values are computed in a
   lexical environment and have no stored copy. An effect is identified by its
   site and the path of activations that reached it, and nothing else. An
   effect runs only when the memo holds no committed result for that identity.
   Resume evaluates the program again from its entry and takes each committed
   result from the memo. What a reader sees as "steps" is a view derived from
-  the memo and the program.
+  the memo and the program. The bounded 2.38 [Agent Sessions guide](docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+  shows native conversations with a typed result and memo commit per turn;
+  the separate 2.37 parallel-map qualification gates remain in its
+  [Phase 5 plan](docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions).
 - **Identity is semantic and versioned.** It derives from the effect's site
   and the activations that reached it, loop ordinals included, under the run's
   schema version; never from source spans, file paths, or formatting. Resume
