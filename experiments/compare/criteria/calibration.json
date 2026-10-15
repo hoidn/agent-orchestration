@@ -3,7 +3,7 @@
   "owner_rule": "raise task difficulty until the expected number of review blockers is >= 1 (owner, 2026-10-14); design 'Difficulty calibration for follow-on experiments'",
   "ladder": {
     "file": "experiments/compare/tasks/calibration-ladder.md",
-    "sha256": "3d4ea27093501cd142ffe30ce0cffe168aa2c5c9efb686c4f3347ea6fa6a0587",
+    "sha256": "2653be06c853dd8bbf43d27a8a63d0c639ab94265fcda65b0c1a0406f35793ae",
     "rung_n": "the n-th row of the ranked table",
     "direction": "smallest first: rung 1 is the first row (R43)"
   },
@@ -82,5 +82,16 @@
   "amends_2": {
     "previous_sha256": "76cde397cc08edfc3f2555f2cd74765a4c2e8da16f1bec9a7947c2f567ef6f1d",
     "reason": "Amendment 2 (2026-10-14, after rung 2 and before any rung-3 run): rung 2 did not qualify (single calls 0.739 and 0.731 hidden; mean blockers 2.5). Rung 3's package was built before any rung-2 result was seen (859315ca). The ladder file changed only in rung 3's hidden count and its drop list; the order and rungs 1-2 are unchanged. R50 extends the drop rule to fault-injection tests through private helpers."
+  },
+  "rung_4": {
+    "slug": "pure-result-replay",
+    "package_sha256": "fbc0037de41e97c24908304c7b1091298b3a31e4062a7520b75378ef1188b2f8",
+    "hidden_node_ids": 134,
+    "drops": "643 R49, 37 R44, 12 R50, 2 documentation wording",
+    "private_name_R51": "task.txt requires the module-level callable _propagate_pure_ineligibility, behaviour unchecked"
+  },
+  "amends_3": {
+    "previous_sha256": "9c6cc4ab4b824b577d384ac7f19deeffcd91c6734b36650f5225949eea8b5a3f",
+    "reason": "Amendment 3 (2026-10-14, after rung 3 and before any rung-4 run): rung 3 did not qualify (single calls 0.519 and 0.308 hidden; mean blockers 1.0). Rung 4's package (5c6122d4) was built while rungs 2-3 ran and did not use their results. The ladder changed only in rung 4's hidden count and drop list; the order and rungs 1-3 are unchanged. R51 accepts one dictated private name. Rung 4 is the last rung under the stop rule."
   }
 }
