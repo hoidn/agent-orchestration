@@ -127,9 +127,12 @@ def populated(cgroup: Path) -> bool:
 
 
 def kill_and_wait(cgroup: Path, timeout: float = 10) -> bool:
-    """`cgroup.kill` then wait until unpopulated; False when it stays populated."""
+    """`cgroup.kill` then wait until unpopulated; False when it stays populated. A vanished cgroup is empty."""
     if populated(cgroup):
-        (cgroup / "cgroup.kill").write_text("1")
+        try:
+            (cgroup / "cgroup.kill").write_text("1")
+        except FileNotFoundError:  # systemd removed the emptied scope between the check and the write
+            return True
     deadline = time.monotonic() + timeout
     while populated(cgroup):
         if time.monotonic() > deadline:

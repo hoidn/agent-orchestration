@@ -83,7 +83,8 @@ def launch(sealed_rootfs, tmp_path):
         try:
             reports.append((holder.unit, holder.stop()))
         except Exception as exc:  # re-raised below after the remaining holders are stopped
-            errors.append(exc)
+            errors.append((holder.unit, exc))
     if errors:
-        raise errors[0]
+        unit, exc = errors[0]
+        raise RuntimeError(f"stopping holder {unit} failed ({len(errors)} of {len(started)} stops failed)") from exc
     assert [unit for unit, report in reports if report.get("scope_populated")] == []
