@@ -167,15 +167,18 @@ def launch_command(
     timeout_sec: float | None = None,
     launch_cwd: Path | None = None,
     logical_workspace_root: Path | None = None,
+    executor: Any = None,
+    result_locator: str | None = None,
 ) -> str:
-    """Dispatch once and capture only attempt-owned evidence."""
+    """Dispatch once and capture only attempt-owned evidence; a given `executor` (a confined
+    leaf adapter) replaces the host StepExecutor and the host module-origin check."""
     launch_argv = list(argv)
     if not launch_argv or any(not isinstance(token, str) for token in launch_argv):
         raise ValueError("final command argv must contain string tokens")
 
     cwd = launch_cwd or workspace_files.workspace
-    result_path = (str(attempt_files.workspace / "result.json") if logical_workspace_root is not None
-        else workspace_relative_path(workspace_files.workspace, attempt_files.workspace / "result.json"))
+    result_path = result_locator or (str(attempt_files.workspace / "result.json") if logical_workspace_root
+        is not None else workspace_relative_path(workspace_files.workspace, attempt_files.workspace / "result.json"))
     launch_env = {
         "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": result_path,
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -185,12 +188,10 @@ def launch_command(
             raise TypeError("input_document must be canonical bytes")
         attempt_files.create("inputs.json", input_document, exclusive=True, mode=0o600)
 
-    _check_package_module_origin(node, launch_argv, launch_env, cwd)
-
-    execution = StepExecutor(
-        workspace_files.workspace,
-        attempt_capture_files=attempt_files,
-    ).execute_command(
+    if executor is None:
+        _check_package_module_origin(node, launch_argv, launch_env, cwd)
+        executor = StepExecutor(workspace_files.workspace, attempt_capture_files=attempt_files)
+    execution = executor.execute_command(
         "evaluated-command",
         launch_argv,
         cwd=cwd,

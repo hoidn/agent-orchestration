@@ -9,6 +9,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from .authority import RunAuthority
 from .commands import CommandPerformerError, launch_command, workspace_relative_path
+from .confined_dispatch import ConfinedLeafContext, dispatch_confined
 from .providers import launch_provider
 from .run_ref import perform_evaluated_run_ref
 
@@ -32,6 +33,7 @@ class PreparedAttempt:
     attempt_files: WorkspaceFiles
     launch_cwd: Path | None = None
     stream_output: bool = False
+    confined: ConfinedLeafContext | None = None  # set for run_ref_confinement.v1 children only
 
 
 @dataclass(frozen=True)
@@ -44,9 +46,12 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
     """Perform one external operation without publishing the parent memo.
 
     Serial E1 uses its synchronous wrapper. Parallel workers use that driver
-    with lifecycle acknowledgements persisted by the parent coordinator.
+    with lifecycle acknowledgements persisted by the parent coordinator. A confined
+    attempt dispatches only through its leaf runner; it has no host route.
     """
     node = attempt.node
+    if attempt.confined is not None:
+        return ExternalOutcome(result_path=dispatch_confined(attempt))
     logical_root = attempt.workspace if attempt.launch_cwd is not None else None
     if node['class'] == 'command':
         path = _dispatch_command(attempt, logical_root)
