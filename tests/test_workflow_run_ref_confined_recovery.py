@@ -7,8 +7,11 @@ the copier only ever sees their retained root descriptors.
 from __future__ import annotations
 
 import os
+import re
 import socket
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -340,7 +343,6 @@ def test_preflight_refuses_a_committed_header_that_no_longer_matches(tmp_path: P
 def test_workspace_manifest_matches_freeze_tree(tmp_path: Path) -> None:
     clone, _tmpfs = _roots(tmp_path)
     _clone_tree(clone)
-    os.chmod(clone / "tool", 0o755)
     descriptor = _fd(clone)
     try:
         manifest = workspace_manifest(descriptor)
@@ -367,3 +369,188 @@ def test_checkpoint_rewrites_inside_a_read_only_directory(tmp_path: Path) -> Non
         "second\n",
         0o555,
     )
+
+
+_TEMP_NAME = re.compile(r"\.rr-[0-9a-f]{16}\.tmp")
+
+
+def _temp_names(root: Path) -> list[str]:
+    return [name for _dir, _dirs, files in os.walk(root) for name in files if _TEMP_NAME.fullmatch(name)]
+
+
+def test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes(tmp_path: Path) -> None:
+    clone, _tmpfs = _roots(tmp_path)
+    _clone_tree(clone)
+    os.chmod(clone / "private", 0o2750)
+    if not stat.S_IMODE(os.lstat(clone / "private").st_mode) & stat.S_ISGID:
+        pytest.skip("setgid directory mode is not settable here")
+    header = tmp_path / "header.json"
+    publish_initial_header(header, freeze_tree(clone, _RESERVED).digest)
+
+    assert _preflight(header, clone).state == "committed"
+
+
+def test_checkpoint_masks_setuid_bits_onto_the_clone(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    (tmpfs / "tool").write_bytes(b"#!/bin/sh\n")
+    os.chmod(tmpfs / "tool", 0o4755)
+
+    _checkpoint(tmpfs, clone, tmp_path / "header.json")
+
+    assert stat.S_IMODE(os.lstat(clone / "tool").st_mode) == 0o755
+
+
+def test_non_utf8_symlink_target_is_refused_and_the_clone_still_repairs(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    os.symlink(b"\xfftarget", os.path.join(os.fsencode(tmpfs), b"link"))
+    header = tmp_path / "header.json"
+    with pytest.raises(RunRefCheckpointError):
+        _checkpoint(tmpfs, clone, header)
+
+    assert _preflight(header, clone).state == "committed"
+
+
+def test_a_guest_name_shaped_like_a_copier_temporary_is_refused(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    (tmpfs / ".rr-0123456789abcdef.tmp").write_text("guest\n")
+
+    with pytest.raises(RunRefCheckpointError) as caught:
+        _checkpoint(tmpfs, clone, tmp_path / "header.json")
+
+    assert caught.value.code == "run_ref_environment_escape_rejected"
+
+
+_KILLED_CHECKPOINT = """
+import os, sys
+from pathlib import Path
+from orchestrator.workflow.run_ref import checkpoint
+tmpfs, clone, header = sys.argv[1:4]
+real_fchmod = os.fchmod
+def crash(descriptor, mode):
+    if os.path.isfile(f"/proc/self/fd/{descriptor}"):
+        os.kill(os.getpid(), 9)
+    real_fchmod(descriptor, mode)
+os.fchmod = crash
+source = os.open(tmpfs, os.O_RDONLY | os.O_DIRECTORY)
+destination = os.open(clone, os.O_RDONLY | os.O_DIRECTORY)
+checkpoint.checkpoint_workspace(source, destination, Path(header), effect_identity="effect-3", ordinal=3, max_bytes=1 << 20)
+"""
+
+
+def _kill_mid_copy(tmp_path: Path) -> tuple[Path, Path]:
+    clone, tmpfs = _roots(tmp_path)
+    (tmpfs / "sub").mkdir()
+    (tmpfs / "sub" / "file").write_bytes(b"partial bytes\n")
+    header = tmp_path / "header.json"
+    killed = subprocess.run(
+        [sys.executable, "-c", _KILLED_CHECKPOINT, str(tmpfs), str(clone), str(header)],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+        check=False,
+    )
+    assert killed.returncode == -9
+    return clone, header
+
+
+def test_a_killed_checkpoint_leaves_an_intent_header_and_a_copier_temporary(tmp_path: Path) -> None:
+    clone, header = _kill_mid_copy(tmp_path)
+
+    assert (read_checkpoint_header(header).state, len(_temp_names(clone))) == ("intent", 1)
+
+
+def test_preflight_after_a_killed_checkpoint_removes_copier_temporaries(tmp_path: Path) -> None:
+    clone, header = _kill_mid_copy(tmp_path)
+
+    repaired = _preflight(header, clone)
+
+    assert (_temp_names(clone), repaired.state, repaired.manifest_digest) == (
+        [],
+        "committed",
+        freeze_tree(clone, _RESERVED).digest,
+    )
+
+
+def test_a_failed_rename_leaves_no_copier_temporary(tmp_path: Path, monkeypatch) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    (tmpfs / "file").write_text("bytes\n")
+    real_replace = os.replace
+
+    def refuse_copier_rename(source, destination, **kwargs):
+        if "src_dir_fd" in kwargs:
+            raise OSError("injected rename failure")
+        return real_replace(source, destination, **kwargs)
+
+    monkeypatch.setattr(os, "replace", refuse_copier_rename)
+    with pytest.raises(OSError):
+        _checkpoint(tmpfs, clone, tmp_path / "header.json")
+
+    assert os.listdir(clone) == []
+
+
+def test_a_deep_guest_tree_is_refused_and_the_clone_still_repairs(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    descriptor = _fd(tmpfs)
+    for _ in range(600):
+        os.mkdir("d", dir_fd=descriptor)
+        child = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=descriptor)
+        os.close(descriptor)
+        descriptor = child
+    os.close(descriptor)
+    header = tmp_path / "header.json"
+    with pytest.raises(RunRefCheckpointError) as caught:
+        _checkpoint(tmpfs, clone, header)
+
+    assert (caught.value.code, _preflight(header, clone).state) == (
+        "run_ref_environment_escape_rejected",
+        "committed",
+    )
+
+
+def test_checkpoint_refuses_entries_beyond_the_entry_bound(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    for index in range(5):
+        (tmpfs / f"f{index}").write_text("x")
+    source, destination = _fd(tmpfs), _fd(clone)
+    try:
+        with pytest.raises(RunRefCheckpointError) as caught:
+            checkpoint_workspace(
+                source, destination, tmp_path / "header.json",
+                effect_identity="effect-1", ordinal=1, max_bytes=_BUDGET, max_entries=4,
+            )
+    finally:
+        os.close(source)
+        os.close(destination)
+
+    assert caught.value.code == "run_ref_environment_escape_rejected"
+
+
+def test_intent_repair_recounts_special_files(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    header = tmp_path / "header.json"
+    _crash_mid_copy(tmpfs, clone, header, effect="effect-2", ordinal=2)
+    os.mkfifo(clone / "pipe")
+
+    assert _preflight(header, clone).skipped_special == 1
+
+
+def _foreign_first_child(parent: str) -> str | None:
+    try:
+        names = sorted(os.listdir(parent))
+        if names and os.lstat(os.path.join(parent, names[0])).st_dev != os.lstat(parent).st_dev:
+            return names[0]
+    except OSError:
+        pass
+    return None
+
+
+def test_copier_refuses_a_source_entry_on_another_device() -> None:
+    parent = "/sys/fs"
+    if _foreign_first_child(parent) is None:
+        pytest.skip("no mount point sorts first under /sys/fs on this host")
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(RunRefCheckpointError) as caught:
+            workspace_manifest(descriptor)
+    finally:
+        os.close(descriptor)
+
+    assert "pinned device" in caught.value.detail

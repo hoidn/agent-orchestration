@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import stat
 import sys
@@ -37,6 +38,16 @@ _CHANGED = "run_ref_environment_changed"
 _HEADER_SCHEMA = "run_ref_checkpoint_header.v1"
 _NOFOLLOW_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _EXCLUSIVE_WRITE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+# Copier temporaries; a source entry with this shape refuses, so intent repair
+# can remove every such name from the clone without touching guest data.
+_TEMPORARY = re.compile(r"\.rr-[0-9a-f]{16}\.tmp")
+# Bounds keep recursion and open descriptors (two per level) finite. The copy
+# refuses before creating a directory deeper than the bound, so the clone never
+# exceeds it and repair's walk under the same bound cannot wedge. The entry
+# bound applies to the guest tmpfs only: the clone holds at most the previous
+# checkpoint plus one bounded partial copy, so seeding and repair stay unbounded.
+MAX_TREE_DEPTH = 128
+MAX_CHECKPOINT_ENTRIES = 262_144
 
 
 class RunRefCheckpointError(ValueError):
@@ -70,6 +81,8 @@ class _Walk:
     destination_device: int | None
     admit_hardlinks: bool
     remaining_bytes: int
+    remaining_entries: int
+    repair: bool
     entries: list[TreeEntry] = field(default_factory=list)
     skipped: int = 0
     copied: int = 0
@@ -122,8 +135,16 @@ def _source_entries(walk: _Walk, source_fd: int, prefix: str) -> dict[str, os.st
             continue  # the sanitized .git is bound read-only, never copied
         if not prefix and name in _RESERVED_ROOTS:
             raise _escape(f"entry under a reserved root: {relative!r}")
+        walk.remaining_entries -= 1
+        if walk.remaining_entries < 0:
+            raise _escape(f"workspace exceeds the entry bound at {relative!r}")
         _utf8(relative, "tree entry path")
         info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+        if _TEMPORARY.fullmatch(name):
+            if not walk.repair or stat.S_ISDIR(info.st_mode):
+                raise _escape(f"entry uses the copier's temporary name: {relative!r}")
+            os.unlink(name, dir_fd=source_fd)  # an interrupted copy's temporary
+            continue
         if info.st_dev != walk.source_device:
             raise _escape(f"entry is not on the pinned device: {relative!r}")
         entries[name] = info
@@ -135,6 +156,7 @@ def _copy_file(walk: _Walk, source_fd: int, name: str, info: os.stat_result,
     descriptor, opened = open_regular_file(source_fd, name, device=walk.source_device)
     temporary = f".rr-{secrets.token_hex(8)}.tmp"
     output: int | None = None
+    created = False
     try:
         if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
             raise _escape(f"entry changed identity: {name!r}")
@@ -145,6 +167,7 @@ def _copy_file(walk: _Walk, source_fd: int, name: str, info: os.stat_result,
             if existing is not None and stat.S_ISDIR(existing.st_mode):
                 _remove_entry(destination_fd, name)
             output = os.open(temporary, _EXCLUSIVE_WRITE, 0o600, dir_fd=destination_fd)
+            created = True
         digest, size = hashlib.sha256(), 0
         while chunk := os.read(descriptor, _HASH_CHUNK_SIZE):
             size += len(chunk)
@@ -158,20 +181,26 @@ def _copy_file(walk: _Walk, source_fd: int, name: str, info: os.stat_result,
             os.close(output)
             output = None
             os.replace(temporary, name, src_dir_fd=destination_fd, dst_dir_fd=destination_fd)
+            created = False
         walk.remaining_bytes -= size
         walk.copied += size
         return size, f"sha256:{digest.hexdigest()}"
     except BaseException:
         if output is not None:
             os.close(output)
-            os.unlink(temporary, dir_fd=destination_fd)
+        if created:
+            try:
+                os.unlink(temporary, dir_fd=destination_fd)
+            except FileNotFoundError:
+                pass
         raise
     finally:
         os.close(descriptor)
 
 
-def _copy_symlink(source_fd: int, name: str, destination_fd: int | None) -> str:
+def _copy_symlink(source_fd: int, name: str, destination_fd: int | None, relative: str) -> tuple[str, bytes]:
     target = os.readlink(name, dir_fd=source_fd)
+    target_bytes = _utf8(target, f"symlink target for {relative!r}")  # before any write
     if destination_fd is not None:
         existing = _lstat(destination_fd, name)
         if existing is None or not stat.S_ISLNK(existing.st_mode) or (
@@ -179,11 +208,11 @@ def _copy_symlink(source_fd: int, name: str, destination_fd: int | None) -> str:
         ):
             _remove_entry(destination_fd, name)
             os.symlink(target, name, dir_fd=destination_fd)
-    return target
+    return target, target_bytes
 
 
 def _copy_directory(walk: _Walk, source_fd: int, name: str, info: os.stat_result,
-                    destination_fd: int | None, relative: str, mode: int) -> None:
+                    destination_fd: int | None, relative: str, mode: int, depth: int) -> None:
     source_child = open_child_directory(source_fd, name, info)
     destination_child: int | None = None
     try:
@@ -198,7 +227,7 @@ def _copy_directory(walk: _Walk, source_fd: int, name: str, info: os.stat_result
             if os.fstat(destination_child).st_dev != walk.destination_device:
                 raise _escape(f"destination is not on the pinned device: {relative!r}")
             os.fchmod(destination_child, 0o700)
-        _mirror(walk, source_child, destination_child, relative)
+        _mirror(walk, source_child, destination_child, relative, depth)
         if destination_child is not None:
             os.fchmod(destination_child, mode)
     finally:
@@ -207,7 +236,7 @@ def _copy_directory(walk: _Walk, source_fd: int, name: str, info: os.stat_result
             os.close(destination_child)
 
 
-def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str) -> None:
+def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str, depth: int) -> None:
     entries = _source_entries(walk, source_fd, prefix)
     if destination_fd is not None:
         for name in os.listdir(destination_fd):
@@ -217,16 +246,18 @@ def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str
                     _remove_entry(destination_fd, name)
     for name, info in entries.items():
         relative = f"{prefix}/{name}" if prefix else name
-        mode = stat.S_IMODE(info.st_mode) & 0o777
+        # A copy masks modes; a pure manifest records what freeze_tree records.
+        mode = stat.S_IMODE(info.st_mode) & (0o7777 if destination_fd is None else 0o777)
         if stat.S_ISDIR(info.st_mode):
+            if depth >= MAX_TREE_DEPTH:
+                raise _escape(f"workspace exceeds the depth bound at {relative!r}")
             walk.entries.append(TreeEntry(relative, "directory", mode, 0, None))
-            _copy_directory(walk, source_fd, name, info, destination_fd, relative, mode)
+            _copy_directory(walk, source_fd, name, info, destination_fd, relative, mode, depth + 1)
         elif stat.S_ISREG(info.st_mode):
             size, digest = _copy_file(walk, source_fd, name, info, destination_fd, mode)
             walk.entries.append(TreeEntry(relative, "file", mode, size, digest))
         elif stat.S_ISLNK(info.st_mode):
-            target = _copy_symlink(source_fd, name, destination_fd)
-            target_bytes = _utf8(target, f"symlink target for {relative!r}")
+            target, target_bytes = _copy_symlink(source_fd, name, destination_fd, relative)
             walk.entries.append(TreeEntry(
                 relative, "symlink", stat.S_IMODE(info.st_mode), len(target_bytes),
                 f"sha256:{hashlib.sha256(target_bytes).hexdigest()}", target,
@@ -236,15 +267,18 @@ def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str
 
 
 def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: bool,
-               max_bytes: int | None) -> CopyResult:
+               max_bytes: int | None, max_entries: int | None = None,
+               repair: bool = False) -> CopyResult:
     walk = _Walk(
         source_device=os.fstat(source_fd).st_dev,
         destination_device=None if destination_fd is None else os.fstat(destination_fd).st_dev,
         admit_hardlinks=admit_hardlinks,
         remaining_bytes=sys.maxsize if max_bytes is None else max_bytes,
+        remaining_entries=sys.maxsize if max_entries is None else max_entries,
+        repair=repair,
     )
     try:
-        _mirror(walk, source_fd, destination_fd, "")
+        _mirror(walk, source_fd, destination_fd, "", 0)
     except (SafeTreeError, WorkspaceFreezeError) as exc:
         raise _escape(str(exc)) from exc
     return CopyResult(manifest_from_entries(walk.entries), walk.skipped, walk.copied)
@@ -290,15 +324,17 @@ def read_checkpoint_header(header_path: Path) -> CheckpointHeader:
 
 
 def checkpoint_workspace(tmpfs_root_fd: int, disk_root_fd: int, header_path: Path, *,
-                         effect_identity: str, ordinal: int, max_bytes: int) -> CheckpointHeader:
+                         effect_identity: str, ordinal: int, max_bytes: int,
+                         max_entries: int = MAX_CHECKPOINT_ENTRIES) -> CheckpointHeader:
     """Copy the quiesced tmpfs onto the clone under the two-phase header (R1, N6).
 
     ``intent`` is durable before the first clone write; the clone's bytes are
-    synced before ``committed`` carries the manifest digest. A failure leaves
-    ``intent`` for :func:`preflight_checkpoint` to repair.
+    synced before ``committed`` carries the manifest digest. A failure or a
+    kill leaves ``intent`` for :func:`preflight_checkpoint` to repair.
     """
     _publish(header_path, CheckpointHeader("intent", effect_identity, ordinal, None))
-    result = _copy_tree(tmpfs_root_fd, disk_root_fd, admit_hardlinks=True, max_bytes=max_bytes)
+    result = _copy_tree(tmpfs_root_fd, disk_root_fd, admit_hardlinks=True,
+                        max_bytes=max_bytes, max_entries=max_entries)
     os.sync()  # ponytail: global sync; syncfs(disk_root_fd) via ctypes if it costs
     return _publish(header_path, CheckpointHeader(
         "committed", effect_identity, ordinal, result.manifest.digest, result.skipped_special,
@@ -308,17 +344,19 @@ def checkpoint_workspace(tmpfs_root_fd: int, disk_root_fd: int, header_path: Pat
 def preflight_checkpoint(header_path: Path, disk_root_fd: int) -> CheckpointHeader:
     """Repair an ``intent`` header by re-freezing; verify a ``committed`` one.
 
-    Run only after the recorded scope is killed and empty (N4). Choosing
-    which committed attempt a header may name is the resume owner's rule.
+    Repair removes the copier's temporaries before freezing. Run only after
+    the recorded scope is killed and empty (N4). Choosing which committed
+    attempt a header may name is the resume owner's rule.
     """
     header = read_checkpoint_header(header_path)
-    manifest = workspace_manifest(disk_root_fd)
     if header.state == "intent":
+        result = _copy_tree(disk_root_fd, None, admit_hardlinks=True, max_bytes=None, repair=True)
         os.sync()
         return _publish(header_path, CheckpointHeader(
-            "committed", header.effect_identity, header.ordinal, manifest.digest,
+            "committed", header.effect_identity, header.ordinal,
+            result.manifest.digest, result.skipped_special,
         ))
-    if manifest.digest != header.manifest_digest:
+    if workspace_manifest(disk_root_fd).digest != header.manifest_digest:
         raise RunRefCheckpointError(_CHANGED, "clone no longer matches its committed checkpoint header")
     return header
 
