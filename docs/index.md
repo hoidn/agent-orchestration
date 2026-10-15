@@ -15,7 +15,7 @@ verified native prompt resume retain their scoped owners.
 
 | Need | Start Here | Why |
 | --- | --- | --- |
-| Review running a static named workflow in a runtime-prepared, confined candidate clone | [Run-ref confined child environments](design/workflow_lisp_run_ref_expression_environments.md) and [implementation plan](plans/2026-10-14-run-ref-expression-environments-plan.md) | Proposed, unimplemented: `:program (:workflow name)` children, explicit inputs, a Bubblewrap sibling confinement profile and §8.1-aligned child recovery. No new authoring permission or sandbox guarantee is implied. |
+| Review running a static named workflow in a runtime-prepared, confined candidate clone | [Run-ref confined child environments](design/workflow_lisp_run_ref_expression_environments.md) and [implementation plan](plans/2026-10-14-run-ref-expression-environments-plan.md) | Command-only `:network :none` children, recovery and typed exports are implemented at 2.38; start with the [command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only). Private provider transport is integrated, but real native qualification and public provider admission remain closed; the plan/report own the blocking gate. |
 | Understand the system at a high level | [Architecture Overview](architecture_overview.md) | Short conceptual front door before the fuller orchestration model. |
 | Find normative runtime behavior | [Master Spec](../specs/index.md) | Specs win when docs disagree. |
 | Check whether a workflow surface is implemented, partial, future, or legacy | [Capability Status Matrix](capability_status_matrix.md) | Status and copy-safety routing for common DSL and Workflow Lisp surfaces. |
@@ -940,9 +940,9 @@ and closure. The plan passed `L3_PLAN_SPEC_APPROVED` then
 **Use this when:** Evaluating future runtime closure pressure without weakening `ProcRef` or `let-proc`.
 
 ### [Workflow Lisp Run-Ref Confined Child Environments](design/workflow_lisp_run_ref_expression_environments.md)
-**Description:** Proposed extension of `run-ref` for static named-workflow children, runtime-prepared candidate clones, a Bubblewrap sibling confinement profile and effectful-child recovery aligned with evaluated execution §8.1. The [implementation plan](plans/2026-10-14-run-ref-expression-environments-plan.md) owns feasibility gates and delivery sequencing; the example is not current syntax.
+**Description:** Target-2.38 static named-workflow children with runtime-prepared clones, command confinement, recovery and typed exports. Use the [command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only); the complete provider module remains gated. The [implementation plan](plans/2026-10-14-run-ref-expression-environments-plan.md) owns accepted delivery, private transport evidence and the blocked real-provider qualification.
 **Keywords:** run-ref, candidate, expression, clone, environment, isolation, resume
-**Use this when:** Designing candidate generation and evaluation without workflow-authored clone scripts; generated source evaluation remains a separate proposal.
+**Use this when:** Running confined command work in a pinned clone, or reviewing the separately gated provider target; generated source evaluation remains outside this contract.
 
 ### [Lisp ProcRef Partial Application Work Instructions](plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md)
 **Description:** Historical instructions for the implemented ProcRef / `bind-proc` tranche, preserving its original target/baseline separation.

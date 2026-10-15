@@ -148,7 +148,7 @@ derives solely from the validated `.orc` executable and `state.json`.
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
   - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
-  - Proposed target 2.38 confined-child cleanup projection (unimplemented):
+  - Target 2.38 confined-child cleanup projection:
     evaluated views and reports include `run_ref_cleanup`, exposed as
     `run.run_ref_cleanup` in report JSON, whenever pending obligations exist,
     and omit it otherwise. It is an array ordered by coordinator `identity`

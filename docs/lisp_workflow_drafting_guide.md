@@ -397,7 +397,10 @@ Executable entries through 2.34 are retired; older typed imports do not select
 an old executor. No run conversion is performed. The
 [Phase 5 plan](plans/2026-10-07-evaluated-execution-phase-5-plan.md)
 owns bounded 2.37 parallel support and its remaining qualification; it is not
-general copy-safe guidance.
+general copy-safe guidance. Target 2.38 separately admits the bounded
+[Agent recipe](#agent-sessions-target-238) and
+[command-only confined children](#confined-workflow-children-target-238-command-only);
+the latter does not admit providers or Agent operations inside the child.
 
 Values are evaluated in lexical scope; they are not stored as generated steps.
 Effects execute in source order and are recorded in `memo.jsonl`. A committed
@@ -1750,6 +1753,159 @@ targets and refuse with `closed_program_gap`. The `trial` CLI and old trial SDK
 are retired; the CLI refuses with `workflow_execution_target_retired` before
 source reads or publication. The [DSL contract](../specs/dsl.md) and
 [CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.
+
+### Confined workflow children (target 2.38, command-only)
+
+Use `:program (:workflow name)` when commands must execute in a runtime-owned
+clone and OS confinement boundary. The child is a static workflow from the
+parent's checked module graph; the candidate repository supplies project files,
+not executing `.orc` source or configuration. Command-only `:network :none`,
+recovery and typed exports are admitted. The
+[design](design/workflow_lisp_run_ref_expression_environments.md) explains the
+full target; the [plan/report](plans/2026-10-14-run-ref-expression-environments-plan.md)
+records command acceptance and the separate provider blocker.
+
+Prepare a Linux x86_64 host with root-owned `/usr/bin/bwrap` and
+`/usr/bin/systemd-run`, unprivileged user/network namespaces, a reachable user
+systemd manager with delegated cgroup v2 `cpu`, `memory` and `pids`, and Yama
+`ptrace_scope >= 1`. Admission verifies scope limits, quota and release controls;
+a missing prerequisite refuses rather than falling back to host execution.
+Provide a trusted Linux/amd64 OCI image layout containing `/bin/sh`,
+`/usr/bin/env`, `/usr/bin/setsid`, `python3` and the project's dependencies.
+Use its repository plus manifest digest, not a tag or an illustrative digest.
+No provider login or API key is needed for this command-only recipe.
+
+Image preparation is an installation step outside the workflow. There is no
+public image-import CLI: use the existing `import_oci_layout` API on a local OCI
+layout. The runtime reads the sealed store at `<run-ref-root>/images`, with
+`records/<digest-hex>.json` and `rootfs/<digest-hex>`; it rehashes the descriptor
+before launch. Obtaining the OCI layout is operator provisioning, not a runtime
+registry pull. From the repository root, set `IMAGE` to the real reference and
+`OCI_LAYOUT` to its existing absolute layout directory, then:
+
+```bash
+export IMAGE='your-registry/your-image@sha256:YOUR_REAL_MANIFEST_DIGEST'
+export OCI_LAYOUT='/absolute/path/to/your/oci-layout'
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+export DEMO_ROOT="$(mktemp -d /tmp/orc-confined-command.XXXXXX)"
+export RUN_REF_ROOT="$DEMO_ROOT/run-ref"
+python - <<'PY'
+import os
+from pathlib import Path
+from orchestrator.workflow.run_ref.image_store import import_oci_layout
+import_oci_layout(Path(os.environ["RUN_REF_ROOT"]) / "images",
+                  os.environ["IMAGE"], Path(os.environ["OCI_LAYOUT"]))
+PY
+```
+
+This minimal example has one confined producer and one ordinary host command
+that consumes the exported file after child cleanup. The producer writes its
+typed result through the runtime-selected bundle path. Create a pinned local
+candidate repository and parent source; these setup commands are outside the
+workflow, and the workflow itself contains no clone/setup shell step:
+
+```bash
+mkdir "$DEMO_ROOT/candidate" "$DEMO_ROOT/parent"
+cat > "$DEMO_ROOT/candidate/produce.py" <<'PY'
+import json, os
+from pathlib import Path
+path = Path("out/result.txt")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text("hello from the confined child\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(str(path)))
+PY
+git -C "$DEMO_ROOT/candidate" init --quiet
+git -C "$DEMO_ROOT/candidate" add produce.py
+git -C "$DEMO_ROOT/candidate" -c user.name=Demo -c user.email=demo@example.invalid commit --quiet -m candidate
+export REVISION="$(git -C "$DEMO_ROOT/candidate" rev-parse HEAD)"
+cat > "$DEMO_ROOT/parent/consume.py" <<'PY'
+import json, os, sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(text))
+PY
+python - <<'PY'
+import json, os
+from pathlib import Path
+root = Path(os.environ["DEMO_ROOT"])
+parent = root / "parent"
+source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+  (defmodule run_ref_confined) (export main)
+  (defpath Artifact :kind relpath :under "out" :must-exist true)
+  (defworkflow candidate-body ((seed Int)) -> Artifact
+    (command-result produce :argv ("python3" "produce.py") :returns Artifact))
+  (defworkflow main ((seed Int) (revision String)) -> String
+    (let* ((child (run-ref :source (:repo "REPOSITORY" :commit revision)
+                    :program (:workflow candidate-body) :inputs (:seed seed)
+                    :policy (:environment :confined :image "IMAGE" :network :none
+                             :limits (:wall-seconds 300 :memory-mib 1024 :cpus 1 :pids 64
+                                      :workspace-mib 32 :output-mib 8)))))
+      (match child
+        ((COMPLETED c)
+          (command-result consume :argv ("python3" "consume.py" c.result.value) :returns String))
+        ((FAILED f) f.code)))))'''
+(parent / "run_ref_confined.orc").write_text(
+    source.replace("REPOSITORY", (root / "candidate").as_uri()).replace("IMAGE", os.environ["IMAGE"]))
+(parent / "commands.json").write_text(json.dumps({
+    "produce": {"stable_command": ["python3", "produce.py"], "closure": []},
+    "consume": {"stable_command": ["python3", "consume.py"], "closure": []}}))
+(parent / "providers.json").write_text("{}")
+(parent / "inputs.json").write_text(json.dumps({"seed": 1, "revision": os.environ["REVISION"]}))
+PY
+```
+
+Run the public lifecycle from the parent workspace so its command paths and
+resume recipe remain stable. `RUN_REF_ROOT` must retain its canonical absolute
+spelling. Read `RUN_ID` from the new directory beneath `runs` (or its `run.json`):
+
+```bash
+cd "$DEMO_ROOT/parent"
+python -m orchestrator compile run_ref_confined.orc --entry-workflow run_ref_confined::main --source-root . --command-boundaries-file commands.json --provider-externs-file providers.json
+python -m orchestrator run run_ref_confined.orc --entry-workflow run_ref_confined::main --source-root . --command-boundaries-file commands.json --provider-externs-file providers.json --input-file inputs.json --state-dir "$DEMO_ROOT/runs" --run-ref-root "$RUN_REF_ROOT"
+export RUN_ID='the-new-run-directory-name'
+python -m orchestrator resume "$RUN_ID" --state-dir "$DEMO_ROOT/runs" --run-ref-root "$RUN_REF_ROOT"
+python -m orchestrator report --run-id "$RUN_ID" --runs-root "$DEMO_ROOT/runs" --format json
+```
+
+Resume the **parent** run after interruption; the public CLI does not provide
+an independent confined `CHILD_ID` resume entry. Its coordinator recovers the same
+child once a child effect is committed, reuses that prefix and reruns only a
+permitted pending attempt. A durable child terminal is reused even with zero
+commits. This is at-least-once command execution before commit, so retain the
+ordinary `must_not_repeat` boundary for work that cannot safely repeat. Completed
+resume dispatches nothing; a recorded cleanup obligation is retried, with exit 2
+and `run_ref_cleanup_pending` while still pending, then exit 0 after completion.
+The public command integration test
+[`test_increment_a_public_lifecycle_with_commands`](../tests/e2e/test_e2e_run_ref_confined.py)
+adds a second child command, kills externally after the first commit, and checks
+same-child recovery, parent consumption and repeated completed resumes/reports.
+
+The call returns `COMPLETED` with `result.value`, `workspace_delta` and
+`accounting`, or `FAILED` with `code`, `detail` and `accounting`; pre-release
+structural/admission failures still abort the parent. Match the union before
+reading its value. Output paths require a nonempty workspace-relative `:under`
+and `:must-exist true`; runtime copies and rebases validated files under
+`<under>/.run-ref-exports/<parent-run>/...` before clone cleanup. Exports survive
+cleanup; manually retiring the parent means removing its run root and associated
+export directories. The 32 MiB workspace requires at least 992 MiB memory under
+the profile's `workspace + 960` rule; the example supplies 1024 MiB.
+
+Confined children exclude nested run references, parallel effects, sessions/context,
+Agent allocation/turns, dynamic evaluation, trials, human/resource effects and
+`provider-bundle-path`. A confined site is also excluded from serial or parallel
+`list/map-effect` frames. Image-pinned interpreters execute project scripts as
+arguments; command `closure` entries cannot resolve into the mutable clone.
+The independent 2.38 [Agent recipe](#agent-sessions-target-238) runs outside this
+child profile and does not widen it.
+
+Public confined provider sites still refuse with
+`run_ref_provider_transport_unavailable` before state/holder creation. Private
+per-leaf Holder transport and synthetic checks do not qualify native auth/TLS or
+the public `:model-only` route. The selected native Codex transport uses existing
+managed ChatGPT login (`authMethod=chatgpt`), with no API key; managed-policy
+qualification remains blocked in the [plan/report](plans/2026-10-14-run-ref-expression-environments-plan.md#task-10-provider-transport).
+Claude and other transports require separate qualification. The full provider
+module in the design and the future best-of-N migration are not runnable templates.
 
 ## 9. Structured Command Results
 

@@ -617,11 +617,14 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
   value, finalize an isolation attestation, or make public run/resume
   integration complete.
 
-## Proposed Run-Ref Confined Child IO (target 2.38)
+<a id="proposed-run-ref-confined-child-io-target-238"></a>
 
-Status: proposed for target 2.38; unimplemented, not current admission and
-not copy-safe. Evaluated command, provider and path-mode run-reference IO
-above is unchanged. Authority:
+## Run-Ref Confined Child IO (target 2.38)
+
+This IO and typed-export contract applies to the admitted command-only confined
+profile. Provider-specific transport below is a requirement for separately
+qualified public provider admission. Evaluated host command/provider and path-mode
+run-reference IO above is unchanged. Authority:
 [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#results-paths-and-lifetime).
 
 - Result transport (R2/R3 guest spelling): for a confined attempt both

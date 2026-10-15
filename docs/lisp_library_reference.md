@@ -156,8 +156,12 @@ proof of membership or quality. Inspect the returned report and candidate before
 applying a change. Clones prevent accidental shared edits but supply no OS
 sandbox; these bindings run unrestricted provider tools. Do not infer parallel
 execution or runtime-owned clone preparation from this example. The
-run-ref expression/OCI design
-is proposed and unimplemented, with no current authoring permission.
+[run-ref confinement design](design/workflow_lisp_run_ref_expression_environments.md)
+has a separate implemented command-only surface; use the
+[command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+for its host/image prerequisites and limits. Confined provider admission and this
+best-of-N consumer migration remain pending; this recipe still uses existing
+unrestricted clones.
 
 ## Review and revise with `std/improve`
 
@@ -627,6 +631,7 @@ leaves. It does not establish live-provider search quality, model cost, GPU
 throughput or production behavior, and Python has no equivalent durable
 recovery implementation in this specimen. This numerical controller does not
 manage clones, mutate code, merge patches or create an OS sandbox. Use the
-preceding generation/selection example for manually prepared code workspaces;
-expression environments
-remain proposed and unimplemented.
+preceding generation/selection example for manually prepared code workspaces, or
+the [confined command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+for runtime-owned command workspaces. Confined providers and the complete
+generation/selection migration remain pending qualification.

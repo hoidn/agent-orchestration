@@ -8,7 +8,7 @@ closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.
 own qualification and delivery, not a published package-version claim.
 
 Only evaluated entries at 2.35/2.36, bounded 2.37 and registered bounded 2.38
-(agent sessions; see versioning) are executable, with their existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
+(command-only confined run-ref and bounded agent sessions; see versioning) are executable, with their existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
 `compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
 `workflow_execution_target_retired`, exit 2, before build/run publication or
 execution locks. The captured compiled entry is checked again before
@@ -306,8 +306,7 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `[resume_preflight_failed] --run-ref-root must be a canonical absolute path`,
   exit `2`) and must equal the recorded root. A completed run resumes to its
   recorded terminal with exit `0` and no write, however often it is repeated.
-  - Proposed amendment for target 2.38 confined children (unimplemented,
-    not current behavior): a completed run that records a pending run-ref
+  - Target 2.38 confined-child amendment: a completed run that records a pending run-ref
     workspace-cleanup obligation retries that cleanup on resume, records the
     outcome and dispatches nothing; a completed run without one keeps the
     no-write rule above

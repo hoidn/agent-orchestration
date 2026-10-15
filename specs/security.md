@@ -12,7 +12,7 @@
     - `asset_file` and `asset_depends_on` resolve from the directory containing the authored workflow file and must remain within that workflow source tree.
     - `input_file`, `depends_on`, `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and deterministic `relpath` outputs remain WORKSPACE-relative under `call`.
 
-Note: These safety checks apply to paths the orchestrator resolves (e.g., `input_file`, `output_file`, `depends_on`, `wait_for`). Child processes invoked by `command`/`provider` can read/write any locations permitted by the OS; use OS/user sandboxing if stricter isolation is required. This remains the current runtime contract while provider-phase isolation integration is pending: packaging the versioned policy schema by itself does not change process authority.
+Note: These safety checks apply to paths the orchestrator resolves (e.g., `input_file`, `output_file`, `depends_on`, `wait_for`). Child processes invoked by `command`/`provider` can read/write any locations permitted by the OS; use OS/user sandboxing if stricter isolation is required. This applies to ordinary host commands/providers and path-mode children while provider-phase isolation integration is pending: packaging the versioned policy schema by itself does not change process authority. The separately admitted command-only `run_ref_confinement.v1` workflow-child profile below has its own OS boundary.
 
 - Provider-phase isolation boundary (versioned contract; runtime integration pending)
   - Omission of `provider_phase_isolation.v1` means current unrestricted
@@ -89,10 +89,13 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     execution remains unrestricted until the production launcher, state,
     CLI/resume, and attestation integration is complete and verified.
 
-- Run-ref confinement profile `run_ref_confinement.v1` (proposed for target 2.38; unimplemented, not copy-safe)
-  - Status: proposed and not current admission. Nothing here changes the
-    process authority of current commands, providers or `run-ref` children
-    stated above. Authority:
+- Run-ref confinement profile `run_ref_confinement.v1` (target 2.38)
+  - The public profile admits command-only workflow children with
+    `:network :none`. Provider transport requires separate qualification and
+    public admission; private transport implementation does not grant either.
+    This profile applies only to workflow-mode children, without changing the
+    authority of ordinary host commands/providers or path-mode children.
+    Authority:
     [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
     (D1, F3 deltas table); security acceptance also requires an independent
     isolation review and the design's F3, F3b-channel and F3b-checkpoint

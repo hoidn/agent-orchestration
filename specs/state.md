@@ -1018,10 +1018,14 @@ creates or asks a replacement question.
   carrying the coordinator proof, not a parent state transition; see
   [coordinator records](#coordinator-records-and-child-runs).
 
-## Proposed Run-Ref Confined Child State (target 2.38)
+<a id="proposed-run-ref-confined-child-state-target-238"></a>
 
-Status: proposed for target 2.38; unimplemented, not current admission and
-not copy-safe. The target-2.24 contract above, the evaluated
+## Run-Ref Confined Child State (target 2.38)
+
+The command-only profile admits this persistence, recovery, export and cleanup
+contract. Provider-specific authority below remains a prerequisite for separately
+qualified public provider admission, not permission to dispatch providers.
+The target-2.24 contract above, the evaluated
 [coordinator records](#coordinator-records-and-child-runs), path-mode
 configuration bytes and recovery, and the oracle that every pre-parent crash
 of a path child discards the exact workspace and reruns fresh are unchanged.
@@ -1038,14 +1042,14 @@ carries the named amendments.
   external control roots, checkpoint headers, typed exports and the K4
   refinement are versioned together, discriminated by validated profile;
   mixed or unknown records refuse, old rows keep their meaning, and no old
-  run or child is rewritten or adopted into the profile. Proposed names,
-  pending the contract owner: `run_ref_confined_child_request.v1`,
+  run or child is rewritten or adopted into the profile. Wire discriminators:
+  `run_ref_confined_child_request.v1`,
   `run_ref_confined_child_terminal.v1` (proof of both outcomes),
   `run_ref_attempt_ledger.v2` (rows of this profile),
   `run_ref_checkpoint_header.v1`, `run_ref_image_executable_pins.v1`,
-  `run_ref_environment_admission.v1` and `run_ref_export_manifest.v1`.
-  Today's ledger reader refuses non-v1 rows, so a `run-ref-attempts.jsonl`
-  that mixes path and confined rows needs a dual-version reader.
+  `run_ref_environment_admission.v1` and `run_ref_exports.v1`.
+  The ledger reader validates both v1 path rows and v2 confined rows in
+  `run-ref-attempts.jsonl`; neither version reinterprets the other's authority.
 - Identity. Parent program identity covers the child workflow's canonical
   definition, its signature, its canonical dependency/configuration closure
   and the image and policy literals. Runtime input identity additionally
@@ -1073,10 +1077,17 @@ carries the named amendments.
   the clone and creates no `.orchestrate` entry there. Its header records
   image executable pins (snapshot digest/platform, guest executable path,
   immutable executable/config closure) instead of host interpreter pins, the
-  child-recipe `resume_request` variant (the parent-bound child artifact
-  identity, no `workflow_file` or `source_roots`) and a `result_root` that
-  records the external control root; how the header stores them is a
-  proposed schema fixed with the runtime.
+  child-recipe variant within the existing schema `3.0` / profile
+  `evaluated_execution.v1`. `workflow_file` is the absolute protected control-root
+  `closed_program.json` locator, not authored source; `workflow_checksum` and
+  `program_digest` equal the parent-bound checked child digest. The unchanged
+  eight-field `resume_request` has `source_roots=[]`, `entry_workflow` equal to
+  the checked child entry, all four manifest locators and `input_file` null,
+  and `input_overrides` equal to the explicit child inputs; `bound_inputs` are
+  ordinarily typed. `run_ref_root` is retained and `result_root` is the external
+  child control root relative to the clone. Child recovery validates this checked
+  artifact/recipe and image pins, without compiling source from that locator or
+  from the clone. Parent public resume still fresh-builds and compares normally.
 - Each holder launch has a boot- and attempt-bound containment identity
   (its exact scope unit and cgroup) and one `DurableLaunchReleaseGate`
   release fact, held in the control root's holder release gate. Persist the
@@ -1229,15 +1240,15 @@ carries the named amendments.
   never reconstructed as zero guest use or all host use. Unavailable provider
   usage is likewise explicit, not zero. `budget.json`, when emitted, is only
   a diagnostic projection of the ledger, never recovery authority.
-- Open for the contract owner: the header representation of the
-  child-recipe variant and image pins against the evaluated header's
-  mandatory eight-field recipe, and its schema name; the outcome of a
-  `committed` header whose digest matches but whose ordinal names neither
-  the last committed attempt nor a newer uncommitted one.
+- Checkpoint identity validation is independent of its tree digest. An ordinal
+  naming neither the last committed attempt nor a newer uncommitted attempt
+  refuses `run_ref_evidence_invalid` with `checkpoint_attempt_identity_invalid`,
+  even when the digest matches. Validate before repair or zero-commit K4 discard;
+  a matching manifest cannot authorize an impossible attempt identity.
 
 ### Confined provider capacity and binding
 
-This is a prospective part of the target-2.38 profile, not current provider
+This internal authority is part of the target-2.38 profile, not public provider
 admission. It extends the existing parent ledger and emit/ack protocol with two
 semantic facts; no second journal, gateway writer or counter has authority.
 Path-mode v1 rows and command-only v2 behavior retain their meanings.
@@ -1359,7 +1370,7 @@ with no token, economic, remote-generation or native-auth traffic guarantee.
 
 ### Confined wall-budget recovery
 
-This algorithm belongs only to the proposed target-2.38 profile. The existing
+This algorithm belongs only to the target-2.38 confined profile. The existing
 parent ledger and emit/ack coordinator protocol own its durable state. Per
 semantic visit, retain the checked limit, the integer nanoseconds charged by
 closed intervals, and at most one active interval `{boot_id, since_ns,

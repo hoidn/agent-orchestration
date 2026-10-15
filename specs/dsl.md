@@ -22,7 +22,7 @@ does not widen evaluated admission or select a port of an excluded effect.
 YAML-fenced snippets are structural notation, not authored workflow files.
 
 - Top-level workflow keys
-  - `version`: string (registered revisions include bounded `"2.37"` and registered bounded `"2.38"` (agent sessions; see [qualification](versioning.md#version-gating-summary)); targets 2.35/2.36, bounded 2.37 and registered bounded 2.38 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (registered revisions include bounded `"2.37"` and registered bounded `"2.38"` (command-only confined run-ref and agent sessions; see [qualification](versioning.md#version-gating-summary)); targets 2.35/2.36, bounded 2.37 and registered bounded 2.38 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -850,20 +850,21 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       zero and rejected exits two. Human compiler output remains unchanged
       when this machine surface is not requested.
 
-  - Workflow Lisp run-ref confined workflow children (target 2.38; proposed):
-    - Status: proposed, unimplemented, not current admission and not
-      copy-safe. Target 2.38 is registered; confined sites are not admitted
-      for execution until Increment A qualifies, and until then public
-      compile of a workflow child refuses with
-      `run_ref_child_target_unavailable` before any child allocation. A 2.38
-      entry with no confined site accepts exactly what bounded 2.37 accepts.
+  - Workflow Lisp run-ref confined workflow children (target 2.38):
+    - Public admission is command-only under `:network :none`, including
+      recovery and typed exports. Confined provider sites refuse with
+      `run_ref_provider_transport_unavailable` before run-state creation or
+      holder launch; the provider contract below requires separate transport
+      qualification and public admission. Target 2.38 also independently admits
+      the bounded Agent surface; Agent allocation and turns are excluded from
+      confined children.
       Path mode, its admission, configuration bytes, recovery and
       internal target `2.35` are unchanged. Authority:
       [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#authored-contract)
       (D2, D4, D6); the
       [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md)
-      finalizes this entry.
-    - The third program locus:
+      owns delivery and qualification evidence.
+    - The named-workflow program locus:
 
       ```lisp
       (run-ref
@@ -914,7 +915,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       procedures and hooks over the closed effect summary:
       `run_ref_environment_effect_unsupported` for nested `run-ref`, parallel
       effect execution, dynamic evaluation, `trial`, human input,
-      session/context capture or resource transitions in the child; for
+      session/context capture, Agent allocation/turns or resource transitions in the child; for
       `:network :none` with any provider effect in the child's summary; and
       for `:memory-mib` below `:workspace-mib + 960` (the profile's scratch,
       `/dev/shm`, result and process headroom constants).
@@ -924,8 +925,9 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       without a nonempty workspace-relative `:under` outside reserved
       control/Git roots or with `:must-exist false`. Shape and literal
       violations keep the closed run-ref compiler diagnostics above. The
-      child admits the target's ordinary pure forms, commands, portable
-      tool-enabled provider calls and static calls.
+      child admits the target's ordinary pure forms, commands and static calls.
+      Portable tool-enabled provider calls are the separately qualified target
+      contract; their public admission remains closed as stated above.
     - The site's type is a compiler-owned per-site union:
 
       ```text
@@ -956,16 +958,17 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       `run_ref_provider_transport_unavailable`, `run_ref_budget_exhausted`
       and `run_ref_export_invalid`; the
       [design's diagnostics table](../docs/design/workflow_lisp_run_ref_expression_environments.md#diagnostics-and-contract-changes)
-      owns their refusal points until finalization. Runtime contracts:
+      owns their refusal points. Runtime contracts:
       [State](state.md#proposed-run-ref-confined-child-state-target-238),
       [IO](io.md#proposed-run-ref-confined-child-io-target-238),
       [Security](security.md) and [Providers](providers.md).
     - Placement: a confined site is admitted where a 2.35+ path-mode
       `run-ref` is admitted above, except inside any `list/map-effect` frame,
       serial or parallel, and inside trial arms.
-    - Open for the contract owner: whether an authority-bearing child result
-      type refuses with the same code; the design states the refusal for
-      inputs only.
+    - For signatures reaching run-ref transport checking, authority-bearing
+      inputs and child results refuse with `run_ref_child_transport_unsupported`.
+      Ordinary workflow/type validation may reject an invalid signature earlier;
+      this rule does not change diagnostic precedence.
 
   - Workflow Lisp bounded static trials (target 2.25):
     - `trial` is one step-level durable `TRIAL` effect over two or more

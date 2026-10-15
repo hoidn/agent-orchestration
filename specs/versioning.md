@@ -8,7 +8,7 @@ and analysis; they are distinct from executable support. The owner-selected
 [closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 records implementation and delivery status.
 It admits evaluated entries/profiles at 2.35/2.36, the registered bounded
-2.37 surface and the registered bounded 2.38 agent-sessions surface with their
+2.37 surface and the bounded 2.38 command-only confined run-ref and agent-sessions surfaces with their
 existing limits, not entries through 2.34. The
 [CLI support boundary](cli.md#executable-support-boundary) owns refusal
 codes/exits and precedence. Old entry builds/runs/dry-runs refuse before
@@ -1147,7 +1147,10 @@ not yet a copy-safe authoring surface. Existing
 Target **2.38** is registered for run-ref confined workflow children
 (`run-ref :program (:workflow ...)` under the sibling profile
 `run_ref_confinement.v1`), whose command, recovery and export paths are implemented; public confined
-provider dispatch and native provider qualification remain pending. This surface is not copy-safe
+provider dispatch and native provider qualification remain pending. The complete provider
+surface is not copy-safe; current command-only use follows the
+[drafting guide recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+with its host/image prerequisites
 ([design](../docs/design/workflow_lisp_run_ref_expression_environments.md),
 [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md)).
 Confined command sites use the runtime-owned child and holder path. Confined

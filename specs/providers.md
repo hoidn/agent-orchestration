@@ -397,14 +397,17 @@ schema notation, not authored workflow files.
     described as available until the launcher, state, CLI, resume, and
     attestation integration gates land.
 
-- Run-ref confined provider transport (proposed for target 2.38; unimplemented, not copy-safe)
-  - Status: proposed and not current admission; it changes no current
-    provider execution. Authority:
+- Run-ref confined provider transport (target 2.38; public admission closed)
+  - The following is the qualification and admission contract for confined
+    providers. Private ledger/core/per-leaf Holder transport implementation
+    does not authorize public provider dispatch or qualify real authentication
+    and upstream TLS. Command-only confinement is separately admitted. Authority:
     [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
     (D7, F4 gate); the outer boundary is
     [`run_ref_confinement.v1`](security.md).
-  - A confined child admits only portable provider calls; sessions and
-    context capture refuse at compile time. An interrupted tool-enabled
+  - When separately qualified and admitted, a confined child permits only
+    portable provider calls; sessions, context capture and Agent allocation/turns
+    refuse at compile time. An interrupted tool-enabled
     attempt takes the evaluated at-least-once rerun in the same clone; no
     agent-session authority applies.
   - Provider processes run as leaves inside the child's holder sandbox, from
@@ -461,9 +464,14 @@ schema notation, not authored workflow files.
     blocked ACK or controller loss; recovery retires it before further effects.
     A capability copied from retained guest data never authorizes this leaf or
     supplies its new grant; recovery requires a fresh capability/incarnation.
-  - Increment A: until provider transport qualifies (design gate F4), a
-    provider dispatch in a confined child refuses with
-    `run_ref_provider_transport_unavailable` before dispatch.
+  - Until transport qualification and public admission, a confined provider
+    site refuses with `run_ref_provider_transport_unavailable` before run-state
+    creation or holder launch. The selected native Codex route reuses managed
+    ChatGPT login (`authMethod=chatgpt`); it requires no API key. Native managed
+    policy must satisfy D7's preventive effective-configuration checks; accepted
+    local overrides or successful synthetic fixtures alone do not establish that.
+    The [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md#task-10-provider-transport)
+    owns the remaining qualification evidence and blocking disposition.
 
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.

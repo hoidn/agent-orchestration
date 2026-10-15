@@ -321,10 +321,17 @@ remains mapped as follows:
 
 1. Schema pass; 2. Schema fail with `json_schema_errors`; 3. Parse fail; 4. Parse allowed is incompatible with schema; 5. Require pointer exists; 6. Require equals; 7. Require type; 8. Multiple requirements; 9. Variable substitution in schema path; 10. Large JSON overflow behavior.
 
-## Future Acceptance (Run-Ref Confined Child Environments, target 2.38)
+<a id="future-acceptance-run-ref-confined-child-environments-target-238"></a>
 
-Proposed and unimplemented; these scenarios are not current acceptance and
-admit nothing. The
+## Acceptance Scope (Run-Ref Confined Child Environments, target 2.38)
+
+Command-only Increment A is admitted: compile/run/interrupted-resume/completed-resume/report,
+durable recovery, typed exports and cleanup have bounded acceptance evidence in
+the [plan/report](../../docs/plans/2026-10-14-run-ref-expression-environments-plan.md).
+The complete tool-enabled provider flow below remains a qualification requirement,
+not public admission; private transport checks do not qualify real native auth/TLS.
+Use the [command-only recipe](../../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+for current usage. The
 [design](../../docs/design/workflow_lisp_run_ref_expression_environments.md#verification-and-declarative-acceptance-scenarios)
 owns their full statements and the F1 to F6 gates (with F3b-channel and
 F3b-checkpoint); real-sandbox cases skip when `bwrap`,
