@@ -4,48 +4,81 @@
 
 **Goal:** let authors run a statically named workflow (`:program (:workflow <name>)`) as a `run-ref` child in a runtime-prepared candidate clone, with every child command and provider leaf confined by a Bubblewrap sibling profile, a typed COMPLETED/FAILED outcome at the call site, and durable recovery that never discards committed child effects. Candidate generation, evaluation and selection then compose as ordinary serial typed workflow code.
 
-**Architecture:** the existing `run-ref` effect gains a `:program (:workflow <static-workflow-name>)` locus compiled as a private child entry through `closed/build.py::register_run_ref` and `closed/effects.py::_translate_run_ref`; no `:body`, no extraction helper, and `:bundle` stays retired. The existing rootless Bubblewrap backend (`orchestrator/providers/isolation_backend.py`, `isolation_bubblewrap.py`, cgroup v2 containment slots, result broker) becomes the substrate of a sibling profile `run_ref_confinement.v1` that adds `--unshare-net`, cgroup v2 `memory.max`/`pids.max`/`cpu.max`, a rootfs imported from the digest-pinned `:image` into a sealed content-addressed store, workflow command launches and a workspace quota (tmpfs charged to `memory.max`, or refuse admission). The profile is not registered in `_BACKENDS` (`isolation_backend.py:1568-1580`). Child evaluator, memo and authority stay on the host outside the clone; the coordinator/ledger keeps durable settlement and recovery. Provider traffic reaches upstream only through a host-owned inference gateway bound into the sandbox as a unix socket.
+**Architecture:** the existing `run-ref` effect gains a `:program (:workflow <static-workflow-name>)` locus compiled as a private child entry through `closed/build.py::register_run_ref` and `closed/effects.py::_translate_run_ref`; no `:body`, no extraction helper, and `:bundle` stays retired. The existing rootless Bubblewrap backend (`orchestrator/providers/isolation_backend.py`, cgroup v2 containment slots, result broker, `DurableLaunchReleaseGate`) is the substrate of a sibling profile `run_ref_confinement.v1`, revised after F3 (design table "F3 deltas"): each holder launch runs in a transient delegated `systemd-run --user --scope` that carries `memory.max`/`pids.max`/`cpu.max` and is the attempt's containment root; one holder `bwrap` per child attempt owns `--unshare-net`, the rootfs imported from the digest-pinned `:image` into a sealed content-addressed store and bound by descriptor, and size-bounded tmpfs mounts; every command and provider leaf is forked inside the holder by a host-authored spawner over inherited unix socketpairs and runs in its own leaf slot with whole-slot quiescence before any host read. The host clone on disk is the durable workspace; the tmpfs is its execution copy, seeded by the host and checkpointed back after every leaf under a two-phase header before the memo commit, so a controller crash never loses a committed effect; a holder death under a live controller ends that candidate as `FAILED` with no in-run retry. The profile is not registered in `_BACKENDS` (`isolation_backend.py::_BACKENDS`). Child evaluator, memo and authority stay on the host outside the clone; the coordinator/ledger keeps durable settlement and recovery. Provider traffic reaches upstream only through a host-owned inference gateway bound into the sandbox as a unix socket; provider binaries come from the image.
 
 **Tech stack:** existing Python compiler/runtime, Workflow Lisp, pytest, rootless Bubblewrap with cgroup v2, an OCI image import step, and a narrowly scoped inference gateway. No Podman/OCI engine, no new workflow evaluator, search optimizer, package installer or sandbox backend framework.
 
-**Status:** proposed implementation plan, not executed. Drafted 2026-10-14, revised the same day. All unchecked tasks and gates are pending; repository inspection is not runtime qualification.
+**Status (2026-10-15):** Tasks 0–9 are accepted for command-only Increment A,
+integrated in `fa17d214`. Task 10 has accepted internal ledger authority, private
+transport core and per-leaf Holder integration; real native authentication/TLS
+qualification is **BLOCKED/UNQUALIFIED** by the
+[managed-policy gate](../reports/run-ref-confinement-feasibility/README.md#native-managed-policy-gate-blocked).
+Public confined provider admission remains closed, and Tasks 11–13 are pending.
+The existing 2.38 Agent surface is independent and excluded from confined children.
+The [command-only guide](../lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+is the current usage route; the complete provider example below is still gated.
 
 **Design authority:** [Workflow Lisp Run-Ref Confined Child Environments](../design/workflow_lisp_run_ref_expression_environments.md). That document owns syntax, profile, identity, confinement, artifact transport and recovery contracts. This plan owns sequencing, tests, decisions needed before implementation, and execution evidence. If a gate invalidates a design assumption, revise and review the design before continuing; do not invent a competing contract in code or in this plan.
 
-**Tradeoffs:** a static workflow name forces authors to forward values through declared inputs; digest-pinned images require image publication when dependencies change; the Bubblewrap profile and the gateway restrict the supported host/provider combinations to rootless user namespaces, delegated cgroup v2 and API-key provider accounts. Keeping authority outside the clone requires deliberate guest-path translation and artifact copying. These costs are accepted to make isolation and recovery enforceable.
+**Tradeoffs:** a static workflow name forces authors to forward values through declared inputs; digest-pinned images require image publication when dependencies change; the Bubblewrap profile and the gateway restrict the supported host/provider combinations to rootless user namespaces, delegated cgroup v2 and separately qualified provider transports. The selected native Codex login route depends on its exact native-interface pin and upgrade requalification; endpoints without demonstrated token/cost ceilings cannot serve installation policies that require those ceilings. Keeping authority outside the clone requires deliberate guest-path translation and artifact copying. These costs are accepted to make isolation and recovery enforceable.
 
 ## Scope and current evidence
 
-Read `AGENTS.md`, `docs/index.md`, `docs/capability_status_matrix.md`, and `docs/design/README.md` first. Governing current contracts are `specs/dsl.md` (run-ref syntax), `specs/state.md`, `specs/security.md`, `specs/providers.md`, `specs/io.md`, `specs/cli.md`, and `specs/versioning.md`; the design proposes their amendment. The evaluated execution (EE) and executor-retirement designs govern compatibility. Existing `trial`/research history does not authorize restoring retired execution.
+Read `AGENTS.md`, `docs/index.md`, `docs/capability_status_matrix.md`, and `docs/design/README.md` first. Governing current contracts are `specs/dsl.md` (run-ref syntax), `specs/state.md`, `specs/security.md`, `specs/providers.md`, `specs/io.md`, `specs/cli.md`, and `specs/versioning.md`; the design explains their confinement-specific amendments. The evaluated execution (EE) and executor-retirement designs govern compatibility. Existing `trial`/research history does not authorize restoring retired execution.
 
-Inspection established these constraints; none is a completed feasibility experiment:
+Original pre-implementation inspection (2026-10-14) established these starting
+constraints; these bullets are historical, not current availability. Current
+workflow compilation is `closed/effects.py::_translate_run_ref_workflow` and
+`closed/build.py::register_run_ref`; command admission, external child roots and
+Holder recovery are integrated. Subsequent gate status and evidence appear below.
 
-- `closed/effects.py::_translate_run_ref` admits only `PathProgram`; `run_ref/closed_path.py::_require_closed_effects` rejects effectful children. `prepare_closed_program_bundle` (`closed/artifact.py:190`) compiles a file entry via `FrontendBuildRequest`, so the child-entry seam belongs inside `register_run_ref`/`build.py`, not in a call to that function with an expression.
-- `run_ref/runtime.py::_discard_incomplete_attempt` (line 1838) deletes incomplete workspaces. Applying that K4 path after a child committed an effect would lose progress and repeat external work.
+- `closed/effects.py::_translate_run_ref` admits only `PathProgram`; `run_ref/closed_path.py::_require_closed_effects` rejects effectful children. `prepare_closed_program_bundle` (`closed/artifact.py`) compiles a file entry via `FrontendBuildRequest`, so the child-entry seam belongs inside `register_run_ref`/`build.py`, not in a call to that function with an expression.
+- `run_ref/runtime.py::_discard_incomplete_attempt` deletes incomplete workspaces. Applying that K4 path after a child committed an effect would lose progress and repeat external work.
 - `evaluated/effect_execution.py::_dispatch_command` substitutes host interpreter pins; command launch validates package origins on the host. The confined profile needs image executable pins and translated guest paths, not inherited `shutil.which` results.
-- `providers/executor.py:439` copies `os.environ` into every launch; `evaluated/providers.py::launch_provider` (line 215) uses the executor injected through `PreparedAttempt.provider_executor`, while `evaluated/commands.py::launch_command` (line 160) builds `StepExecutor` inline and has no injection point.
-- `evaluated_child.py::validate_evaluated_child_terminal` and `_captured_child_authority` (lines 118-126, 22) read child authority from `<workspace>/.orchestrate/runs/<id>` inside the clone, and `_terminal_value` (line 99) assumes a sole terminal memo record with pure re-evaluation.
-- `isolation_backend.py` fixes `bubblewrap.v1`; `DurableLaunchReleaseGate` (line 2942) and `CgroupV2ContainmentRoot`/`Slot` (lines 2312, 2551) carry authority assumptions that must be checked before reuse. The open provider-isolation integration Tasks 4-6 (`docs/capability_status_matrix.md:72`) own executor routing and must be coordinated with, not duplicated.
+- `providers/executor.py` copies `os.environ` into every launch; `evaluated/providers.py::launch_provider` uses the executor injected through `PreparedAttempt.provider_executor`, while `evaluated/commands.py::launch_command` builds `StepExecutor` inline and has no injection point.
+- `evaluated_child.py::validate_evaluated_child_terminal` and `_captured_child_authority` read child authority from `<workspace>/.orchestrate/runs/<id>` inside the clone, and `_terminal_value` assumes a sole terminal memo record with pure re-evaluation.
+- `isolation_backend.py` fixes `bubblewrap.v1`; `DurableLaunchReleaseGate` and `CgroupV2ContainmentRoot`/`Slot` carry authority assumptions that must be checked before reuse. The open provider-isolation integration Tasks 4-6 (`docs/capability_status_matrix.md`) own executor routing and must be coordinated with, not duplicated.
 - The maintained best-of-N recipe in `experiments/orc_vs_single_call/README.md` creates clones in shell and passes paths to unrestricted providers. `harness/run_best_of_n_trial.sh` is historical provenance and must remain historical.
 - The workspace was already dirty when this plan was drafted. Execution must preserve unrelated work and record its baseline; do not stage broad directories or use cleanup/reset commands against shared changes.
 
-All paths below are repository-relative. Proposed files and selectors are explicitly identified; they do not exist merely because this plan names them.
+All paths below are repository-relative. Tasks 0–9 checklists are accepted
+command-scope obligations, not a claim that each original file split or proposed
+selector name survived unchanged. The current implementation/test ownership map
+below supersedes those planned locations. Unchecked provider/full-delivery work
+remains pending unless an accepted private slice is explicitly identified.
 
-The child program is an ordinary static workflow: pure expressions, commands, portable tool-enabled providers and static calls, with serial bounded control flow. Nested `run-ref`, parallel effect execution inside the child, dynamic evaluation, trial, human input, sessions/context, resource effects and `provider-bundle-path` are refused at compile time, transitively by effect kind. The substrate adds no exception handling: the `run-ref` site itself yields a compiler-owned union `COMPLETED (result envelope)` / `FAILED (code, detail, accounting)`, while pre-release structural and admission failures still abort under ordinary EE rules.
+The admitted child program is an ordinary static workflow: pure expressions, commands and static calls, with serial bounded control flow. Portable tool-enabled providers remain the gated target contract. Nested `run-ref`, parallel effect execution inside the child, dynamic evaluation, trial, human input, sessions/context, Agent allocation/turns, resource effects and `provider-bundle-path` are refused at compile time, transitively by effect kind. The substrate adds no exception handling: the `run-ref` site itself yields a compiler-owned union `COMPLETED (result envelope)` / `FAILED (code, detail, accounting)`, while pre-release structural and admission failures still abort under ordinary EE rules.
 
 ## File ownership and boundaries
 
+The following table preserves the original planned allocation; use the current
+ownership map below for implemented locations.
+
 | Responsibility | Existing owners to modify or inspect | Proposed additions |
 | --- | --- | --- |
-| Syntax, typing, refusals, union result | `orchestrator/workflow_lisp/expressions.py` (`_parse_run_ref_syntax_list`, line 2009), `typecheck_run_ref.py`, `expression_traversal.py`, `wcc/model.py`, `wcc/elaborate.py`, `orchestrator/contracts/closed_program/targets.py` | None |
-| Child entry compilation, static config v2, request identity | `orchestrator/workflow_lisp/closed/{build,effects,artifact}.py`, `orchestrator/workflow/run_ref/{config,contracts,wire}.py` (`PathProgram.environment` exists at `config.py:313-341`) | None |
-| Clone, image import, admission, authority outside the clone | `orchestrator/workflow/run_ref/{source,workspace,child,evaluated_child,launch_authority,runtime}.py` | `orchestrator/workflow/run_ref/confinement.py`: image import to a sealed rootfs, profile admission, launch through the existing backend |
-| Confined leaf execution | `orchestrator/workflow/evaluated/{effect_execution,commands,providers,interpreters,authority}.py`; `orchestrator/providers/{isolation_backend,isolation_bubblewrap,executor}.py` | None beyond `confinement.py` |
+| Syntax, typing, refusals, union result | `orchestrator/workflow_lisp/expressions.py` (`_parse_run_ref_syntax_list`), `typecheck_run_ref.py`, `expression_traversal.py`, `wcc/model.py`, `wcc/elaborate.py`, `orchestrator/contracts/closed_program/targets.py` | None |
+| Child entry compilation, static config v2, request identity | `orchestrator/workflow_lisp/closed/{build,effects,artifact}.py`, `orchestrator/workflow/run_ref/{config,contracts,wire}.py` (`PathProgram.environment` exists in `config.py`) | None |
+| Clone, image import, admission, authority outside the clone | `orchestrator/workflow/run_ref/{source,workspace,child,evaluated_child,launch_authority,runtime}.py`; `orchestrator/_common/safe_tree.py`, `orchestrator/workflow/workspace_files.py` (`st_dev` pin, symlink entries) | `orchestrator/workflow/run_ref/image_store.py`: installation-time import into the sealed content-addressed store and descriptor-based rehash (third module, justified in the design handoff table); `orchestrator/workflow/run_ref/confinement.py`: scope and token-gated launcher, holder, spawner protocol with deadlines, `holder`/`host`/leaf slots, per-leaf scratch wipe, admission; the seed/checkpoint copier and two-phase header live in `workspace.py` |
+| Confined leaf execution | `orchestrator/workflow/evaluated/{effect_execution,commands,providers,interpreters,authority}.py`; `orchestrator/providers/isolation_backend.py` (`CgroupV2ContainmentRoot` scope-path constructor, profile slot prefix), `executor.py` | None beyond `confinement.py`; `isolation_bubblewrap.py` is not reused for the holder argv |
 | Provider transport | `orchestrator/providers/registry.py` (templates, lines 47-131), `orchestrator/providers/executor.py`, `evaluated/providers.py` | `orchestrator/providers/inference_gateway.py`: host-owned unix-socket relay for model routes only |
-| Recovery, export, evidence, settlement | `orchestrator/workflow/run_ref/{runtime,ledger,delta,result_contract,evaluated_child}.py`; `orchestrator/workflow/evaluated/{run_ref,replay,run_header,views}.py` | None; no second ledger |
+| Recovery, export, evidence, settlement | `orchestrator/workflow/run_ref/{runtime,ledger,delta,result_contract,evaluated_child}.py`; `orchestrator/workflow/evaluated/{run_ref,replay,run_header,views}.py` | None; no second ledger; the checkpoint header lives in the control root beside the memo |
 | Public consumers and author guidance | `orchestrator/cli/commands/{run,resume,report}.py` only where required; specs and routing docs; `experiments/orc_vs_single_call/{README.md,workflows/best_of_n.orc,workflows/best_of_n.providers.json}` | `workflows/examples/run_ref_confined/` after qualification |
 
-Test modules: at most five new ones, `tests/test_workflow_lisp_run_ref_workflow_program.py`, `tests/test_workflow_run_ref_confinement.py`, `tests/test_workflow_run_ref_confined_recovery.py`, `tests/test_provider_inference_gateway.py` and `tests/e2e/test_e2e_run_ref_confined.py`. Export tests extend `tests/test_workflow_run_ref_delta.py`. Real-sandbox and real-provider cases live only under `tests/e2e/` with `@pytest.mark.e2e`, `skip_if_no_e2e()` and `skip_if_no_cli("bwrap")` (`tests/e2e/conftest.py:17,23`); unit modules hold argv, policy and path-translation units only, so `pytest -q -n 16 --dist=worksteal -m 'not e2e'` stays green on hosts without the sandbox. Changes must reach AST traversal, WCC payloads, closed artifact validation, request/wire codecs, runtime consumers, fixtures and docs together. No broad provider-executor or compiler refactor is authorized.
+Test modules: at most five new ones, `tests/test_workflow_lisp_run_ref_workflow_program.py`, `tests/test_workflow_run_ref_confinement.py`, `tests/test_workflow_run_ref_confined_recovery.py`, `tests/test_provider_inference_gateway.py` and `tests/e2e/test_e2e_run_ref_confined.py`. Export tests extend `tests/test_workflow_run_ref_delta.py`. Real-sandbox and real-provider cases live only under `tests/e2e/` with `@pytest.mark.e2e`, `skip_if_no_e2e()` and `skip_if_no_cli("bwrap")` (`tests/e2e/conftest.py`); unit modules hold argv, policy and path-translation units only, so `pytest -q -n 16 --dist=worksteal -m 'not e2e'` stays green on hosts without the sandbox. Changes must reach AST traversal, WCC payloads, closed artifact validation, request/wire codecs, runtime consumers, fixtures and docs together. No broad provider-executor or compiler refactor is authorized.
+
+### Current implementation and verification ownership
+
+The task sketches retain original allocation intent. Use these current owners
+for maintenance; the report retains exact historical commands and outcomes.
+
+| Surface | Current owner |
+| --- | --- |
+| Workflow compilation | `closed/build.py::register_run_ref`, `closed/effects.py::_translate_run_ref_workflow`; `tests/test_workflow_lisp_run_ref_workflow_program.py` |
+| Image preparation and admission | `run_ref/image_store.py::import_oci_layout`, `run_ref/confinement.py`; image import consumes a local OCI layout, not a runtime registry pull |
+| Holder and durable workspace | `run_ref/{holder,holder_scope,holder_spawner,leaf,checkpoint}.py`; `tests/test_workflow_run_ref_holder.py` (including filter byte equality); `tests/e2e/test_e2e_run_ref_{confined,keyring,checkpoint,holder_runtime,holder_failures}.py` |
+| Lifecycle, budget, terminal proof | `run_ref/{confined_lifecycle,confined_session,confined_budget,ledger,evaluated_child}.py`; `tests/test_workflow_run_ref_confined_{child,recovery,integration_fixes}.py`, `tests/e2e/test_e2e_run_ref_confined_recovery.py`. Recovery is invoked by public parent resume; no independent confined-child CLI entry is delivered |
+| Exports, retention and cleanup | `run_ref/{confined_exports,confined_evidence,confined_cleanup}.py`; `tests/test_workflow_run_ref_exports.py`, `tests/e2e/test_e2e_run_ref_confined_exports.py` |
+| Private provider transport | `providers/inference_gateway.py::NativeAuthOwner`, `run_ref/{provider_transport,provider_worker,provider_control}.py` and the existing ledger/Holder owners; `tests/test_provider_inference_gateway.py`, `tests/e2e/test_e2e_run_ref_provider_transport.py` |
 
 ## Gates and evidence ledger
 
@@ -53,65 +86,76 @@ F1-F4 are proved in Task 1; F5 and F6 are the acceptance of Tasks 7 and 8. A fak
 
 | Gate | Required evidence before proceeding | Current status / evidence |
 | --- | --- | --- |
-| F1 (child entry closure) | `:program (:workflow name)` compiles through `register_run_ref` into a private child entry with declared inputs, imported/private procedures, owner externs and nested control flow; no parent runtime binding is visible; same identity after snapshot/rebuild | Pending / none |
-| F2 (authority separation) | Child header, checked program, memo and request/receipt live outside the clone; guest processes see only the clone, bounded scratch and a result ingress; every leaf launch goes through the profile | Pending / none |
-| F3 (Bubblewrap sibling profile) | Real rootless launch with `--unshare-net`, enforced cgroup limits, imported sealed rootfs, workflow commands, workspace quota, escape negatives and descendant termination; `DurableLaunchReleaseGate` and containment slot authority assumptions checked | Pending / none |
-| F4 (transport probe) | Provider CLI inside the sandbox reaches a gateway stub over a bound unix socket and the stub reaches upstream; credentials never enter the sandbox | Pending / none |
-| F5 (recovery, Task 7) | Kill at each window resumes the same child/attempt without repeating committed effects; zero-commit attempts take the K4 discard path; legacy profile oracle unchanged | Pending / none |
-| F6 (typed exports and retained evidence, Task 8) | Exact typed rebase, no-overwrite export, evidence allowance checked at each commit, cleanup with recorded obligation and resume retry, settlement without clone reads | Pending / none |
-| A (language/identity) | Syntax, once-only `:commit`, compile-time refusals, union result type, static config v2, request identity and path-mode preservation tests | Pending / none |
-| B (runtime/confinement) | Command and provider matrices through the profile, image executable pins, enforced limits, typed exports, recovery, old path-mode preservation | Pending / none |
-| C (complete author use case) | Public compile/run/interrupted-resume/completed-resume/report for serial generation, evaluation and typed selection with a real sandbox and a real tool-enabled provider | Pending / none |
-| D (release review) | Narrow and broad checks classified, final code plus security review PASS, contract review PASS, documentation accurate, explicit incremental commits | Pending / none |
+| F1 (child entry closure) | `:program (:workflow name)` compiles through `register_run_ref` into a private child entry with declared inputs, imported/private procedures, owner externs and nested control flow; no parent runtime binding is visible; same identity after snapshot/rebuild | Accepted for command delivery; [Task 9 report](../reports/run-ref-confinement-feasibility/README.md#task-9-increment-a-accepted-for-commands-2026-10-15) and compiler tests retain evidence |
+| F2 (authority separation) | Child header, checked program, memo and request/receipt live outside the clone; guest processes see only the clone, bounded scratch and a result ingress; every leaf launch goes through the profile | Accepted for command delivery; external control root and no clone compilation are integrated (Tasks 5–9) |
+| F3 (Bubblewrap sibling profile) | Real rootless launch with `--unshare-net`, enforced cgroup limits, imported sealed rootfs, workflow commands, workspace quota, escape negatives and descendant termination; `DurableLaunchReleaseGate` and containment slot authority assumptions checked | Accepted for command delivery with reviewed topology deltas; report Tasks 5–9 retain actual witnesses |
+| F4 (transport probe) | Provider CLI inside the sandbox reaches a gateway stub over a bound unix socket and the stub reaches upstream; credentials never enter the sandbox | Native-login route UNQUALIFIED: [effective managed-policy admission remains blocked](../reports/run-ref-confinement-feasibility/README.md#native-managed-policy-gate-blocked). No API-key account is required. Historical in-sandbox PASS under P2 is retained in the feasibility report. |
+| F3b (holder topology and durable workspace, Task 5) | F3b-channel before any holder code enters the runtime: D-a scope shape with unit-property limits and `OOMPolicy=continue` enforced, socket channels unreachable (`ENXIO`/`EPERM` with FIFO and pipe positive controls), in-namespace descriptors (pid 1, spawner) limited to `/dev/null` and the two sockets, leaf pid equal to the acknowledged pid, `setsid` leaves (`kill 0` leaves the spawner alive), stopped/signalled spawner ends as a holder death with an empty scope and a daemon as a failed attempt in its emptied leaf slot (the scope empties at the child terminal), `/dev` and `/run` unwritable, `/dev/shm` sized, host writes through `/proc/<holder>/root`; rerun with the F3b-keyring witness (Task 5b, design row F3b-2): fresh empty session keyring, key syscalls `EPERM`, `/proc/keys` unreadable, host key count unchanged. F3b-checkpoint after the copier with a throwaway holder: host seeding and checkpoint reproduce manifests under `committed` headers, an injected mid-copy crash leaves an `intent` header that the preflight function repairs (holder death after a commit and wall charging are Task 6 witnesses; resume repair is Task 7) | Accepted: report Tasks 5a, 5b and 5ck; later integrated Holder witnesses remain separately scoped |
+| F5 (recovery, Task 7) | Kill at each window, including during a checkpoint, between checkpoint and commit, after a rerun that has not checkpointed and after the child's failed terminal row before parent commit (resume prepares the same `FAILED`), resumes the same child/attempt from a fresh holder seeded from the clone without repeating committed effects; a holder death under a live controller ends as `FAILED` without a resume; nonterminal zero-commit attempts take K4 with the visit's remaining budget; durable COMPLETED and FAILED are reused even with zero commits; same-boot downtime/suspension and closure crash windows charge exactly once, cross-boot open intervals refuse; four FAILED boundaries repair without fabricated effects or retry permission; legacy profile oracle unchanged | Accepted for command recovery: report Task 7; real provider-commit qualification remains pending |
+| F6 (typed exports and retained evidence, Task 8) | Exact typed rebase and no-overwrite export from the clone after its final checkpoint, evidence allowance checked at each commit with the checkpoint excluded from it, cleanup of clone and checkpoint header with recorded obligation and resume retry, settlement without clone or holder reads | Accepted for command exports/retention/cleanup: report Task 8 |
+| A (language/identity) | Syntax, once-only `:commit`, compile-time refusals, union result type, static config v2, request identity and path-mode preservation tests | Accepted for command Increment A (Tasks 3–9); provider admission stays closed |
+| B (runtime/confinement) | Command and provider matrices through the profile, image executable pins, enforced limits, typed exports, recovery, old path-mode preservation | Command subset accepted (Tasks 5–9); private Task 10 transport accepted only within its synthetic/private scope; public provider matrix pending |
+| C (complete author use case) | Public compile/run/interrupted-resume/completed-resume/report for serial generation, evaluation and typed selection with a real sandbox and a real tool-enabled provider | Pending: Tasks 10–12; native qualification blocked |
+| D (release review) | Narrow and broad checks classified, final code plus security review PASS, contract review PASS, documentation accurate, explicit incremental commits | Pending for complete release; command Increment A and private Task 10 slices have their own accepted reviews, not broad/full PASS |
 
-At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibility/README.md` with task/gate, exact command, exit, tested commit, fixture/image digests, run id and reviewer disposition, and summarize them here. That committed report is the retention location: `artifacts/` is gitignored (`.gitignore:11`) and has no retention policy. Keep secrets out of logs. The design document must not become a task checklist or a run-status log.
+The 2026-10-14 P2 API-key-only selection is superseded for the current route;
+its original result remains historical evidence in the feasibility report.
+Use the existing authenticated Codex login. Missing API keys do not block this
+route; [Task 10](#task-10-provider-transport) records its remaining confinement
+qualification gates. Historical P2 results do not qualify the native-login route.
+
+At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibility/README.md` with task/gate, exact command, exit, tested commit, fixture/image digests, run id and reviewer disposition, and summarize them here. That committed report is the retention location: `artifacts/` is gitignored (`.gitignore`) and has no retention policy. Keep secrets out of logs. The design document must not become a task checklist or a run-status log.
 
 ## Task 0: Baseline and readiness
 
 **Files:** this plan; `docs/reports/run-ref-confinement-feasibility/README.md`. **Dependency:** none. No spec amendments in this task.
 
-- [ ] Record `git status --short`, `git rev-parse HEAD` and the dirty paths without modifying unrelated files. Use an isolated worktree if execution would collide with existing edits (`superpowers:using-git-worktrees`).
-- [ ] Run the existing narrow baseline: `pytest -q tests/test_workflow_lisp_closed_run_ref_placement.py tests/test_workflow_evaluated_run_ref.py tests/test_workflow_evaluated_run_ref_settlement.py tests/test_workflow_run_ref_config.py`. Record failures before interpreting later regressions.
-- [ ] Readiness probe, recorded with exact commands and output: `bwrap` present (it is, at `/usr/bin/bwrap`; `podman` is not installed on the reference host), unprivileged user namespaces, cgroup v2 delegation for the current user, a workspace quota mechanism, an image-import tool for a digest-pinned OCI image into a directory tree, and the provider CLI's base-URL/API-key override flags. A missing prerequisite is recorded as BLOCKED for the gate that needs it.
-- [ ] Reuse the existing path-mode oracles (`tests/e2e/test_e2e_workflow_evaluated_run_ref.py`, `test_closed_path_run_ref_placement_round_trip`) as the compatibility baseline; do not capture new fixtures.
-- [ ] Commit only the report and plan updates with explicit paths after reviewing `git diff --cached`: `docs: record run-ref confinement baseline and readiness`.
+- [x] Record `git status --short`, `git rev-parse HEAD` and the dirty paths without modifying unrelated files. Use an isolated worktree if execution would collide with existing edits (`superpowers:using-git-worktrees`).
+- [x] Run the existing narrow baseline: `pytest -q tests/test_workflow_lisp_closed_run_ref_placement.py tests/test_workflow_evaluated_run_ref.py tests/test_workflow_evaluated_run_ref_settlement.py tests/test_workflow_run_ref_config.py`. Record failures before interpreting later regressions.
+- [x] Readiness probe, recorded with exact commands and output: `bwrap` present (it is, at `/usr/bin/bwrap`; `podman` is not installed on the reference host), unprivileged user namespaces, cgroup v2 delegation for the current user, a workspace quota mechanism, an image-import tool for a digest-pinned OCI image into a directory tree, and the provider CLI's base-URL/API-key override flags. A missing prerequisite is recorded as BLOCKED for the gate that needs it.
+- [x] Reuse the existing path-mode oracles (`tests/e2e/test_e2e_workflow_evaluated_run_ref.py`, `test_closed_path_run_ref_placement_round_trip`) as the compatibility baseline; do not capture new fixtures.
+- [x] Commit only the report and plan updates with explicit paths after reviewing `git diff --cached`: `docs: record run-ref confinement baseline and readiness`.
 
 **Done:** baseline and readiness receipts exist in the report with no implementation claim.
 
+Evidence (2026-10-14, commit `0c156966`): baseline 260 passed, path-mode oracles 19 passed; `bwrap` 0.9.0, user and network namespaces, delegated cgroup v2 (`cpu memory pids`), size-limited tmpfs quota and Python registry v2 access are ready; the controller's own cgroup scope cannot enable child controllers (F3 must use a delegated scope); no API-key provider account, so the F4 upstream leg is BLOCKED. See [the feasibility report](../reports/run-ref-confinement-feasibility/README.md).
+
 ## Task 1: Feasibility F1-F4 in bounded vertical experiments
 
-**Files:** existing owners in the table; throwaway code under `experiments/run_ref_confinement_spike/`, removed after the gates, as in the evaluated-execution spike precedent (`docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md:69`). Retained tests go to `tests/test_workflow_lisp_run_ref_workflow_program.py`, `tests/test_workflow_run_ref_confinement.py` and `tests/e2e/test_e2e_run_ref_confined.py`.
+**Files:** existing owners in the table; throwaway code under `experiments/run_ref_confinement_spike/`, removed after the gates, as in the evaluated-execution spike precedent (`docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md`). Retained tests go to `tests/test_workflow_lisp_run_ref_workflow_program.py`, `tests/test_workflow_run_ref_confinement.py` and `tests/e2e/test_e2e_run_ref_confined.py`.
 
-- [ ] F1: compile a `:program (:workflow name)` site whose workflow uses an imported helper, declared inputs, an owner command/provider binding and nested `let*`/branch/`loop`/`recur` through the `register_run_ref` child-entry seam. Check values, effect sites and owner bindings; prove the child cannot resolve a parent runtime binding; prove identity survives snapshot/rebuild.
-- [ ] F2: place child header, checked program, memo and request/receipt in an external control root; prove a guest process sees only the clone, bounded scratch and the result ingress, and that a result file alone is not authority.
-- [ ] F3: launch the real rootless profile from a digest-pinned image imported into a sealed content-addressed rootfs. Prove `--unshare-net`, `memory.max`/`pids.max`/`cpu.max`, workflow command execution with image executable pins, the workspace quota (tmpfs charged to `memory.max`, or admission refused), and descendant cleanup. Run escape negatives against parent and sibling clone paths, host home/secrets, `.git` alternates/hooks/config, authority paths, symlink/hardlink swaps and host sockets. Record the authority assumptions of `DurableLaunchReleaseGate` and `CgroupV2ContainmentRoot`/`Slot` and whether they hold for this profile.
-- [ ] F4: run the provider CLI inside the sandbox against a gateway stub over a bound unix socket that forwards to upstream; prove no direct network, no credentials inside, and model routes only.
-- [ ] Collect retained modules: `pytest --collect-only -q tests/test_workflow_lisp_run_ref_workflow_program.py tests/test_workflow_run_ref_confinement.py tests/e2e/test_e2e_run_ref_confined.py`; run each retained node by id, RED then GREEN; real launches in tmux with explicit timeouts.
-- [ ] Record F1-F4 in the report with a distinct reviewer. If F3 fails, return to Design with the measurements; do not weaken the task to cwd-only isolation.
-- [ ] Commit the retained slice with explicit paths: `test: prove run-ref confinement seams`.
+- [x] F1: compile a `:program (:workflow name)` site whose workflow uses an imported helper, declared inputs, an owner command/provider binding and nested `let*`/branch/`loop`/`recur` through the `register_run_ref` child-entry seam. Check values, effect sites and owner bindings; prove the child cannot resolve a parent runtime binding; prove identity survives snapshot/rebuild.
+- [x] F2: place child header, checked program, memo and request/receipt in an external control root; prove a guest process sees only the clone, bounded scratch and the result ingress, and that a result file alone is not authority.
+- [x] F3: launch the real rootless profile from a digest-pinned image imported into a sealed content-addressed rootfs. Prove `--unshare-net`, `memory.max`/`pids.max`/`cpu.max`, workflow command execution with image executable pins, the workspace quota (tmpfs charged to `memory.max`, or admission refused), and descendant cleanup. Run escape negatives against parent and sibling clone paths, host home/secrets, `.git` alternates/hooks/config, authority paths, symlink/hardlink swaps and host sockets. Record the authority assumptions of `DurableLaunchReleaseGate` and `CgroupV2ContainmentRoot`/`Slot` and whether they hold for this profile.
+- [x] F4 (partial: in-sandbox leg only; upstream BLOCKED, Ruling P2): run the provider CLI inside the sandbox against a gateway stub over a bound unix socket that forwards to upstream; prove no direct network, no credentials inside, and model routes only.
+- [x] Collect retained modules: `pytest --collect-only -q tests/test_workflow_lisp_run_ref_workflow_program.py tests/test_workflow_run_ref_confinement.py tests/e2e/test_e2e_run_ref_confined.py`; run each retained node by id, RED then GREEN; real launches in tmux with explicit timeouts. Deviation: real launches ran in the foreground with explicit `timeout` (each under 10 s), not in tmux.
+- [x] Record F1-F4 in the report with a distinct reviewer. If F3 fails, return to Design with the measurements; do not weaken the task to cwd-only isolation.
+- [x] Commit the retained slice with explicit paths: `test: prove run-ref confinement seams`.
 
-**Done:** F1-F4 have reproducible positive and negative evidence. Feasibility code is not release qualification.
+**Accepted feasibility scope:** F1–F3 and only the F4 in-sandbox leg have bounded evidence. F4 upstream/native qualification remains blocked; feasibility code is not release qualification.
+
+Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream leg BLOCKED; F3 returns design deltas D-a to D-e to Design before Tasks 5-6. Spike preserved at commit `fdfa8b0d` and removed. See [the feasibility report](../reports/run-ref-confinement-feasibility/README.md#task-1-feasibility-f1-f4-2026-10-14).
 
 ## Task 2: Prospective contract amendments
 
 **Files:** `specs/{dsl,state,security,providers,io,cli,versioning}.md`, `specs/acceptance/index.md`, `docs/design/workflow_lisp_evaluated_execution.md`. `specs/dsl.md` owns run-ref syntax; the frontend specification is not touched. **Dependency:** Task 1 results.
 
-- [ ] Allocate the next free public target and artifact/wire versions with the design owner; `2.37` is reserved for parallel map. Keep old checked artifacts, config bytes and path-mode admission unchanged.
-- [ ] Write the amendments as future/unimplemented: `:program (:workflow name)` syntax, `:repo` literal and once-only `:commit`, closed policy keys, compile-time refusals, union result type, profile `run_ref_confinement.v1`, static config v2, request identity, authority outside the clone, image import, evidence allowance, typed export, recovery per the design, cleanup retry on completed resume (CLI), export removal with run deletion/invalidation.
-- [ ] Write the declared EE amendments: K4 (a confined child with at least one committed effect is never discarded; zero committed effects keeps the discard/fresh path), §8.1 applied unchanged (ordinary rerun for `started`/`failed` attempts without commit unless `must_not_repeat`), §8.4 `resume_request` child-recipe variant with stored-artifact validation instead of fresh-build comparison, X4 `provider-bundle-path` refused at compile time in confined children with child `result_root` recording the external control root, R2/R3 guest spelling `/result/<attempt-relative>`, and the "internal run-ref target remains 2.35" statement.
-- [ ] One contract review by a distinct reviewer; record the disposition in the report. Commit reviewed paths only: `docs: specify prospective run-ref confinement contracts`.
+- [x] Allocate the next free public target and artifact/wire versions with the design owner; `2.37` is reserved for parallel map. Keep old checked artifacts, config bytes and path-mode admission unchanged.
+- [x] Initially write prospective amendments (now command-admitted, with provider parts still gated): `:program (:workflow name)` syntax, `:repo` literal and once-only `:commit`, closed policy keys, compile-time refusals, union result type, profile `run_ref_confinement.v1`, static config v2, request identity, authority outside the clone, image import, evidence allowance, typed export, recovery per the design, cleanup retry on completed resume (CLI), export removal on manual parent-run retirement (run root and export directories), never by `invalidate`.
+- [x] Write the declared EE amendments: K4/§8.1/§8.2 as specified by [confined durable state](../../specs/state.md#proposed-run-ref-confined-child-state-target-238) and Task 7 (terminal/budget precedence, ordinary retry permission only for actual continuation, and the failed-terminal publication/proof), the C2/C4/C6/C7 attempt-snapshot binding for confined children (design D5), §8.4 `resume_request` child-recipe variant with stored-artifact validation instead of fresh-build comparison, X4 `provider-bundle-path` refused at compile time in confined children with child `result_root` recording the external control root, R2/R3 guest spelling `/result/<attempt-relative>`, and the "internal run-ref target remains 2.35" statement.
+- [x] One contract review by a distinct reviewer; record the disposition in the report. Commit reviewed paths only: `docs: specify prospective run-ref confinement contracts`.
 
-**Done:** amendments are written, reviewed and committed as unimplemented; Task 13 finalizes them.
+**Accepted scope:** amendments are written and reviewed; command-only admission is now reflected in the owning contracts. Task 13 still owns final provider/example qualification and complete-delivery routing.
 
 ## Task 3: Syntax and typing
 
 **Modify:** `orchestrator/workflow_lisp/expressions.py` (`_parse_run_ref_syntax_list`), `typecheck_run_ref.py`, `expression_traversal.py`, `wcc/model.py`, `wcc/elaborate.py`, `orchestrator/contracts/closed_program/targets.py`. **Tests:** `tests/test_workflow_lisp_run_ref_workflow_program.py`; existing `tests/test_workflow_lisp_run_ref.py`, `tests/test_workflow_lisp_closed_run_ref_placement.py`.
 
-- [ ] Add failing parameterized tests for `:program (:workflow name)` with a static name only, mutual exclusion with path mode, declared inputs, `:repo` literal, `:commit` as a pure String expression evaluated once in the parent, literal digest-pinned `:image`, closed policy keys and resource bounds, and target gating.
-- [ ] Add compile-time refusals: `:must-exist false` result descriptors, `:network :none` plus any provider effect, and transitive refusals by effect kind (nested run-ref, parallel effects, dynamic eval, trial, human, session/context, resource, `provider-bundle-path`), including effects reached through an imported helper.
-- [ ] Type the site as the union `COMPLETED (result envelope)` / `FAILED (code, detail, accounting)`; the envelope keeps value, workspace_delta and accounting from `run_ref/result_contract.py`.
-- [ ] Collect the new module, run it and the existing selectors including `test_closed_path_run_ref_placement_round_trip`; verify old source still yields its previous canonical configuration.
-- [ ] Review diff and commit explicit paths: `feat: type confined run-ref workflow programs`.
+- [x] Add failing parameterized tests for `:program (:workflow name)` with a static name only, mutual exclusion with path mode, declared inputs, `:repo` literal, `:commit` as a pure String expression evaluated once in the parent, literal digest-pinned `:image`, closed policy keys and resource bounds, and target gating.
+- [x] Add compile-time refusals: `:must-exist false` result descriptors, `:network :none` plus any provider effect, and transitive refusals by effect kind (nested run-ref, parallel effects, dynamic eval, trial, human, session/context, resource, `provider-bundle-path`), including effects reached through an imported helper.
+- [x] Type the site as the union `COMPLETED (result envelope)` / `FAILED (code, detail, accounting)`; the envelope keeps value, workspace_delta and accounting from `run_ref/result_contract.py`.
+- [x] Collect the new module, run it and the existing selectors including `test_closed_path_run_ref_placement_round_trip`; verify old source still yields its previous canonical configuration.
+- [x] Review diff and commit explicit paths: `feat: type confined run-ref workflow programs`.
 
 **Done:** ordinary static workflows are admitted or rejected for their semantic reason, with no child effect omitted from inferred analysis.
 
@@ -119,64 +163,80 @@ At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibil
 
 **Modify:** `orchestrator/workflow_lisp/closed/{build,effects,artifact}.py`, `orchestrator/workflow/run_ref/{config,contracts,wire}.py`. **Tests:** `tests/test_workflow_lisp_run_ref_workflow_program.py`; existing `tests/test_workflow_lisp_closed_private_run_ref.py`, `tests/test_workflow_run_ref_config.py`, `tests/test_workflow_lisp_closed_program_artifact.py`.
 
-- [ ] Compile the named workflow into a private child entry inside `register_run_ref`/`_translate_run_ref`; store its checked identity in `run_ref_static_config.v2` with profile `run_ref_confinement.v1`, image digest, policy and environment. Preserve old decoders; never relabel an old artifact.
-- [ ] Test immutable dependency snapshots: source/import/extern mutation after parent compilation uses the captured program or causes the specified identity refusal; substituted owner config and source bytes are rejected.
-- [ ] Bind repo, commit, child entry identity, typed ordered inputs, image, policy and owner configuration to the durable request; test each field's digest effect and tamper rejection before launch.
-- [ ] Run new selectors plus `pytest -q tests/test_workflow_lisp_closed_private_run_ref.py tests/test_workflow_run_ref_config.py tests/test_workflow_lisp_closed_program_artifact.py`; record artifact/wire round-trip evidence.
-- [ ] Commit explicit paths after review: `feat: compile run-ref workflow programs into checked child entries`.
+- [x] Compile the named workflow into a private child entry inside `register_run_ref`/`_translate_run_ref`; store its checked identity in `run_ref_static_config.v2` with profile `run_ref_confinement.v1`, image digest, policy, environment and the profile constants (scratch 256, `/dev/shm` 64, result 128, headroom 512 MiB). Enforce the compile-time headroom rule `:memory-mib >= :workspace-mib + 960` where the policy literals are validated; test the refusal, the boundary value and that installation maxima are not consulted at compile time. Preserve old decoders; never relabel an old artifact.
+- [x] Test immutable dependency snapshots: source/import/extern mutation after parent compilation uses the captured program or causes the specified identity refusal; substituted owner config and source bytes are rejected.
+- [x] Bind repo, commit, child entry identity, typed ordered inputs, image, policy and owner configuration to the durable request; test each field's digest effect and tamper rejection before launch.
+- [x] Run new selectors plus `pytest -q tests/test_workflow_lisp_closed_private_run_ref.py tests/test_workflow_run_ref_config.py tests/test_workflow_lisp_closed_program_artifact.py`; record artifact/wire round-trip evidence.
+- [x] Commit explicit paths after review: `feat: compile run-ref workflow programs into checked child entries`.
 
 **Done:** the new locus is a front end for a checked child program with one run-ref effect identity and no alternate evaluator.
 
 ## Task 5: Clone, environment and authority outside the clone
 
-**Modify:** `orchestrator/workflow/run_ref/{source,workspace,child,evaluated_child,launch_authority,runtime}.py`. **Create:** `orchestrator/workflow/run_ref/confinement.py` (image import, admission). **Tests:** `tests/test_workflow_run_ref_confinement.py`; existing `tests/test_workflow_run_ref_source.py`, `tests/test_workflow_evaluated_run_ref_caller.py`, `tests/test_workflow_evaluated_run_ref_root.py`. Security brief for the reviewer.
+**Modify:** `orchestrator/workflow/run_ref/{source,workspace,child,evaluated_child,launch_authority,runtime}.py`, `orchestrator/_common/safe_tree.py`, `orchestrator/workflow/workspace_files.py`. **Create:** `orchestrator/workflow/run_ref/image_store.py` (import, sealed store, descriptor rehash) and `orchestrator/workflow/run_ref/confinement.py` (admission only; the copier lives in `workspace.py` and the holder itself is Task 6). **Tests:** `tests/test_workflow_run_ref_confinement.py`; existing `tests/test_workflow_run_ref_source.py`, `tests/test_workflow_evaluated_run_ref_caller.py`, `tests/test_workflow_evaluated_run_ref_root.py`; F3b in `tests/e2e/test_e2e_run_ref_confined.py`. Security brief for the reviewer.
 
-- [ ] Failing tests for one clone per activation/attempt, commit mismatch, overlapping roots, hostile git metadata and authority path aliasing; host fetch runs with a sanitized Git environment; setup component is the literal `none` with `setup_ms` 0.
-- [ ] Import the digest-pinned image into the sealed content-addressed rootfs once per digest and refuse admission on digest or prerequisite mismatch.
-- [ ] Relocate child authority: `validate_evaluated_child_terminal`/`_captured_child_authority` read `<workspace>/.orchestrate/runs/<id>` inside the clone; the confined profile reads the external control root recorded in the child `result_root`.
-- [ ] Protected no-follow host reads for provider `:doc`/dependency, command closure hashing and typed input copying against malicious candidate symlinks and path swaps, bounded in bytes.
-- [ ] Replace `_terminal_value`'s sole-terminal witness for the new profile: validate the committed memo, checked result and complete site/effect facts; keep the pure path-profile witness unchanged.
-- [ ] Collect the new module, run it narrowly, then the existing source/caller/root tests. Commit explicit paths: `feat: prepare confined run-ref child environments`.
+- [x] F3b-channel feasibility proof before any holder code enters the runtime, as a retained e2e test driven by a throwaway holder like `fdfa8b0d`'s rebuilt in the D-a shape (limits and `OOMPolicy=continue` as `systemd-run --user --scope` unit properties, token-gated launcher moved into `holder`, scope root empty, read-back) with socketpair channels and `setsid` leaves: memory, pids and cpu enforced as in F3; from a leaf, `open` of `/proc/<pid>/fd/<n>` for the control and gate sockets returns `ENXIO` and `pidfd_getfd` `EPERM`, while a FIFO and a pipe placed the same way are reopenable (positive controls); the in-namespace processes (pid 1, spawner) list only `/dev/null`, the two sockets and guest objects; a leaf's `kill 0` leaves the spawner alive and the leaf pid equals the acknowledged pid (`setsid` execs in place, P4); a stopped or signalled spawner ends as a holder death with the scope empty, and a `setsid` daemon as a failed attempt killed in its own leaf slot (the scope empties at the child terminal); a leaf cannot create files under `/dev` or `/run`, `/dev/shm` fills at its size, and an earlier leaf's `/result` entry is gone; the host creates files in `/workspace` through `/proc/<holder>/root`; holder-slot membership equals the recorded set outside request windows. Failure returns to Design (Podman fallback); record in the report.
+- [x] Task 5b, F3b-keyring witness (design row F3b-2), added after the F3b-channel gate ran, in the same e2e module: the throwaway holder's launcher calls `provider_launch_shim._join_fresh_session_keyring` before `exec bwrap`, passes the shim's key-syscall filter program to `bwrap --seccomp` and masks `/proc/keys` and `/proc/key-users` with read-only binds. The test process first joins its own anonymous session keyring and links a canary key to it, so no host keyring is touched, then launches. From a leaf: `add_key`, `request_key` and `keyctl`, native and x32 numbers, return `EPERM`, and `/proc/keys` and `/proc/key-users` are unreadable. In a control launch identical except for the filter (diagnostic, not the profile): the leaf's session keyring id differs from the test process's and `KEYCTL_READ` of it lists no key, so the canary is unreachable. Key quota: the host user's key count in `/proc/key-users`, read on the host, is the same before and after a leaf that loops on `add_key`. Because the launcher and argv changed (one more launcher descriptor, the seccomp and mask arguments), rerun `test_holder_channels_descriptors_and_scope_shape` and the fd-reopen controls with the new launcher. The F3b-channel verdict is re-recorded in the report as a new Task 5b row, PASS only if the witness and the rerun both pass; the Task 5a row stays as the record of what it measured. Failure returns to Design.
+- [x] Failing tests for one clone per activation/attempt, commit mismatch, overlapping roots, hostile git metadata and authority path aliasing; host fetch runs with a sanitized Git environment; setup component is the literal `none` with `setup_ms` 0.
+- [x] `image_store.py`: import the digest-pinned image into the sealed content-addressed rootfs once per digest, creating the empty mount points `/workspace`, `/result`, `/tmp`, `/run`, `/dev`, `/proc` inside the sealed manifest; at admission rehash through a retained directory descriptor and hand that descriptor to the launch (`--ro-bind-fd`); refuse admission on digest, mount-point or prerequisite mismatch (`bwrap`, `systemd-run`, `kernel.yama.ptrace_scope >= 1`, image `/bin/sh` and `/usr/bin/env` pins). Test the rehash-by-descriptor against a renamed store path.
+- [x] Relocate child authority: `validate_evaluated_child_terminal`/`_captured_child_authority` read `<workspace>/.orchestrate/runs/<id>` inside the clone; the confined profile reads the external control root recorded in the child `result_root`. A confined child never compiles in the clone: it loads the parent's checked child artifact, and the Task 1 test `test_child_run_authority_lives_only_in_external_control_root` drops its `.orchestrate/build` exclusion and asserts no `.orchestrate`, `workspace.guard` or `workspace.lock` entry in the clone.
+- [x] Protected no-follow host reads for provider `:doc`/dependency, command closure hashing and typed input copying read the host clone through `WorkspaceFiles` against malicious candidate symlinks and path swaps, bounded in bytes. Add the `st_dev` pin and symlink-as-string entries to `safe_tree`/`WorkspaceFiles` for the copier (D-c).
+- [x] Seeding and checkpoint copier in `workspace.py` over `safe_tree` (D-f, D-h, R1), unit-tested between two host directories through retained root descriptors: regular files, directories and symlinks mirrored with kinds replaced no-follow, modes masked to `0o777`, hardlinks flattened, `.git`/`.orchestrate` never written, sockets/FIFOs/devices skipped and counted, a reserved-root entry refused with `run_ref_environment_escape_rejected`, per-file temporary-name replace with the digest computed while copying, and the two-phase header keyed by effect identity and ordinal (`intent` before the copy; `sync` then `committed` with the manifest digest after it; an initial `committed` header after provisioning); a symlink component on the disk side is never followed; a crash injected between the phases leaves an `intent` header that the resume preflight repairs by re-freezing. Materialize the sanitized `.git` so it can be bound read-only at `/workspace/.git`.
+- [x] F3b-checkpoint feasibility proof once the copier exists, in the same e2e module with the throwaway holder: host-side seeding reproduces the clone manifest in a fresh holder with symlinks preserved and setuid bits masked; a checkpoint after a leaf makes the clone equal to the tmpfs manifest under a `committed` header; a crash injected mid-copy leaves an `intent` header that the preflight repair function restores to `committed` by re-freezing. Holder death after a commit and wall charging are Task 6 witnesses; resume repair is Task 7 (N3). Record in the report.
+- [x] Replace `_terminal_value`'s sole-terminal witness for the new profile: validate the committed memo, checked result and complete site/effect facts; keep the pure path-profile witness unchanged.
+- [x] Collect the new module, run it narrowly, then the existing source/caller/root tests. Commit explicit paths: `feat: prepare confined run-ref child environments`.
 
 **Done:** a pure child runs and resumes in the new profile with authority inaccessible from the clone. This stage alone does not satisfy delivery.
 
 ## Task 6: Confined leaf execution
 
-**Modify:** `orchestrator/workflow/evaluated/effect_execution.py` (`perform_external`, `_dispatch_command`), `commands.py::launch_command`, `providers.py::launch_provider`, `interpreters.py`, `authority.py`, `orchestrator/workflow/run_ref/confinement.py`, `orchestrator/providers/{isolation_backend,isolation_bubblewrap}.py`. **Tests:** `tests/test_workflow_run_ref_confinement.py` (argv/policy/path units); existing `tests/test_workflow_evaluated_commands.py`, `tests/test_workflow_evaluated_command_lifecycle.py`, `tests/test_workflow_evaluated_providers.py`; real launches in `tests/e2e/test_e2e_run_ref_confined.py`. Security brief for the reviewer.
+**Modify:** `orchestrator/workflow/evaluated/effect_execution.py` (`perform_external`, `_dispatch_command`), `commands.py::launch_command`, `providers.py::launch_provider`, `interpreters.py`, `authority.py`, `orchestrator/workflow/run_ref/confinement.py`, `orchestrator/providers/isolation_backend.py` (`CgroupV2ContainmentRoot` constructor from an explicit scope path, profile slot prefix; `isolation_bubblewrap.py` is not reused for the holder argv), `orchestrator/workflow/run_ref/holder_spawner.py` (`key_syscall_filter_program` assembles from the provider shim constants with byte equality to the installed filter; `launcher_source` embeds the exact source of the shim's keyring join function). P26 retains `orchestrator/providers/provider_launch_shim.py` and its existing pin unchanged; no shared-builder extraction. **Tests:** `tests/test_workflow_run_ref_confinement.py` (argv/policy/path units); existing `tests/test_workflow_evaluated_commands.py`, `tests/test_workflow_evaluated_command_lifecycle.py`, `tests/test_workflow_evaluated_providers.py`; real launches in `tests/e2e/test_e2e_run_ref_confined.py`. Security brief for the reviewer.
 
-- [ ] Failing units for profile argv (`--unshare-net`, limits, rootfs, workspace, scratch, result ingress), guest path translation, image executable pins replacing host interpreter pins, bounded stdout/stderr, timeout and process-tree termination.
-- [ ] Add an executor injection point to `launch_command` and route the confined profile through `PreparedAttempt.provider_executor` for `launch_provider`; the per-attempt env/config overlay replaces the `os.environ` copy for confined launches. Coordinate the routing with the provider-isolation integration Tasks 4-6 rather than duplicating them.
-- [ ] Launch through the existing backend with the sibling profile, not through `_BACKENDS`; preserve the host route for runs outside the profile; no host execution fallback.
-- [ ] Enforce wall time, memory, CPU, PID, quota and output limits; clamp the provider timeout to the remaining wall budget. Until Task 10, provider effects fail with `run_ref_provider_transport_unavailable`.
-- [ ] Run new units and the existing command/provider lifecycle suites, then the real confinement selectors in tmux. A mock argv assertion is not confinement evidence.
-- [ ] Commit explicit paths after security review: `feat: confine run-ref leaf effects through the bubblewrap sibling profile`.
+- [x] Failing units for the holder argv (`--unshare-net`, rootfs and `.git` by descriptor, size-bounded `/workspace`, `/tmp`, `/dev/shm`, `/result`, `/run/runref` read-only, `/dev` and `/run` remounted read-only, no `/sys`, `/proc/keys` and `/proc/key-users` masked, `--seccomp` with the shim's filter program (byte-equal to what the shim installs) and admission refused off x86_64 with `run_ref_environment_unavailable`, the launcher's fresh session keyring joined before `exec bwrap` (F3b-2), launcher stdio on `/dev/null` with two inherited sockets and nothing else for the in-namespace processes (N8), leaves under the pinned `setsid`, which must exec in place), the `systemd-run --user --scope` unit name and properties derived from the policy and launch token (including `OOMPolicy=continue`), the exact release token, guest path translation, image executable pins replacing host interpreter pins (including `/bin/sh`, `/usr/bin/env` and `setsid`), declared command closures, interpreters and package closures resolving only to image-pinned paths, with a clone-resolving closure refused at dispatch before `started` and surfacing as `FAILED` with `run_ref_environment_effect_unsupported` after release, and clone files named by stable-command tokens or `:doc` fills selected through the no-follow reader (a symlinked token binds its target string or refuses) and bound by content into a content-addressed attempt snapshot at `started`, allowance-checked before the copy, with the precommit rehash and retry comparison limited to image pins and a tampered snapshot failing closed rather than diverging (P1, Q1 to Q5), bounded stdout/stderr, timeout and process-tree termination.
+- [x] Route admitted commands through the confined dispatch seam with a sanitized
+  per-attempt environment and image pins. Preserve provider refusal before state
+  or holder creation; the original `launch_provider` integration requirement
+  is retained under Task 10 rather than claimed by command acceptance.
+- [ ] Qualify the public provider executor route and ephemeral per-attempt overlay
+  under Task 10, coordinating with provider-isolation integration rather than
+  duplicating it. Private Holder integration is accepted only within its report scope.
+- [x] Launch through the existing backend substrate with the sibling profile, not through `_BACKENDS`: one delegated scope per holder launch (D-a) resolved from the launcher pid, validated by the root identity rules, launcher moved into `holder` with the scope root verified empty and limits and policy read back, one `DurableLaunchReleaseGate` per holder bound to the scope identity, a `holder` slot, a `host` slot for the seeding/checkpoint/result-import helper and one slot per leaf; the spawner protocol (D-g, R5) derives each leaf pid from holder-slot membership, enforces acknowledgement and status-line deadlines, refuses a foreign member with `run_ref_environment_escape_rejected`, chmods and then wipes `/tmp`, `/dev/shm` and `/result` and creates `/result/<leaf>` exclusively before each leaf, refusing an existing entry with `run_ref_environment_escape_rejected` (R6), verifies whole-slot quiescence before every host read and, at every post-leaf quiescence before any read, checkpoint or memo commit, compares the spawner's `/proc/<pid>/limits`, nice, `oom_score_adj`, `Cpus_allowed_list`, `sched_getattr` (policy, priority, flags, util clamps), `ioprio_get` and `coredump_filter` with their values at ready, a difference being a holder death naming the attribute that fails that leaf's own attempt (F3b-1); a holder death calls Task 7's ledger append of the failed terminal row (single owner, `ledger.py`), then appends `failed` with `run_ref_environment_lost` on the pending attempt, and the child returns `FAILED` to the parent (R2, N1, no in-run retry); a checkpoint failure under a live controller re-freezes the partial clone, publishes `committed` and ends the child with holder-death mechanics, keeping `run_ref_environment_escape_rejected` as the code when the copier refused (N5, P5); the `host` slot helper runs under a parent-death signal (N4). e2e witnesses moved here from F3b (N3): a holder death after a committed effect leaves the clone equal to its last `committed` header, and host time appears in accounting charged to the wall budget. F3b-1 witnesses, one per attribute: a leaf that lowers the spawner's hard `RLIMIT_NOFILE`, raises its `oom_score_adj` or its nice, narrows its affinity, sets it to `SCHED_IDLE`, lowers its I/O priority or changes its `coredump_filter` ends the child as a holder death at its own post-leaf quiescence with the attribute named, its own attempt `failed`, no memo commit for it and the clone at the previous `committed` header; a leaf that replaces `stdout` with a FIFO does not hang the result broker; a leaf that pre-creates a later `/result` entry is refused with `run_ref_environment_escape_rejected`. Preserve the host route for runs outside the profile; no host execution fallback.
+- [x] Enforce wall time, memory, CPU, PID, quota and output limits on the scope; charge rehash, seeding, checkpoints and result import to the child's cumulative `:wall-seconds` (R3); seed the tmpfs from the clone and checkpoint after every leaf that quiesced by exiting, never after a clamped timeout or wall exhaustion (N9), before the memo commit (Task 5's copier, run in the `host` slot helper); import results from the exclusively created `/result/<leaf>` through the retained descriptor, opening each file `O_NONBLOCK | O_NOFOLLOW`, checking `fstat` `S_ISREG` and reading a bounded number of bytes so a planted FIFO or device cannot hang the host (Task 5a review item 2); clamp admitted leaf timeouts to the remaining wall budget. Public provider timeout/routing qualification remains Task 10; provider sites continue to refuse with `run_ref_provider_transport_unavailable`.
+- [x] Run new units and the existing command/provider lifecycle suites, then the real confinement selectors in tmux; real cases skip when `bwrap`, `systemd-run` or a reachable user manager is missing, not only when a binary is. A mock argv assertion is not confinement evidence.
+- [x] Commit explicit paths after security review: `feat: confine run-ref leaf effects through the bubblewrap sibling profile`.
 
-**Done:** every admitted child leaf process and descendant is confined; unsupported launch modes fail closed before dispatch.
+**Accepted command scope:** every admitted command leaf process and descendant is confined; unsupported launch modes fail closed before dispatch.
 
 ## Task 7: Recovery (F5)
 
-**Modify:** `orchestrator/workflow/run_ref/runtime.py` (`_discard_incomplete_attempt`, `drive_run_ref_lifecycle`, `recover_run_ref_settlement`), `ledger.py`, `child.py`, `evaluated_child.py`, `orchestrator/workflow/evaluated/run_ref.py`. **Tests:** `tests/test_workflow_run_ref_confined_recovery.py`; existing `tests/test_workflow_run_ref_runtime.py`, `tests/test_run_ref_lifecycle_driver.py`, `tests/test_workflow_evaluated_run_ref_kills.py`, `tests/test_workflow_evaluated_run_ref_settlement.py`, `tests/test_workflow_evaluated_parallel_run_ref.py`.
+**Modify:** `orchestrator/workflow/run_ref/runtime.py` (`_discard_incomplete_attempt`, `drive_run_ref_lifecycle`, `recover_run_ref_settlement`), `ledger.py`, `child.py`, `evaluated_child.py`, `confined_lifecycle.py`, `confined_session.py`, `holder_scope.py`, `orchestrator/workflow/evaluated/run_ref.py` and its shared read-only proof validators. **Tests:** `tests/test_workflow_run_ref_confined_recovery.py`; existing `tests/test_workflow_run_ref_runtime.py`, `tests/test_run_ref_lifecycle_driver.py`, `tests/test_workflow_evaluated_run_ref_kills.py`, `tests/test_workflow_evaluated_run_ref_settlement.py`, `tests/test_workflow_evaluated_parallel_run_ref.py`.
 
-- [ ] One kill-window test parameterized over: before release, after release, after child command commit, after child provider commit, after child terminal, after export, after parent commit, before settlement. Assert per-site dispatch counters, child run id and workspace identity.
-- [ ] K4 amendment: a confined child with at least one committed effect is never discarded; zero committed effects keeps the discard/fresh path. K8 starts from the first committed child effect; `invalidate` is allowed before it.
-- [ ] `started`/`failed` attempts without commit rerun under EE §8.1 unless `must_not_repeat`; tool-enabled providers follow the agent-sessions first-turn at-least-once rule with a PQ-1a qualification record. No new outcome code.
-- [ ] Keep `tests/test_workflow_run_ref_runtime.py::test_every_pre_parent_crash_discards_exact_workspace_and_reruns_fresh` valid for the legacy profile; do not change that oracle globally.
-- [ ] Stop or prove termination of a still-running sandbox before retry; reuse completed child results and reconcile parent settlement without redispatch; keep one writer and the acknowledgement protocol.
-- [ ] Collect the new module; run its nodes, then the existing lifecycle/kill/settlement/parallel modules in tmux, including `test_kill_at_parent_settlement_gap_recovers`, `test_public_resume_reconciles_actual_memo_commit_without_child` and `test_parallel_resume_inventory_handles_pending_head_and_historical_pair`.
-- [ ] Commit explicit paths after review: `fix: resume confined run-ref children without discarding committed progress`.
+- [x] One kill-window test parameterized over: before holder release, after release, after child command commit, during a checkpoint (header in `intent`), between a checkpoint and its commit, after a rerun before its own checkpoint (header names an older uncommitted attempt), after child terminal, after the child's failed terminal row before parent commit (resume prepares the same `FAILED` and never reruns, N1), after export, after parent commit, before settlement. Assert per-site dispatch counters, child run id, clone identity, checkpoint header repair or validation and that only authorized continuation starts a fresh holder incarnation seeded from the clone. A separate case ends only the holder under a live controller after a committed effect and asserts `failed` with `run_ref_environment_lost`, `FAILED` at the parent, no second holder in the run, and a later `resume` that dispatches nothing.
+- [x] Resolve terminality and the [durable visit budget](../../specs/state.md#confined-wall-budget-recovery) before K4: validated durable COMPLETED (including pure zero-commit children) and FAILED never redispatch; an incomplete child with a committed effect is retained. Only a nonterminal child with zero commits may take K4 with remaining allowance. A fresh ordinal inherits charge, not release; K8 still starts at the first child commit and `invalidate` remains available before it.
+- [x] Actual command continuation without a terminal and with valid remaining budget applies C4/EE §8.1 to `started`/`failed` attempts without commit, including `must_not_repeat`. Holder death adds the diagnostic `run_ref_environment_lost` but no new outcome variant. Committed confined effects recompute their resolved input and the C7 preflight from the attempt snapshot, never from the current clone: command/snapshot tests edit argv-named scripts and retained document-path inputs and prove committed-input reuse without `effect_input_diverged` (P1).
+- [ ] Complete real provider-commit kill windows and committed provider `:doc`
+  reuse through the public route after Task 10 qualification (Tasks 10–12).
+  Providers remain portable calls under §8.1, with no Agent/session exception;
+  private/synthetic transport results do not satisfy these public witnesses.
+- [x] Keep `tests/test_workflow_run_ref_runtime.py::test_every_pre_parent_crash_discards_exact_workspace_and_reruns_fresh` valid for the legacy profile; do not change that oracle globally.
+- [x] Implement [State's wall-budget algorithm](../../specs/state.md#confined-wall-budget-recovery) in the existing v2 ledger/emit-ack path: opening before initial admission/rehash, fixed `CLOCK_BOOTTIME` in live execution and recovery, boot-bound exact scope inventory, acknowledged idempotent closure after quiescence, carry across K4 and diagnostic-only `budget.json`. V2 validates fresh first-event reservation and retained continuation from the verified head without a second allocation; budget events preserve work stages, grant/sequence/adjacency checks and the single parent writer. Test double interruption around open/close, same-boot downtime and suspension, closed pauses, active/closed cross-boot state, UTC independence and scope-name reuse across boots. Injected clock/boot tests do not claim a real host suspension/reboot. Exhaustion before this attempt's release aborts the parent; proven exhaustion on a retained released attempt fails without a new holder. Lost usage/splits are never invented as zero.
+- [x] `FAILED` terminal (N1/Q1/P3): implement the [four boundary proofs](../../specs/state.md#confined-failed-terminal-boundaries) (`started_attempt`, `before_start`, `pure_fault`, `finalization`), binding the validated prefix and acknowledged closed budget. Order: quiescence → budget closure/ack → failed row/ack → effect `failed` only for a real start → child terminal → prepare/commit/settle. Fault before the first effect and final shutdown exhaustion after the last commit have no invented site or attempt. Inject crashes before/after closure, failed row and terminal, checking idempotent repair and no redispatch; reject corrupted proof, authority and quiescence rather than reclassifying them as FAILED. Terminal proof validates past evidence without retry preflight or current clone inputs. Test nonrepeatable pending starts both with a durable row and with proven postrelease exhaustion; a remaining-budget control still rejects rerun. Settled FAILED cleanup/export remains Task 8.
+- [x] Inventory the recorded scope identity and kill and empty it, including the `host` slot, before reading the checkpoint header (N4); repair an `intent` header by re-freezing, accept a `committed` header naming the last committed or any newer uncommitted attempt, and fail closed with `run_ref_environment_changed` only on a digest mismatch; reuse completed child results and reconcile parent settlement without redispatch or a holder; keep one writer and the acknowledgement protocol.
+- [x] Collect the new module; run its nodes, then the existing lifecycle/kill/settlement/parallel modules in tmux, including `test_kill_at_parent_settlement_gap_recovers`, `test_public_resume_reconciles_actual_memo_commit_without_child` and `test_parallel_resume_inventory_handles_pending_head_and_historical_pair`.
+- [x] Commit explicit paths after review: `fix: resume confined run-ref children without discarding committed progress`.
 
-**Done:** F5 accepted: committed child effects are never repeated and zero-commit attempts take the ordinary path.
+**Accepted command recovery scope:** F5 command witnesses accepted; real provider-commit windows remain pending above. Committed child effects and validated durable terminals are reused; only nonterminal zero-commit attempts take K4 with the visit's remaining allowance. Recovery neither loses budget nor requires rerun permission merely to prove FAILED.
 
 ## Task 8: Typed exports, retained evidence, cleanup and settlement (F6)
 
 **Modify:** `orchestrator/workflow/run_ref/runtime.py` (`declared_artifacts_from_value`, `extract_run_ref_value`), `delta.py`, `result_contract.py`, evaluated artifact/view readers, `orchestrator/cli/commands/resume.py` for cleanup retry. **Tests:** `tests/test_workflow_run_ref_delta.py` and `tests/test_workflow_run_ref_confined_recovery.py`; existing `tests/test_workflow_evaluated_artifacts.py`, `tests/test_workflow_evaluated_path_envelopes.py`.
 
-- [ ] Failing tests for nested record/union/list path values, aliases, conflicting descriptors, refined nominal paths, bounded directories, missing files, path escape, symlinks, hardlinks, reserved roots, oversized results and partial export interruption.
-- [ ] Copy allowed outputs to `<under>/.run-ref-exports/<parent-run>/<activation>/<attempt>/<relative-to-under>`, rebase descriptor-guided paths, preserve nominal type, revalidate refinements, refuse destination conflicts. Exports are removed with run deletion or invalidation.
-- [ ] Separate installation-policy evidence allowance checked at each effect commit; `:output-mib` covers exports only. Over-budget or missing/corrupt evidence blocks settlement and cleanup.
-- [ ] Automatic cleanup with a recorded obligation before deletion and completion after; a deletion failure leaves cleanup pending and the next public `resume` retries it without dispatch or child allocation. Substitute roots before retry and assert fail-closed preservation of unrelated files.
-- [ ] Prove the parent consumes the typed result and exports after clone removal, including report and completed resume, with terminal proof replayed against retained authority.
-- [ ] Run the delta and recovery selectors and the existing artifact/path modules. Commit explicit paths: `feat: export confined run-ref results with typed parent paths`.
+- [x] Failing tests for nested record/union/list/map/optional path values, identical complete-descriptor aliases, compatible tree overlap, conflicting descriptors/mappings, refined nominal paths, aggregate directory/byte bounds and empty directories, missing files, path escape, symlinks, internal/external hardlinks, reserved roots, same-device nested mounts, oversized results and partial export interruption. A foreign byte-identical destination created after reservation but before rename, or substituted after rename before acknowledgement, must be rejected without mutation; the same attempt's genuine publication with a lost acknowledgement must recover.
+- [x] Copy allowed outputs to `<under>/.run-ref-exports/<parent-run>/<activation>/<attempt>/<relative-to-under>`, rebase descriptor-guided paths, preserve nominal type, revalidate refinements, refuse destination conflicts. Apply the [IO contract's](../../specs/io.md#proposed-run-ref-confined-child-io-target-238) checkpoint-owned 262,144-entry/128-directory-level aggregate bounds and one byte charge per unique source object. Bind staged-object identity and staging/destination roots/parents/mounts durably before no-overwrite rename; recovery proves that same object and inventory/bytes, not reservation/content equality. Reuse the broker's identity-validation pattern; Task 7 retains ownership of the coordinator ledger representation. Exports are removed only on manual parent-run retirement by removing its run root and `<under>/.run-ref-exports/<parent-run>` directories; `invalidate` does not reach committed exports.
+- [x] Apply the existing 64 MiB installation-policy evidence allowance to the complete retained authority, with physically deduplicated blobs counted once, before snapshot copy at `started`, at each effect commit before another leaf, and before settlement/cleanup. `:output-mib` covers exports only; the checkpoint (clone working tree and header) is live state excluded from both. Over-budget or missing/corrupt evidence blocks settlement and cleanup without changing an already durable COMPLETED to FAILED.
+- [x] Automatic cleanup of the clone and its exact checkpoint header only after the parent's `settled` memo is durable for `COMPLETED` or `FAILED` (no export for `FAILED`, N1), with a recorded obligation before deletion and completion after absence/fsync, refused while a scope is live. Bind original root/parent/mount identity from valid provisioning; revalidate the object after no-overwrite rename to a bound private name. A moved replacement stays intact there with its location in the durable pending diagnostic, without automatic restoration, adoption or deletion; retry verifies the original identity at either name and never pursues an original clone displaced elsewhere. A failure can leave a partial/absent clone. Test canary identity/location/bytes after failure, crash and second retry. Completed `resume` retries without dispatch, holder or child allocation: exit `2` while pending, `0` after completion, and no-write with no pending obligation, preserving terminal/value/commit.
+- [x] Exports and delta are taken from the clone after the final checkpoint, never from a holder. Retain exact result/input/configuration bytes and canonical baseline/final manifests/delta bound to settlement. For image pins, retain the complete canonical `image_store.tree_digest` inventory authenticated against protected admission; validate shape/path/parent/order and guest symlink resolution, reconstruct exact executable/closure-subtree rows and compare with live checked evidence and replayed memo rows. Charge the inventory to the unchanged 64 MiB allowance; neither large binary copies nor isolated memo digests replace this proof. Prove retained terminal replay with a real command closure, a large executable and mutable clone dependency after clone, materialized baseline and image store become unavailable; independently tamper inventory rows/targets/shape/order, admission binding, snapshots, delta and exports and require refusal without dispatch or reconstruction. Prove parent consumption after cleanup for COMPLETED and zero-export FAILED. Report JSON/Markdown preserves status/outputs/run error, projects only pending obligations read-only (including a moved replacement's location), exits `0` on successful rendering and omits the projection after cleanup completes.
+- [x] Run the delta and recovery selectors and the existing artifact/path modules. Commit explicit paths: `feat: export confined run-ref results with typed parent paths`.
 
 **Done:** F6 accepted: value, workspace delta, accounting and export proofs stay bound to one settled result and usable independently of the clone.
 
@@ -184,28 +244,191 @@ At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibil
 
 **Tests:** `tests/e2e/test_e2e_run_ref_confined.py` (real sandbox, commands only); unit refusal case in `tests/test_workflow_run_ref_confinement.py`. **Dependency:** Tasks 3-8.
 
-- [ ] Public compile/run/interrupted-resume/completed-resume/report of a confined child with commands and `:network :none` through the subprocess recipe below; inspect closed artifact, headers, memos, ledger, exports, result and report.
-- [ ] Provider effects refuse with `run_ref_provider_transport_unavailable` before dispatch; assert no sandbox launch for the refused site.
-- [ ] Run the module in tmux with `ORCHESTRATE_E2E=1`; commit explicit paths: `test: qualify confined run-ref increment A`.
+- [x] Public compile/run/interrupted-resume/completed-resume/report of a confined child with commands and `:network :none` through the subprocess recipe below; inspect closed artifact, headers, memos, ledger, exports, result and report.
+- [x] Provider effects refuse with `run_ref_provider_transport_unavailable` before dispatch; assert no sandbox launch for the refused site.
+- [x] Run the module in tmux with `ORCHESTRATE_E2E=1`; commit explicit paths: `test: qualify confined run-ref increment A`.
 
 **Done:** Increment A is honestly labelled as the first shippable increment, qualified for commands only; the best-of-N migration and provider transport remain pending.
 
 ## Task 10: Provider transport
 
-**Create:** `orchestrator/providers/inference_gateway.py`. **Modify:** `orchestrator/providers/registry.py` (profile-specific template variants), `executor.py` (env overlay), `evaluated/providers.py`, `run_ref/confinement.py` (socket bind). **Tests:** `tests/test_provider_inference_gateway.py`; real provider case in `tests/e2e/test_e2e_run_ref_confined.py`; existing `tests/test_workflow_evaluated_provider_delivery.py`, `tests/test_workflow_evaluated_provider_lifecycle.py`. Security brief for the reviewer.
+**Current slice status:** common ledger authority (`9cd25356`), private transport
+core (`32e9fda6`) and private per-leaf Holder integration (`5299133c`) have
+independent accepted reviews. These are partial delivery, not completion of this
+task's real-provider/public-route criterion. See the report's corresponding Task
+10 sections for exact tests, synthetic substitutions and remaining concerns.
+The checklist below is the complete-task contract; an unchecked mixed item may
+have partial synthetic evidence without satisfying its real/native obligation.
 
-- [ ] Failing tests: model routes only, fixed upstream endpoint/model policy, scoped per-attempt token, expiry, body limits, streaming API support, telemetry off, API-key accounts only, unauthorized route denial, credential redaction. The result-file broker is not the gateway.
-- [ ] Bind the unix socket into the sandbox; the per-attempt env/config overlay points the provider CLI at it; permanent credentials stay in the host-owned gateway. Unsupported authentication or session transports refuse with `run_ref_provider_transport_unavailable`.
-- [ ] Collect the new module, run it, then the provider delivery/lifecycle suites. Run a real tool-enabled provider inside the sandbox in tmux that edits and tests the clone and returns typed data; record image, CLI, model and usage availability.
-- [ ] Commit explicit paths after security review: `feat: relay confined provider inference through a host-owned gateway`.
+Authentication uses the existing Codex managed ChatGPT login (`authMethod=chatgpt`). A separate API key
+or API account is not a prerequisite, and missing `OPENAI_API_KEY` or
+`CODEX_API_KEY` must not be treated as a blocker for this route.
 
-**Done:** a real tool-enabled provider is qualified inside the sandbox with model traffic only.
+**Create:** `orchestrator/providers/inference_gateway.py`. **Modify:** `orchestrator/providers/registry.py` (profile-specific template variants), `executor.py` (env overlay), `evaluated/{providers,parallel,confined_dispatch}.py`, `run_ref/{confinement,confined_session,confined_lifecycle,confined_budget,holder,holder_scope,ledger,runtime}.py` and existing retained-evidence/settlement owners of Task 8. **Tests:** `tests/test_provider_inference_gateway.py`; extend existing ledger/lifecycle/ack, confined recovery, retention and real-sandbox modules; real provider case in `tests/e2e/test_e2e_run_ref_confined.py`; existing `tests/test_workflow_evaluated_provider_delivery.py`, `tests/test_workflow_evaluated_provider_lifecycle.py`. Include serial and internal parallel ack consumers. Security brief for the reviewer.
+
+- [ ] Qualify the pinned Codex managed ChatGPT route through the private
+  per-leaf persistent native auth owner and serialized initial-binding protocol of
+  D7. Test invalid/missing/error RPCs, identity/origin/routing mismatch,
+  native refresh/coexistence, owner replacement, startup auxiliary isolation
+  and evidence free of upstream credentials/native RPC and runtime-authored
+  capability metadata under the explicit amendment below; no authfile/token
+  parser, host coding or guest RPC. Guest copies are tested as retained inert
+  data, not claimed absent from all evidence.
+- [ ] Extend the existing parent ledger/lifecycle with acknowledged request
+  reservations and one nonsecret visit/policy-bound account/origin/routing
+  binding. Preserve wall reducers, work stages, exact serial/parallel ack and
+  v1/command-only behavior. Retain policy/config bytes, binding and monotonically
+  consumed capacity across leaves, owners, holders and K4, with no refund/reuse.
+  Test append-before-ack, lost/duplicate/foreign/reordered ack, policy drift,
+  missing/tampered authority and terminal replay without auth/new reservations.
+- [ ] Keep one private native owner/gateway persistent only across a provider
+  leaf's requests, entering the existing `host` slot before exec. Acknowledge
+  the first reservation before startup and binding before capability/release;
+  discard its preflight bearer. Close/reap host and leaf before Holder result
+  import, checkpoint or return; no concurrent helper/copier or trusted-process
+  exception. Prove two serial leaves A/A succeed and A/B or routing drift refuse
+  without inference, and externally SIGKILL the controller with worker/owner
+  live to observe owned channels/processes gone before recovery.
+- [ ] R1: set the sole BOOTTIME deadline from timeout/durable remaining before
+  first emit/ack and startup. Keep an independent controller observer active
+  during persistence/head-validation, writer callbacks and parallel ack waits;
+  it may only revoke/close/empty the validated scope, never grant/write/terminalize.
+  With the pinned native owner on synthetic credentials, hold the durable initial
+  binding ack, then separately a later reservation ack with owner/leaf active.
+  For each, trigger expiry and cancellation independently and observe closed
+  channels and the complete scope empty while ack is still held, within the
+  existing 2 s `SLOT_EMPTY_SECONDS` observation window at `92b55aff`; this is no
+  extra inference allowance or real-time kernel promise. Deliver the ack late:
+  zero startup, capability, release, acquisition or POST; durable reservations
+  remain spent and the observer writes no wall closure/FAILED. Include a negative
+  control with observer inhibited, first-reservation wait with no owner startup
+  and slow startup/late release without resetting the deadline.
+- [ ] Test all crash windows: reservation durable before ack/startup, binding
+  durable before ack, before POST, sent without result, partial SSE, response
+  before checkpoint and checkpoint before memo commit. Preserve original policy,
+  binding and capacity across zero-commit K4 and committed continuation; any
+  §8.1 rerun spends a new permit and never replays transport. Prove exact N/N+1
+  limits, last-permit completion, header/body/SSE byte boundary and one extra,
+  framing ambiguity, backpressure and concurrent-request denial. Retain the
+  effective policy/binding/consumption for Task 8 settled proof and cleanup.
+- [ ] Test fixed route/model, scoped expiring capability, bounded headers,
+  bodies and streams, request ceilings, total deadlines and cancellation at
+  every blocking boundary, direct first-401 refusal, zero partial replay,
+  hosted/unknown-tool rejection and upstream-credential exclusion/redaction
+  in runtime-authored diagnostics/evidence. This does not sanitize guest copies
+  of the issued leaf capability or replace its dataflow/teardown tests. Remove
+  any local default presented as an unproven generation cap; unsupported mandatory
+  token/cost ceilings refuse and incomplete usage/cost stays UNKNOWN.
+- [ ] Bind `/run/gateway.sock` only for qualified `model-only`; use clean
+  per-attempt overlays and image-pinned CLI/relay templates. Preserve
+  `:none` and unsupported-transport refusal. Permanent credentials and native
+  auth channels stay host-side. Prove revocation and cleanup on leaf/holder/
+  controller loss and durable budget continuity across recovery.
+- [ ] Audit all runtime-authored metadata/configuration/ledger/admission/error
+  producers and their projections: no issued capability/hash, injected
+  env/argv/request or channel transcript may reach persistence, including failed
+  result import/checkpoint. Construct retained inputs before ephemeral injection.
+  Use closed diagnostic categories for arbitrary guest names/targets before
+  persistence, not token matching. Test names/targets containing literal or
+  encoded capability through refusal/error paths; retain independent upstream
+  credential/RPC canaries. This is a required implementation/test obligation,
+  not a claim that the current partial runtime already satisfies it.
+- [ ] A synthetic guest deliberately copies its capability literally to stdout,
+  typed result and workspace, and encoded/split into content and permitted
+  names/targets. Observe irreversible revocation, channel closure, reap,
+  quiescence and verified script retirement before import/checkpoint/publication;
+  preserve exact admitted guest bytes under ordinary bounds and truncation.
+  Inject close/retirement failure and prove no result publication, successful
+  checkpoint or successful leaf return. Keep ACK-held expiry/cancel and
+  controller-loss witnesses: revoked script residue is explicitly pending,
+  late ACK grants nothing, validated recovery retires scripts before new effects,
+  and unexpected roots/shape/links/mounts/replacements preserve and block.
+- [ ] After teardown and recovery, present a capability copied from retained
+  result/workspace to a new leaf: rejection with no extra reservation, native
+  acquisition or POST. Trace that no retained result, snapshot, memo, manifest,
+  input or old script feeds grant/binding construction; continuation requires
+  a fresh reservation and capability of another incarnation.
+- [ ] Scan complete test roots by phase without excluding scripts, control roots,
+  results, workspace or evidence. Classify each occurrence by demonstrated
+  origin/dataflow: active private overlay, revoked script pending retirement,
+  forbidden runtime control/diagnostic field, or deliberate inert guest copy.
+  An expected guest copy does not justify any other hit. Ordinary scenarios
+  still require zero unexpected hits; the adversarial fixture proves the
+  absence limit. Reports publish counts/booleans and provenance, never token
+  bytes. Scanning is a test oracle, not a production content filter or proof
+  of revocation; preserve the independent upstream credential canaries.
+- [ ] Retain the bounded native/synthetic/live feasibility evidence with
+  its limits. Then qualify the integrated public provider path after Task 9:
+  collect/run the gateway tests, provider delivery/lifecycle suites and the
+  real confined end-to-end case; include an orchestrator/demo smoke. Verify
+  edit, tests, typed delivery, checkpoint, usage availability and cleanup.
+  The experimental `network=none` socket seam is not production admission.
+- [ ] Commit explicit paths after independent conformance/security review:
+  `feat: relay confined provider inference through a host-owned gateway`.
+
+**Completion criterion (pending):** The selected real tool-enabled provider is qualified through the
+integrated confined public route with model-only traffic, native host-only
+authentication, enforced supported budgets and honest usage/cost evidence.
+Other transports continue to refuse until separately qualified.
+
+**Explicit normative amendment (2026-10-15):** Task 10 adopts
+[Security's capability retention and transport teardown](../../specs/security.md#confined-capability-retention-and-transport-teardown)
+and [D7](../design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract).
+This replaces the former universal durable-artifact absence promise for the
+capability deliberately given to the guest; it is not a claim that the old
+promise was already met. Runtime control/configuration/ledger/diagnostics and
+projections exclude the issued token, while guest-originated literal/encoded
+copies may remain inert after verified revocation/teardown under ordinary IO
+and retention. No production scanner/reject/sanitizer is selected. Upstream
+credentials/authfiles/native RPC prohibitions remain. The accepted SDD decision
+`task-10-capability-retention-decision.md` (SHA-256
+`54d3e93e71551fb4c9ef6a3494bc2b1d50c8f83efb2a696303160ac09a954b61`)
+and independent review `task-10-capability-retention-review.md` (SHA-256
+`1da6941d43d6a0baf7f360250835bc2bc23d6e57a3b5eb82466145fec9bb405d`)
+are historical evidence under `.superpowers/sdd/2026-10-14-run-ref-expression-environments-plan/`;
+the maintained linked authorities own the rule. The script-lifetime decision
+`1520b2a9094098df9a007facfbc2f6827e0c54f2ccb5207f138d974b6968960f`
+retains its revocation/retirement and recovery obligations; its universal
+absence wording is superseded by this explicit origin/phase scope. The amendment defines obligations; accepted private-slice evidence is scoped in
+the status above and report, while real qualification and public admission remain
+pending. It changes no task order, target/schema, native pin, quota or catalog.
+
+Implementation policy note: 32 per-visit permits is a finite installation
+proposal for implementation/review, not authored DSL or an economic guarantee.
+Freeze the effective policy before admission and prove its sufficiency in the
+integrated example; justify and test any revised value. Aggregate body ceilings
+derive from the permit count and per-request maxima. The initial live probe
+remains at two serial requests/90 s; production uses its checked policy and the
+existing durable remainder, with no reset or autonomous Task 7 watchdog.
+
+Native Codex authentication follow-up (2026-10-15): the pinned private-owner
+fixture and image-CLI/real-Holder synthetic tool/SSE/delivery bridge have bounded
+independent PASS reviews. They do not establish real-account entitlement,
+upstream success, generation/cost ceilings, total deadline coverage or production
+admission. The later operational synthetic campaign supplies bounded deadline/cancellation
+and startup evidence; it does not establish real account binding or upstream TLS.
+The managed-policy conflict challenge remains the blocking admission gate. See the
+[current feasibility addendum](../reports/run-ref-confinement-feasibility/README.md#task-10-native-authentication-follow-up-2026-10-15).
+Historical F4/P2 retains the in-sandbox PASS, `502 upstream_blocked` result and
+host-binary deviation. Private Task 10 integration follows accepted Task 9; real qualification and
+production admission remain subject to
+the final Task 13 contract and admission gate. Claude remains unqualified.
+
+Current native gate: the pinned owner admits a fictitious managed-policy conflict
+and performs auxiliary migration despite the requested overrides. The reviewed
+[blocking disposition](../reports/run-ref-confinement-feasibility/README.md#native-managed-policy-gate-blocked)
+requires effective preventive admission or a fully verified installation profile;
+neither is demonstrated. No further real startup is selected. Internal transport
+work does not satisfy this gate or unblock completion of Tasks 11–13.
 
 ## Task 11: Complete author use case
 
-**Create:** `workflows/examples/run_ref_confined/{main.orc,commands.json,providers.json,inputs.json,README.md}`, entry `run_ref_confined::main`. **Modify:** `experiments/orc_vs_single_call/{README.md,workflows/best_of_n.orc,workflows/best_of_n.providers.json}`, `tests/workflow_evaluated_consumer_sources.py`, `tests/test_workflow_evaluated_consumers.py`, `workflows/README.md` registry row. Do not modify the historical harness.
+**Create:** `workflows/examples/run_ref_confined/{run_ref_confined.orc,commands.json,providers.json,inputs.json,README.md}`, entry `run_ref_confined::main`. **Modify:** `experiments/orc_vs_single_call/{README.md,workflows/best_of_n.orc,workflows/best_of_n.providers.json}`, `tests/workflow_evaluated_consumer_sources.py`, `tests/test_workflow_evaluated_consumers.py`, `workflows/README.md` registry row. Do not modify the historical harness.
 
-- [ ] Example takes a repository locator, exact commit, task and candidate inputs; iterates candidates with a serial `loop`/`recur`; each child generates/edits through a provider binding using the `codex_unrestricted_workspace` template variant and evaluates with commands; the parent handles typed `FAILED` outcomes, selects with ordinary typed code, and returns `INVALID` when all assessments are invalid. Deterministic tie behavior and parent artifact consumption are tested.
+The source root is the example directory; `run_ref_confined.orc` matches the
+module name required by `run_ref_confined::main`, as qualified in Task 9.
+
+- [ ] Example authors the repository locator as literal deployment configuration and takes exact commit, task and candidate inputs; iterates candidates with a serial `loop`/`recur`; each child generates/edits through a provider binding using the `codex_unrestricted_workspace` template variant and evaluates with commands; the parent handles typed `FAILED` outcomes, selects with ordinary typed code, and returns `INVALID` when all assessments are invalid. Deterministic tie behavior and parent artifact consumption are tested.
 - [ ] Use a real digest and documented image provenance; never publish a placeholder digest as runnable. The judge score is same-trust-domain data, not benchmark truth. Migrate the maintained best-of-N recipe to the confined form; retain old fixtures as compatibility evidence; document input/result migration for `best-of-n` and `select-only`.
 - [ ] Collect changed modules; run `pytest -q tests/test_workflow_evaluated_consumers.py -k best_of_n` and the route-readiness owner. Commit explicit paths: `feat: compose confined candidate generation evaluation and selection`.
 
@@ -216,14 +439,14 @@ At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibil
 **Tests:** the five new modules and existing owner suites. Commands run from the repository root; slow checks in tmux. Do not reuse prior logs after a relevant change.
 
 - [ ] Collect every new or renamed module by explicit path. Real-sandbox and real-provider cases are under `tests/e2e/` with the opt-in helpers; the unit modules contain no sandbox launches.
-- [ ] Security oracles must be observable: the tool step writes `readlink /proc/self/ns/{mnt,pid,user,net}`, `/proc/self/cgroup` and a nonce read from a file bound only into that sandbox into the workspace; the host asserts the namespace inodes differ from the controller's, the cgroup matches the recorded slot and the nonce matches. Forbidden-access probes run as deterministic commands in the same sandbox, each writing a positive-control record proving the attempt executed. Gateway logs show model routes only. Limit oracles are cgroup `memory.events`/`pids.events` counters and `EDQUOT`/`ENOSPC` inside the sandbox.
+- [ ] Security oracles must be observable: the tool step writes `readlink /proc/self/ns/{mnt,pid,user,net}`, `/proc/self/cgroup` and a nonce read from a file bound only into that sandbox into the workspace; the host asserts, for every leaf, that the namespace inodes differ from the controller's, the cgroup matches that leaf's recorded leaf slot under the attempt's scope and the nonce matches. Forbidden-access probes run as deterministic commands in the same sandbox, each writing a positive-control record proving the attempt executed. Gateway logs show model routes only. Limit oracles are cgroup `memory.events`/`pids.events` counters and `EDQUOT`/`ENOSPC` inside the sandbox.
 - [ ] In tmux: `ORCHESTRATE_E2E=1 pytest -q tests/e2e/test_e2e_run_ref_confined.py`, serially (the explicit exception to `-n 16`), then `ORCHESTRATE_E2E=1 pytest -q tests/e2e/test_e2e_workflow_evaluated_run_ref.py` for old-profile compatibility. Repeat public `resume` after completion: no dispatch, no child allocation, stable value and export proof; exercise interrupted resume on the run that passed earlier gates.
 - [ ] Broad campaign in tmux: `pytest -q -n 16 --dist=worksteal -m 'not e2e'`. Classify every failure as introduced, pre-existing with fresh baseline evidence, or unresolved; unresolved related failures block release.
 - [ ] Inspect the final diff personally; obtain one final code plus security review from a distinct reviewer; resolve findings through the original implementer and rerun affected checks. Commit explicit paths: `test: qualify confined run-ref public lifecycle`.
 
-**Done:** Gates A-D have evidence, including live provider confinement and the complete public workflow.
+**Completion criterion (pending):** Gates A-D have evidence, including live provider confinement and the complete public workflow.
 
-### Public subprocess recipe required by the proposed smoke tests
+### Public subprocess lifecycle and remaining provider smoke
 
 The fixture creates a disposable parent workspace and runs the CLI there, following `tests/test_workflow_evaluated_invalidate.py::_cli`; it supplies absolute `SOURCE`, `SOURCE_ROOT`, `COMMANDS`, `PROVIDERS`, `INPUTS`, `RUNS_ROOT` and `RUN_REF_ROOT`. `SOURCE` is a copied qualified example with the pinned image digest recorded as fixture identity; `INPUTS` points at the test baseline repository and exact commit.
 
@@ -234,29 +457,33 @@ python -m orchestrator resume RUN_ID --state-dir RUNS_ROOT --run-ref-root RUN_RE
 python -m orchestrator report --run-id RUN_ID --runs-root RUNS_ROOT --format json
 ```
 
-The fixture obtains `RUN_ID` from the one new run header in its `RUNS_ROOT`. Uppercase names are test-supplied argv values, not CLI flags. The interrupted variant kills after a proved child commit and uses the same `resume`; the completed variant repeats `resume` and `report` and compares dispatch/allocation counts and proofs. The real smoke also proves provider tools ran in the sandbox namespace and that the exported artifact is readable after clone cleanup.
+The fixture obtains `RUN_ID` from the one new run header in its `RUNS_ROOT`. Uppercase names are test-supplied argv values, not CLI flags. The interrupted variant kills after a proved child commit and uses the same `resume`; the completed variant repeats `resume` and `report` and compares dispatch/allocation counts and proofs. The accepted command smoke proves the exported artifact is readable after clone cleanup. Provider tools through the public route are a future complete-delivery requirement, not evidence from that command smoke.
 
-### Proposed acceptance selectors
+### Current acceptance routes and remaining requirements
 
-These node ids are test-writing requirements, not existing evidence. Collect them before use; parameterization may extend each matrix without prompt-wording tests.
+These selectors exist in the repository. They route to behavioral evidence;
+consult the committed report for tested revisions and results. Collect before
+use after renaming tests; private/provider tests retain their explicit limits.
 
-| Proposed selector | Required behavioral oracle |
+| Selector or module | Behavioral scope |
 | --- | --- |
-| `tests/test_workflow_lisp_run_ref_workflow_program.py::test_workflow_program_compiles_private_child_entry_without_parent_captures` | Private child entry through `register_run_ref`; imports, helpers and owner externs keep ordinary semantics; no parent binding visible |
-| `tests/test_workflow_lisp_run_ref_workflow_program.py::test_commit_policy_and_identity_refuse_before_provisioning` | Once-only `:commit`; bad commit/image/policy cannot allocate or launch; request identity tamper rejection |
-| `tests/test_workflow_lisp_run_ref_workflow_program.py::test_compile_time_refusals_by_effect_kind` | `:must-exist false`, `:network :none` plus provider, transitive unsupported effects, `provider-bundle-path` |
-| `tests/test_workflow_run_ref_confinement.py::test_profile_argv_limits_and_guest_path_translation` | Profile flags, limits, image executable pins and translated paths (unit, no launch) |
-| `tests/test_workflow_run_ref_confinement.py::test_child_authority_lives_outside_the_clone` | Control root outside the clone; protected no-follow host reads refuse aliases |
-| `tests/test_provider_inference_gateway.py::test_gateway_relays_model_routes_only` | Non-model routes denied; scoped token; credentials host-owned |
-| `tests/test_workflow_run_ref_confined_recovery.py::test_kill_window_resume_preserves_committed_effects[<window>]` | Parameterized over the eight windows; stable child id/workspace; per-site dispatch counters; zero-commit attempts take K4 |
-| `tests/test_workflow_run_ref_confined_recovery.py::test_public_resume_retries_cleanup_without_dispatch` | Recorded cleanup obligation; root swaps refuse without deleting unrelated files |
-| `tests/test_workflow_run_ref_delta.py::test_rebased_typed_exports_survive_clone_cleanup` | Typed path validity, exact content and proofs, later consumption |
-| `tests/test_workflow_run_ref_delta.py::test_evidence_allowance_checked_at_each_commit` | Separate allowance; over-budget or missing evidence blocks settlement and cleanup |
-| `tests/e2e/test_e2e_run_ref_confined.py::test_increment_a_public_lifecycle_with_commands` | Public lifecycle with `:network :none`; providers refuse with `run_ref_provider_transport_unavailable` |
-| `tests/e2e/test_e2e_run_ref_confined.py::test_sandbox_namespace_cgroup_and_nonce_oracles` | Namespace inodes differ, cgroup matches slot, nonce matches |
-| `tests/e2e/test_e2e_run_ref_confined.py::test_forbidden_access_probes_write_positive_controls` | Each probe records that it executed and was denied |
-| `tests/e2e/test_e2e_run_ref_confined.py::test_limit_oracles_memory_pids_and_quota` | `memory.events`/`pids.events` counters; `EDQUOT`/`ENOSPC` inside the sandbox |
-| `tests/e2e/test_e2e_run_ref_confined.py::test_live_tool_provider_candidate_selection_lifecycle` | Real sandbox, gateway and tool-enabled provider; gateway logs show model routes only |
+| `tests/test_workflow_lisp_run_ref_workflow_program.py` | Private child entries, exact inputs/owner configuration, once-only commit, identity, effect/transport and Agent refusals, source relocation and path-mode preservation |
+| `tests/test_workflow_run_ref_confinement.py` | OCI import and admission, host prerequisites, external control roots and no-follow reads |
+| `tests/test_workflow_evaluated_confined_dispatch.py` | Guest/image command dispatch, attempt snapshots and unsupported closure refusals |
+| `tests/e2e/test_e2e_run_ref_confined.py::test_holder_channels_descriptors_and_scope_shape` | Real holder channels, descriptors and scope topology; companion limit/positive-control cases are in that module |
+| `tests/e2e/test_e2e_run_ref_keyring.py::test_holder_keyring_is_fresh_and_key_syscalls_are_refused` | Fresh session keyring and syscall isolation |
+| `tests/e2e/test_e2e_run_ref_checkpoint.py` | Seed/checkpoint equivalence and interrupted-copy repair |
+| `tests/e2e/test_e2e_run_ref_confined_child.py::test_a_holder_death_after_a_committed_effect_settles_failed_lost` | Holder death with durable command progress |
+| `tests/e2e/test_e2e_run_ref_confined_recovery.py::test_external_controller_kill_recovery` | External crash windows, retained child identity and committed prefix |
+| `tests/test_workflow_run_ref_exports.py`; `tests/e2e/test_e2e_run_ref_confined_exports.py` | Typed rebase/retention, tamper refusals, parent consumption after cleanup and completed-resume cleanup retry |
+| `tests/e2e/test_e2e_run_ref_confined.py::test_increment_a_public_lifecycle_with_commands` | Public command-only compile/run/interrupted-resume/completed-resume/report |
+| `tests/e2e/test_e2e_run_ref_confined.py::test_provider_effects_refuse_before_holder_launch` | Closed public provider admission with no state or holder creation |
+| `tests/test_provider_inference_gateway.py`; `tests/e2e/test_e2e_run_ref_provider_transport.py` | Private transport/ledger/Holder evidence with synthetic auth and local substitutions; no real auth/TLS qualification |
+
+Still required for complete delivery: integrated public model-only provider
+edit/test/delivery with real native authentication and upstream TLS, independent
+adversarial qualification, maintained best-of-N migration and final review under
+Tasks 10–13. No proposed selector name stands in for that evidence.
 
 ## Task 13: Finalize qualified example, contract status and routing
 
@@ -266,7 +493,7 @@ These node ids are test-writing requirements, not existing evidence. Collect the
 - [ ] Document image preparation and provider readiness once; show public compile/run/resume/report with the exact tested commands; explain declared inputs, typed `FAILED` handling, export locations and cleanup retry in author terms. Update the capability matrix and routes from designed to implemented for the tested scope only; validate local links and run `pytest -q tests/test_workflow_lisp_route_readiness.py`.
 - [ ] One contract review by a distinct reviewer who also reads the example as a new author. Stage only task-owned paths, inspect `git diff --cached --check`, then commit: `docs: document qualified run-ref confined child environments`.
 
-**Done:** source, specs, capability status, examples and evidence agree. The final report states checks omitted and remaining limits, especially provider/platform qualification scope.
+**Completion criterion (pending):** source, specs, capability status, examples and evidence agree. The final report states checks omitted and remaining limits, especially provider/platform qualification scope.
 
 ## Execution and commit discipline
 
@@ -278,6 +505,9 @@ These node ids are test-writing requirements, not existing evidence. Collect the
 
 ## Draft review and validation, 2026-10-14
 
+The following review/revision notes preserve the original planning history;
+current task and gate status is recorded above.
+
 Independent design review and independent implementation-plan review returned PASS after corrections to effectful terminal proof, partial export recovery, protected host reads, cleanup ownership/retry, score trust, prospective contract ordering and retained-evidence budgets. These decisions approve the coherence of the proposal; F1-F6 and Gates A-D remain pending.
 
 The coordinator inspected both documents and the routing changes, checked local Markdown targets and existing referenced selector definitions, and read both illustrative Lisp blocks with the repository's S-expression reader. Both blocks parse as one form; this is not frontend compilation, typechecking or proof of the proposed syntax. Whitespace checks found no errors. Existing content in the three routing documents was preserved apart from the new entries. No runtime implementation, pytest suite, sandbox launch or provider invocation was performed for this drafting task.
@@ -285,3 +515,27 @@ The coordinator inspected both documents and the routing changes, checked local 
 ## Revision 2026-10-14
 
 Independent design and plan reviews led the coordinator to fix nine decisions that this revision applies: the Bubblewrap sibling profile replaces rootless Podman; `:program (:workflow name)` replaces `:body` and the extraction helper; recovery uses EE §8.1 ordinary rerun and a K4 amendment instead of `run_ref_child_effect_outcome_unknown`; the site returns a typed COMPLETED/FAILED union; `:repo` is a literal and `:commit` a once-evaluated String; a separate evidence allowance replaces charging evidence to `:output-mib`; gateway prerequisites and small compile-time rules are named. Tasks were reordered so contracts follow feasibility (Task 1 before Task 2), F5/F6 moved to Tasks 7 and 8, Increment A is a labelled Task 9, and real-sandbox cases live only under `tests/e2e/`. Dropped: recovery token renewal, mapping run-ref over candidates, Task 0 fixture capture, the dirty-diff digest, the double Task 0 review, the separate gate reviewer and the standalone security reviews. Evidence now lives in a committed report rather than the gitignored `artifacts/` tree.
+
+## Revision 2026-10-14 after F3 evidence
+
+Design decided the F3 deltas (design table "F3 deltas and review decisions"): a transient delegated scope per holder launch instead of a controller re-exec (D-a); one holder `bwrap` per child attempt with a spawner driven over inherited unix socketpairs, leaf identity from holder-slot membership and whole-slot quiescence before every host read (D-b, D-g); the host clone as durable workspace with the tmpfs as execution copy, seeded by the host and checkpointed after every leaf before the memo commit (D-f, D-h); descriptor-rooted `st_dev`-pinned host reads (D-c); a compile-time headroom rule over profile constants (D-d); image mount points at import and rehash-by-descriptor binds (D-e); provider binaries from the image. This revision updates the architecture paragraph, the ownership table (a third module, `image_store.py`, justified in the design), the F5/F6 rows, Tasks 4-8 and 10 and the acceptance selectors, and adds the F3b proof as the first Task 5 item. Tasks 5 and 6 grew materially (copier and checkpoint header; scope, holder and spawner protocol). Task 0, Task 1 and the F1-F4 rows are untouched.
+
+## Revision 2026-10-14, round 2, after independent review of the F3 revision
+
+The review (`.superpowers/sdd/.../design-review-r1-findings.md`) returned one blocker and eight majors; the design table "F3 deltas and review decisions" rows R1 to R10 record each decision. Adopted as suggested: the two-phase checkpoint header with `sync` before publish and acceptance of any uncommitted attempt newer than the last commit (R1); host-side time charged to `:wall-seconds` (R3, without a new allowance); launcher descriptor hygiene asserted in F3b and the relay inside each provider leaf (R4); `setsid` leaves with acknowledgement and status deadlines (R5); per-leaf wipe of scratch and `/result` with exclusive creation (R6); sized `/dev/shm`, read-only `/dev` and `/run`, constant 960 and `OOMPolicy=continue` read back (R7); the agent-sessions row and PQ-1a dropped (R8); F3b split into channel and checkpoint parts with a ledger row (R9). Decided differently: a holder death under a live controller ends the candidate as `FAILED` with `run_ref_environment_lost` instead of a capped in-run retry, which keeps EE §8.2 unamended (R2). Minors taken: launch-token unit name, exact release token, launcher moved into `holder` with an empty scope root, header keyed by effect identity and ordinal, initial header after provisioning, checkpoint after every quiesced leaf, special files skipped and counted, modes masked, a `host` slot helper so seeded pages charge the scope, the copier moved into `workspace.py`, user-manager skip rule, per-leaf Task 12 oracles. This revision edits the architecture paragraph, the ownership table, the F3b and F5 ledger rows, Tasks 5, 6, 7, 10 and 12 and the selectors. Task 0, Task 1 and the F1-F4 rows are untouched.
+
+## Revision 2026-10-14, round 3, after the scoped re-review
+
+The re-review (`design-review-r2-findings.md`) accepted R2 and returned three majors and six minors, recorded as rows N1 to N9 of the design table. N1: a child concludes `FAILED` only through a durable failed terminal row appended before the memo `failed` record, with a `FAILED` proof variant, settled cleanup for both outcomes, a new recovery row and the matching F5/Task 7 window. N2: confined command C2 closures name only image-pinned paths, so C4 never reads the clone. N3: F3b-checkpoint is limited to the copier with a throwaway holder; holder death after a commit and wall charging are Task 6 witnesses and resume repair is Task 7. N4 to N9 as the review suggested (scope killed before the header is read, checkpoint failure as holder death, header durability, R7 row and naming, in-namespace descriptor claim, no checkpoint after timeouts); both out-of-scope sentences added (`setsid` exec-in-place, `must_not_repeat` dead end). This revision edits the F3b and F5 ledger rows, Tasks 5, 6, 7 and 8, the selectors and the two revision paragraphs. Task 0, Task 1 and the F1-F4 rows are untouched.
+
+## Revision 2026-10-14, round 4, after the third re-review
+
+The re-review (`design-review-r3-findings.md`) accepted N1 and N3 to N9 and returned P1 to P5. P1, adopted as the reviewer's named D5 amendment: clone files named by stable-command tokens, document fills and prompt dependencies are bound by content into the attempt snapshot at `started`; a committed confined effect's resolved input and C7 preflight use that snapshot, never the current clone; the uncommitted attempt's C4 comparison covers image pins only; the clone-closure refusal moves to dispatch before `started` and is `FAILED` after release (Task 6 units, Task 7 test). P2: the failed terminal row takes precedence over the zero-commit K4 discard. P3: the row is under the parent writer lock, the memo record under the child's, and resume repairs a missing memo record from the row. P4: the `setsid` exec-in-place check is in the F3b-channel gate row, ledger row, Task 5 step and selector. P5: a copier refusal keeps `run_ref_environment_escape_rejected` as the `FAILED` code. Out of scope taken: `ledger.py` (Task 7) is the single owner of the failed-terminal append, Task 6 calls it; the F3b ledger row names in-namespace descriptors. Task 0, Task 1 and the F1-F4 rows are untouched.
+
+## Revision 2026-10-14, round 5 (final), after the fourth re-review
+
+The re-review (`design-review-r4-findings.md`) returned PASS_WITH_MINORS; Q1 to Q5 and the optional check are applied so Task 2 transcribes settled text. Q1: a dispatch refusal before `started` produces a failed terminal row naming the refused site with no attempt record, its own proof variant, and the P3 repair applies only to rows naming a started attempt; the `run_ref_environment_effect_unsupported` row names the dispatch point. Q2: C4's precommit rehash and retry comparison cover the image-pinned closure only, so fixers and generators may rewrite the clone files they name. Q3: the evidence allowance is checked at `started` before an attempt snapshot is copied, snapshots are content-addressed against the checkpoint manifest, and snapshot copies are in the R3 wall-charging list. Q4: "or a failed terminal row" is in the D5 K4 row, the Task 2 amendment bullet and the Task 7 K4 bullet. Q5: token selection and binding go through the D-c no-follow reader beneath the clone root, symlinked tokens bind their target string or refuse, and resume replays selection from the recorded evidence map. Optional: snapshot bytes are verified against the digests recorded in `started` before recomputation, so tampering fails closed instead of diverging. This revision edits Tasks 2, 6 and 7 and this paragraph. Task 0, Task 1 and the F1-F4 rows are untouched.
+
+## Amendment 2026-10-14 after the F3b-channel gate (commit 26772bbc, review item 1 and text deltas)
+
+The F3b-channel gate passed; its review found cross-leaf carryover: SysV IPC objects (and POSIX message queues) and spawner attributes a leaf can change (rlimits, including irreversibly lowered hard limits, nice, `oom_score_adj`) survive into later leaves of the same holder. Design row F3b-1 adopts the suggested rule: at every request window the host compares the spawner's `/proc/<pid>/limits`, nice and `oom_score_adj` with their values at ready and treats a difference as a holder death naming the attribute; IPC carryover within one holder is accepted explicitly as candidate-trust-domain state that a resume does not reproduce, and R6's consequence now says files only. The F3b-1 witnesses, the result broker open rules (`O_NONBLOCK | O_NOFOLLOW`, `fstat` `S_ISREG`, bounded read), the exclusive `/result` create refusal and the chmod-before-wipe are in Task 6. Text deltas applied: pid 1 holds `bwrap`'s internal eventfd (unreachable from a leaf), and a `setsid` daemon is a failed attempt in its emptied leaf slot, the scope emptying at the child terminal (F3b ledger row, Task 5 step, gate row and selector). Task 0, Task 1 and the F1-F4 rows are untouched.

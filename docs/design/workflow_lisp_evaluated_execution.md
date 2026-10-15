@@ -13,7 +13,12 @@
   and [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
   own completion, receipts, the original RED full-suite dispositions and
   qualified compatibility/live evidence. Later classes and phases are not
-  selected by this closure.
+  selected by this closure. Since then the owner retired the flat route
+  (2026-10-13, §13), registered bounded parallel map at target 2.37 (§11),
+  and registered target 2.38 for agent sessions (first slice implemented,
+  §9.2) and confined run-reference children (command, recovery and export
+  paths implemented; public confined provider dispatch pending, §8.4 and
+  [`specs/versioning.md`](../../specs/versioning.md#version-gating-summary)).
   The [early Phase 6a pilot](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md)
   has bounded caller reviews and 21 passing pilot cases at `688695e3`,
   with production corrections at `d6adb627` and `b11e678`. Its full suite
@@ -110,6 +115,8 @@ The owner's decision of 2026-09-29 (plan, decisions 5 and 7): evaluated
 execution is built in stages, at target 2.35. The original flat compatibility
 baseline is historical: the [selected retirement](workflow_lisp_executor_retirement.md)
 rejects executable entries through 2.34 and old-profile resume/invalidation.
+Where this design says "the present route" or "the flat route", it names
+that retired route.
 
 The first release covers four classes of effect: commands (external tools
 and certified adapters), composed providers, calls of workflows and
@@ -130,6 +137,9 @@ matching producer-owned typed snapshot (§4.2.1); ordinary source calls remain
 admitted. This input precondition does not authorize a new call-form gap.
 Portable composed providers include both prompt
 extern source kinds and the admitted `defprompt` slot kinds (§9.4).
+Since this decision, parallel map entered as bounded target 2.37 (§11),
+agent sessions as target 2.38 (§9.2), and trials and requests for human
+input were retired without a port (§9.2).
 
 The conditions of the gate report, section 6, bind the first release. Each
 is a rule of this design.
@@ -218,7 +228,8 @@ Non-goals:
 - Capturing or rolling back workspace files. A committed child run is
   therefore never superseded (C8, K8).
 - Binding what a command reads beyond the files its boundary declares (C5).
-- Changing YAML workflows or targets that exist today.
+- Changing the targets that existed when this design was accepted; their
+  executable entries were later retired separately (§13).
 
 ## 4. The Closed Program
 
@@ -837,7 +848,7 @@ for each addition. The closed program has these:
 | `if` | branch on a strict `Bool` |
 | `join`, `jump` | second-class continuation |
 | `loop`, `continue`, `done` | bounded iteration, with its budget and its exhaustion body |
-| `par-map` | bounded parallel iteration over a list (§11; a later release) |
+| `par-map` | bounded parallel iteration over a list (§11; bounded target 2.37) |
 | `halt` | result |
 
 Rules of elaboration into this form:
@@ -899,6 +910,12 @@ the closed program, supplied by the evaluator, the same on every resume.
 | X3 | `phase-target` | The named target's field of the phase context in scope, or the path join `<artifact-root>/<phase>/<target>.md` for a generic `PhaseCtx`, elaborated at the `with-phase` site (§4.3) |
 | X4 | `provider-bundle-path` | The committed attempt's result file, relative to the workspace (§8.2): the header's immutable `result_root` joined with the committed record's run-relative `result_path` (§8.4, *Immutable result root*), so it is the same on every resume and names the destination the performer received (R2): a command's R2 value is this string, and a provider's R2 value is the workspace's absolute path joined with it. At the new target the form is typed as a path under `.orchestrate/runs` and meets that root whenever the run root lies under `<workspace>/.orchestrate/runs`; both legacy routes type it under `state` and refuse their own value (`outside_under_root`) |
 
+**Amendment for target 2.38 confined children, X4 and
+`result_root`** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): `provider-bundle-path`
+refuses at compile time inside a confined child with
+`run_ref_child_transport_unsupported`, and the child's `result_root`
+records its external control root.
+
 ## 5. Values
 
 A value is immutable and typed. The evaluator holds values in an environment:
@@ -933,7 +950,7 @@ activation path = frames from the entry to the definition
 | Rule | Statement |
 | --- | --- |
 | I1 | The site is the definition that contains the `perform` node and the path from the definition's body to it. Two call sites of one definition are two frames over one site |
-| I2 | A frame is a call site, written `<label>=<callee>` with the callee's canonical name (§4.2), a loop iteration `loop:<state label>[<i>]`, or, in a later release, a parallel map item `[<index>]` |
+| I2 | A frame is a call site, written `<label>=<callee>` with the callee's canonical name (§4.2), a loop iteration `loop:<state label>[<i>]`, or, at bounded target 2.37, a parallel map item `[<index>]` |
 | I3 | Local paths follow the traversal table below. Each effect ends in its binding's I4 label, and each effectful call has a frame at its binding. The separator in the presentation is ` / ` |
 | I4 | A binding without an authored label takes `#<k>`, its ordinal among the anonymous bindings of its scope whose value performs an effect. A named binding uses its retained authored label even if hygiene changes its lexical name. Pure bindings advance neither anonymous nor repeated-label counters, so a pure refactoring moves no identity. A repeated authored label takes `<name>#<k>` |
 | I5 | An attempt is an ordinal under an identity. Attempts never change the identity |
@@ -964,7 +981,7 @@ leaving sites and call frames unchanged.
 | Bound `block` | Under its I4 label append `block`; walk its body in a new scope |
 | `join` body / continuation | The first release has exactly one bound-result parameter. Walk the body under that parameter's I4 label and `body`, in a new scope; the continuation keeps the enclosing prefix and scope. The generated continuation target is not the label. Thus a body effect cannot collide with a continuation effect. Jumps add no site or frame |
 | `loop` body / exhaustion | Append `loop:<state label>[*]` / `loop:<state label> / exhausted`, each with a new scope; anonymous state parameters use the loop's I4 ordinal. The generated loop target is not the state label. Seeds, budgets and `continue`/`done` operands obey §4.3 |
-| Later `par-map` body | Append `par-map:<binder>[*]`; the activation substitutes the input-list index, never completion order. Its input and workspace expressions are evaluated before the body as their contracts require |
+| `par-map` body (bounded target 2.37) | Append `par-map:<binder>[*]`; the activation substitutes the input-list index, never completion order. Its input and workspace expressions are evaluated before the body as their contracts require |
 | Effect-free value children, `halt`, `jump`, `continue`, `done` | No site; recursively validate their values and targets. No hidden `perform` or effectful `call` may remain outside the walked bindings |
 
 Segments are tagged values internally; presentation escapes literal `%`,
@@ -1015,8 +1032,10 @@ the ordinal rule's moves are measured against the alternative (gate report,
 A failed terminal does not require the failed effect to have committed.
 Failure during settlement leaves a committed, unsettled effect and no new
 terminal; resume must reconcile it. The checked program maps each
-`effect_class` to ordinary or coordinator execution (only `run_ref` is a
-coordinator in the first release). The record's class must agree with its
+`effect_class` to ordinary or coordinator execution (`run_ref` and, at
+target 2.38, `agent_turn` are the admitted coordinators; the agent
+attempt-history guard is `invalidate_agent_session_advanced` (Agent Sessions,
+Persistence)). The record's class must agree with its
 site, and coordinator proof is required, not inferred from an optional field.
 
 A terminal is reopened by `invalidated`, or, after a failed terminal, the
@@ -1049,6 +1068,22 @@ files that differ.
 | C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares; `__pycache__` contents of a declared directory (§7.3), including bytecode Python loads without checking its source bytes (`unchecked-hash`, or timestamp bytecode whose recorded source mtime and size match). A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
 | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
 | C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
+
+**Amendment for target 2.38 confined children, C2/C4/C6/C7
+attempt-snapshot binding** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): clone files
+named by stable-command tokens (C2), document fills and prompt dependencies
+(C6) are selected and bound by content at `started` through the no-follow
+reader beneath the clone root and retained in a content-addressed attempt
+snapshot; a symlinked token binds its target string and never a host target.
+A committed effect's
+resolved input and the C7 preflight use that snapshot and the recorded
+evidence map, never the current clone, after its bytes verify against the
+`started` digests (a mismatch fails closed, never `effect_input_diverged`).
+C4's retry comparison and precommit rehash (`command_closure_written`) cover
+the image-pinned closure only, so a command may rewrite the clone files it
+names. Declared closures, interpreters and package closures must be image
+pinned; one resolving into the clone refuses at dispatch before `started`.
+Host runs keep C2, C4, C6 and C7 unchanged.
 
 At build, the implemented C1 checks explicit declarations and the C2 projection
 records canonical logical paths in configuration/program identity. It does
@@ -1371,6 +1406,7 @@ view never invokes reconciliation.
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
 | A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files |
+| A `started` agent turn with no commit | Classify from receipt and native store ([Agent Sessions](workflow_lisp_agent_sessions.md), Persistence); never the generic retry rule |
 | A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts, and run the next attempt |
 | An `invalidated` range covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
 | A `suspended` record and no commit | Stop and report the pending request |
@@ -1392,6 +1428,19 @@ to `must_not_repeat`. No override or additional approval surface is introduced.
 An invalidation may cancel committed results, but cannot forgive a newer
 uncommitted attempt's closure mismatch. A start that did commit and was later
 invalidated does not pin that explicitly authorized re-execution to old bytes.
+
+**Amendment for target 2.38 confined children** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the attempt retry rules in this table remain unchanged.
+First resolve the confined child's terminal state and
+[durable visit budget](../../specs/state.md#confined-wall-budget-recovery).
+Only actual continuation without a failed terminal row and with remaining
+budget applies C4's comparison and this table's next-attempt rule, including
+`must_not_repeat` and portable tool-enabled provider attempts. The
+[FAILED proof](../../specs/state.md#confined-failed-terminal-boundaries)
+validates the committed prefix and recorded boundary from retained snapshots
+without retry preflight or mutable clone reads. Thus `must_not_repeat` does
+not prevent repair/settlement of a durable FAILED or terminalization for
+proven postrelease exhaustion without redispatch. It still forbids rerun;
+evidence failures never become permission to manufacture a terminal.
 
 ### 8.2 Running an attempt
 
@@ -1445,6 +1494,20 @@ even if new coverage reaches the journal/view. Never replace the start's
 evidence, adopt orphan output or bypass the retry baseline because no `failed`
 record survived.
 
+**Amendment for target 2.38 confined children** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the running-attempt rules remain unchanged. A leaf failure
+under a live controller, including holder death (`run_ref_environment_lost`),
+fails the pending attempt and ends the child with no in-run retry. The
+coordinator's durable FAILED row follows acknowledged budget closure after
+quiescence and precedes the child memo's `failed`/terminal and parent value.
+[State defines its four boundaries and repair order](../../specs/state.md#confined-failed-terminal-boundaries):
+only a real `started_attempt` gets an effect `failed`; `before_start`, a
+reproducible `pure_fault` and a halted `finalization` failure invent no effect
+record. A closure resolving into the clone still refuses in step 1 before
+`started`. A genuine pure fault after valid admission can fail without a
+holder; prerelease exhaustion still aborts the parent. The same emit/ack
+protocol and separate parent-ledger/child-memo writers apply, without an ack
+dependency on a child record that has not yet been authorized.
+
 ### 8.3 What a stop leaves, and what resume does
 
 | The process stops | The memo holds | Resume |
@@ -1474,8 +1537,9 @@ These name the memo-backed run contract; the independent closed-artifact
 schema remains `workflow-lisp/closed-program/1`, representation `table/1`.
 The closed artifact's top-level `target` records the entry source target, also
 recorded in the build manifest. It must be a string registered for evaluated
-execution, currently `"2.35"` or `"2.36"`; it is not a representation version.
-The separate internal run-reference target remains `2.35`. Target registration
+execution, including `"2.35"`, `"2.36"`, bounded `"2.37"` and `"2.38"`; it is not a representation version.
+The [versioning contract](../../specs/versioning.md) owns per-target admission.
+The separate internal path-mode run-reference target remains `2.35`. Target registration
 preserves read-back equality and the runtime/profile contracts here. Retargeting
 source from 2.35 to 2.36 changes the program digest when the rebuild is valid
 after required source-caller migration; retained-run resume then refuses
@@ -1494,6 +1558,11 @@ view is reconstructed from the header, checked program and memo, not used
 to infer or upgrade the profile. A missing header with journal activity
 remains `memo_inconsistent`. No legacy state is converted.
 
+**Amendment for target 2.38 confined children** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): confined workflow children compile at target 2.38, which
+is registered for the admitted command-only profile. Provider sites remain
+closed under the Providers contract; path children keep the internal
+run-reference target 2.35 stated above.
+
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
 the closed program (§4.2), and the interpreters fixed for the run (C3). The
@@ -1510,6 +1579,19 @@ Publication and all subsequent header/artifact/memo/evidence IO under a reserved
 CLI overrides preserve the parser's values before binding: strings for `--input`, with the last duplicate name winning. An admitted service caller preserves its explicitly supplied JSON values before binding. Read the indicated input file anew, then apply these overrides and bind against the freshly built program; do not seed that operation from historical `bound_inputs` or copy applied defaults into the recipe. Missing or invalid requested files remain preflight failures even if overrides cover their fields. Compare the fresh program digest before binding inputs; only an equal program proceeds to the fresh input-digest comparison. The same recipe supplies initial binding and every resume, without a second read solely for publication; normalize `input_file` before that initial read and use that same locator. With no file or overrides, bind the fresh program's defaults again. The recipe itself adds no program/input identity component and no snapshot guarantee against concurrent file changes.
 
 Previously published headers without `resume_request` remain valid stored authority for read-only projection and invalidation. Resume refuses them with `resume_request_missing` before reading memo records or changing authority, memo, attempts or views; no recipe is inferred or backfilled. A present but malformed recipe is `memo_inconsistent`: its eight fields are mandatory and exact, including string keys and finite JSON-transportable override values; null for the object, missing/unknown fields or invalid locators are not historical absence. New publication requires a valid explicit recipe, validated before creating the run root. This preserves the existing profile/schema and does not convert or retire a run representation. Invalidation never requires current source/configuration/input equality or a rebuild recipe; ordinary stored-authority and journal validation still apply. A caller that selects additional semantic compiler options must have their preservation concretely specified before admission; the ordinary entry's fixed defaults do not silently cover such a caller.
+
+**Amendment for target 2.38 confined children, `resume_request`
+child-recipe variant** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child
+retains the existing evaluated header and eight-field recipe. Its
+`workflow_file` names the protected control-root `closed_program.json`, not
+workflow source; `workflow_checksum` and `program_digest` equal the checked
+child digest. The recipe has `source_roots=[]`, the checked child entry,
+null manifest/input-file locators and explicit child `input_overrides`.
+`result_root` is the child control root relative to the clone. The child validates
+that parent-bound artifact, inputs and image pins instead of fresh source
+compilation; [State](../../specs/state.md#run-ref-confined-child-state-target-238)
+owns the exact header contract. Parent public resume keeps its ordinary fresh
+build/comparison.
 
 #### Immutable run-reference root
 
@@ -1667,7 +1749,7 @@ does not bypass that guard.
 
 | Rule | Statement |
 | --- | --- |
-| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run is never superseded (K8) |
+| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run or agent turn is never superseded (K8); at target 2.38 refuse `invalidate_agent_session_advanced` for agent turn attempt history the cut would cancel that was dispatched, advanced or is of uncertain outcome (Agent Sessions, Persistence) |
 | C9 | Each `committed` record keeps `depends_on`: the identities whose results its resolved input read, through names, arguments, results, loop state, join parameters, `case` bindings and the conditions that chose a value; an effect inside a branch does not depend on the branch's condition. `depends_on` is computed per value, not per field: a record, list or loop state carries the union of its parts' dependencies and a field or item taken from it keeps them all (§4.2.3). It is therefore a superset of the identities actually read and never omits one; in a serial `list/map-effect`, whose items pass through a loop state that also accumulates their results, each item depends on every earlier item. Evidence that one effect consumed another's output rests on C6 read digests, not on `depends_on` alone. Narrowing `depends_on` to the parts actually read is an entry condition of the release that scopes invalidation by C9. In the first release this is evidence, not the scope of an invalidation: a dependence through a file, where one effect writes a path that a later one reads, leaves no trace in values, and a shipped workflow has that shape (`workflows/library/verified_iteration_drain/drain.orc`). Narrowing an invalidation to dependents through values and declared files is a later release, entered when command boundaries declare the files they read and write, with the file-dependence fixture of §17 as its evidence |
 
 The range's `from_commit` names the chosen commit's immutable byte offset in
@@ -1675,9 +1757,17 @@ The range's `from_commit` names the chosen commit's immutable byte offset in
 range record and cancel precisely the commits active in that prefix whose
 offset is at or after the anchor. The record itself closes the range; later
 retry commits are not canceled by it. Validate that the anchor names an active
-commit and that its suffix contains no coordinator commit, or report
-`memo_inconsistent`. Derive the chosen identity and affected attempts from
+commit and that its suffix contains no coordinator commit and, at target
+2.38, no `agent_turn` attempt started at or after the anchor that is still
+pending or closed `failed` with a dispatched-failure code
+(`agent_bootstrap_restarted`, `agent_turn_result_invalid`,
+`provider_result_invalid`), or report `memo_inconsistent`. Derive the chosen identity and affected attempts from
 those records, without storing a second list or emitting per-effect records.
+
+The same range retires pending starts whose byte offsets are at or after
+its anchor, without removing their history or changing §8.1 retry
+permission. Pending starts before the anchor remain; an independent
+parallel sibling can have started before the chosen commit.
 
 One complete range record reopens the preceding terminal and changes every
 affected row's status to `invalidated`. A crash before it or during a torn
@@ -2570,22 +2660,30 @@ closed program, the resolved input, the result path and the workspace. It
 returns a result or a failure. It reads no run state and writes none. A
 coordinator (§9.3) is a performer with a ledger of its own.
 
-| Class | First release | Performer built from | Notes |
+| Class | First release (2.35) | Performer built from | Notes |
 | --- | --- | --- | --- |
 | Command | Yes | `StepExecutor.execute_command` | Independent of the executor today |
 | Provider, composed delivery, portable subset | Yes | `ProviderExecutor.prepare_invocation` and `execute`, with prompt assembly moved out of the executor | The prompt is assembled as the present route assembles it, with the differences of R2 and R3, and of the opening lines of the structured-result contract block that this route renders for its file transport ([provider result delivery](provider_result_delivery.md)) (spike iteration 2, B) |
 | Workflow or procedure call | Yes | None. A call is evaluation | Activation frames (§6), no child executor or persisted flat-route call frame |
 | Run reference, path mode | Yes | Reuse the run-ref runtime and ledger behind a changed caller adapter (K7) | The child run is a separate run in its own workspace |
+| Run reference, named-workflow confinement | No; command-only at 2.38 | Existing run-ref coordinator and ledger with the checked private child artifact and confined command performer | The [run-ref design](workflow_lisp_run_ref_expression_environments.md) owns the sibling profile and recovery amendments; public providers remain closed and Agent allocation/turns are excluded from the child |
 | Run reference, bundle mode | Later | The same runtime; the capsule is the child's closed program, built by the parent's build | |
 | Request for input | Later | New | `suspended`, then `committed` by the answer command (M6) |
 | Resource transition | Later | `execute_transition` | Independent today. Its idempotency key stays |
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
 | Provider, phased delivery; supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
-| Provider, authored sequential native-session turns | Later | Existing session/turn transports with a bounded coordinator | The [queue design](workflow_lisp_provider_prompt_queue.md) requires qualified turn-prefix recovery; neither composed delivery nor K4's restart rule supplies it |
+| Run-local agent allocation and sequential native-session turns | No; implemented at 2.38 | Ordinary non-coordinator allocation with its own checked class; existing session/turn transports behind one bounded `agent_turn` coordinator | [Agent Sessions](workflow_lisp_agent_sessions.md) commits each typed turn separately; E3 reuses the prefix and pending-turn recovery uses the scoped K4 exception (§9.3). [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns deterministic proofs and bounded real-adapter smoke evidence; `prompt-queue` is superseded for first delivery, and the separate acceptance comparison remains pending |
 
-A program at the new target that uses a class marked later is refused at
-build (§1.1). Older executable entries are retired; no old-route fallback is available.
+At first-release target 2.35, a program using a class marked later is refused
+at build (§1.1). Target 2.38 additionally admits the command-only confined
+named-workflow run-reference row and, independently, the bounded Agent allocation
+and turn row above; target 2.37 admits bounded `par-map` (§11); confined providers
+remain closed and other exclusions remain target-aware. No port is selected for
+the other rows marked later: trials and requests for human input are retired, and
+the flat performers named for resource transitions and materialized views were
+removed with the flat route. Older executable
+entries are retired; no old-route fallback is available.
 
 ### 9.3 Coordinators
 
@@ -2598,12 +2696,31 @@ run's state; the memo replaces that commit.
 | K1 | A coordinator receives the effect node and the resolved input as values, keeps its ledger under the run root, and reads and writes no run state |
 | K2 | The protocol has three calls. `prepare(node, resolved, identity, attempt)` runs the effect to the coordinator's pending commit and returns the value and a proof. The evaluator validates the value and appends `committed` with the proof. `settle(node, identity, proof)` makes the coordinator's final commit; the evaluator then appends `settled` |
 | K3 | On a memo hit, `reconcile(node, resolved, identity, proof)` completes a pending final commit from the proof, and the evaluator appends `settled` (`by: reconcile`) when the memo lacks it |
-| K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1) |
+| K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1). Agent turns (target 2.38) are the scoped exception: a pending turn is reconciled from its receipt and native store; only an agent with no committed turn may be restarted, by explicit public `resume`, abandoning the old candidate first ([Agent Sessions](workflow_lisp_agent_sessions.md), Bootstrap retry policy); later turns refuse |
 | K5 | The proof is the coordinator's settled result record and its artifacts, stored inline in the `committed` record. It is what `settle` and `reconcile` need, and nothing else |
 | K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release |
 | K7 | A run reference: its static configuration is built at build time, each input bound as the reference `inputs.<name>`; the name rule of the child's inputs is the reference rule, so no valid name is unsafe. The coordinator resolves the references against a parent state that holds only the resolved input values. The visit key is derived from the identity: parent run id the run root's name, execution frame `root`, no call frame, step id `root.<digest of the identity>`, visit count 1. The runtime's ledger, `run-ref-attempts.jsonl`, retains its wire contract; physical IO and child authority follow §9.3.1 |
 | K8 | A committed coordinator effect is never superseded in the first release: no new visit key or attempt for an identity that committed through a coordinator, and no rollback of the child's workspace delta (§3) |
 | K9 | Every coordinator in a release has evidence through the public run and resume entries: a compiled program killed from outside at each of its two gaps, resumed to the uninterrupted value, with no committed child started twice, and refused before any launch after a declared file changes |
+
+**Amendment for target 2.38 confined children, K4 and K8**
+(confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child with a validated durable terminal (COMPLETED or FAILED),
+or an incomplete child with at least one committed effect, is never discarded
+and keeps neither K4's discard nor its fresh-child path. This includes a
+pure zero-commit COMPLETED child. A failed terminal row takes
+precedence: the child is terminal and never reruns, whatever the number of
+committed effects. Otherwise resolve the
+[durable budget](../../specs/state.md#confined-wall-budget-recovery) before
+K4 or any new holder: proven exhaustion after the retained attempt's release
+terminalizes it at its real boundary without redispatch. With valid remaining
+budget, a child with a committed effect resumes in the same run/clone under
+§8.1; a nonterminal child with zero commits keeps K4's fresh path.
+The fresh ordinal carries the visit's charge, but not its predecessor's
+release; exhaustion before its own release still aborts the parent. K8's
+no-supersession starts at the first committed child effect; `invalidate`
+stays available before it. A pending `must_not_repeat` after that commit is
+a permanent barrier to execution requiring its rerun, not to proving or
+repairing FAILED without a rerun. Path children keep K4 and K8 unchanged.
 
 For §1.2's repeated placements, each iteration instantiates the complete
 activation identity (§6), hence a distinct K7 step id and visit with count 1,
@@ -2695,14 +2812,16 @@ adapter: treating it as an ordinary composed call, as the spike did, proves
 no parity and must be refused at admission. None of this changes C3's
 diagnostic-only interpreter upgrade rule or K8's no-supersession rule.
 
-Authored native-session turns are another later class. Their
-[recovery contract](workflow_lisp_provider_prompt_queue.md#recovery-contract)
-retains completed turn progress before the parent result commits. K4's
-discard-and-restart rule does not provide that behavior: admission requires
-a reviewed, evidenced refinement for this class, including the binding of
-turn progress across attempts and the final K2–K5 settlement gaps. This
-prerequisite changes neither K4 for the first release nor the admission of
-any existing class.
+Authored native-session turns retain completed turn progress before the
+parent result commits, which K4's discard-and-restart rule does not provide.
+They are admitted at target 2.38 by the [Agent Sessions
+design](workflow_lisp_agent_sessions.md) with a scoped K4 exception: a
+pending agent turn is never discarded; resume quiesces its process group,
+classifies it from its receipt and the native store, and may commit the same
+ordinal without dispatch (§8.1). Only an agent with no committed turn may
+restart, and only by explicit public `resume`: the old candidate is marked
+abandoned and its attempt closed `failed agent_bootstrap_restarted` before the
+next `started`. K4 is unchanged for every other class.
 
 ### 9.4 The request contract
 
@@ -2723,6 +2842,12 @@ value, given by a rule. A field not listed here is equal on both routes.
 | R10 | `command.env` | The command clause of R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
 | R11 | Generated helper commands | None. The present route runs inline Python steps that write managed write roots under `.orchestrate/workflow_lisp/`; the model has no write roots and no call frames, so nothing writes them |
 | R12 | A value in a command argument | Rendered by §§9.1/9.1.3 with checked static-template/value classification and explicit scope captures; preserve successful legacy bytes, including literal `True`/`False` versus substituted `true`/`false`, single-pass runtime strings and selected native/private scope resets |
+
+**Amendment for target 2.38 confined children, R2/R3 guest
+spelling** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): for a confined attempt, R2 in
+the provider and command environment and R3's `- path:` line both name
+`/result/<attempt-relative>`; prompt identity of confined attempts differs
+from host attempts by design at the new target.
 
 R2's two spellings name one file, and the provider's spelling is the only
 request field whose form depends on the effect class. That spelling enters
@@ -2776,7 +2901,7 @@ on order. For this profile the runtime derives views by these rules.
 | Rule | Statement |
 | --- | --- |
 | V1 | A view is derived from the memo and the program. Rows come from the records. The run's position comes from evaluating the program against the memo without launching anything: a `halt` value leaves no record before the terminal record, so a projection of the memo alone cannot say where the run stands |
-| V2 | The run's status: `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. A later release adds `suspended`, for a pending request |
+| V2 | The run's status: `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. `suspended` is not added: requests for human input are retired (§9.2) |
 | V3 | A `terminal` record is checked against §7.1: every active coordinator commit, identified by its checked `effect_class`, must have a matching `settled` record for that identity and attempt before the terminal. A completed terminal additionally requires replay to reach the same `halt` with no missing commit; a failed terminal may have an uncommitted failure. Missing proof, class mismatch, missing settlement or adjacent terminals yield `memo_inconsistent`, with no completed outputs |
 | V4 | Liveness comes from the writer's lock, not from a heartbeat: a process that died released it, and the view says `interrupted` at once. The present report says `running` until a heartbeat is 300 seconds old |
 | V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit covered by a range record (C8). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
@@ -2942,7 +3067,7 @@ code to its rule here.
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | The explicit continuation (C8) |
 | `workflow_execution_profile_retired` | Public resume/restart and invalidation select a retired profile; refusal precedes locks/writes (§13 and CLI cutoff) |
 | `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run (§8.4; the profile has no force-restart); not raised by `run` or ordinary `resume` of an admitted 2.35 entry ([`specs/cli.md`](../../specs/cli.md#diagnostics)) |
-| `parallel_workspace_shared` | A later release (§11) |
+| `parallel_workspace_shared` | Before any item of a bounded 2.37 `par-map` launches: two items resolve to one working directory (§11) |
 
 ## 13. Targets And Compatibility
 
@@ -3053,7 +3178,7 @@ records commands, exits, hashes and limits separately from historical evidence.
 | Identity | Adding blank lines, and moving the program and the package, change no identity | Spike: met (gate report, §2, criterion 5). Public: [`tests/test_workflow_evaluated_public_identity.py`](../../tests/test_workflow_evaluated_public_identity.py) (Task 13B) |
 | Sites | Independent `perform`-node/site-table bijection and one frame per effectful call; fixtures cover `select` prefixes, nested `block`, `join` body/continuation, exhaustion and control in aggregate/terminal positions. Every memo identity instantiates one site and its frames | Spike: existing corpus instances met (gate report, §2, criterion 6). Public: the 2.35 totality matrix of Task 13A, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), on top of the Phase 2 site owners |
 | Parity | On programs both routes accept, the effect traces are equal and the requests are equal apart from R1 to R12 | Spike: met on 68 matrix cells, the shipped examples and a reduced decisive program (gate report, §2, criterion 7). Public: request fields on public runs in [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py), [`tests/test_workflow_evaluated_prompts.py`](../../tests/test_workflow_evaluated_prompts.py) and [`tests/test_workflow_evaluated_command_templates.py`](../../tests/test_workflow_evaluated_command_templates.py) |
-| Older targets | Byte-identical build artifacts | Per-cut comparisons remain recorded in the Phase 3 plan. Final Task 17 audit at `ef689a39`, fixed source/package paths and `PYTHONHASHSEED=0`: 88/88 raw public artifact pairs equal; authentic capsules 55/67 equal with 12 pin/derived-identity differences (exit 1); separate fixed-identity serialization control 67/67 equal (exit 0); old 2.34 run/resume exit 0/0 with no redispatch. [Closeout and limits](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md#task-17-open-full-run-completed-red); the control is not authentic-pin byte equality |
+| Older targets | Byte-identical build artifacts | Per-cut comparisons remain recorded in the Phase 3 plan. Final Task 17 audit at `ef689a39`, fixed source/package paths and `PYTHONHASHSEED=0`: 88/88 raw public artifact pairs equal; authentic capsules 55/67 equal with 12 pin/derived-identity differences (exit 1); separate fixed-identity serialization control 67/67 equal (exit 0); old 2.34 run/resume exit 0/0 with no redispatch. [Closeout and limits](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md#task-17-closed-full-run-completed-red); the control is not authentic-pin byte equality |
 | A dependence through a file | Command A writes a path that command B reads by a fixed name, with no value between them. After A's input changes and `invalidate A`, the resume gives the value of a fresh run, and B ran again | Spike: failed on the value-only rule; iteration 4 reproduced and corrected it with suffix invalidation. Public: met, A writes `handoff.txt` and B reads it by name; after `invalidate` of the writer the resume gives the fresh run's value and B ran again, [`tests/test_workflow_evaluated_invalidate.py`](../../tests/test_workflow_evaluated_invalidate.py) |
 | A read-only closure with external caches | A Python package command resumes with cache files absent from the closure (disabled or outside it); assert that placement. A changed authored script refuses resume, and a command modifying its closure fails before commit | Spike: iteration 4 measured both cache placement and write detection. Public: [`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py), [`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py) (`__pycache__` outside the evidence, C5) and [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py) (changed authored script and changed package helper refuse) |
 | The interpreter fixed for the run | Changing `PATH` alone launches the recorded executable with no change diagnostic. Changing bytes at that path emits `interpreter_changed` and continues on it; a missing/unlaunchable recorded path refuses. No interpreter digest enters effect-input identity | Spike: iteration 4 demonstrated PATH pinning but retained digest-based refusal. Public: the accepted C3 policy is met, PATH redirected and bytes changed after a kill, resume logs `interpreter_changed` and launches the pinned path, [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py) and [`tests/test_workflow_evaluated_interpreters.py`](../../tests/test_workflow_evaluated_interpreters.py); `resume_interpreter_missing` is owned there and not observed in a retained public file |
@@ -3091,7 +3216,7 @@ retains exact tested revisions and qualified evidence.
 | Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Spike: met (iteration 1, commit `92d47fe0`). Public: a second evaluation over one memo launches nothing and reads no committed result's file again, [`tests/test_workflow_evaluated_resume_replay.py`](../../tests/test_workflow_evaluated_resume_replay.py) and [`tests/test_workflow_evaluated_input_document_replay.py`](../../tests/test_workflow_evaluated_input_document_replay.py); a path's existence is observed only as a C6 document read or a `must_exist` check at the producing boundary. Secrets are not designed |
 | The views satisfy their readers | Every V9 adapter reads the evaluated profile through its public entry, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit | Spike: only report-shaped in-memory rows/status shown in iteration 2. Public: durable publication, the status adapters and every reader of §10 read the profile through their public entries, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit, [`tests/test_workflow_evaluated_view_publication_faults.py`](../../tests/test_workflow_evaluated_view_publication_faults.py) (Tasks 10–11); view failure with later divergence before reconcile/tail repair and completed resume twice by Task 15D, [`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py), integrated `a84f2769` |
 | A run-reference adapter can reuse its runtime and ledger | A compiled path-mode run reference, killed at both gaps, with the changed caller adapter | Spike: met (iteration 3, E). Public: the evaluated adapter with its ledger through the public entries, [`tests/test_workflow_evaluated_run_ref.py`](../../tests/test_workflow_evaluated_run_ref.py), [`tests/test_workflow_evaluated_run_ref_settlement.py`](../../tests/test_workflow_evaluated_run_ref_settlement.py), [`tests/test_workflow_evaluated_run_ref_root.py`](../../tests/test_workflow_evaluated_run_ref_root.py) and [`tests/test_workflow_evaluated_run_ref_kills.py`](../../tests/test_workflow_evaluated_run_ref_kills.py) (Task 9); both-gap kills on the real programs by Task 15A/15B, [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py) (`2604e887`) |
-| The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Spike: met for X1 and X4. Public: met on both routes. X2 (`PhaseCtx`) and X3 (`phase-target`, including named targets with a real legacy provider) are compared against the flat route's values by [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (`test_public_run_and_phase_context_match_existing_route`, `test_public_named_phase_targets_match_real_legacy_provider`) and [`tests/test_workflow_evaluated_phase_context.py`](../../tests/test_workflow_evaluated_phase_context.py) (`test_fixed_phase_target_values_match_legacy_after_readback`); X1 through the evaluated entries in [`tests/test_workflow_evaluated_call_context.py`](../../tests/test_workflow_evaluated_call_context.py); X4 is the `<result_root>/<result_path>` join of §8.4 (Task 13B-I) |
+| The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Spike: met for X1 and X4. Public: met; the flat oracle is retired and the tests assert the recorded flat-route values. X2 (`PhaseCtx`) and X3 (`phase-target`, including named targets with a real provider) are asserted by [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (`test_public_run_and_phase_context_match_existing_route`, `test_public_named_phase_targets_reach_real_provider_in_named_order`) and [`tests/test_workflow_evaluated_phase_context.py`](../../tests/test_workflow_evaluated_phase_context.py) (`test_fixed_phase_target_values_follow_named_order_after_readback`); X1 through the evaluated entries in [`tests/test_workflow_evaluated_call_context.py`](../../tests/test_workflow_evaluated_call_context.py); X4 is the `<result_root>/<result_path>` join of §8.4 (Task 13B-I) |
 | Non-finite numbers cannot reach an input digest | The numeric surface's boundary rule, implemented at target 2.34 | Owned by the [numeric surface](workflow_lisp_numeric_surface.md) |
 | A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Public: met, [`tests/test_workflow_evaluated_input_documents.py`](../../tests/test_workflow_evaluated_input_documents.py) (Task 12) |
 | The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Implemented: checker/artifact read-back reject those tamperings, including public CLI artifacts; `tests/test_workflow_lisp_closed_program_artifact.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
@@ -3113,12 +3238,12 @@ questions below stay open.
 | --- | --- | --- |
 | 1 | The number of the new target — resolved | 2.35, owner decision of 2026-09-30 (plan, decision 6) |
 | 2 | When older targets are retired — resolved | Selected 2026-10-13 retirement and finite gate R; the retirement closeout owns verification/delivery |
-| 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters |
-| 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's — resolved | Public runs on both routes with the values asserted equal: `tests/test_workflow_evaluated_public_context.py::test_public_run_and_phase_context_match_existing_route` and `::test_public_named_phase_targets_match_real_legacy_provider`, and `tests/test_workflow_evaluated_phase_context.py::test_fixed_phase_target_values_match_legacy_after_readback` (§18, Task 13B-I) |
-| 5 | Whether prompt dependency snapshots render as the present route renders them | The two routes' prompts compared on a workflow with prompt dependencies (§18) |
+| 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters; trials are retired without a port (§9.2), so no such class is selected |
+| 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's — resolved | Public runs asserting the recorded flat-route values: `tests/test_workflow_evaluated_public_context.py::test_public_run_and_phase_context_match_existing_route` and `::test_public_named_phase_targets_reach_real_provider_in_named_order`, and `tests/test_workflow_evaluated_phase_context.py::test_fixed_phase_target_values_follow_named_order_after_readback` (§18, Task 13B-I) |
+| 5 | Whether prompt dependency snapshots render as the present route renders them | Historical: the two routes' prompts were compared through Task 7 (§18) before the flat route's retirement; no further comparison is possible |
 | 6 | When invalidation may narrow to dependents through values and declared files (C9) | A later release, when command boundaries declare the files they read and write, tested by the file-dependence fixture of §17 |
-| 7 | How sessions, observation files and secrets are named and resumed | Not designed. Each enters with the class that needs it, with its own evidence (§1.1) |
-| 8 | Whether an interrupted, unsettled judge attempt spends a trial's budget | Owner decision before trial admission: preserve the current charged-at-allocation policy (a crash may change the decision), or change charging/retry semantics with explicit evidence. This design selects neither; trials remain later |
+| 7 | How sessions, observation files and secrets are named and resumed | Sessions are designed and implemented at target 2.38 ([Agent Sessions](workflow_lisp_agent_sessions.md)); observation files and secrets are not designed and enter with the class that needs them (§1.1) |
+| 8 | Whether an interrupted, unsettled judge attempt spends a trial's budget | Owner decision before trial admission: preserve the current charged-at-allocation policy (a crash may change the decision), or change charging/retry semantics with explicit evidence. This design selects neither; trials are retired without a port (§9.2) |
 
 ## 20. Decision Log
 

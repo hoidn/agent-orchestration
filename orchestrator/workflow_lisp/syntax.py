@@ -18,12 +18,14 @@ import sys
 
 from orchestrator.workflow.pure_expr import NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION
 from orchestrator.contracts.closed_program.targets import (
+    AGENT_SESSIONS_MIN_TARGET_DSL_VERSION,
     EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
     FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION,
     NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION,
     PARALLEL_MAP_MIN_TARGET_DSL_VERSION,
     SUPPORTED_TARGET_DSL_VERSIONS,
     target_dsl_refuses_non_finite_floats,
+    target_dsl_supports_agent_sessions,
     target_dsl_supports_nested_structural_transport,
     target_dsl_supports_parallel_map,
     target_dsl_uses_evaluated_execution,

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path, PurePath
 import posixpath
+import re
 import secrets
 import signal
 import stat
@@ -2326,6 +2327,7 @@ class CgroupV2ContainmentRoot:
     mount_mode: int
     mount_statx_mount_id: int
     identity_digest: str
+    slot_prefix: str = "provider-isolation-"
 
     @classmethod
     def discover(cls) -> "CgroupV2ContainmentRoot":
@@ -2343,12 +2345,54 @@ class CgroupV2ContainmentRoot:
             raise ProviderIsolationBackendUnavailable(
                 "controller cgroup-v2 identity is noncanonical"
             )
+        return cls._from_delegated_path(
+            Path("/sys/fs/cgroup").joinpath(*relative.parts[1:]),
+            slot_prefix="provider-isolation-",
+        )
+
+    @classmethod
+    def from_scope_path(
+        cls,
+        path: Path,
+        *,
+        slot_prefix: str,
+    ) -> "CgroupV2ContainmentRoot":
+        """Root at an explicit delegated cgroup (a run-ref holder scope).
+
+        The same identity rules as `discover()` apply; slots created or
+        loaded beneath it carry `slot_prefix` instead of the provider prefix.
+        """
+        mount = Path("/sys/fs/cgroup")
+        candidate = Path(path)
+        if (
+            not candidate.is_absolute()
+            or ".." in candidate.parts
+            or candidate == mount
+            or not candidate.is_relative_to(mount)
+            or os.path.normpath(candidate) != os.fspath(candidate)
+        ):
+            raise ProviderIsolationBackendUnavailable(
+                "explicit cgroup-v2 scope path is noncanonical"
+            )
+        return cls._from_delegated_path(candidate, slot_prefix=slot_prefix)
+
+    @classmethod
+    def _from_delegated_path(
+        cls,
+        root: Path,
+        *,
+        slot_prefix: str,
+    ) -> "CgroupV2ContainmentRoot":
+        if (
+            not isinstance(slot_prefix, str)
+            or re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*-", slot_prefix) is None
+        ):
+            raise ProviderIsolationInvalidPlan("containment slot prefix is invalid")
         mount = Path("/sys/fs/cgroup")
         if not _expected_cgroup2_mount(mount):
             raise ProviderIsolationBackendUnavailable(
                 "trusted cgroup-v2 mount is unavailable"
             )
-        root = mount.joinpath(*relative.parts[1:])
         (
             mount_value,
             mount_statx_mount_id,
@@ -2407,6 +2451,7 @@ class CgroupV2ContainmentRoot:
             mount_mode=stat.S_IMODE(mount_value.st_mode),
             mount_statx_mount_id=mount_statx_mount_id,
             identity_digest=identity,
+            slot_prefix=slot_prefix,
         )
 
     def revalidate(self) -> None:
@@ -2454,7 +2499,7 @@ class CgroupV2ContainmentRoot:
         self.revalidate()
         normalized = _require_text(attempt_id, "attempt_id")
         label = sha256(normalized.encode("utf-8")).hexdigest()[:32]
-        name = f"provider-isolation-{label}"
+        name = f"{self.slot_prefix}{label}"
         path = self.path / name
         try:
             os.mkdir(path, 0o700)
@@ -2500,8 +2545,8 @@ class CgroupV2ContainmentRoot:
         self.revalidate()
         if (
             not isinstance(name, str)
-            or not name.startswith("provider-isolation-")
-            or len(name) != len("provider-isolation-") + 32
+            or not name.startswith(self.slot_prefix)
+            or len(name) != len(self.slot_prefix) + 32
             or any(character not in "0123456789abcdef" for character in name[-32:])
         ):
             raise ProviderIsolationStateError("containment slot name is invalid")

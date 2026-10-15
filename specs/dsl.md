@@ -22,7 +22,7 @@ does not widen evaluated admission or select a port of an excluded effect.
 YAML-fenced snippets are structural notation, not authored workflow files.
 
 - Top-level workflow keys
-  - `version`: string (registered revisions include bounded `"2.37"` (see [qualification](versioning.md#version-gating-summary)); targets 2.35/2.36 and bounded 2.37 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (registered revisions include bounded `"2.37"` and registered bounded `"2.38"` (command-only confined run-ref and agent sessions; see [qualification](versioning.md#version-gating-summary)); targets 2.35/2.36, bounded 2.37 and registered bounded 2.38 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -849,6 +849,127 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       `orchestrator compile <program.orc> --diagnostics-json`; accepted exits
       zero and rejected exits two. Human compiler output remains unchanged
       when this machine surface is not requested.
+
+  - Workflow Lisp run-ref confined workflow children (target 2.38):
+    - Public admission is command-only under `:network :none`, including
+      recovery and typed exports. Confined provider sites refuse with
+      `run_ref_provider_transport_unavailable` before run-state creation or
+      holder launch; the provider contract below requires separate transport
+      qualification and public admission. Target 2.38 also independently admits
+      the bounded [Agent Sessions surface](../docs/design/workflow_lisp_agent_sessions.md); Agent allocation and turns are excluded from
+      confined children.
+
+      Path mode, its admission, configuration bytes, recovery and
+      internal target `2.35` are unchanged. Authority:
+      [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#authored-contract)
+      (D2, D4, D6); the
+      [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md)
+      owns delivery and qualification evidence.
+    - The named-workflow program locus:
+
+      ```lisp
+      (run-ref
+        :source (:repo "<canonical-locator>" :commit <String-expression>)
+        :program (:workflow <static-workflow-name>)
+        :inputs (:name <value-expr> ...)
+        :policy (:environment :confined
+                 :image "<repository>@sha256:<64-lowercase-hex>"
+                 :network <:none | :model-only>
+                 :limits (:wall-seconds N :memory-mib N :cpus N :pids N
+                          :workspace-mib N :output-mib N)))
+      ```
+
+      `:program` accepts exactly one of `(:path ...)` and
+      `(:workflow <name>)`; `:bundle` stays refused and old `:bundle`
+      artifacts are never reinterpreted. `:returns` and `:setup` are refused
+      in workflow mode.
+    - `<static-workflow-name>` resolves in the parent module graph and need
+      not be exported. It compiles through the ordinary closed-program
+      pipeline as a private child entry with its own site table, source maps,
+      owner configuration and effect summary; its dependency closure becomes
+      an immutable contribution to the parent's checked program, and the
+      clone cannot override manifests, provider registry, prompts or
+      executable configuration. `:inputs` bind by name to the workflow's
+      signature with its ordinary exact-arity and type checks; the result
+      type derives from the signature.
+    - `:repo` is a compile-time literal canonical locator, as in path mode.
+      `:commit` is a pure `String` expression evaluated once in the parent in
+      authored order before child allocation, validated as 40 lowercase hex
+      and included in the effect input digest; a changed revision is ordinary
+      resume input drift.
+    - Policy keys are closed, unique and literal; `:environment :confined`
+      is required. `:image` names a repository
+      and a SHA-256 digest; a mutable tag is not authority. `:network` is
+      exactly `:none` or `:model-only` and never means general network
+      access. All six limit keys are required, with no defaults, and are
+      positive bounded integers: `:cpus` is an integer
+      quota, `:output-mib` bounds exports only, and `:wall-seconds` is the
+      child's cumulative budget for guest execution and the host-side work
+      done for it. It belongs to the parent visit across K4 replacements;
+      acknowledged active intervals include controller downtime and host
+      suspension under the fixed Linux `CLOCK_BOOTTIME` clock. An open
+      interval from another boot refuses resume, without resetting allowance
+      or estimating duration from UTC. Closed pauses do not consume budget.
+      [State owns the durable accounting and recovery rule](state.md#confined-wall-budget-recovery).
+      Installation maxima are checked at admission.
+    - Compile-time refusals, transitive by effect kind through calls,
+      procedures and hooks over the closed effect summary:
+      `run_ref_environment_effect_unsupported` for nested `run-ref`, parallel
+      effect execution, dynamic evaluation, `trial`, human input,
+      session/context capture, Agent allocation/turns or resource transitions in the child; for
+      `:network :none` with any provider effect in the child's summary; and
+      for `:memory-mib` below `:workspace-mib + 960` (the profile's scratch,
+      `/dev/shm`, result and process headroom constants).
+      `run_ref_child_transport_unsupported` for `provider-bundle-path` in the
+      child, an authority-bearing input (`ProcRef`, provider roles,
+      Context/session values, resources), and a result path descriptor
+      without a nonempty workspace-relative `:under` outside reserved
+      control/Git roots or with `:must-exist false`. Shape and literal
+      violations keep the closed run-ref compiler diagnostics above. The
+      child admits the target's ordinary pure forms, commands and static calls.
+      Portable tool-enabled provider calls are the separately qualified target
+      contract; their public admission remains closed as stated above.
+    - The site's type is a compiler-owned per-site union:
+
+      ```text
+      RunRefOutcome$<site-digest> =
+        COMPLETED (result RunRefResult$<site-digest>)
+        FAILED    (code String) (detail String) (accounting RunRefAccounting)
+      ```
+
+      `RunRefResult$<site-digest>` keeps its three fields. `FAILED` carries
+      child runtime failure, wall-time or budget exhaustion, environment
+      refusal after release and environment loss after release; structural,
+      compile and admission failures before release abort the parent effect
+      under ordinary evaluated rules. A genuine pure runtime fault after
+      valid admission may be FAILED before the first effect or holder.
+      Budget exhaustion before the release of the attempt being resolved
+      aborts the parent, including initial admission or preparation of a
+      fresh K4 ordinal; after its durable release it can produce FAILED at
+      dispatch, recovery or final shutdown without a new holder. A previous
+      ordinal's release does not count for the new one. Evidence, authority,
+      publication and quiescence failures are not reclassified as pure faults.
+      A bare `.value` on the site does not typecheck. For this profile the `RepositoryRevisionId` setup component
+      is the literal `none` and `setup_ms` is `0`.
+    - New codes: `run_ref_child_target_unavailable`,
+      `run_ref_child_transport_unsupported`,
+      `run_ref_environment_effect_unsupported`,
+      `run_ref_environment_unavailable`, `run_ref_environment_changed`,
+      `run_ref_environment_escape_rejected`, `run_ref_environment_lost`,
+      `run_ref_provider_transport_unavailable`, `run_ref_budget_exhausted`
+      and `run_ref_export_invalid`; the
+      [design's diagnostics table](../docs/design/workflow_lisp_run_ref_expression_environments.md#diagnostics-and-contract-changes)
+      owns their refusal points. Runtime contracts:
+      [State](state.md#proposed-run-ref-confined-child-state-target-238),
+      [IO](io.md#proposed-run-ref-confined-child-io-target-238),
+      [Security](security.md) and [Providers](providers.md).
+    - Placement: a confined site is admitted where a 2.35+ path-mode
+      `run-ref` is admitted above, except inside any `list/map-effect` frame,
+      serial or parallel, and inside trial arms.
+    - For signatures reaching run-ref transport checking, authority-bearing
+      inputs and child results refuse with `run_ref_child_transport_unsupported`.
+      Ordinary workflow/type validation may reject an invalid signature earlier;
+      this rule does not change diagnostic precedence.
 
   - Workflow Lisp bounded static trials (target 2.25):
     - `trial` is one step-level durable `TRIAL` effect over two or more

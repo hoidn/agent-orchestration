@@ -10,17 +10,23 @@ from typing import Any, Mapping, Sequence
 from orchestrator.workflow.evaluated.attempts import attempt_paths
 from orchestrator.workflow.evaluated.closure import ClosureEvidenceError, resolve_command_evidence
 from orchestrator.workflow.evaluated.commands import (
+    CommandPerformerError,
     CommandTemplateError,
     render_command_argv,
     workspace_relative_path,
 )
+from orchestrator.workflow.evaluated.confined_dispatch import image_implementation_files
 from orchestrator.workflow.evaluated.memo import JournalEntry, MemoSnapshot
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
+from .agent_sessions import resolve_allocation_input
+from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
+from .agent_turn_recovery import classify_pending_turn, latest_failure
+from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
-from .providers import DELIVERY_NAMES_BY_DIGEST, resolve_provider_input
+from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
 
 
@@ -39,24 +45,30 @@ class _EffectInputDiverged(_PreflightRefusal):
         )
 
 
-def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner, *, launch_workspace=None):
+def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner, *,
+                             launch_workspace=None, confined=None):
     resolved, parts, _implementation_files = _resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, None, None, commit.data["result_path"],
-        check_command_destinations=False, owner=owner, launch_cwd=resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=commit),
+        check_command_destinations=False, owner=owner, launch_cwd=resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=commit, recorded=confined is not None),
+        confined=confined, snapshot=snapshot,
     )
     dependencies = effect_dependencies(operands, launch_workspace)
+    if node["class"] == "agent_turn":
+        dependencies = list(turn_dependencies(resolved, dependencies))
     result = _reuse_effect_commit(
         authority, commit, node, identity, parts, canonical_sha256(parts), dependencies
     )
+    settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
-        validate_evaluated_run_ref(authority, resolved, identity, workspace, commit,
-            settled=(identity, commit.data["attempt"]) in snapshot.settlements)
+        validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
+    elif node["class"] == "agent_turn":
+        validate_turn(authority, resolved, identity, commit, settled=settled)
     return result
 
 
 def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner,
-                           *, reached_frontiers=frozenset(), launch_workspace=None) -> None:
+                           *, reached_frontiers=frozenset(), launch_workspace=None, confined=None) -> None:
     _ensure_effect_can_start(snapshot, identity, allow_unsettled=True, reached_frontiers=reached_frontiers)
     if node["class"] == "run_ref":
         require_run_ref_root(authority)
@@ -69,7 +81,7 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
             None, baseline, attempt_directory, result_path, owner=owner,
-            check_command_destinations=False, launch_cwd=launch_cwd,
+            check_command_destinations=False, launch_cwd=launch_cwd, confined=confined,
         )
     elif node["class"] == "provider" and identity in snapshot.pending_starts:
         _ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
@@ -78,6 +90,7 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
             None, baseline, attempt_directory, result_path, owner=owner,
             launch_cwd=launch_cwd,
         )
+    _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd)
     if baseline is not None and node.get("repeat") == "never":
         raise _PreflightRefusal(
             "lexical_restore_pending_effect_unsafe",
@@ -85,35 +98,89 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
         )
 
 
+def _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd) -> None:
+    """Read-only: a later turn whose latest attempt closed `agent_turn_result_invalid` refuses with that code; a pending
+    agent turn is classified at its own result path (probe only, nothing signalled) and only `unresolved` refuses;
+    `needs_quiescence`, `recoverable`, `not_dispatched` and `bootstrap` are admitted (bootstrap writes under the lock)."""
+    if node["class"] != "agent_turn":
+        return
+    failure = latest_failure(snapshot, identity)
+    if failure is not None and failure["code"] == "agent_turn_result_invalid":
+        raise _PreflightRefusal("agent_turn_result_invalid", f"{identity}: attempt {failure['attempt']} returned an invalid result")
+    pending = snapshot.pending_starts.get(identity)
+    if pending is None:
+        return
+    resolved, _parts, _files = _resolve_effect_input(authority, node, operands, identity, workspace, reader, None, pending,
+        None, pending.data["result_path"], owner=None, launch_cwd=launch_cwd, snapshot=snapshot)
+    classified = classify_pending_turn(authority, node, identity, snapshot, workspace, resolved, probe_only=True)
+    if classified.disposition == "unresolved":
+        raise _PreflightRefusal("agent_turn_unresolved", f"{identity}: {classified.detail}")
+
+
 def _resolve_effect_input(
     authority, node, operands, identity, workspace, reader,
     commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True, launch_cwd=None,
+    confined=None, snapshot=None,
 ):
-    """Resolve only the reached effect; command closure checks stay local."""
+    """Resolve the reached effect; `snapshot` is required for `agent_turn`.
+
+    `confined` takes C4 evidence from image bytes and a committed effect's clone
+    inputs from its verified attempt snapshot (P1, Q2).
+    """
     if launch_cwd is not None and (commit is not None or baseline is not None):
         _check_retry_cwd(identity, commit or baseline, workspace, launch_cwd)
     if node["class"] == "command":
         resolved, parts, implementation_files = _resolve_command_input(authority, node, operands, identity, owner, workspace,
-            commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations, launch_cwd)
-    elif node["class"] == "run_ref":
-        require_run_ref_root(authority)
-        resolved, parts = resolve_run_ref_input(node, operands)
-        implementation_files = {}
+            commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations, launch_cwd,
+            confined)
     else:
-        delivery_name = _provider_delivery_name(node, commit, identity)
-        try:
-            resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
-                result_path=workspace_relative_path(workspace, authority.run_root / result_path),
-                delivery_name=delivery_name, logical_workspace=launch_cwd is not None)
-        except Exception as exc:
-            if commit is not None:
-                raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
-            raise
-        parts = dict(resolved.input_parts)
+        resolved, parts = _resolve_external_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd, snapshot)
         implementation_files = {}
     if launch_cwd is not None:
         parts["launch_cwd"] = _cwd_digest(workspace, launch_cwd)
     return resolved, parts, implementation_files
+
+
+def _resolve_external_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd, snapshot):
+    if node["class"] == "run_ref":
+        require_run_ref_root(authority)
+        return resolve_run_ref_input(node, operands)
+    if node["class"] == "agent":
+        return resolve_allocation_input(node, operands)
+    if node["class"] == "agent_turn":
+        resolved = _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd, snapshot)
+    else:
+        resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd)
+    return resolved, dict(resolved.input_parts)
+
+
+def _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd, snapshot):
+    """A committed turn replays against its historical predecessor and its committed delivery rendering."""
+    try:
+        return resolve_turn_input(authority, node, operands, identity, workspace, reader, snapshot=snapshot,
+            result_path=result_path, launch_cwd=launch_cwd, committed_offset=None if commit is None else commit.offset,
+            delivery_name=None if commit is None else _provider_delivery_name(node, commit, identity))
+    except (AgentTurnError, MemoError):
+        raise
+    except Exception as exc:
+        if commit is not None:
+            raise _EffectInputDiverged(identity, f"agent turn inputs could not be resolved: {exc}") from exc
+        raise
+
+
+def _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd):
+    delivery_name = _provider_delivery_name(node, commit, identity)
+    try:
+        return resolve_provider_input(node, operands, workspace=workspace, reader=reader,
+            result_path=workspace_relative_path(workspace, authority.run_root / result_path),
+            delivery_name=delivery_name, logical_workspace=launch_cwd is not None)
+    except Exception as exc:
+        if commit is not None:
+            raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
+        raise
 
 
 def _provider_delivery_name(node, commit, identity):
@@ -121,7 +188,7 @@ def _provider_delivery_name(node, commit, identity):
     if commit is None:
         # omp children never receive ORCHESTRATOR_OUTPUT_BUNDLE_PATH; they deliver by final assistant text
         # that the parent materializes (specs/providers.md), so they keep the legacy wording.
-        return "legacy" if node["provider"].startswith("omp") else "file/1"
+        return "legacy" if node["provider"].startswith("omp") else FILE_DELIVERY_NAME
     digest = commit.data["input_parts"].get("delivery")
     if digest is None:
         return None
@@ -130,10 +197,15 @@ def _provider_delivery_name(node, commit, identity):
     return DELIVERY_NAMES_BY_DIGEST[digest]
 
 
-def resolve_launch_cwd(workspace, value, *, identity=None, previous=None):
+def resolve_launch_cwd(workspace, value, *, identity=None, previous=None, recorded=False):
     if value is None:
         return None
     try:
+        if recorded:
+            from .confined_dispatch import guest_cwd
+            cwd = Path(workspace) / value.json_value()
+            guest_cwd(Path(workspace), cwd)  # lexical confinement check; no mutable clone lookup
+            return cwd
         cwd = (Path(workspace) / value.json_value()).resolve(strict=True)
         if not cwd.is_dir():
             raise ValueError("launch workspace is not a directory")
@@ -176,22 +248,55 @@ def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_uns
 
 
 def _resolve_command_input(authority, node, operands, identity, owner, workspace,
-    commit, baseline, attempt_directory, result_path, workspace_files, check_destinations, launch_cwd=None):
+    commit, baseline, attempt_directory, result_path, workspace_files, check_destinations, launch_cwd=None,
+    confined=None):
     previous = commit if commit is not None else baseline
     external = command_binding_kind(authority.program, owner, node["boundary"]) == "external_tool"
+    if confined is not None and commit is not None:
+        from .confined_dispatch import SnapshotPaths
+        workspace_files = SnapshotPaths(Path(workspace), confined.verified_parts(commit.data["input_parts"]))
     with nullcontext(workspace_files) if workspace_files is not None else closing(WorkspaceFiles(workspace)) as files:
         argv, document, contract = _render_resolved_argv(node, operands, commit, identity,
             external=external, workspace=workspace, workspace_files=files)
     destinations = (_command_destinations(authority, attempt_directory, result_path,
         include_input=external and document is not None)
         if commit is None and check_destinations else ())
-    implementation_files = _resolve_command_implementation(node, workspace, identity,
-        None if previous is None else previous.data["implementation_files"], destinations, launch_cwd)
+    if confined is not None:
+        implementation_files = (confined.implementation_files(node, authority.header["interpreters"])
+            if hasattr(confined, 'implementation_files') else
+            image_implementation_files(node, authority.header["interpreters"], confined.image))
+    else:
+        implementation_files = _resolve_command_implementation(node, workspace, identity,
+            None if previous is None else previous.data["implementation_files"], destinations, launch_cwd)
     _check_retry_implementation(identity, baseline, implementation_files)
     parts = _command_input_parts(node, argv, implementation_files, document)
     if external and document is not None:
         parts["input_contract"] = canonical_sha256(contract)
+    if confined is not None and commit is not None:
+        parts.update(confined.verified_parts(commit.data["input_parts"]))
     return (argv, document if external else None), parts, implementation_files
+
+
+def rehash_command_implementation(node, workspace, implementation_files, launch_cwd=None, *, authority=None,
+                                  confined=None):
+    """The precommit rehash (C4); a confined command rehashes its image pins only (Q2)."""
+    try:
+        if confined is not None:
+            after_files = image_implementation_files(node, authority.header["interpreters"], confined.image)
+        else:
+            after_files = resolve_command_evidence(node["command"], node["closure"], workspace_root=workspace,
+                                                   prior=implementation_files, launch_cwd=launch_cwd)
+    except ClosureEvidenceError as exc:
+        raise CommandPerformerError(
+            "command_closure_written",
+            f"command closure changed during its attempt: {exc}",
+        ) from exc
+    if after_files != implementation_files:
+        raise CommandPerformerError(
+            "command_closure_written",
+            f"command closure changed during its attempt: {_changed_evidence(implementation_files, after_files)}",
+        )
+    return after_files
 
 
 def _render_resolved_argv(node, operands, commit, identity, *, external, workspace, workspace_files):

@@ -394,6 +394,17 @@
       "surface_kind": "workflow_example"
     },
     {
+      "evidence": [
+        "tests/test_workflow_lisp_design_review_execute_agents_example.py::test_documented_command_compiles_two_agents_and_four_turns"
+      ],
+      "notes": "Opt-in Agent Sessions variant of design_review_execute.orc at target 2.38: a designer Agent on providers.claude takes draft/revise and a reviewer Agent on providers.codex takes review/execute, preserving the baseline declarations, models, effort and timeouts. Allocation, turns, recovery, C8 guards and instance views are implemented. The PQ-1a qualification record (docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic consumer/mechanism proofs and bounded real-provider adapter smokes, not a real-provider run of this consumer or its acceptance comparison. PQ-1c clean and failed/resumed comparison remains separately authorized.",
+      "path": "workflows/examples/design_review_execute_agents.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "evaluated_execution",
+      "surface_id": "workflows.examples.design_review_execute_agents",
+      "surface_kind": "workflow_example"
+    },
+    {
       "copy_safety": "not_current_guidance",
       "evidence": [
         "workflows/examples/kiss_backlog_item.orc",
@@ -759,5 +770,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-10-13"
+  "updated": "2026-10-14"
 }

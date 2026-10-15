@@ -15,6 +15,7 @@ pattern for generating, evaluating, selecting and improving candidates. The
 | Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | 2.35 explicit-input API; 2.36 local-hook API |
 | Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary at 2.35 |
 | Search across candidates under an evaluation budget | [Iterative search](#iterative-search) | Example workflow | Maintained compact controller at 2.35; application-defined policy |
+| Keep one conversation across review and revise | [`design_review_execute_agents.orc`](../workflows/examples/design_review_execute_agents.orc); [Agent sessions](lisp_workflow_drafting_guide.md#agent-sessions-target-238) | Example workflow | Implemented at 2.38; [deterministic and bounded adapter-smoke evidence](reports/2026-10-14-agent-sessions-pq1a-qualification.md) recorded; acceptance comparison pending |
 
 These entries do different work. Selection compares alternatives; review/revise
 changes a candidate; an evaluator supplies evidence; a search controller decides
@@ -155,8 +156,12 @@ proof of membership or quality. Inspect the returned report and candidate before
 applying a change. Clones prevent accidental shared edits but supply no OS
 sandbox; these bindings run unrestricted provider tools. Do not infer parallel
 execution or runtime-owned clone preparation from this example. The
-run-ref expression/OCI design
-is proposed and unimplemented, with no current authoring permission.
+[run-ref confinement design](design/workflow_lisp_run_ref_expression_environments.md)
+has a separate implemented command-only surface; use the
+[command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+for its host/image prerequisites and limits. Confined provider admission and this
+best-of-N consumer migration remain pending; this recipe still uses existing
+unrestricted clones.
 
 ## Review and revise with `std/improve`
 
@@ -626,6 +631,7 @@ leaves. It does not establish live-provider search quality, model cost, GPU
 throughput or production behavior, and Python has no equivalent durable
 recovery implementation in this specimen. This numerical controller does not
 manage clones, mutate code, merge patches or create an OS sandbox. Use the
-preceding generation/selection example for manually prepared code workspaces;
-expression environments
-remain proposed and unimplemented.
+preceding generation/selection example for manually prepared code workspaces, or
+the [confined command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+for runtime-owned command workspaces. Confined providers and the complete
+generation/selection migration remain pending qualification.

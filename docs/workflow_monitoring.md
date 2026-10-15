@@ -7,9 +7,10 @@ processes, or depend on workflow-authored finalization steps.
 
 ## Monitoring And Recovery Tools
 
-`orchestrator monitor` is read-only observation. The [generic run watchdog](../workflows/README.md#generic-run-watchdog-launch)
-is a workflow that can inspect and repair a target run; launch it from its own
-workspace because each workspace admits one active run. The separate
+`orchestrator monitor` is read-only observation. The
+[generic run watchdog](../workflows/library/generic_run_watchdog/watchdog.orc)
+is a retired launch surface kept as historical source; it does not inspect or
+repair runs. The separate
 [`watch_workflow_usage_limit.sh`](../scripts/watch_workflow_usage_limit.sh)
 script watches a tmux pane and may send resume or run commands. It has a known
 F50 edge: after a late refusal, an admitted fresh run can leave the watcher
@@ -20,72 +21,19 @@ is captured by strict-xfail test
 ## Provider Observation And Peer Messaging Are Different Surfaces
 
 Runtime provider observation panes are ephemeral, process-local execution
-views. Ordinary provider invocations attempt them by default and degrade
-safely if observation is unavailable. A target-2.16
-`with-live-providers` group instead requires both initial panes through
-directive selection because the supervisor's observation edge is part of that
-node's control contract.
+views. The evaluated runtime opens them only for a program with target-2.38
+agent sessions, best-effort, and degrades safely if observation is
+unavailable; in a program without agent sessions no pane is opened. The target-2.16
+`with-live-providers` and target-2.17 `with-live-provider-peers` groups are
+retired with no evaluated port ([status](capability_status_matrix.md)); their
+panes, endpoints, member ledgers and `provider_peer_group` state records
+occur only in historical flat-route runs.
 
-Neither kind of pane is monitor, result, checkpoint, or resume authority.
+No pane is monitor, result, checkpoint, or resume authority.
 Pane bytes and transcripts do not replace provider transport or validated
 output bundles, and live tmux targets do not enter persisted workflow state.
-Use `orchestrator report` and `state.json` for workflow truth. Do not use raw
-tmux `send-keys` to steer provider panes.
-
-A target-2.17 `with-live-provider-peers` group uses separate
-runtime-owned interactive client panes and an attempt-bound local endpoint.
-Those resources exist only to implement natural turn-boundary
-`peer-ready`/`peer-send`/`peer-ack`/`peer-finish`; they are not monitor
-targets, and an operator must not inject raw pane input. The endpoint and
-opaque member credentials are ephemeral and never enter persisted workflow
-values, checkpoints, or reusable evidence.
-
-While a peer group is active, `state.json` identifies the running cursor with
-`current_step.type: provider_peer_group`. A normally completed or reportable
-failed group stores a small `debug.provider_peer_group` record containing:
-
-- `terminal_evidence_path`;
-- `terminal_evidence_schema_version`, with value
-  `provider_peer_group_terminal_evidence.v1`; and
-- `outcome: completed|failed`.
-
-`orchestrator report` preserves that typed step kind and debug pointer,
-including when it must build a state-only report. The referenced group
-evidence records the exact visit, terminal member attempts and lifecycles,
-receiver-ledger digests/counts, frozen-bundle digests, available
-natural-shutdown or failed-cleanup proofs, endpoint
-drain/close/worker-join proof, and settlement digest or structured failure.
-Per-member run-owned paths retain:
-
-```text
-provider-peer-group/<node>/visits/<visit>/members/<member>/attempt-<ordinal>/
-  prompt-dependencies.json
-  injected-messages.jsonl
-  evidence.json
-  provisional-result.json
-```
-
-The message ledger distinguishes `recorded`, `offered`, `offer_failed`, and
-`receiver_acknowledged`. These names are deliberately narrow: none asserts
-that a model saw, understood, or acted on content. The settled step result
-remains the workflow value; ledgers, panes, transcripts, and provisional
-member bundles are evidence only.
-
-Fail-closed launch cleanup that cannot prove a complete boundary before a
-member handle exists deliberately publishes no terminal group evidence; do
-not infer a successful or complete peer lifecycle from an ordinary failed
-step record in that case.
-
-If a process crash leaves an exact running peer-group visit, ordinary resume
-first applies every source, checkpoint, and integrity guard. It preserves
-partial ledgers as audit-only evidence, discards that visit's partial result
-authority, emits exactly one `provider_attempt_interrupted_rerun`, and enters
-a fresh group visit through ordinary dispatch. Messages are never retargeted,
-and no interrupted member session, attempt, endpoint, pane, bundle, or
-settlement is reused. Compatible completed groups remain invocation-free;
-missing, malformed, conflicting, or ambiguous authoritative recovery state
-fails closed before any provider launch. An explicit force restart or new run
-is not required for a validated interrupted visit.
+Use `orchestrator report` and the run's derived `state.json` view for workflow
+state. Do not use raw tmux `send-keys` to steer provider panes.
 
 ## Configuration
 
@@ -182,14 +130,18 @@ tmux -S /tmp/claude-tmux-sockets/claude.sock capture-pane -p -J -t orchestrator-
 
 - `COMPLETED`: the persisted run status is `completed`.
 - `FAILED`: the persisted run status is `failed`.
-- `CRASHED`: the run still says `running`, but process metadata confirms the
-  original workflow process is gone.
-- `STALLED`: the run still says `running`, and the active execution cursor
-  heartbeat, or fallback `state.updated_at`, is older than the configured stale
-  threshold.
+- `CRASHED`: for an evaluated run, the derived view reports `interrupted` (no
+  writer holds `run.lock` and no terminal is recorded); for a historical
+  flat-route run, the run still says `running`, but process metadata confirms
+  the original workflow process is gone.
+- `STALLED`: a historical flat-route run still says `running`, and the active
+  execution cursor heartbeat, or fallback `state.updated_at`, is older than the
+  configured stale threshold. Evaluated runs are never classified stalled;
+  `stale_after_seconds` does not apply to them.
 
-For call-based workflows, stale detection follows the active execution cursor
-into running call frames before falling back to root `updated_at`.
+For historical flat-route call-based workflows, stale detection follows the
+active execution cursor into running call frames before falling back to root
+`updated_at`.
 
 ## After An Email
 

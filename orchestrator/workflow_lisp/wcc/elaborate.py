@@ -22,6 +22,7 @@ from ..expression_traversal import (
     walk_expr,
 )
 from ..expressions import (
+    AgentExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -60,6 +61,7 @@ from ..expressions import (
     RunRefBundleProgram,
     RunRefExpr,
     RunRefPathProgram,
+    RunRefWorkflowProgram,
     TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
@@ -160,6 +162,7 @@ from .model import (
     WccSelectArm,
     WccResumeOrStartPayload,
     WccRunRefPayload,
+    WccRunRefWorkflowPayload,
     WccTrialArmPayload,
     WccTrialPayload,
     WccRunProviderPhasePayload,
@@ -1717,7 +1720,7 @@ def _substitute_wcc_payload(
     value,
     substitutions: Mapping[str, WccValue],
 ):
-    if isinstance(value, (WccRunRefPayload, WccTrialPayload)):
+    if isinstance(value, (WccRunRefPayload, WccRunRefWorkflowPayload, WccTrialPayload)):
         return value
     if isinstance(
         value,
@@ -2212,6 +2215,7 @@ def _elaborate_expr_to_body(
             ProviderResultExpr,
             CommandResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunRefExpr,
             TrialExpr,
             RunProviderPhaseExpr,
@@ -2875,6 +2879,7 @@ def _elaborate_let_star(
                 ProviderResultExpr,
                 CommandResultExpr,
                 RequestInputExpr,
+                AgentExpr,
                 RunRefExpr,
                 TrialExpr,
                 RunProviderPhaseExpr,
@@ -4592,6 +4597,7 @@ def _elaborate_match_to_body(
             ProviderResultExpr,
             CommandResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -5671,6 +5677,8 @@ def _prebind_effect_argument_matches(
         return (
             replace(
                 expr,
+                provider=expr.provider if expr.agent_origins is None
+                else replace_arg(expr.provider, role="agent", prebind_pure_projection=True),
                 inputs=tuple(
                     replace_arg(input_expr, role=f"provider-input:{index}")
                     for index, input_expr in enumerate(expr.inputs)
@@ -5704,6 +5712,14 @@ def _prebind_effect_argument_matches(
             tuple(match_bindings),
         )
     if isinstance(expr, RunRefExpr):
+        if isinstance(expr.program, RunRefWorkflowProgram):
+            expr = replace(
+                expr,
+                source=replace(
+                    expr.source,
+                    commit=replace_arg(expr.source.commit, role="run-ref-commit"),
+                ),
+            )
         return (
             replace(
                 expr,
@@ -6129,7 +6145,7 @@ def _elaborate_effect_expr_to_binding_value(
             session_state=type_env.session_state,
             prefer_retained=scope.closed_program,
             source_module=type_env.module_name,
-        ).type_ref
+        ).site_type_ref
     else:
         result_type = _infer_expr_type(
             expr,
@@ -6165,6 +6181,50 @@ def _elaborate_effect_expr_to_binding_value(
         metadata_input_names = tuple(name for name, _ in metadata.input_types)
         if input_names != metadata_input_names:
             raise TypeError("typed run-ref input metadata order changed before WCC")
+
+        def elaborate_operand(operand, role, name=None):
+            return _elaborate_atomic_value(
+                operand,
+                scope=scope.child_scope(role, authored_binding_name=name),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+
+        input_type_descriptors = tuple(
+            (name, compiler_normalized_type_descriptor(input_type, type_env=type_env))
+            for name, input_type in metadata.input_types
+        )
+        if isinstance(expr.program, RunRefWorkflowProgram):
+            return WccPerform(
+                metadata=scope.value_metadata(role="perform:run_ref", **metadata_kwargs),
+                perform_kind="run_ref",
+                target_name=expr.program.workflow_name,
+                prompt_name=None,
+                positional_args=(elaborate_operand(expr.source.commit, "run-ref-commit"),),
+                keyword_args=tuple(
+                    (name, elaborate_operand(input_expr, "run-ref-input", name))
+                    for name, input_expr in expr.inputs
+                ),
+                returns_type_name=metadata.outcome_type_ref.name,
+                operation_payload=WccRunRefWorkflowPayload(
+                    repo=expr.source.repo,
+                    workflow_name=expr.program.workflow_name,
+                    policy=expr.program.policy,
+                    site_digest=metadata.site_digest,
+                    generated_result_type=metadata.generated_type_name,
+                    generated_outcome_type=metadata.outcome_type_ref.name,
+                    result_descriptor=result_contract.descriptor,
+                    result_digest=result_contract.digest,
+                    allow_nested_structures=result_contract.allow_nested_structures,
+                    input_type_descriptors=input_type_descriptors,
+                ),
+            )
         if isinstance(expr.program, RunRefBundleProgram):
             program = BundleProgram(workflow_name=expr.program.workflow_name)
             target_name = expr.program.workflow_name
@@ -6203,16 +6263,7 @@ def _elaborate_effect_expr_to_binding_value(
             result_descriptor=result_contract.descriptor,
             result_digest=result_contract.digest,
             allow_nested_structures=result_contract.allow_nested_structures,
-            input_type_descriptors=tuple(
-                (
-                    name,
-                    compiler_normalized_type_descriptor(
-                        input_type,
-                        type_env=type_env,
-                    ),
-                )
-                for name, input_type in metadata.input_types
-            ),
+            input_type_descriptors=input_type_descriptors,
         )
         return WccPerform(
             metadata=scope.value_metadata(role="perform:run_ref", **metadata_kwargs),
@@ -6221,24 +6272,7 @@ def _elaborate_effect_expr_to_binding_value(
             prompt_name=None,
             positional_args=(),
             keyword_args=tuple(
-                (
-                    name,
-                    _elaborate_atomic_value(
-                        input_expr,
-                        scope=scope.child_scope(
-                            "run-ref-input",
-                            authored_binding_name=name,
-                        ),
-                        type_env=type_env,
-                        value_env=value_env,
-                        workflow_return_types=workflow_return_types,
-                        procedure_return_types=procedure_return_types,
-                        effect_summary=effect_summary,
-                        procedure_edges_by_site=procedure_edges_by_site,
-                        compile_time_bindings=compile_time_bindings,
-                        active_phase_scope=active_phase_scope,
-                    ),
-                )
+                (name, elaborate_operand(input_expr, "run-ref-input", name))
                 for name, input_expr in expr.inputs
             ),
             returns_type_name=metadata.generated_type_name,
@@ -6507,10 +6541,14 @@ def _elaborate_effect_expr_to_binding_value(
                 form_path=spec.form_path,
                 expansion_stack=spec.expansion_stack,
             )
+        agent_turn = expr.agent_origins is not None
+        if agent_turn:
+            operation_payload["agent_origins"] = expr.agent_origins
         return WccPerform(
-            metadata=scope.value_metadata(role="perform:provider_result", **metadata_kwargs),
-            perform_kind="provider_result",
-            target_name=_require_name_expr(expr.provider),
+            metadata=scope.value_metadata(role=f"perform:{'agent_turn' if agent_turn else 'provider_result'}",
+                                          **metadata_kwargs),
+            perform_kind="agent_turn" if agent_turn else "provider_result",
+            target_name="agent" if agent_turn else _require_name_expr(expr.provider),
             prompt_name=(
                 None
                 if isinstance(expr.prompt, PromptApplicationExpr)
@@ -6529,12 +6567,21 @@ def _elaborate_effect_expr_to_binding_value(
                     compile_time_bindings=compile_time_bindings,
                     active_phase_scope=active_phase_scope,
                 )
-                for index, item in enumerate(expr.inputs)
+                for index, item in enumerate((expr.provider, *expr.inputs) if agent_turn else expr.inputs)
             ),
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
             operation_payload=operation_payload,
         )
+    if isinstance(expr, AgentExpr):
+        from ..agent_forms import elaborate_agent_perform
+        return elaborate_agent_perform(expr, metadata=scope.value_metadata(role="perform:agent", **metadata_kwargs),
+                                       elaborate=lambda item, name: _elaborate_atomic_value(
+            item, scope=scope.child_scope("agent-policy", authored_binding_name=name), type_env=type_env,
+            value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope))
     if isinstance(expr, RequestInputExpr):
         return WccPerform(
             metadata=scope.value_metadata(
@@ -7004,6 +7051,7 @@ def _elaborate_workflow_call_binding_value(
             ProviderResultExpr,
             CommandResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunRefExpr,
             TrialExpr,
             RunProviderPhaseExpr,
@@ -7482,7 +7530,7 @@ def _infer_expr_type(
         return resolve_unique_run_ref_site_metadata(
             expr,
             session_state=type_env.session_state,
-        ).type_ref
+        ).site_type_ref
     if isinstance(expr, TrialExpr):
         if not isinstance(expr.site_digest, str):
             raise TypeError("typed trial site identity is unavailable before WCC")
@@ -7523,6 +7571,8 @@ def _infer_expr_type(
                 expansion_stack=expr.expansion_stack,
             ),
         )
+    if isinstance(expr, AgentExpr):
+        return PrimitiveTypeRef(name="Agent")
     if isinstance(expr, RequestInputExpr):
         return type_env.resolve_type(
             HUMAN_REPLY_TYPE_NAME,

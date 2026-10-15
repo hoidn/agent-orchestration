@@ -34,6 +34,7 @@ from .model import (
     WccParallelMap,
     WccRecordAtom,
     WccRunRefPayload,
+    WccRunRefWorkflowPayload,
     WccValue,
 )
 from .analysis import WccArmScope, WccJoinSite, WccLoopSite, WccScopeAnalysis, analyze_wcc_body
@@ -81,6 +82,7 @@ __all__ = [
     "WccParallelMap",
     "WccRecordAtom",
     "WccRunRefPayload",
+    "WccRunRefWorkflowPayload",
     "WccValue",
     "WccArmScope",
     "WccJoinSite",

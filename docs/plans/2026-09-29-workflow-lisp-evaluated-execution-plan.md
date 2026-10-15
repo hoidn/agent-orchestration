@@ -594,33 +594,46 @@ Phase 5; this adds no dependency on unrelated Phase 4 ports.
 
 #### PQ-1: Sequential Native-Session Turns
 
-**Status:** pending, consumer-conditioned Phase 4 work, recorded by owner
-request on 2026-10-01; not implementation selection or admission at target
-2.35. Governing [design](../design/workflow_lisp_provider_prompt_queue.md).
-This adds no prerequisite to Phases 2–3, Phase 5, the early Phase 6a pilot,
-or portable context in 4a/PC-1. Neither Q5's existing transport nor portable
-context implements this capability.
+**Status:** first slice implemented at additive evaluated target 2.38, selected
+by the owner on 2026-10-14. The opt-in
+[`design_review_execute_agents.orc`](../../workflows/examples/design_review_execute_agents.orc)
+uses a designer `Agent` on Claude and a reviewer `Agent` on Codex.
+[PQ-1a qualification evidence](../reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+records deterministic mechanism/consumer proofs and bounded adapter smokes;
+acceptance comparison (PQ-1c) has not run. The second slice, the opt-in
+`reviewed_change` coder variant, remains future with its turn shape selected then.
 
-**Candidate consumer:** an opt-in coder-call variant of
-[`reviewed_change.orc`](../../experiments/orc_vs_single_call/workflows/reviewed_change.orc):
-investigate → implement → self-review, returning its existing `Change` type.
-Keep the outer independent reviewer and review/revise control flow intact;
-self-review does not replace independent review. Select a session-capable
-provider explicitly; do not silently change the current consumer's model or
-claim that its existing typed prompt already fits the queue. No consumer is
-changed by this roadmap entry.
+The stable PQ-1 name/anchor now routes first delivery through
+[Agent Sessions](../design/workflow_lisp_agent_sessions.md). `prompt-queue` is
+superseded as a separate first-delivery surface; its
+[transport/recovery analysis](../design/workflow_lisp_provider_prompt_queue.md)
+is retained without selecting queue syntax, a helper or a macro. Targets
+2.35/2.36/2.37 and Phase 5 gates remain unchanged. This adds no prerequisite to
+Phases 2–3, Phase 5, the early Phase 6a pilot, or portable context in 4a/PC-1.
+Neither Q5 transport nor portable context implements this capability.
+
+**Consumer scope:** the first slice preserves the baseline's declarations,
+models, effort and timeouts: A1 draft and A2 revise on the designer, B1 review
+and B2 execute on the reviewer, four typed committed results and two logical
+read-only tmux views. The future
+[`reviewed_change.orc`](../../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
+variant will use a Claude coder `Agent` with sequential typed turns, preserving
+its final `Change` interface and independent fresh Codex outer reviewer.
+Coder continuity does not replace independent review. Its model and turn shape
+are selected at that slice; ordinary provider calls retain their behavior.
 
 | Step | Work and evidence | Consequence |
 | --- | --- | --- |
-| PQ-1a — qualify the bounded design | Review the design against the selected adapter and named consumer. Prove three delayed turns in one conversation, and continuation of a durably completed prefix. Resolve the scoped K4 recovery refinement and final commit gaps; specify timeout scope and resume accounting, unresolved-turn/session-loss behavior and prompt-source limits | Prerequisites remain open until evidenced. Select an implementation plan and target only for the qualified scope; revise an obstructing adapter/design assumption before dropping the use case |
-| PQ-1b — deliver the consumer slice | Existing `provider-result` configuration, finite enumerated prompt externs, one final typed result; reuse transport/session/prompt owners. Public compile/run/resume, invocation-count checks, composed helper placement and a real provider smoke | Keep first delivery bounded, without a second session manager, external inbox, or wholesale coordinator rewrite. Static membership is a delivery limit, not a permanent restriction justified by the old runtime |
-| PQ-1c — retain, improve, or simplify | Inspect normal authoring and actual recovery/friction relative to ordinary context passing; no new scoring apparatus or requirement that all five axes pass | Retain useful native continuity; improve concrete limitations (including typed fragments or bounded computed queues when justified), or cancel/remove unused queue-specific machinery while retaining independent transport/context capabilities |
+| PQ-1a — qualify the bounded design | One shared mechanism/adapters record across both consumers. Deterministic proofs cover native position/completion, current turn bindings, interleaving, helper/alias/branch/loop carriage, escape checks, E3 committed-prefix reuse, pending-turn K4 recovery, bootstrap limits, per-turn timeouts, session loss, C8 and views. Bounded receipt-backed real-provider smokes are recorded for Claude and Codex; real-provider interruption/divergence coverage remains limited as stated in the record. | First-slice evidence is recorded in the qualification report; transport/probe evidence alone is not full qualification. No second record, session manager or existing-class K4 change is implied. |
+| PQ-1b — deliver the consumer slice | First slice implemented: both native-store adapters and fresh/resume transports, `agent`/`Agent` at 2.38, allocation and coordinator turn effects, four typed design/review/revise/execute commits, instance views and public deterministic compile/run/resume/invalidate evidence. Native storage uses the provider's configured home; no per-run home or credentials. Second slice remains future. | Deliver only the bounded admitted scope, with no queue-specific progress journal, final-only authority, runtime prompt-reference lists or new queue form/helper/macro. |
+| PQ-1c — retain, improve, or simplify | Not run. Compare the same consumer's agent variant and artifact-handoff baseline using real providers, identical input/models/effort/timeouts, clean and failed/resumed runs. Inspect retained useful context, repeated investigation, friction, elapsed time, total usage including first-turn repeats, and lost suffix recoverability. The qualification record names the full acceptance gate. | Owner authorizes the comparison separately (D8). Acceptance needs both clean and resumed evidence and explicit owner judgment that context retention justifies lost recoverability/repeated paid work. Outcomes: retain, improve, or retire. The implementation plan stops at this gate. |
 
-The generic coordinator restart rule is not evidence for prefix recovery.
-PQ-1a owns that open prerequisite; it does not authorize edits to the
-first-release protocol or the running Phase 2 task order. There is no new
-executable selector/manifest or top-level phase. Implementation tasks are
-written only after explicit selection of this bounded slice.
+E3 owns replay of separately committed turns; generic K4 restart is not proof
+of safe recovery of an uncommitted native turn. The implementation is recorded
+in [Plan A](2026-10-14-agent-sessions-implementation-plan.md) and
+[Plan B](2026-10-14-agent-sessions-implementation-plan-b.md), with PQ-1a as its
+single shared mechanism gate. No executable selector/manifest or top-level phase
+is added, and this entry changes no active workflow selection.
 
 ### Phase 5: Parallel Map
 

@@ -2,6 +2,12 @@
 
 ## Scope And Authority
 
+Historical design: [Agent Sessions](workflow_lisp_agent_sessions.md) supersedes `prompt-queue`
+for first delivery at target 2.38, with a typed result and memo commit per turn. The remaining
+body preserves transport/recovery analysis, not a selectable syntax or a second implementation
+track; [PQ-1](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+and the [qualification record](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) own current status.
+
 This is the target design for **sequential turns in one native provider
 session**, with `prompt-queue` as the bounded authoring surface. It is not
 implemented syntax. Selection, delivery limits, and evidence disposition

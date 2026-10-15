@@ -452,3 +452,59 @@ def test_declared_artifacts_reject_missing_reserved_duplicate_and_symlink_traver
                 declared_artifacts=artifacts,
             )
         assert excinfo.value.secondary_causes == (expected_cause,)
+
+
+@pytest.mark.parametrize('corruption', [None, 'catalog', 'artifact', 'base', 'diff_catalog', 'diff_path', 'diff_header', 'diff_counters', 'diff_limit'])
+def test_retained_delta_validates_catalog_artifacts_and_diff_without_roots(tmp_path, corruption):
+    baseline, final = tmp_path / 'baseline', tmp_path / 'final'
+    baseline.mkdir()
+    final.mkdir()
+    (final / 'out.txt').write_text('retained\n')
+    baseline_manifest = freeze_tree(baseline)
+    declared = (DeclaredArtifact('output', 'out.txt'),)
+    capture = build_workspace_delta(base=_base_revision(), baseline_root=baseline,
+        baseline_manifest=baseline_manifest, workspace_root=final, declared_artifacts=declared)
+    record = capture.record
+    shutil.rmtree(baseline)
+    shutil.rmtree(final)
+    diff = record['normalized_diff']
+    if corruption == 'catalog':
+        record['untracked_files'] = []
+    elif corruption == 'artifact':
+        record['declared_artifacts'] = []
+    elif corruption == 'base':
+        record['base']['resolved_commit_sha'] = '0' * 40
+    elif corruption == 'diff_catalog':
+        diff['catalog_digest'] = _sha256(b'foreign')
+    elif corruption == 'diff_path':
+        diff['entries'][0]['path'] = 'foreign'
+    elif corruption == 'diff_header':
+        diff['entries'][0]['text'] = '--- a/foreign\n+++ b/foreign\n'
+    elif corruption == 'diff_counters':
+        diff['omitted_bytes'] = 1
+    elif corruption == 'diff_limit':
+        diff['entries'][0]['text'] += 'x' * MAX_NORMALIZED_TEXT_ENTRY_BYTES
+    def validate():
+        return delta_module.validate_retained_workspace_delta(record, expected_digest=canonical_sha256(record),
+            base=_base_revision(), baseline_manifest=baseline_manifest,
+            final_manifest=capture.final_manifest, declared_artifacts=declared)
+    if corruption:
+        with pytest.raises(RunRefDeltaError):
+            validate()
+    else:
+        assert validate() == capture.final_manifest
+
+
+def test_retained_delta_allows_binary_and_mode_only_without_text_entries(tmp_path):
+    baseline, final = tmp_path / 'baseline', tmp_path / 'final'
+    baseline.mkdir()
+    (baseline / 'mode').write_bytes(b'unchanged')
+    shutil.copytree(baseline, final)
+    (final / 'mode').chmod(0o755)
+    (final / 'binary').write_bytes(b'a\0b')
+    before = freeze_tree(baseline)
+    capture = build_workspace_delta(base=_base_revision(), baseline_root=baseline,
+        baseline_manifest=before, workspace_root=final)
+    assert capture.record['normalized_diff']['entries'] == []
+    assert delta_module.validate_retained_workspace_delta(capture.record, expected_digest=capture.digest,
+        base=_base_revision(), baseline_manifest=before, final_manifest=capture.final_manifest) == capture.final_manifest

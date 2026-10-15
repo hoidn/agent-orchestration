@@ -30,6 +30,7 @@ def allocate_attempt(
     started_record: Mapping[str, Any],
     *,
     checked_authority=None,
+    before_failure=None,
 ) -> WorkspaceFiles:
     """Synchronize ``started`` before creating and pinning its attempt directory."""
     attempt_dir = Path(started_record["result_path"]).parent
@@ -42,6 +43,10 @@ def allocate_attempt(
             if isinstance(exc, FileExistsError)
             else "effect_attempt_allocation_failed"
         )
+        failure = MemoError(code, str(exc))
+        failure.exit_info = {"errno": exc.errno}
+        if before_failure is not None:
+            before_failure(failure)
         append_record(
             memo_path,
             {

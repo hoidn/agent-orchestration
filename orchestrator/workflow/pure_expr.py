@@ -19,6 +19,7 @@ from typing import Any
 
 from orchestrator._common.safe_tree import SafeTreePathError, validate_relative_path
 from orchestrator.contracts.output_contract import non_finite_number
+from orchestrator.workflow.agent_value import coerce_agent_value, reject_agent_operand
 
 
 PURE_EXPR_SCHEMA_VERSION = 1
@@ -371,6 +372,7 @@ def validate_pure_expr_payload(
             _raise("pure_expr_payload_invalid", f"binding `{name}` must be a mapping")
         _validate_type_descriptor(spec.get("type"), context=f"bindings.{name}.type")
         if "value" in spec:
+            reject_agent_operand([spec["type"]], "literal")
             _coerce_value(spec["value"], spec["type"], context=f"bindings.{name}.value")
 
     expr = payload.get("expr")
@@ -1024,6 +1026,7 @@ def _validate_expr_node_impl(
 
     if kind == "literal":
         _validate_type_descriptor(node.get("type"), context="expr.type")
+        reject_agent_operand([node["type"]], "literal")
         _coerce_value(node.get("value"), node["type"], context="expr.value")
         return count
 
@@ -1672,6 +1675,8 @@ def _derive_static_operator_type(
     if spec is not None and spec.signatures:
         return _primitive_type(_require_signature(spec, arg_types).result)
 
+    if operator in {"print", "=", "!="}:
+        reject_agent_operand(arg_types, operator)
     if operator == "print":
         return arg_types[0]
 
@@ -2331,6 +2336,8 @@ def _coerce_value(
             if not isinstance(value, str):
                 _raise("pure_expr_operand_type_mismatch", f"{context} must be {name}")
             return value
+        if name == "Agent":
+            return coerce_agent_value(value, context)
         if not isinstance(value, str):
             _raise("pure_expr_operand_type_mismatch", f"{context} must be {name}")
         return value

@@ -30,7 +30,13 @@ schema notation, not authored workflow files.
     - `input_mode: 'argv' | 'stdin'` (default: 'argv').
   - `defaults`: map of provider parameters (e.g., `model`).
   - v2.10 session-capable templates may also declare `session_support`:
-    - `metadata_mode`
+    - `metadata_mode`, one of `codex_exec_jsonl_stdout`, `omp_json_stdout`,
+      or `claude_stream_json_stdout`. The last decodes
+      `claude -p --output-format stream-json --verbose` stdout: it binds
+      `session_id` from the `system/init` and later events, assistant text
+      from `assistant` events, and completion from the terminal `result`
+      event (finalize metadata adds `result_subtype` and `is_error`). It has
+      no resume-boundary observation, so `turn_boundary_resume` stays `false`.
     - `fresh_command`
     - optional `resume_command`
     - optional boolean `turn_boundary_resume` (default `false`)
@@ -62,6 +68,50 @@ schema notation, not authored workflow files.
     a validated preterminal resume boundary. Provider name, input mode, TTY
     behavior, or session support without that declaration never implies the
     capability.
+  - Native session stores (target 2.38 agent sessions). The Codex store is
+    `$CODEX_HOME` (default `~/.codex`) `sessions/**/rollout-*<thread id>.jsonl`
+    whose first row is `session_meta`; the Claude store is
+    `$CLAUDE_CONFIG_DIR` (default `~/.claude`) `projects/**/<session id>.jsonl`.
+    The orchestrator reads them (`orchestrator/providers/native_store.py`,
+    selected by `session_support.metadata_mode`) to establish the head position
+    (last completed turn id and its terminal line) and to bind one completed
+    turn to one attempt (the user message carrying the attempt's result path);
+    it never writes them, never selects a per-run home and never provisions
+    credentials. A turn binds only when it is the store's head, follows the
+    expected predecessor position and is the only user message carrying the
+    marker. For Claude, the submitted prompt's parent must reach the expected
+    predecessor final (or its admitted resume padding), or the root for a first
+    turn, directly or through a chain of strictly earlier same-session,
+    non-sidechain `attachment` rows with an absent `promptId`; every ancestor
+    hop, including the expected predecessor, must precede its child. The
+    first-turn hook-attachment chain was observed in the
+    [bounded runtime smoke](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md#real-provider-smokes-tasks-1920);
+    its passing resumed prompt linked directly to the previous final, so that
+    evidence does not establish a resumed attachment chain. Codex completion
+    is the turn's `task_complete` after exactly one `final_answer` agent
+    message; Claude completion is exactly one logical final in the turn's
+    lineage (every row descends from the submitted user row, same session and
+    prompt, no sidechain): a `StructuredOutput` `toolEndsTurn` row with its
+    matching `structured_output` attachment (observed live) or an assistant
+    `stop_reason: end_turn` message, observed in the plain `stream-json`
+    [mini-probe](../docs/reports/2026-10-14-claude-plain-form-mini-probe.md#adapter-follow-up).
+    Split assistant rows sharing a `message.id` must form a consistent parent
+    chain with the same stop reason and prompt; they collapse to their last
+    row as one logical final (`02a0067b`: all three retained probe turns bind
+    offline, without another paid run). Anything else, including a second
+    logical final or a trailing row other than
+    the synthetic resume padding, is incomplete, never guessed. A locator
+    matching zero or more than one file (any `*<id>.jsonl` under the store
+    counts unless its header names another session) is
+    `agent_session_unavailable` at the runtime (Plan B); an open (incomplete)
+    head refuses a new append. Operator limit (D1): the check-then-append
+    window against a concurrent external writer (an operator resuming the
+    same native session from a shell) is not closed; external advancement
+    inside the window is detected at the next turn. Retention: native history
+    stays in the provider default home under the provider's own retention;
+    the orchestrator neither deletes nor garbage-collects it and promises no
+    remote durability; the run retains only receipts and proofs. These facts
+    are evidence for the memo, not authority.
 
   - The code-owned OMP registry family consists of public `omp`,
     `omp_unrestricted_workspace`, `omp_no_tools`, and `omp_conf`, plus internal
@@ -250,6 +300,14 @@ schema notation, not authored workflow files.
     `model -> model` and `effort -> effort`, and has exact command
     `["claude", "-p", "--model", "${model}", "--effort", "${effort}",
     "--permission-mode", "bypassPermissions"]`.
+    It additionally declares `session_support` with metadata mode
+    `claude_stream_json_stdout`, `turn_boundary_resume: false`, fresh command
+    `["claude", "-p", "--output-format", "stream-json", "--verbose",
+    "--model", "${model}", "--effort", "${effort}", "--permission-mode",
+    "bypassPermissions"]`, and resume command `["claude", "-p", "--resume",
+    "${SESSION_ID}", "--output-format", "stream-json", "--verbose", "--model",
+    "${model}", "--effort", "${effort}", "--permission-mode",
+    "bypassPermissions"]`. Ordinary (non-session) calls keep `command`.
   - These profiles are generic provider data. Their presence does not prove
     workflow-family parity or promotion eligibility.
 
@@ -338,6 +396,82 @@ schema notation, not authored workflow files.
     schema do not make provider execution isolated; the feature must not be
     described as available until the launcher, state, CLI, resume, and
     attestation integration gates land.
+
+- Run-ref confined provider transport (target 2.38; public admission closed)
+  - The following is the qualification and admission contract for confined
+    providers. Private ledger/core/per-leaf Holder transport implementation
+    does not authorize public provider dispatch or qualify real authentication
+    and upstream TLS. Command-only confinement is separately admitted. Authority:
+    [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
+    (D7, F4 gate); the outer boundary is
+    [`run_ref_confinement.v1`](security.md).
+  - When separately qualified and admitted, a confined child permits only
+    portable provider calls; sessions, context capture and Agent allocation/turns
+    refuse at compile time. An interrupted tool-enabled
+    attempt takes the evaluated at-least-once rerun in the same clone; no
+    agent-session authority applies.
+  - Provider processes run as leaves inside the child's holder sandbox, from
+    profile-specific template variants over image executable pins with
+    base-URL and configuration injection. Host templates, host binaries and
+    an authenticated host SDK process are not alternatives, and CLI approval
+    bypass flags are not isolation.
+  - The provider environment is a per-attempt overlay, not a copy of the
+    controller environment, with telemetry and non-model traffic disabled.
+    The capability-bearing overlay/script is ephemeral and injected only after
+    retained configuration/prompt inputs have been constructed and the binding
+    acknowledged. Never persist the prepared request, capability/hash, injected
+    env/argv or private channel transcript as configuration/control/evidence.
+    Runtime diagnostics use closed categories before persistence, including
+    errors triggered by arbitrary guest names/targets. Guest content can retain
+    literal or encoded copies only as inert data after revocation, under
+    [Security](security.md#confined-capability-retention-and-transport-teardown)
+    and ordinary IO; this is no general secret-removal promise or relaxation for
+    upstream bearers, authfiles, permanent credentials or native RPC.
+    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` takes the guest spelling of
+    [IO](io.md#run-ref-confined-child-io-target-238). Each provider
+    timeout is clamped at dispatch to the remaining child wall budget.
+  - `:model-only` traffic reaches the model only through the qualified inference
+    gateway and per-leaf relay of the security profile. The selected Codex
+    managed ChatGPT route uses the private per-leaf native auth owner of D7;
+    every acquisition checks the visit's initial account/origin/routing binding.
+    First inference 401, invalid native acquisition and partial-stream failure
+    terminate without replay. The gateway exposes no app-server RPC to the
+    guest, and native authentication does not permit host provider execution.
+    Enforce request/byte/wall controls and refuse installation-required token
+    or cost ceilings without endpoint enforcement evidence; incomplete usage
+    or cost stays UNKNOWN. Qualification is transport-specific and does not
+    qualify Claude or an API-key route by analogy.
+  - The private native auth owner persists across requests of one provider leaf.
+    It is closed and reaped, with its gateway, before post-leaf quiescence,
+    result import, checkpoint or publication of guest output. Every public
+    caller must irreversibly revoke the capability, close/reap owned transport,
+    prove quiescence and verify private-script retirement before those boundaries
+    or successful leaf return; no active guest-output tee may persist it early.
+    A teardown failure blocks publication. A later leaf or recovered owner
+    revalidates the visit's original account/origin/routing binding and consumes a new durable
+    request reservation before native startup. Startup and normal native refresh
+    consume the existing child allowance. No owner is created per request.
+    The gateway and owner execute in the existing `host` containment slot;
+    result import/checkpoint requires both host and leaf slots empty. The
+    [parent ledger](state.md#confined-provider-capacity-and-binding), not the
+    gateway, owns effective request/byte policy, conservative reservations and
+    initial binding. Exact durable acknowledgement precedes startup and binding
+    acknowledgement precedes capability/release; no old permit is reused across
+    recovery or K4. The leaf's single BOOTTIME deadline includes these waits,
+    startup and native preflight. Independent cancellation remains active while
+    the lifecycle waits for persistence/ack; a late ack cannot revive the leaf.
+    A revoked private script may remain pending validated retirement during a
+    blocked ACK or controller loss; recovery retires it before further effects.
+    A capability copied from retained guest data never authorizes this leaf or
+    supplies its new grant; recovery requires a fresh capability/incarnation.
+  - Until transport qualification and public admission, a confined provider
+    site refuses with `run_ref_provider_transport_unavailable` before run-state
+    creation or holder launch. The selected native Codex route reuses managed
+    ChatGPT login (`authMethod=chatgpt`); it requires no API key. Native managed
+    policy must satisfy D7's preventive effective-configuration checks; accepted
+    local overrides or successful synthetic fixtures alone do not establish that.
+    The [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md#task-10-provider-transport)
+    owns the remaining qualification evidence and blocking disposition.
 
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
@@ -1021,9 +1155,10 @@ steps:
 | --- | --- | --- | --- |
 | claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-opus-4-6`) or CLI config/env. |
 | claude_sonnet_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in observability summary alias. Default model: `claude-sonnet-4-6`. Advisory only; not for control-flow gates. |
-| claude_haiku_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in low-cost observability summary alias. Default model: `claude-3-5-haiku-20241022`. Advisory only; not for control-flow gates. |
+| claude_haiku_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in low-cost observability summary alias. Default model: `haiku` (the Claude CLI alias). Advisory only; not for control-flow gates. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config model_reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.5`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
+| claude_unrestricted_workspace | `claude -p --model ${model} --effort ${effort} --permission-mode bypassPermissions` (prompt via stdin) | stdin | Session-capable (`claude_stream_json_stdout`); used by agent sessions at 2.38. |
 
 Exit code mapping:
 - 0 = Success

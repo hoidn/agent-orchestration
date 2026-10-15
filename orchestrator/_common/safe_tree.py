@@ -127,7 +127,7 @@ def _lstat_entry(directory_fd: int, name: str) -> os.stat_result:
         ) from exc
 
 
-def _open_child_directory(
+def open_child_directory(
     directory_fd: int,
     name: str,
     expected: os.stat_result,
@@ -222,7 +222,7 @@ def walk_regular_files(root_fd: int, *, directories: list[str] | None = None,
                     info.st_ctime_ns,
                 )
             elif stat.S_ISDIR(info.st_mode):
-                child = _open_child_directory(directory_fd, name, info)
+                child = open_child_directory(directory_fd, name, info)
                 try:
                     yield from recurse(child, relative_path, depth + 1)
                 finally:
@@ -252,13 +252,16 @@ def validate_relative_path(relative_path: str) -> None:
             ) from exc
 
 
-def _open_regular_file(
+def open_regular_file(
     root_fd: int,
     relative_path: str,
     *,
     expected: RegularFileRow | None = None,
+    device: int | None = None,
 ) -> tuple[int, os.stat_result]:
     """Open one regular file beneath root_fd without following any symlink.
+
+    ``device`` pins the file to one ``st_dev`` (a retained mount root).
 
     Every intermediate component is opened as a no-follow directory and every
     descriptor is close-on-exec; only the returned descriptor stays open.
@@ -319,10 +322,10 @@ def _open_regular_file(
             raise SafeTreeRejectionError(
                 f"regular file cannot be inspected: {relative_path!r}"
             ) from exc
-        if not stat.S_ISREG(kind.st_mode):
+        if not stat.S_ISREG(kind.st_mode) or device not in (None, kind.st_dev):
             os.close(descriptor)
             raise SafeTreeRejectionError(
-                f"not a regular file: {relative_path!r}"
+                f"not a regular file on the pinned device: {relative_path!r}"
             )
         return descriptor, kind
     finally:
@@ -368,10 +371,11 @@ def hash_regular_file(
     relative_path: str,
     *,
     expected: RegularFileRow | None = None,
+    device: int | None = None,
 ) -> str:
     """Stream one stable regular file through SHA-256."""
-    descriptor, kind = _open_regular_file(
-        root_fd, relative_path, expected=expected
+    descriptor, kind = open_regular_file(
+        root_fd, relative_path, expected=expected, device=device
     )
     try:
         _check_identity(kind, expected, relative_path)
@@ -393,10 +397,11 @@ def read_regular_file(
     *,
     expected: RegularFileRow | None = None,
     max_bytes: int | None = None,
+    device: int | None = None,
 ) -> bytes:
     """Read one stable regular file, optionally under a hard byte bound."""
-    descriptor, kind = _open_regular_file(
-        root_fd, relative_path, expected=expected
+    descriptor, kind = open_regular_file(
+        root_fd, relative_path, expected=expected, device=device
     )
     try:
         _check_identity(kind, expected, relative_path)
@@ -429,10 +434,11 @@ def copy_regular_file(
     *,
     expected: RegularFileRow | None = None,
     max_bytes: int | None = None,
+    device: int | None = None,
 ) -> int:
     """Stream one stable regular file under an optional hard byte bound."""
-    descriptor, kind = _open_regular_file(
-        root_fd, relative_path, expected=expected
+    descriptor, kind = open_regular_file(
+        root_fd, relative_path, expected=expected, device=device
     )
     try:
         _check_identity(kind, expected, relative_path)
@@ -476,7 +482,9 @@ __all__ = [
     "SafeTreePathError",
     "SafeTreeRejectionError",
     "copy_regular_file",
+    "open_child_directory",
     "open_directory",
+    "open_regular_file",
     "hash_regular_file",
     "remove_tree_contents",
     "read_regular_file",

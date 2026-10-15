@@ -192,6 +192,7 @@ class ProviderSessionMetadataMode(str, Enum):
     """Supported provider-session metadata transport modes."""
     CODEX_EXEC_JSONL_STDOUT = "codex_exec_jsonl_stdout"
     OMP_JSON_STDOUT = "omp_json_stdout"
+    CLAUDE_STREAM_JSON_STDOUT = "claude_stream_json_stdout"
 
 
 @dataclass(frozen=True)

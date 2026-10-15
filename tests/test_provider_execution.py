@@ -1149,6 +1149,7 @@ class TestProviderExecutor:
             "session_id": "sess-123",
             "normalized_stdout": "hello world",
             "event_count": 4,
+            "turns_completed": 0,
         }
 
     def test_session_execution_turn_failed_exit_zero_is_not_promotable(self):

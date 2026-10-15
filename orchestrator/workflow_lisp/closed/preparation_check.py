@@ -446,13 +446,23 @@ class _Comparison:
 
     def run_ref_header(self, left, right, path):
         from orchestrator.workflow.run_ref.source import canonical_source_request
+        from orchestrator.workflow_lisp.wcc.model import WccRunRefWorkflowPayload
 
+        _same(type(left), type(right), path + ".mode")
+        if isinstance(left, WccRunRefWorkflowPayload):
+            # The `:commit` operand is a positional argument compared with the perform.
+            for name in ("repo", "workflow_name", "policy", "allow_nested_structures"):
+                _same(getattr(left, name), getattr(right, name), f"{path}.{name}")
+            return
         _same(canonical_source_request(left.source), canonical_source_request(right.source), path + ".source")
         _same(left.program.record, right.program.record, path + ".program")
         _same(left.allow_nested_structures, right.allow_nested_structures, path + ".nested")
 
     def run_ref_inputs(self, left, right, path):
-        rows = tuple(row.metadata.type_ref.run_ref_origin[1] for row in (left, right))
+        from .names import run_ref_outcome_result
+
+        rows = tuple((run_ref_outcome_result(row.metadata.type_ref) or row.metadata.type_ref).run_ref_origin[1]
+            for row in (left, right))
         for perform, inputs in zip((left, right), rows, strict=True):
             names = tuple(name for name, _ in inputs)
             _same(names, tuple(name for name, _ in perform.keyword_args), path + ".operands")

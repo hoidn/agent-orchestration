@@ -2,7 +2,7 @@
 
 Status: accepted baseline / umbrella frontend contract
 Target substrate: checked closed-program execution at 2.35/2.36 and bounded
-2.37; executable entries through 2.34 and the flat emitter are retired
+2.37/2.38; executable entries through 2.34 and the flat emitter are retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -29,6 +29,10 @@ and
 [Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md),
 and
 [Workflow Lisp Provider Peer Messaging](workflow_lisp_provider_peer_messaging.md).
+
+The bounded target-2.38 [Agent Sessions extension](workflow_lisp_agent_sessions.md#authoring-and-composition)
+admits run-local allocation and sequential typed native turns. It does not
+admit the historical context-capture surface below or immutable native snapshots.
 
 Proposed, not current: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 owns optional identity-aware effect restrictions and their migration. Current
@@ -64,7 +68,8 @@ Target 2.33 adds first-order generic unions (§8.5) and the `std/improve`
 library module (§87.1).
 
 Target 2.34 adds the implemented [numeric surface](workflow_lisp_numeric_surface.md).
-The pipeline described here remains the runnable route through 2.34.
+The pipeline described here was the runnable route through 2.34; those
+entries are now retired.
 Targets 2.35 and 2.36 select [evaluated execution](workflow_lisp_evaluated_execution.md)
 through public `compile`, `run`, `resume` and `invalidate`. The admitted
 first-release classes at 2.35 are delivered. The target-2.36 W3 additions are
@@ -73,6 +78,10 @@ Target 2.37 parallel-map compilation and bounded workers have scoped acceptance;
 full public qualification and phase delivery remain pending. See the
 [Phase 5 status](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
 before using that surface; it is not yet a copy-safe authoring target.
+Target 2.38 separately implements bounded [Agent Sessions](workflow_lisp_agent_sessions.md):
+run-local allocation and typed native turns. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+records deterministic proofs and bounded adapter smokes; the real-provider consumer
+comparison (PQ-1c) has not run and requires separate owner authorization.
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -343,9 +352,10 @@ execution follows the evaluated design and retirement cutoff:
 11. [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md)
     Accepted compiler middle-end for current Workflow Lisp lowering. WCC
     schema 2 elaborates typed frontend programs into ANF-normalized calculus,
-    performs scope/effect/proof analysis, and defunctionalizes second-class
-    join points into the existing flat Core AST. New compiler-lane work must
-    target this route; legacy schema 1 is compatibility only.
+    performs scope/effect/proof analysis, and feeds the checked closed
+    program; defunctionalization into the flat Core AST is retired (§44.1).
+    New compiler-lane work must target this route; legacy schema 1 is
+    compatibility only.
 
 12. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)
     Exact lowering contracts for `provider-result`, `produce-one-of`,
@@ -412,8 +422,8 @@ Current companion contracts:
   paths.
 - The WCC middle-end is the current compiler-lane baseline for new Workflow
   Lisp lowering in the migrated route subset. It owns elaboration, ANF
-  normalization, scope/effect/proof analysis, and defunctionalization into the
-  existing flat Core AST. New nested-control, loop, stdlib-composition, and
+  normalization and scope/effect/proof analysis; defunctionalization into the
+  flat Core AST is retired (§44.1). New nested-control, loop, stdlib-composition, and
   returned-variant work must target WCC/schema 2. Legacy schema 1 and direct
   per-form lowerers are compatibility routes, not the default architecture.
 - The composition/stdlib migration contract starts from the existing stdlib
@@ -1470,6 +1480,15 @@ Core AST projection, Semantic IR, Executable IR, and runtime execution. Runtime
 state must not carry type parameters, procedure values, provider refs, prompt
 refs, or closure environments.
 
+Versioned exception (target 2.38,
+[Agent Sessions](workflow_lisp_agent_sessions.md#authoring-and-composition)):
+runtime state may carry a runtime-owned `Agent` reference descriptor
+`{run_id, identity, provider, policy, config_digest}` whose provider origins
+are fixed by checked source (the closed `agent_turn` node's `origins`). It
+admits no other provider ref, prompt ref, executable value or closure
+environment; `Agent` is non-transportable at every workflow, run-ref, provider,
+command, loop-state, parallel and closure-capture boundary.
+
 For imported specializations, the helper body's free names resolve in the
 defining module's environment, extended with the specializing call site's
 concrete type, ProcRef, and value bindings.
@@ -2413,8 +2432,8 @@ fields. It does not invent a new runtime prompt transport.
 
 ### 22.4 Call-Local Provider Policy
 
-`provider-result` accepts exactly three optional call-policy keywords in its
-ordinary keyword section:
+With a compiler-known provider extern as its first operand, `provider-result`
+accepts exactly three optional call-policy keywords in its ordinary keyword section:
 
 ```text
 (provider-result <compiler-known Provider extern>
@@ -2432,6 +2451,12 @@ at most once. Model and effort accept exact `String` values from the effect-free
 inline-lowerable scalar and template subset; procedure edges alone do not count
 as runtime effects. Timeout accepts only a positive exact-`Int` literal.
 Diagnostics for type errors precede the inline-subset diagnostic.
+
+At target 2.38, the first operand may instead be a run-local `Agent` under
+[Agent Sessions](workflow_lisp_agent_sessions.md#authoring-and-composition).
+That instance pins model/effort at its `agent` constructor; turns retain
+prompt/input/result/timeout fields and refuse per-turn model/effort overrides.
+The linked contract owns the bounded form and carriage/escape restrictions.
 
 `:inputs` participates in typed dataflow on every supported route. Automatic
 typed-value rendering into the provider prompt follows the existing implicit
@@ -4614,7 +4639,8 @@ Running step %implementation_attempt.provider_execute
 
 ## 76. Build Artifacts
 
-Recommended compile artifacts:
+Current `compile` persists `.orchestrate/build/<build_key>/closed_program.json`
+and `manifest.json` (§77). The historical flat recommendation was:
 
 ```text
 .orchestrate/build/<hash>/frontend_ast.json
@@ -4929,7 +4955,9 @@ cited there; preserved reports remain frozen history.
 
 ## 79. Explain Expansion
 
-The flat `explain` command is retired. No evaluated replacement is selected.
+The flat `explain` command is retired; the `explain` subcommand refuses with
+`workflow_explain_retired` and `compile --diagnostics-json` is the current
+check. No evaluated replacement is selected.
 Retained editor diagnostics and REPL introspection use their own public contracts.
 
 ## 80. Emit Debug YAML
@@ -5433,8 +5461,9 @@ LOC.
 
 These stages are retained as provenance for the frontend rollout. They are not
 the current compiler-lane roadmap where they conflict with WCC. The current
-compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset, with
-legacy schema 1 retained for compatibility and historical-run resume.
+compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset;
+legacy schema 1 is a predecessor compiler identity, and the flat executor and
+historical-run resume are retired (§44.1, §78).
 
 WCC compiler-lane work is governed by this baseline plus the component
 contracts it routes to: private executable context, typed projection,
@@ -5560,10 +5589,10 @@ compiler-substrate interpretation of these stages. Migrated-route evidence
 identifies the lowering route and schema version; promoted work uses
 `wcc_default`/schema 2 as the current compiler guidance.
 
-Promotion of YAML primaries remains separate from implementation of frontend
-capability. A `.orc` candidate must have machine-computed non-regressive parity
-evidence before replacing a YAML primary, even if the candidate compiles,
-validates, and dry-runs.
+Promotion of YAML primaries was separate from implementation of frontend
+capability: a `.orc` candidate needed machine-computed non-regressive parity
+evidence before replacing a YAML primary, even if the candidate compiled,
+validated, and dry-ran. The YAML frontend and that gate are retired (§78.1).
 
 ## 105.1 Runtime Migration Foundation Contract
 
@@ -5595,7 +5624,7 @@ Composition and stdlib migration requires:
 6. keep canonical `resume-or-start` validation typed and parity-testable;
 7. inventory adapter lint debt before strict enforcement;
 8. use `--require-non-regressive` for evidence and `--require-promotable` for
-   any primary-surface decision.
+   any primary-surface decision (retired gate flags, §78.1).
 
 ## 105.3 Native Transportable Returns And Typed Result Guidance
 
@@ -5806,6 +5835,10 @@ authority, cancellation, or a provider-session resume command.
 
 ## 105.10 Implemented Durable Host Input
 
+Historical (target 2.32): the syntax/type contract below is retained;
+`request-input` execution and `input answer`/`cancel` settlement are retired
+(see the header note and [CLI](../../specs/cli.md)).
+
 Target 2.32 reserves `(request-input question)`, one exact-`String` operand,
 and the closed builtin `HumanReply` union. The operation has one inferred
 `host-input` effect; procedures declaring effects write `:effects
@@ -5877,6 +5910,9 @@ Runtime workflow refs create dynamic loading/versioning problems.
 ## Part XX. Open Design Decisions
 
 ## 109. Debug YAML
+
+Resolved by the executor retirement: flat debug-YAML emission is retired (§80)
+and no renderer is maintained. The original question and recommendation:
 
 Need decide whether to maintain an optional YAML renderer.
 

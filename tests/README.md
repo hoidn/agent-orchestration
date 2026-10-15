@@ -28,8 +28,10 @@ Purpose: Central place for how to run, scope, and reason about E2E tests in this
 
 Register markers in `pyproject.toml` under `[tool.pytest.ini_options]`.
 There is no global marker exclusion: plain `pytest` collects marked cases.
-Provider-free E2E coverage such as the run-ref and trial modules is unmarked and
-runs with the ordinary suite, including `-m "not e2e"`.
+Historical path-mode run-ref/trial E2E modules may be unmarked and run with
+the ordinary suite, including `-m "not e2e"`. Real run-ref confinement modules
+are marked `e2e` and use `ORCHESTRATE_E2E=1` plus their sandbox prerequisites;
+provider-free command cases do not imply that the sandbox is optional.
 
 ## Environment & Secrets
 - E2E tests should detect missing secrets and skip gracefully:

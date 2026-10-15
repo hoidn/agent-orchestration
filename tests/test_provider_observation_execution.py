@@ -246,6 +246,7 @@ def test_observation_preserves_session_result_and_displays_only_normalized_text(
         "session_id": "thread-observed",
         "normalized_stdout": "hello",
         "event_count": 4,
+        "turns_completed": 1,
     }
     assert manager.handle.display_chunks == ([b"hello"] if enabled else [])
     assert raw not in manager.handle.display_chunks

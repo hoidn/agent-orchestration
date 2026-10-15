@@ -32,6 +32,7 @@ from .syntax import (
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     ProcedureExpansionFrame,
     target_dsl_is_2_33_or_newer,
+    target_dsl_supports_agent_sessions,
     target_dsl_supports_provider_supervision,
     target_dsl_supports_provider_context_values,
     target_dsl_supports_human_input,
@@ -160,6 +161,8 @@ def prelude_type_names_for_target(target_dsl_version: str) -> frozenset[str]:
         names = names | CONTEXT_TYPE_NAMES
     if target_dsl_supports_human_input(target_dsl_version):
         names = names | frozenset({HUMAN_REPLY_TYPE_NAME})
+    if target_dsl_supports_agent_sessions(target_dsl_version):
+        names = names | frozenset({"Agent"})
     return names
 
 
@@ -480,6 +483,8 @@ class FrontendTypeEnvironment:
         primitive_type_names = PRELUDE_PRIMITIVE_TYPE_NAMES
         if target_dsl_supports_value(module.target_dsl_version):
             primitive_type_names = primitive_type_names | frozenset({"Value"})
+        if target_dsl_supports_agent_sessions(module.target_dsl_version):
+            primitive_type_names = primitive_type_names | frozenset({"Agent"})
         type_refs: dict[str, TypeRef] = {
             name: PrimitiveTypeRef(name=name) for name in primitive_type_names
         }
@@ -1021,7 +1026,7 @@ class FrontendTypeEnvironment:
                 known_run_ref_type,
             )
 
-            if name.startswith("RunRefResult$") or name in RUN_REF_FIXED_TYPE_NAMES:
+            if name.startswith(("RunRefResult$", "RunRefOutcome$")) or name in RUN_REF_FIXED_TYPE_NAMES:
                 known_type = known_run_ref_type(
                     name,
                     session_state=session_state,

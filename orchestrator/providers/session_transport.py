@@ -334,6 +334,7 @@ class CodexExecJsonlAccumulator:
         self._terminal_seen = False
         self._resume_boundary_seen = False
         self._event_count = 0
+        self._turns_completed = 0
         self._line_number = 0
         self._invalid_error: dict[str, Any] | None = None
         self._finalized = False
@@ -453,6 +454,7 @@ class CodexExecJsonlAccumulator:
                 "session_id": session_id,
                 "normalized_stdout": "".join(self._text_parts),
                 "event_count": self._event_count,
+                "turns_completed": self._turns_completed,
             }
         return metadata, None
 
@@ -528,6 +530,7 @@ class CodexExecJsonlAccumulator:
             and event_type in _TERMINAL_EVENT_TYPES
         ):
             self._terminal_seen = True
+            self._turns_completed += event_type == "turn.completed"
         elif (
             event_type == _RESUME_BOUNDARY_EVENT_TYPE
             and len(self._session_ids) == 1
@@ -592,6 +595,9 @@ def create_session_transport_accumulator(
         return CodexExecJsonlAccumulator(
             assistant_text_callback=assistant_text_callback,
         )
+    if metadata_mode == ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value:
+        from .session_transport_claude import ClaudeStreamJsonAccumulator
+        return ClaudeStreamJsonAccumulator(assistant_text_callback=assistant_text_callback)
     if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if expectation is None:
             raise TypeError(

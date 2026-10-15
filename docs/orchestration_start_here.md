@@ -19,9 +19,9 @@ Design time (authoring)                              Runtime (execution)
 -----------------------------------------------------------------------------
 Write Workflow Lisp (.orc) ------------------------> Parse and typecheck source
 Write provider prompt files -----------------------> Elaborate to typed surface AST
-Define typed values/contracts ---------------------> Lower to executable IR + compatibility projection
-Configure queue conventions in workflow -----------> Execute IR nodes / enforce contracts
-Use runbook/CLI flags -----------------------------> Emit state/logs/reports through compatibility surfaces
+Define typed values/contracts ---------------------> Compile to a checked closed program
+Configure queue conventions in workflow -----------> Evaluate effects against the memo / enforce contracts
+Use runbook/CLI flags -----------------------------> Emit memo, derived state.json and reports
 ```
 
 Short version:
@@ -47,13 +47,13 @@ Short version:
 - The immutable authored-shape in-memory model produced after validation/elaboration.
 
 `executable IR`
-- The immutable execution-shape in-memory model consumed by runtime collaborators.
+- Historical flat execution model, retired 2026-10-13; an evaluated run executes the checked closed program (`closed_program.json`) instead.
 
 `compatibility projection`
-- The mapping from executable node ids back to persisted/reporting surfaces such as `steps.*`, `current_step.index`, `finalization.*`, and report ordering.
+- The derived `state.json`/report view (`steps.*`, `current_step`) an evaluated run rebuilds from its memo; never authority.
 
 `step`
-- One node in a workflow graph (`command`, `provider`, `wait_for`, or loop-nested step).
+- One effect site in a workflow program (`command`, `provider`, `run_ref`, or an agent allocation or turn), identified under its call frames.
 
 `step execution`
 - One runtime invocation of one step in one run.
@@ -90,28 +90,28 @@ Short version:
                                        |
                                        v
                            +---------------------------+
-                           | Lowering                  |
-                           | AST -> IR + projection    |
+                           | Closed-program compile    |
+                           | AST -> checked program    |
                            +-----------+---------------+
                                        |
                                        v
                            +---------------------------+
                            | Orchestrator Runtime      |
-                           | executes IR nodes         |
+                           | evaluates the program     |
                            +-----------+---------------+
                                        |
                    +-------------------+-------------------+
                    |                                       |
                    v                                       v
         +-------------------------+            +-------------------------+
-        | Command / wait_for step |            | Provider step           |
-        | shell/poll execution    |            | prompt + provider CLI   |
+        | Command step            |            | Provider step           |
+        | shell execution         |            | prompt + provider CLI   |
         +------------+------------+            +------------+------------+
                      |                                      ^
                      v                                      |
         +-------------------------+            +------------+------------+
         | state.json + run logs   |<-----------| prompt files + injection |
-        | report/projection views |            | composition               |
+        | report/derived views    |            | composition               |
         +------------+------------+            +-------------------------+
                      ^
                      |
@@ -124,7 +124,7 @@ Short version:
 ## What Belongs Where
 
 Change Workflow Lisp source when you need to change:
-- control flow (`goto`, gates, retries, loops)
+- control flow (`if`/`cond`/`match`, loops, retries)
 - artifact lineage semantics (`artifacts`, `publishes`, `consumes`)
 - deterministic output/consume contract behavior
 
@@ -160,16 +160,17 @@ present."
 - Correction: fresh `run` accepts only a case-insensitive `.orc` suffix and
   rejects every other source with `.orc required` before state creation.
   Reports and dashboards may render persisted legacy state without parsing its
-  source. `resume` loads the selected persisted state, then every recorded
-  non-`.orc` suffix fails closed with `.orc required`, regardless of run
-  terminality or force-restart selection. Legacy state remains viewable only
+  source. `resume`, including `--force-restart`, refuses a retired execution
+  profile first with `workflow_execution_profile_retired`, before source
+  checks or mutation; a fresh `run` of a non-`.orc` path fails closed with
+  `.orc required`. Legacy state remains viewable only
   through state-only report/dashboard observability.
 
 Confusion: "Execution runs the authored source tree directly."
-- Correction: execution runs validated executable IR. Persisted/reporting
-  compatibility surfaces are reconstructed through the projection layer.
-  `expanded.debug.yaml` is a JSON-rendered debug view despite its historical
-  filename.
+- Correction: execution runs the checked closed program compiled from the
+  source (`closed_program.json`, digest-pinned in `run.json`); `state.json`
+  and reports are derived views rebuilt from the memo. The flat route's
+  executable IR and debug YAML renderer are retired.
 
 Confusion: "Informative docs are normative."
 - Correction: `specs/` are normative; docs are guidance.

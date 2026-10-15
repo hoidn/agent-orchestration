@@ -456,6 +456,9 @@ def typecheck_structural_value_expr(
                 reason="is not permitted in a `list/map-effect` body",
                 effect_summary=typed_body.effect_summary,
             )
+        if expr.parallel_count is not None:
+            from .typecheck_agents import check_parallel_body
+            check_parallel_body(expr, typed_body, context)
         from .conditionals import _is_helper_expanded
         from .expression_traversal import iter_child_exprs
         from .functions import _find_purity_violation

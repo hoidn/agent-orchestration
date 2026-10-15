@@ -83,7 +83,7 @@ _CONTROL_EMITTERS = (
 )
 
 _LEAF_EMITTERS = (
-    ex.CommandResultExpr, ex.ProviderResultExpr, ex.RequestInputExpr, ex.CallExpr,
+    ex.CommandResultExpr, ex.ProviderResultExpr, ex.RequestInputExpr, ex.CallExpr, ex.AgentExpr,
     ex.RunProviderPhaseExpr, ex.ResourceTransitionExpr, ex.RecordExpr, ex.UnionVariantExpr,
     ex.NameExpr, ex.FieldAccessExpr, ex.LiteralExpr, ex.PhaseTargetExpr, ex.PureOpExpr,
     ex.RecordUpdateExpr, ex.LoopStateSeedExpr, ex.LoopStateUpdateExpr, ex.ProviderBundlePathExpr,
@@ -618,6 +618,9 @@ def _wcc_continuation_binding_demands(
         value: WccPerform,
     ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
         if value.perform_kind == "run_ref":
+            if isinstance(value.operation_payload, w.WccRunRefWorkflowPayload):
+                # A confined site's `:commit` operand is its sole positional argument.
+                return (referenced_names((value.positional_args, value.keyword_args)), frozenset(), frozenset())
             return (referenced_names(value.keyword_args), frozenset(), frozenset())
         if value.perform_kind == "provider_result":
             payload = value.operation_payload

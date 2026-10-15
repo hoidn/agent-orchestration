@@ -37,6 +37,33 @@
     supervisor's composed prompt and debug prompt evidence but never enter
     workflow values, `state.json`, stable status records, checkpoints, or
     resume selection.
+  - An evaluated run whose checked program contains `agent`/`agent_turn`
+    effects constructs the run-scoped observation manager best-effort;
+    evaluated runs of programs without agents keep observation disabled as
+    before, so 2.35–2.37 behaviour is unchanged: observation is enabled only
+    where an agent instance needs a durable view. Within an agent-bearing
+    run, ordinary `provider-result` effects keep the one-invocation/one-pane
+    contract.
+  - Each agent instance owns one logical read-only view: every turn of that
+    agent appends to the same pane and transcript, with
+    `--- turn <identity> attempt <n> ---` and `--- idle ---` boundary lines;
+    invoking the agent again never opens a second pane. If an agent's view
+    cannot open, that agent stays unobserved for the rest of the process: its
+    turns never fall back to ordinary per-invocation panes and the open is not
+    retried each turn. View files are unique per process, so a resumed run
+    opens fresh views beside the earlier ones. Attach is read-only
+    (`tmux -S <socket> attach -r -t <session>`); the session is logged once per
+    run at manager creation and each agent view's socket and pane target are
+    logged when that view opens. They are transient: a runtime restart may
+    allocate a different pane/socket for the same logical agent, and targets
+    never enter `Agent`, the memo or `state.json`.
+  - The agent view is derived from invocation-local streams and can never
+    authorize, reconcile or dispatch a turn; every observation failure is
+    best-effort. Parallel workers keep observation disabled.
+  - Agent result-validation diagnostics, derived state and reports use only
+    logical agent identity and safe code, without raw provider/result detail,
+    exit information or violations ([State](state.md#memo-records)); ordinary
+    provider failure diagnostics retain their existing detail.
 
 - Provider peer-group evidence (v2.17)
   - The `interactive_terminal_turn_queue.v1` adapter pane owns the actual
@@ -121,6 +148,21 @@ derives solely from the validated `.orc` executable and `state.json`.
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
   - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
+  - Target 2.38 confined-child cleanup projection:
+    evaluated views and reports include `run_ref_cleanup`, exposed as
+    `run.run_ref_cleanup` in report JSON, whenever pending obligations exist,
+    and omit it otherwise. It is an array ordered by coordinator `identity`
+    and `attempt`; each entry has those existing coordinates,
+    `status: "pending"`, and `error`, either `null` when no cleanup outcome is
+    durable or the latest durable cleanup diagnostic as `{code, message}`;
+    when cleanup moved a replacement, its message includes the preserved
+    private location. Markdown renders the same pending obligations and
+    reasons. The projection comes from validated coordinator ledger
+    authority, never from `state.json`; readers neither repair nor execute
+    cleanup. Cleanup does not change the workflow terminal, suppress outputs
+    or populate the run-level error. No completed cleanup history is required
+    in this projection. Rendering the report is not a full revalidation of
+    export bytes; settlement and resume retain that responsibility.
   - Status/report snapshots may expose `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, `run.current_executor_session`, `run.excluded_suspended_ms`, and `run.suspended_gap_excluded` when executor-session accounting is available.
   - v2.10 status/report snapshots may expose:
     - bounded `provider_attempt_interrupted_rerun` context for a validated
@@ -157,6 +199,7 @@ derives solely from the validated `.orc` executable and `state.json`.
     - `FAILED`: persisted `state.status` is `failed`.
     - `CRASHED`: persisted `state.status` is `running`, and run-local process metadata confirms the original process identity is no longer alive.
     - `STALLED`: persisted `state.status` is `running`, and the active execution cursor heartbeat or fallback `state.updated_at` is older than the configured stale threshold.
+    - For an evaluated run (profile `evaluated_execution.v1`) the monitor detects the profile from `state.json` and then rebuilds the run's view from its memo, program and writer lock (`run.lock`): `CRASHED` is that view's `interrupted` status (no writer holds `run.lock` and the run has not ended), and `STALLED` is not emitted. The process-identity and heartbeat rules apply to historical flat-route runs.
   - Freshness classification must prefer the deepest active execution cursor heartbeat, including heartbeats in running reusable call frames, over root `state.updated_at`.
   - A live PID alone is not sufficient process identity. When process identity cannot be confirmed, the monitor must fall back to heartbeat/stale classification rather than suppressing notifications.
   - The notification ledger is external to watched repositories by default and de-duplicates by resolved workspace path, run directory id, and event kind.

@@ -692,6 +692,8 @@ def typecheck_provider_result_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    from .typecheck_agents import require_no_agent, typecheck_agent_turn
+    expr = replace(expr, agent_origins=typecheck_agent_turn(expr, context=context, recurse=recurse))
     if expr.session_artifact is not None and not context.session_artifact_allowed:
         raise_error(
             "`:session-artifact` is only permitted at the entry workflow root or its sequential `let*` spine",
@@ -963,7 +965,7 @@ def typecheck_provider_result_expr(
             recurse=recurse,
             typed_factory=typed_factory,
         )
-    if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
+    if expr.agent_origins is None and typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
         raise_error(
             "`provider-result` provider operand must resolve to `Provider`",
             code="provider_result_provider_invalid",
@@ -979,8 +981,8 @@ def typecheck_provider_result_expr(
             form_path=expr.prompt.form_path,
             expansion_stack=expr.prompt.expansion_stack,
         )
-    provider_extern_name = _extern_operand_name(expr.provider)
-    if provider_extern_name is None or context.extern_environment is None:
+    provider_extern_name = None if expr.agent_origins is not None else _extern_operand_name(expr.provider)
+    if expr.agent_origins is None and (provider_extern_name is None or context.extern_environment is None):
         raise_error(
             "`provider-result` requires a compiler-known provider extern",
             code="provider_result_provider_invalid",
@@ -989,7 +991,7 @@ def typecheck_provider_result_expr(
             expansion_stack=expr.provider.expansion_stack,
         )
     provider_binding = context.extern_environment.bindings_by_name.get(provider_extern_name)
-    if not isinstance(provider_binding, ProviderExtern):
+    if expr.agent_origins is None and not isinstance(provider_binding, ProviderExtern):
         raise_error(
             f"`provider-result` provider `{provider_extern_name}` is not a declared provider extern",
             code="provider_result_provider_invalid",
@@ -1162,10 +1164,12 @@ def typecheck_provider_result_expr(
     input_summaries = []
     for input_expr in expr.inputs:
         typed_input = recurse(input_expr)
+        require_no_agent(typed_input.type_ref, where="a provider input", span=input_expr.span,
+                         form_path=input_expr.form_path, expansion_stack=input_expr.expansion_stack)
         input_summaries.append(typed_input.effect_summary)
-    provider_name = provider_extern_name or "provider-result"
+    provider_names = expr.agent_origins or (provider_extern_name or "provider-result",)
     provider_summary = effect_summary_from_direct(
-        direct_effects=(UsesProviderEffect(subject=tuple(provider_name.split("."))),)
+        direct_effects=tuple(UsesProviderEffect(subject=tuple(name.split("."))) for name in provider_names)
     )
     return typed_factory(
         expr=(
@@ -1265,6 +1269,7 @@ def typecheck_command_result_expr(
     typed_factory,
 ):
     from .contracts import is_transportable_result_type
+    from .typecheck_agents import require_no_agent
 
     if is_macro_introduced_effect(expr.span, expr.expansion_stack):
         raise_required_lint(
@@ -1316,6 +1321,8 @@ def typecheck_command_result_expr(
 
     def check_operand(section, slot, value):
         typed = recurse(value)
+        require_no_agent(typed.type_ref, where=f"command {section}", span=value.span,
+                         form_path=value.form_path, expansion_stack=value.expansion_stack)
         arg_summaries.append(typed.effect_summary)
         if section == "inputs":
             typed_inputs[slot] = typed

@@ -307,20 +307,7 @@ def _build_normalized_diff(
                 "omitted_bytes": omitted,
             }
         )
-    catalog = {
-        "changed_files": [
-            _entry_delta(path, baseline_by_path[path], final_by_path[path])
-            for path in changed_paths
-        ],
-        "deleted_files": [
-            _entry_delta(path, baseline_by_path[path], None)
-            for path in deleted_paths
-        ],
-        "untracked_files": [
-            _entry_delta(path, None, final_by_path[path])
-            for path in untracked_paths
-        ],
-    }
+    catalog = _catalog(baseline_by_path, final_by_path, changed_paths, deleted_paths, untracked_paths)
     return {
         "entries": entries,
         "catalog_digest": canonical_sha256(catalog),
@@ -333,6 +320,7 @@ def _build_normalized_diff(
 def _declared_artifact_rows(
     declared_artifacts: tuple[DeclaredArtifact, ...],
     final_by_path: dict[str, TreeEntry],
+    *, allow_aliases: bool = False,
 ) -> list[dict[str, object]]:
     if not isinstance(declared_artifacts, tuple) or any(
         type(artifact) is not DeclaredArtifact for artifact in declared_artifacts
@@ -348,7 +336,7 @@ def _declared_artifact_rows(
         declared_artifacts,
         key=lambda item: (item.name.encode("utf-8"), item.path.encode("utf-8")),
     ):
-        if artifact.name in seen_names or artifact.path in seen_paths:
+        if artifact.name in seen_names or (artifact.path in seen_paths and not allow_aliases):
             raise _fail(
                 "declared artifact names and paths must be unique",
                 "declared_artifact_ambiguous",
@@ -380,6 +368,89 @@ def _declared_artifact_rows(
     return rows
 
 
+def _manifest_changes(baseline_manifest, final_manifest):
+    baseline_by_path = _entry_map(_validate_manifest(baseline_manifest, label="baseline manifest"))
+    final_by_path = _entry_map(_validate_manifest(final_manifest, label="final manifest"))
+    order = lambda paths: tuple(sorted(paths, key=lambda path: path.encode("utf-8")))
+    changed = order(path for path in baseline_by_path.keys() & final_by_path.keys()
+                    if baseline_by_path[path] != final_by_path[path])
+    return (baseline_by_path, final_by_path, changed,
+            order(baseline_by_path.keys() - final_by_path.keys()),
+            order(final_by_path.keys() - baseline_by_path.keys()))
+
+
+def _catalog(baseline, final, changed, deleted, untracked):
+    return {
+        "changed_files": [_entry_delta(path, baseline[path], final[path]) for path in changed],
+        "deleted_files": [_entry_delta(path, baseline[path], None) for path in deleted],
+        "untracked_files": [_entry_delta(path, None, final[path]) for path in untracked],
+    }
+
+
+def _validate_retained_diff(value, catalog, baseline, final):
+    # File hashes do not reveal text encoding. Validate every property demonstrable
+    # from the retained capture, without rebuilding text from retired files.
+    def integer(item):
+        return type(item) is int and item >= 0
+    if (not isinstance(value, dict) or set(value) != {"entries", "catalog_digest", "truncated", "omitted_bytes", "omitted_entries"}
+            or value["catalog_digest"] != canonical_sha256(catalog) or not isinstance(value["entries"], list)
+            or type(value["truncated"]) is not bool or not integer(value["omitted_bytes"])
+            or not integer(value["omitted_entries"])):
+        raise _fail("normalized diff metadata is invalid", "delta_record_mismatch")
+    candidates = {row["path"] for rows in catalog.values() for row in rows}
+    seen, order, represented, omitted = set(), [], 0, 0
+    for row in value["entries"]:
+        if (not isinstance(row, dict) or set(row) != {"path", "text", "truncated", "omitted_bytes"}
+                or row["path"] not in candidates or row["path"] in seen
+                or not isinstance(row["text"], str) or not row["text"]
+                or type(row["truncated"]) is not bool or not integer(row["omitted_bytes"])
+                or row["truncated"] != (row["omitted_bytes"] > 0)):
+            raise _fail("normalized diff entry is invalid", "delta_record_mismatch")
+        path = row["path"]
+        old, new = baseline.get(path), final.get(path)
+        if (any(entry is not None and entry.kind != "file" for entry in (old, new))
+                or (old is not None and new is not None and old.sha256 == new.sha256)):
+            raise _fail("normalized diff entry has no changed file content", "delta_record_mismatch")
+        prefix = ("--- " + (f"a/{path}" if old else "/dev/null") + "\n+++ "
+                  + (f"b/{path}" if new else "/dev/null") + "\n")
+        text = row["text"]
+        if not (text.startswith(prefix) or (row["truncated"] and prefix.startswith(text))):
+            raise _fail("normalized diff headers disagree with its path", "delta_record_mismatch")
+        size = len(text.encode("utf-8"))
+        allowed = min(MAX_NORMALIZED_TEXT_ENTRY_BYTES, MAX_NORMALIZED_DIFF_BYTES - represented)
+        if size > allowed or (row["truncated"] and allowed - size > 3):
+            raise _fail("normalized diff limits disagree", "delta_record_mismatch")
+        represented += size
+        omitted += row["omitted_bytes"]
+        seen.add(path)
+        order.append(path)
+    if (order != sorted(order, key=lambda path: path.encode("utf-8"))
+            or value["omitted_entries"] > len(candidates) - len(seen)
+            or value["omitted_bytes"] < omitted + value["omitted_entries"]
+            or (value["omitted_entries"] == 0 and value["omitted_bytes"] != omitted)
+            or value["truncated"] != (value["omitted_bytes"] > 0 or value["omitted_entries"] > 0)
+            or (value["omitted_entries"] > 0 and MAX_NORMALIZED_DIFF_BYTES - represented > 3)):
+        raise _fail("normalized diff coverage counters disagree", "delta_record_mismatch")
+
+
+def validate_retained_workspace_delta(record, *, expected_digest, base, baseline_manifest,
+                                      final_manifest, declared_artifacts=(), allow_aliases=False):
+    """Validate a live-bound capture against retained manifests, without file reads."""
+    if type(base) is not RepositoryRevisionId:
+        raise TypeError("workspace delta requires exact RepositoryRevisionId authority")
+    if (not isinstance(record, Mapping) or set(record) != {"base", "changed_files", "deleted_files", "untracked_files", "normalized_diff", "declared_artifacts"}
+            or not isinstance(expected_digest, str) or _SHA256_RE.fullmatch(expected_digest) is None
+            or canonical_sha256(record) != expected_digest):
+        raise _fail("workspace delta retained record or digest is invalid", "delta_record_invalid")
+    old, new, changed, deleted, untracked = _manifest_changes(baseline_manifest, final_manifest)
+    catalog = _catalog(old, new, changed, deleted, untracked)
+    if (record["base"] != _base_record(base) or any(record[key] != rows for key, rows in catalog.items())
+            or record["declared_artifacts"] != _declared_artifact_rows(declared_artifacts, new, allow_aliases=allow_aliases)):
+        raise _fail("workspace delta catalog disagrees with retained manifests", "delta_record_mismatch")
+    _validate_retained_diff(record["normalized_diff"], catalog, old, new)
+    return final_manifest
+
+
 def build_workspace_delta(
     *,
     base: RepositoryRevisionId,
@@ -387,6 +458,7 @@ def build_workspace_delta(
     baseline_manifest: TreeManifest,
     workspace_root: Path,
     declared_artifacts: tuple[DeclaredArtifact, ...] = (),
+    allow_aliases: bool = False,
 ) -> WorkspaceDeltaCapture:
     """Capture one exact post-setup-baseline to completed-workspace delta."""
 
@@ -405,45 +477,8 @@ def build_workspace_delta(
             "baseline_snapshot_mismatch",
         )
     final_manifest = _freeze(workspace_root, label="final workspace")
-    baseline_by_path = _entry_map(baseline_manifest)
-    final_by_path = _entry_map(final_manifest)
-    all_paths = set(baseline_by_path) | set(final_by_path)
-    changed_paths = tuple(
-        sorted(
-            (
-                path
-                for path in all_paths
-                if path in baseline_by_path
-                and path in final_by_path
-                and baseline_by_path[path] != final_by_path[path]
-            ),
-            key=lambda value: value.encode("utf-8"),
-        )
-    )
-    deleted_paths = tuple(
-        sorted(
-            set(baseline_by_path).difference(final_by_path),
-            key=lambda value: value.encode("utf-8"),
-        )
-    )
-    untracked_paths = tuple(
-        sorted(
-            set(final_by_path).difference(baseline_by_path),
-            key=lambda value: value.encode("utf-8"),
-        )
-    )
-    changed_rows = [
-        _entry_delta(path, baseline_by_path[path], final_by_path[path])
-        for path in changed_paths
-    ]
-    deleted_rows = [
-        _entry_delta(path, baseline_by_path[path], None)
-        for path in deleted_paths
-    ]
-    untracked_rows = [
-        _entry_delta(path, None, final_by_path[path])
-        for path in untracked_paths
-    ]
+    baseline_by_path, final_by_path, changed_paths, deleted_paths, untracked_paths = _manifest_changes(baseline_manifest, final_manifest)
+    catalog = _catalog(baseline_by_path, final_by_path, changed_paths, deleted_paths, untracked_paths)
     normalized_diff = _build_normalized_diff(
         baseline_root=baseline_root,
         workspace_root=workspace_root,
@@ -453,16 +488,14 @@ def build_workspace_delta(
         deleted_paths=deleted_paths,
         untracked_paths=untracked_paths,
     )
-    declared_rows = _declared_artifact_rows(declared_artifacts, final_by_path)
+    declared_rows = _declared_artifact_rows(declared_artifacts, final_by_path, allow_aliases=allow_aliases)
     if _freeze(baseline_root, label="baseline snapshot") != baseline_manifest:
         raise _fail("baseline snapshot changed during delta capture", "workspace_changed")
     if _freeze(workspace_root, label="final workspace") != final_manifest:
         raise _fail("final workspace changed during delta capture", "workspace_changed")
     record = {
         "base": _base_record(base),
-        "changed_files": changed_rows,
-        "deleted_files": deleted_rows,
-        "untracked_files": untracked_rows,
+        **catalog,
         "normalized_diff": normalized_diff,
         "declared_artifacts": declared_rows,
     }
@@ -483,6 +516,7 @@ def validate_workspace_delta(
     baseline_manifest: TreeManifest,
     workspace_root: Path,
     declared_artifacts: tuple[DeclaredArtifact, ...] = (),
+    allow_aliases: bool = False,
 ) -> TreeManifest:
     """Rebuild and validate an exact persisted delta against both bound roots."""
 
@@ -503,6 +537,7 @@ def validate_workspace_delta(
         baseline_manifest=baseline_manifest,
         workspace_root=workspace_root,
         declared_artifacts=declared_artifacts,
+        allow_aliases=allow_aliases,
     )
     if record_json != rebuilt._record_json:
         raise _fail(
@@ -514,7 +549,9 @@ def validate_workspace_delta(
             "workspace delta digest does not match the bound roots",
             "delta_digest_mismatch",
         )
-    return rebuilt.final_manifest
+    return validate_retained_workspace_delta(record, expected_digest=expected_digest, base=base,
+        baseline_manifest=baseline_manifest, final_manifest=rebuilt.final_manifest,
+        declared_artifacts=declared_artifacts, allow_aliases=allow_aliases)
 
 
 __all__ = [
@@ -525,4 +562,5 @@ __all__ = [
     "WorkspaceDeltaCapture",
     "build_workspace_delta",
     "validate_workspace_delta",
+    "validate_retained_workspace_delta",
 ]

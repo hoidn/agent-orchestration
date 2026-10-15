@@ -9,10 +9,14 @@ from __future__ import annotations
 
 from dataclasses import InitVar, dataclass, field
 import math
+import re
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.run_ref.contracts import (
+    CONFINED_IMAGE_RE,
+    RUN_REF_CONFINED_LIMITS,
+    RUN_REF_CONFINEMENT_RESERVED_MIB,
     RunRefSourceRefusal,
     SetupCommand,
     SetupPolicy,
@@ -20,6 +24,10 @@ from orchestrator.workflow.run_ref.contracts import (
 from orchestrator.workflow.run_ref.source import (
     normalize_repository_locator,
     validate_commit_sha,
+)
+from orchestrator.contracts.closed_program.targets import (
+    RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION,
+    target_dsl_supports_run_ref_confined,
 )
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
@@ -548,11 +556,36 @@ class RunRefPathProgram:
 
 
 @dataclass(frozen=True)
-class RunRefExpr:
-    """One target-2.24 pinned mode-1 child-run expression."""
+class RunRefRevisionSource:
+    """A literal repository locator and the parent-evaluated `:commit` operand."""
 
-    source: RunRefSource
-    program: RunRefBundleProgram | RunRefPathProgram
+    repo: str
+    commit: "ExprNode"
+
+
+@dataclass(frozen=True)
+class RunRefConfinedPolicy:
+    """Literal `run_ref_confinement.v1` policy; limits use `RUN_REF_CONFINED_LIMITS` order."""
+
+    image: str
+    network: str
+    limits: tuple[tuple[str, int], ...]
+
+
+@dataclass(frozen=True)
+class RunRefWorkflowProgram:
+    """One static parent-graph workflow run as a confined private child entry."""
+
+    workflow_name: str
+    policy: RunRefConfinedPolicy
+
+
+@dataclass(frozen=True)
+class RunRefExpr:
+    """One pinned child-run expression (path, retired bundle, or confined workflow mode)."""
+
+    source: RunRefSource | RunRefRevisionSource
+    program: RunRefBundleProgram | RunRefPathProgram | RunRefWorkflowProgram
     inputs: tuple[tuple[str, "ExprNode"], ...]
     setup: SetupPolicy
     span: SourceSpan
@@ -854,6 +887,18 @@ class SessionArtifactSpec:
 
 
 @dataclass(frozen=True)
+class AgentExpr:
+    """One run-local agent allocation over a statically resolved provider extern."""
+
+    provider: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+    model: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    effort: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -899,6 +944,7 @@ class ProviderResultExpr:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    agent_origins: tuple[str, ...] | None = field(default=None, metadata={"json_omit_if_none": True})
     return_spec: ReturnSpec | None = field(
         default=None,
         repr=False,
@@ -1187,6 +1233,7 @@ ExprNode = (
     | LetProcExpr
     | WithLiveProvidersExpr
     | WithLiveProviderPeersExpr
+    | AgentExpr
     | ProviderResultExpr
     | ProviderBundlePathExpr
     | CommandResultExpr
@@ -1519,13 +1566,13 @@ def _elaborate_list(
         form_spec = None
     if (
         form_spec is None
-        and head.resolved_name in {"run-ref", "trial"}
+        and head.resolved_name in {"run-ref", "trial", "agent"}
         and head.resolved_name not in session_state.function_names
         and head.resolved_name not in procedure_names
         and head.resolved_name not in available_names
     ):
-        route = _route_run_ref if head.resolved_name == "run-ref" else _route_trial
-        return route(
+        return _dispatch_elaboration_route(
+            head.resolved_name.replace("-", "_"),  # route keys of the target-gated heads
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -1813,6 +1860,8 @@ def _route_trial(
 
 
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
+    from .agent_forms import _elaborate_agent
+
     return {
         "record": _elaborate_record,
         "pure_op": _elaborate_pure_op,
@@ -1842,6 +1891,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "with_live_providers": _elaborate_with_live_providers,
         "with_live_provider_peers": _elaborate_with_live_provider_peers,
         "provider_result": _elaborate_provider_result,
+        "agent": _elaborate_agent,
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
         "request_input": _elaborate_request_input,
@@ -2006,6 +2056,181 @@ def _parse_run_ref_setup(
     return SetupPolicy(commands=tuple(commands))
 
 
+# The profile owner (`run_ref.contracts`) holds the limit order, the image rule
+# and the memory reserved above the workspace quota (design D-d, R7).
+PROFILE_HEADROOM_MIB = RUN_REF_CONFINEMENT_RESERVED_MIB
+_CONFINED_IMAGE = CONFINED_IMAGE_RE
+
+
+def _parse_run_ref_inputs(
+    inputs_node: object,
+    *,
+    form_path: tuple[str, ...],
+    elaborate_operand,
+) -> tuple[tuple[str, ExprNode], ...]:
+    if not isinstance(inputs_node, SyntaxList):
+        _raise_error(
+            "`run-ref :inputs` requires keyword/value pairs",
+            code="run_ref_literal_required",
+            span=inputs_node.span,
+            form_path=form_path,
+            expansion_stack=inputs_node.expansion_stack,
+        )
+    input_sections = _run_ref_sections(
+        inputs_node.items,
+        label="`run-ref :inputs`",
+        form_path=form_path,
+    )
+    if any(not name[1:] for name in input_sections):
+        _raise_error(
+            "`run-ref :inputs` names must be nonempty keywords",
+            code="run_ref_shape_invalid",
+            span=inputs_node.span,
+            form_path=form_path,
+            expansion_stack=inputs_node.expansion_stack,
+        )
+    return tuple(
+        (name[1:], elaborate_operand(value, ("inputs", name[1:])))
+        for name, value in input_sections.items()
+    )
+
+
+def _run_ref_selects_workflow(program_node: object) -> bool:
+    return isinstance(program_node, SyntaxList) and any(
+        isinstance(item, SyntaxKeyword) and item.value == ":workflow"
+        for item in program_node.items[::2]
+    )
+
+
+def _run_ref_refuse(node: object, message: str, code: str, form_path) -> None:
+    _raise_error(
+        message,
+        code=code,
+        span=node.span,
+        form_path=form_path,
+        expansion_stack=node.expansion_stack,
+    )
+
+
+def _parse_run_ref_confined_policy(
+    policy_node: object,
+    *,
+    form_path: tuple[str, ...],
+) -> RunRefConfinedPolicy:
+    if not isinstance(policy_node, SyntaxList):
+        _run_ref_refuse(policy_node, "`run-ref :policy` requires a literal confined policy",
+                        "run_ref_literal_required", form_path)
+    sections = _run_ref_sections(policy_node.items, label="`run-ref :policy`", form_path=form_path)
+    if ":setup" in sections:
+        _run_ref_refuse(sections[":setup"], "workflow-mode `run-ref` forbids :setup",
+                        "run_ref_program_mode_invalid", form_path)
+    if set(sections) != {":environment", ":image", ":network", ":limits"}:
+        _run_ref_refuse(policy_node, "workflow-mode `run-ref :policy` requires exactly "
+                        ":environment, :image, :network and :limits", "run_ref_shape_invalid", form_path)
+    environment = sections[":environment"]
+    if not isinstance(environment, SyntaxKeyword) or environment.value != ":confined":
+        _run_ref_refuse(environment, "workflow-mode `run-ref` requires :environment :confined",
+                        "run_ref_program_mode_invalid", form_path)
+    image = sections[":image"]
+    if not isinstance(image, SyntaxString) or _CONFINED_IMAGE.fullmatch(image.value) is None:
+        _run_ref_refuse(image, "`run-ref :image` requires a literal `<repository>@sha256:<64 hex>` "
+                        "without a tag", "run_ref_literal_required", form_path)
+    network = sections[":network"]
+    if not isinstance(network, SyntaxKeyword) or network.value not in {":none", ":model-only"}:
+        _run_ref_refuse(network, "`run-ref :network` must be :none or :model-only",
+                        "run_ref_literal_required", form_path)
+    limits_node = sections[":limits"]
+    if not isinstance(limits_node, SyntaxList):
+        _run_ref_refuse(limits_node, "`run-ref :limits` requires literal keyword/integer pairs",
+                        "run_ref_literal_required", form_path)
+    limit_sections = _run_ref_sections(limits_node.items, label="`run-ref :limits`", form_path=form_path)
+    if set(limit_sections) != {f":{name}" for name in RUN_REF_CONFINED_LIMITS}:
+        _run_ref_refuse(limits_node, "`run-ref :limits` requires exactly "
+                        + ", ".join(f":{name}" for name in RUN_REF_CONFINED_LIMITS),
+                        "run_ref_shape_invalid", form_path)
+    for value in limit_sections.values():
+        if not isinstance(value, SyntaxInt) or value.value < 1:
+            _run_ref_refuse(value, "`run-ref :limits` values must be positive integer literals",
+                            "run_ref_literal_required", form_path)
+    limits = tuple((name, limit_sections[f":{name}"].value) for name in RUN_REF_CONFINED_LIMITS)
+    bounds = dict(limits)
+    if bounds["memory-mib"] < bounds["workspace-mib"] + PROFILE_HEADROOM_MIB:
+        _run_ref_refuse(limit_sections[":memory-mib"], "`run-ref :memory-mib` must be at least "
+                        f":workspace-mib + {PROFILE_HEADROOM_MIB}", "run_ref_environment_effect_unsupported", form_path)
+    return RunRefConfinedPolicy(image=image.value, network=network.value[1:], limits=limits)
+
+
+def _parse_run_ref_workflow_mode(
+    datum: SyntaxList,
+    sections: dict[str, object],
+    *,
+    form_path: tuple[str, ...],
+    target_dsl_version: str,
+    workflow_name_resolver,
+    elaborate_operand,
+) -> RunRefExpr:
+    """Parse `run-ref :program (:workflow name)`; see the confined child design."""
+
+    program_node = sections[":program"]
+    if not target_dsl_supports_run_ref_confined(target_dsl_version):
+        _run_ref_refuse(program_node, "`run-ref :program (:workflow ...)` requires target DSL "
+                        f"{RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION} or newer",
+                        "run_ref_child_target_unavailable", form_path)
+    program_sections = _run_ref_sections(program_node.items, label="`run-ref :program`", form_path=form_path)
+    if set(program_sections) != {":workflow"}:
+        _run_ref_refuse(program_node, "`run-ref :program` must select exactly one of :path or :workflow",
+                        "run_ref_program_mode_invalid", form_path)
+    identifier = syntax_identifier(program_sections[":workflow"])
+    if identifier is None:
+        _run_ref_refuse(program_sections[":workflow"], "`run-ref :workflow` requires a static workflow-name symbol",
+                        "run_ref_literal_required", form_path)
+    workflow_name = (
+        workflow_name_resolver(identifier.resolved_name, identifier.span, form_path)
+        if workflow_name_resolver is not None
+        else identifier.resolved_name
+    )
+    if ":returns" in sections:
+        _run_ref_refuse(sections[":returns"], "workflow-mode `run-ref` forbids :returns",
+                        "run_ref_program_mode_invalid", form_path)
+    source_node = sections[":source"]
+    source_sections = (
+        _run_ref_sections(source_node.items, label="`run-ref :source`", form_path=form_path)
+        if isinstance(source_node, SyntaxList)
+        else {}
+    )
+    if set(source_sections) != {":repo", ":commit"}:
+        _run_ref_refuse(source_node, "`run-ref :source` requires exactly :repo and :commit",
+                        "run_ref_shape_invalid", form_path)
+    repo_node = source_sections[":repo"]
+    if not isinstance(repo_node, SyntaxString):
+        _run_ref_refuse(repo_node, "`run-ref :repo` requires a static string literal",
+                        "run_ref_literal_required", form_path)
+    try:
+        repo = normalize_repository_locator(repo_node.value)
+    except RunRefSourceRefusal as exc:
+        _run_ref_refuse(repo_node, f"`run-ref :repo` repository locator is invalid: {exc}",
+                        "run_ref_literal_required", form_path)
+    commit_node = source_sections[":commit"]
+    if isinstance(commit_node, SyntaxString):
+        try:
+            validate_commit_sha(commit_node.value)
+        except RunRefSourceRefusal as exc:
+            _run_ref_refuse(commit_node, f"`run-ref :commit` revision is invalid: {exc}",
+                            "run_ref_literal_required", form_path)
+    policy = _parse_run_ref_confined_policy(sections[":policy"], form_path=form_path)
+    return RunRefExpr(
+        source=RunRefRevisionSource(repo=repo, commit=elaborate_operand(commit_node, ("source", "commit"))),
+        program=RunRefWorkflowProgram(workflow_name=workflow_name, policy=policy),
+        inputs=_parse_run_ref_inputs(sections[":inputs"], form_path=form_path,
+                                     elaborate_operand=elaborate_operand),
+        setup=SetupPolicy(commands=()),
+        span=datum.span,
+        form_path=form_path,
+        environment="confined",
+        expansion_stack=datum.expansion_stack,
+    )
+
+
 def _parse_run_ref_syntax_list(
     datum: SyntaxList,
     *,
@@ -2046,6 +2271,40 @@ def _parse_run_ref_syntax_list(
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
+        )
+
+    def elaborate_operand(value: object, path: tuple[str, ...]) -> ExprNode:
+        return elaborate_expression(
+            SyntaxNode(
+                datum=value,
+                span=value.span,
+                module_path=value.module_path,
+                form_path=form_path + path,
+            ),
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+            function_names=function_names,
+            function_name_resolver=function_name_resolver,
+            procedure_name_resolver=procedure_name_resolver,
+            workflow_name_resolver=workflow_name_resolver,
+            guidance_example=guidance_example,
+            extern_names=session_state.extern_names if session_state is not None else frozenset(),
+            target_dsl_version=target_dsl_version,
+            prompt_catalog=prompt_catalog,
+            session_state=session_state,
+        )
+
+    if _run_ref_selects_workflow(sections[":program"]):
+        workflow_resolver = workflow_name_resolver
+        if workflow_resolver is None and session_state is not None:
+            workflow_resolver = session_state.workflow_name_resolver
+        return _parse_run_ref_workflow_mode(
+            datum,
+            sections,
+            form_path=form_path,
+            target_dsl_version=target_dsl_version,
+            workflow_name_resolver=workflow_resolver,
+            elaborate_operand=elaborate_operand,
         )
 
     source_node = sections[":source"]
@@ -2202,52 +2461,10 @@ def _parse_run_ref_syntax_list(
             expansion_stack=program_node.expansion_stack,
         )
 
-    inputs_node = sections[":inputs"]
-    if not isinstance(inputs_node, SyntaxList):
-        _raise_error(
-            "`run-ref :inputs` requires keyword/value pairs",
-            code="run_ref_literal_required",
-            span=inputs_node.span,
-            form_path=form_path,
-            expansion_stack=inputs_node.expansion_stack,
-        )
-    input_sections = _run_ref_sections(
-        inputs_node.items,
-        label="`run-ref :inputs`",
+    inputs = _parse_run_ref_inputs(
+        sections[":inputs"],
         form_path=form_path,
-    )
-    if any(not name[1:] for name in input_sections):
-        _raise_error(
-            "`run-ref :inputs` names must be nonempty keywords",
-            code="run_ref_shape_invalid",
-            span=inputs_node.span,
-            form_path=form_path,
-            expansion_stack=inputs_node.expansion_stack,
-        )
-    inputs = tuple(
-        (
-            name[1:],
-            elaborate_expression(
-                SyntaxNode(
-                    datum=value,
-                    span=value.span,
-                    module_path=value.module_path,
-                    form_path=form_path + ("inputs", name[1:]),
-                ),
-                bound_names=bound_names,
-                procedure_names=procedure_names,
-                function_names=function_names,
-                function_name_resolver=function_name_resolver,
-                procedure_name_resolver=procedure_name_resolver,
-                workflow_name_resolver=workflow_name_resolver,
-                guidance_example=guidance_example,
-                extern_names=session_state.extern_names if session_state is not None else frozenset(),
-                target_dsl_version=target_dsl_version,
-                prompt_catalog=prompt_catalog,
-                session_state=session_state,
-            ),
-        )
-        for name, value in input_sections.items()
+        elaborate_operand=elaborate_operand,
     )
 
     returns_node = sections.get(":returns")
@@ -3140,6 +3357,15 @@ def _parse_trial_syntax_list(
                 run_ref_node,
                 code="trial_arms_invalid",
                 message="trial arms require nested `run-ref` syntax",
+                form_path=form_path,
+            )
+        if _run_ref_selects_workflow(
+            _run_ref_sections(run_ref_node.items[1:], label="`run-ref`", form_path=form_path).get(":program")
+        ):
+            _trial_fail(
+                run_ref_node,
+                code="run_ref_child_target_unavailable",
+                message="trial arms cannot run a confined `run-ref :program (:workflow ...)` child",
                 form_path=form_path,
             )
         arms.append(

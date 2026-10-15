@@ -29,7 +29,8 @@ from orchestrator.workflow.signatures import (
 from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import (
-    build_closed_program_bundle, prepare_closed_program_bundle,
+    ConfinedRunRefUnavailable, build_closed_program_bundle, prepare_closed_program_bundle,
+    refuse_confined_run_ref_sites,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.reader import SourceReadTrace
@@ -185,6 +186,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         recipe = header["resume_request"]
         request = _resume_build_request(header, workspace, run_files)
         fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
+        refuse_confined_run_ref_sites(fresh.program)
         if fresh.program.digest != header["program_digest"]:
             raise _ResumeRefusal("resume_program_changed", "current program differs from the run header")
         inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)
@@ -224,9 +226,13 @@ def run_evaluated_workflow(
             request,
             source_read_trace=source_read_trace,
         )
+        refuse_confined_run_ref_sites(built.program)
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
             logger.error(render_diagnostic(diagnostic))
+        return 2, None, None, {}
+    except ConfinedRunRefUnavailable as exc:
+        logger.error("[%s] %s", exc.code, exc)
         return 2, None, None, {}
     bound_inputs = _bind_initial_inputs(built.program, args, resume_request, workspace) if reserved else _bind_recipe(built.program, resume_request, workspace)
     if getattr(args, "dry_run", False):

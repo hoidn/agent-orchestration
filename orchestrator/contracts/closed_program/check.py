@@ -31,6 +31,10 @@ from orchestrator.workflow.run_ref.config import (
     ReferenceBinding,
     decode_run_ref_static_config,
 )
+from orchestrator.workflow.run_ref.confined_config import (
+    RunRefConfinedStaticConfig,
+    decode_run_ref_confined_static_config,
+)
 from orchestrator.workflow.run_ref.result_contract import (
     RUN_REF_RESULT_CONTRACT_SCHEMA,
 )
@@ -53,6 +57,8 @@ from orchestrator.workflow.type_descriptor import _named_type_basename
 from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
 
 from .targets import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from . import check_agents
+from .node_walk import _ast_nodes, _effect_value_children
 from .names import (
     _parse_identity,
     _render_key_identity,
@@ -111,11 +117,12 @@ _VALUE_KEYS = {
     "perform": {
         "k", "class", "result", "repeat", "site", "@", "boundary", "command",
         "closure", "contract", "argv", "document", "argv_transport", "provider", "prompt", "inputs",
-        "dependencies", "policy", "config", "arm_inputs", "question",
+        "dependencies", "policy", "config", "arm_inputs", "question", "commit", "agent", "origins",
     },
 }
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 _GENERATED_RESULT_RE = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
+
 _RESULT_CONTRACT_METADATA_KEYS = frozenset(
     {
         "path",
@@ -238,6 +245,13 @@ class _SiteLabels:
     anonymous_count: int = 0
 
 
+def _run_ref_site_result(config: Any) -> Any:
+    """Return the site's result type: the envelope, or a confined site's outcome union."""
+    if isinstance(config, RunRefConfinedStaticConfig):
+        return config.outcome_descriptor
+    return config.result_descriptor["envelope"]
+
+
 def validate(tree: dict[str, Any]) -> None:
     """Validate one complete closed program without a frontend type environment."""
 
@@ -283,7 +297,7 @@ class _Checker:
         self._validate_json(self.tree)
         if not isinstance(self.tree, dict):
             self.fail("program_shape", "closed program must be a JSON object")
-        if set(self.tree) - {"command_params"} != _TOP_FIELDS:
+        if set(self.tree) - {"command_params", "children"} != _TOP_FIELDS:
             self.fail("program_shape", "closed program has missing or extra top-level fields")
         if self.tree.get("schema") != "workflow-lisp/closed-program/1":
             self.fail("program_schema", "unsupported closed-program schema")
@@ -319,8 +333,10 @@ class _Checker:
         self._check_call_graph()
         self._compute_effectful_definitions()
         self._check_effect_configurations()
+        check_agents.check_parallel_agents(self)
         self._validate_run_ref_origins()
         self._check_run_ref_signatures_and_digests()
+        self._check_confined_children()
         self._check_pending_boundaries()
         self._check_key_runtime_agreement()
         self._check_command_decision_agreement()
@@ -566,6 +582,8 @@ class _Checker:
 
     def _effect_children(self, node: Mapping[str, Any]) -> list[Any]:
         effect_class = node.get("class")
+        if effect_class in {"agent", "agent_turn"}:
+            return _effect_value_children(node)
         if effect_class == "command":
             children = list(node.get("argv", [])) if isinstance(node.get("argv"), list) else []
             plans = node.get("argv_transport", [])
@@ -597,7 +615,8 @@ class _Checker:
             return children
         if effect_class == "run_ref":
             rows = node.get("inputs", [])
-            return [row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else []
+            commit = [node["commit"]] if "commit" in node else []
+            return commit + ([row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else [])
         return []
 
     def _check_document_argv(self, node, owner):
@@ -895,6 +914,9 @@ class _Checker:
         for owner, scope in scopes:
             for node in self.performs.get(owner, []):
                 effect_class = node.get("class")
+                if effect_class in {"agent", "agent_turn"}:
+                    check_agents.check_agent_configuration(self, node, scope, owner)
+                    continue
                 if effect_class == "run_ref":
                     continue
                 if effect_class == "command":
@@ -939,15 +961,26 @@ class _Checker:
                     self.fail("run_ref_config", "run-ref config was not decoded during typed validation", node)
                 generated = config.generated_result_type
                 envelope = config.result_descriptor["envelope"]
-                if envelope.get("name") != generated or not self._same(node.get("result"), envelope):
+                if envelope.get("name") != generated or not self._same(node.get("result"), _run_ref_site_result(config)):
                     self.fail("run_ref_result", "run-ref result node differs from its decoded generated envelope", node)
                 registered = self.types.get(generated)
                 if not isinstance(registered, Mapping) or not self._same(registered, envelope):
                     self.fail("nominal_definition", f"generated run-ref result {generated!r} differs from its type-table row", node)
+                if isinstance(config, RunRefConfinedStaticConfig) and not self._same(
+                        self.types.get(config.generated_outcome_type), node.get("result")):
+                    self.fail("nominal_definition", "generated run-ref outcome differs from its type-table row", node)
                 origins.setdefault(generated, []).append(
                     {"owner": owner, "node": node, "config": config, "site": node.get("site")}
                 )
+        outcomes = {
+            row["config"].generated_outcome_type
+            for rows in origins.values()
+            for row in rows
+            if isinstance(row["config"], RunRefConfinedStaticConfig)
+        }
         for name, descriptor in self.types.items():
+            if name.startswith("RunRefOutcome$") and name not in outcomes:
+                self.fail("run_ref_origin", f"generated run-ref outcome {name!r} has no lexical producer")
             if name.startswith("RunRefResult$"):
                 if _GENERATED_RESULT_RE.fullmatch(name) is None:
                     self.fail("run_ref_result", f"reserved generated type name {name!r} is malformed")
@@ -1036,6 +1069,43 @@ class _Checker:
                 self.fail("run_ref_digest", "run-ref generated result name does not match its site digest", node)
             if config.result_descriptor["envelope"].get("name") != config.generated_result_type:
                 self.fail("run_ref_result", "run-ref config envelope name differs from its generated identity", node)
+
+    def _check_confined_children(self) -> None:
+        """Validate each private child entry as a full checked program bound to its site."""
+
+        from .program import canonical_digest, program_digest
+
+        configs = [config for config in self.run_ref_configs.values()
+                   if isinstance(config, RunRefConfinedStaticConfig)]
+        children = self.tree.get("children")
+        if children is None and not configs:
+            return
+        if not isinstance(children, Mapping) or not children or set(children) != {
+            config.program.child_program_digest for config in configs
+        }:
+            self.fail("run_ref_child", "child entries differ from the confined sites that name them")
+        for digest, child in children.items():
+            if not isinstance(child, dict) or "children" in child:
+                self.fail("run_ref_child", "a confined child entry cannot carry its own child entries")
+            _Checker(child).run()
+            bodies = [child["body"], *(definition["body"] for definition in child.get("definitions", {}).values())]
+            if any(node.get("k") == "perform" and node.get("class") in {"agent", "agent_turn"}
+                   for body in bodies for node in _ast_nodes(body)):
+                self.fail("run_ref_child", "confined child entries cannot contain agent session effects")
+            if program_digest(child) != digest:
+                self.fail("run_ref_child", "child entry content differs from its checked identity")
+        for config in configs:
+            child = children[config.program.child_program_digest]
+            value = config.result_descriptor["envelope"]["fields"][0]["type"]
+            if (
+                child["entry"] != f"workflow:{config.program.workflow_name}"
+                or child["target"] != config.target_dsl_version
+                or canonical_digest(child["configuration"]) != config.program.owner_configuration_digest
+                or [name for name, _ in child["params"]] != [row.name for row in config.inputs]
+                or not all(self._same(row[1], expected.type_descriptor) for row, expected in zip(child["params"], config.inputs))
+                or not self._same(child["result"], value)
+            ):
+                self.fail("run_ref_child", f"child entry {config.program.workflow_name!r} differs from its site configuration")
 
     def _check_key_markers(self, value: Any, signatures: set[str]) -> None:
         if not isinstance(value, list) or len(value) not in (9, 10):
@@ -1755,6 +1825,7 @@ class _Checker:
             validate_compiler_normalized_type_descriptor(descriptor)
         except (TypeError, ValueError, RecursionError) as exc:
             self.fail("type_descriptor", f"invalid normalized descriptor: {exc}", node)
+        check_agents.check_agent_target(self, descriptor, node)
         kind = descriptor["kind"]
         if kind == "primitive" and descriptor["name"] not in COMPILER_PRIMITIVE_TYPE_NAMES:
             self.fail("type_mismatch", f"unknown compiler primitive {descriptor['name']!r}", node)
@@ -2179,6 +2250,7 @@ class _Checker:
         for descriptor in [*residual["params"], residual["result"]]:
             self._validate_key_type(descriptor, runtime_only=True)
         self._validate_key_values(key)
+        check_agents.check_key_agents(self, key)
 
     @staticmethod
     def _is_projected_selector(selector):
@@ -2439,6 +2511,7 @@ class _Checker:
         except (TypeError, ValueError, RecursionError) as exc:
             self.fail("definition_key", f"invalid projected key type: {exc}")
         self._validate_key_primitive_names(normalized)
+        check_agents.check_agent_target(self, normalized)
 
     def _validate_key_primitive_names(self, descriptor: Any) -> None:
         if not isinstance(descriptor, Mapping):
@@ -2945,6 +3018,7 @@ class _Checker:
             if set(value) != {"k", "v", "type"}:
                 self.fail("definition_key", "closed literal has invalid fields")
             self._validate_key_type(value["type"])
+            check_agents.require_no_agent(self, value["type"], value)
         elif kind == "name":
             if set(value) != {"k", "n"} or not isinstance(value["n"], str):
                 self.fail("definition_key", "closed name has invalid fields")
@@ -3052,6 +3126,7 @@ class _Checker:
             self.fail("call_signature", "parameters must be an array")
         self._parameter_environment(params, defaults, node=self.tree)
         self._validate_descriptor(result)
+        check_agents.check_workflow_signature(self, params, result, self.tree)
 
     def _parameter_environment(
         self,
@@ -3078,6 +3153,7 @@ class _Checker:
         if not set(defaults).issubset(env):
             self.fail("call_signature", "defaults refer to an unknown parameter", node)
         for name, value in defaults.items():
+            check_agents.require_no_agent(self, env[name], node)
             try:
                 _coerce_checked_value(value, env[name], context=f"default {name}")
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
@@ -3272,6 +3348,7 @@ class _Checker:
             state_type = node.get("state_type")
             loop_result = node.get("result")
             self._validate_descriptor(state_type, node=node)
+            check_agents.require_no_agent(self, [state_type, loop_result], node)
             self._validate_descriptor(loop_result, node=node)
             budget_type = self._value(node.get("budget"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(budget_type, {"kind": "primitive", "name": "Int"}, "type_mismatch", node["budget"])
@@ -3350,7 +3427,7 @@ class _Checker:
             self._validate_descriptor(result, node=node)
             self.performs.setdefault(owner, []).append(node)
             self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
-            return result, node.get("class") == "provider"
+            return result, node.get("class") in {"provider", "agent_turn"}
         if kind == "call":
             return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
         return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
@@ -3377,6 +3454,7 @@ class _Checker:
         if allowed is None:
             self.fail("node_kind", f"unknown value node kind {kind!r}", node)
         self._node_shape(node, allowed, node=node)
+        check_agents.check_agent_value(self, node, env)
         if kind == "lit":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)
@@ -3474,7 +3552,7 @@ class _Checker:
                     branch_origins = (branch_origins - {name}) | ({name} if provider else set())
                 branch_types.append(self._value(arm.get("value"), branch_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=frozenset(branch_origins), command_roots=command_roots, command_index=command_index))
             self._require_type(branch_types[1], branch_types[0], "type_mismatch", node)
-            return branch_types[0]
+            return dict(branch_types[0])  # a fresh descriptor: a selected agent is untraced (check_agents)
         if kind == "list":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)
@@ -3811,6 +3889,7 @@ class _Checker:
         item_type, result = node["item_type"], node["result"]
         self._validate_descriptor(item_type, node=node)
         self._validate_descriptor(result, node=node)
+        check_agents.require_no_agent(self, [item_type, result], node, rule="parallel_agent_boundary")
         context = dict(owner=owner, loops=(), scope=scope, allow_effect=False,
             provider_origins=provider_origins, command_roots=command_roots,
             command_index=command_index)
@@ -3824,7 +3903,7 @@ class _Checker:
         if workspace.get("kind") != "path" and workspace != {"kind": "primitive", "name": "String"}:
             self.fail("type_mismatch", "parallel map workspace must be a String or path", node)
         body_index = self._parallel_map_index(node, nested)
-        outcomes = self._body(node["body"], nested, owner=owner, result=result["item"],
+        outcomes = check_agents.check_parallel_agent_body(self, node["body"], nested, owner=owner, result=result["item"],
             joins={}, loops=(), scope=scope, provider_origins=context["provider_origins"],
             command_roots=command_roots, command_index=body_index)
         self._halt_body_type(outcomes, result["item"], rule="parallel_map_control",
@@ -3988,6 +4067,7 @@ class _Checker:
         value_type: Mapping[str, Any],
         node: Mapping[str, Any],
     ) -> None:
+        check_agents.require_no_agent(self, value_type, node)
         if not isinstance(renderer_id, str) or not renderer_id:
             self.fail("effect_shape", "provider input renderer id must be a nonempty string", node)
         try:
@@ -4361,7 +4441,7 @@ class _Checker:
         self._check_command_contract(node)
         self._check_command_operand_argv(node, value_context["scope"])
         for value in node["argv"]:
-            self._value(value, env, allow_effect=False, **value_context)
+            check_agents.require_no_agent(self, self._value(value, env, allow_effect=False, **value_context), node)
         if "document" in node:
             self._check_command_document_values(node, env, **value_context)
         if "argv_transport" in node:
@@ -4407,6 +4487,10 @@ class _Checker:
         command_index=None,
     ) -> None:
         effect_class = node.get("class")
+        if effect_class in {"agent", "agent_turn"}:
+            return check_agents.check_agent_effect_node(
+                self, node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins,
+                command_roots=command_roots, command_index=command_index)
         if effect_class == "command":
             self._check_command_effect_node(node, env, owner=owner, loops=loops,
                 scope=scope, provider_origins=provider_origins,
@@ -4514,18 +4598,25 @@ class _Checker:
                 self.fail("effect_shape", "provider prompt must be an extern source or typed template", node)
             return
         if effect_class == "run_ref":
-            if set(node) - {"k", "class", "result", "repeat", "site", "@", "config", "inputs"}:
+            confined = "commit" in node
+            if set(node) - {"k", "class", "result", "repeat", "site", "@", "config", "inputs", "commit"}:
                 self.fail("effect_shape", "run-ref effect has class-inappropriate fields", node)
             if node.get("repeat") != "rerun":
                 self.fail("effect_repeat", "run-ref repeat must be rerun", node)
             encoded = node.get("config")
             if not isinstance(encoded, str):
                 self.fail("run_ref_config", "run-ref config must be base64 text", node)
+            decode = decode_run_ref_confined_static_config if confined else decode_run_ref_static_config
             try:
-                config = decode_run_ref_static_config(base64.b64decode(encoded, validate=True))
+                config = decode(base64.b64decode(encoded, validate=True))
             except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
                 self.fail("run_ref_config", f"run-ref static config is invalid: {exc}", node)
-            if config.target_dsl_version != EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION or config.program.__class__.__name__ != "PathProgram":
+            if confined:
+                if config.target_dsl_version != self.tree["target"]:
+                    self.fail("run_ref_config", "confined run-ref config must select the program target", node)
+                commit = self._value(node["commit"], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+                self._require_type(commit, {"kind": "primitive", "name": "String"}, "type_mismatch", node["commit"])
+            elif config.target_dsl_version != EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION or config.program.__class__.__name__ != "PathProgram":
                 self.fail("run_ref_config", "checked run-ref config must select target 2.35 path mode", node)
             self.run_ref_configs[id(node)] = config
             inputs = node.get("inputs")
@@ -4540,7 +4631,7 @@ class _Checker:
                 self._require_type(actual, config_input.type_descriptor, "type_mismatch", row[1])
                 if config_input.binding.record != {"kind": "reference", "reference": f"inputs.{row[0]}"}:
                     self.fail("run_ref_config", "run-ref input must use its own inputs reference", node)
-            if not self._same(node.get("result"), config.result_descriptor["envelope"]):
+            if not self._same(node.get("result"), _run_ref_site_result(config)):
                 self.fail("effect_result", "run-ref node result differs from its decoded config", node)
             return
         self.fail("effect_class", f"unsupported effect class {effect_class!r}", node)
@@ -4593,6 +4684,7 @@ class _Checker:
         arg_types: list[dict[str, Any]],
         definition: Mapping[str, Any],
     ) -> None:
+        check_agents.require_no_agent(self, [*arg_types, node.get("type")], node)
         boundary = node.get("boundary")
         if not isinstance(boundary, Mapping) or set(boundary) != {"params", "direct", "inputs", "outputs"}:
             self.fail("call_boundary", "annotated call boundary has invalid fields", node)

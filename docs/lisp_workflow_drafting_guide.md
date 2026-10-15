@@ -194,24 +194,16 @@ compile/runtime/resume tests cited by the selected registry entry.
 
 For targeted design-doc review/fix semantics, read
 `workflows/examples/review_revise_design_docs.orc` as a reference, not as a
-preferred copy target. The compile-only command in the [README](../README.md#first-compile-check)
-works from the repository root without `--entry-workflow`:
-
-```bash
-python -m orchestrator compile workflows/examples/review_revise_design_docs.orc \
-  --source-root workflows/examples \
-  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
-  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json \
-  --diagnostics-json
-```
+preferred copy target. It targets DSL 2.23, whose execution is retired:
+`compile` rejects it at its target declaration with
+`workflow_execution_target_retired`, so no compile check or dry run completes on it today.
+The [README](../README.md#first-compile-check) compile check uses
+`plan_review_execute.orc` at 2.35 instead.
 
 The subject is file-oriented: `fix-design-doc` edits the document artifact and
 returns the same subject paths. The loop returns findings and report paths,
 not a revised subject value for a downstream value-based handoff.
-This command checks source without executing providers. Selecting
-`review_revise_design_docs::review-revise-design-docs` for `run --dry-run`
-currently fails with `workflow_signature_mismatch`
-(`entry_bootstrap_name_gate_denied`). Choose new examples from the workflow
+Choose new examples from the workflow
 catalog's [copy-safety table](../workflows/README.md#which-example-should-i-copy).
 The earlier `workflows/examples/review_revise_parametric_design_docs.orc`
 remains provenance for the real-life-tested review path, but hardcodes one
@@ -220,10 +212,11 @@ design set.
 For the smallest concrete Workflow Lisp teaching example, read
 `workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
 flowing through typed plan and implementation provider results plus bounded
-review/fix loops. Treat it as a compact shared-validation reference and
+review/fix loops. Treat it as a compact historical reference and
 inspiration corpus, not as a direct template for new workflows, not as the main
-`.orc` model, and not as a production queue drain: it can compile and dry-run
-through the `.orc` runtime bridge, but it does not include the selector, queue
+`.orc` model, and not as a production queue drain: it targets DSL 2.14, whose
+execution is retired (`compile` rejects it with
+`workflow_execution_target_retired`), and it does not include the selector, queue
 movement, recovery, and evidence required of a production backlog drain.
 
 ## Core Rule
@@ -313,7 +306,8 @@ Think in five layers.
 | Effects | What work occurs? | Admitted `provider-result`, `command-result`, calls and path-mode `run-ref` | Effect identity, validated results, memo commits |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
-For targets 2.35/2.36, the compiler elaborates and checks `.orc` source into a
+For evaluated targets 2.35/2.36 and the admitted bounded 2.37/2.38 extensions,
+the compiler elaborates and checks `.orc` source into a
 closed program; the evaluator computes its values and memoizes its effects.
 The checked `closed_program.json` is execution authority. The memo is effect
 result authority, and `state.json` is a derived view. The
@@ -340,8 +334,10 @@ adapter.
 Use the [Capability Status Matrix](capability_status_matrix.md) to distinguish
 implemented, library-provided, designed, future and legacy surfaces. Compiler
 acceptance at an older target does not establish evaluated runtime admission.
-New entry workflows in this guide use 2.35 or 2.36 and the scope in
-[Section 2A](#2a-program-shapes-what-runs-today).
+New entry workflows in this guide use 2.35 or 2.36 for ordinary calls, or
+2.38 for bounded [Agent Sessions](#agent-sessions-target-238) and
+[command-only confined children](#confined-workflow-children-target-238-command-only).
+[Section 2A](#2a-program-shapes-what-runs-today) owns the current shape limits.
 
 The shared authoring surface includes declarations (`defenum`, `defpath`,
 `defrecord`, `defunion`, `defschema`), modules/imports/exports, `defworkflow`,
@@ -351,6 +347,12 @@ and `cond`, `match`, `loop/recur`, the closed pure operator and list surfaces,
 fragments. Prompt output slots may own one required UTF-8 file alongside the
 structured result. See the effect admission limits in Section 2A before using
 any library helper.
+
+At target 2.38 the surface also includes `agent`, which allocates a run-local
+`Agent`, and `provider-result` on an `Agent`, which takes one turn in that
+agent's native conversation. Both compile and run; acceptance comparison
+remains pending. See
+[Agent sessions](#agent-sessions-target-238).
 
 Native transportable results need no one-field record wrapper: use the actual
 scalar, enum, path, optional, list, map, record, union or exact opaque `Value`
@@ -383,7 +385,9 @@ route.
 
 ## 2A. Program Shapes: What Runs Today
 
-Author new entry workflows at target **2.35** or **2.36**. Both select evaluated
+Author ordinary entry workflows at target **2.35** or **2.36**; use **2.38**
+for bounded [Agent Sessions](#agent-sessions-target-238) or
+[command-only confined children](#confined-workflow-children-target-238-command-only). These select evaluated
 execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
 shown in [Section 13.7](#137-improve). An older module can still be imported
 when its own syntax gates and the evaluated graph's admission rules allow it.
@@ -391,7 +395,10 @@ Executable entries through 2.34 are retired; older typed imports do not select
 an old executor. No run conversion is performed. The
 [Phase 5 plan](plans/2026-10-07-evaluated-execution-phase-5-plan.md)
 owns bounded 2.37 parallel support and its remaining qualification; it is not
-general copy-safe guidance.
+general copy-safe guidance. Target 2.38 separately admits the bounded
+[Agent recipe](#agent-sessions-target-238) and
+[command-only confined children](#confined-workflow-children-target-238-command-only);
+the latter does not admit providers or Agent operations inside the child.
 
 Values are evaluated in lexical scope; they are not stored as generated steps.
 Effects execute in source order and are recorded in `memo.jsonl`. A committed
@@ -406,7 +413,7 @@ not in the historical flat-route workaround catalogue.
 | Records, unions, lists, and repeated pure bindings | Keep typed native values; no flattening or value-as-step wrapper is needed to reach a command. |
 | Effectful arguments and conditions | Admitted effects run in structural evaluation order, once per activation; boolean operators short-circuit. |
 | Pure contexts | Keep `:on-exhausted` and pure `list/map` bodies effect-free; union reads still require proof. |
-| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; parallel map is outside the release. |
+| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; parallel map requires the bounded 2.37 extension owned by the Phase 5 plan above and is not general copy-safe guidance. |
 | Decimal arithmetic | Use the closed numeric operator surface in Section 9A; mixed numeric types and non-finite results fail closed. |
 | Path-mode `run-ref` | Admitted directly or through calls in effect-admitting branches, loops, budgets, seeds, `match` subjects and serial effect maps; retain pure-context restrictions. |
 
@@ -453,7 +460,7 @@ Everything below is the public fixture of
 (`test_public_compile_run_resume_invalidate_resume_keeps_provider_command_evidence`),
 as it ran under the Task 16A inventory: the files it writes, the commands it
 issues and what it asserts. `$T` is the workspace, the current directory of
-every command. Run the test to reproduce it; nothing here is invented.
+every command. Run the test to reproduce it.
 
 **Source** (`$T/main.orc`, entry `main::run`): one command whose result feeds
 one provider, with a typed `String` input.
@@ -594,10 +601,12 @@ unchanged.
 python -B -m orchestrator resume <run_id>
 ```
 
-What the recipe does not show: context capture, trials, phased providers,
-parallel map and the other classes of
+What the recipe does not show: context capture, trials, phased providers
+and the other classes of
 [§1.1](design/workflow_lisp_evaluated_execution.md#11-the-first-release)
-refuse at build with `closed_program_gap`; external kills at every window of
+refuse at build with `closed_program_gap` (a parallel `list/map-effect` below
+target 2.37 refuses earlier, in the frontend, with
+`list_traversal_target_dsl_unsupported`); external kills at every window of
 every effect of the three maintained programs are owned by
 [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
 (Phase 3 Task 15, integrated).
@@ -1402,6 +1411,128 @@ the admitted provider subset. The
 preserves the historical context/type contract and its coverage limits;
 its executable route is retired, with no evaluated capture port selected.
 
+### Agent sessions (target 2.38)
+
+Status: allocation, turns, recovery, C8 guards and instance views are implemented
+at target 2.38. The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+contains deterministic proofs and bounded adapter smokes; the clean and failed/resumed
+comparison (PQ-1c) has not run and requires separate owner authorization. The
+[Agent Sessions design](design/workflow_lisp_agent_sessions.md) owns the contract.
+
+Choose an agent when later calls should continue the same native conversation; use independent
+calls and artifact handoffs when typed inputs suffice. The cost: invalidating a
+suffix containing a committed agent turn is refused (C8); earlier work cannot
+be rerun in place. An interrupted first turn may run more than once.
+
+The opt-in [worked example](../workflows/examples/design_review_execute_agents.orc)
+uses this complete four-turn body. Its `defworkflow` inputs, path/record types and
+inline `defprompt` declarations are in that file:
+
+```lisp
+(let* ((designer (agent providers.claude :model planner_model :effort "high"))
+       (reviewer (agent providers.codex :model reviewer_model :effort "high"))
+       (draft (provider-result designer :timeout-sec 3600
+                :prompt (draft-design :task task)))
+       (feedback (provider-result reviewer :timeout-sec 3600
+                   :prompt (review-design :task task :design draft.doc)))
+       (revised (provider-result designer :timeout-sec 3600
+                  :prompt (revise-design :task task :design draft.doc :draft_path draft.doc
+                                         :blocking feedback.blocking :notes feedback.notes))))
+  (provider-result reviewer :timeout-sec 14400
+    :prompt (execute-design :task task :design revised.doc)))
+```
+
+`designer` and `reviewer` are separate conversations. The designer retains its
+draft context for revision; the reviewer retains its review context for execution.
+Each turn also returns its own checked value: `Draft` carries `doc`, `Feedback`
+carries `blocking` and `notes`, `Design` carries the revised `doc`, and `Execution`
+carries the final summary, commits, checks and unfinished work. The `:doc` fills
+still deliver the current typed document; native history does not replace current
+inputs or result contracts.
+
+`(agent <provider-extern> [:model String] [:effort String])` allocates one
+`Agent` without launching a provider. Its provider must be compiler-known;
+model/effort are its only options and must be inline `String` operands.
+`(provider-result <agent> :prompt ... [:timeout-sec N])` takes a turn and returns
+its typed result. Turns run in source order; aliases, aggregates, branches and
+same-run `defproc` arguments/returns reuse the same agent.
+
+Constructor `:model`/`:effort` pin instance policy; prompts, inputs and timeouts
+belong to turns. The example preserves baseline models (`claude-fable-5-1`,
+`gpt-6.1-sol`), effort and timeouts. Override models initially with
+`--input planner_model=...` / `--input reviewer_model=...`, never on a turn.
+
+Use the existing manifests, from the repository root:
+
+- [providers.json](../workflows/examples/inputs/design_review_execute_agents/providers.json)
+  binds `providers.claude` to `claude_unrestricted_workspace` and `providers.codex`
+  to `codex`.
+- [inputs.json](../workflows/examples/inputs/design_review_execute_agents/inputs.json)
+  supplies a sample `task` string. Select the intended task before a real run;
+  your own input JSON can use the same fields.
+- No prompt manifest is required: the four prompts are inline `defprompt` declarations.
+
+Prerequisites: a repository/worktree containing `AGENTS.md`, `docs/index.md` and
+`docs/templates/design_template.md`, and installed Python dependencies. Real work
+requires authenticated `claude`/`codex` on `PATH`, using existing
+`CODEX_HOME`/`CLAUDE_CONFIG_DIR` or default homes; no homes/credentials are provisioned.
+The final turn modifies and commits the workspace. [Tmux views](../specs/observability.md) are read-only,
+best-effort and optional.
+
+Compile and dry-run validate the maintained example without invoking providers:
+
+```bash
+python -m orchestrator compile workflows/examples/design_review_execute_agents.orc \
+  --provider-externs-file workflows/examples/inputs/design_review_execute_agents/providers.json
+
+python -m orchestrator run workflows/examples/design_review_execute_agents.orc \
+  --provider-externs-file workflows/examples/inputs/design_review_execute_agents/providers.json \
+  --input-file workflows/examples/inputs/design_review_execute_agents/inputs.json \
+  --dry-run
+```
+
+To opt into paid provider work after checking the task and workspace, run the
+second command with `--dry-run` removed, using the intended input JSON. Use its
+`RUN_ID` to continue or inspect the run from that same workspace:
+
+```bash
+python -m orchestrator resume RUN_ID
+python -m orchestrator report --run-id RUN_ID --format json
+```
+
+Use `resume`, including admitted first-turn bootstrap; `--force-restart` is
+unavailable. Native loss or external advancement can block new turns; completed
+replay needs no native session. See the normative
+[resume contract](../specs/cli.md#evaluated-execution-target-235) and
+[Agent persistence/recovery limits](design/workflow_lisp_agent_sessions.md#persistence-recovery-and-invalidation)
+for refusal/invalidation rules. This example remains opt-in with bounded evidence;
+the recipe earns no further qualification or PQ-1c acceptance. REPL remains
+2.35/2.36; use `report` here.
+
+Refused at compile time:
+
+| Code | When |
+| --- | --- |
+| `agent_target_dsl_unsupported` | `agent` in a module below target 2.38 |
+| `agent_provider_invalid` | The first operand is not a compiler-known provider extern |
+| `agent_keyword_invalid` | A keyword other than `:model` or `:effort`, such as `:timeout-sec`, on `agent` |
+| `agent_model_type_invalid`, `agent_effort_type_invalid` | `:model` or `:effort` is not a `String` |
+| `agent_policy_operand_not_inline_lowerable` | `:model` or `:effort` is a `String` expression the compiler cannot inline, such as an `if` |
+| `frontend_parse_error` | A malformed `agent` form: an odd key/value list, an entry that is not a keyword, a duplicated keyword, or a keyword where the provider belongs |
+| `agent_turn_policy_override_forbidden` | `:model` or `:effort` on a turn; change the constructor instead |
+| `agent_turn_option_unsupported` | Context capture, `:session-artifact`, phased delivery or another option outside the bounded turn |
+| `agent_transport_forbidden` | An `Agent` in provider or command data: `:inputs`, a prompt `:value` fill, `:argv` |
+| `workflow_boundary_type_invalid`, `workflow_return_type_invalid` | An `Agent`, or a record or union carrying one, in a `defworkflow` parameter or return, a `call` argument, or a `run-ref` input or result |
+| `provider_result_return_type_invalid`, `command_result_return_type_invalid` | A provider or command result type that carries an `Agent` |
+| `loop_state_runtime_transport_forbidden` | An `Agent` in `loop/recur` state |
+| `parallel_agent_boundary` | An `Agent` entering or leaving a parallel worker, or a worker reaching an allocation or turn through a helper, child workflow, macro or `ProcRef` |
+| `let_proc_capture_agent_forbidden` | A `let-proc` or `bind-proc` capturing an `Agent` |
+| `pure_expr_operand_type_mismatch` | Equality or printing of an `Agent` |
+| `agent_origin_mismatch` | Closed-program check: a turn's provider origins omit a provider its `Agent` operand can reach, as in a hand-edited closed program |
+
+The [state spec](../specs/state.md) owns allocation/turn records. Agent sessions
+supersede `prompt-queue`, which is not implemented.
+
 ### Durable Host Input
 
 `request-input` is unavailable at targets 2.35/2.36 and refuses with
@@ -1681,6 +1812,159 @@ targets and refuse with `closed_program_gap`. The `trial` CLI and old trial SDK
 are retired; the CLI refuses with `workflow_execution_target_retired` before
 source reads or publication. The [DSL contract](../specs/dsl.md) and
 [CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.
+
+### Confined workflow children (target 2.38, command-only)
+
+Use `:program (:workflow name)` when commands must execute in a runtime-owned
+clone and OS confinement boundary. The child is a static workflow from the
+parent's checked module graph; the candidate repository supplies project files,
+not executing `.orc` source or configuration. Command-only `:network :none`,
+recovery and typed exports are admitted. The
+[design](design/workflow_lisp_run_ref_expression_environments.md) explains the
+full target; the [plan/report](plans/2026-10-14-run-ref-expression-environments-plan.md)
+records command acceptance and the separate provider blocker.
+
+Prepare a Linux x86_64 host with root-owned `/usr/bin/bwrap` and
+`/usr/bin/systemd-run`, unprivileged user/network namespaces, a reachable user
+systemd manager with delegated cgroup v2 `cpu`, `memory` and `pids`, and Yama
+`ptrace_scope >= 1`. Admission verifies scope limits, quota and release controls;
+a missing prerequisite refuses rather than falling back to host execution.
+Provide a trusted Linux/amd64 OCI image layout containing `/bin/sh`,
+`/usr/bin/env`, `/usr/bin/setsid`, `python3` and the project's dependencies.
+Use its repository plus manifest digest, not a tag or an illustrative digest.
+No provider login or API key is needed for this command-only recipe.
+
+Image preparation is an installation step outside the workflow. There is no
+public image-import CLI: use the existing `import_oci_layout` API on a local OCI
+layout. The runtime reads the sealed store at `<run-ref-root>/images`, with
+`records/<digest-hex>.json` and `rootfs/<digest-hex>`; it rehashes the descriptor
+before launch. Obtaining the OCI layout is operator provisioning, not a runtime
+registry pull. From the repository root, set `IMAGE` to the real reference and
+`OCI_LAYOUT` to its existing absolute layout directory, then:
+
+```bash
+export IMAGE='your-registry/your-image@sha256:YOUR_REAL_MANIFEST_DIGEST'
+export OCI_LAYOUT='/absolute/path/to/your/oci-layout'
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+export DEMO_ROOT="$(mktemp -d /tmp/orc-confined-command.XXXXXX)"
+export RUN_REF_ROOT="$DEMO_ROOT/run-ref"
+python - <<'PY'
+import os
+from pathlib import Path
+from orchestrator.workflow.run_ref.image_store import import_oci_layout
+import_oci_layout(Path(os.environ["RUN_REF_ROOT"]) / "images",
+                  os.environ["IMAGE"], Path(os.environ["OCI_LAYOUT"]))
+PY
+```
+
+This minimal example has one confined producer and one ordinary host command
+that consumes the exported file after child cleanup. The producer writes its
+typed result through the runtime-selected bundle path. Create a pinned local
+candidate repository and parent source; these setup commands are outside the
+workflow, and the workflow itself contains no clone/setup shell step:
+
+```bash
+mkdir "$DEMO_ROOT/candidate" "$DEMO_ROOT/parent"
+cat > "$DEMO_ROOT/candidate/produce.py" <<'PY'
+import json, os
+from pathlib import Path
+path = Path("out/result.txt")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text("hello from the confined child\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(str(path)))
+PY
+git -C "$DEMO_ROOT/candidate" init --quiet
+git -C "$DEMO_ROOT/candidate" add produce.py
+git -C "$DEMO_ROOT/candidate" -c user.name=Demo -c user.email=demo@example.invalid commit --quiet -m candidate
+export REVISION="$(git -C "$DEMO_ROOT/candidate" rev-parse HEAD)"
+cat > "$DEMO_ROOT/parent/consume.py" <<'PY'
+import json, os, sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(text))
+PY
+python - <<'PY'
+import json, os
+from pathlib import Path
+root = Path(os.environ["DEMO_ROOT"])
+parent = root / "parent"
+source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+  (defmodule run_ref_confined) (export main)
+  (defpath Artifact :kind relpath :under "out" :must-exist true)
+  (defworkflow candidate-body ((seed Int)) -> Artifact
+    (command-result produce :argv ("python3" "produce.py") :returns Artifact))
+  (defworkflow main ((seed Int) (revision String)) -> String
+    (let* ((child (run-ref :source (:repo "REPOSITORY" :commit revision)
+                    :program (:workflow candidate-body) :inputs (:seed seed)
+                    :policy (:environment :confined :image "IMAGE" :network :none
+                             :limits (:wall-seconds 300 :memory-mib 1024 :cpus 1 :pids 64
+                                      :workspace-mib 32 :output-mib 8)))))
+      (match child
+        ((COMPLETED c)
+          (command-result consume :argv ("python3" "consume.py" c.result.value) :returns String))
+        ((FAILED f) f.code)))))'''
+(parent / "run_ref_confined.orc").write_text(
+    source.replace("REPOSITORY", (root / "candidate").as_uri()).replace("IMAGE", os.environ["IMAGE"]))
+(parent / "commands.json").write_text(json.dumps({
+    "produce": {"stable_command": ["python3", "produce.py"], "closure": []},
+    "consume": {"stable_command": ["python3", "consume.py"], "closure": []}}))
+(parent / "providers.json").write_text("{}")
+(parent / "inputs.json").write_text(json.dumps({"seed": 1, "revision": os.environ["REVISION"]}))
+PY
+```
+
+Run the public lifecycle from the parent workspace so its command paths and
+resume recipe remain stable. `RUN_REF_ROOT` must retain its canonical absolute
+spelling. Read `RUN_ID` from the new directory beneath `runs` (or its `run.json`):
+
+```bash
+cd "$DEMO_ROOT/parent"
+python -m orchestrator compile run_ref_confined.orc --entry-workflow run_ref_confined::main --source-root . --command-boundaries-file commands.json --provider-externs-file providers.json
+python -m orchestrator run run_ref_confined.orc --entry-workflow run_ref_confined::main --source-root . --command-boundaries-file commands.json --provider-externs-file providers.json --input-file inputs.json --state-dir "$DEMO_ROOT/runs" --run-ref-root "$RUN_REF_ROOT"
+export RUN_ID='the-new-run-directory-name'
+python -m orchestrator resume "$RUN_ID" --state-dir "$DEMO_ROOT/runs" --run-ref-root "$RUN_REF_ROOT"
+python -m orchestrator report --run-id "$RUN_ID" --runs-root "$DEMO_ROOT/runs" --format json
+```
+
+Resume the **parent** run after interruption; the public CLI does not provide
+an independent confined `CHILD_ID` resume entry. Its coordinator recovers the same
+child once a child effect is committed, reuses that prefix and reruns only a
+permitted pending attempt. A durable child terminal is reused even with zero
+commits. This is at-least-once command execution before commit, so retain the
+ordinary `must_not_repeat` boundary for work that cannot safely repeat. Completed
+resume dispatches nothing; a recorded cleanup obligation is retried, with exit 2
+and `run_ref_cleanup_pending` while still pending, then exit 0 after completion.
+The public command integration test
+[`test_increment_a_public_lifecycle_with_commands`](../tests/e2e/test_e2e_run_ref_confined.py)
+adds a second child command, kills externally after the first commit, and checks
+same-child recovery, parent consumption and repeated completed resumes/reports.
+
+The call returns `COMPLETED` with `result.value`, `workspace_delta` and
+`accounting`, or `FAILED` with `code`, `detail` and `accounting`; pre-release
+structural/admission failures still abort the parent. Match the union before
+reading its value. Output paths require a nonempty workspace-relative `:under`
+and `:must-exist true`; runtime copies and rebases validated files under
+`<under>/.run-ref-exports/<parent-run>/...` before clone cleanup. Exports survive
+cleanup; manually retiring the parent means removing its run root and associated
+export directories. The 32 MiB workspace requires at least 992 MiB memory under
+the profile's `workspace + 960` rule; the example supplies 1024 MiB.
+
+Confined children exclude nested run references, parallel effects, sessions/context,
+Agent allocation/turns, dynamic evaluation, trials, human/resource effects and
+`provider-bundle-path`. A confined site is also excluded from serial or parallel
+`list/map-effect` frames. Image-pinned interpreters execute project scripts as
+arguments; command `closure` entries cannot resolve into the mutable clone.
+The independent 2.38 [Agent recipe](#agent-sessions-target-238) runs outside this
+child profile and does not widen it.
+
+Public confined provider sites still refuse with
+`run_ref_provider_transport_unavailable` before state/holder creation. Private
+per-leaf Holder transport and synthetic checks do not qualify native auth/TLS or
+the public `:model-only` route. The selected native Codex transport uses existing
+managed ChatGPT login (`authMethod=chatgpt`), with no API key; managed-policy
+qualification remains blocked in the [plan/report](plans/2026-10-14-run-ref-expression-environments-plan.md#task-10-provider-transport).
+Claude and other transports require separate qualification. The full provider
+module in the design and the future best-of-N migration are not runnable templates.
 
 ## 9. Structured Command Results
 
@@ -2404,8 +2688,10 @@ declared root.
 
 `list/map-effect` requires an explicit `:max` and one admitted effect in its
 body; its source and body arguments remain pure. Pure `list/map` bodies remain
-effect-free. Indexing, filtering, folding, general ProcRef mapping, parallel
-map and unbounded traversal are outside the current surface. Traversal does
+effect-free. Indexing, filtering, folding, general ProcRef mapping and
+unbounded traversal are outside the current surface; parallel `list/map-effect`
+requires target 2.37 and remains bounded Phase 5 work, not copy-safe guidance
+(Section 2A). Traversal does
 not grant prompt visibility: a provider input still needs an admitted renderer.
 See [evaluated totality evidence](../tests/test_workflow_evaluated_totality.py)
 for record/union/list transport and pure-context refusals.
@@ -2855,8 +3141,3 @@ Author typed compositions over admitted effects, lexical values, explicit
 outcomes and bounded control. Keep runtime bookkeeping and report parsing out
 of domain code. A helper's existence at another target does not make its
 resource, publication or session effects available on the evaluated route.
-
-The purpose of Workflow Lisp is not to make YAML prettier. The purpose is to
-make deterministic workflow authoring typed, structured, composable,
-state-safe, variant-safe, effect-visible, source-mapped, and less brittle while
-running through the checked program and memo-backed evaluated runtime.

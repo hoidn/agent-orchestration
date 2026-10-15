@@ -32,6 +32,7 @@ exclude = ["orchestrator.demo", "orchestrator.demo.*"]
 
 [tool.setuptools.package-data]
 "orchestrator.providers.schemas" = ["*.json"]
+"orchestrator.providers.inference_assets" = ["*.json"]
 "orchestrator.workflow_lisp" = ["stdlib_modules/**/*.orc"]
 "orchestrator.omp_assets" = ["confs/**/*.yml", "confs/**/*.md"]
 

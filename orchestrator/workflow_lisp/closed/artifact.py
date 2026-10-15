@@ -53,6 +53,39 @@ class ClosedProgramBuildResult:
     builder: Builder | None = field(default=None, compare=False, repr=False)
 
 
+class ConfinedRunRefUnavailable(ValueError):
+    """A checked program has a confined run-ref child this release cannot run."""
+
+    code = "run_ref_provider_transport_unavailable"
+
+
+def _performs_provider(value: object) -> bool:
+    if isinstance(value, Mapping):
+        if value.get("k") == "perform" and value.get("class") == "provider":
+            return True
+        return any(_performs_provider(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_performs_provider(item) for item in value)
+    return False
+
+
+def refuse_confined_run_ref_sites(program: ClosedProgram) -> None:
+    """Refuse execution before any run state or child provisioning (Rulings P11, P33).
+
+    Confined children whose effects are commands run; a child with a provider site
+    waits for the confined provider transport (Task 10).
+    """
+
+    children = program.tree.get("children", {})
+    names = sorted(child["entry"].removeprefix("workflow:") for child in children.values()
+                   if _performs_provider(child))
+    if names:
+        raise ConfinedRunRefUnavailable(
+            "confined run-ref children with provider effects have no qualified transport yet: "
+            + ", ".join(names)
+        )
+
+
 def closed_build_key(
     *,
     target: str,

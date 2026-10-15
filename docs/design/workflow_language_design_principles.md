@@ -5,16 +5,19 @@ Scope: workflow DSL, workflow frontends, macro systems, shared validation,
 semantic IR, executable IR
 
 These principles define the semantic direction for workflow authoring surfaces.
-They are not all normative runtime requirements today. Some describe current
-v2.14 guarantees, while others describe requirements for future frontends such
-as the Workflow Lisp frontend.
+They are not all normative runtime requirements today. Some describe guarantees
+introduced at v2.14, while others describe requirements on the Workflow Lisp
+frontend, the only authored frontend since the YAML DSL's retirement
+(`specs/dsl.md`).
 
 Use these labels:
 
-- `current invariant`: already expected of the YAML DSL or runtime model.
+- `current invariant`: already expected of the runtime model (originally of
+  the YAML DSL, now retired).
 - `v2.14 invariant`: introduced or sharpened by the v2.14 materialization,
   snapshot, and variant-output work.
-- `frontend requirement`: required for any non-YAML frontend to be acceptable.
+- `frontend requirement`: required for the Workflow Lisp frontend, or any
+  future frontend, to be acceptable.
 - `future direction`: desired higher-level language behavior that still needs a
   concrete lowering or runtime substrate.
 
@@ -84,8 +87,9 @@ designs:
 
 Status: `frontend requirement`
 
-Surface syntax is not the language's source of truth. YAML, Lisp, or any future
-frontend are authoring surfaces over the same validated workflow semantics.
+Surface syntax is not the language's source of truth. Workflow Lisp, the
+retired YAML DSL before it, or any future frontend are authoring surfaces over
+the same validated workflow semantics.
 
 A frontend is acceptable only if it preserves or strengthens the core semantics.
 
@@ -93,20 +97,24 @@ A frontend is acceptable only if it preserves or strengthens the core semantics.
 
 Status: `frontend requirement`
 
-The Lisp frontend must lower to the shared core workflow AST and then through
-the shared validation, semantic IR, and executable IR pipeline.
+The Lisp frontend must lower to a shared typed core, never to YAML text. Since
+the flat route's retirement (2026-10-13) that core is the checked closed
+program the evaluated runtime executes; the core workflow AST, shared
+validation, semantic IR and executable IR pipeline served targets through 2.34
+and is historical (executable IR is retired; the
+[frontend specification](workflow_lisp_frontend_specification.md) owns the
+current pipeline).
 
-Generated YAML may exist as a debug, audit, or migration artifact. It must not
-be the authoritative compiler target.
+Generated YAML may exist only as a non-authoritative debug projection; on the
+evaluated route `compile --emit-debug-yaml` is refused.
 
 ```text
 frontend source
   -> frontend AST
   -> macro/procedure elaboration
-  -> core workflow AST
-  -> shared validation
-  -> semantic IR
-  -> executable IR
+  -> typecheck and effect/proof analysis
+  -> checked closed program
+  -> evaluated runtime
 ```
 
 ## 3. Do Not Hide Unresolved Semantics Behind Macros

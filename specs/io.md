@@ -8,7 +8,8 @@ Old-profile IO/persistence details below are historical contracts, while shared 
 services remain in use for admitted evaluated effects. Definitions of session,
 supervision, peers, phased or adjudicated IO do not admit those excluded
 workflow effects. Targets 2.35/2.36 retain current support; registered 2.37
-retains only its [bounded qualification](versioning.md#version-gating-summary).
+and bounded 2.38 (Agent Sessions and command-only confined run-ref children) retain only their
+[bounded qualification](versioning.md#version-gating-summary).
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
@@ -323,9 +324,15 @@ retains only its [bounded qualification](versioning.md#version-gating-summary).
 
 ## Evaluated Command And Provider IO (target 2.35)
 
-This contract applies to admitted evaluated effects at 2.35/2.36 and bounded
-2.37. W3 changes authoring, not command/provider IO or the public lifecycle;
-2.37 registration does not imply general parallel qualification. See
+This contract applies to admitted evaluated effects at 2.35/2.36, bounded
+2.37 and bounded 2.38 Agent Sessions and command-only confined run-ref children.
+The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+records host/image prerequisites; public confined providers remain closed. W3 changes
+authoring, not command/provider IO or the public lifecycle; 2.37 registration
+does not imply general parallel qualification. For Agent Sessions,
+[PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
+deterministic proofs and bounded adapter smokes; the real-provider comparison
+(PQ-1c) has not run and requires separate owner authorization. See
 [versioning](versioning.md#version-gating-summary) for the target limits.
 
 This section owns the request a target-2.35 command or provider receives,
@@ -476,6 +483,55 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     `provider_result_projection` as the provider spellings of the command
     result codes; `stdout.txt` and `stderr.txt` are evidence only. Attempt files are created exclusively and
     never overwritten by a later attempt.
+- Agent turn request and attempt files (target 2.38)
+  - The request is the ordinary provider request of the agent's pinned
+    template with session request `fresh` (first turn) or `resume <locator>`
+    (later turns); policy is the allocation's `model`/`effort` plus the
+    turn's `timeout_sec`; environment and prompt as for providers, run from
+    the workspace (the allocation pins that directory). The delivery
+    rendering is selected structurally from the template's metadata mode
+    (`legacy` for OMP JSON, else the current file rendering). A committed
+    turn replays with its committed rendering and its inline proof alone: no
+    current template, session support or native store is consulted.
+  - Resolved input parts are the provider parts plus `agent` (digest of the
+    Agent descriptor, which carries the pinned configuration digest) and
+    `predecessor` (digest of `{turn, proof}` of the agent's previous
+    committed turn, or of `null`). The predecessor is also a `depends_on`
+    entry. A template, default or working-directory change since
+    allocation, or a provider outside the node's `origins`, refuses
+    `agent_policy_mismatch` before `started`.
+  - Before `started` and again before launch, the runtime reads the native
+    store head and refuses `agent_session_unavailable` (missing, ambiguous or
+    unreadable store) or `agent_session_diverged` (head differs from the
+    predecessor's committed position, or an open turn). It writes
+    `receipt.json` (`intent`) before launch; the receipt records `launching`
+    with the child's process group and the group leader's start time
+    (`/proc/<pid>/stat` field 22) as soon as the executor binds it, then
+    `completed` with the native locator and position once the store shows
+    exactly one completed turn after the predecessor whose user message
+    carries this attempt's `result.json` path. Receipt updates are monotone:
+    binding fields never change and `completion` moves only `intent` ->
+    `launching` | `not_dispatched` | `unknown`, `launching` -> `unknown` |
+    `completed` | `not_dispatched`, `unknown` -> `completed` | `abandoned`,
+    `completed` -> `completed` (adding the result digest) | `abandoned`
+    (`not_dispatched` and `abandoned` are final); a malformed receipt is
+    `memo_inconsistent`.
+  - Commit requires that exact native completion and the ordinary
+    typed-result validation; a result file alone is never a result, and a
+    Claude `result` with `is_error: true` is an invalid result. An invalid
+    typed result closes the attempt `failed` with `provider_result_invalid`
+    (first turn) or `agent_turn_result_invalid` (later turns). These Agent
+    validation errors expose only logical agent identity and safe code, with
+    `exit_info {}` and no `violations`; raw provider/result detail is not copied
+    into public diagnostics, state or reports ([State](state.md#memo-records)). A failed
+    process closes `failed` with its provider code only when no child was
+    spawned or the adapter proves a resumed conversation's head unchanged
+    (receipt `not_dispatched`). Every other exception after `launching`
+    keeps the `started` row pending with `agent_turn_unresolved` (receipt
+    `unknown` before the adapter confirmed completion, `completed` after
+    it), including a failure to record that state and a failed memo commit
+    after the prepared proof; no `failed` or terminal is appended and resume
+    reconciles the same ordinal without redispatch.
 - Run references: the resolved input parts are `config` (the step-config
   digest) and `inputs`; the child runs in its clone workspace under the
   ledger of [State](state.md#target-224-run-ref-state-settlement-and-resume)
@@ -564,6 +620,104 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
   select the isolated launcher from public execution, commit a typed workflow
   value, finalize an isolation attestation, or make public run/resume
   integration complete.
+
+<a id="proposed-run-ref-confined-child-io-target-238"></a>
+
+## Run-Ref Confined Child IO (target 2.38)
+
+This IO and typed-export contract applies to the admitted command-only confined
+profile. Provider-specific transport below is a requirement for separately
+qualified public provider admission. Evaluated host command/provider and path-mode
+run-reference IO above is unchanged. Authority:
+[run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#results-paths-and-lifetime).
+
+- Result transport (R2/R3 guest spelling): for a confined attempt both
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` and the prompt's `- path:` line name
+  `/result/<attempt-relative>`, so prompt identity of confined attempts
+  differs from host attempts by design. Before each leaf the host empties
+  `/tmp`, `/dev/shm` and `/result` and creates `/result/<leaf>` exclusively;
+  after leaf quiescence the result broker copies validated bytes from it into
+  the protected attempt through the retained descriptor. Host absolute paths,
+  run-root descriptors and host interpreter pins never cross.
+- Leaf IO: cwd `/workspace`, stdin from the host-written leaf file,
+  stdout/stderr into `/result/<leaf>/`, bounded. Exit status and output are
+  untrusted guest data from the candidate's trust domain; provider stderr is
+  bounded evidence, not the typed result. Before importing/publishing these
+  bytes or checkpointing workspace content, require irreversible capability
+  revocation, closed/reaped transport owners, quiescence and verified private
+  script retirement under [Security](security.md#confined-capability-retention-and-transport-teardown).
+  A failed teardown blocks those boundaries; active guest output is not teed to
+  durable host evidence. Structural, byte-limit, type and lineage validation
+  does not prove absence of secrets. Guest-authored literal, split or encoded
+  copies of its issued capability, including permitted names/targets, remain
+  ordinary untrusted data after revocation, with existing bounds/truncation and
+  exact admitted bytes. This extends to derived snapshots, manifests, result
+  memo, exports and later inputs; none restores authority. No production token
+  scanner, coincidence rejection or sanitizer is selected. Runtime-authored
+  control/configuration/diagnostic fields remain subject to token exclusion;
+  arbitrary names/targets cannot be copied into persisted error details. The
+  separate prohibitions on authfiles, upstream bearers, permanent credentials
+  and native auth RPC remain intact.
+- Typed path inputs are copied into a child-owned location that still
+  satisfies each input descriptor; unsafe links refuse, and the copy is
+  revalidated before launch. They are never host mounts.
+- Typed export: each returned path leaf of a descriptor with a nonempty
+  workspace-relative `:under` (outside reserved control/Git roots) and
+  `:must-exist true` must exist below that root as a regular file or bounded
+  tree without symlinks, special files, unsafe hardlinks or nested mounts.
+  The host copies it from the clone after the final checkpoint to
+  `<under>/.run-ref-exports/<parent-run>/<activation>/<attempt>/<path relative to under>`
+  with retained roots, no-follow traversal, the exact byte bound
+  `:output-mib`, bounded file count and depth, and atomic no-overwrite
+  publication. Identical child paths
+  share one copy; conflicting descriptors, roots or destinations refuse.
+  Aliases require the same canonical complete path descriptor and retain all
+  result field locations. Overlapping returned trees share each source
+  object once only when they use the same `under` and induce the same
+  destination mapping; otherwise they refuse before publication. Distinct
+  source paths are not aliases merely because their bytes match. Every
+  exported regular file must have a link count of one. Validate every source
+  and destination component and reject nested mounts, including bind mounts
+  on the same device. Atomic publication is per non-overlapping subtree on
+  its destination filesystem; parent commitment waits for the complete
+  validated set. Before rename, durably bind the staged object's identity
+  to the attempt and the staging/destination roots and parents, including
+  device, inode and mount identity. Recovery may reuse an existing
+  publication only by proving it is that same staged object under the bound
+  parents/mounts, and validating its inventory and bytes. A pathname
+  reservation and matching content do not establish ownership: refuse an
+  identical foreign destination created before rename or substituted after
+  rename, without changing it. The coordinator owns the durable binding's
+  representation; this adds no separate publication ledger.
+  The boundary validator checks the original child value and the rebased parent
+  value against the same complete descriptor; this is not prefix replacement
+  or a nominal cast. Destinations, original paths, field locations, sizes and
+  digests are recorded in the settlement proof. A corrupted, missing,
+  oversized or unrebaseable export refuses with `run_ref_export_invalid` and
+  is never regenerated by rerunning the child. `FAILED` exports nothing.
+- Export structural limits are the fixed `run_ref_confinement.v1` workspace
+  tree limits: 262,144 unique source entries and 128 directory levels. The
+  checkpoint policy owns these values; export applies them to the combined
+  inventory of all returned paths, not separately per path or `under`.
+  Count regular files and directories, including empty directories, returned
+  directory roots and source ancestors needed to materialize the exported
+  suffixes, once each. A declared `under` used only as an anchor and the
+  synthetic export namespace directories are not copied source entries.
+  Directory depth is relative to `under` at level zero; directories through
+  level 128 and files immediately within them are allowed. The clone's own
+  checkpoint limits still apply independently. Record the effective bounds
+  in protected admission/settlement evidence; there is no authored override.
+  `:output-mib` is the aggregate regular-file byte bound over this same unique
+  inventory. Exceeding an export bound refuses with `run_ref_export_invalid`.
+- Export lifetime: exports are never removed automatically and share the
+  parent run's retention lifetime. Retiring a run means removing its run
+  root, which holds the child control roots, and its
+  `<under>/.run-ref-exports/<parent-run>` directories. `invalidate` never
+  reaches an export, because exports exist only after the coordinator
+  commits and K8 refuses superseding it. No new command is introduced.
+- Workspace delta is collected from the clone after the final checkpoint
+  through the existing tree-manifest path; it is a bounded description, not
+  authority to read clone files.
 
 ## Source-Relative vs Workspace-Relative Taxonomy
 

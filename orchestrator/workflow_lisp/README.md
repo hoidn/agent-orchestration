@@ -1,14 +1,18 @@
 # Workflow Lisp Code Map
 
 This package implements the current Workflow Lisp frontend. It is not a
-separate runtime. It parses `.orc` source, typechecks it, lowers supported
-forms through the WCC/schema-2 middle-end into Core AST / Semantic IR /
-Executable IR, and then sends the validated executable workflow through the
-existing workflow loader and runtime pipeline. Legacy schema-1/direct lowering
-surfaces remain compatibility paths, not the preferred route for new migrated
-evidence. Registered evaluated targets 2.35/2.36 instead compile a checked
-closed program and execute through the evaluated runtime; this does not add
-an evaluated value to the flat `LoweringRoute` enum. At 2.36, source-graph
+separate runtime. It parses `.orc` source, typechecks it, elaborates supported
+forms through the WCC middle-end (elaboration, ANF normalization), builds a
+checked closed program (`closed/`, checked by
+`orchestrator/contracts/closed_program/`), and the evaluated runtime
+(`orchestrator/workflow/evaluated/`) executes that program. The flat route
+(defunctionalization into flat steps and the step runtime that executed them;
+targets through 2.34) was retired on 2026-10-13 and executable entries
+through 2.34 are refused. `LoweringRoute` (`wcc/route.py`) still records the
+legacy schema-1 and WCC schema-2 compile routes for typed analysis and
+persisted-run metadata; neither selects an executable backend. Evaluated
+targets are 2.35 and 2.36, with bounded 2.37 (parallel map) and 2.38 (agent
+sessions, confined run references) extensions. At 2.36, source-graph
 selection supplies one W3 `std/improve` API and existing generated local
 procedures. The [Phase 4c plan](../../docs/plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
 records qualification and delivery evidence.
@@ -20,7 +24,11 @@ Start with these project docs before changing the package:
   surface semantics, pure-expression behavior, and frontend/runtime authority
   boundaries.
 - [Workflow Lisp Core Calculus Middle-End](../../docs/design/workflow_lisp_core_calculus_middle_end.md):
-  accepted WCC/schema-2 compiler substrate for migrated Workflow Lisp routes.
+  accepted WCC middle-end (elaboration, ANF normalization, analysis); its
+  flat defunctionalization route is retired.
+- [Workflow Lisp Evaluated Execution](../../docs/design/workflow_lisp_evaluated_execution.md):
+  accepted design for the checked closed program and the evaluated runtime
+  that executes it at targets 2.35 and later.
 - [Workflow Lisp Runtime Migration Foundation](../../docs/design/workflow_lisp_runtime_migration_foundation.md):
   completed foundation target for structured output authority, private value
   transport, and generated path allocation; its manifest-driven parity gates
@@ -53,7 +61,7 @@ Start with these project docs before changing the package:
 
 ## Pipeline
 
-The default code path for supported migrated routes is:
+The compile and execution path is:
 
 ```text
 reader.py
@@ -71,31 +79,32 @@ reader.py
   -> procedure_typecheck.py
   -> workflows.py / procedures.py
   -> procedure_specialization.py
-  -> wcc/elaborate.py
-  -> wcc/anf.py
-  -> wcc/analysis.py
-  -> wcc/defunctionalize.py
-  -> wcc/lower.py
   -> compiler.py
-  -> lowering/__init__.py
-  -> lowering/core.py / lowering/* owner modules
-  -> shared validation
-  -> Semantic IR / Executable IR
-  -> existing workflow loader/runtime pipeline
+  -> closed/frontend.py (typed program)
+  -> wcc/elaborate.py (scope hygiene: wcc/hygiene.py)
+  -> wcc/anf.py
+  -> closed/build.py (checked closed-program tree; closed/values.py,
+     closed/effects.py, closed/agent_effects.py, closed/command_templates.py,
+     closed/command_interfaces.py)
+  -> orchestrator/contracts/closed_program/ (sites.py, check.py, program.py)
+  -> closed/artifact.py (content-addressed build)
+  -> orchestrator/workflow/evaluated/ (runtime.py, machine.py)
 ```
 
 `compiler.py` is the compile coordinator facade. The `wcc/` package owns the
-accepted schema-2 middle-end route: elaboration, ANF normalization,
-scope/effect/proof analysis, defunctionalization, and lowering into the
-validated flat model. `lowering/__init__.py` preserves the public lowering
-import path while the `lowering/` owner modules handle Core projection,
-source-map/provenance, generated paths, pure projections, procedures, calls,
-control, effects, values, and stdlib bridge surfaces.
+retained middle-end: the calculus model, elaboration, scope hygiene, ANF
+normalization, and scope analysis. The `closed/` package turns the typed
+program into the checked closed program; `orchestrator/contracts/closed_program/`
+assigns effect sites and validates the program without source access; and
+`orchestrator/workflow/evaluated/` executes it. `wcc/defunctionalize.py`,
+`wcc/lower.py`, `lowering/`, `source_map.py`, and `debug_yaml.py` were
+deleted with the flat route (commit `026f2fa4`).
 
 Use [../../docs/workflow_lisp_route_readiness_registry.json](../../docs/workflow_lisp_route_readiness_registry.json)
 and `route_readiness.py` when deciding whether an example, fixture, or
-migration target is `wcc_default` flat evidence, `evaluated_execution` closed
-program evidence, or legacy compatibility evidence. Evaluated rows omit flat
+migration target is `evaluated_execution` closed-program evidence or
+`historical_negative` retained source/type history; the registry carries no
+`wcc_default` flat rows. Evaluated rows omit flat
 lowering route/schema fields and use public CLI evidence; the registry does
 not select compiler/runtime behavior or certify evaluated LSP support.
 
@@ -131,9 +140,8 @@ not select compiler/runtime behavior or certify evaluated LSP support.
   dynamic dispatch are still unsupported.
 - `contracts.py`: conversion from frontend record/union types to runtime
   `output_bundle`, `variant_output`, input, and output contracts.
-- `stdlib_contracts.py`: compile-time lowering-contract inventory for supported
-  stdlib forms, including helper ownership and certified adapter bindings such
-  as `validate_review_findings_v1` for `review-revise-loop`.
+- `stdlib_contracts.py`: certified command adapter bindings retained for
+  stdlib forms, such as `validate_review_findings_v1` for `review-revise-loop`.
 - `resource.py` / `resource_stdlib.py`: current resource/context helpers and
   bridge surfaces used while the generic `RunCtx` / `Resource<TState>` /
   `Transition<TRequest, TResult>` target is implemented.
@@ -162,55 +170,39 @@ not select compiler/runtime behavior or certify evaluated LSP support.
 - `wcc/elaborate.py`: elaboration from typed Workflow Lisp expressions into
   WCC.
 - `wcc/anf.py`: ANF normalization and join-point shaping.
-- `wcc/analysis.py`: scope, effect, proof, and route-analysis helpers.
-- `wcc/defunctionalize.py`: conversion from WCC structure to the existing flat
-  executable model without runtime closures.
-- `wcc/lower.py` / `wcc/route.py`: route orchestration, default-route policy,
-  and schema metadata.
-- `lowering/__init__.py`: stable lowering facade for callers and tests.
-- `lowering/core.py`: lowering coordinator and compatibility surface for the
-  shared validation handoff; family ownership now lives in the dedicated owner
-  modules below rather than in one mixed lowering sink.
-- `lowering/context.py`: shared lowering context and state passed across owner
-  modules.
-- `lowering/composition_graph.py`: composition-normalized control/effect graph
-  support for nested WCC lowering.
-- `lowering/generated_paths.py`: generated path and write-root ownership before
-  shared validation/runtime consumption.
-- `lowering/origins.py`: generated statement and source-map origin helpers.
-- `lowering/procedures.py`: procedure call-site lowering analysis, actual
-  procedure lowering, provenance-note ownership, generated private-workflow
-  synthesis, and runtime-erasure guards for compile-time-only procedure
-  metadata.
-- `lowering/control.py`: stable control-family facade.
-- `lowering/control_dispatch.py`: expression dispatch plus `let*` and `if`
-  lowering ownership.
-- `lowering/control_dispatch_impl.py` / `lowering/control_impl.py`: implementation
-  helpers behind the stable control facades.
-- `lowering/control_match.py`: match lowering, branch projection, and
-  match-bound local-value ownership.
-- `lowering/control_match_impl.py`: implementation helpers behind match
-  lowering.
-- `lowering/control_loops.py`: bounded `loop/recur` lowering ownership.
-- `lowering/values.py`: record/union projection, inline value resolution, and
-  step-backed return materialization ownership.
-- `lowering/pure_projection.py`: generated `pure_projection` step ownership for
-  pure input-derived runtime-visible values.
-- `lowering/workflow_calls.py`: workflow-call lowering, call-binding rendering,
-  and managed write-root helper ownership.
-- `lowering/effects.py`: primitive `provider-result` / `command-result`
-  lowering ownership.
-- `lowering/phase_stdlib.py`: stable phase/resource/drain facade plus the
-  residual review-loop result-contract shaping helpers used by the ordinary
-  stdlib route.
-- `lowering/phase_scope.py`: `with-phase` scope and prompt-input prelude
-  ownership.
-- `lowering/phase_flow.py`: `run-provider-phase`, `produce-one-of`, and
-  `resume-or-start` lowering ownership.
-- `lowering/phase_helpers.py` / `lowering/phase_impl.py`: implementation
-  helpers behind the current phase/std-resource compatibility surfaces.
-- `lowering/phase_resource.py`: `resource-transition` and
-  `finalize-selected-item` lowering ownership.
+- `wcc/analysis.py`: scope and live-out analysis helpers for WCC control
+  nodes.
+- `wcc/hygiene.py`: scope hygiene (fresh names, renaming) for bindings the
+  elaborator hoists or generates.
+- `wcc/use_site_scope.py`: renames binders that would capture a name a pure
+  binding reads where it is used.
+- `wcc/route.py`: `LoweringRoute` enum, default-route policy, and persisted
+  lowering-schema metadata.
+- `closed/target.py`: entry `:target-dsl` selection and evaluated-target
+  availability checks, including refusal of retired entry targets.
+- `closed/frontend.py`: typed source programs (`TypedProgram`) captured from
+  the compiler for evaluated execution, including import admission.
+- `closed/build.py`: builds one checked closed-program tree from an admitted
+  typed program (WCC elaboration and ANF, then closed forms).
+- `closed/values.py`: WCC and retained surface values into checked JSON values.
+- `closed/effects.py`: closed forms for command effects and located gaps for
+  the remaining effects.
+- `closed/agent_effects.py`: closed forms for `agent` allocation and
+  `agent_turn` (target 2.38).
+- `closed/command_templates.py` / `closed/command_interfaces.py`: command
+  scopes and finite command decisions projected from one prepared WCC owner.
+- `closed/context.py`, `closed/names.py`, `closed/program.py`,
+  `closed/preparation_check.py`: hidden-context defaults, pure identities,
+  command-configuration projection, and the preparation equality guard.
+- `closed/artifact.py`: content-addressed on-disk builds for checked closed
+  programs; the `compile` CLI entry.
+- `orchestrator/contracts/closed_program/`: source-free closed-program
+  contract: `sites.py` assigns effect sites and call frames, `check.py`
+  validates the tree, `program.py` loads it and computes its digest, and
+  `targets.py` holds target admission constants.
+- `orchestrator/workflow/evaluated/`: the evaluated runtime (`runtime.py`,
+  `machine.py`, `values.py`, memo, attempts, replay, provider IO, agent
+  sessions).
 
 ## Component Design Docs
 
@@ -220,7 +212,7 @@ The larger design split these internal concepts into separate documents:
 - [Workflow Core Calculus Middle-End](../../docs/design/workflow_lisp_core_calculus_middle_end.md)
 - [Core Statement Taxonomy](../../docs/design/workflow_lisp_core_stmt_taxonomy.md)
 - [Semantic Workflow IR](../../docs/design/workflow_lisp_semantic_workflow_ir.md)
-- [Executable IR](../../docs/design/workflow_lisp_executable_ir.md)
+- [Executable IR](../../docs/design/workflow_lisp_executable_ir.md) (retired with the flat route)
 - [Reference Catalog](../../docs/design/workflow_lisp_reference_catalog.md)
 - [Type Catalog](../../docs/design/workflow_lisp_type_catalog.md)
 - [Effect Graph](../../docs/design/workflow_lisp_effect_graph.md)
@@ -231,7 +223,7 @@ The larger design split these internal concepts into separate documents:
 - [Post-Foundation Composition And Stdlib Migration](../../docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md)
 - [Generic Core, Expression Surface, And Adapter Retirement](../../docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
 - [Legacy Adapter](../../docs/design/workflow_lisp_legacy_adapter.md)
-- [Debug YAML Renderer](../../docs/design/workflow_lisp_debug_yaml_renderer.md)
+- [Debug YAML Renderer](../../docs/design/workflow_lisp_debug_yaml_renderer.md) (retired with the flat route)
 
 Some of those docs describe intended future architecture more broadly than the
 current code implements. When code and docs differ, current source and tests
@@ -241,12 +233,12 @@ before copying examples or claiming migration evidence.
 
 Pure expressions are implemented for the closed operator set documented in the
 frontend specification and checked by `typecheck_pure_ops.py`. Runtime-visible
-pure input-derived outputs lower as generated `pure_projection` steps; they are
-not a separate authored YAML surface and must remain visible in source maps,
-Semantic IR, generated path metadata, and runtime validation.
+pure input-derived values are compiler-generated pure projections, not a
+separate authored surface; the closed program carries them as checked pure
+value nodes that `orchestrator/workflow/evaluated/values.py` evaluates.
 
 The generic-core target is not fully implemented. Current code still contains
-compatibility surfaces for named contexts, phase/resource lowering hooks, and
+compatibility surfaces for named contexts, phase/resource helper modules, and
 adapter-backed resource behavior. New work should move toward the small runtime
 core (`RunCtx`, `Resource<TState>`, `Transition<TRequest, TResult>`), stdlib
 domain contexts, typed projections, materialized views, and certified adapters

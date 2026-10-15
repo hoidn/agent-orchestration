@@ -150,6 +150,10 @@ def _view(authority, snapshot, terminal, next_effect, halted, active):
         else:
             view["error"] = {"type": terminal.data["code"], "code": terminal.data["code"],
                              "message": terminal.data["message"]}
+    from orchestrator.workflow.run_ref.confined_cleanup import cleanup_projection
+    cleanup = cleanup_projection(authority, snapshot)
+    if cleanup:
+        view['run_ref_cleanup'] = cleanup
     return view
 
 
@@ -180,9 +184,17 @@ def _update_effect_row(target, row, snapshot):
         target["duration_ms"] = int((row["time"] - snapshot.latest_starts[row["identity"]].data["time"]) * 1000)
         if (row["identity"], row["attempt"]) in snapshot.unsettled_coordinators:
             target["status"] = "settling"
+        if row["effect_class"] == "agent_turn":     # logical identities only: never the locator or position
+            proof = row["proof"]
+            target.update(agent=proof["agent"], predecessor=proof["predecessor"], locator_present=True,
+                          continuation="initial" if proof["predecessor"] is None else "continued")
+        elif row["effect_class"] == "agent":
+            target["agent"] = row["identity"]
     elif kind == "failed":
-        target.update(status="failed", error={"type": row["code"], "code": row["code"],
-                                               "exit_info": row["exit_info"]})
+        exit_info = row["exit_info"]
+        if target["effect_class"] == "agent_turn" and isinstance(exit_info, dict):   # a bootstrap row's locator stays in the journal
+            exit_info = {key: value for key, value in exit_info.items() if key != "locator"}
+        target.update(status="failed", error={"type": row["code"], "code": row["code"], "exit_info": exit_info})
 
 
 def report_snapshot(view: dict[str, Any], run_root: Path) -> dict[str, Any]:

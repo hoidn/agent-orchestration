@@ -1,0 +1,4 @@
+{
+  "providers.claude": "claude_unrestricted_workspace",
+  "providers.codex": "codex"
+}

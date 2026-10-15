@@ -275,9 +275,10 @@ fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_run_ref_settlement.py` and
 `tests/test_workflow_evaluated_invalidate.py`.
 
-Targets 2.35/2.36 and admitted bounded 2.37 use this persistence contract.
-[Versioning](versioning.md#version-gating-summary) owns 2.37's qualification
-limits; W3 changes authoring and graph-selected helper source without changing
+Targets 2.35/2.36, admitted bounded 2.37 and registered bounded 2.38 (agent
+sessions; see versioning) use this persistence contract.
+[Versioning](versioning.md#version-gating-summary) owns the 2.37 and 2.38
+qualification limits; W3 changes authoring and graph-selected helper source without changing
 this profile, journal or resume guards.
 
 ### Authority and run root
@@ -297,7 +298,8 @@ Under exact `result_persistence_profile: "evaluated_execution.v1"` with
 | `state.json` | Derived view (below), absent until the first journal record; never authority |
 
 The artifact's top-level `target` must be a string registered for the evaluated
-route: `"2.35"`, `"2.36"` or bounded `"2.37"`, with the
+route: `"2.35"`, `"2.36"`, bounded `"2.37"` or registered bounded `"2.38"`
+(agent sessions; see versioning), with the
 [existing qualification limits](versioning.md#version-gating-summary). It is
 not the representation version.
 The separate internal run-reference target remains `2.35`. Schema, profile,
@@ -378,25 +380,51 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 | `record` | Keys (required unless noted) | Meaning |
 | --- | --- | --- |
 | `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
-| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when `effect_class` is `run_ref` | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read); `effect_class` ∈ `command`, `provider`, `run_ref` and must agree with the checked site |
-| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). No timestamp |
+| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when the class is a coordinator (`run_ref`: `{settled_result, artifacts}`; `agent_turn`: `{adapter, locator, position {turn_id, end_line}, predecessor, agent, config_digest}`, `agent` naming the active allocation commit, `predecessor` the previous active committed turn of that agent or `null`, `config_digest` equal to the allocation's pinned configuration) | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read), plus, for an `agent_turn`, its predecessor turn even when the prompt does not consume its result; `effect_class` ∈ `command`, `provider`, `run_ref`, `agent`, `agent_turn` and must agree with the checked site |
+| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies ordinary-provider `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). Agent invalid-result failures use `exit_info {}` and omit `violations` (including first-turn `provider_result_invalid`). No timestamp |
 | `settled` | `identity`, `attempt`, `by` ∈ `settle`, `reconcile` | A coordinator's final commit, after its `committed` |
 | `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
 | `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
 | `suspended` | — | Refused by this profile |
 
+The additive classes `agent`/`agent_turn` appear only in journals of
+target-2.38 programs; the profile, schema and representation are unchanged,
+and journals of earlier targets reduce exactly as before.
+
+For Agent typed-result validation failures (`provider_result_invalid` on a first turn,
+`agent_turn_result_invalid` on a later turn), the public diagnostic contains only logical
+agent identity and the safe failure code. Do not copy raw provider output, result details,
+exception chains, exit information or schema violations into that diagnostic, derived
+state or reports; the required journal `exit_info` remains `{}` and `violations` is absent.
+Ordinary-provider diagnostics retain their existing detail.
+
 Reducer rules (`orchestrator/workflow/evaluated/memo.py`): after a terminal
 only `started` (after a `failed` terminal) or `invalidated` is accepted, and
 each clears the terminal; `started` refuses an identity with an active commit
 or a non-next ordinal; `committed` and `failed` require the matching pending
-`started`; an ordinary effect may not carry `proof`; `settled` requires an
-unsettled coordinator commit of that identity and attempt; an invalidation
+`started`; an ordinary effect may not carry `proof`; a coordinator is a
+`run_ref` or `agent_turn` site; `settled` requires an unsettled coordinator
+commit of either class with that identity and attempt; an invalidation
 anchor must be an active commit and its suffix must contain no coordinator
-commit; a terminal must leave no pending attempt or unsettled coordinator,
+commit; an `agent_turn` `started` requires an active allocation (`agent`)
+commit and no pending earlier attempt of that turn; an `agent_turn` proof's predecessor must be the same agent's latest
+active committed turn; an invalidation anchor at or before a pending agent
+turn attempt, or one closed `failed` with `agent_bootstrap_restarted`,
+`agent_turn_result_invalid` or `provider_result_invalid`, is
+`memo_inconsistent` (these journal-only agent guards live in
+`memo_reducer_agents.py`; receipt-based guards are applied by the
+`invalidate` write preflight and by resume, never by the reducer); a terminal must leave no pending attempt or unsettled coordinator,
 and adjacent terminals are refused. `input_digest`, `result_digest` and
 `depends_on` are checked for spelling, matching and active-commit membership,
 not recomputed from `input_parts` or from files: a committed result is never
 revalidated against the filesystem.
+
+An `invalidated` record also removes the pending obligation of each
+uncommitted `started` record whose byte offset is at or after `from_commit`
+in the preceding journal prefix. Pending starts before the anchor remain.
+The journal history, latest start and next attempt ordinal are preserved:
+retiring a pending obligation does not authorize repeating the effect or
+bypass C4/§8.1. A later start lies outside the closed range.
 
 Identities are the canonical site and activation texts of the checked
 program, for example `workflow:main::run / built`; a `[*]` site is
@@ -437,7 +465,12 @@ document; a failed command at least `stdout.txt` and `stderr.txt`, plus
 wrote; a provider
 `prompt.txt` first, then `result.json` when the provider wrote one (kept when
 invalid), `stdout.txt` and `stderr.txt`; a run reference `result.json` only,
-and an empty directory when it failed before its child. A result file
+and an empty directory when it failed before its child; an agent allocation
+`result.json` only (the Agent descriptor, no process); an agent turn
+`prompt.txt`, `receipt.json` (`agent_turn_receipt.v1`, written before
+dispatch and updated monotonically), then `result.json` when the provider
+wrote one, `stdout.txt`, `stderr.txt`, and `abandoned.json` when a bootstrap
+resume abandoned the candidate. A result file
 without a `committed` record is evidence, never a result, including a file
 left by an attempt that was killed before any outcome row. A directory whose
 exclusive creation collides records `failed` with `effect_attempt_path_exists`
@@ -469,6 +502,12 @@ invalidation whose suffix contains one refuses whole with
 child records `failed` with code `evaluated_execution_failed` and `exit_info {}`;
 resume retries it at the next ordinal.
 
+An agent turn commits with `effect_class: "agent_turn"` and the inline
+continuation proof; `settled` with `by: settle` follows immediately (local
+bookkeeping, no prompt); a stop after `committed` is reconciled on the next
+resume from the proof with `by: reconcile`, with no native append. A
+committed turn is never superseded (`invalidate_coordinator_committed`).
+
 A target-2.35 path child is an ordinary evaluated run in the clone's
 `.orchestrate/runs/<child_run_id>` with its own fourteen-key header:
 `workflow_file` relative to the clone root, recipe `source_roots: ["."]`,
@@ -499,7 +538,7 @@ these keys:
 | `updated_at` | ISO timestamp of the last record that carries `time`, else `started_at` |
 | `status` | `completed` or `failed` from a terminal; otherwise `settling` (a writer holds the lock and replay reaches `halt`), `running` (a writer holds the lock) or `interrupted` (no writer). The writer publishes as itself active, so a stored view says `running`, `settling` or a terminal; `interrupted` appears only in a reader's reconstruction, from the `run.lock` probe, never from a heartbeat, PID or modification time |
 | `memo_offset` | Exclusive end byte offset of the complete journal prefix the view represents (`0` for an empty journal) |
-| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed`; a start without an outcome has status `running` |
+| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed` (an `agent_turn` row's `exit_info` omits the journal's `locator`); a start without an outcome has status `running`; a committed `agent_turn` row adds `agent` (allocation identity), `predecessor` (turn identity or `null`), `continuation` (`initial` when `predecessor` is `null`, else `continued`) and `locator_present: true` from its proof; a committed `agent` row adds `agent` (its own identity); no locator, position, native path or tmux target ever enters the view |
 | `current_step` | `{name, identity, attempt, result_path}` of the latest pending start or unsettled coordinator, else `null` |
 | `next_effect` | The identity of the first uncommitted effect replay reaches when nothing is in flight, else `null` |
 | `error` | `{type, code, message}` from a failed terminal, else `null` |
@@ -978,6 +1017,467 @@ creates or asks a replacement question.
   apply, but the parent's settlement point is the memo `committed` record
   carrying the coordinator proof, not a parent state transition; see
   [coordinator records](#coordinator-records-and-child-runs).
+
+<a id="proposed-run-ref-confined-child-state-target-238"></a>
+
+## Run-Ref Confined Child State (target 2.38)
+
+The command-only profile admits this persistence, recovery, export and cleanup
+contract. Provider-specific authority below remains a prerequisite for separately
+qualified public provider admission, not permission to dispatch providers.
+The target-2.24 contract above, the evaluated
+[coordinator records](#coordinator-records-and-child-runs), path-mode
+configuration bytes and recovery, and the oracle that every pre-parent crash
+of a path child discards the exact workspace and reruns fresh are unchanged.
+Authority:
+[run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#lifecycle-cancellation-and-recovery)
+(D3, D5, D-f, R1, R2, N1, N5, P2, P3, Q1);
+[evaluated execution](../docs/design/workflow_lisp_evaluated_execution.md)
+carries the named amendments.
+
+- Versions. Workflow mode uses `run_ref_static_config.v2` (checked child
+  contribution, operand schema and the `run_ref_confinement.v1` policy with
+  its profile constants); path mode keeps its configuration version and
+  bytes. New operands, child artifacts, environment headers, image pins,
+  external control roots, checkpoint headers, typed exports and the K4
+  refinement are versioned together, discriminated by validated profile;
+  mixed or unknown records refuse, old rows keep their meaning, and no old
+  run or child is rewritten or adopted into the profile. Wire discriminators:
+  `run_ref_confined_child_request.v1`,
+  `run_ref_confined_child_terminal.v1` (proof of both outcomes),
+  `run_ref_attempt_ledger.v2` (rows of this profile),
+  `run_ref_checkpoint_header.v1`, `run_ref_image_executable_pins.v1`,
+  `run_ref_environment_admission.v1` and `run_ref_exports.v1`.
+  The ledger reader validates both v1 path rows and v2 confined rows in
+  `run-ref-attempts.jsonl`; neither version reinterprets the other's authority.
+- Identity. Parent program identity covers the child workflow's canonical
+  definition, its signature, its canonical dependency/configuration closure
+  and the image and policy literals. Runtime input identity additionally
+  binds the resolved revision, explicit inputs and path content snapshots.
+  Child admission binds the verified Git tree, materialization policy,
+  imported snapshot digest/platform, executable/config closure and profile
+  version. Source paths and lines are provenance, not identity. Each loop or
+  call activation has a distinct K7 visit, even for identical inputs; the
+  child's sites never alias the parent's.
+- Allocation reserves the checked request/configuration, resolved revision
+  (an ordinary reached effect input), inputs, child run id, workspace/control
+  identities and budget opening before the first charged admission/rehash.
+  This reservation does not assert successful environment admission. Complete
+  the child artifact/environment bindings before any candidate release.
+  Budget belongs to the semantic parent visit; K4 replacement advances the
+  attempt ordinal without renewing its allowance or inheriting release from
+  the preceding attempt. The durable algorithm is
+  [confined wall-budget recovery](#confined-wall-budget-recovery).
+- Control root: beneath the parent run root, next to
+  `run-ref-attempts.jsonl`, outside the clone and every guest mount. It holds
+  the child run header, checked child artifact, memo, attempt evidence,
+  checkpoint header and holder release gate; there is no receipt object. The
+  child's attempt ledger rows, the failed terminal row included, are rows of
+  the parent's `run-ref-attempts.jsonl`. A confined child never compiles in
+  the clone and creates no `.orchestrate` entry there. Its header records
+  image executable pins (snapshot digest/platform, guest executable path,
+  immutable executable/config closure) instead of host interpreter pins, the
+  child-recipe variant within the existing schema `3.0` / profile
+  `evaluated_execution.v1`. `workflow_file` is the absolute protected control-root
+  `closed_program.json` locator, not authored source; `workflow_checksum` and
+  `program_digest` equal the parent-bound checked child digest. The unchanged
+  eight-field `resume_request` has `source_roots=[]`, `entry_workflow` equal to
+  the checked child entry, all four manifest locators and `input_file` null,
+  and `input_overrides` equal to the explicit child inputs; `bound_inputs` are
+  ordinarily typed. `run_ref_root` is retained and `result_root` is the external
+  child control root relative to the clone. Child recovery validates this checked
+  artifact/recipe and image pins, without compiling source from that locator or
+  from the clone. Parent public resume still fresh-builds and compares normally.
+- Each holder launch has a boot- and attempt-bound containment identity
+  (its exact scope unit and cgroup) and one `DurableLaunchReleaseGate`
+  release fact, held in the control root's holder release gate. Persist the
+  inventory before release; recovery distinguishes allocated-but-not-released
+  from possibly released and kills every exact remnant, including `host`,
+  under the writer lock before reading or repairing the checkpoint. An old
+  boot's scope name alone never authorizes killing an object in a new boot.
+- Checkpoint header, two-phase and keyed by effect identity and attempt
+  ordinal: after provisioning, `committed` with identity `none`, ordinal 0
+  and the baseline manifest digest; per checkpointed leaf, `intent`
+  fsync-durable before the first clone write, then `committed` with the
+  manifest digest after the clone's bytes are durable and before the
+  effect's memo `committed`. It counts skipped sockets, FIFOs and device
+  nodes. A leaf killed by the clamped timeout or wall exhaustion, a
+  cancellation and a holder death are never checkpointed. A checkpoint that
+  fails under a live controller kills the scope, re-freezes the partial
+  clone, publishes `committed` for that attempt and ends the child as
+  `FAILED` with holder-death mechanics, coded
+  `run_ref_environment_escape_rejected` when the copier refused and
+  `run_ref_environment_lost` otherwise.
+- Header states on resume, after the recorded scope, including the `host`
+  slot, is killed and empty: an `intent` header is repaired by re-freezing
+  the clone and publishing `committed` for its attempt, which then reruns
+  under §8.1; a `committed` header must match the clone's fresh manifest and
+  name the last committed attempt or an uncommitted attempt newer than it.
+  Only a digest mismatch fails closed, with `run_ref_environment_changed`,
+  before release.
+- Attempt snapshots: at `started`, clone files named by stable-command
+  tokens, document fills and prompt dependencies are selected through the
+  no-follow reader, checked against the evidence allowance before any byte
+  is copied (`run_ref_budget_exhausted`), stored content-addressed against
+  the checkpoint manifest digests, and recorded with their digests and the
+  evidence map in `started`. On resume the snapshot bytes are verified
+  against those digests before recomputation; a mismatch is tampered
+  evidence and fails closed, never `effect_input_diverged`.
+- Failed terminal row: a child concludes `FAILED` only through a row in
+  `run-ref-attempts.jsonl`, binding code, detail, accounting, child/config
+  identity, captured memo prefix length/digest, the acknowledged budget
+  closure and one of the four
+  [failed-terminal boundaries](#confined-failed-terminal-boundaries).
+  First prove scope quiescence, persist and acknowledge the budget closure,
+  then append and acknowledge this row under the parent writer lock; only
+  then publish the child's effect `failed` (if a real started attempt needs
+  it) and failed terminal under the child writer lock, before preparing the
+  parent value. A crash before the row remains an interruption whose actual
+  boundary and budget must be resolved; it is not unconditional permission
+  to rerun. After the row, the child is terminal and never reruns, whatever
+  its commit count; the row precedes K4 and §8.1. Resume repairs the missing
+  effect `failed` only for `started_attempt`, and the missing child terminal
+  for every variant. No site, ordinal or effect record is invented.
+- Recovery follows the
+  [design's recovery table](../docs/design/workflow_lisp_run_ref_expression_environments.md#lifecycle-cancellation-and-recovery)
+  and the K4/K8 amendments. Rules the table does not hold: holder death
+  under a live controller is not retried in the run; cancellation and
+  wall-time exhaustion kill the scope, revoke the model capability, prove
+  quiescence without checkpointing, and end as `FAILED` when the child
+  cannot continue or as a pending child otherwise; `must_not_repeat` on a
+  pending attempt after the first commit prevents further execution requiring
+  that rerun, since K8 forbids `invalidate`, but does not prevent validating
+  or repairing a terminal FAILED or failing on proven postrelease budget
+  exhaustion without dispatch; resume validates image executable pins and
+  refuses drift of snapshot/platform, profile, executable or fixed
+  configuration with `run_ref_environment_changed` before dispatch;
+  `run_ref_environment_unavailable` and `run_ref_environment_changed` stop a
+  run or resume before release and never produce `FAILED`; budget/terminal
+  resolution precedes K4 and any new holder. A validated durable COMPLETED
+  also takes precedence, even for a pure child with zero commits; K4
+  replacement applies only to a nonterminal child with zero commits.
+  Continuation requires valid remaining budget and the ordinary C4/§8.1
+  retry permission.
+- Terminal proofs. `COMPLETED`: capture the protected header, checked
+  artifact and complete memo prefix once under retained roots; require a
+  completed terminal, valid committed-effect proofs and no unfinished or
+  unsettled effect; replay pure control with the ordinary evaluator over
+  the committed values, matching every reached commit in order by
+  site/activation/input authority from retained attempt snapshots, without
+  dispatch, reconciliation or reading mutable clone files; require canonical
+  equality of the replayed halt, terminal value and the child's typed
+  result; bind that evidence to the parent settlement before export rebases
+  the value. `FAILED`: validate the committed prefix and recorded boundary
+  under the obligations below, without dispatch or a retry preflight; bind
+  the failed row, its acknowledged budget closure and the child's repaired
+  terminal the same way. Missing snapshots block settlement and cleanup
+  rather than being reconstructed from current source. An already durable
+  COMPLETED is not replaced by FAILED because of later replay/settlement.
+  Settled validation reads only retained child authority, protected evidence
+  and committed exports. It does not require the clone, a materialized
+  baseline, or the shared image store. Retain the exact result, variable
+  input, snapshot and configuration bytes the read-only validators consume.
+  For image executable/closure identity, retain the complete canonical
+  inventory hashed by `image_store.tree_digest`, captured from the admitted
+  image and bound to its protected image/platform/tree-digest admission.
+  Validate canonical bytes, row shapes, unique safe paths, directory parents
+  and canonical traversal order, and require the complete inventory's hash
+  to equal that admitted tree digest. Resolve guest symlinks under the same
+  image path rules and recompute file or directory-subtree evidence and
+  targets exactly as `image_implementation_files`; compare with the live
+  checked rows before commitment and the recorded rows on retained replay.
+  This authenticates pins without retaining large executable binaries;
+  isolated digests copied from memo rows do not establish membership in the
+  admitted image. Charge the complete inventory to the evidence allowance;
+  missing, malformed or over-budget inventory refuses. Bytes needed as
+  actual input/configuration content still require retention, even if they
+  originated in the image. Live admission and precommit image checks remain.
+  Bind the live-validated baseline/final manifests and canonical delta to
+  settlement before deleting the clone. Read-only reuse validates this
+  retained capture and its bindings without rebuilding a diff from deleted
+  files. This does not waive environment checks for an attempt that must
+  execute again or ordinary parent resume preflight.
+- Retention and cleanup: after terminal validation, export (none for
+  `FAILED`) and parent settlement of either outcome, the coordinator deletes
+  the clone and its checkpoint header, recording cleanup intent and
+  completion in the ledger under the parent writer lock after revalidating
+  the exact owned root, the absence of a live scope and quiescence; it never
+  deletes a pending or live workspace. A failure preserves all surviving
+  workspace/evidence and leaves cleanup pending, retried by completed resume
+  ([CLI](cli.md#evaluated-execution-target-235)). Cleanup starts only after
+  the parent coordinator's `settled` memo record is durable. Its obligation
+  binds the original owned root, parent and mount identities established during
+  valid provisioning, not identities first observed at deletion time. Under
+  the parent writer lock, prove no live scope and quiescence, validate those
+  roots/parents/mounts and isolate the clone by a no-overwrite rename to a
+  private name bound to the same obligation. Revalidate the moved root
+  against retained identity before removing any content. If rename moved a
+  replacement, preserve it intact at the private name, leave cleanup pending
+  and durably record a diagnostic identifying that location. Do not
+  automatically restore, adopt or delete it. Every retry checks the original
+  bound identity at the original or private name; a replacement at either
+  name blocks cleanup, and the private name alone grants no authority. Do
+  not pursue an original clone displaced elsewhere. Failure may leave a
+  partial or absent clone or a displaced replacement; neither an intact
+  workspace nor its original pathname is guaranteed. Preserve protected
+  evidence and every surviving object. Remove only the checked clone and
+  its exact checkpoint header, reject nested mounts, and acknowledge
+  completion only after absence and parent-directory fsync. Partial deletion
+  or a crash before completion does not invalidate the settled result and
+  does not permit reconstructing proof from the remnants. Protected child
+  artifact, header and memo, the failed terminal row, environment
+  admission, baseline and final manifests, delta, accounting, attempt
+  snapshots, export manifest and committed exported bytes are kept for the
+  parent run's retention lifetime and suffice for settled reuse without the
+  clone. Nothing is removed automatically: retiring a run means removing its
+  run root, which holds the control roots, and its
+  `<under>/.run-ref-exports/<parent-run>` directories
+  ([IO](io.md#proposed-run-ref-confined-child-io-target-238)).
+- Accounting records host-side time (rehash, seeding, checkpoints, snapshot
+  copies, result import) charged to `:wall-seconds`. `elapsed_ms` projects the
+  durable conservative wall charge, including open-interval downtime; it is
+  not measured CPU use. A lost host/guest split is explicitly unavailable,
+  never reconstructed as zero guest use or all host use. Unavailable provider
+  usage is likewise explicit, not zero. `budget.json`, when emitted, is only
+  a diagnostic projection of the ledger, never recovery authority.
+- Checkpoint identity validation is independent of its tree digest. An ordinal
+  naming neither the last committed attempt nor a newer uncommitted attempt
+  refuses `run_ref_evidence_invalid` with `checkpoint_attempt_identity_invalid`,
+  even when the digest matches. Validate before repair or zero-commit K4 discard;
+  a matching manifest cannot authorize an impossible attempt identity.
+
+### Confined provider capacity and binding
+
+This internal authority is part of the target-2.38 profile, not public provider
+admission. It extends the existing parent ledger and emit/ack protocol with two
+semantic facts; no second journal, gateway writer or counter has authority.
+Path-mode v1 rows and command-only v2 behavior retain their meanings.
+
+Installation request and per-request byte limits are bound as effective
+transport policy in the existing parent run-ref ledger. Their unit is the
+semantic parent visit, shared by its provider leaves and retained across
+owner/holder replacement and K4. Before native startup for a leaf, reserve
+one request and its full byte allowance durably; that reservation covers
+preflight and at most the first inference transaction. Each subsequent
+transaction requires another acknowledged reservation before native auth.
+Reservations are never refunded or reused after failure or interruption.
+Persist the initial account/origin/routing binding before issuing any guest
+capability, without persisting bearer material or auth RPC responses.
+Recovery uses the original policy, binding and consumed total; it does not
+infer unsent work from missing completion evidence. Aggregate body ceilings
+derive from the request count and per-request maxima. These are conservative
+capacity limits, not actual provider usage, token or cost measurements.
+
+The first reservation retains the canonical effective transport policy and its
+digest: effective limits, native/CLI/relay pins, catalog, fixed configuration
+recipe, admitted tool schemas and selected endpoint/model/routing. Every later
+reservation must match exactly. Validate expanded private leaf paths against the
+recipe, not as new policy identity. Retain exact configuration bytes consumed by
+validators. Installation drift refuses further execution; it does not change or
+increase the retained allowance. No new authored dimension, flag or setting is
+introduced, and probe constants do not define production policy.
+
+The two facts are:
+
+- A request reservation binds its next visit-wide request ordinal, reached
+  provider leaf identity/attempt, current run-ref attempt and effective policy.
+  Each row consumes exactly one permit and its full per-request byte capacity,
+  including unused bytes. The first acknowledged reservation precedes native
+  startup, which may already acquire or refresh auth; it covers preflight and
+  at most one first POST for this leaf/incarnation, even if no POST occurs.
+- The initial binding is set once after a reservation and valid native protocol,
+  before any capability or provider release. Retain a domain-separated canonical
+  digest of `(auth_mode=chatgpt, chatgptAccountId, backendOrigin,
+  accountRoutingOverride)`, bound to visit and policy, from the qualified native
+  acquisition with both admitted account reads. No email, bearer, bearer hash,
+  raw account tuple, authfile, capability, capability hash or complete auth RPC
+  is retained in these runtime-authored control/auth facts or their projections.
+  The digest is not independent proof of auth or a promise of anonymity.
+
+The [capability retention and teardown rule](security.md#confined-capability-retention-and-transport-teardown)
+explicitly narrows the former universal exclusion: guest-authored literal or
+encoded capability copies in ordinary result/workspace content, permitted names
+or targets may be retained after irreversible revocation, subject to existing
+IO, evidence and retention bounds. This includes manifests, snapshots, result
+memo and later inputs derived from that content; it does not permit the token
+in runtime control/configuration/ledger/admission/diagnostic fields. Arbitrary
+guest names/targets must become closed error categories before persistence,
+not be interpolated into durable error details. No retained value can create or
+reactivate a grant, binding or permit. Import, checkpoint and publication wait
+for revocation, channel closure, reap, quiescence and verified script retirement;
+failed teardown blocks them. Recovery validates and retires recognized inert
+script residue before further effects, never adopting its bytes as authority.
+
+Every subsequent transaction requires its own exact durable reservation ack
+before acquiring native auth again; every acquisition and replacement owner
+compares the tuple's digest with the original binding. Discard the bearer used
+for initial binding preflight. A new owner cannot adopt another account, origin
+or routing policy. A reservation without binding after crash may establish the
+first binding only because no capability could yet have been issued; a binding
+that persisted without its ack is already authoritative. Capability also binds
+visit, run-ref ordinal, leaf identity/attempt and current incarnation. Never
+reactivate an old permit after failure, interruption or recovery.
+
+Use the same lifecycle owner, parent writer and serial/parallel emit/ack
+validation for visit, ordinal, sequence, adjacency and durable head. Duplicate,
+foreign, stale or reused acknowledgements grant no extra transaction. These
+facts interleave with wall events without advancing/repeating work stages;
+validate both reducers and their ordering. Do not rename or ignore budget
+open/close events. Gateway threads request reservations over their private
+controller channel and never append directly. Headers from an unauthenticated
+client cannot reserve for another leaf; serve only the active leaf serially.
+
+Before the first reservation emit/ack and native startup, fix one absolute
+`CLOCK_BOOTTIME` deadline as `now_ns + min(provider_timeout_ns,
+durable_remaining_ns_at_now)` and activate the independent bounded observer
+of [Security](security.md). Startup, preflight, binding and all durable waits
+consume it; no ack, release or later request restarts it. The observer can only
+revoke irreversibly, close owned channels and stop/empty the validated scope,
+including host and leaf, independently of the lifecycle writer and its waits.
+It cannot bind, grant, append, close wall intervals or publish terminal records.
+A late ack cannot activate startup, capability, release, acquisition or POST;
+a reservation that became durable during cancellation remains consumed. Only
+the lifecycle, after regaining control and validating durable authority, reap
+and quiescence, publishes ordinary terminal facts. If persistence remains
+blocked, administrative response may remain pending; transport still closes
+and the wall interval is neither fabricated closed nor truncated. This adds
+no autonomous watchdog when the controller is absent.
+
+Recovery loads policy, binding and the monotone consumed total for the whole
+visit, including discarded K4 ordinals and reservations without ack, request or
+completion evidence. Resolve terminality first: retained COMPLETED/FAILED never
+starts an owner or reserves capacity. Actual continuation needs a fresh permit
+and ordinary §8.1 permission; this may rerun a portable effect, never replay its
+old transport POST or partial stream. The final permit admits its transaction
+within its byte/wall limits; no remaining permit rejects only the next required
+reservation, not a valid halt or work without inference. Proven request
+exhaustion uses `run_ref_budget_exhausted` at the existing appropriate boundary;
+prove it from policy/rows, not invented wall exhaustion. Prerelease refusal,
+four FAILED boundaries and durable terminal priority are unchanged; corrupt or
+missing authority cannot be treated as zero balance.
+
+Retain policy bytes/digest, binding and reservations as protected result
+authority under the existing evidence allowance and parent retention lifetime.
+They remain verifiable after clone/baseline/shared-image removal; missing,
+tampered or over-budget evidence blocks settlement/cleanup. Terminal replay
+uses retained evidence without native login, current policy, new auth or new
+debits. Transport temporaries are cleaned only after quiescence under the
+[validated retirement rule](security.md#confined-capability-retention-and-transport-teardown);
+a revoked script pending ACK or recovery is not completed cleanup or retained
+evidence. Native real credential storage is never part of clone/transport
+cleanup. Capacity counts are not provider usage: incomplete usage and unsupported cost remain UNKNOWN,
+with no token, economic, remote-generation or native-auth traffic guarantee.
+
+### Confined wall-budget recovery
+
+This algorithm belongs only to the target-2.38 confined profile. The existing
+parent ledger and emit/ack coordinator protocol own its durable state. Per
+semantic visit, retain the checked limit, the integer nanoseconds charged by
+closed intervals, and at most one active interval `{boot_id, since_ns,
+attempt_ordinal}`. The fixed Linux clock is
+`clock_gettime_ns(CLOCK_BOOTTIME)` for both live execution and recovery,
+including all wall-budget remaining/deadline calculations. It includes host
+suspension; there is no clock selector, UTC estimate or fallback clock.
+Unavailable clock/boot identity refuses admission with
+`run_ref_environment_unavailable`; contradictory or malformed evidence fails
+closed.
+
+An opening must be persisted and acknowledged before charged work, including
+the first admission/rehash. With the same kernel boot identity:
+
+```text
+effective_charge_ns = closed_charge_ns + now_boottime_ns - active.since_ns
+remaining_ns = limit_ns - effective_charge_ns
+```
+
+A backward clock reading refuses; never clamp it to zero. Accumulate integer
+nanoseconds and convert only for accounting projection. Recovery validates
+ledger bindings and the boot-bound inventory, kills and empties all exact
+scopes, then durably closes the interval with this charge. It includes all
+time from opening through recovery quiescence, even if the controller died,
+the scope vanished early or the host suspended. The closure references its
+opening and prior total and is acknowledged exactly once: a second crash
+before closure uses the same opening/base, while one after closure loads the
+new total without charging the interval again. Failed quiescence leaves it
+open and blocks recovery; it cannot produce an invented FAILED.
+
+With an active interval from another boot, reject resume with
+`run_ref_environment_changed`, detail `budget_clock_epoch_changed`; preserve
+the known closed total and unknown interval. Do not subtract clocks across
+boots, consult UTC, assume zero lost use, grant a fresh allowance or infer
+budget exhaustion. With only closed intervals, load the total across boots
+and use normal admission for further work. A closed pause consumes no budget
+until the next acknowledged opening. The next interval opens before any
+additional charged recovery/admission/checkpoint work. Necessary validation
+and teardown remain allowed after exhaustion; record the resulting charge
+without truncating it to the limit. Terminal witness/export/settlement do not
+reopen a child's closed execution interval.
+
+Resolve terminality before reopening execution accounting or applying K4:
+validated durable COMPLETED and FAILED are reused, including a pure child
+with zero commits. For a nonterminal child, resolve budget before replacement.
+Proven exhaustion on a retained attempt with a valid consumed release gate
+(the possibly-released
+state) produces FAILED at its actual boundary without a new holder. A gate
+intent alone, the `launched` stage or an in-memory holder is not a release
+fact. Exhaustion before that attempt's release aborts the parent effect under
+ordinary EE rules, including a pure child exhausted during initial admission.
+If K4 permits replacement with remaining budget, the new ordinal carries the
+visit's total but needs its own release: exhaustion during its preparation
+still aborts the parent. A controller death is not holder death and does not
+by itself produce `run_ref_environment_lost`.
+
+The v2 event protocol must validate both beginnings explicitly: a fresh
+reservation's first `allocated` event includes the budget opening and exact
+checked request bindings, without claiming admission; a retained continuation
+begins from the verified ledger head/ordinal/bindings without allocating the
+child again. Budget open/close events do not advance or repeat work stages.
+The v1 first-event rule remains unchanged; v2 retains grant/ack checks for
+visit, ordinal, sequence and adjacency, including parallel workers. A worker
+never writes the ledger directly or acquires a second parent writer. A child
+callback emits and waits for ack; that ack cannot depend on the child first
+publishing `failed` or reacquiring its held writer. The captured prefix and
+bindings authorize the parent row before full terminal proof is possible.
+
+This provides conservative accounting and live-controller deadline checks,
+not an autonomous wall deadline while the controller is absent. Recovery
+quiesces remnants before any replacement. No watchdog or time broker is
+selected; the cost is that downtime/suspension can exhaust the visit and an
+open interval cannot resume across reboot.
+
+### Confined failed-terminal boundaries
+
+The failed-terminal row has one closed discriminant; its common bindings and
+publication order are defined above. Use the ordinary evaluator and retained
+input/commit validators to prove past execution, without applying C4/§8.1
+authorization for a future attempt or reading current mutable clone inputs.
+
+| Boundary | Required evidence and ordinary replay result |
+| --- | --- |
+| `started_attempt` | Exact effect identity/ordinal and its real uncommitted `started` with verified attempt snapshots; replay reaches that frontier. Publish/repair its `failed` after the parent row acknowledgement, then the child terminal. |
+| `before_start` | Exact reached effect identity/site with no invented new attempt ordinal; replay reaches it. Covers dispatch refusal and exhaustion before the next dispatch after this child's release. Publish only the child terminal. |
+| `pure_fault` | Canonical fingerprint of the ordinary pure evaluator's structured diagnostic (code, source and metadata); validated replay reproduces that fault, not a halt or unresolved frontier. No effect record is invented. |
+| `finalization` | Canonical digest of the replayed halt value, no fault, frontier, pending start or unsettled coordinator, plus a proven finalization cause. The selected cause is `run_ref_budget_exhausted` after this attempt's release, with exhausted acknowledged budget closure and empty scopes. The halt value is not published as COMPLETED. |
+
+All variants validate the captured committed prefix, its ordered reached
+commits, lineage and input authority from retained snapshots; no later
+attempt may exist beyond the recorded boundary. Terminal proof of an existing
+nonrepeatable `started_attempt`, or terminalizing it for proven postrelease
+budget exhaustion, requires no permission to repeat it. Only actual
+continuation without a terminal row and with remaining budget runs the
+ordinary C4/§8.1 preflight and enforces `must_not_repeat`. Do not turn a retry
+preflight refusal into terminal evidence.
+
+A genuine pure runtime fault after valid admission may produce `pure_fault`
+even before the first effect and without a holder. This does not turn
+prerelease budget exhaustion into FAILED. Compilation, structural/admission,
+authority, evidence, publication and quiescence failures are not pure faults
+and are never reclassified merely by an exception type or diagnostic code.
+For a budget failure every boundary still requires this attempt's release.
+The halt-only case covers final shutdown exhausting the budget after the
+last commit and before completed-terminal publication. A crash between budget
+closure and failed row preserves the charge but still requires proving the
+actual boundary; it does not establish terminality by itself.
 
 ## Target 2.25 Trial State, Settlement, And Replay
 

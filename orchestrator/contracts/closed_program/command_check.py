@@ -3,6 +3,8 @@
 from hashlib import sha256
 import json
 
+from .node_walk import _effect_value_children
+
 _PURE_FIELDS = {"field": ("base",), "op": ("args",), "list": ("items",),
     "call": ("args",), "path_join": ("base", "child"),
     "list_map": ("source", "body")}
@@ -35,6 +37,8 @@ def _effect_children(node):
         return [row[1] for row in node["inputs"]]
     if node["class"] == "provider":
         return _provider_children(node)
+    if node["class"] in {"agent", "agent_turn"}:
+        return _effect_value_children(node)
     return []
 
 
