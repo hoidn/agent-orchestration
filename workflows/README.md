@@ -47,6 +47,7 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
 | --- | --- | --- |
 | Generate several candidates and select one | [Best-of-N reference](../docs/lisp_library_reference.md#generate-candidates-and-select) and [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) | Evaluated 2.35; bounded serial generation, pre-created independent clones, judge selection without merging. |
 | Review and improve one candidate | [`std/improve` reference](../docs/lisp_library_reference.md#review-and-revise-with-stdimprove) and [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) | Maintained proposal at 2.36; provider/prompt manifests and workspace-owned launcher required. The reference also covers the 2.35 API. |
+| Keep each role's native conversation across sequential turns | [Agent Sessions guide](../docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238) and [`design_review_execute_agents.orc`](examples/design_review_execute_agents.orc) | Opt-in bounded 2.38 example, with deterministic consumer evidence and bounded adapter smokes. Real-provider consumer comparison has not run and requires separate owner authorization. |
 | Evaluate candidates and run iterative search | [External evaluator](../docs/lisp_library_reference.md#evaluate-with-an-external-command) and [search reference](../docs/lisp_library_reference.md#iterative-search) | Maintained compact controller at 2.35 with deterministic Python leaves; a policy example, not a generic optimizer or sandbox. |
 | Translate or audit historical YAML | [Historical YAML reference](../docs/workflow_drafting_guide.md) | Translation/history only; YAML/YML is not runnable workflow source. |
 
@@ -65,7 +66,8 @@ Fresh preferred starting points:
   it, so `resume` can retry any step; the result JSON holds only typed
   paths, findings and the execution receipt.
 - For the same four turns with each role keeping one native conversation,
-  read the opt-in `workflows/examples/design_review_execute_agents.orc`
+  follow the [Agent Sessions guide](../docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+  and its opt-in `workflows/examples/design_review_execute_agents.orc`
   (target 2.38): a designer `Agent` takes the draft and revise turns and a
   reviewer `Agent` takes the review and execute turns. Allocation, turns,
   recovery, C8 guards and instance views are implemented. The

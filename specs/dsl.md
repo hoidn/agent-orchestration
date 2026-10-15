@@ -856,7 +856,9 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       for execution until Increment A qualifies, and until then public
       compile of a workflow child refuses with
       `run_ref_child_target_unavailable` before any child allocation. A 2.38
-      entry with no confined site accepts exactly what bounded 2.37 accepts.
+      entry with no confined site retains bounded 2.37 admission and also
+      admits the independently implemented bounded
+      [Agent Sessions surface](../docs/design/workflow_lisp_agent_sessions.md).
       Path mode, its admission, configuration bytes, recovery and
       internal target `2.35` are unchanged. Authority:
       [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#authored-contract)

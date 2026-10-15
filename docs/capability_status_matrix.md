@@ -14,7 +14,9 @@ establish or disqualify readiness; revalidate adaptations for the task shape.
 
 Current execution scope: the [selected executor retirement](design/workflow_lisp_executor_retirement.md)
 rejects executable entries through 2.34 and old-profile resume/invalidation.
-Targets 2.35/2.36 and bounded 2.37 use evaluated execution; old-header
+Targets 2.35/2.36, bounded 2.37 and the bounded 2.38
+[Agent Sessions extension](lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+use evaluated execution; old-header
 imports and LSP analysis retain their typed contracts. Availability of a
 shared service, type, or historical test does not admit an excluded effect.
 The [retirement closeout](reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)

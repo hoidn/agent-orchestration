@@ -1,17 +1,17 @@
 # Workflow Lisp Provider Context Values
 
-- **Status:** portable ordinary-call slice implemented at target 2.31; native continuation remains proposed
+- **Status:** historical portable ordinary-call slice at target 2.31; no evaluated capture port. Immutable native `Context.Native` remains proposed; mutable Agent Sessions are implemented separately at bounded 2.38.
 - **Kind:** language and provider-boundary architecture decision
 - **Owner:** Workflow Lisp frontend and provider/runtime boundary
 - **Created:** 2026-09-08
-- **Last material update:** 2026-10-01
-- **Implementation target:** 2.31 for portable ordinary calls in the
+- **Last material update:** 2026-10-15 (current-scope routing; historical results preserved)
+- **Historical implementation target:** 2.31 for portable ordinary calls in the
   [composition implementation plan](../plans/2026-09-22-value-and-continuation-composition-implementation-plan.md#d-portable-context-pc-1-ordinary-call-slice);
-  source/runtime support includes imported generic/private carriage, collections,
+  delivered source/runtime support included imported generic/private carriage, collections,
   loops, pure context edits, independent branches and committed-boundary resume.
   Real Codex capture/fresh binding is verified. Private flattened boundaries
   still reject colliding paths such as `a__b` and nested `a.b`; native
-  continuation and other adapters remain unselected.
+  Context continuation and other capture adapters remain unselected.
 - **Roadmap:** [PC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#pc-1--first-class-provider-context-pending-unselected)
   research/utility selection remains pending and unselected. The bounded
   target-2.31 implementation above was delivered separately; native support,
@@ -19,6 +19,15 @@
   selection and allocation.
 - **Review and drafting record:** [design plan and comparative simulation](../plans/2026-09-08-provider-context-design-plan.md)
 - **Incremental integration:** [value and continuation composition](workflow_lisp_value_and_continuation_composition.md); its Increment 4 starts with portable capture/bind under this contract, keeping native continuation and human input independent.
+
+Current execution boundary: the 2.31 capture/bind implementation described below
+is historical; its executable route is retired and no evaluated capture port is
+selected. [Agent Sessions](workflow_lisp_agent_sessions.md) implements mutable
+native conversations at bounded 2.38 with a typed result and memo commit per turn;
+it does not implement portable Context or the immutable Context.Native proposal.
+Use the [Agent guide](../lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+for current native-turn authoring. The historical contract and proposal body below
+remain design/evidence, not permission to execute context capture.
 
 ## Summary
 
@@ -37,11 +46,11 @@ that conversational dependencies become explicit dataflow rather than hidden
 mutable session state. Reusing `context₀` starts independent conversational
 branches; it does not resume and mutate one shared session twice.
 
-Target 2.31 implements the portable ordinary-call slice for supported Codex
-calls. Native continuation, cross-provider transfer, and other adapters remain
-proposals; use the [capability matrix](../capability_status_matrix.md) and
+Target 2.31 historically implemented the portable ordinary-call slice for supported
+Codex calls. Immutable native Context continuation, cross-provider transfer and
+other capture adapters remain proposals; use the [capability matrix](../capability_status_matrix.md) and
 [authoring guide](../lisp_workflow_drafting_guide.md#portable-provider-context)
-for the current scope and copy-safe example.
+for the current capture-availability boundary.
 
 Portable history and opaque native continuation are different representations
 with different promises. This is not universal memory, live-process cloning,
@@ -49,10 +58,10 @@ workspace transfer, or a claim to capture a model's hidden internal state.
 
 ## Context And Authority
 
-The original design inspected behavior on 2026-09-08. The implemented portable
-slice is now owned normatively by [Providers](../../specs/providers.md) and
-[Step IO](../../specs/io.md); broader native/cross-provider proposals below are
-not implemented capabilities. The table records the starting owners and limits.
+The original design inspected behavior on 2026-09-08. [Providers](../../specs/providers.md)
+and [Step IO](../../specs/io.md) own the versioned portable contract; it has no
+current evaluated capture port. Broader immutable-native/cross-provider Context
+proposals below remain unimplemented. The table records the starting owners and limits.
 
 | Existing owner | Reuse and limitation |
 | --- | --- |
@@ -63,7 +72,7 @@ not implemented capabilities. The table records the starting owners and limits.
 | [Transportable Value](workflow_lisp_transportable_value_type.md) | Existing strict-JSON carriage supplies the portable slice's storage and recursive validation. Target 2.31 proves supported imported generic, aggregate, collection and loop carriage; `Value` remains opaque and is not an implicit `Context` cast. Private flattened boundaries still reject colliding field paths such as `a__b` and nested `a.b`. |
 | [Executable IR](workflow_lisp_executable_ir.md), [Semantic IR](workflow_lisp_semantic_workflow_ir.md), [State Layout](workflow_lisp_state_layout.md), [State](../../specs/state.md) | Preserve the WCC/shared-Core/validated-executable path, derived semantic explanations, generated paths, call-frame lineage, and completed-boundary reuse. Provider context is not private execution `RunCtx`. |
 | [Language principles](workflow_language_design_principles.md) | Explicit dataflow/effects, real procedure composition, structural types where sufficient, opt-in stronger constraints, and runtime-owned deterministic work govern this proposal. |
-| [Provider prompt queue](workflow_lisp_provider_prompt_queue.md) | A separate target for sequential native-session turns with one final typed result and recorded turn progress. Atomic result publication does not imply whole-conversation replay. It neither implements nor blocks portable context; reuse the same adapter/codec owners. |
+| [Agent Sessions](workflow_lisp_agent_sessions.md); [historical prompt queue](workflow_lisp_provider_prompt_queue.md) | Bounded Agent Sessions are implemented at 2.38 for sequential native turns with separately committed typed results. The queue surface is superseded; [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns shared mechanism evidence. This neither implements nor blocks portable context or selects immutable native Context snapshots. |
 
 ## Problem, Goals, And Boundaries
 

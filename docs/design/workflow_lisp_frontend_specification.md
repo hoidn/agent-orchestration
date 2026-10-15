@@ -2,7 +2,7 @@
 
 Status: accepted baseline / umbrella frontend contract
 Target substrate: checked closed-program execution at 2.35/2.36 and bounded
-2.37; executable entries through 2.34 and the flat emitter are retired
+2.37/2.38; executable entries through 2.34 and the flat emitter are retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -29,6 +29,10 @@ and
 [Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md),
 and
 [Workflow Lisp Provider Peer Messaging](workflow_lisp_provider_peer_messaging.md).
+
+The bounded target-2.38 [Agent Sessions extension](workflow_lisp_agent_sessions.md#authoring-and-composition)
+admits run-local allocation and sequential typed native turns. It does not
+admit the historical context-capture surface below or immutable native snapshots.
 
 Proposed, not current: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 owns optional identity-aware effect restrictions and their migration. Current
@@ -73,6 +77,10 @@ Target 2.37 parallel-map compilation and bounded workers have scoped acceptance;
 full public qualification and phase delivery remain pending. See the
 [Phase 5 status](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
 before using that surface; it is not yet a copy-safe authoring target.
+Target 2.38 separately implements bounded [Agent Sessions](workflow_lisp_agent_sessions.md):
+run-local allocation and typed native turns. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+records deterministic proofs and bounded adapter smokes; the real-provider consumer
+comparison (PQ-1c) has not run and requires separate owner authorization.
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -2422,8 +2430,8 @@ fields. It does not invent a new runtime prompt transport.
 
 ### 22.4 Call-Local Provider Policy
 
-`provider-result` accepts exactly three optional call-policy keywords in its
-ordinary keyword section:
+With a compiler-known provider extern as its first operand, `provider-result`
+accepts exactly three optional call-policy keywords in its ordinary keyword section:
 
 ```text
 (provider-result <compiler-known Provider extern>
@@ -2441,6 +2449,12 @@ at most once. Model and effort accept exact `String` values from the effect-free
 inline-lowerable scalar and template subset; procedure edges alone do not count
 as runtime effects. Timeout accepts only a positive exact-`Int` literal.
 Diagnostics for type errors precede the inline-subset diagnostic.
+
+At target 2.38, the first operand may instead be a run-local `Agent` under
+[Agent Sessions](workflow_lisp_agent_sessions.md#authoring-and-composition).
+That instance pins model/effort at its `agent` constructor; turns retain
+prompt/input/result/timeout fields and refuse per-turn model/effort overrides.
+The linked contract owns the bounded form and carriage/escape restrictions.
 
 `:inputs` participates in typed dataflow on every supported route. Automatic
 typed-value rendering into the provider prompt follows the existing implicit

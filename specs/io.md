@@ -325,10 +325,12 @@ and registered bounded 2.38 (agent sessions; see versioning) retain only their
 ## Evaluated Command And Provider IO (target 2.35)
 
 This contract applies to admitted evaluated effects at 2.35/2.36, bounded
-2.37 and registered bounded 2.38 (agent sessions; see versioning). W3 changes
+2.37 and implemented bounded 2.38 Agent Sessions. W3 changes
 authoring, not command/provider IO or the public lifecycle; 2.37 registration
-does not imply general parallel qualification, and 2.38 registration does not
-imply agent-session runtime delivery. See
+does not imply general parallel qualification. For Agent Sessions,
+[PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
+deterministic proofs and bounded adapter smokes; the real-provider comparison
+(PQ-1c) has not run and requires separate owner authorization. See
 [versioning](versioning.md#version-gating-summary) for the target limits.
 
 This section owns the request a target-2.35 command or provider receives,

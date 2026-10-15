@@ -25,7 +25,7 @@ require a general linear type system, a background process, or immutable native 
 | Source types, composition and effects | [Frontend specification](workflow_lisp_frontend_specification.md), §8.8, and [runtime-closures boundary](workflow_lisp_runtime_closures_boundary.md), introduction and §§9–9.1; the reference exception below requires versioned admission |
 | Effect identity, memo, recovery and invalidation | [Evaluated execution](workflow_lisp_evaluated_execution.md), §§6–9; [State](../../specs/state.md) and [CLI](../../specs/cli.md) remain normative for implemented behavior |
 | Provider configuration and typed results | [Providers](../../specs/providers.md), [Step IO](../../specs/io.md); existing composition, validation and result-destination owners remain authoritative |
-| Immutable history and branching | [Provider Context Values](workflow_lisp_provider_context_values.md); portable capture exists in its admitted slice, native immutable checkpoints remain proposed |
+| Immutable history and branching | [Provider Context Values](workflow_lisp_provider_context_values.md); portable capture's 2.31 executable slice is historical, with no current evaluated capture port; native immutable checkpoints remain proposed |
 | Historical sequential-turn analysis | [Provider Prompt Queue](workflow_lisp_provider_prompt_queue.md); superseded for first delivery by Agent Sessions; transport/recovery analysis is retained, not a selectable surface |
 | Native transport | `ProviderSessionSupport`, `ProviderSessionRequest`, `ProviderExecutor`, and `session_transport.py` in `orchestrator/providers/` |
 | Observation | [Observability](../../specs/observability.md); invocation-local streams remain evidence, never continuation authority |

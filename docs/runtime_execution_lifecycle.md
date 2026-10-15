@@ -28,7 +28,7 @@ states remain readable; nothing converts a run between profiles.
 | Profile | Targets | Authority on disk | Sections |
 | --- | --- | --- | --- |
 | Flat (historical, read-only) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | Historical protocol below, up to the evaluated section; no creation, replay, repair or translation in this package |
-| Evaluated | 2.35/2.36 and bounded 2.37 | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235) |
+| Evaluated | 2.35/2.36, bounded 2.37 and bounded 2.38 Agent Sessions | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235); [Agent Sessions guide](lisp_workflow_drafting_guide.md#agent-sessions-target-238) |
 
 The flat sections below preserve the historical protocol for interpreting
 old state, not commands to execute with this package. Recovery requires an
