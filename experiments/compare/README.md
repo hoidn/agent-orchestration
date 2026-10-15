@@ -33,8 +33,10 @@ path prefix (for `/home/ollie/Documents/agent-orchestration`, that includes ever
 prefix as a hit. `prepare.py` refuses such paths. The frozen runtime must also lie outside the work
 root `W`, where agents work, and `run` refuses one inside it. `W` and `P` must not lie under `/tmp`
 or `/dev/shm`, since the shims' sandbox mounts private ones there and an agent would lose its working
-directory; `run` and `pool` refuse them. The live layout puts the runtime at
-`/home/ollie/compare-runtime` and the work root at `/home/ollie/compare-work`.
+directory; `run` and `pool` refuse them. `run` and `pool` also refuse a runtime with uncommitted
+changes to tracked files, and record its `HEAD` as `runtime_commit` in `record.json` and
+`mapping.json`. The live runtime is `/home/ollie/compare-runtime`; the E-A reruns used the work
+root `/home/ollie/compare-work2`, E-B `/home/ollie/compare-work-eb2`.
 `run` refuses a task base whose candidates do not ignore `.orchestrate/`, where run state lives.
 
 What the sandbox isolates (R35):
@@ -114,7 +116,8 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    the shims strip `PYTHONPATH`, `OLDPWD`, the `COMPARE_*` variables and their own directory from
    `PATH`, because these name the frozen runtime, the launch directory and the records. They then
    run the agent's CLI in the bubblewrap sandbox described under Layout, which needs `bwrap` on
-   `PATH`.
+   `PATH`. After the call they take each candidate's patch through a copy of its index, so what
+   the agent staged stays staged.
 
 2. **Run** in tmux. A run that stops on provider infrastructure is resumed from the same working
    directory (`resume.sh` does this), never relaunched.
@@ -182,7 +185,8 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 
 7. **Score** one judge after another, behind the shims, which record the judge's calls in
    `P/records/judges/<judge>/`. After each judge, `verify-pool` restores any clone the judge
-   changed, and exits non-zero if it had to. A judge stopped by a provider failure is resumed with
+   changed, including one holding an ignored file such as `artifacts/x.md` that no patch shows, and
+   exits non-zero if it had to. A judge stopped by a provider failure is resumed with
    `P/records/resume-<judge>.sh <run_id>` (the same `--state-dir`), never re-run. Then scan the
    judge and adjudicate its hits, as for a run. The scan searches the judge's calls, sessions and
    rollouts for this pool's records, the run records root, the records layout, another judge's
@@ -202,10 +206,14 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    - a judge not scanned, scanned before its last call, or with hits and no verdict (a judge found
      contaminated is left out and listed);
    - a listed judge without exactly one completed scoring run;
+   - a scoring run whose provider starts do not pair one to one with the judge's shim call records
+     (the shims were not first on `PATH`);
    - a scoring run bound to another criterion hash;
    - a batch whose ratings do not line up with its clones.
 
-   It writes `P/records/results.json` and `P/records/results.md`.
+   It writes `P/records/results.json` and `P/records/results.md`. With hidden acceptance,
+   `results.json` gives every clone its pass fraction (`clones.<id>.hidden`) and its failing node
+   ids (`clones.<id>.hidden_failed`).
 
    ```bash
    $PY $H/summarize.py --pool $P --criterion <criterion.json>
