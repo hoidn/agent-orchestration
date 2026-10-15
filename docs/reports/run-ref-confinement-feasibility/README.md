@@ -697,13 +697,15 @@ Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7,
   4. Require the `ack` within 2 s and wait for exactly one member beyond the holder set; two or more refuse with `escape_rejected`. Move that member into the leaf slot, check membership, then send `go` on the gate.
   5. Wait for the status line, an empty leaf slot or the wall deadline. A missing status 2 s after the leaf slot empties, or EOF on the control socket, is holder death: `cgroup.kill` the whole scope. A leaf slot still populated after its status line counts as `lingering`.
   6. `cgroup.kill` the leaf slot and wait for it to empty, then check quiescence again before any read.
-- **Teardown.** `stop()` is idempotent and runs in the fixture's teardown, so it also runs when a test fails. It kills the scope through `cgroup.kill` and reaps the launcher; systemd then garbage-collects the empty scope. It calls `systemctl --user reset-failed` for units that systemd stopped itself. After every run in this section, `systemctl --user list-units 'run-ref-*' --all` was empty.
+  7. Read `/result/<leaf>/stdout` and `stderr` beneath the retained root descriptor, opened `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` with an `fstat` `S_ISREG` check and a bounded read (1 MiB). A missing, symlinked or non-regular entry refuses with `escape_rejected` and kills the scope.
+- **Teardown.** `stop()` is idempotent and runs in the fixture's teardown, so it also runs when a test fails. The teardown stops every holder even if one `stop()` raises, and then asserts that no scope is still populated. It kills the scope through `cgroup.kill` and reaps the launcher; systemd then garbage-collects the empty scope. It calls `systemctl --user reset-failed` for units that systemd stopped itself. After every run in this section, `systemctl --user list-units 'run-ref-*' --all` was empty.
 
 ### Commands
 
-- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `10 passed in 7.40s` (5 Task 1 tests and 5 new ones).
-- Without `ORCHESTRATE_E2E`: `10 skipped in 0.06s`. With `XDG_RUNTIME_DIR=/nonexistent DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`: `10 skipped`, reason `user systemd manager unreachable` (`systemctl --user show -p Version` fails). The Task 1 tests now share this skip.
-- `pytest --collect-only -q tests/e2e/test_e2e_run_ref_confined.py` -> `10 tests collected`.
+- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `11 passed in 6.92s` (5 Task 1 tests and 6 new ones; fix round 1 added the FIFO result witness).
+- Without `ORCHESTRATE_E2E`: `11 skipped in 0.06s`. With `XDG_RUNTIME_DIR=/nonexistent DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`: all skipped, reason `user systemd manager unreachable` (`systemctl --user show -p Version` fails). The Task 1 tests share this skip.
+- A missing image record skips the holder tests. With `RUN_REF_REQUIRE_IMAGE=1` it fails them instead (`Failed: Task 1 image record ... absent`).
+- `pytest --collect-only -q tests/e2e/test_e2e_run_ref_confined.py` -> `11 tests collected`.
 
 ### Witnesses
 
@@ -717,11 +719,12 @@ Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7,
 | CPU enforced by `CPUQuota` | same | **PASS** | 100%, four busy loops for 2 s: `cpu_seconds 2.087` in `2.073` s wall, `nr_throttled +20`. |
 | Sockets unreachable from a leaf | channels test | **PASS** | Spawner fds `{"3": "socket:[188313993]", "4": "socket:[188313995]"}`, equal to the inodes of the host-created guest ends. From the leaf, both give `open` `ENXIO` and `pidfd_getfd` `EPERM`. Probe check: `pidfd_getfd` on the leaf's own child returned `obtained`. |
 | FIFO and pipe positive controls | `test_fifo_and_pipe_placed_like_the_channels_reopen_from_a_leaf` | **PASS** | The same launcher also passes a pipe read end and an `O_RDWR` FIFO to the spawner (fds 7, 8). From the leaf: `{"pipe": "opened", "fifo": "opened", "socket": "ENXIO"}`; `pidfd_getfd` stays `EPERM` for all. |
-| In-namespace descriptors (pid 1, spawner) | channels test | **PASS, design-text delta** | pid 1: `{"0": "/dev/null", "1": "/dev/null", "2": "/dev/null", "8": "anon_inode:[eventfd]"}`. Spawner: `/dev/null` x3 and the two sockets. `--info-fd` (5) and `--ro-bind-fd` (6) are not inherited by the spawner. The extra entry is bwrap's own pid-1 `event_fd` (it reports the child's exit to the monitor). From a leaf it gives `open` `EACCES` and `pidfd_getfd` `EPERM`, so it is unreachable. The test pins the set to exactly `{"anon_inode:[eventfd]"}` beyond `/dev/null` and the channels, and requires every entry to be unreachable. The N8 sentence "pid 1 holds only `/dev/null`, the sockets and guest objects" should name this eventfd. |
+| In-namespace descriptors (pid 1, spawner) | channels test | **PASS, design-text delta** | The leaf enumerates `/proc/[0-9]*`: the only processes it can see are `[1, spawner, itself]`, and the test asserts this. pid 1: `{"0": "/dev/null", "1": "/dev/null", "2": "/dev/null", "8": "anon_inode:[eventfd]"}`. Spawner: `/dev/null` x3 and the two sockets. `--info-fd` (5) and `--ro-bind-fd` (6) are not inherited by the spawner. The extra entry is bwrap's own pid-1 `event_fd` (it reports the child's exit to the monitor). From a leaf it gives `open` `EACCES` and `pidfd_getfd` `EPERM`, so it is unreachable. The test pins the set to exactly `{"anon_inode:[eventfd]"}` beyond `/dev/null` and the channels, and requires every entry to be unreachable. The N8 sentence "pid 1 holds only `/dev/null`, the sockets and guest objects" should name this eventfd. |
 | `setsid` leaf: `kill 0` spares the spawner; leaf pid = ack (P4) | channels test | **PASS** | Probe leaf: `ack 3`, `leaf_nspid 3`, `pid 3`, `sid 3`, `pgid 3`, spawner pgid `1`. `kill 0` leaf: `ack 5`, stdout `5`, status `143` (killed its own group). The next leaf was acknowledged and the holder set was unchanged. |
 | Stopped spawner -> failed attempt, empty scope | `test_stopped_or_signalled_spawner_and_setsid_daemon_fail_the_attempt_with_an_empty_scope` | **PASS** | `kill -STOP $PPID`: `holder_death`, `no status line within the deadline` after 2.06 s; scope killed, `scope_populated false`. |
 | Signalled spawner | same | **PASS** | `kill -KILL $PPID`: `holder_death`, `control socket EOF` after 0.014 s; `bwrap` exited 137; scope empty. |
-| `setsid` daemon | same | **PASS (interpretation recorded)** | `setsid sleep 300 &`: status `0`, then outcome `lingering` (failed attempt: the leaf slot was still populated after its status line). It was killed in the leaf slot, the holder set was unchanged, and the scope was empty after the child's stop. The daemon is a failed attempt and not a holder death; the scope empties at the child terminal. |
+| `setsid` daemon | same | **PASS (interpretation recorded)** | `setsid sleep 300 &`: status `0`, then outcome `lingering` (failed attempt: the leaf slot was still populated after its status line). It was killed in the leaf slot: no process with `300` in its cmdline remains anywhere in the scope, and the holder set is unchanged and quiescent. The scope empties at stop, which the fixture teardown asserts. The daemon is a failed attempt and not a holder death. |
+| Non-regular result entry refused without blocking (fix round 1) | `test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected` | **PASS** | The leaf runs `rm /result/fifo/stdout && mkfifo /result/fifo/stdout`. Host: `escape_rejected`, `result read refused: /result/fifo/stdout is not a regular file`, 0.065 s, scope empty. A 10 s `SIGALRM` guard turns a blocking open into a failure instead of a hang. |
 | `/dev`, `/run` read-only; `/dev/shm` sized | channels test (scratch leaves) | **PASS** | `{"/dev/x": "EROFS", "/run/x": "EROFS", "/run/runref/x": "EROFS"}`; `/dev/shm` fill stopped at `8388608` bytes with `ENOSPC`. |
 | Earlier leaf's `/result` entry gone | same | **PASS** | `scratch-a` wrote `/result/scratch-b/forged`, `/result/scratch-a/extra`, `/tmp/left` and `/dev/shm/left`. `scratch-b` then saw `{"/result": ["scratch-b"], "/result/scratch-b": ["stderr", "stdout"], "/tmp": [], "/dev/shm": []}`. |
 | Host creates files in `/workspace` through `/proc/<holder>/root` | same | **PASS** | `openat(<workspace root fd>, "from-host", O_CREAT|O_EXCL|O_NOFOLLOW)`; the next leaf read `written through /proc/<holder>/root`. |
@@ -745,6 +748,9 @@ Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7,
 | M10 `TasksMax=1000` | limits | RED: 100 forks succeeded (no fork failure line) |
 | M11 `MemoryMax=1024M` | limits | RED: the 512 MiB allocation completed (status 0) |
 | M12 missing status treated as exit | spawner | RED: the stopped spawner became `exited`, scope still populated |
+| M13 blocking host read (no `O_NONBLOCK`, no `S_ISREG`) | FIFO result | RED: the host open blocked until the 10 s alarm (`10.01` s, reason `host result read blocked`) |
+| M13b `O_NONBLOCK` without `S_ISREG` | FIFO result | RED: the FIFO read returned empty bytes and the leaf counted as `exited` |
+| M14 pinned tree digest differs | any holder test | RED: `sealed rootfs does not match the pinned tree digest` |
 
 "FIFO instead of socketpair" is not a cheap mutation of the protocol. The FIFO/pipe positive-control test is the evidence that a FIFO or pipe channel would be reopenable.
 
@@ -754,7 +760,7 @@ Each figure is the median of 5 launches: launch to `ready` (systemd-run round tr
 
 ### Image on a fresh host
 
-The tests use the Task 1 sealed rootfs through its record `~/.cache/run-ref-spike-images/records/sha256-2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe.json` and rehash it against `tree_digest` (a mismatch fails the test). Without the record they skip and name the path. To obtain it:
+The tests use the Task 1 sealed rootfs through its record `~/.cache/run-ref-spike-images/records/sha256-2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe.json`. They rehash the tree against the constant `TREE_DIGEST` pinned in `tests/e2e/run_ref_holder.py` (`sha256:973cd373...`), not against the record, so a cache whose record and rootfs were both tampered with still fails. Without the record the tests skip and name the path; with `RUN_REF_REQUIRE_IMAGE=1` they fail instead. To obtain it:
 
 ```bash
 d=$(mktemp -d) && git show fdfa8b0d:experiments/run_ref_confinement_spike/image_import.py > "$d/image_import.py"
@@ -769,3 +775,4 @@ This is an anonymous Docker Hub pull, with each blob verified and the store seal
 - With `--new-session`, the spawner is in process group 1 (pid 1's group). Without `setsid` a leaf's `kill 0` reaches the spawner (M1), so `setsid` is a required image pin, as R5 says.
 - A guest can make the host's exclusive `mkdir /result/<leaf>` fail by pre-creating the directory; the wipe is what prevents this (M6). The runtime should treat a failed exclusive create as `escape_rejected`, not as a host error.
 - `/dev` is not wiped between leaves, but it is read-only, so a leaf cannot leave state there.
+- The result broker must open guest result entries with `O_NONBLOCK|O_NOFOLLOW`, check `S_ISREG` with `fstat` and bound the read. A plain `O_RDONLY` open of a guest FIFO blocks the host forever (M13).

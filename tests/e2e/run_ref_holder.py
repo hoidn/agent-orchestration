@@ -45,6 +45,7 @@ from pathlib import Path
 # Task 1 image (docs/reports/run-ref-confinement-feasibility/README.md, F3).
 IMAGE_RECORD = Path.home() / ".cache/run-ref-spike-images/records" / (
     "sha256-2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe.json")
+TREE_DIGEST = "sha256:973cd37339e7ef7627c497292983fa6b110ef784f121f41d8a52edc6385fadae"  # pinned, not read from the cache
 GUEST_PATH = "/usr/local/bin:/usr/bin:/bin"
 ACK_SECONDS = 2.0       # spawner acknowledgement deadline
 STATUS_GRACE = 2.0      # status line deadline once the leaf slot is empty or killed
@@ -116,7 +117,10 @@ def members(cgroup: Path) -> set[int]:
 
 
 def populated(cgroup: Path) -> bool:
-    return cgroup.exists() and "populated 1" in (cgroup / "cgroup.events").read_text()
+    try:  # systemd removes an emptied scope (and our slots under it) asynchronously
+        return "populated 1" in (cgroup / "cgroup.events").read_text()
+    except FileNotFoundError:
+        return False
 
 
 def kill_and_wait(cgroup: Path, timeout: float = 10) -> bool:
@@ -148,14 +152,23 @@ def _empty(dir_fd: int) -> None:
             os.unlink(name, dir_fd=dir_fd)
 
 
+class EscapeRejected(Exception):
+    """A guest-controlled result entry the host refuses to read."""
+
+
 def _read(dir_fd: int, leaf: str, name: str, limit: int = 1 << 20) -> str:
+    """Bounded read of a regular guest file; a FIFO, device or socket is refused without blocking."""
     sub = os.open(leaf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=sub)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=sub)
     finally:
         os.close(sub)
-    with os.fdopen(fd, "rb") as handle:
-        return handle.read(limit).decode(errors="replace")
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise EscapeRejected(f"/result/{leaf}/{name} is not a regular file")
+        return os.read(fd, limit).decode(errors="replace")
+    finally:
+        os.close(fd)
 
 
 class Holder:
@@ -191,6 +204,12 @@ class Holder:
         self.roots: dict[str, int] = {}
         self.dead = self.stopped = False
         self._buf = b""
+
+    @property
+    def cg(self) -> Path:
+        """The scope cgroup; only valid after `launch()` resolved it."""
+        assert self.scope is not None, "holder not launched"
+        return self.scope
 
     # -- launch -----------------------------------------------------------------
     def launch(self, release: str | None = "token") -> "Holder":
@@ -261,13 +280,13 @@ class Holder:
         shown = subprocess.run(["systemctl", "--user", "show", self.unit, "-p", ",".join(names)],
                                capture_output=True, text=True, timeout=15, check=True).stdout
         unit = dict(line.split("=", 1) for line in shown.splitlines())
-        files = {name: (self.scope / name).read_text().strip()
+        files = {name: (self.cg / name).read_text().strip()
                  for name in ("memory.max", "memory.swap.max", "pids.max", "cpu.max")}
         expected_unit = {"MemoryMax": str(self.limits["MemoryMax"]), "MemorySwapMax": "0",
                          "TasksMax": str(self.limits["TasksMax"]),
                          "CPUQuotaPerSecUSec": f"{self.limits['CPUQuota'] // 100}s",  # multiples of 100 only
                          "OOMPolicy": self.limits["OOMPolicy"], "Delegate": "yes",
-                         "ControlGroup": "/" + str(self.scope.relative_to(CGROUP_MOUNT))}
+                         "ControlGroup": "/" + str(self.cg.relative_to(CGROUP_MOUNT))}
         expected_files = {"memory.max": str(self.limits["MemoryMax"]), "memory.swap.max": "0",
                           "pids.max": str(self.limits["TasksMax"]),
                           "cpu.max": f"{self.limits['CPUQuota'] * 1000} 100000"}
@@ -291,8 +310,8 @@ class Holder:
         return line.decode()
 
     def quiescent(self) -> bool:
-        slots = [p for p in self.scope.iterdir() if p.is_dir() and p.name != "holder"]
-        return members(self.scope / "holder") == self.recorded and not any(map(populated, slots))
+        slots = [p for p in self.cg.iterdir() if p.is_dir() and p.name != "holder"]
+        return members(self.cg / "holder") == self.recorded and not any(map(populated, slots))
 
     def write_workspace(self, name: str, data: bytes) -> None:
         """Host write into the holder's tmpfs through `/proc/<holder>/root` (retained descriptor)."""
@@ -316,7 +335,7 @@ class Holder:
         (leaf_dir / "stdin").write_bytes(b"")
         for file_name, text in (files or {}).items():
             (leaf_dir / file_name).write_text(text)
-        slot = self.scope / f"leaf-{name}"
+        slot = self.cg / f"leaf-{name}"
         slot.mkdir()
         result: dict = {"name": name}
         try:
@@ -329,7 +348,7 @@ class Holder:
             if pid is None:
                 return self._holder_death(result, "no leaf member", code="escape_rejected")
             (slot / "cgroup.procs").write_text(str(pid))
-            if members(slot) != {pid} or members(self.scope / "holder") != self.recorded:
+            if members(slot) != {pid} or members(self.cg / "holder") != self.recorded:
                 return self._holder_death(result, "leaf move", code="escape_rejected")
             result["leaf_nspid"] = nspid(pid)
             started = time.monotonic()
@@ -342,18 +361,23 @@ class Holder:
                 return self._holder_death(result, "leaf slot did not quiesce")
             if not self.quiescent():
                 return self._holder_death(result, "holder membership changed", code="escape_rejected")
-            result["stdout"] = _read(self.roots["result"], name, "stdout")
-            result["stderr"] = _read(self.roots["result"], name, "stderr")[-2000:]
+            try:
+                result["stdout"] = _read(self.roots["result"], name, "stdout")
+                result["stderr"] = _read(self.roots["result"], name, "stderr")[-2000:]
+            except (OSError, EscapeRejected) as exc:  # missing, symlinked or non-regular guest entry
+                return self._holder_death(result, f"result read refused: {exc}", code="escape_rejected")
             return result
         finally:
-            if slot.exists():
-                kill_and_wait(slot)
+            kill_and_wait(slot)
+            try:
                 slot.rmdir()
+            except FileNotFoundError:  # systemd already removed the emptied scope after a holder death
+                pass
             shutil.rmtree(leaf_dir)
 
     def _new_member(self, deadline: float) -> int | None:
         while time.monotonic() < deadline:
-            extra = members(self.scope / "holder") - self.recorded
+            extra = members(self.cg / "holder") - self.recorded
             if len(extra) == 1:
                 return extra.pop()
             if len(extra) > 1:
@@ -389,7 +413,7 @@ class Holder:
     def _holder_death(self, result: dict, reason: str, code: str = "lost") -> dict:
         """Kill and empty the whole scope; the pending attempt fails."""
         self.dead = True
-        emptied = kill_and_wait(self.scope)
+        emptied = kill_and_wait(self.cg)
         result.update(outcome="holder_death" if code == "lost" else code, reason=reason,
                       scope_populated_after_kill=not emptied)
         return result
@@ -418,6 +442,7 @@ class Holder:
                 self.process.kill()
                 self.process.wait(timeout=10)
             report["launcher_exit"] = self.process.returncode
+            assert self.process.stderr is not None
             report["launcher_stderr"] = self.process.stderr.read().decode(errors="replace")[-2000:]
             self.process.stderr.close()
         for sock in (getattr(self, "ctrl", None), getattr(self, "gate", None)):

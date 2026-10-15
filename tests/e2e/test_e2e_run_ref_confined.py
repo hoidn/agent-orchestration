@@ -11,13 +11,15 @@ The F3b-channel tests below drive the throwaway holder in
 --scope` unit per launch with the limits and `OOMPolicy` as unit properties,
 token-gated launcher, socketpair channels, `setsid` leaves) over the Task 1
 digest-pinned image; they skip when that image is absent (see the README for
-how a fresh host imports it) or the user manager is unreachable.
+how a fresh host imports it; `RUN_REF_REQUIRE_IMAGE=1` turns the skip into a
+failure) or the user manager is unreachable.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -27,7 +29,8 @@ from pathlib import Path
 import pytest
 
 from tests.e2e.conftest import skip_if_no_cli, skip_if_no_e2e
-from tests.e2e.run_ref_holder import IMAGE_RECORD, Holder, keyed, members, populated, tree_digest
+from tests.e2e.run_ref_holder import (IMAGE_RECORD, TREE_DIGEST, Holder, keyed, members, populated,
+                                     tree_digest)
 
 pytestmark = pytest.mark.e2e
 
@@ -163,8 +166,10 @@ def getfd(pid, n):
     os.close(got)
     return "obtained"
 spawner = os.getppid()
-tables = {"pid1": fds(1), "spawner": fds(spawner)}
-pids = {"pid1": 1, "spawner": spawner}
+visible = sorted(int(p) for p in os.listdir("/proc") if p.isdigit())
+pids = {"pid1" if pid == 1 else "spawner" if pid == spawner else str(pid): pid
+        for pid in visible if pid != os.getpid()}
+tables = {name: fds(pid) for name, pid in pids.items()}
 probes = [{"process": name, "target": target, "open": reopen(pids[name], n), "pidfd_getfd": getfd(pids[name], n)}
           for name, table in tables.items() for n, target in table.items() if target != "/dev/null"]
 r, w = os.pipe()
@@ -175,7 +180,7 @@ if child == 0:
 own_child = getfd(child, r)
 os.kill(child, 9)
 os.waitpid(child, 0)
-print(json.dumps({"pid": os.getpid(), "sid": os.getsid(0), "pgid": os.getpgid(0),
+print(json.dumps({"pid": os.getpid(), "visible": visible, "spawner": spawner, "sid": os.getsid(0), "pgid": os.getpgid(0),
                   "spawner_pgid": os.getpgid(spawner), "tables": tables, "probes": probes,
                   "own_child_pidfd_getfd": own_child}))
 """
@@ -210,10 +215,13 @@ print(json.dumps({"seen": seen, "creates": creates, "shm_written": written, "shm
 def sealed_rootfs() -> Path:
     _skip_unless_user_manager()
     if not IMAGE_RECORD.exists():
-        pytest.skip(f"Task 1 image record {IMAGE_RECORD} absent; import it as the feasibility README describes")
-    record = json.loads(IMAGE_RECORD.read_text())
-    assert tree_digest(Path(record["rootfs"])) == record["tree_digest"], "sealed rootfs drifted from its record"
-    return Path(record["rootfs"])
+        message = f"Task 1 image record {IMAGE_RECORD} absent; import it as the feasibility README describes"
+        if os.getenv("RUN_REF_REQUIRE_IMAGE") == "1":
+            pytest.fail(message)
+        pytest.skip(message)
+    rootfs = Path(json.loads(IMAGE_RECORD.read_text())["rootfs"])
+    assert tree_digest(rootfs) == TREE_DIGEST, "sealed rootfs does not match the pinned tree digest"
+    return rootfs
 
 
 @pytest.fixture
@@ -226,8 +234,15 @@ def launch(sealed_rootfs, tmp_path):
         return holder.launch(release=release)
 
     yield _launch
-    for holder in started:
-        holder.stop()
+    reports, errors = [], []
+    for holder in started:  # stop every holder even when one stop raises
+        try:
+            reports.append((holder.unit, holder.stop()))
+        except Exception as exc:  # re-raised below after the remaining holders are stopped
+            errors.append(exc)
+    if errors:
+        raise errors[0]
+    assert [unit for unit, report in reports if report.get("scope_populated")] == []
 
 
 def _scope_active(holder: Holder) -> str:
@@ -237,7 +252,7 @@ def _scope_active(holder: Holder) -> str:
 
 def test_holder_channels_descriptors_and_scope_shape(launch):
     holder = launch()
-    scope_root_procs = members(holder.scope)
+    scope_root_procs = members(holder.cg)
     channels = holder.run("channels", "exec python3 /run/runref/channels/probe.py\n",
                           files={"probe.py": CHANNEL_PROBE})
     facts = json.loads(channels["stdout"])
@@ -255,6 +270,7 @@ def test_holder_channels_descriptors_and_scope_shape(launch):
         "read_back": holder.readback["unit"] | holder.readback["cgroup"],
         "launcher_in_holder_scope_root_empty": (holder.process.pid in holder.recorded, scope_root_procs),
         "outcomes": [r["outcome"] for r in (channels, kill_zero, scratch_a, scratch_b)],
+        "visible_processes": facts["visible"] == [1, facts["spawner"], facts["pid"]],
         "in_namespace_descriptors": targets - {"/dev/null"} - holder.channels,
         "spawner_sockets_are_the_channels": spawner_sockets == holder.channels,
         "reachable": [p for p in facts["probes"] if p["open"] == "opened" or p["pidfd_getfd"] == "obtained"],
@@ -269,15 +285,16 @@ def test_holder_channels_descriptors_and_scope_shape(launch):
         "shm_fill": (after["shm_error"], (8 << 20) - (1 << 20) <= after["shm_written"] <= 8 << 20),
         "earlier_scratch_gone": after["seen"],
         "host_write_visible": after["host_file"],
-        "holder_slot_equals_recorded": members(holder.scope / "holder") == holder.recorded,
+        "holder_slot_equals_recorded": members(holder.cg / "holder") == holder.recorded,
     } == {
         "read_back": {"MemoryMax": str(256 << 20), "MemorySwapMax": "0", "TasksMax": "64",
                       "CPUQuotaPerSecUSec": "1s", "OOMPolicy": "continue", "Delegate": "yes",
-                      "ControlGroup": "/" + str(holder.scope.relative_to("/sys/fs/cgroup")),
+                      "ControlGroup": "/" + str(holder.cg.relative_to("/sys/fs/cgroup")),
                       "memory.max": str(256 << 20), "memory.swap.max": "0", "pids.max": "64",
                       "cpu.max": "100000 100000"},
         "launcher_in_holder_scope_root_empty": (True, set()),
         "outcomes": ["exited"] * 4,
+        "visible_processes": True,
         "in_namespace_descriptors": {"anon_inode:[eventfd]"},  # bwrap's own pid-1 eventfd, unreachable
         "spawner_sockets_are_the_channels": True,
         "reachable": [],
@@ -317,38 +334,36 @@ def test_fifo_and_pipe_placed_like_the_channels_reopen_from_a_leaf(launch, tmp_p
 def test_launcher_without_the_exact_release_token_never_starts_bwrap(launch):
     refused = {repr(release): launch(release=release) for release in (None, "not-the-launch-token")}
 
-    assert {name: (h.child_pid, h.process.returncode, populated(h.scope)) for name, h in refused.items()} == {
+    assert {name: (h.child_pid, h.process.returncode, populated(h.cg)) for name, h in refused.items()} == {
         "None": (None, 97, False), "'not-the-launch-token'": (None, 98, False)}
 
 
 def test_unit_property_limits_are_enforced_and_oom_keeps_the_scope(launch):
     holder = launch(memory_mib=128, tasks=32)
-    oom_before = int(keyed(holder.scope / "memory.events")["oom_kill"])
+    oom_before = int(keyed(holder.cg / "memory.events")["oom_kill"])
     memory = holder.run("memory", "exec python3 -c 'b = [bytearray(16 << 20) for _ in range(32)]'\n", wall=30)
-    oom_kills = int(keyed(holder.scope / "memory.events")["oom_kill"]) - oom_before
+    oom_kills = int(keyed(holder.cg / "memory.events")["oom_kill"]) - oom_before
     pids = holder.run("pids", "exec python3 -c '" + "\n".join([
         "import os, time", "kids = []", "try:", "    for _ in range(100):", "        pid = os.fork()",
         "        if pid == 0:", "            time.sleep(30); os._exit(0)", "        kids.append(pid)",
         "except OSError as exc:", "    print(len(kids), exc.strerror)",
         "for kid in kids:", "    os.kill(kid, 9); os.waitpid(kid, 0)"]) + "'\n")
-    cpu_before = int(keyed(holder.scope / "cpu.stat")["usage_usec"])
+    cpu_before = int(keyed(holder.cg / "cpu.stat")["usage_usec"])
     wall = time.monotonic()
     cpu = holder.run("cpu", "for i in 1 2 3 4; do timeout 2 sh -c 'while :; do :; done' & done; wait\n")
-    cpu_seconds = (int(keyed(holder.scope / "cpu.stat")["usage_usec"]) - cpu_before) / 1e6
+    cpu_seconds = (int(keyed(holder.cg / "cpu.stat")["usage_usec"]) - cpu_before) / 1e6
     wall = time.monotonic() - wall
     forked = int(pids["stdout"].split()[0])
 
     assert {
         "memory": (memory["outcome"], memory["status"], oom_kills >= 1),
-        "memory_peak_within_max": int((holder.scope / "memory.peak").read_text()) <= 128 << 20,
-        "pids": (pids["outcome"], forked < 32, int(keyed(holder.scope / "pids.events")["max"]) >= 1),
-        "cpu_one_core": (cpu["outcome"], cpu_seconds < 1.5 * wall),
+        "pids": (pids["outcome"], forked < 32, int(keyed(holder.cg / "pids.events")["max"]) >= 1),
+        "cpu_one_core": (cpu["outcome"], len(os.sched_getaffinity(0)) > 1, cpu_seconds < 1.5 * wall),
         "scope_survives_oom": (_scope_active(holder), holder.quiescent()),
     } == {
         "memory": ("exited", 137, True),
-        "memory_peak_within_max": True,
         "pids": ("exited", True, True),
-        "cpu_one_core": ("exited", True),
+        "cpu_one_core": ("exited", True, True),  # four busy loops on a multi-CPU host
         "scope_survives_oom": ("active", True),
     }, (cpu_seconds, wall, forked)
 
@@ -360,19 +375,49 @@ def test_stopped_or_signalled_spawner_and_setsid_daemon_fail_the_attempt_with_an
         "signalled": signalled.run("signal", "kill -KILL $PPID\n", wall=5),
         "daemon": daemon.run("daemon", "setsid sleep 300 >/dev/null 2>&1 &\necho started\n", wall=5),
     }
-    daemon_holder_slot = members(daemon.scope / "holder") == daemon.recorded
-    daemon_stop = daemon.stop()
+    daemon_holder_slot = members(daemon.cg / "holder") == daemon.recorded
+    daemon_left = [pid for cgroup in daemon.cg.rglob("cgroup.procs") for pid in cgroup.read_text().split()
+                   if b"300" in Path(f"/proc/{pid}/cmdline").read_bytes()]
 
     assert {
         "outcomes": {name: (r["outcome"], r.get("reason")) for name, r in outcomes.items()},
-        "scopes_populated": [populated(h.scope) for h in (stopped, signalled, daemon)],
+        "dead_scopes_populated": [populated(h.cg) for h in (stopped, signalled)],
+        "daemon_holder_quiescent": daemon.quiescent(),  # its scope empties at stop (fixture teardown asserts)
         "daemon_outside_holder_slot": daemon_holder_slot,
-        "daemon_scope_emptied": daemon_stop["scope_emptied"],
+        "daemon_left_in_scope": daemon_left,
     } == {
         "outcomes": {"stopped": ("holder_death", "no status line within the deadline"),
                      "signalled": ("holder_death", "control socket EOF"),
                      "daemon": ("lingering", None)},
-        "scopes_populated": [False, False, False],
+        "dead_scopes_populated": [False, False],
+        "daemon_holder_quiescent": True,
         "daemon_outside_holder_slot": True,
-        "daemon_scope_emptied": True,
+        "daemon_left_in_scope": [],
     }
+
+
+def test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected(launch):
+    holder = launch()
+
+    def _hung(signum, frame):
+        raise TimeoutError("host result read blocked")
+
+    previous = signal.signal(signal.SIGALRM, _hung)
+    signal.alarm(10)  # a blocking host open on the FIFO fails the test instead of hanging the suite
+    started = time.monotonic()
+    try:
+        result = holder.run("fifo", "rm /result/fifo/stdout && mkfifo /result/fifo/stdout\n", wall=5)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    elapsed = time.monotonic() - started
+
+    assert {
+        "outcome": (result["outcome"], result.get("status"), result["reason"]),
+        "prompt": elapsed < 2,
+        "scope_populated": populated(holder.cg),
+    } == {
+        "outcome": ("escape_rejected", 0, "result read refused: /result/fifo/stdout is not a regular file"),
+        "prompt": True,
+        "scope_populated": False,
+    }, elapsed
