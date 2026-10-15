@@ -3,7 +3,7 @@
   "owner_rule": "raise task difficulty until the expected number of review blockers is >= 1 (owner, 2026-10-14); design 'Difficulty calibration for follow-on experiments'",
   "ladder": {
     "file": "experiments/compare/tasks/calibration-ladder.md",
-    "sha256": "fcef8a7a41ece60dd96b0681a2d076f4ade040ae3ed4a03038aea255712c564c",
+    "sha256": "3d4ea27093501cd142ffe30ce0cffe168aa2c5c9efb686c4f3347ea6fa6a0587",
     "rung_n": "the n-th row of the ranked table",
     "direction": "smallest first: rung 1 is the first row (R43)"
   },
@@ -72,5 +72,15 @@
   "amends": {
     "previous_sha256": "996d8e5701e4957fb148a0bbf5677f69a0b30b1e4b183870b31fdfa47e46870a",
     "reason": "Amendment 1 (2026-10-14, after rung 1 and before any rung-2 run): rung 1 did not qualify (single calls 0.909 and 0.902 hidden; mean blockers 1.0). Rung 2's package was built before any rung-1 result was seen (7c7f0579); its hidden set drops the 50 node ids its stub passes (R49), leaving 119. The ladder file changed only in rung 2's metrics (commits the feature's own plan covers were reassigned to it, 7c7f0579) and an R49 note; the order and rung 1 are unchanged. The runtime rule admits commits that differ from 2b9efd81 only in task packages and criteria."
+  },
+  "rung_3": {
+    "slug": "adopted-attempt-lineage",
+    "package_sha256": "c5ebb75803cbdb19eabff4c1f0e5e9627ab399fb6733192581961f5957e628b9",
+    "hidden_node_ids": 52,
+    "drops": "7 R49 (stub passes), 2 R50 (fault injection through private helpers)"
+  },
+  "amends_2": {
+    "previous_sha256": "76cde397cc08edfc3f2555f2cd74765a4c2e8da16f1bec9a7947c2f567ef6f1d",
+    "reason": "Amendment 2 (2026-10-14, after rung 2 and before any rung-3 run): rung 2 did not qualify (single calls 0.739 and 0.731 hidden; mean blockers 2.5). Rung 3's package was built before any rung-2 result was seen (859315ca). The ladder file changed only in rung 3's hidden count and its drop list; the order and rungs 1-2 are unchanged. R50 extends the drop rule to fault-injection tests through private helpers."
   }
 }
