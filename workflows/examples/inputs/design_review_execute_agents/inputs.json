@@ -1,0 +1,3 @@
+{
+  "task": "Add a `:type NAME` command to `orchestrator repl` that prints the fields and field types of the named record type from the loaded module, or the named binding's type, reusing the module's typed program and the existing `render_type_ref`; refuse an unknown name with `name_unknown`."
+}

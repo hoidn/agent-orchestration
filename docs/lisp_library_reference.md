@@ -15,6 +15,7 @@ pattern for generating, evaluating, selecting and improving candidates. The
 | Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | 2.35 explicit-input API; 2.36 local-hook API |
 | Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary at 2.35 |
 | Search across candidates under an evaluation budget | [Iterative search](#iterative-search) | Example workflow | Maintained compact controller at 2.35; application-defined policy |
+| Keep one conversation across review and revise | [`design_review_execute_agents.orc`](../workflows/examples/design_review_execute_agents.orc); [Agent sessions](lisp_workflow_drafting_guide.md#agent-sessions-target-238) | Example workflow | Compiles at 2.38; running it requires the pending agent-session runtime; not qualified |
 
 These entries do different work. Selection compares alternatives; review/revise
 changes a candidate; an evaluator supplies evidence; a search controller decides

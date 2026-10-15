@@ -352,6 +352,12 @@ fragments. Prompt output slots may own one required UTF-8 file alongside the
 structured result. See the effect admission limits in Section 2A before using
 any library helper.
 
+At target 2.38 the surface also includes `agent`, which allocates a run-local
+`Agent`, and `provider-result` on an `Agent`, which takes one turn in that
+agent's native conversation. Both compile today; running them requires the
+agent-session runtime, which is pending. See
+[Agent sessions](#agent-sessions-target-238).
+
 Native transportable results need no one-field record wrapper: use the actual
 scalar, enum, path, optional, list, map, record, union or exact opaque `Value`
 contract. Optional typed guidance uses
@@ -1401,6 +1407,66 @@ the admitted provider subset. The
 [provider-context contract](design/workflow_lisp_provider_context_values.md)
 preserves the historical context/type contract and its coverage limits;
 its executable route is retired, with no evaluated capture port selected.
+
+### Agent sessions (target 2.38)
+
+Status: the forms below compile at target 2.38. Running them requires the
+agent-session runtime (allocation, turns, recovery), which is pending, and
+the surface is not qualified; PQ-1a in the
+[evaluated execution plan](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+owns qualification. The [Agent Sessions design](design/workflow_lisp_agent_sessions.md)
+owns the contract.
+
+Choose an agent over an artifact handoff when a later call should see the
+earlier call's whole conversation, for example a designer who revises the
+draft it wrote after a review. Keep the artifact handoff (independent calls,
+typed paths, `:doc` fills) when each call should see only its typed inputs.
+The cost: once a later turn of the same agent has committed, an earlier turn's
+result cannot be invalidated, and a first turn interrupted before its commit
+may have run more than once.
+
+```lisp
+(let* ((designer (agent providers.claude :model planner_model :effort "high"))
+       (draft (provider-result designer :timeout-sec 3600
+                :prompt (draft-design :task task))))
+  ...)
+```
+
+`(agent <provider-extern> [:model String] [:effort String])` allocates one
+`Agent` and launches no provider. The provider must be a compiler-known
+provider extern; model and effort are its only options and must be inline
+`String` operands. `(provider-result <agent> :prompt ... [:timeout-sec N])`
+takes one turn and returns its typed result, like an ordinary call. Turns on
+one agent run in source order. Aliases, record fields, branch selection and
+same-run `defproc` arguments and returns carry the same agent, never a copy.
+
+Refused at compile time:
+
+| Code | When |
+| --- | --- |
+| `agent_target_dsl_unsupported` | `agent` in a module below target 2.38 |
+| `agent_provider_invalid` | The first operand is not a compiler-known provider extern |
+| `agent_keyword_invalid` | A keyword other than `:model` or `:effort`, such as `:timeout-sec`, on `agent` |
+| `agent_model_type_invalid`, `agent_effort_type_invalid` | `:model` or `:effort` is not a `String` |
+| `agent_policy_operand_not_inline_lowerable` | `:model` or `:effort` is a `String` expression the compiler cannot inline, such as an `if` |
+| `frontend_parse_error` | A malformed `agent` form: an odd key/value list, an entry that is not a keyword, a duplicated keyword, or a keyword where the provider belongs |
+| `agent_turn_policy_override_forbidden` | `:model` or `:effort` on a turn; change the constructor instead |
+| `agent_turn_option_unsupported` | Context capture, `:session-artifact`, phased delivery or another option outside the bounded turn |
+| `agent_transport_forbidden` | An `Agent` in provider or command data: `:inputs`, a prompt `:value` fill, `:argv` |
+| `workflow_boundary_type_invalid`, `workflow_return_type_invalid` | An `Agent`, or a record or union carrying one, in a `defworkflow` parameter or return, a `call` argument, or a `run-ref` input or result |
+| `provider_result_return_type_invalid`, `command_result_return_type_invalid` | A provider or command result type that carries an `Agent` |
+| `loop_state_runtime_transport_forbidden` | An `Agent` in `loop/recur` state |
+| `parallel_agent_boundary` | An `Agent` entering or leaving a parallel worker, or a worker reaching an allocation or turn through a helper, child workflow, macro or `ProcRef` |
+| `let_proc_capture_agent_forbidden` | A `let-proc` or `bind-proc` capturing an `Agent` |
+| `pure_expr_operand_type_mismatch` | Equality or printing of an `Agent` |
+| `agent_origin_mismatch` | Closed-program check: a turn's provider origins omit a provider its `Agent` operand can reach, as in a hand-edited closed program |
+
+`workflows/examples/design_review_execute_agents.orc` is the worked example:
+the four-turn [`design_review_execute.orc`](../workflows/examples/design_review_execute.orc)
+with a designer agent on Claude and a reviewer agent on Codex. The
+[state spec](../specs/state.md) will own the allocation and turn memo
+records when the runtime lands. Agent sessions supersede the proposed
+`prompt-queue` form, which is not implemented.
 
 ### Durable Host Input
 
