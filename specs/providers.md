@@ -356,6 +356,16 @@ schema notation, not authored workflow files.
     bypass flags are not isolation.
   - The provider environment is a per-attempt overlay, not a copy of the
     controller environment, with telemetry and non-model traffic disabled.
+    The capability-bearing overlay/script is ephemeral and injected only after
+    retained configuration/prompt inputs have been constructed and the binding
+    acknowledged. Never persist the prepared request, capability/hash, injected
+    env/argv or private channel transcript as configuration/control/evidence.
+    Runtime diagnostics use closed categories before persistence, including
+    errors triggered by arbitrary guest names/targets. Guest content can retain
+    literal or encoded copies only as inert data after revocation, under
+    [Security](security.md#confined-capability-retention-and-transport-teardown)
+    and ordinary IO; this is no general secret-removal promise or relaxation for
+    upstream bearers, authfiles, permanent credentials or native RPC.
     `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` takes the guest spelling of
     [IO](io.md#proposed-run-ref-confined-child-io-target-238). Each provider
     timeout is clamped at dispatch to the remaining child wall budget.
@@ -372,8 +382,12 @@ schema notation, not authored workflow files.
     qualify Claude or an API-key route by analogy.
   - The private native auth owner persists across requests of one provider leaf.
     It is closed and reaped, with its gateway, before post-leaf quiescence,
-    result import or checkpoint. A later leaf or recovered owner revalidates the
-    visit's original account/origin/routing binding and consumes a new durable
+    result import, checkpoint or publication of guest output. Every public
+    caller must irreversibly revoke the capability, close/reap owned transport,
+    prove quiescence and verify private-script retirement before those boundaries
+    or successful leaf return; no active guest-output tee may persist it early.
+    A teardown failure blocks publication. A later leaf or recovered owner
+    revalidates the visit's original account/origin/routing binding and consumes a new durable
     request reservation before native startup. Startup and normal native refresh
     consume the existing child allowance. No owner is created per request.
     The gateway and owner execute in the existing `host` containment slot;
@@ -385,6 +399,10 @@ schema notation, not authored workflow files.
     recovery or K4. The leaf's single BOOTTIME deadline includes these waits,
     startup and native preflight. Independent cancellation remains active while
     the lifecycle waits for persistence/ack; a late ack cannot revive the leaf.
+    A revoked private script may remain pending validated retirement during a
+    blocked ACK or controller loss; recovery retires it before further effects.
+    A capability copied from retained guest data never authorizes this leaf or
+    supplies its new grant; recovery requires a fresh capability/incarnation.
   - Increment A: until provider transport qualifies (design gate F4), a
     provider dispatch in a confined child refuses with
     `run_ref_provider_transport_unavailable` before dispatch.

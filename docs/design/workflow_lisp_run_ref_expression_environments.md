@@ -291,7 +291,7 @@ Confinement also applies when the trusted host reads candidate-controlled files 
 
 Required positive evidence covers unprivileged host launch through the existing fixed `bwrap` authority; private user/PID/mount/IPC/UTS/cgroup/network namespaces; all capabilities dropped; no privilege gain; sealed read-only imported rootfs; bounded temporary mounts with `/dev` and `/run` read-only; no inherited host descriptors beyond `/dev/null` and the two spawner sockets in any in-namespace holder process (pid 1, spawner); a positive mount allowlist; `memory.max`/`pids.max`/`cpu.max` enforced on the scope as unit properties; workspace quota enforced; the spawner's channels unreachable from leaves; leaves in their own sessions; spawner attributes (F3b-1) unchanged at every post-leaf quiescence; a fresh empty session keyring, key syscalls refused and `/proc/keys` masked in every leaf (F3b-2); whole-slot quiescence before every host read; and no committed effect lost by a holder death. Host `/`, home, parent/peer workspaces, cloud credentials, SSH agents, engine sockets and orchestration state are absent. Reuse `DurableLaunchReleaseGate` for the durable release fact, `CgroupV2ContainmentRoot`/`Slot` for containment and quiescence, the result broker for transfer and `isolation_network_preflight.py` for the denied-endpoint inventory.
 
-Tool-enabled provider processes run inside the same confinement as commands. Their child shells, filesystem tools, plugins and subprocesses cannot leave it. Provider CLI flags that bypass internal approvals do not establish outer isolation. A normal authenticated host SDK process is not a permitted alternative. For `:none`, commands and providers get no network. For `:model-only`, the network namespace remains unshared and only the gateway socket enters the sandbox. An image-pinned relay runs inside each provider leaf and dies with its quiescence. The host gateway admits only the selected provider/model API operations toward a fixed configured upstream, with an attempt-bound expiring capability, request and response byte limits, a request ceiling and the remaining durable child wall budget. Expiry, revocation, cancellation, wall exhaustion or per-request byte excess cancels every pending local operation and stream. A transport is refused when installation policy requires a token or cost ceiling that its endpoint cannot enforce with qualified evidence; bytes and disconnected streams do not establish such a ceiling. Missing or incomplete usage/cost remains UNKNOWN. No arbitrary URL, CONNECT, redirect authority, host tool call, filesystem API or credential read is provided to the guest. The capability is excluded from durable artifacts and revoked when its attempt stops; its leaf script is removed with the leaf.
+Tool-enabled provider processes run inside the same confinement as commands. Their child shells, filesystem tools, plugins and subprocesses cannot leave it. Provider CLI flags that bypass internal approvals do not establish outer isolation. A normal authenticated host SDK process is not a permitted alternative. For `:none`, commands and providers get no network. For `:model-only`, the network namespace remains unshared and only the gateway socket enters the sandbox. An image-pinned relay runs inside each provider leaf and dies with its quiescence. The host gateway admits only the selected provider/model API operations toward a fixed configured upstream, with an attempt-bound expiring capability, request and response byte limits, a request ceiling and the remaining durable child wall budget. Expiry, revocation, cancellation, wall exhaustion or per-request byte excess cancels every pending local operation and stream. A transport is refused when installation policy requires a token or cost ceiling that its endpoint cannot enforce with qualified evidence; bytes and disconnected streams do not establish such a ceiling. Missing or incomplete usage/cost remains UNKNOWN. No arbitrary URL, CONNECT, redirect authority, host tool call, filesystem API or credential read is provided to the guest. The issued capability is excluded from runtime-authored durable transport/control records and their projections, and irreversibly revoked at attempt stop and before result import or workspace checkpoint. Guest-authored content may reproduce or encode it; the profile does not remove that content or promise its absence. Retained copies are inert data and never restore authority. The private leaf script is retired after transport quiescence and before import/checkpoint/publication or successful leaf return, under the [Security retention and teardown rule](../../specs/security.md#confined-capability-retention-and-transport-teardown).
 
 **D7, inference gateway prerequisites.** Confined providers require a
 per-attempt clean environment/config overlay, profile-specific templates
@@ -321,6 +321,41 @@ a demonstrated token/cost ceiling cannot serve a policy that requires one.
 **Increment A remains commands with `:network :none`; provider transport
 refuses with `run_ref_provider_transport_unavailable` until its F4 and
 production integration gates qualify it.**
+
+**Explicit capability-retention amendment (2026-10-15).** The universal
+absence promise is replaced by the [Security contract](../../specs/security.md#confined-capability-retention-and-transport-teardown):
+the runtime excludes its issued token/hash from durable transport/control,
+configuration, ledger/binding, admission and diagnostic records and their
+projections. Construct persisted configuration/prompt inputs before injecting
+the capability into the ephemeral overlay/script after binding ACK; do not
+serialize the prepared request, env/argv or private channel transcript. Copies
+originating in guest stdout/stderr, typed results, workspace, permitted names
+or targets may survive literally or encoded under ordinary IO, retention and
+lineage rules after irreversible revocation, including derived manifests,
+snapshots, result memo, exports and later inputs. Existing limits/truncation
+still apply. These bytes never create grants, binding or permissions, including
+on recovery or another leaf. No production scanner, special token rejection or
+sanitizer is selected. Diagnostics are not a guest-content exception: arbitrary
+names/targets must be reduced to closed categories before error/control
+persistence, rather than copied into details or filtered by token matching.
+Authfiles, upstream bearers, permanent credentials and native auth RPC retain
+their separate prohibitions. The accepted decision/review are preserved as
+historical SDD evidence; the linked maintained contract owns future behavior.
+
+The leaf script is a private transport temporary. Revoke, close channels,
+terminate/reap owned work, prove quiescence and verify script absence before
+import, checkpoint, publication or successful leaf return. A failed close or
+retirement blocks those boundaries. During a blocked persistence ACK or after
+controller loss a revoked script may remain inert pending validated retirement;
+it is not retained evidence, cleanup success or reusable authority. The
+observer performs no filesystem work. The lifecycle, or recovery after validated
+scope kill/quiescence, retires only its recognized private tree under Security's
+root/parent/mount/owner/shape checks, preserving unexpected objects and detected
+replacements and blocking dependent continuation. Readonly recovery never
+mutates; neither scope emptiness nor socket unlink proves script absence.
+Recovery/new leaves use a new reservation and capability and never adopt the
+old script or retained token. This records the script-lifetime disposition
+without using its historical universal-absence wording as current authority.
 
 The private native auth owner persists across requests of one provider leaf.
 It is closed and reaped, with its gateway, before post-leaf quiescence,

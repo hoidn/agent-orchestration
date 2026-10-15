@@ -1247,9 +1247,23 @@ The two facts are:
   digest of `(auth_mode=chatgpt, chatgptAccountId, backendOrigin,
   accountRoutingOverride)`, bound to visit and policy, from the qualified native
   acquisition with both admitted account reads. No email, bearer, bearer hash,
-  raw account tuple, authfile, capability or complete auth RPC is retained or
-  exposed in projections.
+  raw account tuple, authfile, capability, capability hash or complete auth RPC
+  is retained in these runtime-authored control/auth facts or their projections.
   The digest is not independent proof of auth or a promise of anonymity.
+
+The [capability retention and teardown rule](security.md#confined-capability-retention-and-transport-teardown)
+explicitly narrows the former universal exclusion: guest-authored literal or
+encoded capability copies in ordinary result/workspace content, permitted names
+or targets may be retained after irreversible revocation, subject to existing
+IO, evidence and retention bounds. This includes manifests, snapshots, result
+memo and later inputs derived from that content; it does not permit the token
+in runtime control/configuration/ledger/admission/diagnostic fields. Arbitrary
+guest names/targets must become closed error categories before persistence,
+not be interpolated into durable error details. No retained value can create or
+reactivate a grant, binding or permit. Import, checkpoint and publication wait
+for revocation, channel closure, reap, quiescence and verified script retirement;
+failed teardown blocks them. Recovery validates and retires recognized inert
+script residue before further effects, never adopting its bytes as authority.
 
 Every subsequent transaction requires its own exact durable reservation ack
 before acquiring native auth again; every acquisition and replacement owner
@@ -1304,9 +1318,11 @@ authority under the existing evidence allowance and parent retention lifetime.
 They remain verifiable after clone/baseline/shared-image removal; missing,
 tampered or over-budget evidence blocks settlement/cleanup. Terminal replay
 uses retained evidence without native login, current policy, new auth or new
-debits. Transport temporaries are cleaned only after quiescence; native real
-credential storage is never part of clone/transport cleanup. Capacity counts
-are not provider usage: incomplete usage and unsupported cost remain UNKNOWN,
+debits. Transport temporaries are cleaned only after quiescence under the
+[validated retirement rule](security.md#confined-capability-retention-and-transport-teardown);
+a revoked script pending ACK or recovery is not completed cleanup or retained
+evidence. Native real credential storage is never part of clone/transport
+cleanup. Capacity counts are not provider usage: incomplete usage and unsupported cost remain UNKNOWN,
 with no token, economic, remote-generation or native-auth traffic guarantee.
 
 ### Confined wall-budget recovery

@@ -215,7 +215,10 @@ Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream l
   per-leaf persistent native auth owner and serialized initial-binding protocol of
   D7. Test invalid/missing/error RPCs, identity/origin/routing mismatch,
   native refresh/coexistence, owner replacement, startup auxiliary isolation
-  and secret-free evidence; no authfile/token parser, host coding or guest RPC.
+  and evidence free of upstream credentials/native RPC and runtime-authored
+  capability metadata under the explicit amendment below; no authfile/token
+  parser, host coding or guest RPC. Guest copies are tested as retained inert
+  data, not claimed absent from all evidence.
 - [ ] Extend the existing parent ledger/lifecycle with acknowledged request
   reservations and one nonsecret visit/policy-bound account/origin/routing
   binding. Preserve wall reducers, work stages, exact serial/parallel ack and
@@ -256,14 +259,49 @@ Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream l
 - [ ] Test fixed route/model, scoped expiring capability, bounded headers,
   bodies and streams, request ceilings, total deadlines and cancellation at
   every blocking boundary, direct first-401 refusal, zero partial replay,
-  hosted/unknown-tool rejection and credential redaction. Remove any local
-  default presented as an unproven generation cap; unsupported mandatory
+  hosted/unknown-tool rejection and upstream-credential exclusion/redaction
+  in runtime-authored diagnostics/evidence. This does not sanitize guest copies
+  of the issued leaf capability or replace its dataflow/teardown tests. Remove
+  any local default presented as an unproven generation cap; unsupported mandatory
   token/cost ceilings refuse and incomplete usage/cost stays UNKNOWN.
 - [ ] Bind `/run/gateway.sock` only for qualified `model-only`; use clean
   per-attempt overlays and image-pinned CLI/relay templates. Preserve
   `:none` and unsupported-transport refusal. Permanent credentials and native
   auth channels stay host-side. Prove revocation and cleanup on leaf/holder/
   controller loss and durable budget continuity across recovery.
+- [ ] Audit all runtime-authored metadata/configuration/ledger/admission/error
+  producers and their projections: no issued capability/hash, injected
+  env/argv/request or channel transcript may reach persistence, including failed
+  result import/checkpoint. Construct retained inputs before ephemeral injection.
+  Use closed diagnostic categories for arbitrary guest names/targets before
+  persistence, not token matching. Test names/targets containing literal or
+  encoded capability through refusal/error paths; retain independent upstream
+  credential/RPC canaries. This is a required implementation/test obligation,
+  not a claim that the current partial runtime already satisfies it.
+- [ ] A synthetic guest deliberately copies its capability literally to stdout,
+  typed result and workspace, and encoded/split into content and permitted
+  names/targets. Observe irreversible revocation, channel closure, reap,
+  quiescence and verified script retirement before import/checkpoint/publication;
+  preserve exact admitted guest bytes under ordinary bounds and truncation.
+  Inject close/retirement failure and prove no result publication, successful
+  checkpoint or successful leaf return. Keep ACK-held expiry/cancel and
+  controller-loss witnesses: revoked script residue is explicitly pending,
+  late ACK grants nothing, validated recovery retires scripts before new effects,
+  and unexpected roots/shape/links/mounts/replacements preserve and block.
+- [ ] After teardown and recovery, present a capability copied from retained
+  result/workspace to a new leaf: rejection with no extra reservation, native
+  acquisition or POST. Trace that no retained result, snapshot, memo, manifest,
+  input or old script feeds grant/binding construction; continuation requires
+  a fresh reservation and capability of another incarnation.
+- [ ] Scan complete test roots by phase without excluding scripts, control roots,
+  results, workspace or evidence. Classify each occurrence by demonstrated
+  origin/dataflow: active private overlay, revoked script pending retirement,
+  forbidden runtime control/diagnostic field, or deliberate inert guest copy.
+  An expected guest copy does not justify any other hit. Ordinary scenarios
+  still require zero unexpected hits; the adversarial fixture proves the
+  absence limit. Reports publish counts/booleans and provenance, never token
+  bytes. Scanning is a test oracle, not a production content filter or proof
+  of revocation; preserve the independent upstream credential canaries.
 - [ ] Retain the bounded native/synthetic/live feasibility evidence with
   its limits. Then qualify the integrated public provider path after Task 9:
   collect/run the gateway tests, provider delivery/lifecycle suites and the
@@ -277,6 +315,28 @@ Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream l
 integrated confined public route with model-only traffic, native host-only
 authentication, enforced supported budgets and honest usage/cost evidence.
 Other transports continue to refuse until separately qualified.
+
+**Explicit normative amendment (2026-10-15):** Task 10 adopts
+[Security's capability retention and transport teardown](../../specs/security.md#confined-capability-retention-and-transport-teardown)
+and [D7](../design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract).
+This replaces the former universal durable-artifact absence promise for the
+capability deliberately given to the guest; it is not a claim that the old
+promise was already met. Runtime control/configuration/ledger/diagnostics and
+projections exclude the issued token, while guest-originated literal/encoded
+copies may remain inert after verified revocation/teardown under ordinary IO
+and retention. No production scanner/reject/sanitizer is selected. Upstream
+credentials/authfiles/native RPC prohibitions remain. The accepted SDD decision
+`task-10-capability-retention-decision.md` (SHA-256
+`54d3e93e71551fb4c9ef6a3494bc2b1d50c8f83efb2a696303160ac09a954b61`)
+and independent review `task-10-capability-retention-review.md` (SHA-256
+`1da6941d43d6a0baf7f360250835bc2bc23d6e57a3b5eb82466145fec9bb405d`)
+are historical evidence under `.superpowers/sdd/2026-10-14-run-ref-expression-environments-plan/`;
+the maintained linked authorities own the rule. The script-lifetime decision
+`1520b2a9094098df9a007facfbc2f6827e0c54f2ccb5207f138d974b6968960f`
+retains its revocation/retirement and recovery obligations; its universal
+absence wording is superseded by this explicit origin/phase scope. All new
+oracles remain pending Task 10 evidence; no status, task order, target/schema,
+native pin, quota, catalog or public admission changes here.
 
 Implementation policy note: 32 per-visit permits is a finite installation
 proposal for implementation/review, not authored DSL or an economic guarantee.

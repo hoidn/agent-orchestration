@@ -583,7 +583,22 @@ above is unchanged. Authority:
 - Leaf IO: cwd `/workspace`, stdin from the host-written leaf file,
   stdout/stderr into `/result/<leaf>/`, bounded. Exit status and output are
   untrusted guest data from the candidate's trust domain; provider stderr is
-  bounded evidence, not the typed result.
+  bounded evidence, not the typed result. Before importing/publishing these
+  bytes or checkpointing workspace content, require irreversible capability
+  revocation, closed/reaped transport owners, quiescence and verified private
+  script retirement under [Security](security.md#confined-capability-retention-and-transport-teardown).
+  A failed teardown blocks those boundaries; active guest output is not teed to
+  durable host evidence. Structural, byte-limit, type and lineage validation
+  does not prove absence of secrets. Guest-authored literal, split or encoded
+  copies of its issued capability, including permitted names/targets, remain
+  ordinary untrusted data after revocation, with existing bounds/truncation and
+  exact admitted bytes. This extends to derived snapshots, manifests, result
+  memo, exports and later inputs; none restores authority. No production token
+  scanner, coincidence rejection or sanitizer is selected. Runtime-authored
+  control/configuration/diagnostic fields remain subject to token exclusion;
+  arbitrary names/targets cannot be copied into persisted error details. The
+  separate prohibitions on authfiles, upstream bearers, permanent credentials
+  and native auth RPC remain intact.
 - Typed path inputs are copied into a child-owned location that still
   satisfies each input descriptor; unsafe links refuse, and the copy is
   revalidated before launch. They are never host mounts.

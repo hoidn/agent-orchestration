@@ -179,13 +179,56 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     generation/cost limits, and incomplete usage/cost is UNKNOWN. No arbitrary
     URL, CONNECT, redirects, host tools, filesystem API or credential reads are
     exposed. The image-pinned relay runs in the provider leaf and dies with it;
-    capabilities are revoked at attempt stop and excluded from durable artifacts.
+    issued capabilities are excluded from runtime-authored durable transport/
+    control records and their projections, and irreversibly revoked at attempt
+    stop and before result import or workspace checkpoint. Guest-authored copies may remain as
+    inert data under the [retention and teardown rule](#confined-capability-retention-and-transport-teardown).
     Qualified Codex managed ChatGPT login may be reused only by a private
     per-leaf pinned native auth owner, with serialized acquisition, initial
     account/origin/routing binding and strict refusal on mismatch or error as
     specified by D7. Native refresh stays native. Authfiles, permanent upstream
     credentials and owner RPC channels never enter the guest; the host owner
     cannot execute candidate coding or tools. Unsupported transports refuse.
+  - <a id="confined-capability-retention-and-transport-teardown"></a>Confined capability retention and transport teardown:
+    this explicitly narrows the former universal durable-artifact exclusion for
+    the capability deliberately issued to a guest. Never persist that token or
+    its hash in runtime-authored transport/control, policy/configuration,
+    ledger/binding, admission or diagnostic fields, env/argv/request dumps, or
+    their projections. Construct retained configuration and prompt inputs before
+    injecting the capability into the ephemeral launch overlay/script; never
+    serialize that prepared request or transcribe its private channels.
+    Guest-authored stdout/stderr, typed results, workspace files, permitted names
+    and symlink targets may reproduce, split or encode the capability. After
+    irreversible revocation they follow ordinary IO, checkpoint, evidence,
+    snapshot, memo, export and retention rules, including existing bounds and
+    truncation. Their copies and derived inputs remain untrusted guest data,
+    never permission, binding or a grant. No production token scanner, special
+    coincidence rejection or content sanitizer is selected; there is no promise
+    of absence of this information in guest content. Arbitrary guest strings,
+    including names/targets equal to or encoding the token, must not reach
+    persisted error/control metadata: use closed diagnostic categories before
+    persistence, not token matching or replacement. This exception does not
+    admit authfiles, upstream bearers, permanent credentials or native auth RPC
+    into the guest or runtime-authored evidence/diagnostics.
+    Before import, checkpoint or publication of guest content, irreversibly
+    revoke the grant, close channels, terminate/reap owned work, prove quiescence
+    and verify removal of the private leaf script. A close, quiescence or script
+    retirement failure blocks those boundaries and successful leaf return.
+    During a blocked ACK or after controller loss, a revoked script may remain
+    as inert private transport residue pending validated retirement; it is never
+    retained evidence, exported content or reusable authority. Scope emptiness
+    and script absence are distinct oracles. The cancellation observer performs
+    no filesystem cleanup. The lifecycle retires its validated script tree after
+    quiescence; recovery first validates inventories and empties exact scopes,
+    then validates and retires only the recognized private tree before further
+    effects. Validate roots/parents, ownership, modes, mount boundaries and the
+    closed directory/leaf-script shape without following links or interpreting
+    script bytes. Preserve detected replacements or unexpected objects and
+    block dependent continuation; readonly recovery never mutates. Namespace
+    authority assumes the runtime is the sole authorized script mutator, not
+    protection against an arbitrary same-uid host replacement after identity
+    loss. A recovered token never restores authority; another leaf/incarnation
+    requires a fresh reservation and capability.
   - During a provider leaf, its private gateway and native auth owner execute
     in the existing host containment slot, under the scope's resource limits.
     No checkpoint/helper runs concurrently with them. Revoke and close their

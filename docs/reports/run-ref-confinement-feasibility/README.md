@@ -1195,6 +1195,24 @@ has SHA-256 `666ec70360478a783e0e17bf9397b2ae0764238f0b505f31ff6c8c8fac829bad`.
 Its observation addendum distinguishes observed worker exits 0/3 from the outer
 runner exit, which was inferred rather than captured and remains UNKNOWN.
 
+The subsequent bounded backfill-reader diagnostic completed its single authorized
+read attempt with category `refused`, an observed OS exit 0 and outer duration
+105,025,261 ns (105.025261 ms), without native startup or inference. Backfill
+state and the causal startup diagnosis remain `UNKNOWN`; this result does not
+identify which input guard refused or prove physical sidecar absence. No query,
+authentication or inference retry followed. Qualification remains pending.
+Its reviewed preparation includes 17 synthetic reader cases, seven OS-observed
+causal controls and three simulated admission checks. The single five-second
+deadline bounds the private operation/JSONL and its exit/cut; it does not bound
+the complete outer cleanup/projection duration. JSONL plus execution result
+are at most 1 KiB together, each row at most 256 bytes; post-cleanup output is
+bounded in bytes. Completion of the refused diagnostic is not success of SQLite
+or authentication.
+The original failed live attempt and initialize-pair history above retain their
+meaning. Local SDD `task-10-native-backfill-reader-live-report.md` has SHA-256
+`17c0f8c980517e7aaf9afa86fbf04d8dd880f9375dc89e94cd5112d713458a58`;
+its `root-execution-observation.json` has SHA-256
+`099ab11d5110dece91b973ce5bb4f5e39650e3122ad66cc6448122ef966eb723`.
 
 ## Task 10: internal request authority (2026-10-15)
 
