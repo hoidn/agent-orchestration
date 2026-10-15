@@ -51,6 +51,7 @@ from .delta import (
     validate_workspace_delta,
 )
 from .ledger import (
+    CONFINED_LIFECYCLE_EVENTS,
     RunRefAttemptBindings,
     RunRefAttemptRecord,
     RunRefLedgerError,
@@ -197,7 +198,7 @@ class RunRefLifecycleEvent:
     ) -> RunRefLifecycleEvent:
         if type(sequence) is not int or sequence < 1:
             raise ValueError("run-ref lifecycle sequence must be positive")
-        side_event = event_kind in {"budget_open", "budget_close", "failed_terminal", "export_prepared"}
+        side_event = event_kind in CONFINED_LIFECYCLE_EVENTS
         expected_kind = event_kind if side_event else (
             "allocation"
             if stage == "allocated"
@@ -2410,7 +2411,7 @@ def _validate_lifecycle_acknowledgement_authority(
     ):
         raise ValueError("run-ref lifecycle acknowledgement authority disagrees")
     payload = event.payload
-    if event.event_kind in {"budget_open", "budget_close", "failed_terminal", "export_prepared"}:
+    if event.event_kind in CONFINED_LIFECYCLE_EVENTS:
         if row.event_kind != event.event_kind or row.event != payload["event"]:
             raise ValueError("run-ref confined event acknowledgement disagrees")
         return
@@ -2916,15 +2917,22 @@ def persist_run_ref_lifecycle_event(
     payload = event.payload
     ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
     try:
-        if event.event_kind in {"budget_open", "budget_close", "failed_terminal", "export_prepared"}:
+        if event.event_kind in CONFINED_LIFECYCLE_EVENTS:
             from .ledger import append_confined_event
             current = load_attempt_ledger(ledger_path, run_files=request.run_files)
             head = next((row for row in reversed(current.rows) if row.visit == event.visit
                          and row.attempt_ordinal == event.attempt_ordinal), None)
             if head is None or head.stage != event.stage:
                 raise RunRefLedgerError("confined event work stage disagrees")
+            before_append = None
+            if event.event_kind in {'provider_reservation', 'provider_binding'}:
+                from .confined_evidence import evidence_usage
+                from .confined_lifecycle import _layout
+                before_append = lambda size: evidence_usage(_layout(request, event.attempt_ordinal),
+                    ledger_path=ledger_path, visit=request.visit, extra_bytes=size)
             row = append_confined_event(ledger_path, visit=request.visit, attempt_ordinal=event.attempt_ordinal,
-                event_kind=event.event_kind, event=payload["event"], run_files=request.run_files)
+                event_kind=event.event_kind, event=payload["event"], run_files=request.run_files,
+                before_append=before_append)
         elif event.event_kind == "allocation":
             opening = payload.get("confined_opening")
             if _is_confined(request.step_config):

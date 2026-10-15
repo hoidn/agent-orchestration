@@ -174,9 +174,14 @@ def _evidence(request, ordinal: int, bindings: RunRefAttemptBindings, layout, *,
               envelope_digest: str, final_digest: str) -> dict[str, Any]:
     attempt_root = layout.workspace.parent
     record = bindings.record
+    from .confined_provider import provider_allowance
+    from .ledger import load_attempt_ledger
+    provider = provider_allowance(load_attempt_ledger(request.ledger_path, run_files=request.run_files).rows,
+                                  request.visit)
     return {
         "schema_version": EVIDENCE_SCHEMA, "visit": request.visit.record, "attempt_ordinal": ordinal,
         "mode": "confined",
+        **({'provider_authority_digest': canonical_sha256(provider)} if provider is not None else {}),
         **{name: record[name] for name in record if name not in ("evidence_manifest_digest", "disposition_digest")},
         "result_envelope_digest": envelope_digest, "final_workspace_digest": final_digest,
         "paths": {"workspace": layout.workspace.as_posix(), "control_root": layout.child_root.as_posix(),
@@ -260,6 +265,7 @@ def prepare_confined_recovery_allocation(request, effects):
 def drive_confined_lifecycle(request, *, allocation, emit: Callable[..., Any], effects):
     """The same E1 driver reserves accounting before admission and retains committed child progress."""
     from .confined_budget import VisitBudget, boot_id, boottime_ns
+    from .confined_provider import VisitProviderAllowance, provider_allowance
     from .ledger import confined_budget, load_attempt_ledger
     ordinal, bindings = allocation.attempt_ordinal, allocation.bindings
     stage = 'allocated' if allocation.retained is None else allocation.retained.stage
@@ -340,6 +346,7 @@ def drive_confined_lifecycle(request, *, allocation, emit: Callable[..., Any], e
             effects.crash_hook('launch')
         session = ConfinedChildSession(admission, provisioned, budget_context=budget,
             evidence_ledger=request.ledger_path, evidence_visit=request.visit,
+            provider_allowance=VisitProviderAllowance(provider_allowance(rows, request.visit), request.visit, ordinal, side),
             failure_callback=lambda authority, exc: record_failure(request, provisioned, authority, exc, budget, side))
         status, value = 'completed', None
         try:

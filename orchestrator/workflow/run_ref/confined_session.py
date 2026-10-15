@@ -103,12 +103,14 @@ class ConfinedChildSession:
 
     def __init__(self, admission: Any, provisioned: Any, *, holder_factory: Callable[..., Any] | None = None,
                  clock: Callable[[], float] | None = None, started_at: float | None = None,
-                 budget_context=None, failure_callback=None, evidence_ledger=None, evidence_visit=None) -> None:
+                 budget_context=None, failure_callback=None, evidence_ledger=None, evidence_visit=None,
+                 provider_allowance=None) -> None:
         from orchestrator.workflow.workspace_files import WorkspaceFiles
         from .evaluated_child import SNAPSHOTS_DIRNAME
 
         self.image = admission.image
         self.evidence_ledger, self.evidence_visit = evidence_ledger, evidence_visit
+        self.provider_allowance = provider_allowance
         self.limits = dict(admission.config.policy.limits)
         self.budget = float(self.limits["wall-seconds"])
         self.layout = provisioned.layout

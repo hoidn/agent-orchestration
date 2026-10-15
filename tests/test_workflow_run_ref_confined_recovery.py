@@ -781,6 +781,85 @@ from tests.test_workflow_run_ref_confined_child import world  # noqa: E402,F401
 from tests.test_workflow_run_ref_confinement import _removable_tmp  # noqa: E402,F401
 
 
+@pytest.mark.parametrize('parallel', [False, True])
+def test_provider_authority_internal_parent_acks_and_terminal_replay(world, monkeypatch, parallel):
+    from tests.test_workflow_run_ref_confined_child import _run, _cli
+    from tests.test_run_ref_provider_allowance import _policy
+    from orchestrator.workflow.run_ref import confined_lifecycle, confined_provider, runtime
+    from orchestrator.workflow.evaluated import run_ref as adapter
+    original = confined_lifecycle.execute_confined_child
+    calls, kinds = [], []
+    if parallel:
+        def prepare(request):
+            allocation, started = runtime.prepare_run_ref_lifecycle_allocation(request)
+            previous, sequence = None, 0
+            def acknowledge(event):
+                nonlocal previous, sequence
+                sequence += 1
+                previous = adapter.persist_parallel_run_ref_event((request, allocation, started), event, sequence, previous)
+                kinds.append(event.event_kind)
+                return previous
+            return runtime.drive_run_ref_lifecycle(request, allocation=allocation, acknowledge=acknowledge,
+                started_monotonic_ns=started)
+        monkeypatch.setattr(adapter, 'prepare_run_ref_settlement', prepare)
+    def execute(*args, session, **kwargs):
+        calls.append('execute')
+        session.provider_allowance.reserve(_policy(), identity='internal-fixture-leaf', attempt=1)
+        session.provider_allowance.bind(account='fixture-account', origin='chatgpt', routing='managed')
+        return original(*args, session=session, **kwargs)
+    monkeypatch.setattr(confined_lifecycle, 'execute_confined_child', execute)
+    status, (authority, _memo) = _run(world)
+    assert status == 0
+    rows = ledger.load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl').rows
+    state = confined_provider.provider_allowance(rows, rows[0].visit)
+    assert state['consumed'] == 1 and state['binding_digest'] is not None
+    import json
+    evidence = json.loads(next(world['refs'].rglob('evidence-manifest.json')).read_bytes())
+    assert evidence['provider_authority_digest'] == canonical_sha256(state)
+    if parallel:
+        assert kinds.count('provider_reservation') == kinds.count('provider_binding') == 1
+    before = (authority.run_root / 'run-ref-attempts.jsonl').read_bytes()
+    monkeypatch.setattr(confined_provider.VisitProviderAllowance, 'reserve',
+        lambda *_args, **_kwargs: pytest.fail('terminal replay reserved provider capacity'))
+    assert _cli('resume', authority.run_root.name, '--run-ref-root', str(world['refs'])) == 0
+    assert calls == ['execute']
+    assert (authority.run_root / 'run-ref-attempts.jsonl').read_bytes() == before
+
+
+@pytest.mark.parametrize('kind', ['provider_reservation', 'provider_binding'])
+def test_provider_fact_evidence_allowance_refuses_before_append(world, monkeypatch, kind):
+    from tests.test_workflow_run_ref_confined_child import _run
+    from tests.test_run_ref_provider_allowance import _policy
+    from orchestrator.workflow.run_ref import confined_lifecycle, confined_evidence
+    from orchestrator.workflow.run_ref.runtime import RunRefRuntimeError
+    original_execute, original_usage = confined_lifecycle.execute_confined_child, confined_evidence.evidence_usage
+    checked, blocking = [], [False]
+    def usage(layout, **kwargs):
+        if blocking[0] and kwargs.get('extra_bytes', 0):
+            blocking[0] = False
+            checked.append(kwargs)
+            baseline = original_usage(layout, **{**kwargs, 'extra_bytes': 0})
+            return original_usage(layout, **kwargs, limit=baseline)
+        return original_usage(layout, **kwargs)
+    monkeypatch.setattr(confined_evidence, 'evidence_usage', usage)
+    def execute(*args, session, **kwargs):
+        path = session.evidence_ledger
+        if kind == 'provider_binding':
+            session.provider_allowance.reserve(_policy(), identity='internal-fixture-leaf', attempt=1)
+        before = path.read_bytes()
+        blocking[0] = True
+        with pytest.raises(RunRefRuntimeError, match='evidence_allowance'):
+            if kind == 'provider_binding':
+                session.provider_allowance.bind(account='fixture-account', origin='chatgpt', routing='managed')
+            else:
+                session.provider_allowance.reserve(_policy(), identity='internal-fixture-leaf', attempt=1)
+        assert path.read_bytes() == before
+        return original_execute(*args, session=session, **kwargs)
+    monkeypatch.setattr(confined_lifecycle, 'execute_confined_child', execute)
+    assert _run(world)[0] == 0
+    assert len(checked) == 1 and checked[0]['visit'] is not None
+
+
 @pytest.mark.parametrize('gap', ['first_commit', 'failed_row', 'child_terminal', 'pending'])
 def test_recovery_reuses_durable_child_evidence_without_repeating_commits(world, monkeypatch, gap):
     from tests.test_workflow_run_ref_confined_child import _run, _cli, FakeHolder, _child_memo

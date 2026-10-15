@@ -21,7 +21,9 @@ from .contracts import canonical_json_bytes, canonical_sha256
 RUN_REF_ATTEMPT_LEDGER_SCHEMA = "run_ref_attempt_ledger.v1"
 RUN_REF_CONFINED_LEDGER_SCHEMA = "run_ref_attempt_ledger.v2"
 CONFINED_SIDE_EVENTS = frozenset({'budget_open', 'budget_close', 'failed_terminal', 'export_prepared',
+                                  'provider_reservation', 'provider_binding',
                                   'cleanup_intent', 'cleanup_error', 'cleanup_complete'})
+CONFINED_LIFECYCLE_EVENTS = CONFINED_SIDE_EVENTS - {'cleanup_intent', 'cleanup_error', 'cleanup_complete'}
 _CLEANUP_EVENTS = frozenset({'cleanup_intent', 'cleanup_error', 'cleanup_complete'})
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -705,6 +707,8 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
 
     for visit in by_visit:
         confined_budget(rows, visit)
+        from .confined_provider import provider_allowance
+        provider_allowance(rows, visit)
 
 
 def _nonnegative_ns(value, field):
@@ -843,6 +847,9 @@ def confined_budget(rows, visit):
                         _fail('cleanup diagnostic unbounded')
                 else:
                     previous['complete'] = True
+        elif kind in {'provider_reservation', 'provider_binding'}:
+            if state['active'] is None or row.attempt_ordinal in failed:
+                _fail('provider event requires an active child budget')
         elif kind == "progress":
             if event:
                 _fail("work event carries unexpected evidence")
