@@ -4,7 +4,9 @@
 - **Design authority:** [Workflow Lisp Run-Ref Confined Child Environments](../../design/workflow_lisp_run_ref_expression_environments.md).
 - **Host:** reference workstation, Linux 7.0.0-38-generic x86_64. All commands run from the worktree root with `PYTHONPATH=<worktree>`.
 
-The Task 0/1 account prerequisite and F4/P2 results below are historical.
+The selected route uses the existing authenticated Codex login; no separate API
+key or API account is required. The Task 0/1 API-key account prerequisite and
+F4/P2 results below are historical and do not block that route.
 The [native-authentication follow-up](#task-10-native-authentication-follow-up-2026-10-15)
 records the current selected investigation without replacing those results or
 qualifying F4.
