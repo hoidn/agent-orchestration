@@ -90,6 +90,8 @@ def next_run_dir(arm_dir):
 def arm_inputs(task, arm, candidates, sets):
     fields = ARMS[arm][4]
     extra = dict(item.split("=", 1) for item in sets)
+    if arm == "review_once" and {"account", "replies"} & set(extra):
+        raise SystemExit("review_once's account and replies are frozen by the calibration criterion; do not --set them")
     values = {"task": (task / "task.txt").read_text(), "intent": (task / "intent.txt").read_text(),
               "repos": [str(c) for c in candidates], "repo": str(candidates[0]),
               "account": REVIEW_ONCE_ACCOUNT, "replies": REVIEW_ONCE_REPLIES, **extra}
@@ -222,7 +224,8 @@ def outcome_of(record, terminal, names):
     review_once's blockers, findings and whole review, from the terminal row."""
     out = {"outcome": terminal["outcome"], "failure": None, "selected": None, "variant": None}
     if terminal["outcome"] != "completed":
-        return out | {"failure": {"code": terminal.get("code"), "message": terminal.get("message")}}
+        failed = {"failure": {"code": terminal.get("code"), "message": terminal.get("message")}}
+        return out | failed | ({"blockers": None} if record["arm"] == "review_once" else {})
     value = terminal["value"]
     if record["arm"] in ("reviewed_change", "review_once"):
         out["variant"] = value["variant"]

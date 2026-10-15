@@ -16,10 +16,15 @@ from experiments.compare import prepare
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import prepare_closed_program_bundle
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
-    REPO, UPSTREAM, call, drive, edit, skip_without_sandbox, start, world,
+    REPO, UPSTREAM, call, drive, edit, skip_without_sandbox, start,
 )
+from tests.experiments.compare_harness_support import world as sandbox_world
 
-skip_without_sandbox()
+
+@pytest.fixture
+def world(sandbox_world):  # only the sandboxed tests need bubblewrap; the contract tests compile only
+    skip_without_sandbox()
+    return sandbox_world
 
 REPORT = "artifacts/review/r.md"
 APPROVE = {"variant": "APPROVE", "report": REPORT, "notes": []}
@@ -73,6 +78,17 @@ def test_inputs_name_the_candidate_the_intent_and_the_fixed_account(world):
         {"repo": record["candidates"][0], "intent": (world.task / "intent.txt").read_text(),
          "account": prepare.REVIEW_ONCE_ACCOUNT, "replies": prepare.REVIEW_ONCE_REPLIES}, record["candidates"][0])
 
+
+
+@pytest.mark.parametrize("field", ["account", "replies"])
+def test_run_refuses_overriding_the_frozen_review_inputs(world, field):
+    with pytest.raises(SystemExit, match="frozen by the calibration criterion"):
+        start(world, "review_once", sets=[f"{field}=other"])
+
+
+def test_a_failed_review_has_no_blocker_count(world):
+    _, collected = drive(world, "review_once", ["true"], None, outcome="failed")
+    assert (collected["outcome"], collected["blockers"]) == ("failed", None)
 
 def test_record_names_the_applied_patch_and_its_hash(world):
     patch = world.task / "anchors" / "upstream.diff"
