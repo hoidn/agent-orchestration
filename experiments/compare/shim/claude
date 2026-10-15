@@ -32,7 +32,9 @@ status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"
 shopt -s nullglob
 for repo in "$COMPARE_TREE"/cand-*; do
-  t=$(mktemp) && cp "$repo/.git/index" "$t" && GIT_INDEX_FILE=$t git -C "$repo" add -A -N . &&
+  # cp -p keeps the index mtime, so git still content-checks racily clean entries (same-size edits within the
+  # checkout's second would otherwise be read as unchanged)
+  t=$(mktemp) && cp -p "$repo/.git/index" "$t" && GIT_INDEX_FILE=$t git -C "$repo" add -A -N . &&
     GIT_INDEX_FILE=$t git -C "$repo" diff --binary --no-ext-diff --no-color --no-textconv \
       --src-prefix=a/ --dst-prefix=b/ "$COMPARE_BASE" > "$call/patch-${repo##*/}.diff"
   rm -f "$t"
