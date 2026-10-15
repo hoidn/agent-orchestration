@@ -1,0 +1,32 @@
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoint_restore.py b/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
+index af1d9f9..66b5acb 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
+@@ -1257,6 +1257,15 @@ def _proof_matches_current_selector_variant(
+     return current_variant == expected_variant
+ 
+ 
++def resolve_restore_source_node(
++    *,
++    executable_workflow: Any,
++    descriptor: Mapping[str, Any],
++) -> Any | None:
++    """Resolve a compiled descriptor's source node (first cut: never resolves)."""
++    return None
++
++
+ def select_restore_candidate(
+     *,
+     state_manager: Any,
+diff --git a/orchestrator/workflow_lisp/syntax.py b/orchestrator/workflow_lisp/syntax.py
+index 86ab5c0..ef0c23e 100644
+--- a/orchestrator/workflow_lisp/syntax.py
++++ b/orchestrator/workflow_lisp/syntax.py
+@@ -60,6 +60,7 @@ RICH_LOOP_VALUES_MIN_TARGET_DSL_VERSION = "2.29"
+ PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION = "2.30"
+ PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION = "2.31"
+ HUMAN_INPUT_MIN_TARGET_DSL_VERSION = "2.32"
++GENERIC_UNION_MIN_TARGET_DSL_VERSION = "2.33"  # first cut: not admitted yet
+ HUMAN_REPLY_TYPE_NAME = "HumanReply"
+ MAX_STATIC_LIVE_PROVIDER_PEERS = 8
+ 

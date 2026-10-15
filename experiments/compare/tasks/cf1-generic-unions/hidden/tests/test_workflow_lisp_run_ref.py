@@ -1,0 +1,5969 @@
+from copy import deepcopy
+from dataclasses import FrozenInstanceError, replace
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+from types import MappingProxyType, SimpleNamespace
+from typing import get_args
+
+import pytest
+
+from orchestrator._common.canonical import sha256_json
+from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.state import StateManager
+from orchestrator.workflow import core_ast as core_ast_module
+from orchestrator.workflow import executable_ir as executable_ir_module
+from orchestrator.workflow import lowering as workflow_lowering
+from orchestrator.workflow import runtime_plan as runtime_plan_module
+from orchestrator.workflow import semantic_ir as semantic_ir_module
+from orchestrator.workflow.elaboration import elaborate_surface_workflow
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.resume_planner import ResumeStateIntegrityError
+from orchestrator.workflow.run_ref.config import (
+    ArrayBinding,
+    LiteralBinding,
+    ObjectBinding,
+    ReferenceBinding,
+    RunRefBundleCapsuleBinding,
+    RunRefStaticConfig,
+)
+from orchestrator.workflow.run_ref.contracts import (
+    SetupCommand,
+    SetupPolicy,
+    VerifiedCompilerRuntimeIdentity,
+)
+from orchestrator.workflow.run_ref.runtime import (
+    ParentBundleOrphanPreimage,
+    RunRefRuntimeError,
+    RunRefRuntimeRequest,
+)
+from orchestrator.workflow.state_layout import (
+    GeneratedPathResumeScope,
+    GeneratedPathSemanticRole,
+    derive_entrypoint_managed_write_root_allocations,
+)
+from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow.surface_ast import (
+    SurfaceStep,
+    SurfaceStepCommonConfig,
+    SurfaceStepKind,
+    SurfaceWorkflow,
+    WorkflowProvenance,
+)
+from orchestrator.workflow.validation import (
+    WorkflowBoundaryValidationPolicy,
+    WorkflowMappingBuildRequest,
+    WorkflowMappingValidationOptions,
+    validate_workflow_mapping,
+)
+from orchestrator.workflow_lisp.build_manifest_io import _json_data
+from orchestrator.workflow_lisp.build import (
+    FrontendBuildRequest,
+    build_frontend_bundle,
+)
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.compiler_session import (
+    CompilerSession,
+    ElaborationSessionState,
+    LoweringSessionState,
+)
+from orchestrator.workflow_lisp.definitions import (
+    PathDef,
+    RecordDef,
+    RecordField,
+    UnionDef,
+    UnionVariant,
+)
+from orchestrator.workflow_lisp.expressions import (
+    DoneExpr,
+    RunRefBundleProgram,
+    RunRefExpr,
+    RunRefPathProgram,
+    RunRefSource,
+    ExprNode,
+    FunctionCallExpr,
+    IfExpr,
+    LetStarExpr,
+    LiveProviderBinding,
+    LiveProviderPeerBinding,
+    ListExpr,
+    ListMapEffectExpr,
+    LiteralExpr,
+    LoopRecurExpr,
+    MatchArm,
+    MatchExpr,
+    NameExpr,
+    PureOpExpr,
+    ProcedureCallExpr,
+    RecordExpr,
+    UnionVariantExpr,
+    WithLiveProviderPeersExpr,
+    WithLiveProvidersExpr,
+    elaborate_expression,
+    parse_run_ref_expression,
+)
+from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
+from orchestrator.workflow_lisp.form_registry import get_form_spec
+from orchestrator.workflow_lisp.lowering.run_ref import (
+    LowerableRunRef,
+    LowerableRunRefInput,
+    _lower_run_ref_operation,
+)
+from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
+from orchestrator.workflow_lisp.reader import read_sexpr_text
+from orchestrator.workflow_lisp.run_ref_result_contract import (
+    GeneratedRunRefResultContract,
+    RUN_REF_RESULT_CONTRACT_SCHEMA,
+    derive_run_ref_output_bundle_fields,
+    derive_run_ref_result_contract,
+)
+from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
+from orchestrator.workflow_lisp import source_map as source_map_module
+from orchestrator.workflow_lisp import build_artifacts as build_artifacts_module
+from orchestrator.workflow_lisp import lexical_checkpoints as lexical_checkpoints_module
+from orchestrator.workflow_lisp import (
+    lexical_checkpoint_effect_policies as checkpoint_policy_module,
+)
+from orchestrator.workflow_lisp import (
+    lexical_checkpoint_restore as checkpoint_restore_module,
+)
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    UnionTypeRef,
+)
+from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
+from orchestrator.workflow_lisp.typecheck_context import (
+    TypecheckSessionStateCollisionError,
+)
+from orchestrator.workflow_lisp.typecheck_run_ref import (
+    RUN_REF_FIXED_TYPE_NAMES,
+    compiler_run_ref_fixed_types,
+    metadata_for_run_ref_expr,
+    register_all_known_run_ref_types,
+    resolve_run_ref_site_metadata,
+)
+from orchestrator.workflow_lisp.wcc import (
+    WccCase,
+    WccHalt,
+    WccLet,
+    WccPerform,
+    WccRunRefPayload,
+    elaborate_typed_workflow_body,
+)
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+from orchestrator.workflow_lisp.wcc.elaborate import _substitute_wcc_payload
+from orchestrator.workflow_lisp.wcc import defunctionalize as wcc_defunctionalize
+from orchestrator.workflow_lisp.workflows import WorkflowCatalog, WorkflowSignature
+
+
+FORM_PATH = ("workflow-lisp", "run-ref-test")
+
+
+def _expression(source: str) -> SyntaxNode:
+    parsed = read_sexpr_text(source, source_path="run_ref_expression.orc")
+    assert len(parsed.items) == 1
+    datum = parsed.items[0]
+    return SyntaxNode(
+        datum=datum,
+        span=datum.span,
+        module_path="run_ref_expression.orc",
+        form_path=FORM_PATH,
+    )
+
+
+def _type_env(*extra_types) -> FrontendTypeEnvironment:
+    refs = {
+        name: PrimitiveTypeRef(name=name)
+        for name in (
+            "String", "Int", "Float", "Bool", "Value", "Json", "RunId"
+        )
+    }
+    refs.update({type_ref.name: type_ref for type_ref in extra_types})
+    return FrontendTypeEnvironment(
+        refs,
+        target_dsl_version="2.24",
+        nominal_descriptor_names_by_definition_id={
+            id(type_ref.definition): type_ref.name
+            for type_ref in extra_types
+            if isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
+        },
+    )
+
+
+def test_compiler_normalized_type_descriptor_is_public_behavior_identical() -> None:
+    from orchestrator.workflow_lisp import normalized_type_descriptor
+
+    type_env = _type_env()
+    type_ref = PrimitiveTypeRef("String")
+
+    assert hasattr(
+        pure_projection_lowering,
+        "compiler_normalized_type_descriptor",
+    )
+    assert pure_projection_lowering.compiler_normalized_type_descriptor(
+        type_ref,
+        type_env=type_env,
+    ) == pure_projection_lowering._type_descriptor(
+        type_ref,
+        type_env=type_env,
+    )
+    assert (
+        pure_projection_lowering.compiler_normalized_type_descriptor
+        is normalized_type_descriptor.compiler_normalized_type_descriptor
+    )
+    assert (
+        pure_projection_lowering.validate_compiler_normalized_type_descriptor
+        is normalized_type_descriptor.validate_compiler_normalized_type_descriptor
+    )
+
+
+def _catalog(expr: RunRefExpr, *, params=(), return_type=None, defaults=()):
+    signature = WorkflowSignature(
+        name="child",
+        params=tuple(params),
+        return_type_ref=return_type or PrimitiveTypeRef("String"),
+        span=expr.span,
+        form_path=("workflow-lisp", "defworkflow", "child"),
+        param_defaults={name: object() for name in defaults},
+    )
+    return WorkflowCatalog(
+        signatures_by_name={"child": signature},
+        definitions_by_name={},
+        imported_bundles_by_name={},
+    )
+
+
+def _mode_one_expr(*, inputs=(), source_path="run_ref_expression.orc") -> RunRefExpr:
+    parsed = read_sexpr_text(_mode_one_source(), source_path=source_path)
+    datum = parsed.items[0]
+    expr = parse_run_ref_expression(
+        SyntaxNode(
+            datum=datum,
+            span=datum.span,
+            module_path=source_path,
+            form_path=FORM_PATH,
+        ),
+        target_dsl_version="2.24",
+    )
+    return replace(expr, inputs=tuple(inputs))
+
+
+def _mode_one_source() -> str:
+    return " ".join(
+        (
+            "(run-ref",
+            ':source (:repo "file:///workspace"',
+            ':commit "0123456789abcdef0123456789abcdef01234567")',
+            ":program (:bundle child)",
+            ":inputs ()",
+            ":policy (:setup ()))",
+        )
+    )
+
+
+def test_run_ref_rejects_target_223() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(_mode_one_source()),
+            target_dsl_version="2.23",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_target_dsl_unsupported"
+
+
+def test_run_ref_target_224_elaborates_frozen_mode_one_carriers() -> None:
+    expr = parse_run_ref_expression(
+        _expression(_mode_one_source()),
+        target_dsl_version="2.24",
+    )
+
+    assert expr == RunRefExpr(
+        source=RunRefSource(
+            repo="file:///workspace",
+            commit="0123456789abcdef0123456789abcdef01234567",
+        ),
+        program=RunRefBundleProgram(workflow_name="child"),
+        inputs=(),
+        setup=SetupPolicy(),
+        span=expr.span,
+        form_path=FORM_PATH,
+    )
+    with pytest.raises(FrozenInstanceError):
+        expr.inputs = ()
+
+
+def test_run_ref_target_224_elaborates_mode_two_with_return(
+    tmp_path,
+) -> None:
+    source = "\n".join(
+        (
+            "(run-ref",
+            f'  :source (:repo "{tmp_path}"',
+            '            :commit "0123456789abcdef0123456789abcdef01234567")',
+            '  :program (:path "experiments/candidate.orc" :entry candidate)',
+            "  :inputs ()",
+            "  :returns Value",
+            "  :policy (:environment :deterministic-effect-free :setup ()))",
+        )
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+    )
+
+    assert expr.source == RunRefSource(
+        repo=tmp_path.resolve().as_uri(),
+        commit="0123456789abcdef0123456789abcdef01234567",
+    )
+    assert expr.program == RunRefPathProgram(
+        path="experiments/candidate.orc",
+        entry_name="candidate",
+    )
+    assert expr.returns_type_name == "Value"
+    assert expr.environment == "deterministic-effect-free"
+    assert expr.setup == SetupPolicy()
+
+
+def test_run_ref_mode_one_elaborates_inputs_setup_and_traversal() -> None:
+    source = " ".join(
+        (
+            "(run-ref",
+            ':source (:repo "https://EXAMPLE.com/repo/"',
+            ':commit "0123456789abcdef0123456789abcdef01234567")',
+            ":program (:bundle child)",
+            ":inputs (:task task :attempt 3)",
+            ':policy (:setup ((:argv ("/usr/bin/python3" "-V")',
+            ':env (:MODE "test"))',
+            '(:argv ("./tools/setup")))))',
+        )
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+        bound_names=frozenset({"task"}),
+    )
+
+    assert expr.source.repo == "https://example.com/repo"
+    assert tuple(name for name, _ in expr.inputs) == ("task", "attempt")
+    task_expr = expr.inputs[0][1]
+    attempt_expr = expr.inputs[1][1]
+    assert task_expr == NameExpr(
+        name="task",
+        span=task_expr.span,
+        form_path=FORM_PATH + ("inputs", "task"),
+    )
+    assert attempt_expr == LiteralExpr(
+        value=3,
+        literal_kind="int",
+        span=attempt_expr.span,
+        form_path=FORM_PATH + ("inputs", "attempt"),
+    )
+    assert expr.setup == SetupPolicy(
+        commands=(
+            SetupCommand(
+                argv=("/usr/bin/python3", "-V"),
+                env=(("MODE", "test"),),
+            ),
+            SetupCommand(argv=("./tools/setup",)),
+        )
+    )
+    assert iter_child_exprs(expr) == (task_expr, attempt_expr)
+
+
+@pytest.mark.parametrize(
+    ("call_source", "visibility", "expected_type"),
+    (
+        ("(normalize task)", "function", FunctionCallExpr),
+        ("(prepare task)", "procedure", ProcedureCallExpr),
+    ),
+)
+def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
+    call_source: str,
+    visibility: str,
+    expected_type: type,
+) -> None:
+    source = _mode_one_source().replace(
+        ":inputs ()",
+        f":inputs (:value {call_source})",
+    )
+    session_state = ElaborationSessionState(
+        function_names=frozenset({"original"}),
+        target_dsl_version="2.19",
+        guidance_example=True,
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+        bound_names=frozenset({"task"}),
+        function_names=(
+            frozenset({"normalize"})
+            if visibility == "function"
+            else frozenset()
+        ),
+        procedure_names=(
+            frozenset({"prepare"})
+            if visibility == "procedure"
+            else frozenset()
+        ),
+        guidance_example=False,
+        session_state=session_state,
+    )
+
+    value_expr = expr.inputs[0][1]
+    assert isinstance(value_expr, expected_type)
+    assert value_expr.args == (
+        NameExpr(
+            name="task",
+            span=value_expr.args[0].span,
+            form_path=FORM_PATH + ("inputs", "value"),
+        ),
+    )
+    assert session_state.function_names == frozenset({"original"})
+    assert session_state.target_dsl_version == "2.19"
+    assert session_state.guidance_example is True
+
+
+def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
+    source = _mode_one_source().replace("child", "local-alias")
+    observed: list[tuple[str, object, tuple[str, ...]]] = []
+
+    def resolve_workflow(name, span, form_path):
+        observed.append((name, span, form_path))
+        return "imported/canonical-child"
+
+    session_state = ElaborationSessionState(
+        workflow_name_resolver=resolve_workflow,
+        target_dsl_version="2.19",
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+        session_state=session_state,
+    )
+
+    assert expr.program == RunRefBundleProgram(
+        workflow_name="imported/canonical-child"
+    )
+    assert len(observed) == 1
+    authored_name, authored_span, resolver_form_path = observed[0]
+    assert authored_name == "local-alias"
+    assert authored_span.start.column == source.index("local-alias") + 1
+    assert resolver_form_path == FORM_PATH
+    assert session_state.workflow_name_resolver is resolve_workflow
+    assert session_state.target_dsl_version == "2.19"
+
+
+def test_run_ref_mode_two_without_returns_defers_default() -> None:
+    source = " ".join(
+        (
+            "(run-ref",
+            ':source (:repo "ssh://example.com/repo"',
+            ':commit "0123456789abcdef0123456789abcdef01234567")',
+            ':program (:path "candidate.orc" :entry candidate)',
+            ":inputs ()",
+            ":policy (:environment :deterministic-effect-free :setup ()))",
+        )
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+    )
+
+    assert isinstance(expr.program, RunRefPathProgram)
+    assert expr.returns_type_name is None
+
+
+def test_run_ref_repository_locator_normalization_is_clone_root_independent(
+    tmp_path,
+) -> None:
+    canonical_root = tmp_path / "repo"
+    spellings = (
+        str(tmp_path / "clone" / ".." / "repo"),
+        canonical_root.as_uri(),
+    )
+
+    expressions = tuple(
+        parse_run_ref_expression(
+            _expression(_mode_one_source().replace("file:///workspace", locator)),
+            target_dsl_version="2.24",
+        )
+        for locator in spellings
+    )
+
+    assert expressions[0].source == expressions[1].source
+
+
+def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
+    source = _mode_one_source().replace("file:///workspace", "relative/repo")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_literal_required"
+    assert "repository locator is invalid" in diagnostic.message
+    assert diagnostic.span.start.column == source.index('"relative/repo"') + 1
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_code"),
+    (
+        (
+            _mode_one_source().replace(
+                ':commit "0123456789abcdef0123456789abcdef01234567"',
+                ':repo "file:///duplicate" '
+                ':commit "0123456789abcdef0123456789abcdef01234567"',
+            ),
+            "run_ref_shape_invalid",
+        ),
+        (
+            _mode_one_source().replace(
+                ':commit "0123456789abcdef0123456789abcdef01234567"',
+                ':branch "main" '
+                ':commit "0123456789abcdef0123456789abcdef01234567"',
+            ),
+            "run_ref_shape_invalid",
+        ),
+        (
+            _mode_one_source().replace(
+                "(:bundle child)",
+                '(:path "candidate.orc")',
+            ),
+            "run_ref_program_mode_invalid",
+        ),
+        (
+            _mode_one_source().replace(
+                "(:bundle child)",
+                '(:bundle child :path "candidate.orc" :entry candidate)',
+            ),
+            "run_ref_program_mode_invalid",
+        ),
+        (
+            _mode_one_source().replace(
+                ":inputs ()",
+                ":inputs () :returns Value",
+            ),
+            "run_ref_program_mode_invalid",
+        ),
+        (
+            _mode_one_source().replace(
+                ":policy (:setup ())",
+                ":policy (:environment :deterministic-effect-free :setup ())",
+            ),
+            "run_ref_program_mode_invalid",
+        ),
+        (
+            _mode_one_source()
+            .replace("(:bundle child)", '(:path "candidate.orc" :entry candidate)')
+            .replace(
+                ":policy (:setup ())",
+                ":policy (:setup ())",
+            ),
+            "run_ref_program_mode_invalid",
+        ),
+    ),
+)
+def test_run_ref_nested_shape_and_mode_restrictions(
+    source: str,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
+@pytest.mark.parametrize(
+    "setup",
+    (
+        '((:argv ("python")))',
+        '((:argv ("/bin/tool" value)))',
+        '((:argv ("/bin/tool") :env (:MODE value)))',
+        '((:argv ("/bin/tool") :env (:PWD "owned")))',
+    ),
+)
+def test_run_ref_setup_static_policy_failures_are_literal_diagnostics(
+    setup: str,
+) -> None:
+    source = _mode_one_source().replace(
+        ":setup ()",
+        f":setup {setup}",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_literal_required"
+
+
+def test_runs_ref_declared_effect_parses_and_renders_stably() -> None:
+    from orchestrator.workflow_lisp.effects import (
+        RunsRefEffect,
+        parse_effect_clause,
+        render_effect_atom,
+    )
+
+    syntax = syntax_node_datum(_expression("((runs-ref child-name))"))
+    assert isinstance(syntax, SyntaxList)
+
+    effects = parse_effect_clause(
+        syntax,
+        span=syntax.span,
+        form_path=FORM_PATH,
+    )
+
+    assert effects == frozenset({RunsRefEffect(subject=("child-name",))})
+    assert render_effect_atom(next(iter(effects))) == "runs-ref(child-name)"
+
+
+def test_runs_ref_declared_effect_preserves_imported_identity_as_one_subject() -> None:
+    from orchestrator.workflow_lisp.effects import RunsRefEffect, parse_effect_clause
+
+    syntax = syntax_node_datum(
+        _expression("((runs-ref imported.module/child-name))")
+    )
+    assert isinstance(syntax, SyntaxList)
+
+    effects = parse_effect_clause(
+        syntax,
+        span=syntax.span,
+        form_path=FORM_PATH,
+    )
+
+    assert effects == frozenset(
+        {RunsRefEffect(subject=("imported.module/child-name",))}
+    )
+    expr = replace(
+        _mode_one_expr(),
+        program=RunRefBundleProgram("imported.module/child-name"),
+    )
+    base_catalog = _catalog(expr)
+    catalog = replace(
+        base_catalog,
+        signatures_by_name={
+            "imported.module/child-name": replace(
+                base_catalog.signatures_by_name["child"],
+                name="imported.module/child-name",
+            )
+        },
+    )
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=catalog,
+    )
+    assert effects == typed.effect_summary.direct_effects
+
+
+def test_effect_summary_contains_runs_ref_checks_direct_and_transitive_sets() -> None:
+    from orchestrator.workflow_lisp.effects import (
+        RunsRefEffect,
+        effect_summary,
+        effect_summary_contains_runs_ref,
+    )
+
+    effect = RunsRefEffect(subject=("child",))
+
+    assert effect_summary_contains_runs_ref(
+        effect_summary(direct_effects=(effect,), transitive_effects=())
+    )
+    assert effect_summary_contains_runs_ref(
+        effect_summary(direct_effects=(), transitive_effects=(effect,))
+    )
+    assert not effect_summary_contains_runs_ref(effect_summary())
+
+
+def test_runs_ref_declared_effect_requires_one_static_subject() -> None:
+    from orchestrator.workflow_lisp.effects import parse_effect_clause
+
+    syntax = syntax_node_datum(_expression("((runs-ref first second))"))
+    assert isinstance(syntax, SyntaxList)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_effect_clause(
+            syntax,
+            span=syntax.span,
+            form_path=FORM_PATH,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "procedure_effect_invalid"
+
+
+@pytest.mark.parametrize(
+    ("source", "line"),
+    (
+        (
+            '(run-ref :source (:repo "file:///workspace" '
+            ':commit "0123456789abcdef0123456789abcdef0123456A") '
+            ":program (:bundle child) :inputs () :policy (:setup ()))",
+            1,
+        ),
+        (
+            '(run-ref :source (:repo "file:///workspace" '
+            ':commit "0123456789abcdef0123456789abcdef01234567") '
+            ':program (:path "../candidate.orc" :entry candidate) '
+            ":inputs () :policy (:environment :deterministic-effect-free "
+            ":setup ()))",
+            1,
+        ),
+    ),
+)
+def test_run_ref_invalid_sha_or_program_path_is_literal_diagnostic(
+    source: str,
+    line: int,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_literal_required"
+    assert diagnostic.span.start.line == line
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        '(run-ref :source (:repo "file:///workspace" '
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ":program (:bundle child) :inputs ())",
+        '(run-ref :source (:repo "file:///workspace" '
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ":program (:bundle child) :inputs () :inputs () :policy (:setup ()))",
+        '(run-ref :source (:repo "file:///workspace" '
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ":program (:bundle child) :inputs () :policy (:setup ()) :extra true)",
+        '(run-ref :source (:repo "file:///workspace") '
+        ":program (:bundle child) :inputs () :policy (:setup ()))",
+        _mode_one_source().replace("(:bundle child)", "(:workflow child)"),
+    ),
+)
+def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_shape_invalid"
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "(run-ref :source workspace :program (:bundle child) "
+        ":inputs () :policy (:setup ()))",
+        "(run-ref :source (:repo workspace "
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ":program (:bundle child) :inputs () :policy (:setup ()))",
+        '(run-ref :source (:repo "file:///workspace" :commit 12) '
+        ":program (:bundle child) :inputs () :policy (:setup ()))",
+        '(run-ref :source (:repo "file:///workspace" '
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ':program (:bundle "child") :inputs () :policy (:setup ()))',
+        '(run-ref :source (:repo "file:///workspace" '
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ':program (:bundle child) :inputs () :policy (:setup "none"))',
+        '(run-ref :source (:repo "file:///workspace" '
+        ':commit "0123456789abcdef0123456789abcdef01234567") '
+        ":program (:bundle child) :inputs () :policy setup)",
+    ),
+)
+def test_run_ref_nonliteral_static_fields_use_closed_literal_diagnostic(
+    source: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_literal_required"
+
+
+@pytest.mark.parametrize(
+    "program",
+    ('(:path "candidate.orc" :entry child)',),
+)
+def test_run_ref_program_discriminator_uses_closed_mode_diagnostic(
+    program: str,
+) -> None:
+    source = _mode_one_source().replace("(:bundle child)", program)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        parse_run_ref_expression(
+            _expression(source),
+            target_dsl_version="2.24",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_program_mode_invalid"
+
+
+def test_run_ref_parser_is_registered_only_for_target_224() -> None:
+    assert get_form_spec("run-ref", target_dsl_version="2.23") is None
+    spec = get_form_spec("run-ref", target_dsl_version="2.24")
+    assert spec is not None
+    assert spec.kind.value == "core_effect"
+    assert spec.elaboration_route == "run_ref"
+    assert RunRefExpr in get_args(ExprNode)
+
+
+def test_public_elaboration_uses_closed_run_ref_target_diagnostic() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression(_mode_one_source()),
+            bound_names=frozenset(),
+            target_dsl_version="2.23",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_target_dsl_unsupported"
+
+
+def test_pre_224_same_named_procedure_remains_backward_compatible() -> None:
+    expr = elaborate_expression(
+        _expression('(run-ref "legacy")'),
+        bound_names=frozenset(),
+        procedure_names=frozenset({"run-ref"}),
+        target_dsl_version="2.23",
+    )
+
+    assert isinstance(expr, ProcedureCallExpr)
+    assert expr.callee_name == "run-ref"
+
+
+def _transportable_types(span):
+    string_type = PrimitiveTypeRef("String")
+    int_type = PrimitiveTypeRef("Int")
+    record_def = RecordDef(
+        name="ChildRecord",
+        fields=(RecordField(name="value", type_name="String", span=span),),
+        span=span,
+    )
+    record_type = RecordTypeRef(
+        name="ChildRecord",
+        definition=record_def,
+        field_types={"value": string_type},
+    )
+    union_def = UnionDef(
+        name="ChildUnion",
+        variants=(UnionVariant(name="OK", fields=(), span=span),),
+        span=span,
+    )
+    union_type = UnionTypeRef(
+        name="ChildUnion",
+        definition=union_def,
+        variant_field_types={"OK": {}},
+    )
+    path_def = PathDef(
+        name="ChildPath",
+        kind="relpath",
+        under="artifacts/work",
+        must_exist=False,
+        span=span,
+    )
+    return (
+        PrimitiveTypeRef("Bool"),
+        record_type,
+        union_type,
+        ListTypeRef("List[String]", string_type),
+        MapTypeRef("Map[String,Int]", string_type, int_type),
+        OptionalTypeRef("Optional[String]", string_type),
+        PathTypeRef("ChildPath", path_def),
+        PrimitiveTypeRef("Value"),
+    )
+
+
+def _run_ref_result_contract(
+    expr: RunRefExpr,
+    value_type,
+    *,
+    hydrate: bool = False,
+):
+    type_env = _type_env(value_type)
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={},
+        workflow_catalog=_catalog(expr, return_type=value_type),
+        compiler_session=session,
+    )
+    if hydrate:
+        register_all_known_run_ref_types(
+            type_env,
+            session_state=session.typecheck,
+        )
+    return (
+        derive_run_ref_result_contract(
+            typed.type_ref,
+            type_env=type_env,
+        ),
+        typed.type_ref,
+        type_env,
+    )
+
+
+@pytest.mark.parametrize(
+    ("return_index", "expected_kind"),
+    tuple(
+        enumerate(
+            (
+                "primitive",
+                "record",
+                "union",
+                "list",
+                "map",
+                "optional",
+                "path",
+                "primitive",
+            )
+        )
+    ),
+)
+def test_run_ref_result_contract_preserves_all_transportable_child_roots(
+    return_index: int,
+    expected_kind: str,
+) -> None:
+    expr = _mode_one_expr()
+    value_type = _transportable_types(expr.span)[return_index]
+
+    contract, result_type, type_env = _run_ref_result_contract(expr, value_type)
+
+    envelope = contract.descriptor["envelope"]
+    assert contract.descriptor["schema"] == RUN_REF_RESULT_CONTRACT_SCHEMA
+    assert envelope["kind"] == "record"
+    assert envelope["name"] == result_type.name
+    assert [field["name"] for field in envelope["fields"]] == [
+        "value",
+        "workspace_delta",
+        "accounting",
+    ]
+    child_descriptor = pure_projection_lowering.compiler_normalized_type_descriptor(
+        value_type,
+        type_env=type_env,
+    )
+    assert envelope["fields"][0]["type"] == child_descriptor
+    assert envelope["fields"][0]["type"]["kind"] == expected_kind
+    assert contract.type_ref == result_type
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    assert contract.digest == canonical_sha256(contract.descriptor)
+
+
+def test_run_ref_result_contract_carries_exact_recursive_fixed_schema() -> None:
+    expr = _mode_one_expr()
+    contract, _, _ = _run_ref_result_contract(expr, PrimitiveTypeRef("String"))
+
+    workspace = contract.descriptor["envelope"]["fields"][1]["type"]
+    accounting = contract.descriptor["envelope"]["fields"][2]["type"]
+    with pytest.raises(FrozenInstanceError):
+        contract.digest = "sha256:changed"
+    assert workspace == {
+        "kind": "record",
+        "name": "WorkspaceDelta",
+        "fields": [
+            {
+                "name": "base",
+                "type": {
+                    "kind": "record",
+                    "name": "RepositoryRevisionId",
+                    "fields": [
+                        {"name": name, "type": {"kind": "primitive", "name": "String"}}
+                        for name in (
+                            "digest",
+                            "normalized_locator",
+                            "resolved_commit_sha",
+                            "materializer_version",
+                            "submodule_policy",
+                            "lfs_policy",
+                            "authored_setup_identity",
+                        )
+                    ],
+                },
+            },
+            *[
+                {
+                    "name": name,
+                    "type": {
+                        "kind": "list",
+                        "item": {
+                            "kind": "record",
+                            "name": "WorkspaceEntryDelta",
+                            "fields": [
+                                {"name": "path", "type": {"kind": "primitive", "name": "String"}},
+                                {"name": "kind", "type": {"kind": "primitive", "name": "String"}},
+                                {"name": "mode", "type": {"kind": "primitive", "name": "Int"}},
+                                {"name": "size", "type": {"kind": "primitive", "name": "Int"}},
+                                *[
+                                    {
+                                        "name": optional_name,
+                                        "type": {
+                                            "kind": "optional",
+                                            "item": {"kind": "primitive", "name": "String"},
+                                        },
+                                    }
+                                    for optional_name in (
+                                        "old_sha256",
+                                        "new_sha256",
+                                        "link_target",
+                                    )
+                                ],
+                            ],
+                        },
+                    },
+                }
+                for name in ("changed_files", "deleted_files", "untracked_files")
+            ],
+            {
+                "name": "normalized_diff",
+                "type": {
+                    "kind": "record",
+                    "name": "NormalizedWorkspaceDiff",
+                    "fields": [
+                        {
+                            "name": "entries",
+                            "type": {
+                                "kind": "list",
+                                "item": {
+                                    "kind": "record",
+                                    "name": "NormalizedTextDiffEntry",
+                                    "fields": [
+                                        {"name": "path", "type": {"kind": "primitive", "name": "String"}},
+                                        {"name": "text", "type": {"kind": "primitive", "name": "String"}},
+                                        {"name": "truncated", "type": {"kind": "primitive", "name": "Bool"}},
+                                        {"name": "omitted_bytes", "type": {"kind": "primitive", "name": "Int"}},
+                                    ],
+                                },
+                            },
+                        },
+                        {"name": "catalog_digest", "type": {"kind": "primitive", "name": "String"}},
+                        {"name": "truncated", "type": {"kind": "primitive", "name": "Bool"}},
+                        {"name": "omitted_bytes", "type": {"kind": "primitive", "name": "Int"}},
+                        {"name": "omitted_entries", "type": {"kind": "primitive", "name": "Int"}},
+                    ],
+                },
+            },
+            {
+                "name": "declared_artifacts",
+                "type": {
+                    "kind": "list",
+                    "item": {
+                        "kind": "record",
+                        "name": "DeclaredWorkspaceArtifact",
+                        "fields": [
+                            {"name": "name", "type": {"kind": "primitive", "name": "String"}},
+                            {"name": "path", "type": {"kind": "primitive", "name": "String"}},
+                            {"name": "kind", "type": {"kind": "primitive", "name": "String"}},
+                            {"name": "mode", "type": {"kind": "primitive", "name": "Int"}},
+                            {"name": "size", "type": {"kind": "primitive", "name": "Int"}},
+                            {
+                                "name": "sha256",
+                                "type": {
+                                    "kind": "optional",
+                                    "item": {"kind": "primitive", "name": "String"},
+                                },
+                            },
+                            {
+                                "name": "link_target",
+                                "type": {
+                                    "kind": "optional",
+                                    "item": {"kind": "primitive", "name": "String"},
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        ],
+    }
+    assert accounting == {
+        "kind": "record",
+        "name": "RunRefAccounting",
+        "fields": [
+            {"name": "child_run_id", "type": {"kind": "primitive", "name": "RunId"}},
+            {"name": "attempt_ordinal", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "terminal_status", "type": {"kind": "primitive", "name": "String"}},
+            {"name": "elapsed_ms", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "setup_ms", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "compile_ms", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "provider_attempts", "type": {"kind": "primitive", "name": "Value"}},
+            {"name": "token_usage", "type": {"kind": "primitive", "name": "Value"}},
+            {"name": "cost", "type": {"kind": "primitive", "name": "Value"}},
+        ],
+    }
+
+
+def test_run_ref_result_contract_descriptor_views_are_defensive_copies() -> None:
+    expr = _mode_one_expr()
+    contract, _, _ = _run_ref_result_contract(expr, PrimitiveTypeRef("String"))
+    descriptor = contract.descriptor
+    descriptor["envelope"]["fields"][1]["type"]["fields"][0]["name"] = (
+        "mutated"
+    )
+
+    fresh_descriptor = contract.descriptor
+    assert fresh_descriptor["envelope"]["fields"][1]["type"]["fields"][0][
+        "name"
+    ] == "base"
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    assert canonical_sha256(fresh_descriptor) == contract.digest
+
+
+def test_run_ref_result_contract_is_not_publicly_constructible() -> None:
+    from orchestrator.workflow.run_ref.contracts import (
+        canonical_json_bytes,
+        canonical_sha256,
+    )
+
+    expr = _mode_one_expr()
+    contract, result_type, _ = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    with pytest.raises(TypeError):
+        GeneratedRunRefResultContract()
+
+    malformed = {
+        "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
+        "envelope": {},
+    }
+    invalid = (
+        (
+            canonical_json_bytes(malformed),
+            canonical_sha256(malformed),
+            result_type,
+        ),
+        (
+            canonical_json_bytes(contract.descriptor),
+            contract.digest,
+            PrimitiveTypeRef("String"),
+        ),
+    )
+
+    for descriptor_json, digest, unrelated_type_ref in invalid:
+        with pytest.raises(TypeError):
+            GeneratedRunRefResultContract(
+                _descriptor_json=descriptor_json,
+                digest=digest,
+                type_ref=unrelated_type_ref,
+            )
+
+
+def test_run_ref_result_contract_import_does_not_load_lowering_modules() -> None:
+    check = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            "\n".join(
+                (
+                    "import importlib, importlib.abc, sys",
+                    "import orchestrator.workflow_lisp",
+                    "contract = 'orchestrator.workflow_lisp.run_ref_result_contract'",
+                    "neutral = 'orchestrator.workflow_lisp.normalized_type_descriptor'",
+                    "blocked = 'orchestrator.workflow_lisp.lowering'",
+                    "sys.modules.pop(contract, None)",
+                    "sys.modules.pop(neutral, None)",
+                    "for name in tuple(sys.modules):",
+                    "    if name.startswith(blocked):",
+                    "        sys.modules.pop(name)",
+                    "class Blocker(importlib.abc.MetaPathFinder):",
+                    "    def find_spec(self, fullname, path, target=None):",
+                    "        if fullname.startswith(blocked):",
+                    "            raise RuntimeError('blocked lowering dependency')",
+                    "        return None",
+                    "sys.meta_path.insert(0, Blocker())",
+                    "importlib.import_module(contract)",
+                    "assert not any(name.startswith(blocked) for name in sys.modules)",
+                )
+            ),
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert check.returncode == 0, check.stderr
+
+
+def test_run_ref_result_contract_is_hydration_and_source_path_independent() -> None:
+    left = _mode_one_expr(source_path="/clone-a/controller.orc")
+    right = _mode_one_expr(source_path="/clone-b/controller.orc")
+
+    left_contract, left_type, _ = _run_ref_result_contract(
+        left,
+        PrimitiveTypeRef("String"),
+        hydrate=True,
+    )
+    right_contract, right_type, _ = _run_ref_result_contract(
+        right,
+        PrimitiveTypeRef("String"),
+        hydrate=True,
+    )
+
+    assert left_type.name == right_type.name
+    assert left_contract.descriptor == right_contract.descriptor
+    assert left_contract.digest == right_contract.digest
+
+
+def test_run_ref_result_contract_digest_binds_child_and_site_without_flattening() -> None:
+    base = _mode_one_expr()
+    moved = replace(
+        base,
+        span=replace(
+            base.span,
+            start=replace(base.span.start, column=base.span.start.column + 1),
+        ),
+    )
+    string_contract, _, _ = _run_ref_result_contract(
+        base,
+        PrimitiveTypeRef("String"),
+    )
+    bool_contract, _, _ = _run_ref_result_contract(
+        base,
+        PrimitiveTypeRef("Bool"),
+    )
+    moved_contract, _, _ = _run_ref_result_contract(
+        moved,
+        PrimitiveTypeRef("String"),
+    )
+
+    assert len(
+        {string_contract.digest, bool_contract.digest, moved_contract.digest}
+    ) == 3
+    tampered = deepcopy(string_contract.descriptor)
+    tampered["envelope"]["fields"][1]["type"]["fields"][0]["name"] = "changed"
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    assert canonical_sha256(tampered) != string_contract.digest
+
+
+def _record_with_fields(
+    record: RecordTypeRef,
+    fields,
+    *,
+    name: str | None = None,
+) -> RecordTypeRef:
+    resolved_name = name or record.name
+    return RecordTypeRef(
+        name=resolved_name,
+        definition=RecordDef(
+            name=resolved_name,
+            fields=tuple(
+                RecordField(
+                    name=field_name,
+                    type_name=field_type.name,
+                    span=record.definition.span,
+                )
+                for field_name, field_type in fields
+            ),
+            span=record.definition.span,
+        ),
+        field_types=dict(fields),
+    )
+
+
+def test_run_ref_result_contract_rejects_forged_envelopes_and_fixed_schemas() -> None:
+    expr = _mode_one_expr()
+    _, valid, type_env = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    value = valid.field_types["value"]
+    workspace = valid.field_types["workspace_delta"]
+    accounting = valid.field_types["accounting"]
+    valid_fields = (
+        ("value", value),
+        ("workspace_delta", workspace),
+        ("accounting", accounting),
+    )
+    wrong_workspace_name = _record_with_fields(
+        workspace,
+        tuple(workspace.field_types.items()),
+        name="OtherWorkspaceDelta",
+    )
+    wrong_accounting_name = _record_with_fields(
+        accounting,
+        tuple(accounting.field_types.items()),
+        name="OtherRunRefAccounting",
+    )
+    changed_accounting = _record_with_fields(
+        accounting,
+        (*tuple(accounting.field_types.items()), ("extra", PrimitiveTypeRef("Int"))),
+    )
+    base = workspace.field_types["base"]
+    changed_base = _record_with_fields(
+        base,
+        (
+            ("digest", PrimitiveTypeRef("Bool")),
+            *tuple(list(base.field_types.items())[1:]),
+        ),
+    )
+    changed_workspace = _record_with_fields(
+        workspace,
+        (
+            ("base", changed_base),
+            *tuple(list(workspace.field_types.items())[1:]),
+        ),
+    )
+    invalid = (
+        _record_with_fields(valid, valid_fields, name="OtherResult"),
+        _record_with_fields(valid, (valid_fields[1], valid_fields[0], valid_fields[2])),
+        _record_with_fields(valid, valid_fields[:-1]),
+        _record_with_fields(valid, (*valid_fields, ("extra", value))),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", wrong_workspace_name), ("accounting", accounting)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", workspace), ("accounting", wrong_accounting_name)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", PrimitiveTypeRef("Json")), ("workspace_delta", workspace), ("accounting", accounting)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", changed_workspace), ("accounting", accounting)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", workspace), ("accounting", changed_accounting)),
+        ),
+    )
+
+    for forged in invalid:
+        with pytest.raises(ValueError):
+            derive_run_ref_result_contract(
+                forged,
+                type_env=type_env,
+            )
+
+
+def test_run_ref_result_contract_is_additive_to_ordinary_result_contracts() -> None:
+    from orchestrator.workflow_lisp.contracts import derive_structured_result_contract
+
+    expr = _mode_one_expr()
+    bool_type, record_type, union_type, *_ = _transportable_types(expr.span)
+    ordinary = tuple(
+        derive_structured_result_contract(
+            type_ref,
+            workflow_name="ordinary",
+            step_id=f"step-{index}",
+        )
+        for index, type_ref in enumerate((bool_type, record_type, union_type))
+    )
+    _run_ref_result_contract(expr, PrimitiveTypeRef("String"))
+    repeated = tuple(
+        derive_structured_result_contract(
+            type_ref,
+            workflow_name="ordinary",
+            step_id=f"step-{index}",
+        )
+        for index, type_ref in enumerate((bool_type, record_type, union_type))
+    )
+
+    assert repeated == ordinary
+    assert [contract.contract_kind for contract in ordinary] == [
+        "output_bundle",
+        "output_bundle",
+        "variant_output",
+    ]
+    assert [contract.result_shape for contract in ordinary] == [
+        "root_value",
+        "record_value",
+        "union_value",
+    ]
+
+
+@pytest.mark.parametrize("return_index", range(8))
+def test_run_ref_mode_one_accepts_every_transportable_return_root(
+    return_index: int,
+) -> None:
+    expr = _mode_one_expr()
+    return_type = _transportable_types(expr.span)[return_index]
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(*_transportable_types(expr.span)[1:]),
+        value_env={},
+        workflow_catalog=_catalog(expr, return_type=return_type),
+    )
+
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    assert typed.type_ref.name.startswith("RunRefResult$")
+    assert typed.type_ref.field_types["value"] == return_type
+
+
+def test_run_ref_mode_one_checks_public_inputs_defaults_and_effect() -> None:
+    expr = _mode_one_expr(
+        inputs=(
+            ("task", LiteralExpr("work", "string", _mode_one_expr().span, FORM_PATH)),
+        )
+    )
+    string_type = PrimitiveTypeRef("String")
+    int_type = PrimitiveTypeRef("Int")
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(
+            expr,
+            params=(("task", string_type), ("attempt", int_type)),
+            defaults=("attempt",),
+        ),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("child",))}
+    )
+
+
+@pytest.mark.parametrize(
+    ("inputs", "params", "expected_code"),
+    (
+        ((), (("task", PrimitiveTypeRef("String")),), "workflow_signature_mismatch"),
+        (
+            (("extra", LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),),
+            (),
+            "workflow_signature_mismatch",
+        ),
+        (
+            (
+                ("task", LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),
+                ("task", LiteralExpr("y", "string", _expression('"y"').span, FORM_PATH)),
+            ),
+            (("task", PrimitiveTypeRef("String")),),
+            "workflow_signature_mismatch",
+        ),
+        (
+            (("task", LiteralExpr(1, "int", _expression("1").span, FORM_PATH)),),
+            (("task", PrimitiveTypeRef("String")),),
+            "type_mismatch",
+        ),
+    ),
+)
+def test_run_ref_mode_one_rejects_signature_mismatches(
+    inputs,
+    params,
+    expected_code: str,
+) -> None:
+    expr = _mode_one_expr(inputs=inputs)
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr, params=params),
+        )
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
+@pytest.mark.parametrize("supply_private", (False, True))
+def test_run_ref_mode_one_rejects_selected_private_boundary_state(
+    supply_private: bool,
+) -> None:
+    inputs = (
+        (("private", LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),)
+        if supply_private
+        else ()
+    )
+    expr = _mode_one_expr(inputs=inputs)
+    string_type = PrimitiveTypeRef("String")
+    signature = WorkflowSignature(
+        name="child",
+        params=(),
+        return_type_ref=string_type,
+        span=expr.span,
+        form_path=FORM_PATH,
+        private_compatibility_bridge_types={"private": string_type},
+        allow_private_compatibility_bridge_omission=True,
+    )
+    catalog = WorkflowCatalog(
+        signatures_by_name={"child": signature},
+        definitions_by_name={},
+        imported_bundles_by_name={},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=catalog,
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("signature_kwargs", "supplied_name"),
+    (
+        ({"hidden_context_requirements": {"ctx": object()}}, "ctx"),
+        ({"hidden_context_ambiguities": {"ctx": ("one", "two")}}, "ctx"),
+    ),
+)
+@pytest.mark.parametrize("supply_hidden", (False, True))
+def test_run_ref_mode_one_rejects_selected_hidden_boundary_state(
+    signature_kwargs,
+    supplied_name: str,
+    supply_hidden: bool,
+) -> None:
+    inputs = (
+        ((supplied_name, LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),)
+        if supply_hidden
+        else ()
+    )
+    expr = _mode_one_expr(inputs=inputs)
+    signature = WorkflowSignature(
+        name="child",
+        params=(),
+        return_type_ref=PrimitiveTypeRef("String"),
+        span=expr.span,
+        form_path=FORM_PATH,
+        **signature_kwargs,
+    )
+    catalog = WorkflowCatalog(
+        signatures_by_name={"child": signature},
+        definitions_by_name={},
+        imported_bundles_by_name={},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=catalog,
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+def test_run_ref_mode_one_private_name_is_unknown_on_public_only_signature() -> None:
+    value_expr = LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)
+    expr = _mode_one_expr(inputs=(("private", value_expr),))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr),
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+def test_run_ref_effect_preserves_canonical_identity_as_one_subject() -> None:
+    expr = replace(
+        _mode_one_expr(),
+        program=RunRefBundleProgram("imported.module/child-name"),
+    )
+    catalog = _catalog(expr)
+    canonical_signature = replace(
+        catalog.signatures_by_name["child"],
+        name="imported.module/child-name",
+    )
+    catalog = replace(
+        catalog,
+        signatures_by_name={"imported.module/child-name": canonical_signature},
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=catalog,
+    )
+
+    from orchestrator.workflow_lisp.effects import CallsWorkflowEffect, RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("imported.module/child-name",))}
+    )
+    assert not any(
+        isinstance(effect, CallsWorkflowEffect)
+        for effect in typed.effect_summary.transitive_effects
+    )
+
+
+def _run_ref_procedure_context(expr: RunRefExpr, *, return_type=None):
+    from orchestrator.workflow_lisp.effects import RunsRefEffect, effect_summary
+    from orchestrator.workflow_lisp.procedures import (
+        ProcedureCatalog,
+        ProcedureLoweringMode,
+        ProcedureSignature,
+    )
+
+    signature = ProcedureSignature(
+        name="wrapper",
+        params=(),
+        return_type_ref=return_type or PrimitiveTypeRef("String"),
+        declared_effects=frozenset({RunsRefEffect(subject=("child",))}),
+        requested_lowering_mode=ProcedureLoweringMode.INLINE,
+        span=expr.span,
+        form_path=FORM_PATH,
+    )
+    return (
+        ProcedureCatalog(
+            signatures_by_name={"wrapper": signature},
+            definitions_by_name={},
+            call_graph={},
+        ),
+        {
+            "wrapper": effect_summary(
+                direct_effects=(RunsRefEffect(subject=("child",)),)
+            )
+        },
+    )
+
+
+def test_run_ref_is_allowed_in_ordinary_let_and_if_branches() -> None:
+    run_ref = _mode_one_expr()
+    let_expr = LetStarExpr(
+        bindings=(("child_result", run_ref),),
+        body=NameExpr("child_result", run_ref.span, FORM_PATH),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    conditional = IfExpr(
+        condition_expr=LiteralExpr(True, "bool", run_ref.span, FORM_PATH),
+        then_expr=let_expr,
+        else_expr=run_ref,
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+
+    typed = typecheck_expression(
+        conditional,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(run_ref),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("child",))}
+    )
+
+
+def test_run_ref_is_allowed_in_match_arms() -> None:
+    run_ref = _mode_one_expr()
+    union_type = _transportable_types(run_ref.span)[2]
+    expr = MatchExpr(
+        subject=NameExpr("subject", run_ref.span, FORM_PATH),
+        arms=(
+            MatchArm(
+                variant_name="OK",
+                binding_name="matched",
+                body=run_ref,
+                span=run_ref.span,
+                form_path=FORM_PATH,
+            ),
+        ),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(union_type),
+        value_env={"subject": union_type},
+        workflow_catalog=_catalog(run_ref),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("child",))}
+    )
+
+
+def test_run_ref_is_allowed_transitively_through_procedure_and_workflow_calls() -> None:
+    from orchestrator.workflow_lisp.effects import (
+        CallsWorkflowEffect,
+        RunsRefEffect,
+        effect_summary,
+    )
+    from orchestrator.workflow_lisp.expressions import CallExpr
+
+    run_ref = _mode_one_expr()
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(run_ref)
+    procedure = typecheck_expression(
+        ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+        type_env=_type_env(),
+        value_env={},
+        procedure_catalog=procedure_catalog,
+        procedure_effects_by_name=procedure_effects,
+    )
+    workflow = typecheck_expression(
+        CallExpr("child", (), run_ref.span, FORM_PATH),
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(run_ref),
+        workflow_effects_by_name={
+            "child": effect_summary(
+                direct_effects=(RunsRefEffect(subject=("grandchild",)),)
+            )
+        },
+    )
+
+    assert procedure.effect_summary.direct_effects == frozenset()
+    assert RunsRefEffect(subject=("child",)) in procedure.effect_summary.transitive_effects
+    assert CallsWorkflowEffect(subject=("child",)) in workflow.effect_summary.direct_effects
+    assert RunsRefEffect(subject=("grandchild",)) in workflow.effect_summary.transitive_effects
+
+
+def _assert_run_ref_placement_diagnostic(excinfo, *, owner) -> None:
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_placement_invalid"
+    assert diagnostic.span == owner.span
+    assert diagnostic.form_path == owner.form_path
+    assert diagnostic.expansion_stack == owner.expansion_stack
+
+
+@pytest.mark.parametrize(
+    "owner",
+    ("if", "match", "loop-max", "loop-body", "list-source", "list-body"),
+)
+def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
+    owner: str,
+) -> None:
+    run_ref = _mode_one_expr()
+    literal_list = ListExpr(
+        items=(LiteralExpr("item", "string", run_ref.span, FORM_PATH),),
+        element_type_ref=None,
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    if owner == "if":
+        expr = IfExpr(
+            run_ref,
+            LiteralExpr("yes", "string", run_ref.span, FORM_PATH),
+            LiteralExpr("no", "string", run_ref.span, FORM_PATH),
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "match":
+        expr = MatchExpr(run_ref, (), run_ref.span, FORM_PATH)
+    elif owner == "loop-max":
+        expr = LoopRecurExpr(
+            run_ref,
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            DoneExpr(
+                LiteralExpr("done", "string", run_ref.span, FORM_PATH),
+                run_ref.span,
+                FORM_PATH,
+            ),
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-body":
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            run_ref,
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "list-source":
+        expr = ListMapEffectExpr(
+            "item", run_ref, 1, run_ref, None, None, run_ref.span, FORM_PATH
+        )
+    else:
+        expr = ListMapEffectExpr(
+            "item", literal_list, 1, run_ref, None, None, run_ref.span, FORM_PATH
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(run_ref),
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
+
+
+def test_transitive_run_ref_in_list_map_effect_body_uses_placement_diagnostic() -> None:
+    run_ref = _mode_one_expr()
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(run_ref)
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+    expr = ListMapEffectExpr(
+        binder_name="item",
+        source_expr=ListExpr(
+            items=(LiteralExpr("item", "string", run_ref.span, FORM_PATH),),
+            element_type_ref=None,
+            span=run_ref.span,
+            form_path=FORM_PATH,
+        ),
+        max_iterations=1,
+        body_expr=call,
+        source_item_type_ref=None,
+        result_item_type_ref=None,
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+
+
+def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic() -> None:
+    from orchestrator.workflow_lisp.functions import (
+        FunctionDef,
+        _validate_pure_function_expr,
+    )
+
+    run_ref = _mode_one_expr()
+    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+    function_def = FunctionDef(
+        name="pure_helper",
+        params=(),
+        body=_expression('"unused"'),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+        return_type_name="String",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_pure_function_expr(
+            call,
+            function_def=function_def,
+            procedure_catalog=procedure_catalog,
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+
+
+def test_non_run_ref_procedure_keeps_generic_pure_function_diagnostic() -> None:
+    from orchestrator.workflow_lisp.effects import UsesCommandEffect
+    from orchestrator.workflow_lisp.functions import (
+        FunctionDef,
+        _validate_pure_function_expr,
+    )
+
+    run_ref = _mode_one_expr()
+    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
+    signature = procedure_catalog.signatures_by_name["wrapper"]
+    procedure_catalog = replace(
+        procedure_catalog,
+        signatures_by_name={
+            "wrapper": replace(
+                signature,
+                declared_effects=frozenset(
+                    {UsesCommandEffect(subject=("shell",))}
+                ),
+            )
+        },
+    )
+    function_def = FunctionDef(
+        name="pure_helper",
+        params=(),
+        body=_expression('"unused"'),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+        return_type_name="String",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_pure_function_expr(
+            ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+            function_def=function_def,
+            procedure_catalog=procedure_catalog,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
+
+
+@pytest.mark.parametrize(
+    ("owner", "return_type"),
+    (
+        ("if", PrimitiveTypeRef("Bool")),
+        ("loop-max", PrimitiveTypeRef("Int")),
+        ("loop-state", PrimitiveTypeRef("Int")),
+        ("loop-body", PrimitiveTypeRef("String")),
+        ("loop-exhaustion", PrimitiveTypeRef("String")),
+    ),
+)
+def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
+    owner: str,
+    return_type,
+) -> None:
+    run_ref = _mode_one_expr()
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(
+        run_ref,
+        return_type=return_type,
+    )
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+    done = DoneExpr(
+        LiteralExpr("done", "string", run_ref.span, FORM_PATH),
+        run_ref.span,
+        FORM_PATH,
+    )
+    if owner == "if":
+        expr = IfExpr(
+            call,
+            LiteralExpr("yes", "string", run_ref.span, FORM_PATH),
+            LiteralExpr("no", "string", run_ref.span, FORM_PATH),
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-max":
+        expr = LoopRecurExpr(
+            call,
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            done,
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-state":
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            call,
+            "state",
+            done,
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-body":
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            call,
+            run_ref.span,
+            FORM_PATH,
+        )
+    else:
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            done,
+            run_ref.span,
+            FORM_PATH,
+            on_exhausted_result_expr=call,
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+
+
+def test_transitive_run_ref_match_discriminant_precedes_union_shape_diagnostic() -> None:
+    run_ref = _mode_one_expr()
+    union_type = _transportable_types(run_ref.span)[2]
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(
+        run_ref,
+        return_type=union_type,
+    )
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            MatchExpr(call, (), run_ref.span, FORM_PATH),
+            type_env=_type_env(union_type),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+
+
+def test_transitive_run_ref_in_list_map_effect_source_is_rejected() -> None:
+    run_ref = _mode_one_expr()
+    list_type = ListTypeRef("List[String]", PrimitiveTypeRef("String"))
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(
+        run_ref,
+        return_type=list_type,
+    )
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+    expr = ListMapEffectExpr(
+        "item",
+        call,
+        1,
+        call,
+        None,
+        None,
+        run_ref.span,
+        FORM_PATH,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+
+
+def _provider_steering_directive_type(span):
+    definition = UnionDef(
+        name="ProviderSteeringDirective",
+        variants=tuple(
+            UnionVariant(name=name, fields=(), span=span)
+            for name in ("CONTINUE", "STEER")
+        ),
+        span=span,
+    )
+    return UnionTypeRef(
+        name="ProviderSteeringDirective",
+        definition=definition,
+        variant_field_types={"CONTINUE": {}, "STEER": {}},
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ("live-settlement", "live-evaluation", "peer-settlement", "peer-evaluation"),
+)
+def test_run_ref_is_rejected_from_live_provider_evaluation_and_settlement(
+    kind: str,
+) -> None:
+    run_ref = _mode_one_expr()
+    directive = _provider_steering_directive_type(run_ref.span)
+    if kind.startswith("live-"):
+        worker_value = run_ref if kind == "live-evaluation" else NameExpr(
+            "worker_value", run_ref.span, FORM_PATH
+        )
+        expr = WithLiveProvidersExpr(
+            bindings=(
+                LiveProviderBinding(
+                    "worker", worker_value, None,
+                    run_ref.span, None, None, run_ref.span, FORM_PATH,
+                ),
+                LiveProviderBinding(
+                    "supervisor",
+                    NameExpr("supervisor_value", run_ref.span, FORM_PATH),
+                    "worker",
+                    run_ref.span,
+                    run_ref.span,
+                    run_ref.span,
+                    run_ref.span,
+                    FORM_PATH,
+                ),
+            ),
+            body=(
+                NameExpr("worker", run_ref.span, FORM_PATH)
+                if kind == "live-evaluation"
+                else run_ref
+            ),
+            span=run_ref.span,
+            form_path=FORM_PATH,
+        )
+        value_env = {
+            "worker_value": PrimitiveTypeRef("String"),
+            "supervisor_value": directive,
+        }
+    else:
+        expr = WithLiveProviderPeersExpr(
+            bindings=tuple(
+                LiveProviderPeerBinding(
+                    name,
+                    (
+                        run_ref
+                        if kind == "peer-evaluation" and name == "first"
+                        else NameExpr(f"{name}_value", run_ref.span, FORM_PATH)
+                    ),
+                    run_ref.span,
+                    run_ref.span,
+                    FORM_PATH,
+                )
+                for name in ("first", "second")
+            ),
+            body=(
+                NameExpr("second", run_ref.span, FORM_PATH)
+                if kind == "peer-evaluation"
+                else run_ref
+            ),
+            span=run_ref.span,
+            form_path=FORM_PATH,
+        )
+        value_env = {
+            "first_value": PrimitiveTypeRef("String"),
+            "second_value": PrimitiveTypeRef("String"),
+        }
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(directive),
+            value_env=value_env,
+            workflow_catalog=_catalog(run_ref),
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
+
+
+def test_run_ref_is_rejected_from_result_guidance_before_constant_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.workflow_lisp.expressions as expression_module
+    from orchestrator.workflow_lisp.result_guidance import (
+        ResultGuidance,
+        validate_result_guidance_example,
+    )
+
+    run_ref = _mode_one_expr()
+    monkeypatch.setattr(
+        expression_module,
+        "elaborate_expression",
+        lambda *args, **kwargs: run_ref,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate_result_guidance_example(
+            ResultGuidance(example_expr=_expression('"example"')),
+            expected_type=PrimitiveTypeRef("String"),
+            type_env=_type_env(),
+        )
+
+    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
+
+
+def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:
+    source = " ".join(
+        (
+            "(run-ref",
+            ':source (:repo "file:///workspace"',
+            ':commit "0123456789abcdef0123456789abcdef01234567")',
+            ':program (:path "candidate.orc" :entry candidate)',
+            ":inputs ()",
+            ":policy (:environment :deterministic-effect-free :setup ()))",
+        )
+    )
+    expr = parse_run_ref_expression(
+        _expression(source), target_dsl_version="2.24"
+    )
+    return replace(expr, returns_type_name=returns_type_name, inputs=tuple(inputs))
+
+
+@pytest.mark.parametrize("return_index", range(8))
+def test_run_ref_mode_two_resolves_every_transportable_return_refinement(
+    return_index: int,
+) -> None:
+    probe = _mode_two_expr()
+    types = _transportable_types(probe.span)
+    return_type = types[return_index]
+    expr = replace(probe, returns_type_name=return_type.name)
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(*types[1:]),
+        value_env={},
+    )
+
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    assert typed.type_ref.name.startswith("RunRefResult$")
+    assert typed.type_ref.field_types["value"] == return_type
+
+
+def test_run_ref_mode_two_defaults_value_and_merges_input_effects() -> None:
+    inner = _mode_one_expr()
+    expr = _mode_two_expr(inputs=(("seed", inner),))
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(inner),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    assert typed.type_ref.field_types["value"] == PrimitiveTypeRef("Value")
+    assert typed.effect_summary.direct_effects == frozenset(
+        {
+            RunsRefEffect(subject=("child",)),
+            RunsRefEffect(subject=("candidate",)),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "expr",
+    (
+        _mode_two_expr(returns_type_name="Json"),
+        _mode_two_expr(
+            inputs=(("payload", NameExpr("payload", _expression("payload").span, FORM_PATH)),)
+        ),
+    ),
+)
+def test_run_ref_mode_two_rejects_nontransportable_returns_and_inputs(
+    expr: RunRefExpr,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={"payload": PrimitiveTypeRef("Json")},
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_type_invalid"
+
+
+def _record_field_signature(type_ref: RecordTypeRef):
+    return tuple(
+        (field.name, type_ref.field_types[field.name].name)
+        for field in type_ref.definition.fields
+    )
+
+
+def test_run_ref_registers_exact_fixed_structural_catalog_and_wrapper() -> None:
+    expr = _mode_one_expr()
+    type_env = _type_env()
+    session = CompilerSession()
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    fixed = {
+        name: type_env.resolve_type(
+            name,
+            span=expr.span,
+            form_path=FORM_PATH,
+            session_state=session.typecheck,
+        )
+        for name in RUN_REF_FIXED_TYPE_NAMES
+    }
+    assert all(isinstance(value, RecordTypeRef) for value in fixed.values())
+    assert _record_field_signature(fixed["RepositoryRevisionId"]) == (
+        ("digest", "String"),
+        ("normalized_locator", "String"),
+        ("resolved_commit_sha", "String"),
+        ("materializer_version", "String"),
+        ("submodule_policy", "String"),
+        ("lfs_policy", "String"),
+        ("authored_setup_identity", "String"),
+    )
+    assert _record_field_signature(fixed["WorkspaceEntryDelta"]) == (
+        ("path", "String"),
+        ("kind", "String"),
+        ("mode", "Int"),
+        ("size", "Int"),
+        ("old_sha256", "Optional[String]"),
+        ("new_sha256", "Optional[String]"),
+        ("link_target", "Optional[String]"),
+    )
+    assert _record_field_signature(fixed["NormalizedTextDiffEntry"]) == (
+        ("path", "String"),
+        ("text", "String"),
+        ("truncated", "Bool"),
+        ("omitted_bytes", "Int"),
+    )
+    assert _record_field_signature(fixed["NormalizedWorkspaceDiff"]) == (
+        ("entries", "List[NormalizedTextDiffEntry]"),
+        ("catalog_digest", "String"),
+        ("truncated", "Bool"),
+        ("omitted_bytes", "Int"),
+        ("omitted_entries", "Int"),
+    )
+    assert _record_field_signature(fixed["DeclaredWorkspaceArtifact"]) == (
+        ("name", "String"),
+        ("path", "String"),
+        ("kind", "String"),
+        ("mode", "Int"),
+        ("size", "Int"),
+        ("sha256", "Optional[String]"),
+        ("link_target", "Optional[String]"),
+    )
+    assert _record_field_signature(fixed["WorkspaceDelta"]) == (
+        ("base", "RepositoryRevisionId"),
+        ("changed_files", "List[WorkspaceEntryDelta]"),
+        ("deleted_files", "List[WorkspaceEntryDelta]"),
+        ("untracked_files", "List[WorkspaceEntryDelta]"),
+        ("normalized_diff", "NormalizedWorkspaceDiff"),
+        ("declared_artifacts", "List[DeclaredWorkspaceArtifact]"),
+    )
+    assert _record_field_signature(fixed["RunRefAccounting"]) == (
+        ("child_run_id", "RunId"),
+        ("attempt_ordinal", "Int"),
+        ("terminal_status", "String"),
+        ("elapsed_ms", "Int"),
+        ("setup_ms", "Int"),
+        ("compile_ms", "Int"),
+        ("provider_attempts", "Value"),
+        ("token_usage", "Value"),
+        ("cost", "Value"),
+    )
+    assert _record_field_signature(typed.type_ref) == (
+        ("value", "String"),
+        ("workspace_delta", "WorkspaceDelta"),
+        ("accounting", "RunRefAccounting"),
+    )
+
+
+def test_run_ref_generated_name_ignores_authored_source_path() -> None:
+    left = _mode_one_expr(source_path="/clone-a/controller.orc")
+    right = _mode_one_expr(source_path="/clone-b/controller.orc")
+    left_session = CompilerSession()
+    right_session = CompilerSession()
+
+    left_typed = typecheck_expression(
+        left,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(left),
+        compiler_session=left_session,
+    )
+    right_typed = typecheck_expression(
+        right,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(right),
+        compiler_session=right_session,
+    )
+
+    assert left_typed.type_ref.name == right_typed.type_ref.name
+
+
+def test_run_ref_generated_name_binds_site_program_and_value_type() -> None:
+    base = _mode_one_expr()
+    moved = replace(
+        base,
+        span=replace(
+            base.span,
+            start=replace(base.span.start, column=base.span.start.column + 1),
+        ),
+    )
+    alternate = replace(base, program=RunRefBundleProgram("other-child"))
+    names = []
+    for expr, program_name, value_type in (
+        (base, "child", PrimitiveTypeRef("String")),
+        (moved, "child", PrimitiveTypeRef("String")),
+        (alternate, "other-child", PrimitiveTypeRef("String")),
+        (base, "child", PrimitiveTypeRef("Bool")),
+    ):
+        catalog = WorkflowCatalog(
+            signatures_by_name={
+                program_name: WorkflowSignature(
+                    name=program_name,
+                    params=(),
+                    return_type_ref=value_type,
+                    span=expr.span,
+                    form_path=FORM_PATH,
+                )
+            },
+            definitions_by_name={},
+            imported_bundles_by_name={},
+        )
+        typed = typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=catalog,
+        )
+        names.append(typed.type_ref.name)
+    assert len(set(names)) == 4
+
+
+def test_run_ref_generated_name_binds_active_canonical_caller_identity() -> None:
+    expr = _mode_one_expr()
+    names = []
+    for caller_name in ("module/first", "module/second"):
+        session = CompilerSession()
+        session.typecheck.workflow_signature = WorkflowSignature(
+            name=caller_name,
+            params=(),
+            return_type_ref=PrimitiveTypeRef("String"),
+            span=expr.span,
+            form_path=FORM_PATH,
+        )
+        typed = typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr),
+            compiler_session=session,
+        )
+        names.append(typed.type_ref.name)
+    assert names[0] != names[1]
+
+
+def test_run_ref_metadata_rolls_back_and_reuses_equal_site() -> None:
+    session = CompilerSession()
+    missing = _mode_one_expr()
+    with pytest.raises(LispFrontendCompileError):
+        typecheck_expression(
+            missing,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(
+                missing,
+                params=(("required", PrimitiveTypeRef("String")),),
+            ),
+            compiler_session=session,
+        )
+    assert session.typecheck.run_ref_metadata_by_name == {}
+    assert session.typecheck.run_ref_metadata_by_expr_key == {}
+
+    expr = _mode_one_expr()
+    first = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    second = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    assert first.type_ref.name == second.type_ref.name
+    assert len(session.typecheck.run_ref_metadata_by_name) == 1
+
+
+def test_run_ref_metadata_hydrates_another_type_environment() -> None:
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    metadata = metadata_for_run_ref_expr(
+        typed.expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata is not None
+
+    hydrated = _type_env()
+    register_all_known_run_ref_types(
+        hydrated,
+        session_state=session.typecheck,
+    )
+    assert hydrated.resolve_type(
+        typed.type_ref.name,
+        span=expr.span,
+        form_path=FORM_PATH,
+        session_state=session.typecheck,
+    ) == typed.type_ref
+
+
+def test_run_ref_metadata_collision_fails_closed_and_restores_session() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    metadata = session.typecheck.run_ref_metadata_by_name[typed.type_ref.name]
+    conflicting = replace(metadata, site_digest="0" * 64)
+    session.typecheck.run_ref_metadata_by_name[typed.type_ref.name] = conflicting
+    session.typecheck.run_ref_metadata_by_expr_key[metadata.expression_key][
+        metadata.type_signature
+    ] = conflicting
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr),
+            compiler_session=session,
+        )
+    assert session.typecheck.run_ref_metadata_by_name[typed.type_ref.name] is conflicting
+
+
+def test_run_ref_metadata_merge_accepts_equivalent_and_rejects_conflict() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+        merge_successful_session_outputs,
+        snapshot_session_state,
+    )
+
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    outer = snapshot_session_state(session.typecheck)
+    independent_session = CompilerSession()
+    typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=independent_session,
+    )
+    equivalent = snapshot_session_state(independent_session.typecheck)
+    merged = merge_successful_session_outputs(outer, equivalent)
+    assert merged.run_ref_metadata_by_name == outer.run_ref_metadata_by_name
+
+    conflicting = snapshot_session_state(session.typecheck)
+    metadata = conflicting.run_ref_metadata_by_name[typed.type_ref.name]
+    replacement = replace(metadata, site_digest="f" * 64)
+    conflicting.run_ref_metadata_by_name[typed.type_ref.name] = replacement
+    conflicting.run_ref_metadata_by_expr_key[metadata.expression_key][
+        metadata.type_signature
+    ] = replacement
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        merge_successful_session_outputs(outer, conflicting)
+
+
+def test_run_ref_metadata_merge_rejects_changed_hydration_vector() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+        merge_successful_session_outputs,
+        snapshot_session_state,
+    )
+
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    outer = snapshot_session_state(session.typecheck)
+    changed = snapshot_session_state(session.typecheck)
+    metadata = changed.run_ref_metadata_by_name[typed.type_ref.name]
+    replacement = replace(
+        metadata,
+        compiler_owned_types=metadata.compiler_owned_types[:-1],
+    )
+    changed.run_ref_metadata_by_name[typed.type_ref.name] = replacement
+    changed.run_ref_metadata_by_expr_key[metadata.expression_key][
+        metadata.type_signature
+    ] = replacement
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        merge_successful_session_outputs(outer, changed)
+
+
+def test_run_ref_compiler_type_rejects_shape_equal_unowned_binding() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    expr = _mode_one_expr()
+    owned_env = _type_env()
+    owned_session = CompilerSession()
+    typecheck_expression(
+        expr,
+        type_env=owned_env,
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=owned_session,
+    )
+    register_all_known_run_ref_types(
+        owned_env,
+        session_state=owned_session.typecheck,
+    )
+    shape_equal_unowned = owned_env._type_refs["WorkspaceDelta"]
+    unowned_env = _type_env(shape_equal_unowned)
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        typecheck_expression(
+            expr,
+            type_env=unowned_env,
+            value_env={},
+            workflow_catalog=_catalog(expr),
+        )
+
+
+@pytest.mark.parametrize("missing_name", ("Value", "RunId"))
+def test_run_ref_fixed_catalog_rejects_missing_target_primitive(
+    missing_name: str,
+) -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    expr = _mode_one_expr()
+    type_env = _type_env()
+    del type_env._type_refs[missing_name]
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        typecheck_expression(
+            expr,
+            type_env=type_env,
+            value_env={},
+            workflow_catalog=_catalog(expr),
+        )
+
+
+@pytest.mark.parametrize(
+    "primitive_name",
+    ("String", "Int", "Bool", "Value", "RunId"),
+)
+def test_run_ref_fixed_catalog_and_result_contract_reject_enum_like_primitives(
+    primitive_name: str,
+) -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    malformed = PrimitiveTypeRef(
+        name=primitive_name,
+        allowed_values=("MALFORMED",),
+    )
+    type_env = _type_env()
+    type_env._type_refs[primitive_name] = malformed
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        compiler_run_ref_fixed_types(type_env)
+
+    expr = _mode_one_expr()
+    _, result_type, contract_env = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    contract_env._type_refs[primitive_name] = malformed
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        derive_run_ref_result_contract(
+            result_type,
+            type_env=contract_env,
+        )
+
+
+def test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    mismatched = PrimitiveTypeRef("NotString")
+    type_env = _type_env()
+    type_env._type_refs["String"] = mismatched
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        compiler_run_ref_fixed_types(type_env)
+
+    expr = _mode_one_expr()
+    _, result_type, contract_env = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    contract_env._type_refs["String"] = mismatched
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        derive_run_ref_result_contract(
+            result_type,
+            type_env=contract_env,
+        )
+
+
+def test_run_ref_nested_late_failure_rolls_back_session_and_type_environment() -> None:
+    run_ref = _mode_one_expr()
+    outer = IfExpr(
+        condition_expr=LiteralExpr(True, "bool", run_ref.span, FORM_PATH),
+        then_expr=run_ref,
+        else_expr=LiteralExpr("mismatch", "string", run_ref.span, FORM_PATH),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    type_env = _type_env()
+    session = CompilerSession()
+    original_types = dict(type_env._type_refs)
+    original_owned_names = set(type_env._compiler_owned_type_names)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            outer,
+            type_env=type_env,
+            value_env={},
+            workflow_catalog=_catalog(run_ref),
+            compiler_session=session,
+        )
+    assert excinfo.value.diagnostics[0].code == "type_mismatch"
+    assert session.typecheck.run_ref_metadata_by_name == {}
+    assert session.typecheck.run_ref_metadata_by_expr_key == {}
+    assert type_env._type_refs == original_types
+    assert type_env._compiler_owned_type_names == original_owned_names
+
+
+def test_run_ref_success_resolves_without_mutation_then_hydrates_explicitly() -> None:
+    expr = _mode_one_expr()
+    type_env = _type_env()
+    session = CompilerSession()
+    original_types = dict(type_env._type_refs)
+    original_owned_names = set(type_env._compiler_owned_type_names)
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    assert type_env._type_refs == original_types
+    assert type_env._compiler_owned_type_names == original_owned_names
+    assert type_env.resolve_type(
+        typed.type_ref.name,
+        span=expr.span,
+        form_path=FORM_PATH,
+        session_state=session.typecheck,
+    ) == typed.type_ref
+    assert type_env._type_refs == original_types
+    assert type_env._compiler_owned_type_names == original_owned_names
+
+    register_all_known_run_ref_types(
+        type_env,
+        session_state=session.typecheck,
+    )
+    assert typed.type_ref.name in type_env._compiler_owned_type_names
+    assert type_env._type_refs[typed.type_ref.name] == typed.type_ref
+
+
+def _typed_run_ref_for_wcc(
+    expr,
+    *,
+    params=(),
+    return_type=None,
+    extra_types=(),
+    value_env=None,
+):
+    type_env = _type_env(*extra_types)
+    session = CompilerSession()
+    resolved_value_env = dict(value_env or {})
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env=resolved_value_env,
+        workflow_catalog=_catalog(
+            expr,
+            params=params,
+            return_type=return_type,
+        ),
+        compiler_session=session,
+    )
+    type_env.session_state = session.typecheck
+    return typed, type_env, session, resolved_value_env
+
+
+def _wcc_run_ref_body(typed, *, type_env, value_env=None):
+    return elaborate_typed_workflow_body(
+        typed,
+        owner_name="run-ref-test",
+        type_env=type_env,
+        value_env=dict(value_env or {}),
+        route_schema_version="wcc_m4",
+    )
+
+
+def _wcc_run_ref_perform(typed, *, type_env, value_env=None) -> WccPerform:
+    body = _wcc_run_ref_body(
+        typed,
+        type_env=type_env,
+        value_env=value_env,
+    )
+    assert isinstance(body, WccLet)
+    assert isinstance(body.bound_value, WccPerform)
+    assert isinstance(body.body, WccHalt)
+    return body.bound_value
+
+
+def test_run_ref_exact_metadata_resolver_cross_validates_both_registries() -> None:
+    expr = _mode_one_expr()
+    typed, _, session, _ = _typed_run_ref_for_wcc(expr)
+
+    metadata = resolve_run_ref_site_metadata(
+        expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata.generated_type_name == typed.type_ref.name
+
+    session.typecheck.run_ref_metadata_by_name.pop(metadata.generated_type_name)
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_run_ref_site_metadata(
+            expr,
+            result_type=typed.type_ref,
+            session_state=session.typecheck,
+        )
+
+
+def test_run_ref_exact_metadata_resolver_rejects_ambiguous_or_inconsistent_rows() -> None:
+    expr = _mode_one_expr()
+    typed, _, session, _ = _typed_run_ref_for_wcc(expr)
+    metadata = metadata_for_run_ref_expr(
+        expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata is not None
+    rows = session.typecheck.run_ref_metadata_by_expr_key[metadata.expression_key]
+    rows["ambiguous"] = replace(metadata, type_signature="ambiguous")
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_run_ref_site_metadata(
+            expr,
+            result_type=typed.type_ref,
+            session_state=session.typecheck,
+        )
+
+    rows.pop("ambiguous")
+    rows[metadata.type_signature] = replace(metadata, site_digest="f" * 64)
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_run_ref_site_metadata(
+            expr,
+            result_type=typed.type_ref,
+            session_state=session.typecheck,
+        )
+
+
+def test_wcc_run_ref_payload_is_closed_frozen_and_keeps_dynamic_inputs_out() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("second", LiteralExpr(2, "int", span, FORM_PATH)),
+            ("first", LiteralExpr("one", "string", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("second", PrimitiveTypeRef("Int")),
+            ("first", PrimitiveTypeRef("String")),
+        ),
+    )
+
+    perform = _wcc_run_ref_perform(typed, type_env=type_env)
+
+    assert perform.perform_kind == "run_ref"
+    assert isinstance(perform.operation_payload, WccRunRefPayload)
+    payload = perform.operation_payload
+    assert tuple(name for name, _ in perform.keyword_args) == ("second", "first")
+    assert tuple(name for name, _ in payload.input_type_descriptors) == (
+        "second",
+        "first",
+    )
+    assert not any(isinstance(value, RunRefExpr) for value in vars(payload).values())
+    assert not any(
+        value is dynamic
+        for value in vars(payload).values()
+        for _, dynamic in perform.keyword_args
+    )
+    with pytest.raises(FrozenInstanceError):
+        payload.site_digest = "f" * 64
+
+    descriptor = payload.result_descriptor
+    descriptor["schema"] = "changed"
+    assert payload.result_descriptor["schema"] == RUN_REF_RESULT_CONTRACT_SCHEMA
+
+    input_descriptors = payload.input_type_descriptors
+    input_descriptors[0][1]["kind"] = "changed"
+    assert payload.input_type_descriptors[0][1]["kind"] == "primitive"
+
+    assert _substitute_wcc_payload(payload, {}) is payload
+
+
+def test_wcc_run_ref_elaboration_rejects_inconsistent_typed_metadata() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, session, _ = _typed_run_ref_for_wcc(expr)
+    metadata = metadata_for_run_ref_expr(
+        expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata is not None
+    rows = session.typecheck.run_ref_metadata_by_expr_key[metadata.expression_key]
+    rows[metadata.type_signature] = replace(metadata, site_digest="f" * 64)
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        _wcc_run_ref_perform(typed, type_env=type_env)
+
+
+def test_wcc_path_payload_preserves_omitted_vs_explicit_value_refinement() -> None:
+    omitted = _mode_two_expr()
+    explicit = _mode_two_expr(returns_type_name="Value")
+
+    omitted_typed, omitted_env, _, _ = _typed_run_ref_for_wcc(omitted)
+    explicit_typed, explicit_env, _, _ = _typed_run_ref_for_wcc(explicit)
+    omitted_payload = _wcc_run_ref_perform(
+        omitted_typed,
+        type_env=omitted_env,
+    ).operation_payload
+    explicit_payload = _wcc_run_ref_perform(
+        explicit_typed,
+        type_env=explicit_env,
+    ).operation_payload
+
+    assert isinstance(omitted_payload, WccRunRefPayload)
+    assert isinstance(explicit_payload, WccRunRefPayload)
+    assert omitted_payload.program.return_refinement is None
+    assert explicit_payload.program.return_refinement == {
+        "kind": "primitive",
+        "name": "Value",
+    }
+    assert omitted_payload.program.record != explicit_payload.program.record
+
+    with pytest.raises(ValueError):
+        WccRunRefPayload(
+            source=omitted_payload.source,
+            program=type(omitted_payload.program)(
+                path=omitted_payload.program.path,
+                entry_name=omitted_payload.program.entry_name,
+                return_refinement={"kind": "primitive", "name": "String"},
+            ),
+            site_digest=omitted_payload.site_digest,
+            generated_result_type=omitted_payload.generated_result_type,
+            result_descriptor=omitted_payload.result_descriptor,
+            result_digest=omitted_payload.result_digest,
+            input_type_descriptors=omitted_payload.input_type_descriptors,
+        )
+
+
+def test_wcc_run_ref_elaborates_in_let_and_match_arm_positions() -> None:
+    run_ref = _mode_one_expr()
+    let_expr = LetStarExpr(
+        bindings=(("child_result", run_ref),),
+        body=NameExpr("child_result", run_ref.span, FORM_PATH),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    let_typed, let_env, _, _ = _typed_run_ref_for_wcc(let_expr)
+    let_body = _wcc_run_ref_body(let_typed, type_env=let_env)
+
+    assert isinstance(let_body, WccLet)
+    assert isinstance(let_body.bound_value, WccPerform)
+    assert let_body.bound_value.perform_kind == "run_ref"
+
+    union_type = _transportable_types(run_ref.span)[2]
+    match_expr = MatchExpr(
+        subject=NameExpr("subject", run_ref.span, FORM_PATH),
+        arms=(
+            MatchArm(
+                variant_name="OK",
+                binding_name="case",
+                body=run_ref,
+                span=run_ref.span,
+                form_path=FORM_PATH,
+            ),
+        ),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    match_typed, match_env, _, value_env = _typed_run_ref_for_wcc(
+        match_expr,
+        extra_types=(union_type,),
+        value_env={"subject": union_type},
+    )
+    match_body = _wcc_run_ref_body(
+        match_typed,
+        type_env=match_env,
+        value_env=value_env,
+    )
+
+    assert isinstance(match_body, WccCase)
+    assert len(match_body.arms) == 1
+    assert isinstance(match_body.arms[0].body, WccLet)
+    assert isinstance(match_body.arms[0].body.bound_value, WccPerform)
+    assert match_body.arms[0].body.bound_value.perform_kind == "run_ref"
+
+
+def test_wcc_run_ref_defunctionalizes_through_shared_lowering_leaf() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    perform = _wcc_run_ref_perform(typed, type_env=type_env)
+    context = _run_ref_lowering_context(type_env)
+
+    steps, terminal = wcc_defunctionalize._lower_effectful_binding(
+        perform,
+        binding_type=typed.type_ref,
+        context=context,
+        local_values={},
+    )
+
+    [step] = steps
+    assert step["run_ref"].site_digest == perform.operation_payload.site_digest
+    assert terminal.step_id == step["id"]
+    assert len(context.generated_path_allocations) == 1
+    assert len(context.generated_semantic_effects) == 1
+
+
+def test_wcc_run_ref_defunctionalization_rejects_missing_typed_payload_atomically() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    perform = replace(
+        _wcc_run_ref_perform(typed, type_env=type_env),
+        operation_payload=None,
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(TypeError, match="run-ref.*typed payload"):
+        wcc_defunctionalize._lower_effectful_binding(
+            perform,
+            binding_type=typed.type_ref,
+            context=context,
+            local_values={},
+        )
+
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+
+
+def test_wcc_run_ref_defunctionalization_rejects_input_order_drift_atomically() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("first", LiteralExpr("one", "string", span, FORM_PATH)),
+            ("second", LiteralExpr(2, "int", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("first", PrimitiveTypeRef("String")),
+            ("second", PrimitiveTypeRef("Int")),
+        ),
+    )
+    perform = _wcc_run_ref_perform(typed, type_env=type_env)
+    drifted = replace(
+        perform,
+        keyword_args=tuple(reversed(perform.keyword_args)),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(TypeError, match="input atoms.*payload order"):
+        wcc_defunctionalize._lower_effectful_binding(
+            drifted,
+            binding_type=typed.type_ref,
+            context=context,
+            local_values={},
+        )
+
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+
+
+def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> None:
+    source_path = tmp_path / "run_ref_public_build.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.24")
+  (defmodule run_ref_public_build)
+  (export entry)
+  (defrecord ProjectedInput
+    (value String))
+  (defworkflow child ((payload ProjectedInput)) -> String
+    payload.value)
+  (defworkflow entry () -> String
+    (let* ((trial
+             (run-ref
+               :source (:repo "file:///workspace"
+                        :commit "0123456789abcdef0123456789abcdef01234567")
+               :program (:bundle child)
+               :inputs (:payload
+                         (record ProjectedInput
+                           :value (string/concat "child-" "result")))
+               :policy (:setup ()))))
+      trial.value)))
+""",
+        encoding="utf-8",
+    )
+
+    result = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+    )
+
+    run_ref_nodes = [
+        node
+        for node in result.validated_bundle.ir.nodes.values()
+        if node.kind.value == "run_ref"
+    ]
+    assert len(run_ref_nodes) == 1
+    run_ref_node = run_ref_nodes[0]
+    assert isinstance(
+        run_ref_node.execution_config,
+        executable_ir_module.RunRefStepConfig,
+    )
+    assert run_ref_node.execution_config.run_ref.program.record == {
+        "mode": "bundle",
+        "workflow_name": "run_ref_public_build::child",
+    }
+
+    semantic_effects = [
+        effect
+        for effect in result.validated_bundle.semantic_ir.effects.values()
+        if effect.effect_kind in {"pure_projection", "run_ref"}
+    ]
+    assert sorted(effect.effect_kind for effect in semantic_effects) == [
+        "pure_projection",
+        "run_ref",
+    ]
+    semantic_workflow = result.validated_bundle.semantic_ir.workflows[
+        result.selected_workflow_name
+    ]
+    for effect in semantic_effects:
+        assert effect.effect_id in next(
+            statement.effect_ids
+            for statement in semantic_workflow.statements.values()
+            if effect.effect_id in statement.effect_ids
+        )
+    assert result.manifest.source_map_coverage is not None
+    assert set(result.manifest.source_map_coverage.values()) == {"covered"}
+
+    run_ref_points = [
+        point
+        for point in result.validated_bundle.runtime_plan.lexical_checkpoint_points
+        if point.details.get("step_kind") == "run_ref"
+    ]
+    assert len(run_ref_points) == 1
+    point = run_ref_points[0]
+    config_digest = run_ref_node.execution_config.run_ref.digest
+    assert point.details["executable_identity"][
+        "identity_component_digest"
+    ] == config_digest
+    policy = point.details["effect_boundary"]["policy"]
+    assert policy["policy_kind"] == "reuse_validated_run_ref_result"
+    assert policy["effect_kind"] == "run_ref"
+    assert policy["boundary_kind"] == "run_ref"
+    assert policy["unsafe_pending_behavior"] == "fail_closed"
+    assert policy["evidence_requirements"] == {
+        "run_ref_result": {"step_config_digest": config_digest}
+    }
+    checkpoint_policy_module.validate_effect_resume_policy(
+        policy,
+        expected_origin_key=point.origin_key,
+    )
+
+    identity = lexical_checkpoints_module.checkpoint_runtime_program_identity(
+        state_manager=SimpleNamespace(
+            calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+        ),
+        runtime_plan=result.validated_bundle.runtime_plan,
+        workflow_path=source_path,
+        executable_ir=result.validated_bundle.ir,
+    )
+    assert identity["executable_ir_digest"].startswith("sha256:")
+
+    runtime_node = result.validated_bundle.runtime_plan.nodes[
+        run_ref_node.node_id
+    ]
+    finalization_plan = replace(
+        result.validated_bundle.runtime_plan,
+        nodes=MappingProxyType(
+            {
+                **result.validated_bundle.runtime_plan.nodes,
+                run_ref_node.node_id: replace(
+                    runtime_node,
+                    kind="finalization_step",
+                    region="finalization",
+                ),
+            }
+        ),
+    )
+    lexical_checkpoints_module.checkpoint_runtime_program_identity(
+        state_manager=SimpleNamespace(
+            calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+        ),
+        runtime_plan=finalization_plan,
+        workflow_path=source_path,
+        executable_ir=result.validated_bundle.ir,
+    )
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_program_identity_mismatch",
+    ):
+        lexical_checkpoints_module.checkpoint_runtime_program_identity(
+            state_manager=SimpleNamespace(
+                calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+            ),
+            runtime_plan=replace(
+                finalization_plan,
+                lexical_checkpoint_points=(),
+            ),
+            workflow_path=source_path,
+            executable_ir=result.validated_bundle.ir,
+        )
+
+    persisted_points = json.loads(
+        result.artifact_paths["lexical_checkpoint_points"].read_text(
+            encoding="utf-8"
+        )
+    )
+    persisted_runtime_plan = json.loads(
+        result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")
+    )
+    persisted_semantic_ir = json.loads(
+        result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    )
+    persisted_source_map = json.loads(
+        result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    )
+    persisted_runtime_plan["nodes"][run_ref_node.node_id]["kind"] = (
+        "finalization_step"
+    )
+    persisted_runtime_plan["nodes"][run_ref_node.node_id]["region"] = (
+        "finalization"
+    )
+    persisted_points["program_identity"]["executable_ir_digest"] = (
+        sha256_json(persisted_runtime_plan)
+    )
+    build_artifacts_module._validate_lexical_checkpoint_artifacts(
+        persisted_points,
+        validated_bundle=result.validated_bundle,
+        semantic_ir_payload=persisted_semantic_ir,
+        runtime_plan_payload=persisted_runtime_plan,
+        source_map_payload=persisted_source_map,
+    )
+    missing_finalization_point = deepcopy(persisted_points)
+    missing_finalization_point["points"] = []
+    with pytest.raises(
+        ValueError,
+        match="lexical checkpoint executable identity drift",
+    ):
+        build_artifacts_module._validate_lexical_checkpoint_artifacts(
+            missing_finalization_point,
+            validated_bundle=result.validated_bundle,
+            semantic_ir_payload=persisted_semantic_ir,
+            runtime_plan_payload=persisted_runtime_plan,
+            source_map_payload=persisted_source_map,
+        )
+
+    point_details = dict(point.details)
+    point_details["executable_identity"] = {
+        **dict(point.details["executable_identity"]),
+        "identity_component_digest": "sha256:" + "0" * 64,
+    }
+    tampered_point = replace(point, details=point_details)
+    missing_component_details = dict(point.details)
+    missing_component_identity = dict(point.details["executable_identity"])
+    missing_component_identity.pop("identity_component_digest")
+    missing_component_details["executable_identity"] = missing_component_identity
+    missing_component_point = replace(
+        point,
+        details=missing_component_details,
+    )
+    for lexical_points in (
+        (tampered_point,),
+        (missing_component_point,),
+        (),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="lexical_checkpoint_program_identity_mismatch",
+        ):
+            lexical_checkpoints_module.checkpoint_runtime_program_identity(
+                state_manager=SimpleNamespace(
+                    calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+                ),
+                runtime_plan=replace(
+                    result.validated_bundle.runtime_plan,
+                    lexical_checkpoint_points=lexical_points,
+                ),
+                workflow_path=source_path,
+                executable_ir=result.validated_bundle.ir,
+            )
+
+    point_payload = lexical_checkpoints_module._point_payload(point)
+    empty_record = {
+        "completed_effect_refs": [],
+        "validity_envelope": {
+            "completed_effect_refs_digest": (
+                lexical_checkpoints_module._completed_effect_refs_digest(())
+            )
+        },
+    }
+    lexical_checkpoints_module._validate_completed_effect_refs(
+        empty_record,
+        expected_point=point_payload,
+    )
+    forged_record = {
+        "completed_effect_refs": [
+            {
+                "effect_ref_schema_version": "workflow_lisp_completed_effect_ref.v1",
+                "effect_kind": "run_ref",
+                "step_id": point.step_id,
+                "status": "completed",
+                "source_map_origin_key": point.origin_key,
+                "evidence_kind": "run_ref_result",
+                "step_config_digest": config_digest,
+            }
+        ],
+    }
+    forged_record["validity_envelope"] = {
+        "completed_effect_refs_digest": (
+            lexical_checkpoints_module._completed_effect_refs_digest(
+                tuple(forged_record["completed_effect_refs"])
+            )
+        )
+    }
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
+    ):
+        lexical_checkpoints_module._validate_completed_effect_refs(
+            forged_record,
+            expected_point=point_payload,
+        )
+
+    runtime_step = RuntimeStep(
+        node=run_ref_node,
+        name=point.presentation_key,
+        step_id=point.step_id,
+        target_dsl_version=result.validated_bundle.ir.version,
+    )
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
+    ):
+        lexical_checkpoints_module.collect_completed_effect_refs(
+            SimpleNamespace(
+                state_manager=SimpleNamespace(state={"steps": {}}),
+                _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+            ),
+            point=point,
+            committed_step_state={
+                "status": "completed",
+                "step_id": point.step_id,
+            },
+        )
+
+    run_workspace = tmp_path / "run"
+    run_workspace.mkdir()
+    state_manager = StateManager(
+        run_workspace,
+        run_id="run-ref-pending-checkpoint",
+    )
+    state_manager.initialize(str(source_path))
+    checkpoint_executor = SimpleNamespace(
+        runtime_plan=result.validated_bundle.runtime_plan,
+        state_manager=state_manager,
+        loaded_bundle=result.validated_bundle,
+        workspace=run_workspace,
+        _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+    )
+    record = lexical_checkpoints_module.emit_runtime_shadow_record(
+        executor=checkpoint_executor,
+        step_id=point.step_id,
+        execution_index=result.validated_bundle.runtime_plan.nodes[
+            run_ref_node.node_id
+        ].execution_index,
+        visit_count=1,
+    )
+    assert record is not None
+    assert record["completed_effect_refs"] == []
+
+    decision = checkpoint_restore_module.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=result.validated_bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=result.validated_bundle.ir,
+        loaded_workflow=result.validated_bundle,
+    )
+    assert decision.kind == checkpoint_restore_module.RESTORE_DECISION_NOT_RESTORABLE
+    assert decision.policy_decision is None
+    assert decision.diagnostics == (
+        checkpoint_restore_module.DIAGNOSTIC_CODES.pending_effect_unsafe,
+    )
+
+
+@pytest.mark.parametrize(
+    ("step_config_digest", "diagnostic"),
+    (
+        (None, "lexical_checkpoint_effect_policy_evidence_missing"),
+        ("", "lexical_checkpoint_effect_policy_run_ref_result_invalid"),
+        (
+            "sha256:not-a-digest",
+            "lexical_checkpoint_effect_policy_run_ref_result_invalid",
+        ),
+        (
+            "sha256:" + "A" * 64,
+            "lexical_checkpoint_effect_policy_run_ref_result_invalid",
+        ),
+    ),
+)
+def test_run_ref_checkpoint_policy_rejects_missing_or_malformed_config_digest(
+    step_config_digest: str | None,
+    diagnostic: str,
+) -> None:
+    requirement = {}
+    if step_config_digest is not None:
+        requirement["step_config_digest"] = step_config_digest
+    policy = {
+        "schema_version": "workflow_lisp_effect_resume_policy.v1",
+        "policy_kind": "reuse_validated_run_ref_result",
+        "effect_kind": "run_ref",
+        "boundary_kind": "run_ref",
+        "step_id": "root.reference",
+        "source_map_origin_key": "source:run-ref",
+        "evidence_requirements": {"run_ref_result": requirement},
+        "unsafe_pending_behavior": "fail_closed",
+    }
+    policy["policy_digest"] = (
+        checkpoint_policy_module.derive_effect_resume_policy_digest(policy)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=diagnostic,
+    ):
+        checkpoint_policy_module.validate_effect_resume_policy(policy)
+
+
+def test_run_ref_checkpoint_policy_requires_result_evidence_contract() -> None:
+    policy = {
+        "schema_version": "workflow_lisp_effect_resume_policy.v1",
+        "policy_kind": "reuse_validated_run_ref_result",
+        "effect_kind": "run_ref",
+        "boundary_kind": "run_ref",
+        "step_id": "root.reference",
+        "source_map_origin_key": "source:run-ref",
+        "evidence_requirements": {},
+        "unsafe_pending_behavior": "fail_closed",
+    }
+    policy["policy_digest"] = (
+        checkpoint_policy_module.derive_effect_resume_policy_digest(policy)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_evidence_missing",
+    ):
+        checkpoint_policy_module.validate_effect_resume_policy(policy)
+
+
+def _lowerable_run_ref(typed, *, type_env, value_env=None) -> LowerableRunRef:
+    assert isinstance(typed.expr, RunRefExpr)
+    perform = _wcc_run_ref_perform(
+        typed,
+        type_env=type_env,
+        value_env=value_env,
+    )
+    assert isinstance(perform.operation_payload, WccRunRefPayload)
+    metadata = metadata_for_run_ref_expr(
+        typed.expr,
+        result_type=typed.type_ref,
+        session_state=type_env.session_state,
+    )
+    assert metadata is not None
+    descriptors = dict(perform.operation_payload.input_type_descriptors)
+    return LowerableRunRef(
+        payload=perform.operation_payload,
+        inputs=tuple(
+            LowerableRunRefInput(
+                name=name,
+                value_expr=value_expr,
+                type_ref=input_type,
+                type_descriptor=descriptors[name],
+            )
+            for (name, value_expr), (_, input_type) in zip(
+                typed.expr.inputs,
+                metadata.input_types,
+                strict=True,
+            )
+        ),
+        span=typed.expr.span,
+        form_path=typed.expr.form_path,
+        expansion_stack=typed.expr.expansion_stack,
+    )
+
+
+def _run_ref_lowering_context(type_env, *, lowering_session=None):
+    return SimpleNamespace(
+        workflow_name="parent",
+        step_name_prefix="parent__candidate",
+        lowering_schema_version=2,
+        type_env=type_env,
+        output_target_dsl_version=type_env.target_dsl_version,
+        lowering_session=lowering_session or LoweringSessionState(),
+        generated_path_allocations=[],
+        generated_path_spans={},
+        generated_semantic_effects=[],
+        step_spans={},
+        local_type_bindings={},
+        origin_notes=(),
+        source_read_trace=None,
+        normalize_generated_step_id=lambda name: name,
+    )
+
+
+def _surface_run_ref_config(
+    *,
+    compiler_identity_digit: str = "f",
+) -> RunRefStaticConfig:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=_run_ref_lowering_context(type_env),
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + compiler_identity_digit * 64
+        ),
+    )
+    config = steps[-1]["run_ref"]
+    assert type(config) is RunRefStaticConfig
+    return config
+
+
+def _surface_mapping_with_run_ref(
+    config: RunRefStaticConfig,
+    *,
+    version: str = "2.24",
+    nested: bool = False,
+) -> dict[str, object]:
+    run_ref_step = {
+        "name": "RunChild",
+        "id": "run_child",
+        "run_ref": config,
+    }
+    steps: list[dict[str, object]] = [run_ref_step]
+    if nested:
+        steps = [
+            {
+                "name": "Container",
+                "id": "container",
+                "for_each": {
+                    "items": ["one"],
+                    "as": "item",
+                    "steps": [run_ref_step],
+                },
+            }
+        ]
+    return {
+        "version": version,
+        "name": "generated-run-ref",
+        "steps": steps,
+    }
+
+
+def test_generated_run_ref_mapping_elaborates_exact_typed_surface_config() -> None:
+    config = _surface_run_ref_config()
+
+    surface = elaborate_surface_workflow(
+        _surface_mapping_with_run_ref(config),
+        workflow_path=Path("/tmp/generated-run-ref.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+
+    assert surface is not None
+    assert len(surface.steps) == 1
+    [step] = surface.steps
+    assert step.kind is SurfaceStepKind.RUN_REF
+    assert type(step.run_ref) is RunRefStaticConfig
+    assert step.run_ref == config
+    assert step.run_ref.record == config.record
+    assert step.provider is None
+    assert step.command == ()
+
+
+def test_surface_run_ref_kind_and_config_pair_exactly() -> None:
+    config = _surface_run_ref_config()
+
+    with pytest.raises(ValueError, match="run_ref.*pair"):
+        SurfaceStep(
+            name="Missing",
+            step_id="root.missing",
+            kind=SurfaceStepKind.RUN_REF,
+        )
+    with pytest.raises(ValueError, match="run_ref.*pair"):
+        SurfaceStep(
+            name="WrongKind",
+            step_id="root.wrong_kind",
+            kind=SurfaceStepKind.ASSERT,
+            run_ref=config,
+        )
+    with pytest.raises(TypeError, match="static config authority"):
+        SurfaceStep(
+            name="WrongValue",
+            step_id="root.wrong_value",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=object(),
+        )
+
+    tampered = deepcopy(config)
+    object.__setattr__(tampered, "digest", "sha256:" + "0" * 64)
+    with pytest.raises(ValueError, match="canonical bytes"):
+        SurfaceStep(
+            name="Tampered",
+            step_id="root.tampered",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=tampered,
+        )
+
+
+@pytest.mark.parametrize(
+    "version",
+    (
+        "2.24.-1",
+        "3.-999",
+        "2.24.",
+        "2..24",
+        "02.24",
+        "2.024",
+        "+2.24",
+    ),
+)
+def test_direct_surface_run_ref_rejects_noncanonical_target_components(
+    version: str,
+) -> None:
+    step = SurfaceStep(
+        name="RunChild",
+        step_id="root.run_child",
+        kind=SurfaceStepKind.RUN_REF,
+        run_ref=_surface_run_ref_config(),
+    )
+
+    with pytest.raises(ValueError, match="target DSL version is invalid"):
+        SurfaceWorkflow(
+            version=version,
+            name="invalid-run-ref-target",
+            steps=(step,),
+            provenance=WorkflowProvenance(
+                workflow_path=Path("/tmp/invalid-run-ref-target.orc"),
+                source_root=Path("/tmp"),
+            ),
+        )
+
+
+@pytest.mark.parametrize("version", ("2.24", "2.25", "2.24.0", "3.0"))
+def test_direct_surface_run_ref_accepts_canonical_target_2_24_or_later(
+    version: str,
+) -> None:
+    workflow = SurfaceWorkflow(
+        version=version,
+        name="valid-run-ref-target",
+        steps=(
+            SurfaceStep(
+                name="RunChild",
+                step_id="root.run_child",
+                kind=SurfaceStepKind.RUN_REF,
+                run_ref=_surface_run_ref_config(),
+            ),
+        ),
+        provenance=WorkflowProvenance(
+            workflow_path=Path("/tmp/valid-run-ref-target.orc"),
+            source_root=Path("/tmp"),
+        ),
+    )
+
+    assert workflow.version == version
+
+
+@pytest.mark.parametrize(
+    ("carrier_name", "carrier_kwargs"),
+    (
+        ("provider", {"provider": "provider"}),
+        ("command", {"command": ("python",)}),
+        ("provider_supervision", {"provider_supervision": {"worker": "w"}}),
+        ("provider_peer_group", {"provider_peer_group": {"members": ()}}),
+        ("adjudicated_provider", {"adjudicated_provider": {"candidates": ()}}),
+        ("wait_for", {"wait_for": {"condition": "ready"}}),
+        ("assert", {"assert_predicate": {"equals": True}}),
+        ("set_scalar", {"set_scalar": {"value": 1}}),
+        ("resource_transition", {"resource_transition": {"resource": "r"}}),
+        ("pure_projection", {"pure_projection": {"payload": {}}}),
+        ("materialize_view", {"materialize_view": {"renderer": "r"}}),
+        ("increment_scalar", {"increment_scalar": {"by": 1}}),
+        ("materialize_artifacts", {"materialize_artifacts": {"values": ()}}),
+        ("select_variant_output", {"select_variant_output": {"variant": "OK"}}),
+        ("call", {"call_alias": "child"}),
+        ("call_bindings", {"call_bindings": {"value": "input"}}),
+        ("if", {"if_condition": {"equals": True}}),
+        ("then", {"then_branch": object()}),
+        ("else", {"else_branch": object()}),
+        ("match", {"match_ref": "inputs.choice"}),
+        ("match_cases", {"match_cases": {"OK": object()}}),
+        ("for_each_items", {"for_each_items": ("one",)}),
+        ("for_each_items_from", {"for_each_items_from": "inputs.items"}),
+        ("for_each_item_name", {"for_each_item_name": "candidate"}),
+        ("for_each_steps", {"for_each_steps": (object(),)}),
+        ("repeat_until", {"repeat_until": object()}),
+    ),
+)
+def test_direct_surface_run_ref_rejects_conflicting_operation_carrier(
+    carrier_name: str,
+    carrier_kwargs: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match=rf"run_ref.*{carrier_name}"):
+        SurfaceStep(
+            name="RunChild",
+            step_id="root.run_child",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=_surface_run_ref_config(),
+            **carrier_kwargs,
+        )
+
+
+def test_direct_surface_run_ref_allows_common_and_provenance_metadata() -> None:
+    marker = object()
+
+    step = SurfaceStep(
+        name="RunChild",
+        step_id="root.run_child",
+        kind=SurfaceStepKind.RUN_REF,
+        authored_id="run_child",
+        common=SurfaceStepCommonConfig(
+            expected_outputs=({"name": "value"},),
+            timeout_sec=30,
+        ),
+        when_predicate=marker,
+        references=(marker,),
+        run_ref=_surface_run_ref_config(),
+    )
+
+    assert step.common.timeout_sec == 30
+    assert step.when_predicate is marker
+    assert step.references == (marker,)
+
+
+def test_generated_run_ref_mapping_rejects_ambiguous_operation_kind() -> None:
+    config = _surface_run_ref_config()
+    mapping = _surface_mapping_with_run_ref(config)
+    mapping["steps"][0]["provider"] = "provider"
+
+    with pytest.raises(ValueError, match="run_ref.*cannot be combined"):
+        elaborate_surface_workflow(
+            mapping,
+            workflow_path=Path("/tmp/ambiguous-run-ref.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "carrier_name",
+    (
+        "provider_params",
+        "provider_call_policy",
+        "managed_jobs",
+        "input_file",
+        "asset_file",
+        "depends_on",
+        "asset_depends_on",
+        "inject_output_contract",
+        "inject_consumes",
+        "prompt_consumes",
+        "typed_prompt_inputs",
+        "consumes_injection_position",
+        "compiler_prompt_dependency_contract",
+        "compiler_prompt_fragment_contract",
+        "compiled_prompt_fragment_identity",
+        "prompt_attempt_identity_version",
+        "compiler_prompt_attempt_binding_plan",
+        "with",
+        "then",
+        "else",
+    ),
+)
+def test_generated_run_ref_mapping_rejects_ancillary_operation_carrier(
+    carrier_name: str,
+) -> None:
+    mapping = _surface_mapping_with_run_ref(_surface_run_ref_config())
+    mapping["steps"][0][carrier_name] = object()
+
+    with pytest.raises(ValueError, match=rf"run_ref.*{carrier_name}"):
+        elaborate_surface_workflow(
+            mapping,
+            workflow_path=Path("/tmp/ambiguous-run-ref-carrier.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=True,
+        )
+
+
+@pytest.mark.parametrize("version", ("2.24", "2.25"))
+def test_generated_run_ref_surface_accepts_target_2_24_or_later(
+    version: str,
+) -> None:
+    surface = elaborate_surface_workflow(
+        _surface_mapping_with_run_ref(
+            _surface_run_ref_config(),
+            version=version,
+        ),
+        workflow_path=Path(f"/tmp/generated-run-ref-{version}.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+
+    assert surface is not None
+    assert surface.steps[0].kind is SurfaceStepKind.RUN_REF
+
+
+def test_nested_generated_run_ref_surface_rejects_target_before_2_24() -> None:
+    with pytest.raises(ValueError, match="run_ref.*target DSL 2.24"):
+        elaborate_surface_workflow(
+            _surface_mapping_with_run_ref(
+                _surface_run_ref_config(),
+                version="2.23",
+                nested=True,
+            ),
+            workflow_path=Path("/tmp/generated-run-ref-2.23.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=True,
+        )
+
+
+@pytest.mark.parametrize("nested", (False, True), ids=("top_level", "nested"))
+def test_authored_elaboration_cannot_construct_run_ref(nested: bool) -> None:
+    with pytest.raises(ValueError, match="run_ref is compiler-generated only"):
+        elaborate_surface_workflow(
+            _surface_mapping_with_run_ref(
+                _surface_run_ref_config(),
+                nested=nested,
+            ),
+            workflow_path=Path("/tmp/authored-run-ref.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=False,
+        )
+
+
+def test_public_authored_validation_recursively_rejects_run_ref(
+    tmp_path: Path,
+) -> None:
+    result = validate_workflow_mapping(
+        WorkflowMappingBuildRequest(
+            authored_mapping=_surface_mapping_with_run_ref(
+                _surface_run_ref_config(),
+                version="2.23",
+                nested=True,
+            ),
+            workflow_path=tmp_path / "authored-run-ref.orc",
+        ),
+        options=WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        ),
+    )
+
+    assert result.bundle is None
+    assert any(
+        "run_ref is compiler-generated only" in error.message
+        for error in result.errors
+    )
+
+
+def test_surface_run_ref_manifest_json_uses_only_canonical_record() -> None:
+    config = _surface_run_ref_config()
+    run_ref_payload = _json_data(
+        SurfaceStep(
+            name="RunChild",
+            step_id="root.run_child",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=config,
+        )
+    )
+    ordinary_payload = _json_data(
+        SurfaceStep(
+            name="Assert",
+            step_id="root.assert",
+            kind=SurfaceStepKind.ASSERT,
+        )
+    )
+
+    assert run_ref_payload["run_ref"] == config.record
+    assert "_canonical_bytes" not in repr(run_ref_payload)
+    assert "_result_descriptor_json" not in repr(run_ref_payload)
+    assert "run_ref" not in ordinary_payload
+
+
+def _core_run_ref_workflow(
+    config: RunRefStaticConfig | None = None,
+):
+    config = config or _surface_run_ref_config()
+    surface = elaborate_surface_workflow(
+        _surface_mapping_with_run_ref(config),
+        workflow_path=Path("/tmp/generated-run-ref-core.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+    assert surface is not None
+    core = core_ast_module.build_core_workflow_ast(
+        surface,
+        imports={},
+        provenance=surface.provenance,
+    )
+    surface_config = surface.steps[0].run_ref
+    assert type(surface_config) is RunRefStaticConfig
+    return core, surface_config
+
+
+def test_run_ref_core_carriage_preserves_exact_typed_config_both_directions() -> None:
+    core, config = _core_run_ref_workflow()
+
+    [statement] = core.body
+    assert type(statement) is core_ast_module.CoreRunRefStep
+    assert statement.run_ref is config
+
+    reconstructed = core_ast_module._surface_workflow_from_core_ast(core)
+    [surface_step] = reconstructed.steps
+    assert surface_step.kind is SurfaceStepKind.RUN_REF
+    assert surface_step.run_ref is config
+
+
+def test_run_ref_core_json_uses_only_canonical_config_record() -> None:
+    core, config = _core_run_ref_workflow()
+
+    [statement] = core_ast_module.workflow_core_ast_to_json(core)["body"]
+
+    assert statement["kind"] == "run_ref"
+    assert statement["run_ref"] == config.record
+    assert "digest" not in statement["run_ref"]
+    assert "_canonical_bytes" not in repr(statement)
+    assert "_result_descriptor_json" not in repr(statement)
+
+
+def test_core_run_ref_step_rejects_non_authoritative_config_at_construction() -> None:
+    core, _ = _core_run_ref_workflow()
+    [statement] = core.body
+
+    with pytest.raises(TypeError, match="static config authority"):
+        core_ast_module.CoreRunRefStep(
+            meta=statement.meta,
+            common=statement.common,
+            run_ref=object(),
+        )
+
+
+def test_core_run_ref_step_rejects_kind_drift_at_construction_and_validation() -> None:
+    core, config = _core_run_ref_workflow()
+    [statement] = core.body
+    wrong_meta = replace(statement.meta, step_kind="provider")
+
+    with pytest.raises(ValueError, match="run_ref.*step kind"):
+        core_ast_module.CoreRunRefStep(
+            meta=wrong_meta,
+            common=statement.common,
+            run_ref=config,
+        )
+
+    object.__setattr__(statement, "meta", wrong_meta)
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        core_ast_module.validate_core_workflow_ast(core, imports={})
+
+    assert "run_ref step kind" in excinfo.value.errors[0].message
+
+
+@pytest.mark.parametrize(
+    ("field_name", "forged_value"),
+    (
+        ("site_digest", "0" * 64),
+        ("_canonical_bytes", b"{}"),
+    ),
+)
+def test_core_run_ref_validation_rejects_authority_tampering(
+    field_name: str,
+    forged_value: object,
+) -> None:
+    core, config = _core_run_ref_workflow()
+    object.__setattr__(config, field_name, forged_value)
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        core_ast_module.validate_core_workflow_ast(core, imports={})
+
+    [error] = excinfo.value.errors
+    assert "core_workflow_ast_invalid" in error.message
+    assert error.subject_refs
+    assert error.subject_refs[0].subject_kind == "step_id"
+    assert error.subject_refs[0].subject_name == "run_child"
+
+
+def test_run_ref_core_json_revalidates_config_authority() -> None:
+    core, config = _core_run_ref_workflow()
+    object.__setattr__(config, "result_digest", "sha256:" + "0" * 64)
+
+    with pytest.raises(ValueError, match="authority"):
+        core_ast_module.workflow_core_ast_to_json(core)
+
+
+def _executable_run_ref_workflow(*, version: str = "2.24"):
+    mapping = _surface_mapping_with_run_ref(
+        _surface_run_ref_config(),
+        version=version,
+    )
+    mapping["steps"][0]["output_bundle"] = {
+        "value": {"kind": "scalar", "type": "string"}
+    }
+    surface = elaborate_surface_workflow(
+        mapping,
+        workflow_path=Path("/tmp/generated-run-ref-executable.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+    assert surface is not None
+    executable, projection = workflow_lowering.lower_surface_workflow(surface)
+    config = surface.steps[0].run_ref
+    assert type(config) is RunRefStaticConfig
+    return surface, executable, projection, config
+
+
+def test_run_ref_executable_lowering_preserves_typed_config_and_common() -> None:
+    surface, executable, _, config = _executable_run_ref_workflow()
+    [node] = executable.nodes.values()
+
+    assert node.kind is executable_ir_module.ExecutableNodeKind.RUN_REF
+    assert type(node.execution_config) is executable_ir_module.RunRefStepConfig
+    assert node.execution_config.run_ref is config
+    assert (
+        node.execution_config.common.output_bundle
+        == surface.steps[0].common.output_bundle
+    )
+    assert workflow_lowering._report_kind_for_node(node) == "run_ref"
+
+
+def test_run_ref_executable_json_uses_only_canonical_config_record() -> None:
+    _, executable, _, config = _executable_run_ref_workflow()
+    executable_ir_module.validate_executable_workflow(executable)
+
+    [node] = executable_ir_module.workflow_executable_ir_to_json(executable)[
+        "nodes"
+    ].values()
+    payload = node["execution_config"]["run_ref"]
+
+    assert payload == config.record
+    assert "digest" not in payload
+    assert "_canonical_bytes" not in repr(node)
+    assert "_result_descriptor_json" not in repr(node)
+
+
+def test_run_ref_executable_rejects_kind_config_mismatch_both_directions() -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+    [(node_id, node)] = executable.nodes.items()
+    common = node.execution_config.common
+    mismatches = (
+        replace(
+            node,
+            kind=executable_ir_module.ExecutableNodeKind.COMMAND,
+        ),
+        replace(
+            node,
+            execution_config=executable_ir_module.AssertStepConfig(
+                common=common,
+            ),
+        ),
+    )
+
+    for mismatched in mismatches:
+        invalid = replace(
+            executable,
+            nodes=MappingProxyType({node_id: mismatched}),
+        )
+        with pytest.raises(WorkflowValidationError, match="kind/config mismatch"):
+            executable_ir_module.validate_executable_workflow(invalid)
+
+
+def test_run_ref_executable_validation_rejects_authority_tampering() -> None:
+    _, executable, _, config = _executable_run_ref_workflow()
+    object.__setattr__(config, "site_digest", "0" * 64)
+
+    with pytest.raises(WorkflowValidationError, match="executable_ir_invalid"):
+        executable_ir_module.validate_executable_workflow(executable)
+    with pytest.raises(ValueError, match="authority"):
+        executable_ir_module.workflow_executable_ir_to_json(executable)
+
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    ("2.23", "2.24.-1", "3.-999", "02.24"),
+)
+def test_run_ref_executable_requires_canonical_target_2_24_or_later(
+    invalid_version: str,
+) -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+
+    with pytest.raises(WorkflowValidationError, match="target DSL 2.24"):
+        executable_ir_module.validate_executable_workflow(
+            replace(executable, version=invalid_version)
+        )
+
+
+@pytest.mark.parametrize("version", ("2.24", "2.25", "2.24.0"))
+def test_run_ref_executable_accepts_canonical_target_2_24_or_later(
+    version: str,
+) -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+
+    executable_ir_module.validate_executable_workflow(
+        replace(executable, version=version)
+    )
+
+
+def test_finalization_run_ref_uses_same_target_and_authority_gate() -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+    [leaf] = executable.nodes.values()
+    finalization = executable_ir_module.FinalizationStepNode(
+        node_id="finally.run_child",
+        step_id="finally.run_child",
+        presentation_name="RunChild",
+        kind=executable_ir_module.ExecutableNodeKind.FINALIZATION_STEP,
+        execution_kind=executable_ir_module.ExecutableNodeKind.RUN_REF,
+        region=executable_ir_module.WorkflowRegion.FINALIZATION,
+        lexical_scope=(),
+        execution_config=leaf.execution_config,
+    )
+    finalization_ir = replace(
+        executable,
+        body_region=(),
+        finalization_region=(finalization.node_id,),
+        finalization_entry_node_id=finalization.node_id,
+        nodes=MappingProxyType({finalization.node_id: finalization}),
+    )
+
+    executable_ir_module.validate_executable_workflow(finalization_ir)
+    with pytest.raises(WorkflowValidationError, match="target DSL 2.24"):
+        executable_ir_module.validate_executable_workflow(
+            replace(finalization_ir, version="2.23")
+        )
+
+
+def test_run_ref_runtime_step_preserves_typed_config_carrier() -> None:
+    _, executable, _, config = _executable_run_ref_workflow()
+    [node] = executable.nodes.values()
+
+    runtime_step = RuntimeStep(
+        node=node,
+        name=node.presentation_name,
+        step_id=node.step_id,
+        target_dsl_version=executable.version,
+    )
+
+    assert runtime_step["run_ref"] is config
+    assert "run_ref" in tuple(runtime_step)
+    assert runtime_step.to_compat_dict()["run_ref"] is config
+
+
+def _runtime_plan_for_run_ref():
+    surface, executable, projection, config = _executable_run_ref_workflow()
+    plan = runtime_plan_module.derive_workflow_runtime_plan(
+        executable,
+        projection,
+        surface.provenance,
+    )
+    return surface, executable, projection, plan, config
+
+
+def _semantic_run_ref_bundle():
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    context = _run_ref_lowering_context(type_env)
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+    [result_allocation] = context.generated_path_allocations
+    entrypoint_allocations = derive_entrypoint_managed_write_root_allocations(
+        (result_allocation,)
+    )
+    generated_input_name = result_allocation.generated_input_name
+    assert isinstance(generated_input_name, str)
+    surface = elaborate_surface_workflow(
+        {
+            "version": "2.24",
+            "name": "parent",
+            "inputs": {
+                generated_input_name: {"kind": "relpath", "type": "relpath"},
+            },
+            "steps": steps,
+        },
+        workflow_path=Path("/tmp/generated-run-ref-semantic.orc"),
+        imported_bundles={},
+        generated_path_allocations=(result_allocation, *entrypoint_allocations),
+        managed_write_root_inputs=(generated_input_name,),
+        allow_generated_step_kinds=True,
+    )
+    assert surface is not None
+    core = core_ast_module.build_core_workflow_ast(
+        surface,
+        imports={},
+        provenance=surface.provenance,
+    )
+    executable, projection = workflow_lowering.lower_core_workflow_ast(core)
+    runtime_plan = runtime_plan_module.derive_workflow_runtime_plan(
+        executable,
+        projection,
+        surface.provenance,
+    )
+    [generated_effect] = context.generated_semantic_effects
+    origin_key = "source:run-ref"
+    source_map_payload = {
+        "workflows": {
+            surface.name: {
+                "workflow_origin": {"origin_key": "source:workflow"},
+                "step_ids": {
+                    generated_effect.step_id: {"origin_key": origin_key},
+                },
+                "generated_inputs": {},
+                "generated_outputs": {},
+                "contract_fields": {},
+                "generated_paths": {
+                    allocation.concrete_path_template: {"origin_key": origin_key}
+                    for allocation in (result_allocation, *entrypoint_allocations)
+                },
+                "generated_internal_inputs": {},
+                "validation_subjects": [],
+                "generated_semantic_effects": [
+                    {
+                        "effect_key": generated_effect.effect_key,
+                        "step_id": generated_effect.step_id,
+                        "effect_kind": generated_effect.effect_kind,
+                        "origin_key": origin_key,
+                        "details": dict(generated_effect.details),
+                    }
+                ],
+            }
+        }
+    }
+    semantic_ir = semantic_ir_module.derive_workflow_semantic_ir(
+        core_workflow_ast=core,
+        surface=surface,
+        ir=executable,
+        projection=projection,
+        runtime_plan=runtime_plan,
+        imports={},
+        provenance=surface.provenance,
+        source_map_payload=source_map_payload,
+    )
+    return (
+        surface,
+        executable,
+        projection,
+        runtime_plan,
+        semantic_ir,
+        result_allocation,
+        generated_input_name,
+    )
+
+
+def test_run_ref_semantic_ir_binds_config_effect_and_state_layout() -> None:
+    (
+        surface,
+        executable,
+        projection,
+        runtime_plan,
+        semantic_ir,
+        result_allocation,
+        generated_input_name,
+    ) = _semantic_run_ref_bundle()
+
+    [effect] = [
+        row for row in semantic_ir.effects.values() if row.effect_kind == "run_ref"
+    ]
+    config = surface.steps[0].run_ref
+    assert type(config) is RunRefStaticConfig
+    assert effect.details["run_ref_static_config_digest"] == config.digest
+    assert effect.details["result_allocation_id"] == result_allocation.allocation_id
+    assert effect.details["output_bundle_path"] == result_allocation.concrete_path_template
+    assert [
+        row.layout_kind for row in semantic_ir.state_layout.values()
+        if row.layout_kind == "run_ref_result_bundle"
+    ] == ["run_ref_result_bundle"]
+    assert [
+        row.layout_kind for row in semantic_ir.state_layout.values()
+        if row.layout_kind == "entrypoint_managed_write_root"
+    ] == ["entrypoint_managed_write_root"]
+    assert [
+        row.details["input_name"] for row in semantic_ir.state_layout.values()
+        if row.layout_kind == "managed_write_root_input"
+    ] == [generated_input_name]
+    semantic_ir_module.validate_workflow_semantic_ir(
+        semantic_ir,
+        ir=executable,
+        projection=projection,
+        runtime_plan=runtime_plan,
+        surface=surface,
+        imports={},
+    )
+
+
+def test_run_ref_semantic_ir_rejects_stale_config_digest() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    effect_id, effect = next(
+        (effect_id, effect)
+        for effect_id, effect in semantic_ir.effects.items()
+        if effect.effect_kind == "run_ref"
+    )
+    invalid = replace(
+        semantic_ir,
+        effects=MappingProxyType(
+            {
+                **semantic_ir.effects,
+                effect_id: replace(
+                    effect,
+                    details=MappingProxyType(
+                        {
+                            **effect.details,
+                            "run_ref_static_config_digest": "sha256:" + "0" * 64,
+                        }
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="run_ref.*config digest"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_missing_effect_even_when_catalogs_agree() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    effect_id = next(
+        effect_id
+        for effect_id, effect in semantic_ir.effects.items()
+        if effect.effect_kind == "run_ref"
+    )
+    workflow_name, workflow = next(iter(semantic_ir.workflows.items()))
+    statement_id, statement = next(iter(workflow.statements.items()))
+    invalid = replace(
+        semantic_ir,
+        workflows=MappingProxyType(
+            {
+                workflow_name: replace(
+                    workflow,
+                    statements=MappingProxyType(
+                        {
+                            statement_id: replace(
+                                statement,
+                                effect_ids=tuple(
+                                    candidate
+                                    for candidate in statement.effect_ids
+                                    if candidate != effect_id
+                                ),
+                            )
+                        }
+                    ),
+                )
+            }
+        ),
+        effects=MappingProxyType(
+            {
+                candidate_id: effect
+                for candidate_id, effect in semantic_ir.effects.items()
+                if candidate_id != effect_id
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="canonical run_ref effect"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_unlinked_effect_catalog_row() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    workflow_name, workflow = next(iter(semantic_ir.workflows.items()))
+    statement_id, statement = next(iter(workflow.statements.items()))
+    invalid = replace(
+        semantic_ir,
+        workflows=MappingProxyType(
+            {
+                workflow_name: replace(
+                    workflow,
+                    statements=MappingProxyType(
+                        {statement_id: replace(statement, effect_ids=())}
+                    ),
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="canonical run_ref effect"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement_value"),
+    (
+        ("site_digest", "0" * 64),
+        ("result_digest", "sha256:" + "1" * 64),
+        ("program_mode", "path"),
+    ),
+)
+def test_run_ref_semantic_ir_rejects_closed_detail_tampering(
+    field_name: str,
+    replacement_value: str,
+) -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    effect_id, effect = next(
+        (effect_id, effect)
+        for effect_id, effect in semantic_ir.effects.items()
+        if effect.effect_kind == "run_ref"
+    )
+    invalid = replace(
+        semantic_ir,
+        effects=MappingProxyType(
+            {
+                **semantic_ir.effects,
+                effect_id: replace(
+                    effect,
+                    details=MappingProxyType(
+                        {**effect.details, field_name: replacement_value}
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="closed config details"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_valid_surface_config_disagreement() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    invalid_surface = replace(
+        surface,
+        steps=(
+            replace(
+                surface.steps[0],
+                run_ref=_surface_run_ref_config(compiler_identity_digit="e"),
+            ),
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="surface authority"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            semantic_ir,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=invalid_surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_entrypoint_allocation_identity_tampering() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    layout_id, layout = next(
+        (layout_id, layout)
+        for layout_id, layout in semantic_ir.state_layout.items()
+        if layout.layout_kind == "entrypoint_managed_write_root"
+    )
+    invalid = replace(
+        semantic_ir,
+        state_layout=MappingProxyType(
+            {
+                **semantic_ir.state_layout,
+                layout_id: replace(
+                    layout,
+                    details=MappingProxyType(
+                        {**layout.details, "privacy": "compatibility_view"}
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="entrypoint.*allocation"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_orphan_result_allocation() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    layout_id, layout = next(
+        (layout_id, layout)
+        for layout_id, layout in semantic_ir.state_layout.items()
+        if layout.layout_kind == "run_ref_result_bundle"
+    )
+    orphan_id = f"{layout_id}:orphan"
+    invalid = replace(
+        semantic_ir,
+        state_layout=MappingProxyType(
+            {
+                **semantic_ir.state_layout,
+                orphan_id: replace(
+                    layout,
+                    layout_id=orphan_id,
+                    details=MappingProxyType(
+                        {
+                            **layout.details,
+                            "allocation_id": "sha256:" + "1" * 64,
+                        }
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="match exactly"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_runtime_plan_binds_exact_executable_config_digest() -> None:
+    _, executable, projection, plan, config = _runtime_plan_for_run_ref()
+    [node] = plan.nodes.values()
+
+    assert node.run_ref_config_digest == config.digest
+    runtime_plan_module.validate_workflow_runtime_plan(
+        plan,
+        executable,
+        projection,
+    )
+    [payload] = _json_data(plan)["nodes"].values()
+    assert payload["run_ref_config_digest"] == config.digest
+
+
+def test_finalization_run_ref_runtime_plan_binds_same_config_digest() -> None:
+    surface, executable, projection, config = _executable_run_ref_workflow()
+    [leaf] = executable.nodes.values()
+    finalization = executable_ir_module.FinalizationStepNode(
+        node_id=leaf.node_id,
+        step_id=leaf.step_id,
+        presentation_name=leaf.presentation_name,
+        kind=executable_ir_module.ExecutableNodeKind.FINALIZATION_STEP,
+        execution_kind=executable_ir_module.ExecutableNodeKind.RUN_REF,
+        region=executable_ir_module.WorkflowRegion.FINALIZATION,
+        lexical_scope=leaf.lexical_scope,
+        execution_config=leaf.execution_config,
+    )
+    finalization_ir = replace(
+        executable,
+        body_region=(),
+        finalization_region=(finalization.node_id,),
+        finalization_entry_node_id=finalization.node_id,
+        nodes=MappingProxyType({finalization.node_id: finalization}),
+    )
+
+    plan = runtime_plan_module.derive_workflow_runtime_plan(
+        finalization_ir,
+        projection,
+        surface.provenance,
+    )
+
+    [runtime_node] = plan.nodes.values()
+    assert runtime_node.run_ref_config_digest == config.digest
+
+
+@pytest.mark.parametrize(
+    "replacement_digest",
+    (None, "sha256:" + "0" * 64),
+)
+def test_run_ref_runtime_plan_rejects_missing_or_stale_config_digest(
+    replacement_digest: str | None,
+) -> None:
+    _, executable, projection, plan, _ = _runtime_plan_for_run_ref()
+    [(node_id, node)] = plan.nodes.items()
+    invalid = replace(
+        plan,
+        nodes=MappingProxyType(
+            {
+                node_id: replace(
+                    node,
+                    run_ref_config_digest=replacement_digest,
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_ref.*config digest"):
+        runtime_plan_module.validate_workflow_runtime_plan(
+            invalid,
+            executable,
+            projection,
+        )
+
+
+def test_run_ref_runtime_plan_revalidates_executable_authority() -> None:
+    _, executable, projection, plan, config = _runtime_plan_for_run_ref()
+    forged_digest = "sha256:" + "0" * 64
+    object.__setattr__(config, "digest", forged_digest)
+    [(node_id, node)] = plan.nodes.items()
+    forged_plan = replace(
+        plan,
+        nodes=MappingProxyType(
+            {
+                node_id: replace(
+                    node,
+                    run_ref_config_digest=forged_digest,
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="authority"):
+        runtime_plan_module.validate_workflow_runtime_plan(
+            forged_plan,
+            executable,
+            projection,
+        )
+
+
+def test_non_run_ref_runtime_plan_omits_and_rejects_config_digest() -> None:
+    surface, executable, projection, _, _ = _runtime_plan_for_run_ref()
+    [(node_id, node)] = executable.nodes.items()
+    command_node = replace(
+        node,
+        kind=executable_ir_module.ExecutableNodeKind.COMMAND,
+        execution_config=executable_ir_module.CommandStepConfig(
+            common=node.execution_config.common,
+            command=("true",),
+        ),
+    )
+    command_ir = replace(
+        executable,
+        nodes=MappingProxyType({node_id: command_node}),
+    )
+    command_plan = runtime_plan_module.derive_workflow_runtime_plan(
+        command_ir,
+        projection,
+        surface.provenance,
+    )
+    [command_payload] = _json_data(command_plan)["nodes"].values()
+    assert "run_ref_config_digest" not in command_payload
+
+    [command_plan_node] = command_plan.nodes.values()
+    invalid = replace(
+        command_plan,
+        nodes=MappingProxyType(
+            {
+                node_id: replace(
+                    command_plan_node,
+                    run_ref_config_digest="sha256:" + "1" * 64,
+                )
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="run_ref.*config digest"):
+        runtime_plan_module.validate_workflow_runtime_plan(
+            invalid,
+            command_ir,
+            projection,
+        )
+
+
+def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("literal", LiteralExpr("task", "string", span, FORM_PATH)),
+            ("prior", NameExpr("prior", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("literal", PrimitiveTypeRef("String")),
+            ("prior", PrimitiveTypeRef("String")),
+        ),
+        value_env={"prior": PrimitiveTypeRef("String")},
+    )
+    context = _run_ref_lowering_context(type_env)
+    identity = VerifiedCompilerRuntimeIdentity("sha256:" + "c" * 64)
+
+    steps, terminal = _lower_run_ref_operation(
+        _lowerable_run_ref(
+            typed,
+            type_env=type_env,
+            value_env=value_env,
+        ),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={"prior": "root.steps.seed.artifacts.value"},
+        identity_provider=lambda: identity,
+    )
+
+    assert len(steps) == 1
+    step = steps[0]
+    assert isinstance(step["run_ref"], RunRefStaticConfig)
+    config = step["run_ref"]
+    assert config.compiler_runtime_identity_digest == identity.digest
+    assert tuple(row.name for row in config.inputs) == ("literal", "prior")
+    assert config.inputs[0].binding == LiteralBinding("task")
+    assert config.inputs[1].binding == ReferenceBinding(
+        "root.steps.seed.artifacts.value"
+    )
+    assert len(context.generated_path_allocations) == 1
+    allocation = context.generated_path_allocations[0]
+    assert allocation.semantic_role == GeneratedPathSemanticRole.RUN_REF_RESULT_BUNDLE
+    assert allocation.resume_scope == GeneratedPathResumeScope.STEP_VISIT
+    assert step["output_bundle"]["path"] == allocation.concrete_path_template
+    assert tuple(field["name"] for field in step["output_bundle"]["fields"]) == tuple(
+        name.removeprefix("return__") for name in terminal.output_refs
+    )
+    assert allocation.generated_input_name in terminal.hidden_inputs
+    assert terminal.checkpoint_identity_component_digest == config.digest
+    assert len(context.generated_semantic_effects) == 1
+    [effect] = context.generated_semantic_effects
+    assert effect.effect_key == f"run_ref:{step['id']}"
+    assert effect.step_id == step["id"]
+    assert effect.effect_kind == "run_ref"
+    assert effect.origin == context.step_spans[step["id"]]
+    assert context.generated_path_spans[allocation.concrete_path_template] == effect.origin
+    assert effect.details == {
+        "run_ref_static_config_schema_version": "run_ref_static_config.v1",
+        "run_ref_static_config_digest": config.digest,
+        "compiler_runtime_identity_digest": config.compiler_runtime_identity_digest,
+        "site_digest": config.site_digest,
+        "generated_result_type": config.generated_result_type,
+        "result_digest": config.result_digest,
+        "program_mode": config.program.record["mode"],
+        "result_allocation_id": allocation.allocation_id,
+        "output_bundle_path": allocation.concrete_path_template,
+    }
+
+
+def test_run_ref_executor_surface_delegates_to_the_runtime_service() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    calls: list[tuple[object, ...]] = []
+    completed = {
+        "status": "completed",
+        "exit_code": 0,
+        "duration_ms": 12,
+        "artifacts": {"value": True},
+        "run_ref": {"pending_row_digest": "sha256:" + "a" * 64},
+    }
+    executor._execute_run_ref = (  # type: ignore[method-assign]
+        lambda step, state, *, step_name: (
+            calls.append((step, state, step_name)) or completed
+        )
+    )
+    executor._persist_step_result = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("run-ref owns its atomic parent settlement")
+        )
+    )
+    state = {"steps": {}}
+    step = {"name": "Reference", "id": "root.reference"}
+
+    assert WorkflowExecutor._resolve_step_type(executor, step) == "run_ref"
+    result = WorkflowExecutor._run_top_level_step(
+        executor,
+        step,
+        state,
+        step_name="Reference",
+    )
+
+    assert result is completed
+    assert calls == [(step, state, "Reference")]
+
+
+def test_run_ref_runtime_refusal_persists_closed_machine_authority() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    refusal = RunRefRuntimeError(
+        "trial_program_compile_rejected",
+        "child_process_rejected",
+        machine_fields={
+            "rejected_value": {"program": "candidate.orc"},
+            "secondary_causes": ["name_unknown"],
+            "compile_diagnostics": {
+                "schema_version": "workflow_lisp_compile_diagnostics.v1",
+                "status": "rejected",
+                "diagnostics": [{"code": "name_unknown"}],
+            },
+        },
+    )
+
+    error = WorkflowExecutor._executor_exception_error(
+        executor,
+        refusal,
+        step_name="Reference",
+        step_id="root.reference",
+        step_index=2,
+        node_id="node-2",
+        visit_count=1,
+    )
+
+    assert error == {
+        "type": "trial_program_compile_rejected",
+        "code": "trial_program_compile_rejected",
+        "message": "child_process_rejected",
+        "rejected_value": {"program": "candidate.orc"},
+        "secondary_causes": ["name_unknown"],
+        "compile_diagnostics": {
+            "schema_version": "workflow_lisp_compile_diagnostics.v1",
+            "status": "rejected",
+            "diagnostics": [{"code": "name_unknown"}],
+        },
+        "context": {
+            "step_name": "Reference",
+            "step_id": "root.reference",
+            "step_index": 2,
+            "node_id": "node-2",
+            "visit_count": 1,
+        },
+    }
+
+
+def test_run_ref_executor_commits_state_before_ledger_and_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    parent_run_root = (tmp_path / "parent-run").resolve()
+    run_ref_root = (tmp_path / "external-run-ref").resolve()
+    build_root = (tmp_path / "build").resolve()
+    capsule_dir = build_root / "run_ref_bundle_capsule.v1"
+    for path in (workspace, parent_run_root, run_ref_root, capsule_dir):
+        path.mkdir(parents=True)
+
+    static_config = _surface_run_ref_config()
+    step_config = executable_ir_module.RunRefStepConfig(
+        common=executable_ir_module.StepCommonConfig(
+            output_bundle={
+                "path": "artifacts/run-ref.json",
+                "fields": [],
+            },
+        ),
+        run_ref=static_config,
+        capsule_binding=RunRefBundleCapsuleBinding(
+            "sha256:" + "c" * 64,
+        ),
+    )
+    node = SimpleNamespace(execution_config=step_config)
+    events: list[str] = []
+    prepared_requests: list[RunRefRuntimeRequest] = []
+    settled_record = {
+        "visit": {
+            "parent_run_id": "parent-run",
+            "execution_frame_id": "root",
+            "call_frame_id": None,
+            "step_id": "root.reference",
+            "visit_count": 1,
+        },
+        "attempt_ordinal": 1,
+        "step_config_digest": step_config.step_config_digest,
+        "run_ref_root": run_ref_root.as_posix(),
+        "workspace_path": (run_ref_root / "attempt" / "workspace").as_posix(),
+        "child_run_id": "child-run",
+        **{
+            name: "sha256:" + digit * 64
+            for name, digit in (
+                ("pending_row_digest", "1"),
+                ("child_terminal_state_digest", "2"),
+                ("result_contract_digest", "3"),
+                ("result_payload_digest", "4"),
+                ("workspace_delta_digest", "5"),
+                ("accounting_digest", "6"),
+                ("evidence_manifest_digest", "7"),
+            )
+        },
+    }
+    envelope = {
+        "value": True,
+        "workspace_delta": {"schema_version": "run_ref_workspace_delta.v1"},
+        "accounting": {"elapsed_ms": 7},
+    }
+    artifacts = {"value": True}
+    prepared = SimpleNamespace(
+        envelope=envelope,
+        artifacts=artifacts,
+        settled_result=SimpleNamespace(
+            record=settled_record,
+            attempt_ordinal=1,
+        ),
+    )
+
+    class FakeStateManager:
+        run_root = parent_run_root
+        state = SimpleNamespace(run_ref_root=run_ref_root.as_posix())
+
+        def finalize_step_with_dataflow(self, step_name, result, **kwargs):
+            assert kwargs["commit_guard"]() is True
+            assert kwargs["expected_step_name"] == "Reference"
+            assert kwargs["expected_step_type"] == "run_ref"
+            assert kwargs["expected_step_status"] == "running"
+            events.append("parent_state")
+
+    executor = object.__new__(WorkflowExecutor)
+    executor.workspace = workspace
+    executor.state_manager = FakeStateManager()
+    executor.loaded_bundle = SimpleNamespace(
+        provenance=SimpleNamespace(frontend_build_root=build_root),
+    )
+    executor._step_id = lambda _step: "root.reference"  # type: ignore[method-assign]
+    executor._executable_node_for_step = lambda _step: node  # type: ignore[method-assign]
+    executor._resolve_output_contract_paths = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: (
+            None,
+            {"path": "artifacts/run-ref.json", "fields": []},
+            None,
+        )
+    )
+    executor._resolve_workspace_path = (  # type: ignore[method-assign]
+        lambda relative: (workspace / relative).resolve()
+    )
+    executor._apply_expected_outputs_contract = (  # type: ignore[method-assign]
+        lambda _step, result, _state: {**result, "artifacts": artifacts}
+    )
+    executor._record_published_artifacts = (  # type: ignore[method-assign]
+        lambda *_args, **kwargs: events.append("published") or None
+    )
+    executor._finalize_consumes = (  # type: ignore[method-assign]
+        lambda *_args, **kwargs: events.append("consumes")
+    )
+    executor._attach_outcome = lambda _step, result: result  # type: ignore[method-assign]
+    executor._emit_lexical_checkpoint_shadow_after_step_commit = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: events.append("checkpoint")
+    )
+    executor._emit_step_summary = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: events.append("summary")
+    )
+    owner = SimpleNamespace(
+        root_manager=SimpleNamespace(
+            run_id="parent-run",
+            state=SimpleNamespace(run_ref_root=run_ref_root.as_posix()),
+            bind_run_ref_root=lambda path: path,
+        ),
+        resume_scope_path=SimpleNamespace(call_frame_ids=()),
+        aggregate_root=parent_run_root,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.resolve_aggregate_run_owner",
+        lambda _manager: owner,
+    )
+    def prepare(request, **_kwargs):
+        prepared_requests.append(request)
+        events.append("prepared")
+        return prepared
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.prepare_run_ref_settlement",
+        prepare,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.validate_pending_parent_commit",
+        lambda *_args, **_kwargs: events.append("pending_guard") or True,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.finalize_run_ref_parent_commit",
+        lambda *_args, **_kwargs: (
+            events.append("ledger_committed")
+            or SimpleNamespace(
+                envelope=envelope,
+                artifacts=artifacts,
+                settled_result=prepared.settled_result,
+                reused=False,
+            )
+        ),
+    )
+    state = {
+        "steps": {},
+        "step_visits": {"Reference": 1},
+        "current_step": {
+            "name": "Reference",
+            "step_id": "root.reference",
+            "type": "run_ref",
+            "status": "running",
+            "visit_count": 1,
+        },
+        "artifact_versions": {},
+        "artifact_consumes": {},
+        "private_artifact_versions": {},
+        "private_artifact_consumes": {},
+    }
+    step = {"name": "Reference", "step_id": "root.reference"}
+    bundle_path = workspace / "artifacts" / "run-ref.json"
+    bundle_path.parent.mkdir(parents=True)
+    orphan_bytes = b'{"orphaned":true}\n'
+    bundle_path.write_bytes(orphan_bytes)
+
+    result = WorkflowExecutor._execute_run_ref(
+        executor,
+        step,
+        state,
+        step_name="Reference",
+    )
+
+    assert result["status"] == "completed"
+    assert result["run_ref"] == settled_record
+    assert len(prepared_requests) == 1
+    assert prepared_requests[0].parent_bundle_orphan_preimage == (
+        ParentBundleOrphanPreimage(
+            path=bundle_path,
+            sha256="sha256:" + hashlib.sha256(orphan_bytes).hexdigest(),
+            byte_size=len(orphan_bytes),
+        )
+    )
+    assert json.loads(
+        (workspace / "artifacts" / "run-ref.json").read_text(
+            encoding="utf-8",
+        )
+    ) == envelope
+    assert events == [
+        "prepared",
+        "published",
+        "consumes",
+        "pending_guard",
+        "parent_state",
+        "ledger_committed",
+        "checkpoint",
+        "summary",
+    ]
+
+
+def test_run_ref_resume_preflight_reconciles_before_emitting_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    parent_run_root = (tmp_path / "parent-run").resolve()
+    run_ref_root = (tmp_path / "external-run-ref").resolve()
+    build_root = (tmp_path / "build").resolve()
+    capsule_dir = build_root / "run_ref_bundle_capsule.v1"
+    for path in (workspace, parent_run_root, run_ref_root, capsule_dir):
+        path.mkdir(parents=True)
+    step_config = executable_ir_module.RunRefStepConfig(
+        common=executable_ir_module.StepCommonConfig(),
+        run_ref=_surface_run_ref_config(),
+        capsule_binding=RunRefBundleCapsuleBinding(
+            "sha256:" + "c" * 64,
+        ),
+    )
+    step = {"name": "Reference", "step_id": "root.reference"}
+    settled = {
+        "visit": {
+            "parent_run_id": "parent-run",
+            "execution_frame_id": "root",
+            "call_frame_id": None,
+            "step_id": "root.reference",
+            "visit_count": 2,
+        },
+        "attempt_ordinal": 1,
+        "step_config_digest": step_config.step_config_digest,
+        "run_ref_root": run_ref_root.as_posix(),
+        "workspace_path": (run_ref_root / "attempt" / "workspace").as_posix(),
+        "child_run_id": "child-run",
+        **{
+            name: "sha256:" + digit * 64
+            for name, digit in (
+                ("pending_row_digest", "1"),
+                ("child_terminal_state_digest", "2"),
+                ("result_contract_digest", "3"),
+                ("result_payload_digest", "4"),
+                ("workspace_delta_digest", "5"),
+                ("accounting_digest", "6"),
+                ("evidence_manifest_digest", "7"),
+            )
+        },
+    }
+    state = {
+        "steps": {
+            "Reference": {
+                "status": "completed",
+                "step_id": "root.reference",
+                "visit_count": 2,
+                "artifacts": {"value": True},
+                "run_ref": settled,
+            }
+        }
+    }
+    executor = object.__new__(WorkflowExecutor)
+    executor.workspace = workspace
+    executor.state_manager = SimpleNamespace()
+    executor.loaded_bundle = SimpleNamespace(
+        provenance=SimpleNamespace(frontend_build_root=build_root),
+    )
+    executor._step_node_ids = ["node"]
+    executor._runtime_step_for_node_id = lambda _node_id: step  # type: ignore[method-assign]
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    executor._executable_node_for_step = (  # type: ignore[method-assign]
+        lambda _step: SimpleNamespace(execution_config=step_config)
+    )
+    executor._step_id = lambda _step: "root.reference"  # type: ignore[method-assign]
+    events: list[str] = []
+    executor._emit_lexical_checkpoint_shadow_after_step_commit = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: events.append("checkpoint")
+    )
+    owner = SimpleNamespace(
+        root_manager=SimpleNamespace(
+            run_id="parent-run",
+            state=SimpleNamespace(run_ref_root=run_ref_root.as_posix()),
+            bind_run_ref_root=lambda path: path,
+        ),
+        resume_scope_path=SimpleNamespace(call_frame_ids=()),
+        aggregate_root=parent_run_root,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.resolve_aggregate_run_owner",
+        lambda _manager: owner,
+    )
+
+    def validate(request, *, settled_result, artifacts, reconcile_pending):
+        assert request.visit.record == settled["visit"]
+        assert settled_result == settled
+        assert artifacts == {"value": True}
+        assert reconcile_pending is True
+        events.append("reconciled")
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.validate_completed_run_ref_authority",
+        validate,
+    )
+
+    WorkflowExecutor._reconcile_completed_run_refs_before_resume(
+        executor,
+        state,
+    )
+
+    assert events == ["reconciled", "checkpoint"]
+
+
+def test_run_ref_resume_reuses_the_interrupted_visit_identity() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    state = {
+        "step_visits": {"Reference": 3},
+        "current_step": {
+            "name": "Reference",
+            "step_id": "root.reference",
+            "type": "run_ref",
+            "status": "failed",
+            "visit_count": 3,
+        },
+    }
+
+    assert WorkflowExecutor._run_ref_resume_visit_count(
+        executor,
+        state,
+        {"name": "Reference", "step_id": "root.reference"},
+        step_name="Reference",
+        step_id="root.reference",
+        resume_current_step=True,
+    ) == 3
+
+
+@pytest.mark.parametrize(
+    ("call_frame_ids", "execution_frame_id", "call_frame_id"),
+    (
+        ((), "root", None),
+        (("outer", "inner"), "inner", "inner"),
+    ),
+)
+def test_run_ref_visit_key_binds_the_aggregate_run_and_innermost_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    call_frame_ids: tuple[str, ...],
+    execution_frame_id: str,
+    call_frame_id: str | None,
+) -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor.state_manager = object()
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.resolve_aggregate_run_owner",
+        lambda manager: (
+            SimpleNamespace(
+                root_manager=SimpleNamespace(run_id="parent-run"),
+                resume_scope_path=SimpleNamespace(
+                    call_frame_ids=call_frame_ids,
+                ),
+            )
+            if manager is executor.state_manager
+            else pytest.fail("unexpected state manager")
+        ),
+    )
+
+    visit = WorkflowExecutor._run_ref_visit_key(
+        executor,
+        step_id="root.reference",
+        visit_count=4,
+    )
+
+    assert visit.record == {
+        "parent_run_id": "parent-run",
+        "execution_frame_id": execution_frame_id,
+        "call_frame_id": call_frame_id,
+        "step_id": "root.reference",
+        "visit_count": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda state: state["current_step"].__setitem__("type", "provider"),
+        lambda state: state["current_step"].__setitem__("status", "completed"),
+        lambda state: state["current_step"].__setitem__("visit_count", 2),
+        lambda state: state["step_visits"].__setitem__("Reference", 4),
+    ),
+)
+def test_run_ref_resume_visit_identity_mismatch_fails_closed(mutation) -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    state = {
+        "step_visits": {"Reference": 3},
+        "current_step": {
+            "name": "Reference",
+            "step_id": "root.reference",
+            "type": "run_ref",
+            "status": "failed",
+            "visit_count": 3,
+        },
+    }
+    mutation(state)
+
+    with pytest.raises(
+        ResumeStateIntegrityError,
+        match="run-ref interrupted visit identity is invalid",
+    ):
+        WorkflowExecutor._run_ref_resume_visit_count(
+            executor,
+            state,
+            {"name": "Reference", "step_id": "root.reference"},
+            step_name="Reference",
+            step_id="root.reference",
+            resume_current_step=True,
+        )
+
+
+def test_run_ref_source_map_fallback_preserves_exact_step_kind() -> None:
+    assert source_map_module._step_kind_from_mapping(
+        {"run_ref": _surface_run_ref_config()}
+    ) == "run_ref"
+
+
+def test_run_ref_result_allocation_derives_one_entrypoint_managed_root() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    context = _run_ref_lowering_context(type_env)
+
+    _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "e" * 64
+        ),
+    )
+
+    derived = derive_entrypoint_managed_write_root_allocations(
+        tuple(context.generated_path_allocations)
+    )
+
+    assert len(derived) == 1
+    [entrypoint] = derived
+    [result] = context.generated_path_allocations
+    assert entrypoint.semantic_role is GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
+    assert entrypoint.generated_input_name == result.generated_input_name
+    assert entrypoint.projection_hints["source_allocation_id"] == result.allocation_id
+
+
+def test_run_ref_leaf_caches_or_accepts_injected_compiler_identity() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    lowerable = _lowerable_run_ref(typed, type_env=type_env)
+    context = _run_ref_lowering_context(type_env)
+    calls = 0
+
+    def identity_provider():
+        nonlocal calls
+        calls += 1
+        return VerifiedCompilerRuntimeIdentity("sha256:" + "d" * 64)
+
+    for _ in range(2):
+        _lower_run_ref_operation(
+            lowerable,
+            result_type=typed.type_ref,
+            context=context,
+            local_values={},
+            identity_provider=identity_provider,
+        )
+    assert calls == 1
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest == (
+        "sha256:" + "d" * 64
+    )
+
+    preseeded = _run_ref_lowering_context(
+        type_env,
+        lowering_session=LoweringSessionState(
+            run_ref_compiler_runtime_identity_digest="sha256:" + "e" * 64
+        ),
+    )
+    _lower_run_ref_operation(
+        lowerable,
+        result_type=typed.type_ref,
+        context=preseeded,
+        local_values={},
+        identity_provider=lambda: pytest.fail("preseeded identity was recomputed"),
+    )
+
+
+def test_run_ref_output_bundle_projection_matches_generated_terminal_shape() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    contract = derive_run_ref_result_contract(typed.type_ref, type_env=type_env)
+
+    fields = derive_run_ref_output_bundle_fields(contract)
+
+    assert fields
+    assert fields[0]["name"] == "value"
+    assert fields[0]["json_pointer"] == "/value"
+    changed_files = next(
+        field
+        for field in fields
+        if field["name"] == "workspace_delta__changed_files"
+    )
+    assert changed_files["type"] == "list"
+    assert changed_files["items"] == {"type": "value"}
+    assert any(field["name"] == "accounting__provider_attempts" for field in fields)
+
+
+@pytest.mark.parametrize("return_index", range(8))
+def test_run_ref_output_bundle_projection_accepts_every_transportable_child_root(
+    return_index: int,
+) -> None:
+    expr = _mode_one_expr()
+    value_type = _transportable_types(expr.span)[return_index]
+    contract, _, _ = _run_ref_result_contract(expr, value_type)
+
+    fields = derive_run_ref_output_bundle_fields(contract)
+
+    assert any(field["name"].startswith("value") for field in fields)
+    assert any(field["name"].startswith("workspace_delta__") for field in fields)
+    assert any(field["name"].startswith("accounting__") for field in fields)
+
+
+def test_run_ref_leaf_rejects_flattened_output_name_collisions_before_mutation() -> None:
+    expr = _mode_one_expr()
+    string_type = PrimitiveTypeRef("String")
+    nested_definition = RecordDef(
+        name="NestedCollision",
+        fields=(
+            RecordField(name="b", type_name="String", span=expr.span),
+        ),
+        span=expr.span,
+    )
+    nested_type = RecordTypeRef(
+        name="NestedCollision",
+        definition=nested_definition,
+        field_types={"b": string_type},
+    )
+    collision_definition = RecordDef(
+        name="CollisionResult",
+        fields=(
+            RecordField(name="a__b", type_name="String", span=expr.span),
+            RecordField(
+                name="a",
+                type_name="NestedCollision",
+                span=expr.span,
+            ),
+        ),
+        span=expr.span,
+    )
+    collision_type = RecordTypeRef(
+        name="CollisionResult",
+        definition=collision_definition,
+        field_types={"a__b": string_type, "a": nested_type},
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        return_type=collision_type,
+        extra_types=(nested_type, collision_type),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(ValueError, match="collision"):
+        _lower_run_ref_operation(
+            _lowerable_run_ref(typed, type_env=type_env),
+            result_type=typed.type_ref,
+            context=context,
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "a" * 64
+            ),
+        )
+
+    assert context.generated_path_allocations == []
+    assert context.step_spans == {}
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
+
+
+def test_run_ref_leaf_encodes_direct_structural_bindings_canonically() -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    int_type = PrimitiveTypeRef("Int")
+    list_type = ListTypeRef("List[String]", string_type)
+    record_definition = RecordDef(
+        name="InputRecord",
+        fields=(
+            RecordField(name="z", type_name="String", span=span),
+            RecordField(name="a", type_name="Int", span=span),
+        ),
+        span=span,
+    )
+    record_type = RecordTypeRef(
+        name="InputRecord",
+        definition=record_definition,
+        field_types={"z": string_type, "a": int_type},
+    )
+    union_definition = UnionDef(
+        name="InputUnion",
+        variants=(
+            UnionVariant(
+                name="OK",
+                fields=(
+                    RecordField(name="z", type_name="String", span=span),
+                    RecordField(name="a", type_name="Int", span=span),
+                ),
+                span=span,
+            ),
+        ),
+        span=span,
+    )
+    union_type = UnionTypeRef(
+        name="InputUnion",
+        definition=union_definition,
+        variant_field_types={"OK": {"z": string_type, "a": int_type}},
+    )
+    map_type = MapTypeRef("Map[String,Int]", string_type, int_type)
+    value_type = PrimitiveTypeRef("Value")
+    optional_type = OptionalTypeRef("Optional[String]", string_type)
+    expr = _mode_one_expr(
+        inputs=(
+            (
+                "items",
+                ListExpr(
+                    items=(
+                        LiteralExpr("second", "string", span, FORM_PATH),
+                        LiteralExpr("first", "string", span, FORM_PATH),
+                    ),
+                    element_type_ref=string_type,
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            (
+                "record",
+                RecordExpr(
+                    type_name="InputRecord",
+                    fields=(
+                        ("a", LiteralExpr(1, "int", span, FORM_PATH)),
+                        ("z", LiteralExpr("zed", "string", span, FORM_PATH)),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            (
+                "choice",
+                UnionVariantExpr(
+                    type_name="InputUnion",
+                    variant_name="OK",
+                    fields=(
+                        ("a", LiteralExpr(2, "int", span, FORM_PATH)),
+                        ("z", LiteralExpr("zee", "string", span, FORM_PATH)),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            ("mapping", NameExpr("mapping", span, FORM_PATH)),
+            ("opaque", NameExpr("opaque", span, FORM_PATH)),
+            ("optional", NameExpr("optional", span, FORM_PATH)),
+        )
+    )
+    params = (
+        ("items", list_type),
+        ("record", record_type),
+        ("choice", union_type),
+        ("mapping", map_type),
+        ("opaque", value_type),
+        ("optional", optional_type),
+    )
+    value_env = {
+        "mapping": map_type,
+        "opaque": value_type,
+        "optional": optional_type,
+    }
+    typed, type_env, _, resolved_value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=params,
+        extra_types=(record_type, union_type),
+        value_env=value_env,
+    )
+
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(
+            typed,
+            type_env=type_env,
+            value_env=resolved_value_env,
+        ),
+        result_type=typed.type_ref,
+        context=_run_ref_lowering_context(type_env),
+        local_values={
+            "mapping": {"\u00e9": 3, "z": 2, "a": 1},
+            "opaque": {
+                "\u00e9": [True, None],
+                "a": {
+                    "z": LiteralExpr("literal", "string", span, FORM_PATH)
+                },
+            },
+            "optional": None,
+        },
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+
+    config = steps[-1]["run_ref"]
+    assert config.inputs[0].binding == ArrayBinding(
+        (LiteralBinding("second"), LiteralBinding("first"))
+    )
+    assert config.inputs[1].binding == ObjectBinding(
+        (("z", LiteralBinding("zed")), ("a", LiteralBinding(1)))
+    )
+    assert config.inputs[2].binding == ObjectBinding(
+        (
+            ("variant", LiteralBinding("OK")),
+            ("z", LiteralBinding("zee")),
+            ("a", LiteralBinding(2)),
+        )
+    )
+    assert tuple(name for name, _ in config.inputs[3].binding.entries) == (
+        "a",
+        "z",
+        "\u00e9",
+    )
+    opaque = config.inputs[4].binding
+    assert opaque == ObjectBinding(
+        (
+            ("a", ObjectBinding((("z", LiteralBinding("literal")),))),
+            (
+                "\u00e9",
+                ArrayBinding((LiteralBinding(True), LiteralBinding(None))),
+            ),
+        )
+    )
+    assert config.inputs[5].binding == LiteralBinding(None)
+
+
+def test_run_ref_leaf_uses_one_whole_input_projection_for_complex_pure_value() -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    record_definition = RecordDef(
+        name="ProjectedInput",
+        fields=(RecordField(name="value", type_name="String", span=span),),
+        span=span,
+    )
+    record_type = RecordTypeRef(
+        name="ProjectedInput",
+        definition=record_definition,
+        field_types={"value": string_type},
+    )
+    expr = _mode_one_expr(
+        inputs=(
+            (
+                "value",
+                RecordExpr(
+                    type_name="ProjectedInput",
+                    fields=(
+                        (
+                            "value",
+                            PureOpExpr(
+                                operator="string/concat",
+                                args=(
+                                    LiteralExpr("a", "string", span, FORM_PATH),
+                                    LiteralExpr("b", "string", span, FORM_PATH),
+                                ),
+                                span=span,
+                                form_path=FORM_PATH,
+                            ),
+                        ),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(("value", record_type),),
+        extra_types=(record_type,),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    steps, terminal = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+
+    assert len(steps) == 2
+    projection, run_ref_step = steps
+    assert set(projection) >= {"pure_projection", "output_bundle"}
+    assert tuple(projection["pure_projection"]["output_contracts"]) == (
+        "__result__",
+    )
+    assert run_ref_step["run_ref"].inputs[0].binding == ReferenceBinding(
+        f"root.steps.{projection['name']}.artifacts.__result__"
+    )
+    assert [
+        effect.effect_kind for effect in context.generated_semantic_effects
+    ] == ["pure_projection", "run_ref"]
+    assert terminal.step_name == run_ref_step["name"]
+
+
+def test_run_ref_leaf_projects_one_dynamically_selected_union_input() -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    union_definition = UnionDef(
+        name="DynamicChoice",
+        variants=(
+            UnionVariant(
+                name="OK",
+                fields=(RecordField(name="value", type_name="String", span=span),),
+                span=span,
+            ),
+            UnionVariant(
+                name="FAILED",
+                fields=(RecordField(name="reason", type_name="String", span=span),),
+                span=span,
+            ),
+        ),
+        span=span,
+    )
+    union_type = UnionTypeRef(
+        name="DynamicChoice",
+        definition=union_definition,
+        variant_field_types={
+            "OK": {"value": string_type},
+            "FAILED": {"reason": string_type},
+        },
+    )
+    expr = _mode_one_expr(
+        inputs=(("choice", NameExpr("choice", span, FORM_PATH)),)
+    )
+    typed, type_env, _, value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=(("choice", union_type),),
+        extra_types=(union_type,),
+        value_env={"choice": union_type},
+    )
+    context = _run_ref_lowering_context(type_env)
+    context.local_type_bindings = {"choice": union_type}
+
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env, value_env=value_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={
+            "choice": {
+                "variant": "root.steps.seed.artifacts.variant",
+                "value": "root.steps.seed.artifacts.value",
+                "reason": "root.steps.seed.artifacts.reason",
+            }
+        },
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+
+    assert len(steps) == 2
+    projection, run_ref_step = steps
+    assert set(projection) >= {"pure_projection", "output_bundle"}
+    assert run_ref_step["run_ref"].inputs[0].binding == ReferenceBinding(
+        f"root.steps.{projection['name']}.artifacts.__result__"
+    )
+    assert [
+        effect.effect_kind for effect in context.generated_semantic_effects
+    ] == ["pure_projection", "run_ref"]
+
+
+def test_run_ref_leaf_preflights_all_inputs_before_projection_or_identity_mutation() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("first", LiteralExpr("ok", "string", span, FORM_PATH)),
+            ("second", LiteralExpr("ok", "string", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("first", PrimitiveTypeRef("String")),
+            ("second", PrimitiveTypeRef("String")),
+        ),
+    )
+    lowerable = _lowerable_run_ref(typed, type_env=type_env)
+    lowerable = replace(
+        lowerable,
+        inputs=(
+            replace(
+                lowerable.inputs[0],
+                value_expr=PureOpExpr(
+                    operator="string/concat",
+                    args=(
+                        LiteralExpr("a", "string", span, FORM_PATH),
+                        LiteralExpr("b", "string", span, FORM_PATH),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            replace(lowerable.inputs[1], value_expr=_mode_one_expr()),
+        ),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _lower_run_ref_operation(
+            lowerable,
+            result_type=typed.type_ref,
+            context=context,
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "f" * 64
+            ),
+        )
+    assert excinfo.value.diagnostics[0].code == "run_ref_input_binding_unsupported"
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+    assert context.step_spans == {}
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
+
+
+@pytest.mark.parametrize("invalid_kind", ("record", "union", "map", "value"))
+def test_run_ref_leaf_rejects_malformed_structural_input_without_mutation(
+    invalid_kind: str,
+) -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    if invalid_kind == "record":
+        definition = RecordDef(
+            name="InvalidRecord",
+            fields=(RecordField(name="required", type_name="String", span=span),),
+            span=span,
+        )
+        input_type = RecordTypeRef(
+            name="InvalidRecord",
+            definition=definition,
+            field_types={"required": string_type},
+        )
+        local_value = {}
+        extra_types = (input_type,)
+    elif invalid_kind == "union":
+        definition = UnionDef(
+            name="InvalidUnion",
+            variants=(UnionVariant(name="OK", fields=(), span=span),),
+            span=span,
+        )
+        input_type = UnionTypeRef(
+            name="InvalidUnion",
+            definition=definition,
+            variant_field_types={"OK": {}},
+        )
+        local_value = {
+            "variant": LiteralExpr("UNKNOWN", "string", span, FORM_PATH)
+        }
+        extra_types = (input_type,)
+    elif invalid_kind == "map":
+        input_type = MapTypeRef("Map[String,String]", string_type, string_type)
+        local_value = {1: "not-a-string-key"}
+        extra_types = ()
+    else:
+        input_type = PrimitiveTypeRef("Value")
+        local_value = {"unsupported": object()}
+        extra_types = ()
+    expr = _mode_one_expr(
+        inputs=(("value", NameExpr("value", span, FORM_PATH)),)
+    )
+    typed, type_env, _, value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=(("value", input_type),),
+        extra_types=extra_types,
+        value_env={"value": input_type},
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _lower_run_ref_operation(
+            _lowerable_run_ref(typed, type_env=type_env, value_env=value_env),
+            result_type=typed.type_ref,
+            context=context,
+            local_values={"value": local_value},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "f" * 64
+            ),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_input_binding_invalid"
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
+
+
+def test_run_ref_leaf_rejects_metadata_order_or_type_drift() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(("value", LiteralExpr("ok", "string", span, FORM_PATH)),)
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(("value", PrimitiveTypeRef("String")),),
+    )
+    lowerable = _lowerable_run_ref(typed, type_env=type_env)
+
+    with pytest.raises(ValueError, match="metadata"):
+        _lower_run_ref_operation(
+            replace(
+                lowerable,
+                inputs=(replace(lowerable.inputs[0], name="renamed"),),
+            ),
+            result_type=typed.type_ref,
+            context=_run_ref_lowering_context(type_env),
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "a" * 64
+            ),
+        )
+
+    with pytest.raises(ValueError, match="metadata"):
+        _lower_run_ref_operation(
+            replace(
+                lowerable,
+                inputs=(
+                    replace(
+                        lowerable.inputs[0],
+                        type_descriptor={"kind": "primitive", "name": "Int"},
+                    ),
+                ),
+            ),
+            result_type=typed.type_ref,
+            context=_run_ref_lowering_context(type_env),
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "a" * 64
+            ),
+        )
