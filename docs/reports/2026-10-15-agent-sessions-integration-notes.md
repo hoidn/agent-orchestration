@@ -72,11 +72,22 @@ and routes to Agent Sessions; do not restore this branch's old `Proposed; PQ-1 p
 - In `specs/versioning.md`, retain this branch's two 2.38 rows and their
   qualification pointers while preserving main's unrelated provider-delivery
   rendering amendments.
+- Main's uncommitted result-delivery rendering uses `file/2`, while this
+  branch's shared `orchestrator/workflow/evaluated/providers.py::FILE_DELIVERY_NAME`
+  currently selects `file/1`. Reconcile that shared constant and its
+  `DELIVERY_SELECTORS` entry with main's rendering implementation together, so
+  ordinary and agent turns select the same current rendering. Preserve
+  historical selector/digest replay; a versioning-doc change alone does not
+  perform that integration.
 - In `docs/design/workflow_lisp_evaluated_execution.md`, retain this branch's
   agent-turn recovery/invalidation amendments, including the paragraph under
   the memo-record table naming `run_ref` and target-2.38 `agent_turn` as
   coordinators, and the C8 row naming both committed and attempt-history
   refusals. Preserve main's independently advanced run-reference amendments.
+
+Compare main's untracked duplicates against the integrated tracked files before
+removing any duplicate. Equality must be checked at integration time; this note
+does not assert current or future equality or authorize deletion based on names.
 
 The qualification record owns smoke receipts, exact verification revisions and
 coverage limits. This note neither authorizes paid comparison runs nor changes
