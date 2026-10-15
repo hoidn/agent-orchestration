@@ -44,6 +44,7 @@ class LeafOutcome:
     duration_ms: int                   # leaf wall time (host-side work is accounted by the caller)
     quiesced_by_exit: bool             # True only when the leaf exited on its own (checkpoint allowed, N9)
     holder_death: HolderDeath | None   # set when the holder died or drifted; the attempt fails with this code
+    lingered: bool = False             # P29: the leaf exited (exit_code kept) but left processes that were killed
 
 
 class LeafRunner(Protocol):

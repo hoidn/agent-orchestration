@@ -34,6 +34,7 @@ import shlex
 import struct
 from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 # Read-only use of the shim's private constants and join function (Ruling P26):
 # the shim and its reviewed identity stay untouched.
@@ -178,26 +179,34 @@ def validate_leaf_request(request: LeafRequest) -> None:
     """Shape checks of a dispatch-built request; a violation is a caller bug (ValueError)."""
     if not isinstance(request.leaf_id, str) or not _NAME.match(request.leaf_id):
         raise ValueError("leaf_id must be a plain name")
-    argv = request.argv
-    if not argv or any(not isinstance(arg, str) or "\0" in arg for arg in argv):
-        raise ValueError("argv must be non-empty text without NUL")
-    if not argv[0].startswith("/") or "=" in argv[0]:
-        raise ValueError("argv[0] must be an absolute guest path without '='")
-    for name, value in request.env.items():
-        if not _ENV_NAME.match(name) or not isinstance(value, str) or "\0" in value:
-            raise ValueError(f"environment entry {name!r} is invalid")
-    cwd = request.cwd
-    if posixpath.normpath(cwd) != cwd or not (cwd == "/workspace" or cwd.startswith("/workspace/")):
-        raise ValueError("cwd must be a normalized path under /workspace")
-    if not isinstance(request.timeout_sec, (int, float)) or not 0 < request.timeout_sec < math.inf:
-        raise ValueError("timeout_sec must be positive and finite")
-    if min(request.stdout_limit, request.stderr_limit) < 0:
-        raise ValueError("output limits must be non-negative")
+    _validate_command(request.argv, request.env, request.cwd)
+    _validate_bounds(request)
     for name, data in request.input_files.items():
         if not _NAME.match(name) or name in RESERVED_RESULT_NAMES or not isinstance(data, bytes):
             raise ValueError(f"input file {name!r} is invalid")
     if request.network not in ("none", "model-only"):
         raise ValueError("network must be none or model-only")
+
+
+def _validate_command(argv: tuple[str, ...], env: Mapping[str, str], cwd: str) -> None:
+    if not argv or any(not isinstance(arg, str) or "\0" in arg for arg in argv):
+        raise ValueError("argv must be non-empty text without NUL")
+    if not argv[0].startswith("/") or "=" in argv[0]:
+        raise ValueError("argv[0] must be an absolute guest path without '='")
+    for name, value in env.items():
+        if not _ENV_NAME.match(name) or not isinstance(value, str) or "\0" in value:
+            raise ValueError(f"environment entry {name!r} is invalid")
+    if posixpath.normpath(cwd) != cwd or not (cwd == "/workspace" or cwd.startswith("/workspace/")):
+        raise ValueError("cwd must be a normalized path under /workspace")
+
+
+def _validate_bounds(request: LeafRequest) -> None:
+    timeout = request.timeout_sec
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout < math.inf:
+        raise ValueError("timeout_sec must be positive and finite")
+    for limit in (request.stdout_limit, request.stderr_limit):
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise ValueError("output limits must be non-negative integers")
 
 
 def leaf_script(request: LeafRequest) -> str:
@@ -263,8 +272,8 @@ def attribute_drift(ready: Mapping[str, object], now: Mapping[str, object],
     """
     for name in ready:
         if name == "cpus_allowed":
-            expected = ready[name] if effective_cpus is None else ready[name] & effective_cpus
-            if not expected <= now[name]:
+            ready_cpus, now_cpus = cast(frozenset[int], ready[name]), cast(frozenset[int], now[name])
+            if not (ready_cpus if effective_cpus is None else ready_cpus & effective_cpus) <= now_cpus:
                 return name
         elif ready[name] != now[name]:
             return name

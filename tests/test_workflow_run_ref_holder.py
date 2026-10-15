@@ -23,7 +23,9 @@ import pytest
 from orchestrator.providers import isolation_backend as backend
 from orchestrator.workflow.run_ref import holder_spawner as profile
 from orchestrator.workflow.run_ref.holder import Holder
-from orchestrator.workflow.run_ref.holder_broker import GuestRefusal, read_leaf_results, wipe_mount
+from orchestrator.workflow.run_ref.holder_broker import (
+    MAX_RESULT_DEPTH, MAX_RESULT_ENTRIES, MAX_WIPE_DEPTH, GuestRefusal, read_leaf_results, wipe_mount,
+)
 from orchestrator.workflow.run_ref.image_store import SealedImage
 from orchestrator.workflow.run_ref.leaf import LeafRequest
 from orchestrator.workflow.run_ref.runtime import RunRefRuntimeError
@@ -191,7 +193,8 @@ def test_leaf_script_execs_argv_under_exactly_the_request_environment():
     {"leaf_id": "../x"}, {"leaf_id": "a/b"}, {"argv": ()}, {"argv": ("python3",)}, {"argv": ("/a=b",)},
     {"argv": ("/bin/sh", "a\0b")}, {"env": {"A=B": "x"}}, {"cwd": "/tmp"}, {"cwd": "/workspace/../etc"},
     {"timeout_sec": 0}, {"timeout_sec": float("inf")}, {"input_files": {"stdout": b""}},
-    {"input_files": {"a/b": b""}}, {"network": "host"},
+    {"input_files": {"a/b": b""}}, {"network": "host"}, {"stdout_limit": 1.5}, {"stderr_limit": True},
+    {"stdout_limit": -1},
 ])
 def test_malformed_leaf_requests_are_refused(changes):
     with pytest.raises(ValueError):
@@ -204,6 +207,21 @@ def test_model_only_leaf_refuses_until_the_relay_exists(tmp_path):
     with pytest.raises(RunRefRuntimeError) as refused:
         holder.run_leaf(_request(network="model-only"))
     assert refused.value.code == "run_ref_provider_transport_unavailable"
+
+
+def test_launch_failure_from_a_broken_image_descriptor_is_coded_unavailable(tmp_path):
+    holder = Holder(SealedImage(-1, {"tree_digest": "sha256:" + "0" * 64}), LIMITS, control_dir=tmp_path)
+
+    with pytest.raises(RunRefRuntimeError) as refused:
+        holder.launch()
+    assert (refused.value.code, holder.scope) == ("run_ref_environment_unavailable", None)
+
+
+def test_host_helper_needs_an_absolute_executable(tmp_path):
+    holder = Holder(SealedImage(-1, {}), LIMITS, control_dir=tmp_path)
+
+    with pytest.raises(ValueError):
+        holder.run_host_helper(["python3", "-c", "pass"], timeout_sec=1)
 
 
 # -- result broker and wipe ---------------------------------------------------------------------------------
@@ -270,6 +288,67 @@ def test_broker_propagates_host_descriptor_exhaustion(result_root):
             os.close(descriptor)
         resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
     assert (type(raised.value) is OSError, raised.value.errno) == (True, errno.EMFILE)
+
+
+def _refused(fd: int) -> str:
+    started = time.monotonic()
+    with pytest.raises(GuestRefusal) as refused:
+        read_leaf_results(fd, "leaf", stdout_limit=10, stderr_limit=10, max_bytes=1 << 20)
+    assert time.monotonic() - started < 5
+    return str(refused.value)
+
+
+def test_broker_refuses_an_unreadable_result_directory_as_guest_caused(result_root):
+    root, fd = result_root
+    (root / "leaf" / "sub").mkdir()
+    (root / "leaf" / "sub" / "file").write_text("x")
+    (root / "leaf" / "sub").chmod(0o400)
+    try:
+        assert "sub" in _refused(fd)
+    finally:
+        (root / "leaf" / "sub").chmod(0o700)
+
+
+def test_broker_refuses_a_result_name_that_is_not_utf8(result_root):
+    root, fd = result_root
+    (root / "leaf" / os.fsdecode(b"\xff")).write_text("x")
+
+    assert "UTF-8" in _refused(fd)
+
+
+@pytest.mark.parametrize("shape", ["files", "directories", "nested"])
+def test_broker_bounds_the_result_tree_before_accumulating(result_root, shape):
+    root, fd = result_root
+    if shape == "nested":
+        os.makedirs(root / "leaf" / "/".join(["d"] * (MAX_RESULT_DEPTH + 2)))
+    for index in range(MAX_RESULT_ENTRIES + 1 if shape != "nested" else 0):
+        target = root / "leaf" / f"e{index}"
+        target.mkdir() if shape == "directories" else target.write_bytes(b"")
+
+    assert any(word in _refused(fd) for word in ("entries", "deeply"))
+
+
+def test_wipe_refuses_a_tree_deeper_than_its_descriptor_bound(tmp_path):
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        for _ in range(MAX_WIPE_DEPTH + 10):
+            os.mkdir("d")
+            os.chdir("d")
+    finally:
+        os.chdir(previous)
+    fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    open_before = len(os.listdir("/proc/self/fd"))
+    try:
+        assert (wipe_mount(fd), len(os.listdir("/proc/self/fd")) == open_before) == (False, True)
+    finally:
+        os.close(fd)
+        _remove_deep(tmp_path)
+
+
+def _remove_deep(root: Path) -> None:
+    """pytest's own cleanup handles the depth, but keep tmp_path tidy for reruns."""
+    subprocess.run(["rm", "-rf", "--", str(root / "d")], check=True)
 
 
 def test_wipe_empties_a_mount_whose_entries_the_guest_locked(tmp_path):

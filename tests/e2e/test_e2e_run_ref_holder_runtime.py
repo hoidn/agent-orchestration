@@ -22,45 +22,14 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow.run_ref.holder import CGROUP_MOUNT, Holder
-from orchestrator.workflow.run_ref.holder_broker import populated
-from orchestrator.workflow.run_ref.leaf import HolderDeath, LeafRequest
-from tests.e2e.run_ref_image_fixture import sealed_image  # noqa: F401 (fixture)
+from orchestrator.workflow.run_ref.holder import CGROUP_MOUNT
+from orchestrator.workflow.run_ref.holder_scope import populated
+from orchestrator.workflow.run_ref.leaf import HolderDeath
+from tests.e2e.run_ref_image_fixture import (  # noqa: F401 (fixtures)
+    ESCAPE, LOST, PATH, PYTHON, WORKSPACE_MIB, launch, leaf, sealed_image,
+)
 
 pytestmark = pytest.mark.e2e
-
-PATH = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
-PYTHON = "/usr/local/bin/python3"
-WORKSPACE_MIB = 32
-LIMITS = {"wall-seconds": 600, "memory-mib": WORKSPACE_MIB + 960, "cpus": 1, "pids": 64,
-          "workspace-mib": WORKSPACE_MIB, "output-mib": 1}
-LOST = "run_ref_environment_lost"
-ESCAPE = "run_ref_environment_escape_rejected"
-
-
-def leaf(name: str, script: str | None = None, *, argv: tuple[str, ...] | None = None, timeout: float = 10,
-         files: dict[str, bytes] | None = None, limit: int = 1 << 16) -> LeafRequest:
-    return LeafRequest(leaf_id=name, argv=argv or ("/bin/sh", "-c", script or "true"), env=PATH,
-                       cwd="/workspace", timeout_sec=timeout, stdout_limit=limit, stderr_limit=limit,
-                       input_files=files or {}, network="none")
-
-
-@pytest.fixture
-def launch(sealed_image, tmp_path):
-    control = tmp_path / "control"
-    control.mkdir(mode=0o700)
-    started: list[Holder] = []
-
-    def _launch(**kwargs) -> Holder:
-        holder = Holder(sealed_image, kwargs.pop("limits", LIMITS), control_dir=control, **kwargs)
-        started.append(holder)
-        return holder.launch()
-
-    yield _launch
-    for holder in started:
-        holder.stop()
-    assert [h.unit for h in started if h.scope is not None and populated(h.scope)] == []
-
 
 PROFILE_PROBE = r"""
 import ctypes, errno, json, os, sys
@@ -82,7 +51,7 @@ json.dump({
     "cwd": os.getcwd(), "own_session": os.getsid(0) == os.getpid(),
     "spawner_session": os.getsid(spawner) != os.getpid(),
     "processes": sorted(int(p) for p in os.listdir("/proc") if p.isdigit()) == sorted({1, spawner, os.getpid()}),
-    "in_namespace_fds": sorted(set(fds(1) + fds(spawner)) - {"/dev/null"}),
+    "pid1_fds": sorted(set(fds(1))), "spawner_fds": fds(spawner),
     "keyctl": attempt(keyctl),
     "proc_keys": [attempt(lambda: open(p).read()) for p in ("/proc/keys", "/proc/key-users")],
     "creates": {p: attempt(lambda: open(p, "x").close())
@@ -108,14 +77,15 @@ def test_leaf_sees_the_profile_shape_through_the_runtime(launch, tmp_path):
     finally:
         os.close(git_fd)
     facts = json.loads(outcome.stdout)
-    sockets = [target for target in facts.pop("in_namespace_fds") if target.startswith("socket:")]
+    spawner_fds = facts.pop("spawner_fds")
+    sockets = {target for target in spawner_fds if target.startswith("socket:")}
 
     assert {
         "outcome": (outcome.exit_code, outcome.quiesced_by_exit, outcome.holder_death, outcome.stderr),
         "result_files": outcome.result_files,
         "read_back": (holder.readback["cgroup"], holder.readback["unit"]["OOMPolicy"]),
         "scope_root_empty": (holder.scope / "cgroup.procs").read_text(),
-        "spawner_sockets": len(sockets),
+        "spawner_fds": (set(spawner_fds) - sockets, len(sockets)),
         **facts,
     } == {
         "outcome": (0, True, None, b""),
@@ -123,7 +93,8 @@ def test_leaf_sees_the_profile_shape_through_the_runtime(launch, tmp_path):
         "read_back": ({"memory.max": str(992 << 20), "memory.swap.max": "0", "pids.max": "64",
                        "cpu.max": "100000 100000"}, "continue"),
         "scope_root_empty": "",
-        "spawner_sockets": 2,
+        "spawner_fds": ({"/dev/null"}, 2),  # exactly the two channel sockets besides /dev/null
+        "pid1_fds": ["/dev/null", "anon_inode:[eventfd]"],  # bwrap's own eventfd, unreachable (F3b-channel)
         "env": PATH,  # exactly the request environment, nothing inherited
         "cwd": "/workspace",
         "own_session": True,
@@ -231,15 +202,15 @@ def test_stopped_and_signalled_spawners_and_a_setsid_daemon(launch):
         # pid 1 follows its killed child out, so the scope may vanish before the EOF is read
         "signalled": (outcomes["signalled"].holder_death.code,
                       outcomes["signalled"].holder_death.detail in ("control socket EOF", "bwrap exited")),
-        "daemon": (outcomes["daemon"].exit_code, outcomes["daemon"].quiesced_by_exit, outcomes["daemon"].stdout,
-                   outcomes["daemon"].holder_death),
+        "daemon": (outcomes["daemon"].exit_code, outcomes["daemon"].lingered, outcomes["daemon"].quiesced_by_exit,
+                   outcomes["daemon"].stdout, outcomes["daemon"].holder_death),
         "dead_scopes_populated": [populated(h.scope) for h in (stopped, signalled)],
         "after_daemon": (after_daemon.exit_code, after_daemon.holder_death),
         "daemon_survivors": survivors,
     } == {
         "stopped": HolderDeath(LOST, "no status line within the deadline"),
         "signalled": (LOST, True),
-        "daemon": (None, False, b"started\n", None),
+        "daemon": (0, True, False, b"started\n", None),
         "dead_scopes_populated": [False, False],
         "after_daemon": (0, None),
         "daemon_survivors": [],

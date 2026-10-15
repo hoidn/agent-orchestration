@@ -10,7 +10,11 @@ then imports it into a store, the same path a real installation uses.
 Caching: by default the layout and the store live under a pytest temporary
 directory for the module (the store is made writable again at teardown so
 pytest can remove it). Set `RUN_REF_E2E_IMAGE_STORE=<dir>` to keep the store
-across sessions (opt-in); the import is skipped when the record is present.
+across sessions (opt-in); the import is skipped when the record is present
+(re-import after the image store's pins change).
+
+`launch` starts `Holder`s over that image and stops every one at teardown,
+asserting no scope stays populated; `leaf` builds a `LeafRequest`.
 """
 
 from __future__ import annotations
@@ -20,11 +24,15 @@ import json
 import os
 import stat
 import tarfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.run_ref.holder import Holder
+from orchestrator.workflow.run_ref.holder_scope import populated
 from orchestrator.workflow.run_ref.image_store import SealedImage, import_oci_layout, open_sealed_image
+from orchestrator.workflow.run_ref.leaf import LeafRequest
 from tests.e2e.run_ref_fixtures import IMAGE_RECORD, skip_unless_user_manager
 
 REPOSITORY = "example.invalid/run-ref-holder-fixture"
@@ -69,7 +77,7 @@ def _writable(root: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def sealed_image(tmp_path_factory) -> SealedImage:
+def sealed_image(tmp_path_factory) -> Iterator[SealedImage]:
     skip_unless_user_manager()
     if not IMAGE_RECORD.exists():
         pytest.skip(f"Task 1 image record {IMAGE_RECORD} absent; import it as the feasibility README describes")
@@ -84,3 +92,36 @@ def sealed_image(tmp_path_factory) -> SealedImage:
     sealed.close()
     if not cached:
         _writable(store)
+
+
+PATH = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
+PYTHON = "/usr/local/bin/python3"
+WORKSPACE_MIB = 32
+LIMITS = {"wall-seconds": 600, "memory-mib": WORKSPACE_MIB + 960, "cpus": 1, "pids": 64,
+          "workspace-mib": WORKSPACE_MIB, "output-mib": 1}
+LOST = "run_ref_environment_lost"
+ESCAPE = "run_ref_environment_escape_rejected"
+
+
+def leaf(name: str, script: str | None = None, *, argv: tuple[str, ...] | None = None, timeout: float = 10,
+         files: dict[str, bytes] | None = None, limit: int = 1 << 16) -> LeafRequest:
+    return LeafRequest(leaf_id=name, argv=argv or ("/bin/sh", "-c", script or "true"), env=PATH,
+                       cwd="/workspace", timeout_sec=timeout, stdout_limit=limit, stderr_limit=limit,
+                       input_files=files or {}, network="none")
+
+
+@pytest.fixture
+def launch(sealed_image, tmp_path) -> Iterator[Callable[..., Holder]]:
+    control = tmp_path / "control"
+    control.mkdir(mode=0o700)
+    started: list[Holder] = []
+
+    def _launch(**kwargs) -> Holder:
+        holder = Holder(sealed_image, kwargs.pop("limits", LIMITS), control_dir=control, **kwargs)
+        started.append(holder)
+        return holder.launch()
+
+    yield _launch
+    for holder in started:
+        holder.stop()
+    assert [h.unit for h in started if h.scope is not None and populated(h.scope)] == []
