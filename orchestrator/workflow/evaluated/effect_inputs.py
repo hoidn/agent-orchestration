@@ -20,7 +20,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
-from .providers import DELIVERY_NAMES_BY_DIGEST, resolve_provider_input
+from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
 
 
@@ -121,7 +121,7 @@ def _provider_delivery_name(node, commit, identity):
     if commit is None:
         # omp children never receive ORCHESTRATOR_OUTPUT_BUNDLE_PATH; they deliver by final assistant text
         # that the parent materializes (specs/providers.md), so they keep the legacy wording.
-        return "legacy" if node["provider"].startswith("omp") else "file/1"
+        return "legacy" if node["provider"].startswith("omp") else FILE_DELIVERY_NAME
     digest = commit.data["input_parts"].get("delivery")
     if digest is None:
         return None

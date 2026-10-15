@@ -22,7 +22,7 @@ from orchestrator.contracts.closed_program.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.providers.types import ProviderParams
+from orchestrator.providers.types import ProviderParams, ProviderSessionMetadataMode
 from orchestrator.contracts.output_contract import (
     ContractViolation, OutputContractError, validate_expected_outputs,
 )
@@ -32,6 +32,7 @@ from .prompts import assemble_provider_prompt, provider_expected_outputs
 
 
 DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file"}
+FILE_DELIVERY_NAME = "file/1"  # the current file rendering for new rows; one edit switches every selector
 DELIVERY_NAMES_BY_DIGEST = {canonical_sha256(name): name for name in DELIVERY_SELECTORS}
 
 
@@ -212,21 +213,34 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     )
 
 
+def provider_delivery_name_for_template(template) -> str:
+    """`legacy` for OMP JSON transports (parent-materialized output), else the current file rendering."""
+    omp = ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    session = template.session_support
+    if template.command_metadata_mode == omp or (session is not None and session.metadata_mode == omp):
+        return "legacy"
+    return FILE_DELIVERY_NAME
+
+
 def launch_provider(
     node, resolved, identity, *, executor: ProviderExecutor,
     attempt_files: WorkspaceFiles, workspace_files: WorkspaceFiles,
     result_path: str, stream_output: bool = False, launch_cwd=None, logical_workspace_root=None,
+    session_request=None, observation_handle=None, control=None,
 ):
-    """Prepare once, dispatch at most once, and keep exclusive attempt evidence.
+    """Prepare once, dispatch at most once, keep exclusive attempt evidence, and return the execution.
 
     `stream_output` tees the provider's stdout/stderr to this process's streams
     while it runs; the captured bytes written to the attempt files are the same.
+    `session_request` selects the template's session command variant; `observation_handle`
+    (owned and finalized by the caller) and `control` are forwarded to the executor.
     """
     attempt_files.create("prompt.txt", resolved.prompt.encode("utf-8"), exclusive=True)
     stdout, stderr = b"", b""
     try:
         invocation, error = _prepare_provider_invocation(
-            node, resolved, str(attempt_files.workspace / "result.json"), executor)
+            node, resolved, str(attempt_files.workspace / "result.json"), executor,
+            session_request=session_request)
         if error is not None or invocation is None:
             raise ProviderPerformerError(
                 "provider_preparation_failed", str(error or "provider invocation missing"),
@@ -234,7 +248,8 @@ def launch_provider(
             )
         execution = executor.execute(
             invocation, cwd=launch_cwd or workspace_files.workspace, stream_output=stream_output,
-            **({"logical_workspace_root": logical_workspace_root} if logical_workspace_root is not None else {}),
+            **{key: value for key, value in (("logical_workspace_root", logical_workspace_root),
+                ("observation_handle", observation_handle), ("control", control)) if value is not None},
             session_runtime=None, execution_env_overlay={
                 "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY": (
                     "sha256:" + sha256(identity.encode("utf-8")).hexdigest()
@@ -248,7 +263,7 @@ def launch_provider(
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
-    return result_path
+    return execution
 
 
 def _provider_execution_failure(execution):
@@ -259,7 +274,7 @@ def _provider_execution_failure(execution):
         exit_info={"exit_code": execution.exit_code, "error": execution.error})
 
 
-def _prepare_provider_invocation(node, resolved, result_path, executor):
+def _prepare_provider_invocation(node, resolved, result_path, executor, *, session_request=None):
     input_file = (
         node["prompt"].get("path")
         if node["prompt"].get("source_kind") == "input_file" else None
@@ -269,7 +284,7 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
         params=ProviderParams(params={}, input_file=input_file),
         context={},
         prompt_content=resolved.prompt,
-        session_request=None,
+        session_request=session_request,
         env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": result_path},
         secrets=None,
         timeout_sec=resolved.policy.get("timeout_sec"),
