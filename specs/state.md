@@ -398,6 +398,13 @@ and adjacent terminals are refused. `input_digest`, `result_digest` and
 not recomputed from `input_parts` or from files: a committed result is never
 revalidated against the filesystem.
 
+An `invalidated` record also removes the pending obligation of each
+uncommitted `started` record whose byte offset is at or after `from_commit`
+in the preceding journal prefix. Pending starts before the anchor remain.
+The journal history, latest start and next attempt ordinal are preserved:
+retiring a pending obligation does not authorize repeating the effect or
+bypass C4/§8.1. A later start lies outside the closed range.
+
 Identities are the canonical site and activation texts of the checked
 program, for example `workflow:main::run / built`; a `[*]` site is
 instantiated with its dynamic index (`[3]`) in identities.

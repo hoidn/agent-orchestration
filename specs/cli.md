@@ -360,8 +360,11 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   journal or view failure after the checks (`memo_*`, `view_write_failed`)
   also exits `2`; after `view_write_failed` the range record is already
   durable, which is the lost-acknowledgment case above. Invalidation cancels
-  commits only: a newer uncommitted attempt whose closure changed is still
-  refused on resume by C4.
+  the committed suffix and retires pending starts in that journal suffix,
+  while preserving attempt history. A newer uncommitted attempt still
+  supplies its C4/§8.1 retry baseline and `must_not_repeat` restriction when
+  its identity is reached again; pending starts before the anchor remain
+  pending.
 - Readers: `report`, `dashboard` and `monitor` recognize an evaluated run
   root and render its [derived view](state.md#derived-view-statejson)
   (`steps` keyed by identity, `current_step`, `next_effect`, `error`,

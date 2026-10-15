@@ -1743,6 +1743,11 @@ commit and that its suffix contains no coordinator commit, or report
 `memo_inconsistent`. Derive the chosen identity and affected attempts from
 those records, without storing a second list or emitting per-effect records.
 
+The same range retires pending starts whose byte offsets are at or after
+its anchor, without removing their history or changing §8.1 retry
+permission. Pending starts before the anchor remain; an independent
+parallel sibling can have started before the chosen commit.
+
 One complete range record reopens the preceding terminal and changes every
 affected row's status to `invalidated`. A crash before it or during a torn
 line cancels nothing; a surviving complete record cancels the entire suffix,
