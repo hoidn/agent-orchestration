@@ -1416,12 +1416,18 @@ uncommitted attempt's closure mismatch. A start that did commit and was later
 invalidated does not pin that explicitly authorized re-execution to old bytes.
 
 **Proposed amendment for target 2.38 confined children** (unimplemented,
-not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): none to this table. §8.1 applies unchanged to a confined
-child's memo: a `started` or `failed` attempt without a commit, including
-a tool-enabled provider attempt, reruns on resume after C4's comparison
-unless its boundary declares `must_not_repeat` or the parent ledger holds
-the child's failed terminal row, which makes the child terminal whatever
-the number of committed effects.
+not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the attempt retry rules in this table remain unchanged.
+First resolve the confined child's terminal state and
+[durable visit budget](../../specs/state.md#confined-wall-budget-recovery).
+Only actual continuation without a failed terminal row and with remaining
+budget applies C4's comparison and this table's next-attempt rule, including
+`must_not_repeat` and portable tool-enabled provider attempts. The
+[FAILED proof](../../specs/state.md#confined-failed-terminal-boundaries)
+validates the committed prefix and recorded boundary from retained snapshots
+without retry preflight or mutable clone reads. Thus `must_not_repeat` does
+not prevent repair/settlement of a durable FAILED or terminalization for
+proven postrelease exhaustion without redispatch. It still forbids rerun;
+evidence failures never become permission to manufacture a terminal.
 
 ### 8.2 Running an attempt
 
@@ -1476,13 +1482,19 @@ evidence, adopt orphan output or bypass the retry baseline because no `failed`
 record survived.
 
 **Proposed amendment for target 2.38 confined children** (unimplemented,
-not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): §8.2 is not amended. A leaf failure under a live
-controller, including holder death (`run_ref_environment_lost`), fails the
-pending attempt and ends the child with no in-run retry. The child's durable
-`FAILED` decision is the failed terminal row the coordinator appends to
-`run-ref-attempts.jsonl` before the memo's `failed` record; a closure
-that resolves into the clone refuses in step 1 before `started` and records
-no attempt.
+not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the running-attempt rules remain unchanged. A leaf failure
+under a live controller, including holder death (`run_ref_environment_lost`),
+fails the pending attempt and ends the child with no in-run retry. The
+coordinator's durable FAILED row follows acknowledged budget closure after
+quiescence and precedes the child memo's `failed`/terminal and parent value.
+[State defines its four boundaries and repair order](../../specs/state.md#confined-failed-terminal-boundaries):
+only a real `started_attempt` gets an effect `failed`; `before_start`, a
+reproducible `pure_fault` and a halted `finalization` failure invent no effect
+record. A closure resolving into the clone still refuses in step 1 before
+`started`. A genuine pure fault after valid admission can fail without a
+holder; prerelease exhaustion still aborts the parent. The same emit/ack
+protocol and separate parent-ledger/child-memo writers apply, without an ack
+dependency on a child record that has not yet been authorized.
 
 ### 8.3 What a stop leaves, and what resume does
 
@@ -2658,16 +2670,23 @@ run's state; the memo replaces that commit.
 | K9 | Every coordinator in a release has evidence through the public run and resume entries: a compiled program killed from outside at each of its two gaps, resumed to the uninterrupted value, with no committed child started twice, and refused before any launch after a declared file changes |
 
 **Proposed amendment for target 2.38 confined children, K4 and K8**
-(unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child with at least one
-committed effect or a failed terminal row is never discarded and keeps
-neither K4's discard nor its fresh-child path. A failed terminal row takes
+(unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child with a validated durable terminal (COMPLETED or FAILED),
+or an incomplete child with at least one committed effect, is never discarded
+and keeps neither K4's discard nor its fresh-child path. This includes a
+pure zero-commit COMPLETED child. A failed terminal row takes
 precedence: the child is terminal and never reruns, whatever the number of
-committed effects. Otherwise a child with a committed effect resumes in the
-same child run and clone under §8.1. A confined child with neither keeps
-today's K4. K8's no-supersession applies from the first committed child
-effect; `invalidate` stays available before it, and `must_not_repeat` on a
-pending attempt after the first commit therefore stops the run
-permanently. Path children keep K4 and K8 unchanged.
+committed effects. Otherwise resolve the
+[durable budget](../../specs/state.md#confined-wall-budget-recovery) before
+K4 or any new holder: proven exhaustion after the retained attempt's release
+terminalizes it at its real boundary without redispatch. With valid remaining
+budget, a child with a committed effect resumes in the same run/clone under
+§8.1; a nonterminal child with zero commits keeps K4's fresh path.
+The fresh ordinal carries the visit's charge, but not its predecessor's
+release; exhaustion before its own release still aborts the parent. K8's
+no-supersession starts at the first committed child effect; `invalidate`
+stays available before it. A pending `must_not_repeat` after that commit is
+a permanent barrier to execution requiring its rerun, not to proving or
+repairing FAILED without a rerun. Path children keep K4 and K8 unchanged.
 
 For §1.2's repeated placements, each iteration instantiates the complete
 activation identity (§6), hence a distinct K7 step id and visit with count 1,

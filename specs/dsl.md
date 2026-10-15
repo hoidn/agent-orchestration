@@ -903,7 +903,13 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       positive bounded integers: `:cpus` is an integer
       quota, `:output-mib` bounds exports only, and `:wall-seconds` is the
       child's cumulative budget for guest execution and the host-side work
-      done for it. Installation maxima are checked at admission.
+      done for it. It belongs to the parent visit across K4 replacements;
+      acknowledged active intervals include controller downtime and host
+      suspension under the fixed Linux `CLOCK_BOOTTIME` clock. An open
+      interval from another boot refuses resume, without resetting allowance
+      or estimating duration from UTC. Closed pauses do not consume budget.
+      [State owns the durable accounting and recovery rule](state.md#confined-wall-budget-recovery).
+      Installation maxima are checked at admission.
     - Compile-time refusals, transitive by effect kind through calls,
       procedures and hooks over the closed effect summary:
       `run_ref_environment_effect_unsupported` for nested `run-ref`, parallel
@@ -932,8 +938,15 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       child runtime failure, wall-time or budget exhaustion, environment
       refusal after release and environment loss after release; structural,
       compile and admission failures before release abort the parent effect
-      under ordinary evaluated rules. A bare `.value` on the site does not
-      typecheck. For this profile the `RepositoryRevisionId` setup component
+      under ordinary evaluated rules. A genuine pure runtime fault after
+      valid admission may be FAILED before the first effect or holder.
+      Budget exhaustion before the release of the attempt being resolved
+      aborts the parent, including initial admission or preparation of a
+      fresh K4 ordinal; after its durable release it can produce FAILED at
+      dispatch, recovery or final shutdown without a new holder. A previous
+      ordinal's release does not count for the new one. Evidence, authority,
+      publication and quiescence failures are not reclassified as pure faults.
+      A bare `.value` on the site does not typecheck. For this profile the `RepositoryRevisionId` setup component
       is the literal `none` and `setup_ms` is `0`.
     - New codes: `run_ref_child_target_unavailable`,
       `run_ref_child_transport_unsupported`,

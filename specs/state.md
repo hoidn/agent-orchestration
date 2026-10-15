@@ -1016,10 +1016,15 @@ carries the named amendments.
   version. Source paths and lines are provenance, not identity. Each loop or
   call activation has a distinct K7 visit, even for identical inputs; the
   child's sites never alias the parent's.
-- Allocation durably binds, before any candidate process is released: the
-  resolved revision (an ordinary reached effect input), child artifact and
-  configuration, inputs, environment, child run id, workspace and control
-  roots, and the cumulative budget.
+- Allocation reserves the checked request/configuration, resolved revision
+  (an ordinary reached effect input), inputs, child run id, workspace/control
+  identities and budget opening before the first charged admission/rehash.
+  This reservation does not assert successful environment admission. Complete
+  the child artifact/environment bindings before any candidate release.
+  Budget belongs to the semantic parent visit; K4 replacement advances the
+  attempt ordinal without renewing its allowance or inheriting release from
+  the preceding attempt. The durable algorithm is
+  [confined wall-budget recovery](#confined-wall-budget-recovery).
 - Control root: beneath the parent run root, next to
   `run-ref-attempts.jsonl`, outside the clone and every guest mount. It holds
   the child run header, checked child artifact, memo, attempt evidence,
@@ -1033,11 +1038,13 @@ carries the named amendments.
   identity, no `workflow_file` or `source_roots`) and a `result_root` that
   records the external control root; how the header stores them is a
   proposed schema fixed with the runtime.
-- Each holder launch has an attempt-bound containment identity (its scope
-  unit and cgroup) and one `DurableLaunchReleaseGate` release fact, held in
-  the control root's holder release gate. Recovery inventories them to tell
-  allocated-but-not-released from possibly released, and kills a populated
-  remnant under the writer lock.
+- Each holder launch has a boot- and attempt-bound containment identity
+  (its exact scope unit and cgroup) and one `DurableLaunchReleaseGate`
+  release fact, held in the control root's holder release gate. Persist the
+  inventory before release; recovery distinguishes allocated-but-not-released
+  from possibly released and kills every exact remnant, including `host`,
+  under the writer lock before reading or repairing the checkpoint. An old
+  boot's scope name alone never authorizes killing an object in a new boot.
 - Checkpoint header, two-phase and keyed by effect identity and attempt
   ordinal: after provisioning, `committed` with identity `none`, ordinal 0
   and the baseline manifest digest; per checkpointed leaf, `intent`
@@ -1067,16 +1074,20 @@ carries the named amendments.
   against those digests before recomputation; a mismatch is tampered
   evidence and fails closed, never `effect_input_diverged`.
 - Failed terminal row: a child concludes `FAILED` only through a row in
-  `run-ref-attempts.jsonl` (code, detail, accounting, memo prefix digest,
-  and the started attempt, or for a dispatch refusal before `started` the
-  refused site and no attempt), appended under the parent writer lock
-  before the child memo's `failed` record and before the parent value is
-  prepared. A crash before the row is a controller interruption; after it
-  the child is terminal and never reruns, whatever the number of committed
-  effects, and the row takes precedence over K4 and the §8.1 rerun. A row
-  naming a started attempt whose memo lacks `failed` is repaired on resume
-  by appending `failed` and the child's failed terminal from the row under
-  the child writer lock; a dispatch-refusal row invents no record.
+  `run-ref-attempts.jsonl`, binding code, detail, accounting, child/config
+  identity, captured memo prefix length/digest, the acknowledged budget
+  closure and one of the four
+  [failed-terminal boundaries](#confined-failed-terminal-boundaries).
+  First prove scope quiescence, persist and acknowledge the budget closure,
+  then append and acknowledge this row under the parent writer lock; only
+  then publish the child's effect `failed` (if a real started attempt needs
+  it) and failed terminal under the child writer lock, before preparing the
+  parent value. A crash before the row remains an interruption whose actual
+  boundary and budget must be resolved; it is not unconditional permission
+  to rerun. After the row, the child is terminal and never reruns, whatever
+  its commit count; the row precedes K4 and §8.1. Resume repairs the missing
+  effect `failed` only for `started_attempt`, and the missing child terminal
+  for every variant. No site, ordinal or effect record is invented.
 - Recovery follows the
   [design's recovery table](../docs/design/workflow_lisp_run_ref_expression_environments.md#lifecycle-cancellation-and-recovery)
   and the K4/K8 amendments. Rules the table does not hold: holder death
@@ -1084,13 +1095,19 @@ carries the named amendments.
   wall-time exhaustion kill the scope, revoke the model capability, prove
   quiescence without checkpointing, and end as `FAILED` when the child
   cannot continue or as a pending child otherwise; `must_not_repeat` on a
-  pending attempt after the first commit stops the run permanently, since
-  K8 forbids `invalidate`; resume validates image executable pins and
+  pending attempt after the first commit prevents further execution requiring
+  that rerun, since K8 forbids `invalidate`, but does not prevent validating
+  or repairing a terminal FAILED or failing on proven postrelease budget
+  exhaustion without dispatch; resume validates image executable pins and
   refuses drift of snapshot/platform, profile, executable or fixed
   configuration with `run_ref_environment_changed` before dispatch;
   `run_ref_environment_unavailable` and `run_ref_environment_changed` stop a
-  run or resume before release and never produce `FAILED`; budgets are
-  cumulative across resumes.
+  run or resume before release and never produce `FAILED`; budget/terminal
+  resolution precedes K4 and any new holder. A validated durable COMPLETED
+  also takes precedence, even for a pure child with zero commits; K4
+  replacement applies only to a nonterminal child with zero commits.
+  Continuation requires valid remaining budget and the ordinary C4/§8.1
+  retry permission.
 - Terminal proofs. `COMPLETED`: capture the protected header, checked
   artifact and complete memo prefix once under retained roots; require a
   completed terminal, valid committed-effect proofs and no unfinished or
@@ -1100,13 +1117,12 @@ carries the named amendments.
   dispatch, reconciliation or reading mutable clone files; require canonical
   equality of the replayed halt, terminal value and the child's typed
   result; bind that evidence to the parent settlement before export rebases
-  the value. `FAILED`: the committed prefix with valid proofs, the failed
-  terminal row and, when it names a started attempt, that attempt's `failed`
-  record, or, for a dispatch refusal, the refused site and no attempt record;
-  no later attempt exists; pure control is replayed to the failed site over
-  the committed values; settlement binds it the same way. Missing snapshots
-  block settlement and cleanup rather than being reconstructed from current
-  source.
+  the value. `FAILED`: validate the committed prefix and recorded boundary
+  under the obligations below, without dispatch or a retry preflight; bind
+  the failed row, its acknowledged budget closure and the child's repaired
+  terminal the same way. Missing snapshots block settlement and cleanup
+  rather than being reconstructed from current source. An already durable
+  COMPLETED is not replaced by FAILED because of later replay/settlement.
 - Retention and cleanup: after terminal validation, export (none for
   `FAILED`) and parent settlement of either outcome, the coordinator deletes
   the clone and its checkpoint header, recording cleanup intent and
@@ -1124,13 +1140,128 @@ carries the named amendments.
   `<under>/.run-ref-exports/<parent-run>` directories
   ([IO](io.md#proposed-run-ref-confined-child-io-target-238)).
 - Accounting records host-side time (rehash, seeding, checkpoints, snapshot
-  copies, result import) charged to `:wall-seconds`; unavailable provider
-  usage is explicit, not zero.
+  copies, result import) charged to `:wall-seconds`. `elapsed_ms` projects the
+  durable conservative wall charge, including open-interval downtime; it is
+  not measured CPU use. A lost host/guest split is explicitly unavailable,
+  never reconstructed as zero guest use or all host use. Unavailable provider
+  usage is likewise explicit, not zero. `budget.json`, when emitted, is only
+  a diagnostic projection of the ledger, never recovery authority.
 - Open for the contract owner: the header representation of the
   child-recipe variant and image pins against the evaluated header's
   mandatory eight-field recipe, and its schema name; the outcome of a
   `committed` header whose digest matches but whose ordinal names neither
   the last committed attempt nor a newer uncommitted one.
+
+### Confined wall-budget recovery
+
+This algorithm belongs only to the proposed target-2.38 profile. The existing
+parent ledger and emit/ack coordinator protocol own its durable state. Per
+semantic visit, retain the checked limit, the integer nanoseconds charged by
+closed intervals, and at most one active interval `{boot_id, since_ns,
+attempt_ordinal}`. The fixed Linux clock is
+`clock_gettime_ns(CLOCK_BOOTTIME)` for both live execution and recovery,
+including all wall-budget remaining/deadline calculations. It includes host
+suspension; there is no clock selector, UTC estimate or fallback clock.
+Unavailable clock/boot identity refuses admission with
+`run_ref_environment_unavailable`; contradictory or malformed evidence fails
+closed.
+
+An opening must be persisted and acknowledged before charged work, including
+the first admission/rehash. With the same kernel boot identity:
+
+```text
+effective_charge_ns = closed_charge_ns + now_boottime_ns - active.since_ns
+remaining_ns = limit_ns - effective_charge_ns
+```
+
+A backward clock reading refuses; never clamp it to zero. Accumulate integer
+nanoseconds and convert only for accounting projection. Recovery validates
+ledger bindings and the boot-bound inventory, kills and empties all exact
+scopes, then durably closes the interval with this charge. It includes all
+time from opening through recovery quiescence, even if the controller died,
+the scope vanished early or the host suspended. The closure references its
+opening and prior total and is acknowledged exactly once: a second crash
+before closure uses the same opening/base, while one after closure loads the
+new total without charging the interval again. Failed quiescence leaves it
+open and blocks recovery; it cannot produce an invented FAILED.
+
+With an active interval from another boot, reject resume with
+`run_ref_environment_changed`, detail `budget_clock_epoch_changed`; preserve
+the known closed total and unknown interval. Do not subtract clocks across
+boots, consult UTC, assume zero lost use, grant a fresh allowance or infer
+budget exhaustion. With only closed intervals, load the total across boots
+and use normal admission for further work. A closed pause consumes no budget
+until the next acknowledged opening. The next interval opens before any
+additional charged recovery/admission/checkpoint work. Necessary validation
+and teardown remain allowed after exhaustion; record the resulting charge
+without truncating it to the limit. Terminal witness/export/settlement do not
+reopen a child's closed execution interval.
+
+Resolve terminality before reopening execution accounting or applying K4:
+validated durable COMPLETED and FAILED are reused, including a pure child
+with zero commits. For a nonterminal child, resolve budget before replacement.
+Proven exhaustion on a retained attempt with a valid consumed release gate
+(the possibly-released
+state) produces FAILED at its actual boundary without a new holder. A gate
+intent alone, the `launched` stage or an in-memory holder is not a release
+fact. Exhaustion before that attempt's release aborts the parent effect under
+ordinary EE rules, including a pure child exhausted during initial admission.
+If K4 permits replacement with remaining budget, the new ordinal carries the
+visit's total but needs its own release: exhaustion during its preparation
+still aborts the parent. A controller death is not holder death and does not
+by itself produce `run_ref_environment_lost`.
+
+The v2 event protocol must validate both beginnings explicitly: a fresh
+reservation's first `allocated` event includes the budget opening and exact
+checked request bindings, without claiming admission; a retained continuation
+begins from the verified ledger head/ordinal/bindings without allocating the
+child again. Budget open/close events do not advance or repeat work stages.
+The v1 first-event rule remains unchanged; v2 retains grant/ack checks for
+visit, ordinal, sequence and adjacency, including parallel workers. A worker
+never writes the ledger directly or acquires a second parent writer. A child
+callback emits and waits for ack; that ack cannot depend on the child first
+publishing `failed` or reacquiring its held writer. The captured prefix and
+bindings authorize the parent row before full terminal proof is possible.
+
+This provides conservative accounting and live-controller deadline checks,
+not an autonomous wall deadline while the controller is absent. Recovery
+quiesces remnants before any replacement. No watchdog or time broker is
+selected; the cost is that downtime/suspension can exhaust the visit and an
+open interval cannot resume across reboot.
+
+### Confined failed-terminal boundaries
+
+The failed-terminal row has one closed discriminant; its common bindings and
+publication order are defined above. Use the ordinary evaluator and retained
+input/commit validators to prove past execution, without applying C4/§8.1
+authorization for a future attempt or reading current mutable clone inputs.
+
+| Boundary | Required evidence and ordinary replay result |
+| --- | --- |
+| `started_attempt` | Exact effect identity/ordinal and its real uncommitted `started` with verified attempt snapshots; replay reaches that frontier. Publish/repair its `failed` after the parent row acknowledgement, then the child terminal. |
+| `before_start` | Exact reached effect identity/site with no invented new attempt ordinal; replay reaches it. Covers dispatch refusal and exhaustion before the next dispatch after this child's release. Publish only the child terminal. |
+| `pure_fault` | Canonical fingerprint of the ordinary pure evaluator's structured diagnostic (code, source and metadata); validated replay reproduces that fault, not a halt or unresolved frontier. No effect record is invented. |
+| `finalization` | Canonical digest of the replayed halt value, no fault, frontier, pending start or unsettled coordinator, plus a proven finalization cause. The selected cause is `run_ref_budget_exhausted` after this attempt's release, with exhausted acknowledged budget closure and empty scopes. The halt value is not published as COMPLETED. |
+
+All variants validate the captured committed prefix, its ordered reached
+commits, lineage and input authority from retained snapshots; no later
+attempt may exist beyond the recorded boundary. Terminal proof of an existing
+nonrepeatable `started_attempt`, or terminalizing it for proven postrelease
+budget exhaustion, requires no permission to repeat it. Only actual
+continuation without a terminal row and with remaining budget runs the
+ordinary C4/§8.1 preflight and enforces `must_not_repeat`. Do not turn a retry
+preflight refusal into terminal evidence.
+
+A genuine pure runtime fault after valid admission may produce `pure_fault`
+even before the first effect and without a holder. This does not turn
+prerelease budget exhaustion into FAILED. Compilation, structural/admission,
+authority, evidence, publication and quiescence failures are not pure faults
+and are never reclassified merely by an exception type or diagnostic code.
+For a budget failure every boundary still requires this attempt's release.
+The halt-only case covers final shutdown exhausting the budget after the
+last commit and before completed-terminal publication. A crash between budget
+closure and failed row preserves the charge but still requires proving the
+actual boundary; it does not establish terminality by itself.
 
 ## Target 2.25 Trial State, Settlement, And Replay
 

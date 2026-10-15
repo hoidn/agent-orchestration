@@ -177,12 +177,21 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     provider leaf and dies with it; the capability is revoked when the
     attempt stops and excluded from durable artifacts. Only API-key accounts
     are admitted; OAuth credential-file passthrough is forbidden.
-  - Enforced resources: CPU, memory, process count, cumulative child wall
-    time including host-side work, workspace and scratch bytes, export
-    bytes, file count and depth, and bounded stdout/stderr; a post-run `du`
+  - Enforced resources: CPU, memory, process count, workspace and scratch
+    bytes, export bytes, file count and depth, and bounded stdout/stderr; a post-run `du`
     is insufficient. Protected evidence is charged to a separate
     installation-policy evidence allowance, never to `:output-mib`.
     Effective limits and kernel settings are retained in admission evidence.
+    Cumulative child wall time includes host-side work and is checked by the
+    live controller. The [durable wall-budget rule](state.md#confined-wall-budget-recovery)
+    charges open intervals through recovery quiescence, including controller
+    downtime and host suspension using fixed `CLOCK_BOOTTIME`; a different
+    boot with an open interval refuses resume. This accounting does not
+    enforce an autonomous wall deadline while the controller is absent; no
+    watchdog is selected. Kernel containment remains in force, and recovery
+    must kill and empty every exact boot-bound remnant, including `host`,
+    before checkpoint reads or replacement. Ambiguous identity or failed
+    quiescence blocks recovery, never authorizes a replacement or FAILED.
 
 - Adjudicated provider child workspaces (v2.11)
   - Candidate workspaces are run-owned copies created from a fixed immutable baseline snapshot. They are isolation boundaries for orchestrator-managed output validation and promotion, not OS sandboxes.
