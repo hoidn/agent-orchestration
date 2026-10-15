@@ -13,7 +13,12 @@
   and [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
   own completion, receipts, the original RED full-suite dispositions and
   qualified compatibility/live evidence. Later classes and phases are not
-  selected by this closure.
+  selected by this closure. Since then the owner retired the flat route
+  (2026-10-13, §13), registered bounded parallel map at target 2.37 (§11),
+  and registered target 2.38 for agent sessions (first slice implemented,
+  §9.2) and confined run-reference children (command, recovery and export
+  paths implemented; public confined provider dispatch pending, §8.4 and
+  [`specs/versioning.md`](../../specs/versioning.md#version-gating-summary)).
   The [early Phase 6a pilot](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md)
   has bounded caller reviews and 21 passing pilot cases at `688695e3`,
   with production corrections at `d6adb627` and `b11e678`. Its full suite
@@ -110,6 +115,8 @@ The owner's decision of 2026-09-29 (plan, decisions 5 and 7): evaluated
 execution is built in stages, at target 2.35. The original flat compatibility
 baseline is historical: the [selected retirement](workflow_lisp_executor_retirement.md)
 rejects executable entries through 2.34 and old-profile resume/invalidation.
+Where this design says "the present route" or "the flat route", it names
+that retired route.
 
 The first release covers four classes of effect: commands (external tools
 and certified adapters), composed providers, calls of workflows and
@@ -130,6 +137,9 @@ matching producer-owned typed snapshot (§4.2.1); ordinary source calls remain
 admitted. This input precondition does not authorize a new call-form gap.
 Portable composed providers include both prompt
 extern source kinds and the admitted `defprompt` slot kinds (§9.4).
+Since this decision, parallel map entered as bounded target 2.37 (§11),
+agent sessions as target 2.38 (§9.2), and trials and requests for human
+input were retired without a port (§9.2).
 
 The conditions of the gate report, section 6, bind the first release. Each
 is a rule of this design.
@@ -218,7 +228,8 @@ Non-goals:
 - Capturing or rolling back workspace files. A committed child run is
   therefore never superseded (C8, K8).
 - Binding what a command reads beyond the files its boundary declares (C5).
-- Changing YAML workflows or targets that exist today.
+- Changing the targets that existed when this design was accepted; their
+  executable entries were later retired separately (§13).
 
 ## 4. The Closed Program
 
@@ -837,7 +848,7 @@ for each addition. The closed program has these:
 | `if` | branch on a strict `Bool` |
 | `join`, `jump` | second-class continuation |
 | `loop`, `continue`, `done` | bounded iteration, with its budget and its exhaustion body |
-| `par-map` | bounded parallel iteration over a list (§11; a later release) |
+| `par-map` | bounded parallel iteration over a list (§11; bounded target 2.37) |
 | `halt` | result |
 
 Rules of elaboration into this form:
@@ -939,7 +950,7 @@ activation path = frames from the entry to the definition
 | Rule | Statement |
 | --- | --- |
 | I1 | The site is the definition that contains the `perform` node and the path from the definition's body to it. Two call sites of one definition are two frames over one site |
-| I2 | A frame is a call site, written `<label>=<callee>` with the callee's canonical name (§4.2), a loop iteration `loop:<state label>[<i>]`, or, in a later release, a parallel map item `[<index>]` |
+| I2 | A frame is a call site, written `<label>=<callee>` with the callee's canonical name (§4.2), a loop iteration `loop:<state label>[<i>]`, or, at bounded target 2.37, a parallel map item `[<index>]` |
 | I3 | Local paths follow the traversal table below. Each effect ends in its binding's I4 label, and each effectful call has a frame at its binding. The separator in the presentation is ` / ` |
 | I4 | A binding without an authored label takes `#<k>`, its ordinal among the anonymous bindings of its scope whose value performs an effect. A named binding uses its retained authored label even if hygiene changes its lexical name. Pure bindings advance neither anonymous nor repeated-label counters, so a pure refactoring moves no identity. A repeated authored label takes `<name>#<k>` |
 | I5 | An attempt is an ordinal under an identity. Attempts never change the identity |
@@ -970,7 +981,7 @@ leaving sites and call frames unchanged.
 | Bound `block` | Under its I4 label append `block`; walk its body in a new scope |
 | `join` body / continuation | The first release has exactly one bound-result parameter. Walk the body under that parameter's I4 label and `body`, in a new scope; the continuation keeps the enclosing prefix and scope. The generated continuation target is not the label. Thus a body effect cannot collide with a continuation effect. Jumps add no site or frame |
 | `loop` body / exhaustion | Append `loop:<state label>[*]` / `loop:<state label> / exhausted`, each with a new scope; anonymous state parameters use the loop's I4 ordinal. The generated loop target is not the state label. Seeds, budgets and `continue`/`done` operands obey §4.3 |
-| Later `par-map` body | Append `par-map:<binder>[*]`; the activation substitutes the input-list index, never completion order. Its input and workspace expressions are evaluated before the body as their contracts require |
+| `par-map` body (bounded target 2.37) | Append `par-map:<binder>[*]`; the activation substitutes the input-list index, never completion order. Its input and workspace expressions are evaluated before the body as their contracts require |
 | Effect-free value children, `halt`, `jump`, `continue`, `done` | No site; recursively validate their values and targets. No hidden `perform` or effectful `call` may remain outside the walked bindings |
 
 Segments are tagged values internally; presentation escapes literal `%`,
@@ -2667,7 +2678,11 @@ coordinator (§9.3) is a performer with a ledger of its own.
 At first-release target 2.35, a program using a class marked later is refused
 at build (§1.1). Target 2.38 additionally admits the command-only confined
 named-workflow run-reference row and, independently, the bounded Agent allocation
-and turn row above; confined providers remain closed and other exclusions remain target-aware. Older executable
+and turn row above; target 2.37 admits bounded `par-map` (§11); confined providers
+remain closed and other exclusions remain target-aware. No port is selected for
+the other rows marked later: trials and requests for human input are retired, and
+the flat performers named for resource transitions and materialized views were
+removed with the flat route. Older executable
 entries are retired; no old-route fallback is available.
 
 ### 9.3 Coordinators
@@ -2886,7 +2901,7 @@ on order. For this profile the runtime derives views by these rules.
 | Rule | Statement |
 | --- | --- |
 | V1 | A view is derived from the memo and the program. Rows come from the records. The run's position comes from evaluating the program against the memo without launching anything: a `halt` value leaves no record before the terminal record, so a projection of the memo alone cannot say where the run stands |
-| V2 | The run's status: `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. A later release adds `suspended`, for a pending request |
+| V2 | The run's status: `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. `suspended` is not added: requests for human input are retired (§9.2) |
 | V3 | A `terminal` record is checked against §7.1: every active coordinator commit, identified by its checked `effect_class`, must have a matching `settled` record for that identity and attempt before the terminal. A completed terminal additionally requires replay to reach the same `halt` with no missing commit; a failed terminal may have an uncommitted failure. Missing proof, class mismatch, missing settlement or adjacent terminals yield `memo_inconsistent`, with no completed outputs |
 | V4 | Liveness comes from the writer's lock, not from a heartbeat: a process that died released it, and the view says `interrupted` at once. The present report says `running` until a heartbeat is 300 seconds old |
 | V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit covered by a range record (C8). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
@@ -3052,7 +3067,7 @@ code to its rule here.
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | The explicit continuation (C8) |
 | `workflow_execution_profile_retired` | Public resume/restart and invalidation select a retired profile; refusal precedes locks/writes (§13 and CLI cutoff) |
 | `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run (§8.4; the profile has no force-restart); not raised by `run` or ordinary `resume` of an admitted 2.35 entry ([`specs/cli.md`](../../specs/cli.md#diagnostics)) |
-| `parallel_workspace_shared` | A later release (§11) |
+| `parallel_workspace_shared` | Before any item of a bounded 2.37 `par-map` launches: two items resolve to one working directory (§11) |
 
 ## 13. Targets And Compatibility
 
@@ -3163,7 +3178,7 @@ records commands, exits, hashes and limits separately from historical evidence.
 | Identity | Adding blank lines, and moving the program and the package, change no identity | Spike: met (gate report, §2, criterion 5). Public: [`tests/test_workflow_evaluated_public_identity.py`](../../tests/test_workflow_evaluated_public_identity.py) (Task 13B) |
 | Sites | Independent `perform`-node/site-table bijection and one frame per effectful call; fixtures cover `select` prefixes, nested `block`, `join` body/continuation, exhaustion and control in aggregate/terminal positions. Every memo identity instantiates one site and its frames | Spike: existing corpus instances met (gate report, §2, criterion 6). Public: the 2.35 totality matrix of Task 13A, [`tests/test_workflow_evaluated_totality.py`](../../tests/test_workflow_evaluated_totality.py), on top of the Phase 2 site owners |
 | Parity | On programs both routes accept, the effect traces are equal and the requests are equal apart from R1 to R12 | Spike: met on 68 matrix cells, the shipped examples and a reduced decisive program (gate report, §2, criterion 7). Public: request fields on public runs in [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py), [`tests/test_workflow_evaluated_prompts.py`](../../tests/test_workflow_evaluated_prompts.py) and [`tests/test_workflow_evaluated_command_templates.py`](../../tests/test_workflow_evaluated_command_templates.py) |
-| Older targets | Byte-identical build artifacts | Per-cut comparisons remain recorded in the Phase 3 plan. Final Task 17 audit at `ef689a39`, fixed source/package paths and `PYTHONHASHSEED=0`: 88/88 raw public artifact pairs equal; authentic capsules 55/67 equal with 12 pin/derived-identity differences (exit 1); separate fixed-identity serialization control 67/67 equal (exit 0); old 2.34 run/resume exit 0/0 with no redispatch. [Closeout and limits](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md#task-17-open-full-run-completed-red); the control is not authentic-pin byte equality |
+| Older targets | Byte-identical build artifacts | Per-cut comparisons remain recorded in the Phase 3 plan. Final Task 17 audit at `ef689a39`, fixed source/package paths and `PYTHONHASHSEED=0`: 88/88 raw public artifact pairs equal; authentic capsules 55/67 equal with 12 pin/derived-identity differences (exit 1); separate fixed-identity serialization control 67/67 equal (exit 0); old 2.34 run/resume exit 0/0 with no redispatch. [Closeout and limits](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md#task-17-closed-full-run-completed-red); the control is not authentic-pin byte equality |
 | A dependence through a file | Command A writes a path that command B reads by a fixed name, with no value between them. After A's input changes and `invalidate A`, the resume gives the value of a fresh run, and B ran again | Spike: failed on the value-only rule; iteration 4 reproduced and corrected it with suffix invalidation. Public: met, A writes `handoff.txt` and B reads it by name; after `invalidate` of the writer the resume gives the fresh run's value and B ran again, [`tests/test_workflow_evaluated_invalidate.py`](../../tests/test_workflow_evaluated_invalidate.py) |
 | A read-only closure with external caches | A Python package command resumes with cache files absent from the closure (disabled or outside it); assert that placement. A changed authored script refuses resume, and a command modifying its closure fails before commit | Spike: iteration 4 measured both cache placement and write detection. Public: [`tests/test_workflow_evaluated_closure.py`](../../tests/test_workflow_evaluated_closure.py), [`tests/test_workflow_evaluated_closure_bytecode.py`](../../tests/test_workflow_evaluated_closure_bytecode.py) (`__pycache__` outside the evidence, C5) and [`tests/test_workflow_evaluated_resume_retry.py`](../../tests/test_workflow_evaluated_resume_retry.py) (changed authored script and changed package helper refuse) |
 | The interpreter fixed for the run | Changing `PATH` alone launches the recorded executable with no change diagnostic. Changing bytes at that path emits `interpreter_changed` and continues on it; a missing/unlaunchable recorded path refuses. No interpreter digest enters effect-input identity | Spike: iteration 4 demonstrated PATH pinning but retained digest-based refusal. Public: the accepted C3 policy is met, PATH redirected and bytes changed after a kill, resume logs `interpreter_changed` and launches the pinned path, [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py) and [`tests/test_workflow_evaluated_interpreters.py`](../../tests/test_workflow_evaluated_interpreters.py); `resume_interpreter_missing` is owned there and not observed in a retained public file |
@@ -3201,7 +3216,7 @@ retains exact tested revisions and qualified evidence.
 | Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Spike: met (iteration 1, commit `92d47fe0`). Public: a second evaluation over one memo launches nothing and reads no committed result's file again, [`tests/test_workflow_evaluated_resume_replay.py`](../../tests/test_workflow_evaluated_resume_replay.py) and [`tests/test_workflow_evaluated_input_document_replay.py`](../../tests/test_workflow_evaluated_input_document_replay.py); a path's existence is observed only as a C6 document read or a `must_exist` check at the producing boundary. Secrets are not designed |
 | The views satisfy their readers | Every V9 adapter reads the evaluated profile through its public entry, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit | Spike: only report-shaped in-memory rows/status shown in iteration 2. Public: durable publication, the status adapters and every reader of §10 read the profile through their public entries, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit, [`tests/test_workflow_evaluated_view_publication_faults.py`](../../tests/test_workflow_evaluated_view_publication_faults.py) (Tasks 10–11); view failure with later divergence before reconcile/tail repair and completed resume twice by Task 15D, [`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py), integrated `a84f2769` |
 | A run-reference adapter can reuse its runtime and ledger | A compiled path-mode run reference, killed at both gaps, with the changed caller adapter | Spike: met (iteration 3, E). Public: the evaluated adapter with its ledger through the public entries, [`tests/test_workflow_evaluated_run_ref.py`](../../tests/test_workflow_evaluated_run_ref.py), [`tests/test_workflow_evaluated_run_ref_settlement.py`](../../tests/test_workflow_evaluated_run_ref_settlement.py), [`tests/test_workflow_evaluated_run_ref_root.py`](../../tests/test_workflow_evaluated_run_ref_root.py) and [`tests/test_workflow_evaluated_run_ref_kills.py`](../../tests/test_workflow_evaluated_run_ref_kills.py) (Task 9); both-gap kills on the real programs by Task 15A/15B, [`tests/test_workflow_evaluated_recovery.py`](../../tests/test_workflow_evaluated_recovery.py) (`2604e887`) |
-| The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Spike: met for X1 and X4. Public: met on both routes. X2 (`PhaseCtx`) and X3 (`phase-target`, including named targets with a real legacy provider) are compared against the flat route's values by [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (`test_public_run_and_phase_context_match_existing_route`, `test_public_named_phase_targets_match_real_legacy_provider`) and [`tests/test_workflow_evaluated_phase_context.py`](../../tests/test_workflow_evaluated_phase_context.py) (`test_fixed_phase_target_values_match_legacy_after_readback`); X1 through the evaluated entries in [`tests/test_workflow_evaluated_call_context.py`](../../tests/test_workflow_evaluated_call_context.py); X4 is the `<result_root>/<result_path>` join of §8.4 (Task 13B-I) |
+| The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Spike: met for X1 and X4. Public: met; the flat oracle is retired and the tests assert the recorded flat-route values. X2 (`PhaseCtx`) and X3 (`phase-target`, including named targets with a real provider) are asserted by [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (`test_public_run_and_phase_context_match_existing_route`, `test_public_named_phase_targets_reach_real_provider_in_named_order`) and [`tests/test_workflow_evaluated_phase_context.py`](../../tests/test_workflow_evaluated_phase_context.py) (`test_fixed_phase_target_values_follow_named_order_after_readback`); X1 through the evaluated entries in [`tests/test_workflow_evaluated_call_context.py`](../../tests/test_workflow_evaluated_call_context.py); X4 is the `<result_root>/<result_path>` join of §8.4 (Task 13B-I) |
 | Non-finite numbers cannot reach an input digest | The numeric surface's boundary rule, implemented at target 2.34 | Owned by the [numeric surface](workflow_lisp_numeric_surface.md) |
 | A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Public: met, [`tests/test_workflow_evaluated_input_documents.py`](../../tests/test_workflow_evaluated_input_documents.py) (Task 12) |
 | The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Implemented: checker/artifact read-back reject those tamperings, including public CLI artifacts; `tests/test_workflow_lisp_closed_program_artifact.py` and `tests/test_workflow_lisp_closed_program_compile_cli.py` |
@@ -3223,12 +3238,12 @@ questions below stay open.
 | --- | --- | --- |
 | 1 | The number of the new target — resolved | 2.35, owner decision of 2026-09-30 (plan, decision 6) |
 | 2 | When older targets are retired — resolved | Selected 2026-10-13 retirement and finite gate R; the retirement closeout owns verification/delivery |
-| 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters |
-| 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's — resolved | Public runs on both routes with the values asserted equal: `tests/test_workflow_evaluated_public_context.py::test_public_run_and_phase_context_match_existing_route` and `::test_public_named_phase_targets_match_real_legacy_provider`, and `tests/test_workflow_evaluated_phase_context.py::test_fixed_phase_target_values_match_legacy_after_readback` (§18, Task 13B-I) |
-| 5 | Whether prompt dependency snapshots render as the present route renders them | The two routes' prompts compared on a workflow with prompt dependencies (§18) |
+| 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters; trials are retired without a port (§9.2), so no such class is selected |
+| 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's — resolved | Public runs asserting the recorded flat-route values: `tests/test_workflow_evaluated_public_context.py::test_public_run_and_phase_context_match_existing_route` and `::test_public_named_phase_targets_reach_real_provider_in_named_order`, and `tests/test_workflow_evaluated_phase_context.py::test_fixed_phase_target_values_follow_named_order_after_readback` (§18, Task 13B-I) |
+| 5 | Whether prompt dependency snapshots render as the present route renders them | Historical: the two routes' prompts were compared through Task 7 (§18) before the flat route's retirement; no further comparison is possible |
 | 6 | When invalidation may narrow to dependents through values and declared files (C9) | A later release, when command boundaries declare the files they read and write, tested by the file-dependence fixture of §17 |
-| 7 | How sessions, observation files and secrets are named and resumed | Not designed. Each enters with the class that needs it, with its own evidence (§1.1) |
-| 8 | Whether an interrupted, unsettled judge attempt spends a trial's budget | Owner decision before trial admission: preserve the current charged-at-allocation policy (a crash may change the decision), or change charging/retry semantics with explicit evidence. This design selects neither; trials remain later |
+| 7 | How sessions, observation files and secrets are named and resumed | Sessions are designed and implemented at target 2.38 ([Agent Sessions](workflow_lisp_agent_sessions.md)); observation files and secrets are not designed and enter with the class that needs them (§1.1) |
+| 8 | Whether an interrupted, unsettled judge attempt spends a trial's budget | Owner decision before trial admission: preserve the current charged-at-allocation policy (a crash may change the decision), or change charging/retry semantics with explicit evidence. This design selects neither; trials are retired without a port (§9.2) |
 
 ## 20. Decision Log
 

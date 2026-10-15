@@ -68,7 +68,8 @@ Target 2.33 adds first-order generic unions (§8.5) and the `std/improve`
 library module (§87.1).
 
 Target 2.34 adds the implemented [numeric surface](workflow_lisp_numeric_surface.md).
-The pipeline described here remains the runnable route through 2.34.
+The pipeline described here was the runnable route through 2.34; those
+entries are now retired.
 Targets 2.35 and 2.36 select [evaluated execution](workflow_lisp_evaluated_execution.md)
 through public `compile`, `run`, `resume` and `invalidate`. The admitted
 first-release classes at 2.35 are delivered. The target-2.36 W3 additions are
@@ -351,9 +352,10 @@ execution follows the evaluated design and retirement cutoff:
 11. [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md)
     Accepted compiler middle-end for current Workflow Lisp lowering. WCC
     schema 2 elaborates typed frontend programs into ANF-normalized calculus,
-    performs scope/effect/proof analysis, and defunctionalizes second-class
-    join points into the existing flat Core AST. New compiler-lane work must
-    target this route; legacy schema 1 is compatibility only.
+    performs scope/effect/proof analysis, and feeds the checked closed
+    program; defunctionalization into the flat Core AST is retired (§44.1).
+    New compiler-lane work must target this route; legacy schema 1 is
+    compatibility only.
 
 12. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)
     Exact lowering contracts for `provider-result`, `produce-one-of`,
@@ -420,8 +422,8 @@ Current companion contracts:
   paths.
 - The WCC middle-end is the current compiler-lane baseline for new Workflow
   Lisp lowering in the migrated route subset. It owns elaboration, ANF
-  normalization, scope/effect/proof analysis, and defunctionalization into the
-  existing flat Core AST. New nested-control, loop, stdlib-composition, and
+  normalization and scope/effect/proof analysis; defunctionalization into the
+  flat Core AST is retired (§44.1). New nested-control, loop, stdlib-composition, and
   returned-variant work must target WCC/schema 2. Legacy schema 1 and direct
   per-form lowerers are compatibility routes, not the default architecture.
 - The composition/stdlib migration contract starts from the existing stdlib
@@ -4637,7 +4639,8 @@ Running step %implementation_attempt.provider_execute
 
 ## 76. Build Artifacts
 
-Recommended compile artifacts:
+Current `compile` persists `.orchestrate/build/<build_key>/closed_program.json`
+and `manifest.json` (§77). The historical flat recommendation was:
 
 ```text
 .orchestrate/build/<hash>/frontend_ast.json
@@ -4952,7 +4955,9 @@ cited there; preserved reports remain frozen history.
 
 ## 79. Explain Expansion
 
-The flat `explain` command is retired. No evaluated replacement is selected.
+The flat `explain` command is retired; the `explain` subcommand refuses with
+`workflow_explain_retired` and `compile --diagnostics-json` is the current
+check. No evaluated replacement is selected.
 Retained editor diagnostics and REPL introspection use their own public contracts.
 
 ## 80. Emit Debug YAML
@@ -5456,8 +5461,9 @@ LOC.
 
 These stages are retained as provenance for the frontend rollout. They are not
 the current compiler-lane roadmap where they conflict with WCC. The current
-compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset, with
-legacy schema 1 retained for compatibility and historical-run resume.
+compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset;
+legacy schema 1 is a predecessor compiler identity, and the flat executor and
+historical-run resume are retired (§44.1, §78).
 
 WCC compiler-lane work is governed by this baseline plus the component
 contracts it routes to: private executable context, typed projection,
@@ -5583,10 +5589,10 @@ compiler-substrate interpretation of these stages. Migrated-route evidence
 identifies the lowering route and schema version; promoted work uses
 `wcc_default`/schema 2 as the current compiler guidance.
 
-Promotion of YAML primaries remains separate from implementation of frontend
-capability. A `.orc` candidate must have machine-computed non-regressive parity
-evidence before replacing a YAML primary, even if the candidate compiles,
-validates, and dry-runs.
+Promotion of YAML primaries was separate from implementation of frontend
+capability: a `.orc` candidate needed machine-computed non-regressive parity
+evidence before replacing a YAML primary, even if the candidate compiled,
+validated, and dry-ran. The YAML frontend and that gate are retired (§78.1).
 
 ## 105.1 Runtime Migration Foundation Contract
 
@@ -5618,7 +5624,7 @@ Composition and stdlib migration requires:
 6. keep canonical `resume-or-start` validation typed and parity-testable;
 7. inventory adapter lint debt before strict enforcement;
 8. use `--require-non-regressive` for evidence and `--require-promotable` for
-   any primary-surface decision.
+   any primary-surface decision (retired gate flags, §78.1).
 
 ## 105.3 Native Transportable Returns And Typed Result Guidance
 
@@ -5829,6 +5835,10 @@ authority, cancellation, or a provider-session resume command.
 
 ## 105.10 Implemented Durable Host Input
 
+Historical (target 2.32): the syntax/type contract below is retained;
+`request-input` execution and `input answer`/`cancel` settlement are retired
+(see the header note and [CLI](../../specs/cli.md)).
+
 Target 2.32 reserves `(request-input question)`, one exact-`String` operand,
 and the closed builtin `HumanReply` union. The operation has one inferred
 `host-input` effect; procedures declaring effects write `:effects
@@ -5900,6 +5910,9 @@ Runtime workflow refs create dynamic loading/versioning problems.
 ## Part XX. Open Design Decisions
 
 ## 109. Debug YAML
+
+Resolved by the executor retirement: flat debug-YAML emission is retired (§80)
+and no renderer is maintained. The original question and recommendation:
 
 Need decide whether to maintain an optional YAML renderer.
 

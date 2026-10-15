@@ -194,24 +194,16 @@ compile/runtime/resume tests cited by the selected registry entry.
 
 For targeted design-doc review/fix semantics, read
 `workflows/examples/review_revise_design_docs.orc` as a reference, not as a
-preferred copy target. The compile-only command in the [README](../README.md#first-compile-check)
-works from the repository root without `--entry-workflow`:
-
-```bash
-python -m orchestrator compile workflows/examples/review_revise_design_docs.orc \
-  --source-root workflows/examples \
-  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
-  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json \
-  --diagnostics-json
-```
+preferred copy target. It targets DSL 2.23, whose execution is retired:
+`compile` rejects it with `workflow_execution_target_retired` before checking
+the source, so neither a compile check nor `run --dry-run` runs on it today.
+The [README](../README.md#first-compile-check) compile check uses
+`plan_review_execute.orc` at 2.35 instead.
 
 The subject is file-oriented: `fix-design-doc` edits the document artifact and
 returns the same subject paths. The loop returns findings and report paths,
 not a revised subject value for a downstream value-based handoff.
-This command checks source without executing providers. Selecting
-`review_revise_design_docs::review-revise-design-docs` for `run --dry-run`
-currently fails with `workflow_signature_mismatch`
-(`entry_bootstrap_name_gate_denied`). Choose new examples from the workflow
+Choose new examples from the workflow
 catalog's [copy-safety table](../workflows/README.md#which-example-should-i-copy).
 The earlier `workflows/examples/review_revise_parametric_design_docs.orc`
 remains provenance for the real-life-tested review path, but hardcodes one
@@ -220,10 +212,11 @@ design set.
 For the smallest concrete Workflow Lisp teaching example, read
 `workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
 flowing through typed plan and implementation provider results plus bounded
-review/fix loops. Treat it as a compact shared-validation reference and
+review/fix loops. Treat it as a compact historical reference and
 inspiration corpus, not as a direct template for new workflows, not as the main
-`.orc` model, and not as a production queue drain: it can compile and dry-run
-through the `.orc` runtime bridge, but it does not include the selector, queue
+`.orc` model, and not as a production queue drain: it targets DSL 2.14, whose
+execution is retired (`compile` rejects it with
+`workflow_execution_target_retired`), and it does not include the selector, queue
 movement, recovery, and evidence required of a production backlog drain.
 
 ## Core Rule
@@ -420,7 +413,7 @@ not in the historical flat-route workaround catalogue.
 | Records, unions, lists, and repeated pure bindings | Keep typed native values; no flattening or value-as-step wrapper is needed to reach a command. |
 | Effectful arguments and conditions | Admitted effects run in structural evaluation order, once per activation; boolean operators short-circuit. |
 | Pure contexts | Keep `:on-exhausted` and pure `list/map` bodies effect-free; union reads still require proof. |
-| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; parallel map is outside the release. |
+| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; parallel map requires the bounded 2.37 extension owned by the Phase 5 plan above and is not general copy-safe guidance. |
 | Decimal arithmetic | Use the closed numeric operator surface in Section 9A; mixed numeric types and non-finite results fail closed. |
 | Path-mode `run-ref` | Admitted directly or through calls in effect-admitting branches, loops, budgets, seeds, `match` subjects and serial effect maps; retain pure-context restrictions. |
 
@@ -467,7 +460,7 @@ Everything below is the public fixture of
 (`test_public_compile_run_resume_invalidate_resume_keeps_provider_command_evidence`),
 as it ran under the Task 16A inventory: the files it writes, the commands it
 issues and what it asserts. `$T` is the workspace, the current directory of
-every command. Run the test to reproduce it; nothing here is invented.
+every command. Run the test to reproduce it.
 
 **Source** (`$T/main.orc`, entry `main::run`): one command whose result feeds
 one provider, with a typed `String` input.
@@ -608,10 +601,12 @@ unchanged.
 python -B -m orchestrator resume <run_id>
 ```
 
-What the recipe does not show: context capture, trials, phased providers,
-parallel map and the other classes of
+What the recipe does not show: context capture, trials, phased providers
+and the other classes of
 [§1.1](design/workflow_lisp_evaluated_execution.md#11-the-first-release)
-refuse at build with `closed_program_gap`; external kills at every window of
+refuse at build with `closed_program_gap` (a parallel `list/map-effect` below
+target 2.37 refuses earlier, in the frontend, with
+`list_traversal_target_dsl_unsupported`); external kills at every window of
 every effect of the three maintained programs are owned by
 [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
 (Phase 3 Task 15, integrated).
@@ -2693,8 +2688,10 @@ declared root.
 
 `list/map-effect` requires an explicit `:max` and one admitted effect in its
 body; its source and body arguments remain pure. Pure `list/map` bodies remain
-effect-free. Indexing, filtering, folding, general ProcRef mapping, parallel
-map and unbounded traversal are outside the current surface. Traversal does
+effect-free. Indexing, filtering, folding, general ProcRef mapping and
+unbounded traversal are outside the current surface; parallel `list/map-effect`
+requires target 2.37 and remains bounded Phase 5 work, not copy-safe guidance
+(Section 2A). Traversal does
 not grant prompt visibility: a provider input still needs an admitted renderer.
 See [evaluated totality evidence](../tests/test_workflow_evaluated_totality.py)
 for record/union/list transport and pure-context refusals.
@@ -3144,8 +3141,3 @@ Author typed compositions over admitted effects, lexical values, explicit
 outcomes and bounded control. Keep runtime bookkeeping and report parsing out
 of domain code. A helper's existence at another target does not make its
 resource, publication or session effects available on the evaluated route.
-
-The purpose of Workflow Lisp is not to make YAML prettier. The purpose is to
-make deterministic workflow authoring typed, structured, composable,
-state-safe, variant-safe, effect-visible, source-mapped, and less brittle while
-running through the checked program and memo-backed evaluated runtime.

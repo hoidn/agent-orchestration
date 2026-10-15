@@ -419,7 +419,9 @@ the binding and not in the program.
 
 The call's own option, then the binding's default, then the provider
 template's default. A parameter the template requires and none of the three
-supplies is rejected at compile time with `provider_parameters_missing`.
+supplies fails the call when it is reached, with `provider_preparation_failed`
+(the flat route's compile-time `provider_parameters_missing` check was retired
+with that route on 2026-10-13).
 
 ### 7.4 Identity
 

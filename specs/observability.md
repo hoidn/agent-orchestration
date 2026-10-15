@@ -199,6 +199,7 @@ derives solely from the validated `.orc` executable and `state.json`.
     - `FAILED`: persisted `state.status` is `failed`.
     - `CRASHED`: persisted `state.status` is `running`, and run-local process metadata confirms the original process identity is no longer alive.
     - `STALLED`: persisted `state.status` is `running`, and the active execution cursor heartbeat or fallback `state.updated_at` is older than the configured stale threshold.
+    - For an evaluated run (profile `evaluated_execution.v1`) the monitor reads the derived `state.json` view only: `CRASHED` is the view's `interrupted` status (no writer holds `run.lock` and the run has not ended), and `STALLED` is not emitted. The process-identity and heartbeat rules apply to historical flat-route runs.
   - Freshness classification must prefer the deepest active execution cursor heartbeat, including heartbeats in running reusable call frames, over root `state.updated_at`.
   - A live PID alone is not sufficient process identity. When process identity cannot be confirmed, the monitor must fall back to heartbeat/stale classification rather than suppressing notifications.
   - The notification ledger is external to watched repositories by default and de-duplicates by resolved workspace path, run directory id, and event kind.

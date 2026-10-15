@@ -1004,7 +1004,7 @@ and closure. The plan passed `L3_PLAN_SPEC_APPROVED` then
 **Use this when:** You need detailed source notes behind the umbrella target's Track R; use the umbrella target for next-work routing.
 
 ### [Workflow Lisp Core Calculus And Compiler Middle-End](design/workflow_lisp_core_calculus_middle_end.md)
-**Description:** Accepted compiler architecture for Workflow Lisp lowering in the migrated subset: a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization into the existing validated flat runtime — with WCC schema 2 default for new compiles and legacy schema 1 retained for compatibility.
+**Description:** Accepted compiler architecture for Workflow Lisp lowering in the migrated subset: a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization — which fed the retired flat runtime through target 2.34 and, at 2.35, feeds the checked closed program the evaluated runtime executes; WCC schema 2 and legacy schema 1 are historical route identities.
 **Keywords:** lisp-frontend, core-calculus, middle-end, anf, join-points, defunctionalization, composition, lowering
 **Use this when:** Planning or reviewing compiler-lane post-foundation work, especially nested structured control, loops, stdlib review/revise composition, returned-variant lowering, route compatibility, or WCC evidence.
 
@@ -1325,5 +1325,5 @@ and registry own current scope.
 
 ---
 
-*Last updated: September 2026*
+*Last updated: October 2026*
 *Style: detailed catalog with descriptions, keywords, and task-oriented navigation*

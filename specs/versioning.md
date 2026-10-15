@@ -760,7 +760,11 @@ no new package version or universal recovery guarantee is inferred.
     requires is refused when the workflow is validated, with
     `provider_parameters_missing` at the call. Before, validation accepted
     the workflow and the run failed when it reached the call. A workflow
-    whose call is never reached ran before and is refused now.
+    whose call is never reached ran before and is refused now. That check
+    belonged to the flat route's validation and was retired with it
+    (2026-10-13): the evaluated route does not check provider parameters at
+    compile or dry run, and a call that lacks one fails when it is reached,
+    with `provider_preparation_failed`.
   - A provider prompt's output contract shows the structure of a record or
     union inside a `list`, `optional` or `map`, at any depth: its fields, or
     its discriminant and variants with their fields. Before, a contract

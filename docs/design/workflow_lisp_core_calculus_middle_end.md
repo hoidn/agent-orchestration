@@ -1,11 +1,20 @@
 # Workflow Lisp Core Calculus And Compiler Middle-End
 
-Status: accepted architecture / implemented for the M0-M5 migrated route subset
-through target 2.34; at target 2.35 WCC feeds the closed program that the
-integrated evaluated runtime executes (§§10.1, 11.4, 13.5, 15)
+Status: accepted architecture; the flat route (defunctionalization into flat
+steps and the step runtime that executed them, targets through 2.34) was
+retired on 2026-10-13 and executable entries through 2.34 are refused; the
+retained middle-end (WCC elaboration, ANF normalization, scope/effect/proof
+analysis) feeds the closed program that the evaluated runtime executes at
+2.35/2.36 (§§10.1, 11.4, 13.5, 15)
 Kind: architecture decision / compiler architecture
 Created: 2026-06-09
-Updated: 2026-10-06 (target-2.35 evaluated route; Phase 3 Task 16)
+Updated: 2026-10-15 (flat route retired; evaluated execution is the only route)
+Execution scope: the [executor retirement design](workflow_lisp_executor_retirement.md)
+and `specs/cli.md` govern executable admission; the
+[retirement retrospective](../reports/2026-10-13-flat-route-retirement-retrospective.md)
+records which modules were deleted and which were kept. Sections 11.3, the
+flat-identity part of 11.4, 12, 13.4, 14.4-14.6 and 17-21 describe the
+retired flat route and are kept as history.
 Scope: re-founding Workflow Lisp lowering on a minimal workflow core calculus
 with a real compiler middle-end — ANF normalization, second-class join-point
 control, scope/effect/proof analysis, and defunctionalization into the
@@ -43,7 +52,9 @@ Related docs:
 - `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/design/workflow_language_design_principles.md`
+- `docs/design/workflow_lisp_executor_retirement.md`
 - `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
+- `docs/reports/2026-10-13-flat-route-retirement-retrospective.md`
 - `specs/dsl.md`
 - `specs/io.md`
 - `specs/state.md`
@@ -111,7 +122,11 @@ schema-2 route is the default for new Workflow Lisp compiles for the migrated
 M0-M5 route subset, including the post-foundation nested implementation-phase
 fixture. The legacy schema-1 route remains for compatibility and resume of
 historical runs; per-form lowerers are deleted only after the generic route
-covers their construct class and a denylist prevents their return.
+covers their construct class and a denylist prevents their return. On
+2026-10-13 the flat route was retired outright (`026f2fa4`): the per-form
+lowerers, `wcc/defunctionalize.py`, `wcc/lower.py` and the step runtime were
+deleted, and the schema-1/schema-2 identities remain only as metadata of the
+retained typed compilation (`orchestrator/workflow_lisp/wcc/route.py`).
 
 ## 3. Relationship To The Post-Foundation Target
 
@@ -348,14 +363,16 @@ route eliminates class 5 and prevents recurrence of 1-4 in future forms.
 - Dual-compile equivalence evidence, not inspection, gates each migration
   stage and the deletion of each legacy lowerer.
 
-Status of two invariants in the current checkout (2026-09-29). Elaboration
-totality does not hold: the
-[totality matrix](../../tests/workflow_lisp_totality_matrix_sources.py) pins the
-generated programs that typecheck and then fail, and
+Status of two invariants on the flat route (2026-09-29, targets 2.33/2.34,
+now retired). Elaboration totality did not hold there: the
+[totality matrix](../../tests/workflow_lisp_totality_matrix_sources.py) records
+the generated programs that typechecked and then failed, and
 [composition-first §11](workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233) lists each known defect with its cause. Scoped
-environments hold at every target for the bindings the elaborator hoists and
+environments held at every target for the bindings the elaborator hoists and
 for the use of pure bindings in lowering, apart from three binder forms the
-renaming pass does not know, listed in the same section.
+renaming pass did not know, listed in the same section. The same cells'
+admission and execution at target 2.35 are checked by
+`tests/test_workflow_evaluated_totality.py`.
 
 ## 10. The Workflow Core Calculus
 
@@ -372,7 +389,8 @@ perform sites are retained in the artifact.
 The exact variants and typed fields are owned by the
 [Phase 2 schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#the-closed-programs-form).
 Evidence: `orchestrator/workflow_lisp/closed/build.py`, `closed/values.py`,
-`closed/check.py` and `tests/test_workflow_lisp_closed_program_corpus.py`.
+`orchestrator/contracts/closed_program/check.py` and
+`tests/test_workflow_lisp_closed_program_corpus.py`.
 The integrated Phase 3 runtime (`orchestrator/workflow/evaluated/`) evaluates
 that closed program through the public entries, as owned by
 [evaluated execution §8](workflow_lisp_evaluated_execution.md#8-evaluation-and-resume);
@@ -381,7 +399,10 @@ a 2.35 entry never enters the flat lowering below. Evidence:
 `tests/test_workflow_evaluated_cli.py`.
 
 WCC is deliberately small. Target construct count is ten; additions require
-amending this document.
+amending this document. The implemented model
+(`orchestrator/workflow_lisp/wcc/model.py`) carries more node kinds than this
+table: `if`, `select`, loop `continue`/`done`, `parallel-map`, and payload
+carriers for run references, trials and provider groups.
 
 | Construct | Shape | Role |
 | --- | --- | --- |
@@ -543,11 +564,12 @@ The closed artifact uses its own checked schema; no flat lowering schema
 identifies its effects. A 2.35 run carries no `lowering_schema_version`: its
 header selects the evaluated profile (`specs/state.md`), and resume evaluates
 the program again from its entry against the memo instead of restoring a
-position in the scopes below. Evidence: `orchestrator/workflow_lisp/closed/sites.py`,
+position in the scopes below. Evidence: `orchestrator/contracts/closed_program/sites.py`,
 `tests/test_workflow_lisp_closed_program_sites.py` and, for the runtime,
 `tests/test_workflow_evaluated_public_identity.py`.
 
-On the flat route through target 2.34, step and binding identity is semantic:
+On the retired flat route through target 2.34, step and binding identity was
+semantic:
 
 ```text
 step_identity = (workflow/module id,
@@ -569,10 +591,10 @@ step_identity = (workflow/module id,
 
 ## 12. Incremental Migration Tranches
 
-Each tranche is oracle-checked and individually shippable. Historical notes
-below describe the flag-gated sequence used to land the route. The current
-checkout uses WCC schema 2 as the default for new compiles in the migrated
-route subset, while preserving the legacy schema-1 route for compatibility.
+Each tranche was oracle-checked and individually shippable. Historical notes
+below describe the flag-gated sequence used to land the route through target
+2.34. The route they landed was retired on 2026-10-13 (§2); nothing here
+describes a current compile.
 
 ### 12.1 Tranche M0: characterization oracle
 
@@ -728,19 +750,19 @@ All language-boundary rejection happens at or before typecheck:
   own (path safety against the live filesystem, for example).
 
 In the current checkout an internal exception raised after typecheck by
-elaboration, normalization, defunctionalization or lowering is reported as one
+elaboration, normalization or closed-program construction is reported as one
 `compiler_defect` diagnostic (exit 2). It says that the program passed
-typecheck, names the stage, and points at the authored form being handled;
-`--debug` prints the internal traceback. An `AssertionError` is not converted.
-Three internal checks have codes of their own: `compiler_defect_loop_control_value`,
-`compiler_defect_hoisted_binding_rename` and
-`compiler_defect_constructor_type_dropped`. A pure-result replay index
-rejection is reported as `pure_result_replay_unavailable` with the authored
-location and says that it is a compiler defect. Located diagnostics that
-lowering raises under other codes, such as `workflow_return_not_exportable`,
-`wcc_lowering_route_unsupported` and `workflow_signature_mismatch`, keep their
-codes and do not say so; shared-validation failures are outside the
-conversion.
+typecheck, names the stage, and points at the authored form being handled; the
+diagnostic keeps the exception as its `cause` (no CLI flag prints the
+traceback). An `AssertionError` raised outside the orchestrator package is not
+converted (`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`,
+applied in `orchestrator/workflow_lisp/closed/build.py`). Two internal checks
+have codes of their own: `compiler_defect_hoisted_binding_rename` and
+`compiler_defect_constructor_type_dropped`; `compiler_defect_loop_control_value`
+and the replay-index code `pure_result_replay_unavailable` were retired with
+the flat route. Located diagnostics raised under other codes, such as
+`workflow_return_not_exportable`, `wcc_lowering_route_unsupported` and
+`workflow_signature_mismatch`, keep their codes and do not say so.
 
 ### 13.4 Dual-compile equivalence policy
 
@@ -759,9 +781,10 @@ the same on inspection" is prohibited evidence.
 
 ### 13.5 What the runtime sees
 
-Through target 2.34, nothing new. The runtime executes the same validated
-flat model: steps, routes, contracts, loop budgets, structured-output
-bindings, StateLayout-allocated paths. The middle-end is invisible at
+On the retired flat route through target 2.34, nothing new. The runtime
+executed the same validated flat model: steps, routes, contracts, loop
+budgets, structured-output bindings, StateLayout-allocated paths. The
+middle-end is invisible at
 execution time except through provenance projections. This is the central
 property that keeps the overhaul incremental: all risk is concentrated at
 compile time, where dual-compile oracles can catch it.
@@ -773,8 +796,9 @@ derives every view from the memo and the program
 There are no steps, routes, call frames or StateLayout-allocated paths for
 that program and no flat run state; the artifact's checked form (P5) and the
 memo reducer carry the risk that dual-compile oracles carry on the flat route.
-Older targets keep the flat model above; nothing converts a run between the
-two profiles.
+Executable entries through 2.34 are refused since the flat route's retirement
+(`workflow_execution_target_retired`); nothing converts a historical flat run
+to the evaluated profile.
 
 ## 14. Contracts And Interfaces
 
@@ -827,13 +851,16 @@ two profiles.
   [evaluated execution](workflow_lisp_evaluated_execution.md). Phase 2's
   target-2.35 compiler and the Phase 3 evaluator, memo, resume, invalidation
   and derived views are implemented and integrated for the admitted
-  first-release classes; of the
-  [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md),
-  Task 15 (external kills and durable recovery) is integrated and Task 17
-  (phase closeout) is pending. WCC feeds the
+  first-release classes; the
+  [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)'s
+  Tasks 1-17 are closed
+  ([closeout](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)).
+  WCC feeds the
   closed program, retaining callee bodies and sites instead of flattening
   them. The [delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
-  owns later delivery; targets through 2.34 retain the flat route. Evidence:
+  owns later delivery; the flat route for targets through 2.34 was retired on
+  2026-10-13 ([retrospective](../reports/2026-10-13-flat-route-retirement-retrospective.md)).
+  Evidence:
   `tests/test_workflow_lisp_closed_program_compile_cli.py`,
   `tests/test_workflow_lisp_target_evaluated_execution.py` and the public
   runtime owners `tests/test_workflow_evaluated_*.py`.
@@ -854,16 +881,19 @@ two profiles.
 - A formal (mechanized) semantics for WCC: valuable, not gating.
 - Surface-language conveniences enabled by the calculus (early return,
   guard-style matching): macro-layer work after M5, not middle-end work.
-- Retiring the flat lowering for older targets, and the disposition of
-  existing flat runs, belong to the delivery plan's decision 8 (Phase 7),
-  after the maintained workflows run at 2.35. The 2.35 route does not imply
-  them, and the defunctionalizer stays for targets through 2.34.
+- Retiring the flat lowering for older targets was done on 2026-10-13, after
+  the maintained workflows moved to 2.35/2.36
+  ([executor retirement design](workflow_lisp_executor_retirement.md),
+  [closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)):
+  the defunctionalizer is deleted and historical flat runs are refused, not
+  converted.
 
 ## 17. Work Blocked And Not Blocked
 
 Blocked until this document's route covers the relevant construct class:
 
-- deleting any per-form lowerer;
+- deleting any per-form lowerer (done with the flat route's retirement on
+  2026-10-13);
 - accepting new surface structured-control forms that would need a new
   flat-step lowerer (they should wait and land as elaboration rules or
   macros);
@@ -906,15 +936,18 @@ Explicitly not blocked by this document:
 
 ## 19. Compatibility And Migration
 
-- Existing `.orc` workflows keep their surface source. New compiles for the
-  migrated subset use equivalent-or-better lowered output under schema 2.
-- Existing YAML workflows are untouched; YAML does not pass through the
-  middle-end.
-- In-flight and historical runs resume under their recorded lowering schema.
+- Existing `.orc` workflows keep their surface source. Through target 2.34,
+  new compiles for the migrated subset used equivalent-or-better lowered
+  output under schema 2.
+- The YAML frontend is retired; `.orc` is the only authored frontend
+  (`specs/dsl.md`).
+- Historical flat runs are refused at resume since the flat route's
+  retirement; there is no historical resume fallback (`specs/dsl.md`,
+  `specs/state.md`).
 - A target-2.35 entry does not take the flat lowering: it compiles to the
   closed program and runs under the evaluated profile, and an older-target
-  entry cannot call a 2.35 module
-  ([evaluated execution §13](workflow_lisp_evaluated_execution.md#13-targets-and-compatibility)).
+  executable entry is refused (`workflow_execution_target_retired`;
+  [evaluated execution §13](workflow_lisp_evaluated_execution.md#13-targets-and-compatibility)).
   A run keeps the profile it started under; nothing converts between the
   flat and evaluated profiles.
 - The post-foundation target's tranches, fixtures, and parity policy apply
@@ -1004,6 +1037,9 @@ Forbidden result: route flip with any fixture still on the legacy route, or
 equivalence asserted without machine-checked records.
 
 ### 21.4 Resume schema safety
+
+Historical: both lowering schemas were retired with the flat route on
+2026-10-13; resuming such a run is now refused.
 
 Initial state: a run started under lowering schema 1; the workflow is
 recompiled under schema 2.

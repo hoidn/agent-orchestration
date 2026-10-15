@@ -88,17 +88,19 @@ Status: Normative master. This index defines scope, versioning, conformance, and
 - Out of scope
   - General authored concurrency/parallel blocks, while loops, unrestricted
     complex expressions, and event-driven triggers (beyond polling via
-    `wait_for`). The bounded concurrency exceptions are v2.16
+    `wait_for`). The historical bounded concurrency exceptions were v2.16
     `with-live-providers` (exactly one worker and one supervisor), v2.17
     `with-live-provider-peers` (one static group of two through eight
     members), and v2.25 `trial` (a static bounded set of E1 child-run cells);
-    each lowers to one atomic executable node.
+    each lowered to one atomic executable node and is retired with executable
+    entries through 2.34. The bounded target-2.37 parallel map is the current
+    exception; see [versioning](versioning.md#version-gating-summary).
 
 - Quick links
-  - Path safety: `security.md#path-safety`
-  - Injection modes and caps: `dependencies.md#injection`
-  - Output capture limits and tee semantics: `io.md#output-capture`
-  - CLI safety rails: `cli.md#safety`
+  - Path safety: `security.md#security-and-path-safety-normative`
+  - Injection modes and caps: `dependencies.md#injection-examples`
+  - Output capture limits and tee semantics: `io.md#step-io-and-output-capture-normative`
+  - CLI safety rails: `cli.md#workspace-execution-ownership`
   - Orchestration concept model (informative): `../docs/orchestration_start_here.md`
   - Runtime execution lifecycle (informative): `../docs/runtime_execution_lifecycle.md`
   - Workflow Lisp drafting guide (informative): `../docs/lisp_workflow_drafting_guide.md`
@@ -134,10 +136,9 @@ surfaces distinct: workflow-boundary `inputs`/`outputs`, runtime dependencies
 
 ## Out of Scope
 
-- General concurrency and parallel blocks; v2.16's exactly-two-provider
-  supervision node, v2.17's static two-through-eight-member peer-group node,
-  and v2.25's static bounded E1-child `trial` node are the only bounded
-  exceptions
+- General concurrency and parallel blocks; the bounded target-2.37 parallel
+  map is the only current exception (the v2.16 supervision, v2.17 peer-group
+  and v2.25 `trial` nodes are retired with executable entries through 2.34)
 - While loops
 - Parallel execution blocks
 - Complex expression evaluation
