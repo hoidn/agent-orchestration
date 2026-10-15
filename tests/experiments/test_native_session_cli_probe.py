@@ -509,9 +509,9 @@ if call == 3:
 
 
 def _fake_environment(tmp_path: Path, *, behavior: str = "protocol") -> tuple[dict[str, str], Path]:
-    home = tmp_path / "fake-home"
-    auth = home / ".codex/auth.json"
-    auth.parent.mkdir(parents=True)
+    home = tmp_path / "fake-home"  # empty: a synthetic CLI stages only the explicit synthetic credential
+    home.mkdir()
+    auth = tmp_path / "synthetic-auth.json"
     auth.write_text("synthetic-only-auth", encoding="utf-8")
     binary = tmp_path / "fake-codex"
     _fake_codex(binary)
@@ -522,6 +522,7 @@ def _fake_environment(tmp_path: Path, *, behavior: str = "protocol") -> tuple[di
             "PATH": os.environ.get("PATH", ""),
             "NATIVE_SESSION_PROBE_FAKE_CODEX": str(binary),
             "NATIVE_SESSION_PROBE_FAKE_BEHAVIOR": behavior,
+            "NATIVE_SESSION_PROBE_FAKE_AUTH": str(auth),
         },
         auth,
     )
@@ -650,6 +651,7 @@ def test_failed_auth_chmod_after_copy_is_cleaned_up(tmp_path: Path, monkeypatch:
         "PATH",
         "NATIVE_SESSION_PROBE_FAKE_CODEX",
         "NATIVE_SESSION_PROBE_FAKE_BEHAVIOR",
+        "NATIVE_SESSION_PROBE_FAKE_AUTH",
     ):
         monkeypatch.setenv(key, env[key])
     output = tmp_path / "chmod-failure"
@@ -691,6 +693,7 @@ def test_auth_cleanup_survives_process_tracker_close_error(
         "PATH",
         "NATIVE_SESSION_PROBE_FAKE_CODEX",
         "NATIVE_SESSION_PROBE_FAKE_BEHAVIOR",
+        "NATIVE_SESSION_PROBE_FAKE_AUTH",
     ):
         monkeypatch.setenv(key, env[key])
     output = tmp_path / "close-failure"
@@ -821,12 +824,13 @@ def test_synthetic_internal_gate_exercises_interruption_loss_restore_and_alt_hom
     monkeypatch.setenv("PATH", env["PATH"])
     monkeypatch.setenv("NATIVE_SESSION_PROBE_FAKE_CODEX", env["NATIVE_SESSION_PROBE_FAKE_CODEX"])
     monkeypatch.setenv("NATIVE_SESSION_PROBE_FAKE_BEHAVIOR", env["NATIVE_SESSION_PROBE_FAKE_BEHAVIOR"])
+    monkeypatch.setenv("NATIVE_SESSION_PROBE_FAKE_AUTH", env["NATIVE_SESSION_PROBE_FAKE_AUTH"])
     output = tmp_path / "synthetic-tail"
     output.mkdir(mode=0o700)
     module._prepare("codex", "fake-model", output)
     provider_home = output / "provider-home/codex"
     provider_home.mkdir(mode=0o700)
-    auth_copy = module._stage_auth("codex", provider_home)
+    auth_copy = module._stage_auth("codex", provider_home, source=auth)
     session = "synthetic-session"
     native = provider_home / "sessions/2026/10/13/rollout-probe.jsonl"
     _seed_codex_turns(native, session, turns=4)

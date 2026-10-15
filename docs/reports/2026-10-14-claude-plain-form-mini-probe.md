@@ -58,7 +58,7 @@ three calls in sequence — positions (turn 1, line 34), (turn 2, line 48), (tur
 ## Verdict
 
 `completion_marker: end_turn` — every plain-form turn ends in the native store with an assistant `stop_reason: end_turn`
-row; no `toolEndsTurn` row occurs without `--json-schema`.
+row; no `toolEndsTurn` row was observed in these 3 calls.
 
 Gate note: the store-only completion exists, but the committed Claude adapter does not bind it when the final message is
 split across content-block rows (observed on 1 of 3 turns, the one with a thinking block). Task 5's Claude completion rule

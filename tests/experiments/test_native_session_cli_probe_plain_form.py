@@ -49,7 +49,7 @@ def test_plain_form_builds_the_adapter_resume_argv(tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def fake_campaign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[dict]]:
+def fake_campaign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[dict], Path]:
     log = tmp_path / "argv.jsonl"
     binary = tmp_path / "bin" / "claude"
     binary.parent.mkdir()
@@ -67,19 +67,25 @@ def fake_campaign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int,
         "--command-form", "plain", "--max-calls", "2",
     ])
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
-    return rc, calls
+    return rc, calls, output
 
 
 def test_max_calls_bounds_the_plain_campaign(fake_campaign) -> None:
-    _rc, calls = fake_campaign
+    _rc, calls, _output = fake_campaign
     assert len(calls) == 2
 
 
 def test_plain_campaign_sends_prompt_on_stdin_and_resumes_the_stdout_session(fake_campaign) -> None:
-    _rc, calls = fake_campaign
+    _rc, calls, _output = fake_campaign
     assert [call["argv"] for call in calls] == [_adapter(None)[1:], _adapter("s")[1:]] and all(c["stdin"] for c in calls)
 
 
 def test_fake_plain_campaign_completes_without_reading_credentials(fake_campaign) -> None:
-    rc, _calls = fake_campaign
-    assert rc == 0
+    rc, _calls, output = fake_campaign
+    status = json.loads((output / "observations.json").read_text())["status"]
+    assert (rc, status) == (0, "PLAIN_CAMPAIGN_COMPLETE")
+
+
+def test_fake_plain_campaign_leaves_no_staged_credential(fake_campaign) -> None:
+    _rc, _calls, output = fake_campaign
+    assert not list(output.rglob(".credentials.json"))
