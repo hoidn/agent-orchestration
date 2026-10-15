@@ -200,9 +200,12 @@ def prepare_agent_attempt(authority, node, operands, identity, snapshot, *, ordi
     """
     from .effect_execution import PreparedAttempt
 
-    pending = snapshot.pending_starts.get(identity)
-    if pending is not None:
-        return _prepare_pending(authority, node, identity, snapshot, pending, resolved, context)
+    if identity in snapshot.pending_starts:
+        from .agent_turn_recovery import prepare_pending
+        recovered = prepare_pending(authority, node, operands, identity, snapshot, resolved=resolved,
+                                    dependencies=dependencies, context=context)
+        if recovered is not None:       # else the pending attempt was proven not dispatched: allocate the next one
+            return recovered
     _head_or_refuse(resolved)
     started = dict(record="started", identity=identity, attempt=ordinal, input_digest=canonical_sha256(parts), input_parts=parts,
                    implementation_files=implementation_files, result_path=result_path, time=time.time())
@@ -212,11 +215,6 @@ def prepare_agent_attempt(authority, node, operands, identity, snapshot, *, ordi
                            turn_dependencies(resolved, dependencies), resolved, context["workspace"], context["workspace_files"],
                            context["site_classes"], context["provider_executor"], attempt_files, context.get("launch_cwd"),
                            context.get("stream_output", False), views=context.get("views"))
-
-
-def _prepare_pending(authority, node, identity, snapshot, pending, resolved, context):
-    raise AgentTurnError("agent_turn_unresolved",
-                         f"{identity}: pending attempt {pending.data['attempt']} awaits reconciliation", keep_pending=True)
 
 
 def _intent_receipt(attempt, resolved: ResolvedTurn, locator, before) -> Receipt:
@@ -327,10 +325,12 @@ def _head_unchanged(resolved: ResolvedTurn, receipt: Receipt) -> bool:
 
 
 def _proves_no_dispatch(resolved: ResolvedTurn, receipt: Receipt, exc: ProviderPerformerError) -> bool:
-    """No child was ever spawned, or the adapter proves the resumed conversation did not advance."""
+    """No child was ever spawned, or the process group is proven empty (stopped first if needed) and only then the
+    adapter proves the resumed conversation did not advance."""
+    from .agent_turn_recovery import quiesce
     if exc.code == "provider_preparation_failed" and receipt.completion == "intent":
         return True
-    return receipt.mode == "resume" and _head_unchanged(resolved, receipt)
+    return receipt.mode == "resume" and quiesce(receipt) == "quiescent" and _head_unchanged(resolved, receipt)
 
 
 def _unresolved_or_failed(attempt, exc: ProviderPerformerError):
@@ -409,6 +409,23 @@ def validate_turn(authority, resolved: ResolvedTurn, identity, commit, *, settle
     if (proof["agent"], proof["predecessor"], proof["config_digest"]) != (
             resolved.agent.identity, expected, resolved.agent.config_digest):
         raise MemoError("memo_inconsistent", f"agent turn proof of {identity} disagrees with its replayed agent or predecessor")
+    if _proof_contradicts_receipt(authority, commit):
+        raise MemoError("memo_inconsistent", f"agent turn proof of {identity} disagrees with its adapter or attempt receipt")
+
+
+def _proof_contradicts_receipt(authority, commit) -> bool:
+    """Tamper detection from facts replay can see: a known store adapter, and the attempt receipt when one is kept
+    (an operator may delete receipts of a completed run; the journal alone then stays authoritative)."""
+    proof = commit.data["proof"]
+    if native_store_adapter(proof["adapter"]) is None:
+        return True
+    files = authority.run_files.subroot(Path(commit.data["result_path"]).parent)
+    try:
+        receipt = read_receipt(files)
+    finally:
+        files.close()
+    return receipt is not None and (receipt.adapter, receipt.locator, receipt.position_after, receipt.result_digest) != (
+        proof["adapter"], proof["locator"], proof["position"], commit.data["result_digest"])
 
 
 def reconcile_turn(authority, resolved, identity, commit, site_classes) -> None:

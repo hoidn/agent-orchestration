@@ -159,12 +159,16 @@ def _check_receipt(receipt: Receipt) -> None:
 def write_receipt(files: WorkspaceFiles, receipt: Receipt) -> None:
     """The one receipt writer: creation, or a monotone update of the stored receipt.
 
-    Binding fields never change and `completion` moves only along `_TRANSITIONS`.
+    Binding fields never change, `completion` moves only along `_TRANSITIONS`, and once `completed` the native facts
+    (locator, positions, launch facts) are frozen: only the first `result_digest` may be added.
     """
     _check_receipt(receipt)
     current = read_receipt(files)
     if current is not None:
         changed = [name for name in _BINDING_FIELDS if getattr(current, name) != getattr(receipt, name)]
+        if current.completion == "completed" and receipt != replace(
+                current, completion=receipt.completion, result_digest=current.result_digest or receipt.result_digest):
+            changed.append("completed native facts")
         if changed or receipt.completion not in _TRANSITIONS[current.completion]:
             raise MemoError("memo_inconsistent", f"receipt update is not monotone: binding {changed}, "
                             f"completion {current.completion} -> {receipt.completion}")

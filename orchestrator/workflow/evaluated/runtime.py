@@ -284,7 +284,7 @@ def prepare_effect(
         return agent_turns.prepare_agent_attempt(authority, node, operands, identity, snapshot, ordinal=ordinal,
             attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
             implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
-            workspace=workspace, workspace_files=workspace_files, site_classes=site_classes,
+            workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
             provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",

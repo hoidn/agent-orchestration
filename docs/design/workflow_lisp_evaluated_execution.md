@@ -1371,6 +1371,7 @@ view never invokes reconciliation.
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
 | A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files |
+| A `started` agent turn with no commit | Classify from receipt and native store ([Agent Sessions](workflow_lisp_agent_sessions.md), Persistence); never the generic retry rule |
 | A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts, and run the next attempt |
 | An `invalidated` range covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
 | A `suspended` record and no commit | Stop and report the pending request |
@@ -2695,14 +2696,14 @@ adapter: treating it as an ordinary composed call, as the spike did, proves
 no parity and must be refused at admission. None of this changes C3's
 diagnostic-only interpreter upgrade rule or K8's no-supersession rule.
 
-Authored native-session turns are another later class. Their
-[recovery contract](workflow_lisp_provider_prompt_queue.md#recovery-contract)
-retains completed turn progress before the parent result commits. K4's
-discard-and-restart rule does not provide that behavior: admission requires
-a reviewed, evidenced refinement for this class, including the binding of
-turn progress across attempts and the final K2–K5 settlement gaps. This
-prerequisite changes neither K4 for the first release nor the admission of
-any existing class.
+Authored native-session turns retain completed turn progress before the
+parent result commits, which K4's discard-and-restart rule does not provide.
+They are admitted at target 2.38 by the [Agent Sessions
+design](workflow_lisp_agent_sessions.md) with a scoped K4 exception: a
+pending agent turn is never discarded and restarted; resume quiesces its
+process group, classifies it from its receipt and the native store, and may
+commit the same ordinal without dispatch (§8.1). K4 is unchanged for every
+other class.
 
 ### 9.4 The request contract
 

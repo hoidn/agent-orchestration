@@ -420,7 +420,17 @@ authority, memo, attempts or views, in this order:
     effect check the retry baseline (`effect_input_diverged` for changed
     implementation files, `lexical_restore_pending_effect_unsafe` for a
     `must_not_repeat` command; a pending provider start re-reads its C6
-    sources in memory).
+    sources in memory). An agent turn with a pending start is classified
+    from its receipt and the native store, never by the retry baseline, and
+    nothing is signalled: a live recorded process group is admitted and
+    stopped under the writer lock before reconciliation; `recoverable`
+    (adapter-confirmed completion bound to the attempt and an intact
+    `result.json`) is committed at the same ordinal without dispatch;
+    `not_dispatched` (no `launching` receipt, or a stopped group and an
+    adapter-proven unchanged predecessor head) closes the attempt `failed`
+    and allocates the next one; `unresolved` refuses `agent_turn_unresolved`
+    after the agent's first committed turn and takes the bootstrap path
+    before it; `agent_turn_result_invalid` refuses.
 11. Only then is a torn tail repaired (a failure there is still a refusal,
     exit `2`) and evaluation continued. A condition of step 10 that is first
     reached after continuation has committed new effects fails the run with

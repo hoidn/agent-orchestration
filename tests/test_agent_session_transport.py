@@ -92,10 +92,10 @@ def test_lost_locator_is_rejected_by_the_native_cli_and_absent_from_the_store(tm
 
 
 @pytest.mark.parametrize("mode, store_written", [("timeout", False), ("complete-then-hang", True)])
-def test_timeout_reaps_the_process_tree_and_the_store_tells_the_two_cases_apart(tmp_path, monkeypatch, mode, store_written) -> None:
+def test_timeout_reports_124_and_only_a_completed_store_shows_the_turn(tmp_path, monkeypatch, mode, store_written) -> None:
     install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude",
                         plan={"codex": [{"mode": mode, "result": {"ok": True}}]})
-    invocation, result = _run(tmp_path, "codex", ProviderSessionRequest(mode=ProviderSessionMode.FRESH), tmp_path / "r.json", timeout=2)
+    invocation, result = _run(tmp_path, "codex", ProviderSessionRequest(mode=ProviderSessionMode.FRESH), tmp_path / "r.json", timeout=5)
     assert result.exit_code == 124 and result.error["type"] == "timeout"
     adapter = native_store_adapter(invocation.metadata_mode)
     requests = shim_requests(tmp_path)
@@ -105,7 +105,7 @@ def test_timeout_reaps_the_process_tree_and_the_store_tells_the_two_cases_apart(
         assert head.open_turn is False and head.position is not None and (tmp_path / "r.json").exists()
 
 
-def test_nonzero_before_append_leaves_no_native_trace_and_linger_leaves_a_child(tmp_path, monkeypatch) -> None:
+def test_nonzero_before_append_leaves_no_native_trace_and_a_lingering_grandchild_is_refused_and_reaped(tmp_path, monkeypatch) -> None:
     install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude",
                         plan={"codex": [{"mode": "nonzero-before-append", "result": {}}, {"mode": "linger", "result": {"ok": True}}]})
     _i, first = _run(tmp_path, "codex", ProviderSessionRequest(mode=ProviderSessionMode.FRESH), tmp_path / "r1.json")

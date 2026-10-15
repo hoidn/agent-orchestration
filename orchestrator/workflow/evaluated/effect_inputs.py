@@ -21,6 +21,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
 from .agent_sessions import resolve_allocation_input
 from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
+from .agent_turn_recovery import classify_pending_turn
 from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
@@ -86,11 +87,25 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
             None, baseline, attempt_directory, result_path, owner=owner,
             launch_cwd=launch_cwd,
         )
+    _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd)
     if baseline is not None and node.get("repeat") == "never":
         raise _PreflightRefusal(
             "lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated",
         )
+
+
+def _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd) -> None:
+    """Read-only: classify a pending agent turn at its own result path (probe only, nothing signalled) and refuse only
+    `unresolved`; `needs_quiescence`, `recoverable`, `not_dispatched` and `bootstrap` are admitted."""
+    pending = snapshot.pending_starts.get(identity)
+    if node["class"] != "agent_turn" or pending is None:
+        return
+    resolved, _parts, _files = _resolve_effect_input(authority, node, operands, identity, workspace, reader, None, pending,
+        None, pending.data["result_path"], owner=None, launch_cwd=launch_cwd, snapshot=snapshot)
+    classified = classify_pending_turn(authority, node, identity, snapshot, workspace, resolved, probe_only=True)
+    if classified.disposition == "unresolved":
+        raise _PreflightRefusal("agent_turn_unresolved", f"{identity}: {classified.detail}")
 
 
 def _resolve_effect_input(

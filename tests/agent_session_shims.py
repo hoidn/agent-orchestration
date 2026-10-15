@@ -1,4 +1,11 @@
-"""Fake `codex` and `claude` CLIs that keep a native store and speak each provider's stdout protocol."""
+"""Fake `codex` and `claude` CLIs that keep a native store and speak each provider's stdout protocol.
+
+Modes (per plan step): success, interrupted, nonzero, nonzero-before-append, timeout, complete-then-hang, linger
+(forks a grandchild after completing), orphan (forks a grandchild at startup with stdio on /dev/null and its pid in
+`<bin>/.<tool>.orphan`, completes the turn, writes `<bin>/.<tool>.done`, then waits for its parent to die so a test
+driver can kill the orchestrator mid-call), overlap, lose-locator, invalid-result. A call beyond the plan exits 97
+with `shim plan exhausted: <tool> call #N` on stderr.
+"""
 from __future__ import annotations
 
 import json
@@ -18,8 +25,17 @@ plan = json.loads(os.environ["AGENT_SHIM_PLAN"])
 with (Path(sys.argv[0]).parent / f".{tool}.calls").open("a+", encoding="utf-8") as counter:
     fcntl.flock(counter, fcntl.LOCK_EX)
     counter.seek(0); index = len(counter.read()); counter.write("."); counter.flush()
+if index >= len(plan.get(tool, [])):
+    sys.stderr.write(f"shim plan exhausted: {tool} call #{index + 1}\n"); sys.exit(97)
 step = plan[tool][index]
 mode = step.get("mode", "success")
+here = Path(sys.argv[0]).parent
+if mode == "orphan" and os.fork() == 0:     # same process group, detached stdio: survives a dead orchestrator
+    null = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(null, fd)
+    (here / f".{tool}.orphan").write_text(str(os.getpid()))
+    time.sleep(120); os._exit(0)
 def log_request(session):
     with log.open("a", encoding="utf-8") as out:
         out.write(json.dumps({"tool": tool, "argv": argv, "session": session, "mode": mode, "cwd": os.getcwd(),
@@ -38,6 +54,12 @@ def finish():
         time.sleep(30)
     if mode == "linger" and os.fork() == 0:
         time.sleep(30); os._exit(0)
+    if mode == "orphan":
+        parent = os.getppid()
+        (here / f".{tool}.done").write_text("")
+        deadline = time.monotonic() + 120
+        while os.getppid() == parent and time.monotonic() < deadline:
+            time.sleep(0.05)
 if mode == "timeout":
     time.sleep(30)                      # before any store write: the adapter can prove no advance
 if mode == "nonzero-before-append":
@@ -130,6 +152,8 @@ finish()
 def install_agent_shims(bin_dir: Path, monkeypatch, *, codex_home: Path, claude_home: Path, plan: dict) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     for tool, body in (("codex", FAKE_CODEX), ("claude", FAKE_CLAUDE)):
+        for marker in (".calls", ".orphan", ".done"):      # a reinstall starts the plan over
+            (bin_dir / f".{tool}{marker}").unlink(missing_ok=True)
         (bin_dir / tool).write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
         (bin_dir / tool).chmod(0o700)
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
