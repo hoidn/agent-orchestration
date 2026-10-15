@@ -85,6 +85,23 @@ and routes to Agent Sessions; do not restore this branch's old `Proposed; PQ-1 p
   coordinators, and the C8 row naming both committed and attempt-history
   refusals. Preserve main's independently advanced run-reference amendments.
 
+For that design's §9.2 performer table, set the column heading to
+`First release (2.35)`. Replace main's `Later proposal` agent row with this
+exact branch row:
+
+```markdown
+| Run-local agent allocation and sequential native-session turns | No; implemented at 2.38 | Ordinary non-coordinator allocation with its own checked class; existing session/turn transports behind one bounded `agent_turn` coordinator | [Agent Sessions](workflow_lisp_agent_sessions.md) commits each typed turn separately; E3 reuses the prefix and pending-turn recovery uses the scoped K4 exception (§9.3). [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns deterministic proofs and bounded real-adapter smoke evidence; `prompt-queue` is superseded for first delivery, and the separate acceptance comparison remains pending |
+```
+
+Replace the immediately following admission paragraph with:
+
+```markdown
+At first-release target 2.35, a program using a class marked later is refused
+at build (§1.1). Target 2.38 additionally admits the bounded Agent allocation
+and turn row above; other exclusions remain target-aware. Older executable
+entries are retired; no old-route fallback is available.
+```
+
 Compare main's untracked duplicates against the integrated tracked files before
 removing any duplicate. Equality must be checked at integration time; this note
 does not assert current or future equality or authorize deletion based on names.

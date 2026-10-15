@@ -2576,7 +2576,7 @@ closed program, the resolved input, the result path and the workspace. It
 returns a result or a failure. It reads no run state and writes none. A
 coordinator (§9.3) is a performer with a ledger of its own.
 
-| Class | First release | Performer built from | Notes |
+| Class | First release (2.35) | Performer built from | Notes |
 | --- | --- | --- | --- |
 | Command | Yes | `StepExecutor.execute_command` | Independent of the executor today |
 | Provider, composed delivery, portable subset | Yes | `ProviderExecutor.prepare_invocation` and `execute`, with prompt assembly moved out of the executor | The prompt is assembled as the present route assembles it, with the differences of R2 and R3, and of the opening lines of the structured-result contract block that this route renders for its file transport ([provider result delivery](provider_result_delivery.md)) (spike iteration 2, B) |
@@ -2588,10 +2588,12 @@ coordinator (§9.3) is a performer with a ledger of its own.
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
 | Provider, phased delivery; supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
-| Provider, authored sequential native-session turns | Later | Existing session/turn transports with a bounded coordinator | The [queue design](workflow_lisp_provider_prompt_queue.md) requires qualified turn-prefix recovery; neither composed delivery nor K4's restart rule supplies it |
+| Run-local agent allocation and sequential native-session turns | No; implemented at 2.38 | Ordinary non-coordinator allocation with its own checked class; existing session/turn transports behind one bounded `agent_turn` coordinator | [Agent Sessions](workflow_lisp_agent_sessions.md) commits each typed turn separately; E3 reuses the prefix and pending-turn recovery uses the scoped K4 exception (§9.3). [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns deterministic proofs and bounded real-adapter smoke evidence; `prompt-queue` is superseded for first delivery, and the separate acceptance comparison remains pending |
 
-A program at the new target that uses a class marked later is refused at
-build (§1.1). Older executable entries are retired; no old-route fallback is available.
+At first-release target 2.35, a program using a class marked later is refused
+at build (§1.1). Target 2.38 additionally admits the bounded Agent allocation
+and turn row above; other exclusions remain target-aware. Older executable
+entries are retired; no old-route fallback is available.
 
 ### 9.3 Coordinators
 

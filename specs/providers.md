@@ -77,16 +77,29 @@ schema notation, not authored workflow files.
     (last completed turn id and its terminal line) and to bind one completed
     turn to one attempt (the user message carrying the attempt's result path);
     it never writes them, never selects a per-run home and never provisions
-    credentials. A turn binds only when it is the store's head, directly
-    follows the expected predecessor position and is the only user message
-    carrying the marker. Codex completion is the turn's `task_complete` after
-    exactly one `final_answer` agent message; Claude completion is exactly one
-    final in the turn's lineage (every row descends from the submitted user
-    row, same session and prompt, no sidechain): a `StructuredOutput`
-    `toolEndsTurn` row with its matching `structured_output` attachment
-    (observed live) or an assistant `stop_reason: end_turn` row (a hypothesis
-    for the plain `stream-json` form until the Plan A Task 6a probe settles
-    it). Anything else, including a second final or a trailing row other than
+    credentials. A turn binds only when it is the store's head, follows the
+    expected predecessor position and is the only user message carrying the
+    marker. For Claude, the submitted prompt's parent must reach the expected
+    predecessor final (or its admitted resume padding), or the root for a first
+    turn, directly or through a chain of strictly earlier same-session,
+    non-sidechain `attachment` rows with an absent `promptId`; every ancestor
+    hop, including the expected predecessor, must precede its child. The
+    first-turn hook-attachment chain was observed in the
+    [bounded runtime smoke](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md#real-provider-smokes-tasks-1920);
+    its passing resumed prompt linked directly to the previous final, so that
+    evidence does not establish a resumed attachment chain. Codex completion
+    is the turn's `task_complete` after exactly one `final_answer` agent
+    message; Claude completion is exactly one logical final in the turn's
+    lineage (every row descends from the submitted user row, same session and
+    prompt, no sidechain): a `StructuredOutput` `toolEndsTurn` row with its
+    matching `structured_output` attachment (observed live) or an assistant
+    `stop_reason: end_turn` message, observed in the plain `stream-json`
+    [mini-probe](../docs/reports/2026-10-14-claude-plain-form-mini-probe.md#adapter-follow-up).
+    Split assistant rows sharing a `message.id` must form a consistent parent
+    chain with the same stop reason and prompt; they collapse to their last
+    row as one logical final (`02a0067b`: all three retained probe turns bind
+    offline, without another paid run). Anything else, including a second
+    logical final or a trailing row other than
     the synthetic resume padding, is incomplete, never guessed. A locator
     matching zero or more than one file (any `*<id>.jsonl` under the store
     counts unless its header names another session) is
