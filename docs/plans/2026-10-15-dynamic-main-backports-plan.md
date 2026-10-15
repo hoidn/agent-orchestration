@@ -69,11 +69,11 @@ Store execution receipts and logs outside the repo in a new evidence directory; 
 
 **Files:** Modify `orchestrator/cli/commands/invalidate.py`, `orchestrator/workflow/evaluated/views.py`, `orchestrator/workflow_lisp/closed/target.py`, `tests/test_workflow_evaluated_invalidate.py`; extend `tests/test_workflow_dynamic_cli.py` only if existing native refusal checks lack no-write coverage.
 
-- [ ] Port public tests for historical flat runs, empty/headerless directories, evaluated view hints, partial authority, symlinked roots and deeply nested malformed state. Compare complete watched trees before/after, including absence of `run.lock`. Keep diagnostic-code and no-traceback assertions, not prose matches.
-- [ ] Collect changed test modules, then run `pytest -q tests/test_workflow_evaluated_invalidate.py -k 'without_writes or without_header or symlinked_run_root or deeply_nested'`; verify the lock-creation failures on the base implementation.
-- [ ] Add pre-lock authority classification using existing readers; preserve exact native `dynamic_invalidation_unsupported` dispatch and mixed/unknown-profile refusals. Keep locked validation after acquiring authority; preflight must not become the only race-sensitive check. Include the bounded `RecursionError` reader defense and correct the obsolete target diagnostic without asserting its wording.
-- [ ] Run `pytest -q tests/test_workflow_evaluated_invalidate.py tests/test_workflow_evaluated_invalidate_durability.py tests/test_workflow_evaluated_invalidate_smoke.py tests/test_workflow_dynamic_cli.py`; require public native refusal to preserve tree bytes and typed invalidation/resume to remain functional.
-- [ ] Review and commit with message `fix: reject unsupported invalidation before creating locks`.
+- [x] Port public tests for historical flat runs, empty/headerless directories, evaluated view hints, partial authority, symlinked roots and deeply nested malformed state. Compare complete watched trees before/after, including absence of `run.lock`. Keep diagnostic-code and no-traceback assertions, not prose matches.
+- [x] Collect changed test modules, then run `pytest -q tests/test_workflow_evaluated_invalidate.py -k 'without_writes or without_header or symlinked_run_root or deeply_nested'`; verify the lock-creation failures on the base implementation.
+- [x] Add pre-lock authority classification using existing readers; preserve exact native `dynamic_invalidation_unsupported` dispatch and mixed/unknown-profile refusals. Keep locked validation after acquiring authority; preflight must not become the only race-sensitive check. Include the bounded `RecursionError` reader defense and correct the obsolete target diagnostic without asserting its wording.
+- [x] Run `pytest -q tests/test_workflow_evaluated_invalidate.py tests/test_workflow_evaluated_invalidate_durability.py tests/test_workflow_evaluated_invalidate_smoke.py tests/test_workflow_dynamic_cli.py`; require public native refusal to preserve tree bytes and typed invalidation/resume to remain functional.
+- [x] Review and commit with message `fix: reject unsupported invalidation before creating locks`.
 
 ### Task 3a: Version delivery rendering across both performers
 

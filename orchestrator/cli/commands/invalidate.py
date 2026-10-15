@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
 from orchestrator.run_lock import ReservedRunRootError
 
+from orchestrator.cli.commands.resume import _has_authority_header
 from orchestrator.cli.commands.run import _state_root_symlink_error
 from orchestrator.workflow.evaluated.authority import (
     PROFILE,
@@ -20,6 +22,7 @@ from orchestrator.workflow.evaluated.authority import (
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import MemoError, invalidate_suffix, memo_writer_lock
+from orchestrator.workflow.evaluated.views import has_evaluated_authority
 from orchestrator.workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
 
 
@@ -40,10 +43,19 @@ def invalidate_run(run_id: str, identity: str, state_dir: str | None = None) -> 
     run_root = runs_root / run_id
     if not run_root.exists():
         raise MemoError("memo_inconsistent", f"run directory not found: {run_root}")
+    _require_unlinked_run_root(run_root)
 
     from orchestrator.state import select_run_profile
-    if select_run_profile(run_root) == 'dynamic':
+    try:
+        profile = select_run_profile(run_root)
+    except RecursionError as exc:
+        _refuse_without_authority(run_root)
+        raise RunAuthorityError("invalid run authority state") from exc
+    if profile == 'dynamic':
         raise MemoError('dynamic_invalidation_unsupported', 'dynamic fresh runs cannot be invalidated. Start a fresh run; this may repeat earlier work and consume additional budget.')
+    _refuse_without_authority(run_root)
+    if profile == 'legacy':
+        raise MemoError("invalidate_profile_unsupported", "flat-route run profile cannot be invalidated")
 
     with memo_writer_lock(run_root) as fd:
         run_files = WorkspaceFiles(run_root, root_fd=fd)
@@ -51,6 +63,21 @@ def invalidate_run(run_id: str, identity: str, state_dir: str | None = None) -> 
             return _invalidate_retained(run_root, identity, run_files)
         finally:
             run_files.close()
+
+
+def _refuse_without_authority(run_root: Path) -> None:
+    """Refuse a run lacking evaluated authority before the lock can create run.lock."""
+    _require_unlinked_run_root(run_root)
+    if _has_authority_header(run_root, None):
+        return
+    if (run_root / "state.json").exists() and not has_evaluated_authority(run_root):
+        raise MemoError("invalidate_profile_unsupported", "flat-route run profile cannot be invalidated")
+    raise RunAuthorityError("evaluated run authority header is missing")
+
+
+def _require_unlinked_run_root(run_root: Path) -> None:
+    if os.path.realpath(run_root) != os.path.abspath(run_root):
+        raise MemoError("memo_inconsistent", f"run root passes through a symbolic link: {run_root}")
 
 
 def _invalidate_retained(run_root, identity, run_files):

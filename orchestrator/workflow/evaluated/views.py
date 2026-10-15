@@ -50,7 +50,7 @@ def _authority_sibling_present(files, name):
 def _evaluated_view_hint(files):
     try:
         state = json.loads(files.read("state.json"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return False
     return isinstance(state, dict) and (
         state.get("schema_version") == SCHEMA_VERSION or state.get("result_persistence_profile") == PROFILE)
