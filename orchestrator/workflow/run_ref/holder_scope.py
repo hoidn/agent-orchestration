@@ -271,7 +271,10 @@ class HolderScope:
 
     def _await_ready(self, info_read: int) -> None:
         assert self.process is not None
-        info = drain(info_read, time.monotonic() + LAUNCH_SECONDS)
+        try:
+            info = drain(info_read, time.monotonic() + LAUNCH_SECONDS)
+        except TimeoutError as exc:
+            raise RunRefRuntimeError(UNAVAILABLE, f"holder_info_pipe_not_ready:{exc}") from exc
         if not info:  # released, but bwrap never reported its sandbox
             self.process.wait(timeout=10)
             raise RunRefRuntimeError(UNAVAILABLE, f"holder_exited_{self.process.returncode}_before_ready:"

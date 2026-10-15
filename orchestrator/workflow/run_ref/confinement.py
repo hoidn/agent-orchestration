@@ -34,7 +34,7 @@ from typing import Any
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow.evaluated.machine import site_nodes
 
-from .checkpoint import MAX_CHECKPOINT_ENTRIES
+from .checkpoint import MAX_CHECKPOINT_ENTRIES, MAX_TREE_DEPTH
 from .confined_config import RunRefConfinedStaticConfig
 from .contracts import RUN_REF_CONFINEMENT_PROFILE, VerifiedGitTreeIdentity, canonical_json_bytes
 from .image_store import ImageStoreError, SealedImage, open_sealed_image
@@ -293,6 +293,9 @@ def provision_confined_child(
     refuse_overlapping_roots(layout, parent_run_root=parent_run_root, parent_workspace=parent_workspace)
     if len(source.source_tree_manifest.entries) > MAX_CHECKPOINT_ENTRIES:
         raise RunRefRuntimeError("run_ref_environment_unavailable", "clone_exceeds_entry_bound")
+    if any(entry.kind == "directory" and entry.path.count("/") + 1 > MAX_TREE_DEPTH
+           for entry in source.source_tree_manifest.entries):
+        raise RunRefRuntimeError("run_ref_environment_unavailable", "clone_exceeds_depth_bound")
     provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source))
     fd = os.open(layout.child_root / RECIPE_FILENAME,
                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)

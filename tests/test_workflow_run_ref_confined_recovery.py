@@ -585,3 +585,54 @@ def test_seed_checks_the_profile_entry_bound(tmp_path: Path) -> None:
         os.close(destination)
 
     assert caught.value.code == "run_ref_environment_changed"
+
+
+def _deep_tree(root: Path, depth: int) -> None:
+    current = root
+    for index in range(depth):
+        current = current / f"d{index}"
+        current.mkdir()
+    (current / "leaf").write_text("x")
+
+
+def test_seed_refuses_a_deep_clone_as_environment_changed(tmp_path: Path) -> None:
+    from orchestrator.workflow.run_ref.checkpoint import MAX_TREE_DEPTH
+
+    clone, tmpfs = _roots(tmp_path)
+    _deep_tree(clone, MAX_TREE_DEPTH + 1)
+    source, destination = _fd(clone), _fd(tmpfs)
+    try:
+        with pytest.raises(RunRefCheckpointError) as caught:
+            seed_workspace(source, destination, max_bytes=_BUDGET)
+    finally:
+        os.close(source)
+        os.close(destination)
+
+    assert caught.value.code == "run_ref_environment_changed"
+
+
+def test_checkpoint_refuses_a_deep_guest_tree_as_escape_rejected(tmp_path: Path) -> None:
+    from orchestrator.workflow.run_ref.checkpoint import MAX_TREE_DEPTH
+
+    clone, tmpfs = _roots(tmp_path)
+    _deep_tree(tmpfs, MAX_TREE_DEPTH + 1)
+
+    with pytest.raises(RunRefCheckpointError) as caught:
+        _checkpoint(tmpfs, clone, tmp_path / "header.json")
+
+    assert caught.value.code == "run_ref_environment_escape_rejected"
+
+
+def test_clone_manifest_refuses_a_deep_clone_as_environment_changed(tmp_path: Path) -> None:
+    from orchestrator.workflow.run_ref.checkpoint import MAX_TREE_DEPTH
+
+    clone, _tmpfs = _roots(tmp_path)
+    _deep_tree(clone, MAX_TREE_DEPTH + 1)
+    descriptor = _fd(clone)
+    try:
+        with pytest.raises(RunRefCheckpointError) as caught:
+            workspace_manifest(descriptor, clone=True)
+    finally:
+        os.close(descriptor)
+
+    assert caught.value.code == "run_ref_environment_changed"

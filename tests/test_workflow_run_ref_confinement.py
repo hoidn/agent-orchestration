@@ -382,6 +382,7 @@ def world(tmp_path: Path, store_image):
     parent_run_root = tmp_path / "parent-workspace" / ".orchestrate" / "runs" / "parent-run"
     parent_run_root.mkdir(parents=True)
     return {"store": store, "commit": commit, "program": program, "config": config,
+            "repository": repository,
             "inputs": {"seed": 1, "task": "t"}, "run_ref_root": tmp_path / "run-ref",
             "parent_run_root": parent_run_root, "parent_workspace": tmp_path / "parent-workspace",
             "visit": RunRefVisitKey(parent_run_id="parent-run", execution_frame_id="root",
@@ -619,6 +620,33 @@ def test_provisioning_refuses_a_clone_beyond_the_profile_entry_bound(world, monk
 
     assert (caught.value.code, caught.value.detail) == (
         "run_ref_environment_unavailable", "clone_exceeds_entry_bound")
+
+
+def test_provisioning_refuses_a_clone_beyond_the_profile_depth_bound(world):
+    from orchestrator.workflow.run_ref.checkpoint import MAX_TREE_DEPTH
+
+    repository = world["repository"]
+    current = repository
+    for index in range(MAX_TREE_DEPTH + 1):
+        current = current / f"deep-{index}"
+        current.mkdir()
+    (current / "leaf.txt").write_text("depth bound\n")
+    subprocess.run(["git", "-C", str(repository), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repository), "commit", "--quiet", "-m", "deep tree"],
+                   check=True, capture_output=True)
+    world["commit"] = subprocess.run(["git", "-C", str(repository), "rev-parse", "HEAD"], check=True,
+                                     capture_output=True, text=True).stdout.strip()
+    admission = _admit(world)
+    try:
+        with pytest.raises(RunRefRuntimeError) as caught:
+            _provision(world, admission)
+    finally:
+        admission.close()
+
+    layout = _layout(world)
+    assert (caught.value.code, caught.value.detail,
+            os.path.lexists(layout.child_root / "child-recipe.json")) == (
+        "run_ref_environment_unavailable", "clone_exceeds_depth_bound", False)
 
 
 def test_image_paths_resolve_through_one_public_walk_beneath_the_image_root(store_image):

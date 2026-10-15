@@ -241,6 +241,26 @@ def test_a_spawner_silent_until_the_ready_deadline_is_unavailable(tmp_path, monk
         "run_ref_environment_unavailable", "spawner_not_ready")
 
 
+def test_holder_info_pipe_silent_until_deadline_is_unavailable(tmp_path, monkeypatch):
+    from orchestrator.workflow.run_ref import holder_scope
+
+    monkeypatch.setattr(holder_scope, "LAUNCH_SECONDS", 0.02)
+    scope = holder_scope.HolderScope(SealedImage(-1, {}), LIMITS, control_dir=tmp_path)
+    scope.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    scope._released = True
+    info_read, info_write = os.pipe()
+    try:
+        with pytest.raises(RunRefRuntimeError) as refused:
+            scope._await_ready(info_read)
+    finally:
+        os.close(info_write)
+        scope.process.kill()
+        scope.process.wait()
+
+    assert (refused.value.code, refused.value.detail.split(":")[0]) == (
+        "run_ref_environment_unavailable", "holder_info_pipe_not_ready")
+
+
 def test_host_helper_needs_an_absolute_executable(tmp_path):
     holder = Holder(SealedImage(-1, {}), LIMITS, control_dir=tmp_path)
 

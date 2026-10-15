@@ -256,7 +256,7 @@ def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str
         mode = stat.S_IMODE(info.st_mode) & (0o7777 if destination_fd is None else 0o777)
         if stat.S_ISDIR(info.st_mode):
             if depth >= MAX_TREE_DEPTH:
-                raise _escape(f"workspace exceeds the depth bound at {relative!r}")
+                raise RunRefCheckpointError(walk.source_code, f"workspace exceeds the depth bound at {relative!r}")
             walk.entries.append(TreeEntry(relative, "directory", mode, 0, None))
             _copy_directory(walk, source_fd, name, info, destination_fd, relative, mode, depth + 1)
         elif stat.S_ISREG(info.st_mode):
