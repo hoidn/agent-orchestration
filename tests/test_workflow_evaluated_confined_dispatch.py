@@ -40,6 +40,7 @@ def image(tmp_path: Path):
     _executable(root / "opt/tool/run", b"image tool")
     (root / "usr/bin/tool").symlink_to("/opt/tool/run")
     (root / "usr/bin/scratchy").symlink_to("/tmp/planted")
+    (root / "opt/into-clone").symlink_to("/workspace/lib")
     for mount in ("workspace", "tmp", "result"):
         (root / mount).mkdir()
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
@@ -218,8 +219,10 @@ def test_guest_spelling_names_the_leaf_result_directory() -> None:
     assert cd.guest_result_path(result_path) == f"/result/{leaf}/result.json"
     assert cd.guest_cwd(Path("/host/clone"), None) == "/workspace"
     assert cd.guest_cwd(Path("/host/clone"), Path("/host/clone/pkg/sub")) == "/workspace/pkg/sub"
-    with pytest.raises(cd.ConfinedDispatchRefusal):
-        cd.guest_cwd(Path("/host/clone"), Path("/host/elsewhere"))
+    assert cd.guest_cwd(Path("/host/clone"), Path("/host/clone/a/../b")) == "/workspace/b"
+    for escape in ("/host/elsewhere", "/host/clone/../elsewhere", "/host/clone/a/../../x"):
+        with pytest.raises(cd.ConfinedDispatchRefusal):
+            cd.guest_cwd(Path("/host/clone"), Path(escape))
 
 
 # --- leaf dispatch through a fake runner -----------------------------------------------
@@ -455,7 +458,7 @@ def test_tampered_or_missing_snapshot_fails_closed_not_diverged(clone, tmp_path:
 
         with pytest.raises(cd.ConfinedDispatchRefusal) as excinfo:
             cd.verify_attempt_snapshot(store, binding.parts)
-        assert excinfo.value.code == "run_ref_environment_changed"
+        assert excinfo.value.code == "run_ref_evidence_invalid"
         if damage == "tamper":
             with pytest.raises(cd.ConfinedDispatchRefusal):
                 cd.store_attempt_snapshot(store, binding.blobs, allowance_bytes=1 << 20)
@@ -485,3 +488,54 @@ def test_a_leaf_that_left_processes_behind_fails_naming_it(owners, image) -> Non
     assert excinfo.value.code == "command_exit_nonzero"
     assert excinfo.value.exit_info["lingered"] is True
     assert "linger" in str(excinfo.value)
+
+
+def test_image_closure_symlinked_into_the_clone_refuses(image) -> None:
+    node = _node(("python3",), ({"base": "absolute", "path": "/opt/into-clone"},))
+    pins = _pins(image, "python3")
+    cd.require_confinable(node, pins)  # textually an image path
+    # Present in this unsealed fake so only the resolved-path check can refuse it.
+    (Path(f"/proc/self/fd/{image.root_fd}") / "workspace/lib").write_bytes(b"clone bytes")
+
+    with pytest.raises(cd.ConfinedDispatchRefusal) as excinfo:
+        cd.image_implementation_files(node, pins, image)
+
+    assert excinfo.value.code == "run_ref_environment_effect_unsupported"
+
+
+def test_image_pinned_attempt_without_a_leaf_runner_fails_closed(owners, image) -> None:
+    attempt = _attempt(owners, image, _count_node(owners), runner=FakeRunner())
+    unconfined = PreparedAttempt(*[getattr(attempt, name) for name in (
+        "authority", "node", "identity", "ordinal", "result_path", "input_digest", "parts",
+        "implementation_files", "dependencies", "resolved", "workspace", "workspace_files",
+        "site_classes", "provider_executor", "attempt_files", "launch_cwd", "stream_output")])
+
+    with pytest.raises(cd.ConfinedDispatchRefusal) as excinfo:
+        perform_external(unconfined)
+
+    assert excinfo.value.code == "run_ref_environment_effect_unsupported"
+    assert not owners.attempt_files.exists("stdout.txt")
+
+
+def _streams(owners):
+    return json.loads(owners.attempt_files.read("streams.json"))
+
+
+def test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence(owners, image) -> None:
+    runner = FakeRunner(stdout_truncated=True)
+
+    perform_external(_attempt(owners, image, _count_node(owners), runner=runner))
+
+    assert _streams(owners) == {"stdout_truncated": True, "stderr_truncated": False}
+
+
+def test_nonzero_exit_carries_truncation_flags_in_exit_info(owners, image) -> None:
+    runner = FakeRunner(exit_code=3, stderr_truncated=True)
+
+    with pytest.raises(CommandPerformerError) as excinfo:
+        perform_external(_attempt(owners, image, _count_node(owners), runner=runner))
+
+    assert excinfo.value.code == "command_exit_nonzero"
+    assert excinfo.value.exit_info == {"exit_code": 3, "error": None,
+                                       "stdout_truncated": False, "stderr_truncated": True}
+    assert _streams(owners)["stderr_truncated"] is True

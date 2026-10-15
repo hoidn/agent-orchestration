@@ -9,7 +9,8 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from .authority import RunAuthority
 from .commands import CommandPerformerError, launch_command, workspace_relative_path
-from .confined_dispatch import ConfinedLeafContext, dispatch_confined
+from .confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, ConfinedLeafContext, dispatch_confined
+from .interpreters import is_image_pin
 from .providers import launch_provider
 from .run_ref import perform_evaluated_run_ref
 
@@ -52,6 +53,8 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
     node = attempt.node
     if attempt.confined is not None:
         return ExternalOutcome(result_path=dispatch_confined(attempt))
+    if any(map(is_image_pin, attempt.authority.header["interpreters"].values())):
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, "an image-pinned run has no confined leaf runner")
     logical_root = attempt.workspace if attempt.launch_cwd is not None else None
     if node['class'] == 'command':
         path = _dispatch_command(attempt, logical_root)

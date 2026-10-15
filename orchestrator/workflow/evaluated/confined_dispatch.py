@@ -49,7 +49,7 @@ from .interpreters import (
 EFFECT_UNSUPPORTED = "run_ref_environment_effect_unsupported"
 TRANSPORT_UNAVAILABLE = "run_ref_provider_transport_unavailable"
 BUDGET_EXHAUSTED = "run_ref_budget_exhausted"
-ENVIRONMENT_CHANGED = "run_ref_environment_changed"
+EVIDENCE_INVALID = "run_ref_evidence_invalid"
 ESCAPE_REJECTED = "run_ref_environment_escape_rejected"
 GUEST_WORKSPACE = "/workspace"
 GUEST_RESULT = "/result"
@@ -98,10 +98,9 @@ def guest_result_path(result_path: str) -> str:
 def guest_cwd(clone_root: Path, launch_cwd: Path | None) -> str:
     if launch_cwd is None:
         return GUEST_WORKSPACE
-    try:
-        relative = Path(launch_cwd).relative_to(clone_root).as_posix()
-    except ValueError as exc:
-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"launch cwd {launch_cwd} is outside the clone") from exc
+    relative = _clone_relative(".", os.path.relpath(launch_cwd, clone_root))
+    if relative is None:
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"launch cwd {launch_cwd} is outside the clone")
     return GUEST_WORKSPACE if relative == "." else f"{GUEST_WORKSPACE}/{relative}"
 
 
@@ -144,6 +143,8 @@ def image_implementation_files(node: Mapping[str, Any], pins: Mapping[str, Any],
 def _image_row(image: SealedImage, path: str) -> dict[str, Any]:
     try:
         resolved = resolve_image_path(image.root_fd, path)
+        if not image_resolvable(resolved):
+            raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"{path} resolves into guest scratch: {resolved}")
         info = os.stat(resolved.lstrip("/") or ".", dir_fd=image.root_fd, follow_symlinks=False)
         if stat.S_ISDIR(info.st_mode):
             fd = os.open(resolved.lstrip("/") or ".", _NOFOLLOW_DIRECTORY, dir_fd=image.root_fd)
@@ -180,9 +181,10 @@ class LeafCommandExecutor:
             input_files=dict(self.input_files), network=self.context.network))
         self.attempt_files.create("stdout.txt", outcome.stdout, exclusive=True)
         self.attempt_files.create("stderr.txt", outcome.stderr, exclusive=True)
+        flags = {"stdout_truncated": outcome.stdout_truncated, "stderr_truncated": outcome.stderr_truncated}
+        self.attempt_files.create("streams.json", canonical_json_bytes(flags), exclusive=True)  # P31 evidence
         if "result.json" in outcome.result_files:
             self.attempt_files.create("result.json", outcome.result_files["result.json"], exclusive=True)
-        flags = {"stdout_truncated": outcome.stdout_truncated, "stderr_truncated": outcome.stderr_truncated}
         if outcome.holder_death is not None:
             death = outcome.holder_death
             raise CommandPerformerError(death.code, f"confined leaf lost its holder: {death.detail}",
@@ -353,7 +355,7 @@ def store_attempt_snapshot(store: WorkspaceFiles, blobs: Mapping[str, bytes], *,
         if not store.exists(name):
             new[name] = content
         elif store.sha256(name) != digest:
-            raise ConfinedDispatchRefusal(ENVIRONMENT_CHANGED, f"attempt snapshot blob {name} was tampered")
+            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot blob {name} was tampered")
     added = sum(len(content) for content in new.values())
     if added > allowance_bytes:
         raise ConfinedDispatchRefusal(BUDGET_EXHAUSTED,
@@ -376,5 +378,5 @@ def verify_attempt_snapshot(store: WorkspaceFiles, parts: Mapping[str, str]) -> 
         except (OSError, ValueError):
             actual = None
         if actual != digest:
-            raise ConfinedDispatchRefusal(ENVIRONMENT_CHANGED, f"attempt snapshot of {name} is missing or tampered")
+            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot of {name} is missing or tampered")
     return bound

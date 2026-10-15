@@ -170,8 +170,7 @@ def launch_command(
     executor: Any = None,
     result_locator: str | None = None,
 ) -> str:
-    """Dispatch once and capture only attempt-owned evidence; a given `executor` (a confined
-    leaf adapter) replaces the host StepExecutor and the host module-origin check."""
+    """Dispatch once and capture attempt evidence; an `executor` replaces the host StepExecutor."""
     launch_argv = list(argv)
     if not launch_argv or any(not isinstance(token, str) for token in launch_argv):
         raise ValueError("final command argv must contain string tokens")
@@ -211,7 +210,8 @@ def _command_execution_failure(execution):
     code = "command_timeout" if error_type == "timeout" else "command_exit_nonzero"
     return CommandPerformerError(code,
         f"evaluated command failed with exit code {execution.exit_code}",
-        exit_info={"exit_code": execution.exit_code, "error": execution.error})
+        exit_info={"exit_code": execution.exit_code, "error": execution.error,
+                   **(execution.capture_result.debug or {})})  # confined leaves: stream truncation flags
 
 
 def command_result(node, *, attempt_files, workspace_files, result_path):
