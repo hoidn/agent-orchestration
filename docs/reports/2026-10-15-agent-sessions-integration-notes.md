@@ -106,6 +106,15 @@ Compare main's untracked duplicates against the integrated tracked files before
 removing any duplicate. Equality must be checked at integration time; this note
 does not assert current or future equality or authorize deletion based on names.
 
+Deferred ordinary-run observation consumer limitation: resumed ordinary runs may
+now retain several process-specific observation files with repeated invocation
+ordinal `1`. `scripts/experiments/conventional_coordinator.py` currently requires
+contiguous ordinals `1..N` and refuses that accounting as incomplete/ambiguous.
+Previously colliding resumed filenames could fail observation or undercount;
+the change exposes that pre-existing resume-accounting limitation rather than
+validating resumed totals. Track a separate consumer correction; do not silently
+sum repeated ordinals or claim complete usage accounting from those files.
+
 The qualification record owns smoke receipts, exact verification revisions and
 coverage limits. This note neither authorizes paid comparison runs nor changes
 code review findings or integration permission.

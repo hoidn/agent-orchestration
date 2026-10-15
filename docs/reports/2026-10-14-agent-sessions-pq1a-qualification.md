@@ -21,6 +21,13 @@ acceptance comparison of the two-agent consumer. Final whole-branch review/verif
 | Leaked `orc-observe` tmux sessions after the broad run | `c81a290b` | 0 |
 | Cited pinning tests: 89 selectors, `--collect-only` | `3472bef2` | 181 items collected, no missing node id |
 | Cited pinning tests run once (`-q -n 8`) | `3472bef2` | 181 passed in 51 s; 0 `orc-observe` sessions after |
+| Final affected selection: 144 modules, `pytest -q -n 16 --dist=worksteal` | `5224c8be` | 2 failed / 4010 passed / 2 skipped, 1140.06 s, exit 1; still RED |
+| Final affected failure F1: growth-selector fixture | `5224c8be` | Same original-baseline assertion: actual `lanes: {None}` versus expected `set()` in `test_growth_selectors_take_both_arms_and_counters_change_after_seeds` |
+| Final affected failure F2: watcher startup deadline | `5224c8be` | `test_watcher_reads_completed_authority_without_snapshot` timed out before its first state under the unchanged 30 s deadline; isolated rerun PASS, 1 test in 12.89 s, exit 0. Transient timing failure not reproduced in isolation; the parallel campaign remains RED |
+| Post-extraction artifact/admission/corpus regression selection | `30b9b50d` | 205 passed in 31.85 s, exit 0; no tests added or renamed |
+| Post-extraction public factory/branch/loop smoke | `30b9b50d` | 1 passed / 4 deselected in 3.65 s, exit 0; deterministic provider CLIs |
+| Radon check of changed/new checker/walker functions | `30b9b50d` | PASS: complexities 10/7/9/5/11, each ≤12; unchanged `_ast_nodes` 13 retained; modules 206/140 lines |
+| Independent final code-quality disposition | `30b9b50d` | PASS after exact-commit Q1/Q2 review (AST equivalence and conventional Radon); I1–I4 corrections accepted. This is code acceptance, not a globally green suite or PQ-1c acceptance |
 
 `3472bef2` differs from `c81a290b` only by the two opt-in real-smoke modules under `tests/e2e/`, which skip without
 `AGENT_SESSION_REAL_SMOKE`.
@@ -34,6 +41,7 @@ acceptance comparison of the two-agent consumer. Final whole-branch review/verif
 | CL | `tests/test_provider_session_transport_claude.py` |
 | SR | `tests/test_workflow_evaluated_provider_session_request.py` |
 | ADM | `tests/test_workflow_lisp_agent_turn_admission.py` (frontend admission) |
+| AB | `tests/test_workflow_agent_artifact_boundaries.py` (public checked-artifact loader and recursive runtime conversion guards) |
 | AL | `tests/test_workflow_evaluated_agent_allocation.py` |
 | CO | `tests/test_workflow_evaluated_agent_composition.py` |
 | TU | `tests/test_workflow_evaluated_agent_turns.py` |
@@ -149,10 +157,43 @@ bind after `02a0067b`).
 
 Original deterministic gaps G1–G3 are closed by `61a4beb9`: missing typed result, public
 `resume` refusal on unprovable quiescence, and the two additional bootstrap kill points.
-This does not close later whole-branch contract findings. Final review found checked-artifact
-escape, interrupted missing-result classification, missing-result diagnostic disclosure, and
-Claude native locator/session-identity binding issues; their revisions and review disposition
-remain coordinator-owned and pending at this documentation cut.
+The later whole-branch contract findings have landed corrections: checked-artifact escape
+(I1, `586d6624`), interrupted missing-result classification and diagnostic disclosure
+(I2/I3, `bfa1f44d`), and Claude native locator/session-identity binding (I4, `5224c8be`).
+The complexity-only extraction landed in `30b9b50d` with the narrow verification above;
+its independent exact-commit quality review is PASS and all I1–I4 corrections are accepted.
+No original gap or final contract/quality blocker remains in that reviewed code scope.
+The affected campaign remains RED with the baseline and timing dispositions above; integration
+with main and the separately authorized PQ-1c acceptance comparison remain outside this closure.
+
+## Final correction evidence
+
+These regression pins supplement the original deterministic tables; they do not constitute a new
+paid qualification. Exact native completion with no result enters same-attempt validation for
+later turns, closes that ordinal `agent_turn_result_invalid` and never redispatches. A first
+turn keeps the existing first-explicit-resume bootstrap path. Agent validation diagnostics omit
+raw provider/result detail, exit data and violations, while ordinary-provider reply excerpts
+remain unchanged. Claude store identity must agree with its filename before continuation.
+
+| Finding / revision | Fresh pinning selectors |
+| --- | --- |
+| I1 recursive checked-artifact boundaries, `586d6624` | AB::test_public_loader_blocks_provider_agent_data_before_dispatch; AB::test_public_loader_refuses_agent_workflow_results; AB::test_public_loader_refuses_print_of_nested_agent; AB::test_local_aggregates_branch_selection_and_explicit_procedure_arguments_work |
+| I2 interrupted missing result, `bfa1f44d` | RE::test_completed_missing_result_fails_same_ordinal_on_resume_without_redispatch |
+| First-turn bootstrap preserved, `bfa1f44d` | BO::test_first_turn_completed_without_result_bootstraps_on_first_explicit_resume; BO::test_later_turn_failures_cannot_bootstrap |
+| I3 public diagnostic privacy, `bfa1f44d` | VI::test_agent_missing_result_sanitizes_public_outputs (Claude/Codex, uninterrupted/recovered); ordinary-provider control: `tests/test_workflow_evaluated_provider_delivery.py::test_public_missing_result_names_the_reply_head_and_resume_retries` |
+| I4 native filename/session binding, `5224c8be` | NS::test_claude_store_identity_must_match_its_filename; CS::test_claude_filename_session_mismatch_refuses_before_dispatch_without_native_details |
+
+The 144-module campaign includes these owners and pinning tests. Its retained selection starts
+with exact revision `5224c8be4854dead6019fb44d147e29da54d0510`; `final-affected.selection.txt`,
+`final-affected.log` and `final-affected.exit` live in the SDD Plan B evidence directory. The
+11 selector names above were freshly collected after the extraction: 21 cases, no missing node
+IDs (`--collect-only`, 2.17 s). The watcher rerun is recorded separately in
+`final-watcher-rerun.md` at `53290005`; no timeout was relaxed and no watcher/runtime code changed for it.
+The original Plan A watcher same-cycle 30 s timing flakes also passed their baseline/rechecks;
+that historical attribution supports caution about load, not a claim that every timeout is safe.
+`final-complexity-corrections-report.md` records `30b9b50d`'s three private helper extractions,
+their preserved validation/operand order, conventional Radon check and public smoke. The
+144-module campaign predates that extraction and is not presented as a run at the later revision.
 
 ## Real-provider smokes (Tasks 19–20)
 
@@ -173,8 +214,8 @@ earlier pre-prompt `attachment` rows without a `promptId`; other lineage shapes 
 The passing fresh turn used this allowance. On this CLI's `-p --resume` path the second prompt
 parented directly from the first turn's final row. The subsequent offline fix `5cd87d53`
 rejects forward ancestry in this attachment walk (40 native-store tests; separate review).
-There was no new paid smoke after that stricter fix, so the paid evidence remains attached to
-the revisions above. Per-turn elapsed/native usage was not captured for these adapter smokes;
+There was no new paid smoke after that stricter fix or the final I1–I4 corrections, so the paid
+evidence remains attached to the revisions above. Per-turn elapsed/native usage was not captured for these adapter smokes;
 the totals above are pytest durations and do not satisfy the comparison gate below.
 
 Redacted receipt/proof excerpts (locators and native turn IDs truncated to eight characters;
