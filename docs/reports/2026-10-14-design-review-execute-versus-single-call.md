@@ -76,6 +76,11 @@ follow-on experiments"): the single call passes below half of the hidden accepta
 number of review blockers on single-call patches is at least one. Both are measured before any
 treatment run.
 
+Amended 2026-10-15 (ruling R55, `amends_4` of the calibration criterion): the owner removed the
+hidden-acceptance condition; the paragraph above records the rule as of 2026-10-14. The current rule
+is in the [design](../design/orc_effectiveness_comparison_harness.md) ("Difficulty calibration for
+follow-on experiments").
+
 ## Limits
 
 - **Two runs.** The two qualification runs are a small sample of the single call. Both landed far above

@@ -5,6 +5,15 @@ Status: complete. No rung qualified under the frozen criterion, so the calibrate
 Later (2026-10-15): the owner chose rung 3 on the blocker rule alone, and Task 9 ran on it. See the
 [E-B2 report](2026-10-15-calibrated-orc-versus-single-call.md). This report's conclusion is unchanged.
 
+Amendment notice (2026-10-15, after Task 9): the owner removed the single-call hidden-acceptance condition from the
+calibration rule (ruling R55; `amends_4` in [`calibration.json`](../../experiments/compare/criteria/calibration.json),
+replacing the frozen `3149bc36…` this report cites). A task now qualifies when expected review blockers are at least
+1. A mean from 1 up to but excluding 1.5 over two patches still needs a third single call and review. Hidden fractions
+are still measured and reported, as description only. This report keeps the two-condition criterion it ran under and its
+results. Under the new rule, rungs 2 (mean 2.5) and 4 (2.0) meet the threshold on their recorded patches. Rungs 1 and 3
+(mean 1.0) are borderline and unresolved: qualification would need a third single call and review, which were never
+run. No run was added.
+
 ## Question And Criterion
 
 The question is which task on a frozen ladder is the first where two conditions hold:

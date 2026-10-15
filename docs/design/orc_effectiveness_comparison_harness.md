@@ -479,22 +479,29 @@ treatment minus control, at least +0.3. Secondary: judge score, call count
 and wall clock per run. `plan_review_execute.orc` may be added as a second
 treatment when budget allows; it is not required.
 
-**Difficulty calibration for follow-on experiments (owner, 2026-10-14).** A
-task can show a workflow's value only when the work leaves something for the
-workflow to do. Later experiments raise task difficulty until the expected
-number of review blockers is at least one. Before any treatment run, the
-candidate task is measured on single-call patches made with the control's
-binding. Two quantities are measured: the single call's hidden-acceptance
-fraction, which must be below half, and the mean number of blocking findings
-the treatment's reviewer raises on those patches, which must be at least one.
-Both measurements and their thresholds are frozen in the criterion. A task
-that misses either one is replaced by a harder task, not run. Census commits
-of a few hundred lines are not candidates. The E-B qualification rule above
-is the first of the two checks. The procedure, the review-only arm and the
-candidate ladder are in the plan's Task 8, and the calibrated experiment is in its
-Task 9. The first calibration ([report](../reports/2026-10-14-task-difficulty-calibration.md))
-found the blocker condition met on every rung tried, but no rung where a single call
-passed less than half of the hidden tests.
+**Difficulty calibration for follow-on experiments (owner, 2026-10-14; amended
+2026-10-15).** A task can show a workflow's value only when the work leaves
+something for the workflow to do. Later experiments raise task difficulty until
+the expected number of review blockers is at least one. Before any treatment
+run, the candidate task is measured on single-call patches made with the
+control's binding. The task qualifies when the mean number of blocking findings
+the treatment's reviewer raises on those patches is at least one; a mean from
+1 up to but excluding 1.5 over the first two patches needs a third single call
+and review before the task can qualify. The single call's hidden-acceptance
+fraction is still measured and reported, as description, but it is not a
+condition. The threshold, sample size and procedure are frozen in the
+criterion. A task that misses the blocker threshold is replaced by a harder
+task, not run. Census commits of a few hundred lines are not candidates. The
+E-B qualification rule above (both control runs below half on hidden
+acceptance) governed E-B only and is not a check for follow-on experiments.
+The procedure, the review-only arm and the candidate ladder are in the plan's
+Task 8, and the calibrated experiment is in its Task 9. The first calibration
+([report](../reports/2026-10-14-task-difficulty-calibration.md)) ran under the
+earlier two-condition rule, which also required every single call to pass less
+than half of the hidden tests: it found the blocker condition met on every rung
+tried, but no rung where both calibration single calls passed less than half,
+so no rung qualified then. The owner removed that condition on 2026-10-15
+(ruling R55; the criterion's `amends_4`); the frozen outcome stays as recorded.
 
 Budget, serial, approximate. E-A: six `best_of_n` runs of five calls, six
 `reviewed_change` runs of two to six calls and six single-call control runs,

@@ -66,6 +66,11 @@ The live smoke ran after the criterion was frozen and alongside the first batch,
 | Interim readouts only through `summarize`'s join, and anchors checked before any conclusion | coordinator practice (memory) | adopted |
 | Product: present provider result paths so that a workflow whose agents work in another directory (`best_of_n`) does not lose results. For example, show the absolute path or say what it is relative to | runtime, provider result delivery | proposed; not part of this plan |
 
+Amended 2026-10-15 (ruling R55, `amends_4` of the calibration criterion): the owner removed the hidden-acceptance
+condition from the difficulty-calibration row above. That row is the 2026-10-14 record. The current rule, review
+blockers alone with hidden acceptance reported as description, is in the
+[design](../design/orc_effectiveness_comparison_harness.md) ("Difficulty calibration for follow-on experiments").
+
 ## Answer To "Why Did The Strategies Fail Now When They Succeeded Before"
 
 They did not fail. The impression came from the wrong interim readout (item 5). E-A's numbers are close to

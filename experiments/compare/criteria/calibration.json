@@ -1,5 +1,5 @@
 {
-  "experiment": "Task 8: task-difficulty calibration. Find the first task on the frozen ladder where one call with the control's binding passes less than half of the hidden acceptance tests and the treatment reviewer raises on average at least one blocking finding on those single-call patches.",
+  "experiment": "Task 8: task-difficulty calibration. Find the first task on the frozen ladder where the treatment reviewer raises on average at least one blocking finding on patches made by one call with the control's binding. Until amends_4 (owner, 2026-10-15) the criterion also required every such call to pass less than half of the hidden acceptance tests; that condition is removed, and hidden fractions are measured and reported as description only.",
   "owner_rule": "raise task difficulty until the expected number of review blockers is >= 1 (owner, 2026-10-14); design 'Difficulty calibration for follow-on experiments'",
   "ladder": {
     "file": "experiments/compare/tasks/calibration-ladder.md",
@@ -14,7 +14,7 @@
     "timeout_sec": 14400,
     "binding": "control/direct_task.providers.json (codex)"
   },
-  "hidden_fraction": "per run: 1 - len(summarize.hidden_failures(P/clones/<id>, <runtime>/experiments/compare/tasks/<slug>, nodes, '/home/ollie/miniconda3/bin/python')) / len(nodes); nodes = hidden_tests.txt; clone = the D8-stripped clone of collected/final.diff in a pool from prepare.py pool, no judge run; a node passes iff pytest exits 0 within 1800 s; measured once, a rerun is reported beside the first, which stands; void unless the same pool's upstream anchor passes every node",
+  "hidden_fraction": "per run: 1 - len(summarize.hidden_failures(P/clones/<id>, <runtime>/experiments/compare/tasks/<slug>, nodes, '/home/ollie/miniconda3/bin/python')) / len(nodes); nodes = hidden_tests.txt; clone = the D8-stripped clone of collected/final.diff in a pool from prepare.py pool, no judge run; a node passes iff pytest exits 0 within 1800 s; measured once, a rerun is reported beside the first, which stands; void unless the same pool's upstream anchor passes every node; descriptive since amends_4: reported per patch, not a qualification condition",
   "review": {
     "arm": "review_once",
     "reviewer": "reviewed_change.orc review-prompt and Review union, copied into control/review_once.orc with a contract test; gpt-6-sol, effort high, :timeout-sec 5400, codex_unrestricted_workspace",
@@ -33,8 +33,8 @@
     "counting": "findings as returned; the coordinator does not merge, drop or reclassify them"
   },
   "k": 2,
-  "borderline": "if 1 <= mean < 1.5 over two patches and both hidden fractions are < 0.5, run one more direct_task and its review; qualifies is then evaluated over all three patches. Exactly 0.5 hidden fails; a mean of exactly 1.0 is borderline; a mean of exactly 1.5 qualifies without extension",
-  "qualifies": "every single-call patch's hidden fraction < 0.5 AND mean review blockers >= 1",
+  "borderline": "if 1 <= mean < 1.5 over the first two patches, run one more direct_task and its review; qualifies is then evaluated over all three patches. A mean of exactly 1.0 is borderline; a mean of exactly 1.5 qualifies without extension",
+  "qualifies": "mean review blockers >= 1, over the first two patches, or over all three after the borderline extension; the hidden fraction does not enter qualification",
   "failed_runs": "infrastructure failures are resumed (R3); a direct_task run that fails any other way (provider_timeout included) has no patch and the rung does not qualify; a contaminated run of either arm is replaced once by the next run number, and a second contaminated run in the same rung rejects the rung; a failed review is resumed if infrastructure, otherwise rerun once on the same patch, and a second non-infrastructure failure means the rung does not qualify; every run (review_once included) is collected, scanned and adjudicated; at most four live runs",
   "rung_packages": "built and verified (fail at base, pass at solution, each node alone) when the rung is reached; the package sha256 is recorded in the rung's calibration.json before its first run (R42)",
   "stop_rule": "stop at the first rung that qualifies; at most 4 rungs reached, rejected ones included; if none qualifies, report and stop",
@@ -42,7 +42,7 @@
   "budget_worst_case_per_rung": "2 x 4 h single calls + 2 x 1.5 h reviews (+1 each if borderline)",
   "codex": "every calibration call is a pre-registered experiment call; no new run when the weekly window is at 5% left unless credits cover it (R8)",
   "data_use": "calibration runs are never treatment or control data in Task 9",
-  "written_before_any_calibration_run": true,
+  "written_before_any_calibration_run": false,
   "runtime": {
     "path": "/home/ollie/calib-runtime",
     "commit": "2b9efd81",
@@ -93,5 +93,10 @@
   "amends_3": {
     "previous_sha256": "9c6cc4ab4b824b577d384ac7f19deeffcd91c6734b36650f5225949eea8b5a3f",
     "reason": "Amendment 3 (2026-10-14, after rung 3 and before any rung-4 run): rung 3 did not qualify (single calls 0.519 and 0.308 hidden; mean blockers 1.0). Rung 4's package (5c6122d4) was built while rungs 2-3 ran and did not use their results. The ladder changed only in rung 4's hidden count and drop list; the order and rungs 1-3 are unchanged. R51 accepts one dictated private name. Rung 4 is the last rung under the stop rule."
+  },
+  "amends_4": {
+    "previous_sha256": "3149bc36e6b822eba5e7d735abacad6bb145487259c0d0b090feb837daedab66",
+    "date": "2026-10-15",
+    "reason": "Amendment 4 (owner instruction 'remove the hidden test acceptance rate condition', 2026-10-15; ruling R55), written after all four Task 8 rungs and after Task 9 (E-B2) completed, so written_before_any_calibration_run is false for this version; every earlier version up to 3149bc36 was written before the calibration runs it governed. Qualification now rests on mean review blockers >= 1 alone. The borderline rule keeps its third single call and review when 1 <= mean < 1.5, without the former prerequisite that both hidden fractions be < 0.5; the rule that a hidden fraction of exactly 0.5 fails is removed. Hidden fractions are still measured, validated by the upstream anchor and reported. The stop rule, sample size, failed-run, validity, package, drop and review rules are unchanged. Not applied retroactively: the Task 8 outcome under 3149bc36 (no rung qualified) stands as the historical result, and the stop rule is not re-run over the completed ladder. On their recorded two patches, rungs 2 (mean 2.5) and 4 (2.0) meet this rule; rungs 1 and 3 (mean 1.0) are borderline, and no third sample was taken, so this amendment does not qualify them. No run is launched by this amendment. The owner's choice of rung 3 for E-B2 (2026-10-15) and E-B2's frozen criterion and results are unchanged."
   }
 }
