@@ -54,6 +54,25 @@ from . import agent_turns
 logger = logging.getLogger(__name__)
 
 
+def observation_backend():
+    """`None` selects the tmux backend inside the manager; test drivers replace this attribute in-process."""
+    return None
+
+
+def provider_executor_for_run(workspace, run_root, *, agents_present: bool):
+    """One executor per run; observation only for agent-bearing programs (R2), best-effort, never changing execution."""
+    manager = None
+    if agents_present:
+        from orchestrator.providers.observation import ProviderObservationManager
+        try:
+            manager = ProviderObservationManager(run_root, backend=observation_backend())
+            logger.info("[provider_observation] session %s (attach read-only with tmux attach -r)", manager.session_name)
+        except Exception as exc:
+            logger.warning("[provider_observation] disabled: %s", type(exc).__name__)
+    return ProviderExecutor(workspace, ProviderRegistry(), provider_observation_enabled=manager is not None,
+                            observation_manager=manager), manager
+
+
 def execute_pure_run(
     authority: RunAuthority,
     inputs: Mapping[str, Any],
@@ -72,6 +91,7 @@ def execute_pure_run(
     owns_run_files = authority.run_files is None
     authority = replace(authority, run_files=run_files)
     workspace_files = WorkspaceFiles(workspace)
+    views = agent_turns.AgentViews(None)
     try:
         _require_retained_root(run_files)
         before = read_memo(authority.memo_path, checked_site_classes, run_files=authority.run_files)
@@ -81,13 +101,13 @@ def execute_pure_run(
         provider_executor = None
 
         def handle(node, operands, identity, owner, reader, *, launch_workspace=None):
-            nonlocal provider_executor
+            nonlocal provider_executor, views
             if node.get("class") not in {"command", "provider", "run_ref", "agent", "agent_turn"}:
                 raise RuntimeError("unsupported evaluated effect class")
             if node["class"] in {"provider", "agent_turn"} and provider_executor is None:
-                provider_executor = ProviderExecutor(
-                    workspace, ProviderRegistry(), provider_observation_enabled=False
-                )
+                provider_executor, manager = provider_executor_for_run(workspace, authority.run_root,
+                    agents_present=not {"agent", "agent_turn"}.isdisjoint(checked_site_classes.values()))
+                views = agent_turns.AgentViews(manager)
             return _execute_effect(
                 authority,
                 node,
@@ -102,6 +122,7 @@ def execute_pure_run(
                 provider_executor=provider_executor,
                 stream_output=stream_output,
                 launch_workspace=launch_workspace,
+                views=views,
             )
 
         handler = _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
@@ -132,6 +153,7 @@ def execute_pure_run(
         logger.error("[%s] %s", code, message)
         return 1, None
     finally:
+        views.close()
         workspace_files.close()
         if owns_run_files:
             run_files.close()
@@ -257,6 +279,7 @@ def prepare_effect(
     launch_workspace: EvaluatedValue | None = None,
     parallel_frontiers: frozenset[str] = frozenset(),
     parallel_unsettled: bool = False,
+    views=None,
 ) -> PreparedAttempt | EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
@@ -285,7 +308,7 @@ def prepare_effect(
             attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
             implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
             workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
-            provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output))
+            provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated")

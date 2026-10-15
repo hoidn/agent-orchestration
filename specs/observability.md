@@ -37,6 +37,24 @@
     supervisor's composed prompt and debug prompt evidence but never enter
     workflow values, `state.json`, stable status records, checkpoints, or
     resume selection.
+  - An evaluated run whose checked program contains `agent`/`agent_turn`
+    effects constructs the run-scoped observation manager best-effort;
+    evaluated runs of programs without agents keep observation disabled as
+    before, so 2.35–2.37 behaviour is unchanged (R2). Within an agent-bearing
+    run, ordinary `provider-result` effects keep the one-invocation/one-pane
+    contract.
+  - Each agent instance owns one logical read-only view: every turn of that
+    agent appends to the same pane and transcript, with
+    `--- turn <identity> attempt <n> ---` and `--- idle ---` boundary lines;
+    invoking the agent again never opens a second pane. Attach is read-only
+    (`tmux -S <socket> attach -r -t <session>`); the session is logged once per
+    run at manager creation and each agent view's socket and pane target are
+    logged when that view opens. They are transient: a runtime restart may
+    allocate a different pane/socket for the same logical agent, and targets
+    never enter `Agent`, the memo or `state.json`.
+  - The agent view is derived from invocation-local streams and can never
+    authorize, reconcile or dispatch a turn; every observation failure is
+    best-effort. Parallel workers keep observation disabled.
 
 - Provider peer-group evidence (v2.17)
   - The `interactive_terminal_turn_queue.v1` adapter pane owns the actual
