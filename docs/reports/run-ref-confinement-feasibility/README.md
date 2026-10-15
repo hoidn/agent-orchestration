@@ -1110,6 +1110,7 @@ API-key-only experiment is relabelled as a native-login success.
 | Native-login qualification decision and remote-control correction, 2026-10-15 | Independent documentary PASS. The pinned config schema accepted 20 corrected overrides; the former `allow_remote_control` ConfigToml override was rejected. The replacement is the pinned internal environment marker `CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED=1`, with no `--remote-control`. Schema/source checks are not operational startup or account evidence. |
 | Operational prerequisites and cancellation correction | Independent bounded PASS. The original 78-row synthetic campaign remains intact; the R1 correction has 80 rows in eleven suites, exit 0, and 14 fresh independent cancellation controls pass. A timing race in the old-code RED replay fixture is recorded; two direct old-code replays reproduce the late POST. No synthetic TLS seam is presented as a real handshake. |
 | First existing-login attempt | **UNQUALIFIED**: the one-attempt, two-request/90-second entry reached its absolute deadline before confirming the native account binding. No inference gateway or Holder was created. The supervisor verified its worker group empty; Holder/carrier cleanup fields are not applicable. Wrapper exit 0 is not experiment success. F4 and integrated Task 10 remain pending. |
+| Separate zero-inference stage diagnostic | Independent code/security PASS preceded one new startup/preflight, with the same pins, environment and 90-second limit. The initialize request was flushed, but no matching response was observed before expiry; no account RPC or inference occurred. The worker group was empty and Holder/carrier were not applicable. This locates the protocol boundary without establishing why it stalled or explaining the first attempt. |
 
 The original owner output (19 rows), subsequent synthetic output (62 rows),
 source manifests, dates and categories remain unchanged in the local SDD evidence
@@ -1158,8 +1159,51 @@ startup/RPC phase before binding is unknown. It does not demonstrate invalid
 credentials or missing entitlement. Native startup/discovery/refresh traffic
 and changes to its store are unconfirmed; our code did not inspect that store.
 The supervisor observed a 0.067191 ms deadline delay and 45.915125 ms cleanup
-after the cut, without a real-time guarantee. No retry or limit expansion has
-been performed; diagnosis is pending and command Increment A is accepted above.
+after the cut, without a real-time guarantee. No full inference retry or limit expansion has
+been performed; the separate stage diagnostic is recorded below. Command
+Increment A is accepted above.
 The original Holder/carrier cleanup booleans default to true when Holder metadata
 is absent; they do not prove a launched Holder was emptied. This interpretation
 is preserved separately in SDD `task-10-native-auth-live-observation-addendum.md`.
+
+The separate diagnostic has 34 synthetic result rows and an independent
+conformance/code/security PASS before the coordinator's single actual activation.
+Its actual output has ten bounded categorical rows (946 bytes), no stderr,
+and wrapper exit 0. Preparation and spawn completed; initialize was flushed
+at elapsed 368,932,133 ns with no response observed before the 90-second cutoff.
+Final group-empty projection occurred at 90,061,534,605 ns; that includes reporting
+and is not a measurement of exact cleanup latency. No initialized notification
+or account-read followed. Cause, native startup traffic and store effects remain
+unknown; no credential/configuration/log/DB files were inspected. Source-level
+startup diagnosis is pending, with no automatic reactivation. Local SDD
+`task-10-native-auth-stage-live-report.md`, SHA-256
+`dbda33a8f9bed0fb49a5401b8575c1b41a00dcba30f75ee92d414e9552b80417`,
+and its adjacent evidence directory retain the exact invocation and result.
+
+## Task 10: internal request authority (2026-10-15)
+
+Commit `9cd25356` adds the two parent-ledger facts for conservative request
+reservations and the visit/policy-bound public account digest. Capacity and
+binding survive K4 and lost acknowledgements; uncertain incarnations cannot
+reuse a permit. Existing serial and internal parallel acknowledgement validation,
+wall accounting, retention quota and terminal-first replay remain authoritative.
+Command-only and v1 behavior is preserved. This internal preparation does not
+admit providers or qualify the native transport.
+
+Independent conformance followed by code/security review passed after correcting
+the explicit authentication-mode digest field and strict nested JSON parsing.
+Final verification: **502 affected tests in 39.56 s**, **26 focal tests**, and
+**145 collected**. The real command module passed **13 tests in 24.26 s** before
+the two provider-helper-only corrections; reuse is justified by their unchanged
+command path. Parent `20261015T121303Z-lubwa9`, child
+`run-ref-503ca38a78cb3233c72b8ff733889bf11893a01a`, and retained artifacts are in
+local `.tmp/task10-ledger/`. The coordinator read the diff and evidence and
+verified all seven committed file hashes against manifest
+`5cdd614db94abffce73d345ba70416a788db3aad13b7d9bcca9d3946368af075`.
+
+Policy validation here establishes retained structure and canonical bytes;
+future admission must establish semantic validity, provenance, absence of
+secrets and installed pins before the first reservation. The private gateway,
+native owner containment, independent cancellation observer, real provider
+qualification and public integration remain pending. No global suite was
+rerun for this slice; the earlier broad RED classification remains.
