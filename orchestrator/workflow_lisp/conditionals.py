@@ -12,6 +12,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EffectSummary
 from .expression_traversal import _rebuild_with_replacements, iter_child_exprs
 from .expressions import (
+    AgentExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -235,6 +236,7 @@ class NormalizedCondition:
 
 
 _EFFECT_EXPRS: tuple[type, ...] = (
+    AgentExpr,
     ProviderResultExpr,
     CommandResultExpr,
     RunRefExpr,

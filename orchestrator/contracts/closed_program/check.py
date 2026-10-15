@@ -53,6 +53,8 @@ from orchestrator.workflow.type_descriptor import _named_type_basename
 from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
 
 from .targets import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from . import check_agents
+from .node_walk import _effect_value_children
 from .names import (
     _parse_identity,
     _render_key_identity,
@@ -111,7 +113,7 @@ _VALUE_KEYS = {
     "perform": {
         "k", "class", "result", "repeat", "site", "@", "boundary", "command",
         "closure", "contract", "argv", "document", "argv_transport", "provider", "prompt", "inputs",
-        "dependencies", "policy", "config", "arm_inputs", "question",
+        "dependencies", "policy", "config", "arm_inputs", "question", "agent", "origins",
     },
 }
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
@@ -566,6 +568,8 @@ class _Checker:
 
     def _effect_children(self, node: Mapping[str, Any]) -> list[Any]:
         effect_class = node.get("class")
+        if effect_class in {"agent", "agent_turn"}:
+            return _effect_value_children(node)
         if effect_class == "command":
             children = list(node.get("argv", [])) if isinstance(node.get("argv"), list) else []
             plans = node.get("argv_transport", [])
@@ -895,6 +899,9 @@ class _Checker:
         for owner, scope in scopes:
             for node in self.performs.get(owner, []):
                 effect_class = node.get("class")
+                if effect_class in {"agent", "agent_turn"}:
+                    check_agents.check_agent_configuration(self, node, scope, owner)
+                    continue
                 if effect_class == "run_ref":
                     continue
                 if effect_class == "command":
@@ -4407,6 +4414,10 @@ class _Checker:
         command_index=None,
     ) -> None:
         effect_class = node.get("class")
+        if effect_class in {"agent", "agent_turn"}:
+            return check_agents.check_agent_effect_node(
+                self, node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins,
+                command_roots=command_roots, command_index=command_index)
         if effect_class == "command":
             self._check_command_effect_node(node, env, owner=owner, loops=loops,
                 scope=scope, provider_origins=provider_origins,

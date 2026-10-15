@@ -67,3 +67,25 @@ def _elaborate_agent(
         model=None if model is None else elaborate(model),
         effort=None if effort is None else elaborate(effort),
     )
+
+
+def elaborate_agent_perform(expr: AgentExpr, *, metadata, elaborate):
+    """Build the WCC `agent` perform: provider extern target plus inline policy keywords.
+
+    `elaborate(operand, name)` lowers one inline-lowerable policy operand to a WCC atom.
+    """
+
+    from .wcc.elaborate import _require_name_expr
+    from .wcc.model import WccPerform
+
+    return WccPerform(
+        metadata=metadata,
+        perform_kind="agent",
+        target_name=_require_name_expr(expr.provider),
+        prompt_name=None,
+        positional_args=(),
+        keyword_args=tuple((name, elaborate(value, name))
+                           for name, value in (("model", expr.model), ("effort", expr.effort)) if value is not None),
+        returns_type_name="Agent",
+        operation_payload=None,
+    )

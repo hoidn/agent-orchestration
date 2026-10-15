@@ -1149,7 +1149,7 @@ def _first_runtime_forbidden_type(type_ref: TypeRef) -> str | None:
         return "WorkflowRef"
     if isinstance(type_ref, ProcRefTypeRef):
         return "ProcRef"
-    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt"}:
+    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt", "Agent"}:
         return type_ref.name
     if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
         return _first_runtime_forbidden_type(type_ref.item_type_ref)

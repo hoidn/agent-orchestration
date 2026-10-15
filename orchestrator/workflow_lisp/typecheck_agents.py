@@ -123,3 +123,134 @@ def all_provider_externs(context) -> frozenset[str]:
         name for name, binding in context.extern_environment.bindings_by_name.items()
         if isinstance(binding, ProviderExtern)
     )
+
+
+def typecheck_agent_turn(expr, *, context, recurse) -> tuple[str, ...] | None:
+    """Return the sorted provider origins when `provider-result` targets an `Agent`, else None.
+
+    An agent turn may not override the agent's pinned policy nor use options
+    whose runtime is outside a native session turn.
+    """
+
+    if _extern_operand_name(expr.provider) is not None and expr.provider.name not in context.value_env:
+        return None
+    if recurse(expr.provider).type_ref != AGENT_TYPE:
+        return None
+    for field_name, value in (("model", expr.model), ("effort", expr.effort)):
+        if value is not None:
+            raise_error(
+                f"an agent turn cannot override `:{field_name}`; change the `agent` constructor",
+                code="agent_turn_policy_override_forbidden",
+                span=value.span, form_path=value.form_path, expansion_stack=value.expansion_stack,
+            )
+    unsupported = [name for name, value in (
+        ("session-artifact", expr.session_artifact), ("context", expr.context_expr),
+        ("capture-context", expr.capture_context), ("materialization-attempts", expr.materialization_attempts),
+        ("delivery :phased", getattr(expr.delivery, "value", None) == "phased" or None),
+    ) if value is not None]
+    if unsupported:
+        raise_error(
+            f"agent turns do not accept `:{unsupported[0]}`",
+            code="agent_turn_option_unsupported",
+            span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+        )
+    return tuple(sorted(agent_origins(expr.provider, context)))
+
+
+def contains_agent(type_ref: TypeRef, seen: frozenset[str] = frozenset()) -> bool:
+    """Whether `Agent` occurs anywhere inside one frontend type."""
+
+    from .type_env import ListTypeRef, MapTypeRef, OptionalTypeRef, RecordTypeRef, UnionTypeRef
+
+    if type_ref == AGENT_TYPE:
+        return True
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        return contains_agent(type_ref.item_type_ref, seen)
+    if isinstance(type_ref, MapTypeRef):
+        return contains_agent(type_ref.key_type_ref, seen) or contains_agent(type_ref.value_type_ref, seen)
+    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)) and type_ref.name not in seen:
+        rows = [type_ref.field_types] if isinstance(type_ref, RecordTypeRef) \
+            else list(type_ref.variant_field_types.values())
+        inner = seen | {type_ref.name}
+        return any(contains_agent(field, inner) for row in rows for field in row.values())
+    return False
+
+
+def require_no_agent(type_ref, *, where: str, span, form_path, expansion_stack=(),
+                     code: str = "agent_transport_forbidden") -> None:
+    """Refuse an `Agent` (at any depth) in a data position that leaves the run."""
+
+    if contains_agent(type_ref):
+        raise_error(
+            f"an `Agent` cannot be passed as {where}; it is a run-local handle",
+            code=code, span=span, form_path=form_path, expansion_stack=expansion_stack,
+        )
+
+
+def agent_return_boundary_diagnostic(workflow_def, return_type_ref: TypeRef):
+    """A record/union workflow return carrying an `Agent` cannot cross the workflow boundary."""
+
+    from .diagnostics import LispFrontendDiagnostic
+
+    if not contains_agent(return_type_ref):
+        return None
+    return LispFrontendDiagnostic(
+        code="workflow_boundary_type_invalid",
+        message=f"workflow `{workflow_def.name}` return `{workflow_def.return_type_name}` carries an `Agent`",
+        span=workflow_def.span, form_path=workflow_def.form_path, expansion_stack=workflow_def.expansion_stack,
+    )
+
+
+def check_parallel_body(expr, typed_body, context) -> None:
+    """Refuse a parallel worker that receives, allocates, turns or returns an `Agent`.
+
+    Allocation is searched in the typed body and, syntactically, in every
+    procedure the body reaches through `context.procedure_catalog.call_graph`.
+    """
+
+    from .expression_traversal import free_expr_names, walk_expr
+    from .expressions import ProcedureCallExpr, ProviderResultExpr
+
+    free = free_expr_names(expr.body_expr, bound=frozenset({expr.binder_name}))
+    nodes = list(walk_expr(typed_body.expr))
+    callees = {node.callee_name for node in nodes if isinstance(node, ProcedureCallExpr)}
+    if (
+        contains_agent(typed_body.type_ref)
+        or any(contains_agent(context.value_env[name]) for name in free if name in context.value_env)
+        or any(isinstance(node, AgentExpr)
+               or isinstance(node, ProviderResultExpr) and node.agent_origins is not None for node in nodes)
+        or _procedures_allocate(callees, context.procedure_catalog)
+    ):
+        raise_error(
+            "a parallel worker cannot receive, allocate, turn or return an `Agent`",
+            code="parallel_agent_boundary",
+            span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+        )
+
+
+def _procedures_allocate(names: set[str], catalog) -> bool:
+    """Whether any procedure reachable from `names` writes an `agent` form."""
+
+    if catalog is None:
+        return False
+    pending, seen = list(names), set()
+    while pending:
+        name = pending.pop()
+        definition = catalog.definitions_by_name.get(name)
+        if name in seen or definition is None:
+            continue
+        seen.add(name)
+        if _datum_allocates(definition.body.datum):
+            return True
+        pending.extend(catalog.call_graph.get(name, ()))
+    return False
+
+
+def _datum_allocates(datum) -> bool:
+    items = getattr(datum, "items", None)
+    if items is None:
+        return False
+    head = items[0] if items else None
+    if getattr(head, "display_name", getattr(head, "name", None)) == "agent":
+        return True
+    return any(_datum_allocates(item) for item in items)

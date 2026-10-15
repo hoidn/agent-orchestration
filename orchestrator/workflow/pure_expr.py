@@ -19,6 +19,7 @@ from typing import Any
 
 from orchestrator._common.safe_tree import SafeTreePathError, validate_relative_path
 from orchestrator.contracts.output_contract import non_finite_number
+from orchestrator.workflow.agent_value import coerce_agent_value, reject_agent_operand
 
 
 PURE_EXPR_SCHEMA_VERSION = 1
@@ -1672,6 +1673,8 @@ def _derive_static_operator_type(
     if spec is not None and spec.signatures:
         return _primitive_type(_require_signature(spec, arg_types).result)
 
+    if operator in {"print", "=", "!="}:
+        reject_agent_operand(arg_types, operator)
     if operator == "print":
         return arg_types[0]
 
@@ -2331,6 +2334,8 @@ def _coerce_value(
             if not isinstance(value, str):
                 _raise("pure_expr_operand_type_mismatch", f"{context} must be {name}")
             return value
+        if name == "Agent":
+            return coerce_agent_value(value, context)
         if not isinstance(value, str):
             _raise("pure_expr_operand_type_mismatch", f"{context} must be {name}")
         return value

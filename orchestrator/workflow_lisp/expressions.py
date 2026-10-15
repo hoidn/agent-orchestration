@@ -911,6 +911,7 @@ class ProviderResultExpr:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    agent_origins: tuple[str, ...] | None = field(default=None, metadata={"json_omit_if_none": True})
     return_spec: ReturnSpec | None = field(
         default=None,
         repr=False,

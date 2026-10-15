@@ -204,6 +204,9 @@ def typecheck_pure_expr(
             )
 
         if operator == "print":
+            from .typecheck_agents import require_no_agent
+            require_no_agent(arg_types[0], where="a `print` operand", span=expr.span, form_path=expr.form_path,
+                             expansion_stack=expr.expansion_stack, code="pure_expr_operand_type_mismatch")
             return typed_factory(
                 expr=rewritten,
                 type_ref=arg_types[0],

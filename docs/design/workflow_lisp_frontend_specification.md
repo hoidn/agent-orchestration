@@ -1470,6 +1470,15 @@ Core AST projection, Semantic IR, Executable IR, and runtime execution. Runtime
 state must not carry type parameters, procedure values, provider refs, prompt
 refs, or closure environments.
 
+Versioned exception (target 2.38,
+[Agent Sessions](workflow_lisp_agent_sessions.md#authoring-and-composition)):
+runtime state may carry a runtime-owned `Agent` reference descriptor
+`{run_id, identity, provider, policy, config_digest}` whose provider origins
+are fixed by checked source (the closed `agent_turn` node's `origins`). It
+admits no other provider ref, prompt ref, executable value or closure
+environment; `Agent` is non-transportable at every workflow, run-ref, provider,
+command, loop-state, parallel and closure-capture boundary.
+
 For imported specializations, the helper body's free names resolve in the
 defining module's environment, extended with the specializing call site's
 concrete type, ProcRef, and value bindings.

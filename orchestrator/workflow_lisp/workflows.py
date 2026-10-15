@@ -598,7 +598,7 @@ def analyze_workflow_boundary_type(
                 offending_path=source_path,
                 offending_type_name=type_ref.name,
             )
-        if type_ref.name in {"Provider", "Prompt"}:
+        if type_ref.name in {"Provider", "Prompt", "Agent"}:
             return WorkflowBoundaryAnalysis(
                 lowerable=False,
                 contains_json=False,
@@ -2960,7 +2960,8 @@ def _workflow_return_boundary_diagnostic(
             )
         return None
     if closed_program:
-        return None
+        from .typecheck_agents import agent_return_boundary_diagnostic
+        return agent_return_boundary_diagnostic(workflow_def, return_type_ref)
     return_analysis = analyze_workflow_boundary_type(
         return_type_ref,
         source_path=("return",),

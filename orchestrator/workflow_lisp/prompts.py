@@ -455,6 +455,7 @@ def typecheck_prompt_application(
     """Typecheck fills, select renderers, and construct the closed identity."""
 
     from .type_env import type_refs_compatible
+    from .typecheck_agents import require_no_agent
 
     typed_fills: list[PromptFill] = []
     effects: list[object] = []
@@ -464,6 +465,7 @@ def typecheck_prompt_application(
         strict=True,
     ):
         typed = recurse(fill.value_expr)
+        require_no_agent(typed.type_ref, where="a prompt fill", span=fill.span, form_path=application.form_path)
         effects.append(typed.effect_summary)
         renderer_id = _renderer_for_fill(
             slot,
