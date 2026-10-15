@@ -21,6 +21,7 @@ installing user) and, at import, an OCI layout directory. No network.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import gzip
 import hashlib
 import io
@@ -261,8 +262,12 @@ def tree_digest(root_fd: int) -> str:
     return "sha256:" + hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
 
 
-def _resolve_in_root(root_fd: int, path: str) -> str:
-    """Resolve `path` inside the image root as the guest would, by text, beneath `root_fd`."""
+def resolve_in_root(root_fd: int, path: str) -> str:
+    """Resolve absolute guest `path` as the guest would, by text, beneath the image root `root_fd`.
+
+    No host symlink is followed; absolute link targets restart at the image root.
+    Returns the absolute guest path; `OSError` when a component is absent or loops.
+    """
     pending = [part for part in path.split("/") if part]
     resolved: list[str] = []
     hops = _SYMLINK_HOPS
@@ -280,12 +285,12 @@ def _resolve_in_root(root_fd: int, path: str) -> str:
             continue
         hops -= 1
         if hops < 0:
-            raise ImageStoreError(f"image executable {path} has a symlink loop")
+            raise OSError(errno.ELOOP, f"image path {path} has a symlink loop")
         target = os.readlink(candidate, dir_fd=root_fd)
         if target.startswith("/"):
             resolved = []
         pending = [item for item in target.split("/") if item] + pending
-    return "/".join(resolved)
+    return "/" + "/".join(resolved)
 
 
 def executable_pins(root_fd: int) -> dict[str, Any]:
@@ -293,7 +298,7 @@ def executable_pins(root_fd: int) -> dict[str, Any]:
     pins = []
     for path in PINNED_EXECUTABLES:
         try:
-            resolved = _resolve_in_root(root_fd, path)
+            resolved = resolve_in_root(root_fd, path).lstrip("/")
             fd = _open_beneath(root_fd, resolved, os.O_RDONLY | os.O_NONBLOCK)
         except OSError as exc:
             raise ImageStoreError(f"image executable {path} is absent") from exc
@@ -433,5 +438,6 @@ __all__ = [
     "executable_pins",
     "import_oci_layout",
     "open_sealed_image",
+    "resolve_in_root",
     "tree_digest",
 ]

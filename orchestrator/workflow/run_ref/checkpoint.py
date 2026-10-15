@@ -41,11 +41,16 @@ _EXCLUSIVE_WRITE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_C
 # Copier temporaries; a source entry with this shape refuses, so intent repair
 # can remove every such name from the clone without touching guest data.
 _TEMPORARY = re.compile(r"\.rr-[0-9a-f]{16}\.tmp")
-# Bounds keep recursion and open descriptors (two per level) finite. The copy
-# refuses before creating a directory deeper than the bound, so the clone never
+# Profile constants of `run_ref_confinement.v1` (workspace trees). The depth
+# bound keeps recursion and open descriptors (two per level) finite: the copy
+# refuses before creating a directory deeper than it, so the clone never
 # exceeds it and repair's walk under the same bound cannot wedge. The entry
-# bound applies to the guest tmpfs only: the clone holds at most the previous
-# checkpoint plus one bounded partial copy, so seeding and repair stay unbounded.
+# bound applies to every checkpoint of the guest tmpfs, to seeding and to the
+# provisioned clone (`confinement.provision_confined_child`); repair stays
+# unbounded because the clone holds at most the previous checkpoint plus one
+# bounded partial copy. A refusal of the guest tmpfs is guest-caused
+# (`run_ref_environment_escape_rejected`); the same refusal of the clone, which
+# only the host writes, is host-side corruption (`run_ref_environment_changed`).
 MAX_TREE_DEPTH = 128
 MAX_CHECKPOINT_ENTRIES = 262_144
 
@@ -83,6 +88,7 @@ class _Walk:
     remaining_bytes: int
     remaining_entries: int
     repair: bool
+    source_code: str = _ESCAPE  # code of a refused source tree: escape (guest tmpfs) or changed (clone)
     entries: list[TreeEntry] = field(default_factory=list)
     skipped: int = 0
     copied: int = 0
@@ -137,12 +143,12 @@ def _source_entries(walk: _Walk, source_fd: int, prefix: str) -> dict[str, os.st
             raise _escape(f"entry under a reserved root: {relative!r}")
         walk.remaining_entries -= 1
         if walk.remaining_entries < 0:
-            raise _escape(f"workspace exceeds the entry bound at {relative!r}")
+            raise RunRefCheckpointError(walk.source_code, f"workspace exceeds the entry bound at {relative!r}")
         _utf8(relative, "tree entry path")
         info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
         if _TEMPORARY.fullmatch(name):
             if not walk.repair or stat.S_ISDIR(info.st_mode):
-                raise _escape(f"entry uses the copier's temporary name: {relative!r}")
+                raise RunRefCheckpointError(walk.source_code, f"entry uses the copier's temporary name: {relative!r}")
             os.unlink(name, dir_fd=source_fd)  # an interrupted copy's temporary
             continue
         if info.st_dev != walk.source_device:
@@ -268,7 +274,7 @@ def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str
 
 def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: bool,
                max_bytes: int | None, max_entries: int | None = None,
-               repair: bool = False) -> CopyResult:
+               repair: bool = False, source_code: str = _ESCAPE) -> CopyResult:
     walk = _Walk(
         source_device=os.fstat(source_fd).st_dev,
         destination_device=None if destination_fd is None else os.fstat(destination_fd).st_dev,
@@ -276,6 +282,7 @@ def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: b
         remaining_bytes=sys.maxsize if max_bytes is None else max_bytes,
         remaining_entries=sys.maxsize if max_entries is None else max_entries,
         repair=repair,
+        source_code=source_code,
     )
     try:
         _mirror(walk, source_fd, destination_fd, "", 0)
@@ -284,14 +291,20 @@ def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: b
     return CopyResult(manifest_from_entries(walk.entries), walk.skipped, walk.copied)
 
 
-def workspace_manifest(root_fd: int) -> TreeManifest:
-    """Freeze a tree beneath a retained descriptor, ``.git``/``.orchestrate`` excluded."""
-    return _copy_tree(root_fd, None, admit_hardlinks=True, max_bytes=None).manifest
+def workspace_manifest(root_fd: int, *, clone: bool = False) -> TreeManifest:
+    """Freeze a tree beneath a retained descriptor, ``.git``/``.orchestrate`` excluded.
+
+    ``clone`` codes a refused tree as host-side corruption rather than guest-caused.
+    """
+    return _copy_tree(root_fd, None, admit_hardlinks=True, max_bytes=None,
+                      source_code=_CHANGED if clone else _ESCAPE).manifest
 
 
-def seed_workspace(disk_root_fd: int, tmpfs_root_fd: int, *, max_bytes: int) -> CopyResult:
+def seed_workspace(disk_root_fd: int, tmpfs_root_fd: int, *, max_bytes: int,
+                   max_entries: int = MAX_CHECKPOINT_ENTRIES) -> CopyResult:
     """Seed the holder tmpfs from the host clone; host-disk hard links refuse."""
-    return _copy_tree(disk_root_fd, tmpfs_root_fd, admit_hardlinks=False, max_bytes=max_bytes)
+    return _copy_tree(disk_root_fd, tmpfs_root_fd, admit_hardlinks=False, max_bytes=max_bytes,
+                      max_entries=max_entries, source_code=_CHANGED)
 
 
 def _publish(header_path: Path, header: CheckpointHeader) -> CheckpointHeader:
@@ -356,7 +369,7 @@ def preflight_checkpoint(header_path: Path, disk_root_fd: int) -> CheckpointHead
             "committed", header.effect_identity, header.ordinal,
             result.manifest.digest, result.skipped_special,
         ))
-    if workspace_manifest(disk_root_fd).digest != header.manifest_digest:
+    if workspace_manifest(disk_root_fd, clone=True).digest != header.manifest_digest:
         raise RunRefCheckpointError(_CHANGED, "clone no longer matches its committed checkpoint header")
     return header
 

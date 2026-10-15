@@ -528,15 +528,90 @@ def test_a_commit_absent_from_the_repository_is_refused_without_a_control_root(w
     assert (caught.value.code, os.path.lexists(_layout(world).child_root)) == ("trial_source_unresolvable", False)
 
 
-def test_an_orphan_clone_without_a_control_root_is_discarded_and_reprovisioned(world):
+def test_an_orphan_clone_without_its_control_root_is_refused_and_kept(world):
+    """The control root (named by the child run id) exists before any clone: a bare clone is not ours."""
     layout = _layout(world)
     layout.workspace.mkdir(parents=True)
-    (layout.workspace / "partial").write_text("crash before the control root\n")
+    (layout.workspace / "partial").write_text("not bound to this child\n")
+    admission = _admit(world)
+    try:
+        with pytest.raises(RunRefRuntimeError) as caught:
+            _provision(world, admission, layout)
+    finally:
+        admission.close()
 
-    admission, provisioned, value = _run(world)
+    assert (caught.value.code, (layout.workspace / "partial").read_text(), os.path.lexists(layout.child_root)) == (
+        "run_ref_evidence_invalid", "not bound to this child\n", False)
+
+
+def test_an_interrupted_provisioning_is_discarded_through_its_control_root(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confinement
+
+    layout = _layout(world)
+    real = confinement.materialize_confined_source
+
+    def crash_after_cloning(*args, **kwargs):
+        real(*args, **kwargs)
+        raise KeyboardInterrupt  # a crash between cloning and the recipe
+
+    monkeypatch.setattr(confinement, "materialize_confined_source", crash_after_cloning)
+    admission = _admit(world)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            _provision(world, admission, layout)
+    finally:
+        admission.close()
+    monkeypatch.setattr(confinement, "materialize_confined_source", real)
+
+    _admission, provisioned, value = _run(world)
 
     assert (value, sorted(path.name for path in provisioned.layout.workspace.iterdir())) == (
         42, [".git", "payload.txt"])
+
+
+@pytest.mark.parametrize("published", ["run.json", "run.lock"])
+def test_a_torn_recipe_next_to_published_authority_refuses_and_keeps_the_clone(world, published):
+    layout = _layout(world)
+    layout.workspace.mkdir(parents=True)
+    (layout.workspace / "kept").write_text("guest work\n")
+    layout.child_root.mkdir(parents=True)
+    (layout.child_root / "child-recipe.json").write_bytes(b'{"schema_version": "run_ref_conf')
+    (layout.child_root / published).write_bytes(b"{}")
+    admission = _admit(world)
+    try:
+        with pytest.raises(RunRefRuntimeError) as caught:
+            _provision(world, admission, layout)
+    finally:
+        admission.close()
+
+    assert (caught.value.code, (layout.workspace / "kept").read_text()) == ("run_ref_evidence_invalid", "guest work\n")
+
+
+def test_provisioning_refuses_a_clone_beyond_the_profile_entry_bound(world, monkeypatch):
+    from orchestrator.workflow.run_ref import confinement
+
+    monkeypatch.setattr(confinement, "MAX_CHECKPOINT_ENTRIES", 0)
+    admission = _admit(world)
+    try:
+        with pytest.raises(RunRefRuntimeError) as caught:
+            _provision(world, admission)
+    finally:
+        admission.close()
+
+    assert (caught.value.code, caught.value.detail) == (
+        "run_ref_environment_unavailable", "clone_exceeds_entry_bound")
+
+
+def test_image_paths_resolve_through_one_public_walk_beneath_the_image_root(store_image):
+    from orchestrator.workflow.evaluated import interpreters
+
+    sealed = image_store.open_sealed_image(*store_image)
+    try:
+        resolved = image_store.resolve_in_root(sealed.root_fd, "/bin/sh")
+    finally:
+        sealed.close()
+
+    assert (resolved, interpreters.resolve_image_path is image_store.resolve_in_root) == ("/usr/bin/dash", True)
 
 
 @pytest.mark.parametrize("recipe", [None, b'{"schema_version": "run_ref_conf'])

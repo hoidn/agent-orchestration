@@ -64,7 +64,9 @@ CONTAINMENT_ERRORS = (ProviderIsolationStateError, ProviderIsolationBackendUnava
 _VANISHED = (errno.ENOENT, errno.ENODEV)  # a cgroup being removed fails its file ops with ENODEV
 
 # Enter the host slot, then exec; the parent-death signal is re-checked against the parent pid
-# so a controller that died between fork and prctl is not missed (N4, m5).
+# so a controller that died between fork and prctl is not missed (N4, m5). PR_SET_PDEATHSIG fires
+# when the *thread* that forked the helper exits, not the controller process: call
+# `run_host_helper` from a thread that outlives the helper (the evaluated runtime's own thread).
 HELPER_TRAMPOLINE = r'''
 import ctypes, os, signal, sys
 procs, parent = int(sys.argv[1]), int(sys.argv[2])
@@ -275,7 +277,11 @@ class HolderScope:
             raise RunRefRuntimeError(UNAVAILABLE, f"holder_exited_{self.process.returncode}_before_ready:"
                                                   f"{self._stderr()}")
         child_pid = json.loads(info)["child-pid"]
-        if self.line(time.monotonic() + LAUNCH_SECONDS) != "ready":  # no guest code has run yet
+        try:
+            ready = self.line(time.monotonic() + LAUNCH_SECONDS)
+        except TimeoutError:
+            ready = None  # silence is refused like EOF: no guest code has run yet
+        if ready != "ready":
             raise RunRefRuntimeError(UNAVAILABLE, f"spawner_not_ready:{self._stderr()}")
         holder = self.slots["holder"]
         self.recorded = set(holder.members())

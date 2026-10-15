@@ -217,6 +217,30 @@ def test_launch_failure_from_a_broken_image_descriptor_is_coded_unavailable(tmp_
     assert (refused.value.code, holder.scope) == ("run_ref_environment_unavailable", None)
 
 
+def test_a_spawner_silent_until_the_ready_deadline_is_unavailable(tmp_path, monkeypatch):
+    """No guest code has run before ready: silence is a launch refusal like EOF, not a holder death."""
+    from orchestrator.workflow.run_ref import holder_scope
+
+    monkeypatch.setattr(holder_scope, "LAUNCH_SECONDS", 0.2)
+    scope = holder_scope.HolderScope(SealedImage(-1, {}), LIMITS, control_dir=tmp_path)
+    scope.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    scope.ctrl, silent = socket.socketpair()
+    info_read, info_write = os.pipe()
+    os.write(info_write, b'{"child-pid": 1}')
+    os.close(info_write)
+    try:
+        with pytest.raises(RunRefRuntimeError) as refused:
+            scope._await_ready(info_read)
+    finally:
+        scope.process.kill()
+        scope.process.wait()
+        silent.close()
+        scope.ctrl.close()
+
+    assert (refused.value.code, refused.value.detail.split(":")[0]) == (
+        "run_ref_environment_unavailable", "spawner_not_ready")
+
+
 def test_host_helper_needs_an_absolute_executable(tmp_path):
     holder = Holder(SealedImage(-1, {}), LIMITS, control_dir=tmp_path)
 

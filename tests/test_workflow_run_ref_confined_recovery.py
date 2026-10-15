@@ -554,3 +554,34 @@ def test_copier_refuses_a_source_entry_on_another_device() -> None:
         os.close(descriptor)
 
     assert "pinned device" in caught.value.detail
+
+
+def test_a_temporary_shaped_name_in_the_clone_is_host_side_corruption(tmp_path: Path) -> None:
+    """The guest never writes the clone directly, so a copier-shaped name there is not guest-caused."""
+    clone, tmpfs = _roots(tmp_path)
+    header = tmp_path / "header.json"
+    publish_initial_header(header, workspace_manifest(_fd(clone)).digest)
+    (clone / ".rr-0123456789abcdef.tmp").write_text("left on host disk\n")
+
+    with pytest.raises(RunRefCheckpointError) as seeded:
+        _seed(clone, tmpfs)
+    with pytest.raises(RunRefCheckpointError) as preflighted:
+        _preflight(header, clone)
+
+    assert (seeded.value.code, preflighted.value.code) == (
+        "run_ref_environment_changed", "run_ref_environment_changed")
+
+
+def test_seed_checks_the_profile_entry_bound(tmp_path: Path) -> None:
+    clone, tmpfs = _roots(tmp_path)
+    for index in range(5):
+        (clone / f"f{index}").write_text("x")
+    source, destination = _fd(clone), _fd(tmpfs)
+    try:
+        with pytest.raises(RunRefCheckpointError) as caught:
+            seed_workspace(source, destination, max_bytes=_BUDGET, max_entries=4)
+    finally:
+        os.close(source)
+        os.close(destination)
+
+    assert caught.value.code == "run_ref_environment_changed"

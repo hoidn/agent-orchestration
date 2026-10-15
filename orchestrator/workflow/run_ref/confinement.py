@@ -34,15 +34,14 @@ from typing import Any
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow.evaluated.machine import site_nodes
 
+from .checkpoint import MAX_CHECKPOINT_ENTRIES
 from .confined_config import RunRefConfinedStaticConfig
 from .contracts import RUN_REF_CONFINEMENT_PROFILE, VerifiedGitTreeIdentity, canonical_json_bytes
 from .image_store import ImageStoreError, SealedImage, open_sealed_image
 from .ledger import RunRefVisitKey
 from .runtime import RunRefRuntimeError, build_run_ref_accounting, run_ref_visit_workspace
 from .confined_source import ConfinedSource, confined_revision, materialize_confined_source
-from .source import (
-    canonical_repository_revision_result,
-)
+from .source import RunRefSourceRefusal, canonical_repository_revision_result
 from .wire import validate_confined_child_request
 from .workspace import freeze_tree
 
@@ -265,14 +264,26 @@ def provision_confined_child(
         else:
             return _reuse_provisioned_child(admission, layout)
     elif os.path.lexists(layout.workspace):
-        _discard_entry(layout.workspace)  # a crash between cloning and the control root
-    source = materialize_confined_source(admission.config.repo, admission.commit,
-                                         run_ref_root=run_ref_root, workspace=layout.workspace)
-    refuse_overlapping_roots(layout, parent_run_root=parent_run_root, parent_workspace=parent_workspace)
-    provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source))
-    layout.child_root.parent.mkdir(parents=True, exist_ok=True)
+        # The control root, named by the child run id, is durable before any clone, so a
+        # clone without it was not made for this child: keep it and fail closed.
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "orphan_clone_not_bound_to_child")
+    children = layout.child_root.parent
+    if not children.is_dir():
+        children.mkdir(parents=True, exist_ok=True)
+        _fsync_directory(children.parent)  # the run-ref-children entry in the parent run root
     layout.child_root.mkdir(mode=0o700)
-    _fsync_directory(layout.child_root.parent)
+    _fsync_directory(children)
+    try:
+        source = materialize_confined_source(admission.config.repo, admission.commit,
+                                             run_ref_root=run_ref_root, workspace=layout.workspace)
+    except RunRefSourceRefusal:
+        if not os.path.lexists(layout.workspace):
+            os.rmdir(layout.child_root)  # refused before cloning: nothing was provisioned
+        raise
+    refuse_overlapping_roots(layout, parent_run_root=parent_run_root, parent_workspace=parent_workspace)
+    if len(source.source_tree_manifest.entries) > MAX_CHECKPOINT_ENTRIES:
+        raise RunRefRuntimeError("run_ref_environment_unavailable", "clone_exceeds_entry_bound")
+    provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source))
     fd = os.open(layout.child_root / RECIPE_FILENAME,
                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:

@@ -18,12 +18,12 @@ import stat
 from typing import Any
 
 from orchestrator._common.safe_tree import SafeTreeError, hash_regular_file, open_directory
+from orchestrator.workflow.run_ref.image_store import resolve_in_root as resolve_image_path
 
 # The guest PATH the holder sets; bare tokens resolve through it inside the image.
 GUEST_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
 # Guest roots that hold the clone or guest-writable scratch, never image bytes.
 GUEST_MUTABLE_ROOTS = ("/workspace", "/result", "/tmp", "/dev", "/run", "/proc")
-_SYMLINK_HOPS = 40
 _ENVIRONMENT_UNAVAILABLE = "run_ref_environment_unavailable"
 
 
@@ -141,33 +141,6 @@ def image_resolvable(token: str) -> bool:
         return False
     normal = posixpath.normpath(token)
     return not any(normal == root or normal.startswith(root + "/") for root in GUEST_MUTABLE_ROOTS)
-
-
-def resolve_image_path(root_fd: int, path: str) -> str:
-    """Resolve absolute guest `path` as the guest would, by text, beneath the image root.
-
-    No host symlink is followed; absolute link targets restart at the image root.
-    """
-    # ponytail: same walk as run_ref.image_store._resolve_in_root (private there); share one when exposed.
-    pending = [part for part in path.split("/") if part]
-    resolved: list[str] = []
-    hops = _SYMLINK_HOPS
-    while pending:
-        part = pending.pop(0)
-        if part in (".", ".."):
-            resolved = resolved[:-1] if part == ".." else resolved
-            continue
-        candidate = "/".join([*resolved, part])
-        if not stat.S_ISLNK(os.stat(candidate, dir_fd=root_fd, follow_symlinks=False).st_mode):
-            resolved.append(part)
-            continue
-        hops -= 1
-        if hops < 0:
-            raise OSError(f"image path {path} has a symlink loop")
-        target = os.readlink(candidate, dir_fd=root_fd)
-        resolved = [] if target.startswith("/") else resolved
-        pending = [item for item in target.split("/") if item] + pending
-    return "/" + "/".join(resolved)
 
 
 def image_file_digest(root_fd: int, resolved: str) -> str:
