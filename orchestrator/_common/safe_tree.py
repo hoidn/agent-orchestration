@@ -127,7 +127,7 @@ def _lstat_entry(directory_fd: int, name: str) -> os.stat_result:
         ) from exc
 
 
-def _open_child_directory(
+def open_child_directory(
     directory_fd: int,
     name: str,
     expected: os.stat_result,
@@ -222,7 +222,7 @@ def walk_regular_files(root_fd: int, *, directories: list[str] | None = None,
                     info.st_ctime_ns,
                 )
             elif stat.S_ISDIR(info.st_mode):
-                child = _open_child_directory(directory_fd, name, info)
+                child = open_child_directory(directory_fd, name, info)
                 try:
                     yield from recurse(child, relative_path, depth + 1)
                 finally:
@@ -252,7 +252,7 @@ def validate_relative_path(relative_path: str) -> None:
             ) from exc
 
 
-def _open_regular_file(
+def open_regular_file(
     root_fd: int,
     relative_path: str,
     *,
@@ -374,7 +374,7 @@ def hash_regular_file(
     device: int | None = None,
 ) -> str:
     """Stream one stable regular file through SHA-256."""
-    descriptor, kind = _open_regular_file(
+    descriptor, kind = open_regular_file(
         root_fd, relative_path, expected=expected, device=device
     )
     try:
@@ -400,7 +400,7 @@ def read_regular_file(
     device: int | None = None,
 ) -> bytes:
     """Read one stable regular file, optionally under a hard byte bound."""
-    descriptor, kind = _open_regular_file(
+    descriptor, kind = open_regular_file(
         root_fd, relative_path, expected=expected, device=device
     )
     try:
@@ -437,7 +437,7 @@ def copy_regular_file(
     device: int | None = None,
 ) -> int:
     """Stream one stable regular file under an optional hard byte bound."""
-    descriptor, kind = _open_regular_file(
+    descriptor, kind = open_regular_file(
         root_fd, relative_path, expected=expected, device=device
     )
     try:
@@ -482,7 +482,9 @@ __all__ = [
     "SafeTreePathError",
     "SafeTreeRejectionError",
     "copy_regular_file",
+    "open_child_directory",
     "open_directory",
+    "open_regular_file",
     "hash_regular_file",
     "remove_tree_contents",
     "read_regular_file",

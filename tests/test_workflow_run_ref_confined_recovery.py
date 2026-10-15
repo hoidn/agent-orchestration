@@ -13,16 +13,16 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow.run_ref.workspace import (
+from orchestrator.workflow.run_ref.checkpoint import (
     RunRefCheckpointError,
     checkpoint_workspace,
-    freeze_tree,
     preflight_checkpoint,
     publish_initial_header,
     read_checkpoint_header,
     seed_workspace,
     workspace_manifest,
 )
+from orchestrator.workflow.run_ref.workspace import freeze_tree
 
 _RESERVED = (".git", ".orchestrate")
 _BUDGET = 64 * 1024 * 1024
