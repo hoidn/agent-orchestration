@@ -40,6 +40,7 @@ def test_no_locator_or_position_reaches_state_or_report(tmp_path, monkeypatch) -
         report = _cli(tmp_path, "report", "--run-id", run_root.name, "--format", fmt)
         assert report.returncode == 0, report.stderr
         outputs.append(report.stdout)
+    assert "- continuation: `continued`" in outputs[-1] and "- agent: `" in outputs[-1]   # md keeps the logical fields
     for text in outputs:
         assert not [s for s in secrets if str(s) in text]
         assert not [k for k in ('"locator"', '"position"', "end_line", "turn_id", "tmux", "%pane") if k in text]
