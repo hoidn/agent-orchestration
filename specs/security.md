@@ -172,20 +172,51 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     It admits only qualified provider/model operations toward a fixed upstream,
     with request/response byte limits, an attempt-bound expiring capability,
     a request ceiling and the remaining durable child wall budget. Cancellation,
-    expiry, revocation and exhaustion cancel pending local auth and transport
-    operations and streams. Token/cost ceilings require endpoint-specific
-    enforcement evidence; if installation policy requires an unsupported
+    expiry, revocation, wall exhaustion or per-request byte excess cancel pending
+    local auth and transport operations and streams. Token/cost ceilings require
+    endpoint-specific enforcement evidence; if installation policy requires an unsupported
     ceiling, admission refuses. Bytes or disconnection do not establish remote
     generation/cost limits, and incomplete usage/cost is UNKNOWN. No arbitrary
     URL, CONNECT, redirects, host tools, filesystem API or credential reads are
     exposed. The image-pinned relay runs in the provider leaf and dies with it;
     capabilities are revoked at attempt stop and excluded from durable artifacts.
     Qualified Codex managed ChatGPT login may be reused only by a private
-    persistent pinned native auth owner, with serialized acquisition, initial
+    per-leaf pinned native auth owner, with serialized acquisition, initial
     account/origin/routing binding and strict refusal on mismatch or error as
     specified by D7. Native refresh stays native. Authfiles, permanent upstream
     credentials and owner RPC channels never enter the guest; the host owner
     cannot execute candidate coding or tools. Unsupported transports refuse.
+  - During a provider leaf, its private gateway and native auth owner execute
+    in the existing host containment slot, under the scope's resource limits.
+    No checkpoint/helper runs concurrently with them. Revoke and close their
+    channels, terminate and reap owned work, and prove both host and leaf slots
+    empty before the normal quiescence/import/checkpoint boundary. Controller
+    loss must terminate both gateway and native owner; a worker-only death
+    signal is insufficient. Recovery retains the existing whole-scope kill and
+    validation order. No trusted-process exception to inter-leaf quiescence is
+    introduced.
+  - Before the first reservation and native startup, establish one absolute
+    BOOTTIME deadline from the minimum of the provider timeout and the durable
+    remaining child allowance. Guest release and later acknowledgements do not
+    reset it. A bounded leaf-local cancellation observer remains active across
+    every persistence, emit and acknowledgement wait, independently of the
+    lifecycle writer. It can only revoke, close channels and stop/empty owned
+    containment; it cannot grant authority, bind an account, write the ledger or
+    publish budget closures or terminal records. Expiry or cancellation is
+    irreversible for that incarnation: a late acknowledgement cannot activate
+    an owner, capability, release, acquisition or POST. Any reservation that
+    became durable remains consumed. The lifecycle alone validates durable
+    authority and quiescence and publishes subsequent terminal facts. This is
+    not a service or an autonomous budget watchdog after controller loss.
+    The observer is a bounded controller thread independent of the lifecycle's
+    writer lock, persistence queue, callback Future and locks held during durable
+    waits; cancellation reaches it directly. Its containment authority is bound
+    to the already validated scope and needs no ledger query. The process-creation
+    thread preserves its parent-death lifetime; the controller-to-worker-to-owner
+    chain and owned descendants must terminate on controller loss. A blocked
+    administrative response does not close or truncate wall accounting. The
+    [parent ledger](state.md#confined-provider-capacity-and-binding) owns
+    reservations/binding; neither this observer nor a gateway thread writes it.
   - Enforced resources: CPU, memory, process count, workspace and scratch
     bytes, export bytes, file count and depth, and bounded stdout/stderr; a post-run `du`
     is insufficient. Protected evidence is charged to a separate

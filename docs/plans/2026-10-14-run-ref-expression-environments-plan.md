@@ -209,13 +209,50 @@ Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream l
 
 ## Task 10: Provider transport
 
-**Create:** `orchestrator/providers/inference_gateway.py`. **Modify:** `orchestrator/providers/registry.py` (profile-specific template variants), `executor.py` (env overlay), `evaluated/providers.py`, `run_ref/confinement.py` (socket bind). **Tests:** `tests/test_provider_inference_gateway.py`; real provider case in `tests/e2e/test_e2e_run_ref_confined.py`; existing `tests/test_workflow_evaluated_provider_delivery.py`, `tests/test_workflow_evaluated_provider_lifecycle.py`. Security brief for the reviewer.
+**Create:** `orchestrator/providers/inference_gateway.py`. **Modify:** `orchestrator/providers/registry.py` (profile-specific template variants), `executor.py` (env overlay), `evaluated/{providers,parallel,confined_dispatch}.py`, `run_ref/{confinement,confined_session,confined_lifecycle,confined_budget,holder,holder_scope,ledger,runtime}.py` and existing retained-evidence/settlement owners of Task 8. **Tests:** `tests/test_provider_inference_gateway.py`; extend existing ledger/lifecycle/ack, confined recovery, retention and real-sandbox modules; real provider case in `tests/e2e/test_e2e_run_ref_confined.py`; existing `tests/test_workflow_evaluated_provider_delivery.py`, `tests/test_workflow_evaluated_provider_lifecycle.py`. Include serial and internal parallel ack consumers. Security brief for the reviewer.
 
 - [ ] Qualify the pinned Codex managed ChatGPT route through the private
-  persistent native auth owner and serialized initial-binding protocol of
+  per-leaf persistent native auth owner and serialized initial-binding protocol of
   D7. Test invalid/missing/error RPCs, identity/origin/routing mismatch,
   native refresh/coexistence, owner replacement, startup auxiliary isolation
   and secret-free evidence; no authfile/token parser, host coding or guest RPC.
+- [ ] Extend the existing parent ledger/lifecycle with acknowledged request
+  reservations and one nonsecret visit/policy-bound account/origin/routing
+  binding. Preserve wall reducers, work stages, exact serial/parallel ack and
+  v1/command-only behavior. Retain policy/config bytes, binding and monotonically
+  consumed capacity across leaves, owners, holders and K4, with no refund/reuse.
+  Test append-before-ack, lost/duplicate/foreign/reordered ack, policy drift,
+  missing/tampered authority and terminal replay without auth/new reservations.
+- [ ] Keep one private native owner/gateway persistent only across a provider
+  leaf's requests, entering the existing `host` slot before exec. Acknowledge
+  the first reservation before startup and binding before capability/release;
+  discard its preflight bearer. Close/reap host and leaf before Holder result
+  import, checkpoint or return; no concurrent helper/copier or trusted-process
+  exception. Prove two serial leaves A/A succeed and A/B or routing drift refuse
+  without inference, and externally SIGKILL the controller with worker/owner
+  live to observe owned channels/processes gone before recovery.
+- [ ] R1: set the sole BOOTTIME deadline from timeout/durable remaining before
+  first emit/ack and startup. Keep an independent controller observer active
+  during persistence/head-validation, writer callbacks and parallel ack waits;
+  it may only revoke/close/empty the validated scope, never grant/write/terminalize.
+  With the pinned native owner on synthetic credentials, hold the durable initial
+  binding ack, then separately a later reservation ack with owner/leaf active.
+  For each, trigger expiry and cancellation independently and observe closed
+  channels and the complete scope empty while ack is still held, within the
+  existing 2 s `SLOT_EMPTY_SECONDS` observation window at `92b55aff`; this is no
+  extra inference allowance or real-time kernel promise. Deliver the ack late:
+  zero startup, capability, release, acquisition or POST; durable reservations
+  remain spent and the observer writes no wall closure/FAILED. Include a negative
+  control with observer inhibited, first-reservation wait with no owner startup
+  and slow startup/late release without resetting the deadline.
+- [ ] Test all crash windows: reservation durable before ack/startup, binding
+  durable before ack, before POST, sent without result, partial SSE, response
+  before checkpoint and checkpoint before memo commit. Preserve original policy,
+  binding and capacity across zero-commit K4 and committed continuation; any
+  §8.1 rerun spends a new permit and never replays transport. Prove exact N/N+1
+  limits, last-permit completion, header/body/SSE byte boundary and one extra,
+  framing ambiguity, backpressure and concurrent-request denial. Retain the
+  effective policy/binding/consumption for Task 8 settled proof and cleanup.
 - [ ] Test fixed route/model, scoped expiring capability, bounded headers,
   bodies and streams, request ceilings, total deadlines and cancellation at
   every blocking boundary, direct first-401 refusal, zero partial replay,
@@ -240,6 +277,14 @@ Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream l
 integrated confined public route with model-only traffic, native host-only
 authentication, enforced supported budgets and honest usage/cost evidence.
 Other transports continue to refuse until separately qualified.
+
+Implementation policy note: 32 per-visit permits is a finite installation
+proposal for implementation/review, not authored DSL or an economic guarantee.
+Freeze the effective policy before admission and prove its sufficiency in the
+integrated example; justify and test any revised value. Aggregate body ceilings
+derive from the permit count and per-request maxima. The initial live probe
+remains at two serial requests/90 s; production uses its checked policy and the
+existing durable remainder, with no reset or autonomous Task 7 watchdog.
 
 Native Codex authentication follow-up (2026-10-15): the pinned private-owner
 fixture and image-CLI/real-Holder synthetic tool/SSE/delivery bridge have bounded

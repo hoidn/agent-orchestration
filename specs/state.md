@@ -1203,6 +1203,112 @@ carries the named amendments.
   `committed` header whose digest matches but whose ordinal names neither
   the last committed attempt nor a newer uncommitted one.
 
+### Confined provider capacity and binding
+
+This is a prospective part of the target-2.38 profile, not current provider
+admission. It extends the existing parent ledger and emit/ack protocol with two
+semantic facts; no second journal, gateway writer or counter has authority.
+Path-mode v1 rows and command-only v2 behavior retain their meanings.
+
+Installation request and per-request byte limits are bound as effective
+transport policy in the existing parent run-ref ledger. Their unit is the
+semantic parent visit, shared by its provider leaves and retained across
+owner/holder replacement and K4. Before native startup for a leaf, reserve
+one request and its full byte allowance durably; that reservation covers
+preflight and at most the first inference transaction. Each subsequent
+transaction requires another acknowledged reservation before native auth.
+Reservations are never refunded or reused after failure or interruption.
+Persist the initial account/origin/routing binding before issuing any guest
+capability, without persisting bearer material or auth RPC responses.
+Recovery uses the original policy, binding and consumed total; it does not
+infer unsent work from missing completion evidence. Aggregate body ceilings
+derive from the request count and per-request maxima. These are conservative
+capacity limits, not actual provider usage, token or cost measurements.
+
+The first reservation retains the canonical effective transport policy and its
+digest: effective limits, native/CLI/relay pins, catalog, fixed configuration
+recipe, admitted tool schemas and selected endpoint/model/routing. Every later
+reservation must match exactly. Validate expanded private leaf paths against the
+recipe, not as new policy identity. Retain exact configuration bytes consumed by
+validators. Installation drift refuses further execution; it does not change or
+increase the retained allowance. No new authored dimension, flag or setting is
+introduced, and probe constants do not define production policy.
+
+The two facts are:
+
+- A request reservation binds its next visit-wide request ordinal, reached
+  provider leaf identity/attempt, current run-ref attempt and effective policy.
+  Each row consumes exactly one permit and its full per-request byte capacity,
+  including unused bytes. The first acknowledged reservation precedes native
+  startup, which may already acquire or refresh auth; it covers preflight and
+  at most one first POST for this leaf/incarnation, even if no POST occurs.
+- The initial binding is set once after a reservation and valid native protocol,
+  before any capability or provider release. Retain a domain-separated canonical
+  digest of `(auth_mode=chatgpt, chatgptAccountId, backendOrigin,
+  accountRoutingOverride)`, bound to visit and policy, from the qualified native
+  acquisition with both admitted account reads. No email, bearer, bearer hash,
+  raw account tuple, authfile, capability or complete auth RPC is retained or
+  exposed in projections.
+  The digest is not independent proof of auth or a promise of anonymity.
+
+Every subsequent transaction requires its own exact durable reservation ack
+before acquiring native auth again; every acquisition and replacement owner
+compares the tuple's digest with the original binding. Discard the bearer used
+for initial binding preflight. A new owner cannot adopt another account, origin
+or routing policy. A reservation without binding after crash may establish the
+first binding only because no capability could yet have been issued; a binding
+that persisted without its ack is already authoritative. Capability also binds
+visit, run-ref ordinal, leaf identity/attempt and current incarnation. Never
+reactivate an old permit after failure, interruption or recovery.
+
+Use the same lifecycle owner, parent writer and serial/parallel emit/ack
+validation for visit, ordinal, sequence, adjacency and durable head. Duplicate,
+foreign, stale or reused acknowledgements grant no extra transaction. These
+facts interleave with wall events without advancing/repeating work stages;
+validate both reducers and their ordering. Do not rename or ignore budget
+open/close events. Gateway threads request reservations over their private
+controller channel and never append directly. Headers from an unauthenticated
+client cannot reserve for another leaf; serve only the active leaf serially.
+
+Before the first reservation emit/ack and native startup, fix one absolute
+`CLOCK_BOOTTIME` deadline as `now_ns + min(provider_timeout_ns,
+durable_remaining_ns_at_now)` and activate the independent bounded observer
+of [Security](security.md). Startup, preflight, binding and all durable waits
+consume it; no ack, release or later request restarts it. The observer can only
+revoke irreversibly, close owned channels and stop/empty the validated scope,
+including host and leaf, independently of the lifecycle writer and its waits.
+It cannot bind, grant, append, close wall intervals or publish terminal records.
+A late ack cannot activate startup, capability, release, acquisition or POST;
+a reservation that became durable during cancellation remains consumed. Only
+the lifecycle, after regaining control and validating durable authority, reap
+and quiescence, publishes ordinary terminal facts. If persistence remains
+blocked, administrative response may remain pending; transport still closes
+and the wall interval is neither fabricated closed nor truncated. This adds
+no autonomous watchdog when the controller is absent.
+
+Recovery loads policy, binding and the monotone consumed total for the whole
+visit, including discarded K4 ordinals and reservations without ack, request or
+completion evidence. Resolve terminality first: retained COMPLETED/FAILED never
+starts an owner or reserves capacity. Actual continuation needs a fresh permit
+and ordinary §8.1 permission; this may rerun a portable effect, never replay its
+old transport POST or partial stream. The final permit admits its transaction
+within its byte/wall limits; no remaining permit rejects only the next required
+reservation, not a valid halt or work without inference. Proven request
+exhaustion uses `run_ref_budget_exhausted` at the existing appropriate boundary;
+prove it from policy/rows, not invented wall exhaustion. Prerelease refusal,
+four FAILED boundaries and durable terminal priority are unchanged; corrupt or
+missing authority cannot be treated as zero balance.
+
+Retain policy bytes/digest, binding and reservations as protected result
+authority under the existing evidence allowance and parent retention lifetime.
+They remain verifiable after clone/baseline/shared-image removal; missing,
+tampered or over-budget evidence blocks settlement/cleanup. Terminal replay
+uses retained evidence without native login, current policy, new auth or new
+debits. Transport temporaries are cleaned only after quiescence; native real
+credential storage is never part of clone/transport cleanup. Capacity counts
+are not provider usage: incomplete usage and unsupported cost remain UNKNOWN,
+with no token, economic, remote-generation or native-auth traffic guarantee.
+
 ### Confined wall-budget recovery
 
 This algorithm belongs only to the proposed target-2.38 profile. The existing

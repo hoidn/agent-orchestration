@@ -291,15 +291,15 @@ Confinement also applies when the trusted host reads candidate-controlled files 
 
 Required positive evidence covers unprivileged host launch through the existing fixed `bwrap` authority; private user/PID/mount/IPC/UTS/cgroup/network namespaces; all capabilities dropped; no privilege gain; sealed read-only imported rootfs; bounded temporary mounts with `/dev` and `/run` read-only; no inherited host descriptors beyond `/dev/null` and the two spawner sockets in any in-namespace holder process (pid 1, spawner); a positive mount allowlist; `memory.max`/`pids.max`/`cpu.max` enforced on the scope as unit properties; workspace quota enforced; the spawner's channels unreachable from leaves; leaves in their own sessions; spawner attributes (F3b-1) unchanged at every post-leaf quiescence; a fresh empty session keyring, key syscalls refused and `/proc/keys` masked in every leaf (F3b-2); whole-slot quiescence before every host read; and no committed effect lost by a holder death. Host `/`, home, parent/peer workspaces, cloud credentials, SSH agents, engine sockets and orchestration state are absent. Reuse `DurableLaunchReleaseGate` for the durable release fact, `CgroupV2ContainmentRoot`/`Slot` for containment and quiescence, the result broker for transfer and `isolation_network_preflight.py` for the denied-endpoint inventory.
 
-Tool-enabled provider processes run inside the same confinement as commands. Their child shells, filesystem tools, plugins and subprocesses cannot leave it. Provider CLI flags that bypass internal approvals do not establish outer isolation. A normal authenticated host SDK process is not a permitted alternative. For `:none`, commands and providers get no network. For `:model-only`, the network namespace remains unshared and only the gateway socket enters the sandbox. An image-pinned relay runs inside each provider leaf and dies with its quiescence. The host gateway admits only the selected provider/model API operations toward a fixed configured upstream, with an attempt-bound expiring capability, request and response byte limits, a request ceiling and the remaining durable child wall budget. Expiry, revocation, cancellation or exhaustion cancels every pending local operation and stream. A transport is refused when installation policy requires a token or cost ceiling that its endpoint cannot enforce with qualified evidence; bytes and disconnected streams do not establish such a ceiling. Missing or incomplete usage/cost remains UNKNOWN. No arbitrary URL, CONNECT, redirect authority, host tool call, filesystem API or credential read is provided to the guest. The capability is excluded from durable artifacts and revoked when its attempt stops; its leaf script is removed with the leaf.
+Tool-enabled provider processes run inside the same confinement as commands. Their child shells, filesystem tools, plugins and subprocesses cannot leave it. Provider CLI flags that bypass internal approvals do not establish outer isolation. A normal authenticated host SDK process is not a permitted alternative. For `:none`, commands and providers get no network. For `:model-only`, the network namespace remains unshared and only the gateway socket enters the sandbox. An image-pinned relay runs inside each provider leaf and dies with its quiescence. The host gateway admits only the selected provider/model API operations toward a fixed configured upstream, with an attempt-bound expiring capability, request and response byte limits, a request ceiling and the remaining durable child wall budget. Expiry, revocation, cancellation, wall exhaustion or per-request byte excess cancels every pending local operation and stream. A transport is refused when installation policy requires a token or cost ceiling that its endpoint cannot enforce with qualified evidence; bytes and disconnected streams do not establish such a ceiling. Missing or incomplete usage/cost remains UNKNOWN. No arbitrary URL, CONNECT, redirect authority, host tool call, filesystem API or credential read is provided to the guest. The capability is excluded from durable artifacts and revoked when its attempt stops; its leaf script is removed with the leaf.
 
 **D7, inference gateway prerequisites.** Confined providers require a
 per-attempt clean environment/config overlay, profile-specific templates
 naming image-pinned provider executables, disabled telemetry and auxiliary
 guest traffic, an image-pinned per-leaf relay, and a qualified streaming
 inference gateway. The selected native-login transport is Codex managed
-ChatGPT authentication through one private persistent, version-pinned
-native app-server owned by the gateway. Only initialization and the
+ChatGPT authentication through a private version-pinned native app-server
+owned by the gateway for one provider leaf. Only initialization and the
 serialized `account/read → getAuthStatus → account/read` acquisition
 protocol are sent. The gateway binds the initial account, origin and routing
 policy, checks every acquisition against that binding, and refuses absent,
@@ -321,6 +321,50 @@ a demonstrated token/cost ceiling cannot serve a policy that requires one.
 **Increment A remains commands with `:network :none`; provider transport
 refuses with `run_ref_provider_transport_unavailable` until its F4 and
 production integration gates qualify it.**
+
+The private native auth owner persists across requests of one provider leaf.
+It is closed and reaped, with its gateway, before post-leaf quiescence,
+result import or checkpoint. A later leaf or recovered owner revalidates the
+visit's original account/origin/routing binding and consumes a new durable
+request reservation before native startup. Startup and normal native refresh
+consume the existing child allowance. No owner is created per request.
+
+Installation request and per-request byte limits are bound as effective
+transport policy in the existing parent run-ref ledger. Their unit is the
+semantic parent visit, shared by its provider leaves and retained across
+owner/holder replacement and K4. Before native startup for a leaf, reserve
+one request and its full byte allowance durably; that reservation covers
+preflight and at most the first inference transaction. Each subsequent
+transaction requires another acknowledged reservation before native auth.
+Reservations are never refunded or reused after failure or interruption.
+Persist the initial account/origin/routing binding before issuing any guest
+capability, without persisting bearer material or auth RPC responses.
+Recovery uses the original policy, binding and consumed total; it does not
+infer unsent work from missing completion evidence. Aggregate body ceilings
+derive from the request count and per-request maxima. These are conservative
+capacity limits, not actual provider usage, token or cost measurements.
+
+The [State contract](../../specs/state.md#confined-provider-capacity-and-binding)
+owns the two durable facts, their exact acknowledgement order and retained
+validation; gateway counters are not authority. The initial native preflight's
+bearer is discarded, and its binding must be acknowledged before capability or
+release. A recovered leaf needs a new reservation, not reuse of an old permit.
+
+During a provider leaf, its private gateway and native auth owner execute
+in the existing host containment slot, under the scope's resource limits.
+No checkpoint/helper runs concurrently with them. Revoke and close their
+channels, terminate and reap owned work, and prove both host and leaf slots
+empty before the normal quiescence/import/checkpoint boundary. Controller
+loss must terminate both gateway and native owner; a worker-only death
+signal is insufficient. Recovery retains the existing whole-scope kill and
+validation order. No trusted-process exception to inter-leaf quiescence is
+introduced.
+
+Both gateway and owner enter `host` before exec using the existing trampoline,
+minimal descriptors and parent-death/recheck chain. Preserve the lifetime of the
+creating thread and prove termination of owned descendants on controller loss.
+Holder execution closes them before returning to the session; a failed vacate
+blocks result import, checkpoint, memo commit and successful budget closure.
 
 The native owner is pinned to Codex `0.162.1`, source revision
 `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`, executable SHA-256
@@ -365,20 +409,43 @@ local tool schemas must be frozen from the exact CLI/config/model request and
 checked against pinned source, not supplied by the guest. No first-401 retry or
 partial-stream replay is permitted.
 
-Grant expiry and remaining-wall calculations use integer nanoseconds of
-`CLOCK_BOOTTIME` and the existing durable child allowance, including host auth
-and transport work. Independent cancellation must interrupt every blocking
-phase, including startup, native pipes, DNS/TLS, body and SSE transfer and guest
-backpressure. Revocation, exhaustion or controller loss closes local channels
-and terminates owned pending work; no abandoned thread or restarted allowance
-satisfies this rule. Canceling a shared owner fails its pending grants closed.
-This adds no autonomous watchdog while the controller is absent and does not
-prove when remote generation stops. Consume the request counter atomically
-before native acquisition; start no operation after observed expiry or revocation;
-retain only validated complete request-specific usage, leaving incomplete totals
-and unsupported cost evidence `UNKNOWN`. A local output-token default is not
-an upstream generation cap. Experimental request counts and wall limits do not
-replace the checked per-attempt policy or durable remaining budget.
+Before the first reservation and native startup, establish one absolute
+BOOTTIME deadline from the minimum of the provider timeout and the durable
+remaining child allowance. Guest release and later acknowledgements do not
+reset it. A bounded leaf-local cancellation observer remains active across
+every persistence, emit and acknowledgement wait, independently of the
+lifecycle writer. It can only revoke, close channels and stop/empty owned
+containment; it cannot grant authority, bind an account, write the ledger or
+publish budget closures or terminal records. Expiry or cancellation is
+irreversible for that incarnation: a late acknowledgement cannot activate
+an owner, capability, release, acquisition or POST. Any reservation that
+became durable remains consumed. The lifecycle alone validates durable
+authority and quiescence and publishes subsequent terminal facts. This is
+not a service or an autonomous budget watchdog after controller loss.
+
+The observer is a bounded controller thread separate from the lifecycle/writer
+and transport worker, using integer nanoseconds of `CLOCK_BOOTTIME`. It observes
+cancellation directly, without the writer lock, persistence queue, callback
+Future or a lock held across durable waits. The absolute deadline is fixed as
+`now_ns + min(provider_timeout_ns, durable_remaining_ns_at_now)` before the
+first emit/ack; startup, preflight and binding consume that same deadline.
+Its stop authority is bound only to the already validated holder scope; it
+requires no ledger query to revoke or empty that scope. The lifecycle retains
+reap, durable-authority checks and terminal publication after it regains control.
+The observer remains active until transport quiescence and ends with the leaf
+or controller. A blocked administrative response neither closes nor truncates
+the wall interval.
+
+All blocking phases remain cancelable, including native pipes, DNS/TLS, HTTP/SSE
+and guest backpressure. Start no operation after observed revocation or expiry;
+no new owner within a failed leaf retries acquisition. No local disconnect
+proves when remote generation stops. Retain only validated complete request-
+specific usage, leaving incomplete totals and unsupported cost `UNKNOWN`.
+A local output-token default is not an upstream generation cap. Experimental
+request counts and wall limits do not replace installation policy or the durable
+remaining budget. The last reserved permit may complete within its bounds; zero
+remaining permits rejects the next required reservation, not that transaction or
+unrelated work without inference.
 
 Resource enforcement includes CPU, memory, process count, workspace/scratch bytes, exported bytes/file count/depth, and bounded stdout/stderr. The live controller checks cumulative child wall time, including host work (R3); [durable accounting](../../specs/state.md#confined-wall-budget-recovery) charges interrupted open intervals through recovery quiescence. It does not provide an autonomous wall deadline while the controller is absent; no watchdog is selected. Post-run `du` is insufficient. Resume retains the visit's elapsed/resource/provider allowances across holder incarnations and K4 replacement. An oversized artifact, fork bomb, lingering daemon, output flood, decompression bomb or failed quiescence cannot proceed to export. **D8:** protected evidence snapshots are charged against a separate installation-policy evidence allowance, checked at each effect commit before the next dispatch and at `started` before an attempt snapshot is copied (refusing with `run_ref_budget_exhausted`, Q3), never against the author's `:output-mib`, which covers exports only; reason: evidence size is a runtime property authors cannot predict. It makes harder: two allowances to explain. Limits and effective kernel settings are retained in admission evidence.
 

@@ -361,8 +361,8 @@ schema notation, not authored workflow files.
     timeout is clamped at dispatch to the remaining child wall budget.
   - `:model-only` traffic reaches the model only through the qualified inference
     gateway and per-leaf relay of the security profile. The selected Codex
-    managed ChatGPT route uses the private persistent native auth owner of D7;
-    every acquisition checks the initial account/origin/routing binding.
+    managed ChatGPT route uses the private per-leaf native auth owner of D7;
+    every acquisition checks the visit's initial account/origin/routing binding.
     First inference 401, invalid native acquisition and partial-stream failure
     terminate without replay. The gateway exposes no app-server RPC to the
     guest, and native authentication does not permit host provider execution.
@@ -370,6 +370,21 @@ schema notation, not authored workflow files.
     or cost ceilings without endpoint enforcement evidence; incomplete usage
     or cost stays UNKNOWN. Qualification is transport-specific and does not
     qualify Claude or an API-key route by analogy.
+  - The private native auth owner persists across requests of one provider leaf.
+    It is closed and reaped, with its gateway, before post-leaf quiescence,
+    result import or checkpoint. A later leaf or recovered owner revalidates the
+    visit's original account/origin/routing binding and consumes a new durable
+    request reservation before native startup. Startup and normal native refresh
+    consume the existing child allowance. No owner is created per request.
+    The gateway and owner execute in the existing `host` containment slot;
+    result import/checkpoint requires both host and leaf slots empty. The
+    [parent ledger](state.md#confined-provider-capacity-and-binding), not the
+    gateway, owns effective request/byte policy, conservative reservations and
+    initial binding. Exact durable acknowledgement precedes startup and binding
+    acknowledgement precedes capability/release; no old permit is reused across
+    recovery or K4. The leaf's single BOOTTIME deadline includes these waits,
+    startup and native preflight. Independent cancellation remains active while
+    the lifecycle waits for persistence/ack; a late ack cannot revive the leaf.
   - Increment A: until provider transport qualifies (design gate F4), a
     provider dispatch in a confined child refuses with
     `run_ref_provider_transport_unavailable` before dispatch.
