@@ -160,7 +160,8 @@ and the normative [spec index](specs/index.md).
 
 | Study | What was measured | Outcome |
 | --- | --- | --- |
-| [Workflows versus single calls on the evaluated route](docs/reports/2026-10-14-orc-versus-single-call-evaluated.md) | A real compiler defect, criterion frozen before any run; six runs per workflow and six single calls, sandboxed agents, two blind judges | Review-and-revise replicated (+0.67 over its first patch, no run worse); generate-four-select-one fell one run short (4 of 6 runs gained, mean +1.02); both scored under half a point above the single calls |
+| [Workflows versus a single agent call](docs/reports/2026-09-28-orc-versus-single-call.md) | A real compiler defect, six runs per configuration, two blind model judges per batch, 8-point rubric | Generate-four-select-one with a stronger judge from another model family: +0.83 and +1.02 over the candidate-group mean. With the author's own model as reviewer or selector: between -0.5 and +0.44. Review-and-revise with a stronger reviewer from another family: +0.58 |
+| [Workflows versus single calls, rerun on the evaluated route](docs/reports/2026-10-14-orc-versus-single-call-evaluated.md) | The same defect and criterion, frozen before any run; six runs per workflow and six single calls, sandboxed agents, two blind judges | Review-and-revise replicated (+0.67 over its first patch, no run worse); generate-four-select-one fell one run short (4 of 6 runs gained, mean +1.02); both scored under half a point above the single calls |
 | [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Gains come from independent candidates and from a judge with different knowledge than the author |
 
 ## Scale and provenance
