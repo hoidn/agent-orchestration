@@ -146,6 +146,7 @@ def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionStat
         run_ref_origins_by_source_key=dict(
             state.run_ref_origins_by_source_key
         ),
+        agent_origins_by_binding=dict(state.agent_origins_by_binding),
         run_ref_metadata_by_name=dict(state.run_ref_metadata_by_name),
         run_ref_metadata_by_expr_key={
             expr_key: dict(metadata_by_signature)
@@ -189,6 +190,7 @@ def restore_session_state(
     state.run_ref_origins_by_source_key = dict(
         snapshot.run_ref_origins_by_source_key
     )
+    state.agent_origins_by_binding = dict(snapshot.agent_origins_by_binding)
     state.run_ref_metadata_by_name = dict(snapshot.run_ref_metadata_by_name)
     state.run_ref_metadata_by_expr_key = {
         expr_key: dict(metadata_by_signature)
@@ -302,6 +304,12 @@ def merge_successful_session_outputs(
         "run_ref_origins_by_source_key",
         outer.run_ref_origins_by_source_key,
         completed.run_ref_origins_by_source_key,
+        values_match=lambda left, right: left == right,
+    )
+    merged.agent_origins_by_binding = _merge_unique_outputs(
+        "agent_origins_by_binding",
+        outer.agent_origins_by_binding,
+        completed.agent_origins_by_binding,
         values_match=lambda left, right: left == right,
     )
     from .typecheck_run_ref import run_ref_metadata_equivalent

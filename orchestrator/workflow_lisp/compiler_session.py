@@ -107,6 +107,14 @@ class TypecheckSessionState:
             "semantic_identity_omit": True,
         },
     )
+    # id(let BindingIdentity) -> (that identity, provider-extern origins of its Agent value);
+    # written and read only by `typecheck_agents`.
+    agent_origins_by_binding: dict[int, tuple[object, frozenset[str]]] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
     run_ref_metadata_by_name: dict[str, RunRefSiteMetadata] = field(
         default_factory=dict
     )
