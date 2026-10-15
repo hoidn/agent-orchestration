@@ -17,8 +17,10 @@
   ;; Opt-in variant: the designer and the reviewer each keep one native
   ;; conversation (Agent Sessions, target 2.38), so the revise turn sees the
   ;; draft turn's context and the execute turn sees the review turn's.
-  ;; Invalidating `feedback` is refused once `revised` committed (C8). The
-  ;; baseline design_review_execute.orc keeps four independent calls.
+  ;; Invalidating `feedback`, or any step before a committed turn, is
+  ;; refused (C8). The baseline design_review_execute.orc keeps four
+  ;; independent calls. Compiles at 2.38; running it requires the pending
+  ;; agent-session runtime.
   ;;
   ;;   python -m orchestrator compile workflows/examples/design_review_execute_agents.orc \
   ;;     --provider-externs-file workflows/examples/inputs/design_review_execute_agents/providers.json

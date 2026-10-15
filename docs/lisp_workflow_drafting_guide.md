@@ -1421,9 +1421,10 @@ Choose an agent over an artifact handoff when a later call should see the
 earlier call's whole conversation, for example a designer who revises the
 draft it wrote after a review. Keep the artifact handoff (independent calls,
 typed paths, `:doc` fills) when each call should see only its typed inputs.
-The cost: once a later turn of the same agent has committed, an earlier turn's
-result cannot be invalidated, and a first turn interrupted before its commit
-may have run more than once.
+The cost: an invalidation whose suffix contains any committed agent turn is
+refused (C8), so a committed turn, and any earlier step that precedes one,
+cannot be rerun in place; a first turn interrupted before its commit may have
+run more than once.
 
 ```lisp
 (let* ((designer (agent providers.claude :model planner_model :effort "high"))
