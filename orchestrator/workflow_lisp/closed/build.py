@@ -197,7 +197,7 @@ def _outcome_envelope(outcome: Mapping[str, Any]) -> dict[str, Any]:
 
 def _confined_config_bytes(producer, tree, compiler_identity, inputs, result_descriptor, result_digest):
     """Encode `run_ref_static_config.v2` and attach the checked child entry to the parent tree."""
-    from orchestrator.workflow.run_ref.config import (
+    from orchestrator.workflow.run_ref.confined_config import (
         ConfinedPolicy,
         WorkflowProgram,
         build_run_ref_confined_static_config,

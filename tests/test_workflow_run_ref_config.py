@@ -1179,7 +1179,7 @@ def test_binding_literals_reject_non_scalar_and_nonfinite_values() -> None:
 # Task 4: `run_ref_static_config.v2` for confined `(:workflow <name>)` sites and
 # the durable confined child request identity.
 
-from orchestrator.workflow.run_ref.config import (  # noqa: E402
+from orchestrator.workflow.run_ref.confined_config import (  # noqa: E402
     RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA,
     ConfinedPolicy,
     WorkflowProgram,

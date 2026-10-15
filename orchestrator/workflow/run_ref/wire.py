@@ -14,7 +14,7 @@ from orchestrator.contracts.closed_program.targets import (
 
 from orchestrator.workflow.type_descriptor import validate_transport_value
 
-from .config import RunRefConfinedStaticConfig
+from .confined_config import RunRefConfinedStaticConfig
 from .contracts import RepositoryRevisionId, canonical_sha256
 from .source import (
     MaterializedSource,

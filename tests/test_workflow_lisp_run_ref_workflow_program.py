@@ -560,7 +560,7 @@ def _built(typed) -> ClosedProgram:
 def _confined_site(program):
     from base64 import b64decode
     from orchestrator.workflow.evaluated.machine import site_nodes
-    from orchestrator.workflow.run_ref.config import decode_run_ref_confined_static_config
+    from orchestrator.workflow.run_ref.confined_config import decode_run_ref_confined_static_config
 
     [node] = [node for node in site_nodes(program).values() if node["class"] == "run_ref"]
     return node, decode_run_ref_confined_static_config(b64decode(node["config"]))

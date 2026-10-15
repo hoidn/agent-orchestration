@@ -29,9 +29,11 @@ from orchestrator.workflow.prompt_fragment_contract import (
 )
 from orchestrator.workflow.run_ref.config import (
     ReferenceBinding,
+    decode_run_ref_static_config,
+)
+from orchestrator.workflow.run_ref.confined_config import (
     RunRefConfinedStaticConfig,
     decode_run_ref_confined_static_config,
-    decode_run_ref_static_config,
 )
 from orchestrator.workflow.run_ref.result_contract import (
     RUN_REF_RESULT_CONTRACT_SCHEMA,
