@@ -2,6 +2,9 @@
 
 Status: complete. No rung qualified under the frozen criterion, so the calibrated experiment (plan Task 9) does not run.
 
+Later (2026-10-15): the owner chose rung 3 on the blocker rule alone, and Task 9 ran on it. See the
+[E-B2 report](2026-10-15-calibrated-orc-versus-single-call.md). This report's conclusion is unchanged.
+
 ## Question And Criterion
 
 The question is which task on a frozen ladder is the first where two conditions hold:

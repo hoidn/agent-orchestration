@@ -46,8 +46,9 @@ The measurements below help choose a pattern; they do not define its API.
 | Pattern | Use when | Measured |
 | --- | --- | --- |
 | Generate several candidates, select one | single calls vary in quality and a stronger judge is available | Flat route (2026-09-28): +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs. Evaluated route ([E-A](reports/2026-10-14-orc-versus-single-call-evaluated.md)): +1.02, gain in 4 of 6 runs, one run short of its criterion; +0.33 over single calls |
-| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged |
+| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged. Calibrated harder task ([E-B2](reports/2026-10-15-calibrated-orc-versus-single-call.md)): the reviewer blocked in every run, but no revision changed the hidden-test score (gain 0 in 3 of 3 runs); judges +0.33 |
 | Review and revise with the author's model | no benefit was demonstrated in this bounded experiment; validate it on the intended task | -0.5 to 0 |
+| Plan with one model, review the plan with another, then execute | not established: no gain in hidden acceptance was measured | Calibrated harder task (E-B2): the same hidden-test share as one call of the executor's model (0.49 each), at four calls and about five times the wall clock; judges +1.0 |
 
 Selection leaves candidate patches unchanged, though it can choose a worse
 candidate than the alternative. Revision can damage a selected patch: in one

@@ -283,15 +283,20 @@ navigation are complete.
 ### [Orc Effectiveness Comparison Harness](design/orc_effectiveness_comparison_harness.md)
 **Description:** Current design for comparing maintained `.orc` workflows with single agent calls: frozen criteria, recording shims in a bubblewrap sandbox, blind pooled scoring by two judges with anchors, adjudicated contamination scans, and the difficulty calibration follow-on tasks must pass. Operator contract: [harness README](../experiments/compare/README.md).
 **Keywords:** orc, effectiveness, experiment, comparison, best-of-n, reviewed-change, design-review-execute, judges, criterion, sandbox
-**Use this when:** Running or designing a workflow-versus-single-call comparison. The results are in the [E-A report](reports/2026-10-14-orc-versus-single-call-evaluated.md) (reviewed_change replicated; best_of_n fell one run short) and the [E-B report](reports/2026-10-14-design-review-execute-versus-single-call.md) (not evaluated; the task did not qualify). The [postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md) records what went wrong in running them.
+**Use this when:** Running or designing a workflow-versus-single-call comparison. The results are in the [E-A report](reports/2026-10-14-orc-versus-single-call-evaluated.md) (reviewed_change replicated; best_of_n fell one run short) and the [E-B report](reports/2026-10-14-design-review-execute-versus-single-call.md) (not evaluated; the task did not qualify). The calibrated follow-up is in the [E-B2 report](reports/2026-10-15-calibrated-orc-versus-single-call.md) (neither claim held). The [postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md) records what went wrong in running them.
 
 ### [Task-Difficulty Calibration](reports/2026-10-14-task-difficulty-calibration.md)
 **Description:** Plan Task 8 result (2026-10-14). Four rungs of 2000–4000-line features were measured with two `gpt-6.1-sol` single calls and one `gpt-6-sol` review each. Review blockers averaged 1.0–2.5 on every rung, but single calls passed 31–91% of the hidden tests, so no rung met the frozen "below half" condition.
 **Keywords:** calibration, difficulty, review blockers, hidden acceptance, single call, ladder
-**Use this when:** Choosing a task for a workflow-versus-single-call experiment, or deciding how Task 9 proceeds.
+**Use this when:** Choosing a task for a workflow-versus-single-call experiment. The owner then chose rung 3 on the blocker rule alone, and Task 9 ran on it ([E-B2](reports/2026-10-15-calibrated-orc-versus-single-call.md)).
+
+### [E-B2: Workflows Against A Single Call On A Calibrated Task](reports/2026-10-15-calibrated-orc-versus-single-call.md)
+**Description:** Plan Task 9 result (2026-10-15) on calibration rung 3 (`adopted-attempt-lineage`), three runs per arm, criterion frozen before any run. Both claims were evaluated and neither held: `design_review_execute` passed the same share of the 52 hidden tests as one `gpt-6.1-sol` call (0.49 each), and `reviewed_change`'s revisions never raised its first patch's hidden fraction (gain 0 in 3 runs), although its reviewer blocked in every run.
+**Keywords:** e-b2, calibrated, design-review-execute, reviewed-change, hidden acceptance, single call, judges
+**Use this when:** Citing what plan-review-execute or review-and-revise bought on a task where single calls leave review blockers, or reading the harness's limits on a coarse hidden-test scale.
 
 ### [Effectiveness Harness And Experiments Plan](plans/2026-10-14-effectiveness-harness-and-experiments-plan.md)
-**Description:** Executed plan (2026-10-14) that built the comparison harness, retired the lean pilot and ran E-A and E-B; its appendix lists every ruling made during execution (R1–R41).
+**Description:** Executed plan (2026-10-14) that built the comparison harness, retired the lean pilot, ran E-A and E-B, calibrated task difficulty (Task 8) and ran the calibrated experiment E-B2 (Task 9, 2026-10-15); its appendix lists every ruling made during execution (R1–R54).
 **Keywords:** orc, effectiveness, harness, plan, rulings, e-a, e-b
 **Use this when:** Tracing why the harness or an experiment deviates from the design, or citing a ruling by number.
 

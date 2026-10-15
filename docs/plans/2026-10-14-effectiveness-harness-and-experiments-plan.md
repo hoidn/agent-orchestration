@@ -16,8 +16,9 @@ qualify. The outcomes are in the [E-A report](../reports/2026-10-14-orc-versus-s
 rulings, and every ruling made during execution is listed in the appendix below. Tasks 8 and 9
 (task-difficulty calibration and the calibrated experiment) were added at the owner's request on 2026-10-14. Task 8
 was executed the same day ([calibration report](../reports/2026-10-14-task-difficulty-calibration.md)). No rung qualified:
-the blocker condition held at every rung, but the single-call condition never did. Task 9 has not run and waits on the
-owner's choice in that report.
+the blocker condition held at every rung, but the single-call condition never did. On 2026-10-15 the owner chose rung 3
+on the blocker rule alone, and Task 9 ran ([E-B2 report](../reports/2026-10-15-calibrated-orc-versus-single-call.md)):
+both claims were evaluated and neither held.
 **Design:** [comparison harness and experiments](../design/orc_effectiveness_comparison_harness.md).
 **Goal:** a comparison between a maintained workflow and a single call can be
 run on current `main` with one command per arm, scored blind side by side
@@ -493,14 +494,16 @@ control's binding. Calibration runs are never treatment or control data.
 
 **Role:** as Task 5. **Depends on:** Task 8 found a qualifying rung, and the owner decisions below.
 
-- [ ] **Package:** the qualifying rung's package, unchanged.
-- [ ] **Arms:**
+- [x] **Package:** the qualifying rung's package, unchanged. Done: rung 3 (`adopted-attempt-lineage`, package
+      `c5ebb758…`), chosen by the owner on the blocker rule alone.
+- [x] **Arms** (done with the owner's 2026-10-15 decisions: planner `claude-opus-5-5`, three runs per arm, no
+      `best_of_n`):
       - `design_review_execute` (planner `claude-fable-5-1`; reviewer and executor `gpt-6.1-sol`);
       - `reviewed_change` (coder Sonnet; reviewer `gpt-6-sol`);
       - control `direct_task` (`gpt-6.1-sol`, effort high, `:timeout-sec 14400`).
 
       `best_of_n` is optional, if the budget allows. Four runs per arm. Task 8's calibration runs are excluded.
-- [ ] **Criterion** `experiments/compare/criteria/eb2.json`, in the form of `eb.json`, with two claims judged
+- [x] **Criterion** `experiments/compare/criteria/eb2.json`, in the form of `eb.json`, with two claims judged
       separately:
       - **`design_review_execute`:** `hidden_minus_control >= 0.3`, with run floors of 3 per arm.
       - **`reviewed_change`:** `hidden_paired_gain_mean >= ` the frozen threshold, with a run floor of 3. This is the
@@ -516,16 +519,19 @@ control's binding. Calibration runs are never treatment or control data.
       - **Rules and provenance:** exclusions, `anchor_use`, `judge_rules`, `validity`, and `threshold_provenance`
         citing the calibration report.
 
-      Have it reviewed, then hash and commit it before any run.
-- [ ] **Live smoke** before freezing: one run per arm on `eb-repl`, for mechanics only. Nothing from it is measured
-      before the freeze, and it is discarded.
-- [ ] **Batch:** at most four live runs; every run collected, scanned and adjudicated; then pool, both judges,
+      Have it reviewed, then hash and commit it before any run. Done: two Opus reviews (NEEDS CHANGES, then
+      APPROVED); SHA-256 `26e1346e…`, commit `7161ca02`, before the first batch run.
+- [x] **Live smoke** before freezing: one run per arm on `eb-repl`, for mechanics only. Nothing from it is measured
+      before the freeze, and it is discarded. Done for `reviewed_change` and `design_review_execute` (both completed;
+      Opus audit PASS); `direct_task` rests on calibration runs (R52 as amended).
+- [x] **Batch:** at most four live runs; every run collected, scanned and adjudicated; then pool, both judges,
       `verify-pool` after each judge, and `summarize`. Interim readouts come only from `summarize`'s join and are
-      labelled partial.
-- [ ] **Report:** `docs/reports/<date>-calibrated-orc-versus-single-call.md`, with the same sections as E-A, plus the
+      labelled partial. Done: nine runs completed, none excluded; one `summarize` over the final pool.
+- [x] **Report:** `docs/reports/<date>-calibrated-orc-versus-single-call.md`, with the same sections as E-A, plus the
       calibration numbers it rests on. Add the README evidence row, the design lessons' Measured column and the index
       entry.
-- [ ] **Verification:** `results.json` and the report agree; the evidence is copied beside the repository.
+- [x] **Verification:** `results.json` and the report agree; the evidence is copied beside the repository
+      (`agent-orchestration-compare-evidence/eb2/`).
 
 **Owner decisions** (each with the coordinator's default):
 - **Budget, worst case at four runs per arm:**
@@ -540,12 +546,16 @@ control's binding. Calibration runs are never treatment or control data.
   running.
 - **`best_of_n` as a fourth arm:** default no.
 
+Owner decisions taken on 2026-10-15: run rung 3 on the blocker rule alone; planner `claude-opus-5-5` instead of
+`claude-fable-5-1`; three runs per arm with run floors of three; no `best_of_n` arm. Outcome: [E-B2
+report](../reports/2026-10-15-calibrated-orc-versus-single-call.md), neither claim held.
+
 ## Appendix: Rulings Made During Execution
 
 The coordinator recorded each decision the design and plan did not settle as `Ruling: what — why — cost if
 wrong`. The rulings are copied verbatim from the execution ledger. Code, the design, the criteria and the reports
-cite them by number. Later rulings amend earlier ones where they say so: R8 is amended once, and R34 reverses R31.
-The number R17 was never assigned.
+cite them by number. Later rulings amend earlier ones where they say so: R8 and R52 are amended once, and R34 reverses
+R31. The number R17 was never assigned.
 
 - Ruling R1 (Q1): delete the lean-pilot apparatus as design D1 — treatment cannot run, evidence frozen elsewhere, deletion is git-reversible — cost if wrong: one revert commit.
 - Ruling R2 (Q3): scoring judges = claude-opus-5-5 (claude_unrestricted_workspace) plus an OpenAI model that is not the treatment's judge/reviewer: E-A gpt-6.1-sol, E-B gpt-6-sol. No Google judge (gemini CLI absent; template has no model binding) — cost if wrong: judges share a family with treatment implementers (Sonnet, Fable); reported as a limit.
@@ -588,3 +598,17 @@ The number R17 was never assigned.
 - Ruling R39 (deviates from the frozen fallback): E-B is reported as not evaluated (task did not qualify); the census fallback is not run, because the census candidates are smaller changes (about 100-250 lines) than the REPL, which one gpt-6.1-sol call finished (16/16, 14/16), so they would almost surely not qualify either; the next E-B is the difficulty-calibrated experiment the owner asked for (single call below half of hidden acceptance and expected review blockers >= 1, both measured before the treatment runs) — cost if wrong: one census candidate that might have qualified is not tried; reversible by running it later under its own frozen criterion.
 - Ruling R40: integrate with a merge commit (`git merge --no-ff --autostash` from the main checkout) instead of the fast-forward the plan assumed: main moved by two unrelated docs commits, and a rebase would rewrite the commits the frozen criteria and reports cite (aac25b7d, 1a77e0af, 197e35ed, 61b7d04d); hunk overlap with the other sessions' uncommitted edits was checked per file (matrix, index: separated) — cost if wrong: one merge commit in main's history.
 - Ruling R41: the postmortem doubles as the plan's closeout report (no separate closeout doc) — cost if wrong: one doc name differs from the plan.
+- Ruling R42: the calibration criterion freezes the definitions, the stop rule and the ladder file (candidate order and metrics); each rung's package is built and verified (fail at base, pass at solution) when the rung is reached, and its hash is recorded in the rung's calibration.json before the rung's first run — cost if wrong: a later rung's package is written after earlier rungs' results are known (its task text cannot depend on them beyond the ladder's frozen order).
+- Ruling R43: the ladder runs smallest first (rung 1 = the smallest qualifying candidate), matching "raise difficulty until" — cost if wrong: the first rungs may be too easy and cost runs before a hard enough one.
+- Ruling R44: the drop rule also removes hidden tests that call a private function whose signature or return shape the solution changed (they test the implementation, not the behaviour); 2 dropped on rung 1 — cost if wrong: two fewer hidden checks.
+- Ruling R45: repository copies outside the scanned prefix: /var/tmp/agent-orchestration-orc-dynamic-core (1ecde6e4, 2026-10-13, holds every rung's solution) is hidden by mounting an empty /var/tmp in the sandbox (2b9efd81); /home/ollie/.config/superpowers/worktrees/.../dummy-agent-workflow-loop is at b53be0d2 (2026-02-25), before every rung, harmless; /tmp worktrees are hidden by the private /tmp; /home/ollie/calib-runtime is the frozen runtime and is a scan pattern — cost if wrong: an agent reads a copy the scan does not name.
+- Ruling R46: rung 1's task.txt (about 3000 words) names the std/improve.orc layout, example names and three internal field names because kept hidden tests pin them; calibration measures whether this is still hard — cost if wrong: over-specification makes rung 1 too easy (it then fails calibration and the ladder moves on).
+- Ruling R47: an empty single-call final patch is not reviewed and counts 1 blocker (nothing was implemented); its hidden fraction is measured as usual — cost if wrong: one rule differs from what a reviewer would have said.
+- Ruling R48: rung 1's upstream anchor carries files merged in from main; it is rebuilt from orchestrator/, specs/ and workflows/ paths only before Task 9 if rung 1 qualifies (calibration does not use anchors) — cost if wrong: none for calibration.
+- Ruling R49: from rung 2 on, hidden node ids that the stub anchor passes are dropped before the rung's package hash is recorded (they measure imports or the test's own helpers, not the implementation; rung 2's stub passes 50/169 = 0.30 for free). Rung 1 keeps its frozen 164 (the stub passes 1, an effect of at most 0.006). Applied in the rung-2 amendment, before any rung-2 run — cost if wrong: rung 2's hidden set shrinks to 119 node ids.
+- Ruling R50 (extends R44): hidden tests that inject faults through private helpers unchanged at the base, and pass only if the implementation routes a step through that helper, are dropped (keeping them would require task.txt to describe the implementation); 2 dropped on rung 3 — cost if wrong: two fewer hidden checks on rung 3.
+- Ruling R51: rung 4's task.txt requires a module-level callable named _propagate_pure_ineligibility (the hidden test module imports it at load; the one test that calls it is dropped under R44, its behaviour is not checked) rather than dropping all 104 tests of that module — cost if wrong: one private name is dictated to the single call.
+- Ruling R52: the Task 8 direct_task live smoke on eb-repl (2b9efd81) stands for direct_task; between 2b9efd81 and e8882086 the harness changed only in summarize and the runtime not at all — cost if wrong: a direct_task mechanics defect surfaces in the batch instead of the smoke.
+- Ruling R53: reviewed_change's primary threshold is hidden_paired_gain_mean >= 0.1 with no run negative (about 5 of 52 node ids per run), set before any E-B2 data — cost if wrong: a threshold the owner would have set differently; per-run values are reported.
+- Ruling R52 amendment (criterion review M3; the R52 entry above is kept as first recorded): its premise named the wrong commit. The Task 8 direct_task smoke ran at 26bb4d73 (calibration/runs/smoke/direct_task-run-1/record.json runtime_commit); 2b9efd81 is review_once's smoke commit. Between 26bb4d73 and e8882086 the shim changed twice (shim/codex links to shim/claude; 76274ce6 index mtime, 2b9efd81 empty /var/tmp, with repos.py refusing /var/tmp roots), so "harness changed only in summarize" was false for that smoke. The stronger mechanics evidence is rung 3's direct_task run-5 and run-6 at 490f6dc8 (both completed), whose harness code differs from e8882086 only in summarize.py. Decision unchanged: no E-B2 direct_task smoke — cost if wrong: unchanged.
+- Ruling R54: gpt-6-sol judges E-B2 although it is reviewed_change's reviewer, departing from R2 and design Q3; judges bear only on secondary entries — cost if wrong: secondary judge entries for reviewed_change carry self-preference.
