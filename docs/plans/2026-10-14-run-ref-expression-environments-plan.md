@@ -301,7 +301,10 @@ the final Task 13 contract and admission gate. Claude remains unqualified.
 
 ## Task 11: Complete author use case
 
-**Create:** `workflows/examples/run_ref_confined/{main.orc,commands.json,providers.json,inputs.json,README.md}`, entry `run_ref_confined::main`. **Modify:** `experiments/orc_vs_single_call/{README.md,workflows/best_of_n.orc,workflows/best_of_n.providers.json}`, `tests/workflow_evaluated_consumer_sources.py`, `tests/test_workflow_evaluated_consumers.py`, `workflows/README.md` registry row. Do not modify the historical harness.
+**Create:** `workflows/examples/run_ref_confined/{run_ref_confined.orc,commands.json,providers.json,inputs.json,README.md}`, entry `run_ref_confined::main`. **Modify:** `experiments/orc_vs_single_call/{README.md,workflows/best_of_n.orc,workflows/best_of_n.providers.json}`, `tests/workflow_evaluated_consumer_sources.py`, `tests/test_workflow_evaluated_consumers.py`, `workflows/README.md` registry row. Do not modify the historical harness.
+
+The source root is the example directory; `run_ref_confined.orc` matches the
+module name required by `run_ref_confined::main`, as qualified in Task 9.
 
 - [ ] Example takes a repository locator, exact commit, task and candidate inputs; iterates candidates with a serial `loop`/`recur`; each child generates/edits through a provider binding using the `codex_unrestricted_workspace` template variant and evaluates with commands; the parent handles typed `FAILED` outcomes, selects with ordinary typed code, and returns `INVALID` when all assessments are invalid. Deterministic tie behavior and parent artifact consumption are tested.
 - [ ] Use a real digest and documented image provenance; never publish a placeholder digest as runnable. The judge score is same-trust-domain data, not benchmark truth. Migrate the maintained best-of-N recipe to the confined form; retain old fixtures as compatibility evidence; document input/result migration for `best-of-n` and `select-only`.
