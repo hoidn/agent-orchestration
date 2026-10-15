@@ -927,6 +927,89 @@ in the SDD `task-6c-broad-classification.md` and `task-6c-quiescence-review.md`,
 and `/tmp/runref-t6c-quiescence-e2e.log`; this committed section preserves the
 acceptance summary independently of those local logs.
 
+## Task 7: durable command recovery accepted (2026-10-15)
+
+Runtime `ade011fb8abaaccabe963eef52ea5ee5bd111a99` plus
+`92b55aff25cf10b788b3c4a01282b5f22b315624`; final fixture-only correction
+`57bbe06f666b2d04e6a5275a21ddd3beaff29323`. Independent conformance and
+code/security review PASS, including the final fixture correction; the
+coordinator inspected the diff, logs, retained identities and classifications.
+Task 7 is accepted for its available command/recovery scope. Provider-commit
+and post-export kill windows remain with Tasks 10/8/12; this is not full F5,
+Increment A or release qualification.
+
+The common ledger now supports v2 reservation, BOOTTIME visit accounting,
+exact scope recovery and four durable FAILED boundaries while retaining v1
+bytes and behavior. Durable terminals precede K4, committed effects are not
+redispatched, and K4 carries remaining budget without inheriting release.
+K8 preserves retry history when invalidation retires a pending projection.
+Impossible checkpoint identity refuses before repair or K4; a coherent
+checkpoint's manifest drift remains an environment-change refusal.
+
+All commands ran from the feature root with its explicit `PYTHONPATH`:
+
+| Check | Result |
+| --- | --- |
+| Affected lifecycle, recovery, memo, parallel and legacy owner modules, `pytest -q -n 16 --dist=worksteal` | 454 passed, 43.31 s, exit 0; frozen bytes subsequently committed in `ade011fb` |
+| Final P30/terminal focal selector, `pytest -q tests/test_workflow_run_ref_confined_recovery.py -k 'zero_commit_k4 or retained_checkpoint or pure_completed or failed_repair'` | 8 passed, 72 deselected, 7.13 s, exit 0, on `92b55aff` |
+| Collection of changed recovery/integration/e2e recovery modules | 120 collected, exit 0 |
+| `ORCHESTRATE_E2E=1 RUN_REF_REQUIRE_IMAGE=1 pytest -q tests/e2e/test_e2e_run_ref_confined_recovery.py tests/e2e/test_e2e_run_ref_confined_child.py --basetemp=/tmp/run-ref-task7-real-final-92b55aff` | 16 passed, 106.41 s, exit 0, on `92b55aff` |
+| `pytest -q -n 16 --dist=worksteal -m 'not e2e'` | **20 failed, 15897 passed, 6 skipped, 1 xfailed**, 950.16 s, exit 1, frozen runtime `92b55aff` |
+| Focused unchanged timing cases and baseline watcher parity | 3 passed, 1 xfailed, 94.80 s, exit 0 |
+| Caller fixture correction: three supersession variants; complete caller/ledger modules with `-n 16 --dist=worksteal` | 3 passed, 4.10 s; 62 passed, 8.35 s; both exit 0 |
+| Independent retained-FAILED corruption probe | 5 passed, 12.46 s: prefix, boundary, accounting, closure and memo-suffix corruption refuse without repair or dispatch |
+
+The broad campaign remains **RED**. Sixteen exact failures recur from the
+preserved `0c156966` baseline: four nanoBragg harness cases, ten use-site-scope
+cases, growth selectors, and watcher/report parity. Three other failures are
+unrelated timing cases: prebind cancellation exceeded its two-second fixture
+window; the late-refusal watcher timed out before its third call (isolated
+known F50 xfail); running discovery exceeded its 40-second switching window.
+Their provider/watchdog source and tests are unchanged from base. The three
+cases plus baseline watcher parity were rerun unchanged with the result above.
+Absent baseline failures are not claimed fixed.
+
+The remaining failure exposed invalid test setup:
+`test_direct_child_refuses_superseded_live_permission[new_ordinal]` reused a
+discarded attempt's workspace for the new ordinal. Workspace uniqueness already
+existed in the ledger reader; Task 7 validates it before append. The test-only
+correction uses the canonical ordinal-2 workspace, preserving the original
+request-invalid, no-compilation and no-write assertions. Its fresh RED was
+observed before correction. No production behavior or test timeout was weakened,
+and no related failure remains unresolved. Broad and real suites were not
+repeated for this fixture-only correction; both complete affected owners passed.
+
+The final real campaign used image
+`example.invalid/run-ref-holder-fixture@sha256:9cd7c527bd9141fd944a4876d2facd11c8a541211d2cfb08698f93e924d8fba8`,
+sealed tree `sha256:973cd37339e7ef7627c497292983fa6b110ef784f121f41d8a52edc6385fadae`,
+from the retained e2e fixture/import path. Twelve external controller-SIGKILL
+windows retain child IDs, clone identity, dispatch/holder counters and logs in
+local `t7-e2e-92b55aff-evidence/` under this plan's SDD; the parent IDs are retained
+here independently of temporary pytest directories:
+
+| Window | Parent run ID |
+| --- | --- |
+| after_release | `20261015T101704Z-laqagk` |
+| before_release | `20261015T101658Z-tqr9p3` |
+| before_settlement | `20261015T101812Z-2dlsdy` |
+| checkpoint_commit_gap | `20261015T101722Z-9tpmt4` |
+| checkpoint_intent | `20261015T101716Z-upgno2` |
+| child_terminal | `20261015T101736Z-5fhtz9` |
+| failed_row | `20261015T101741Z-60uzef` |
+| failed_terminal | `20261015T101750Z-hjvfuv` |
+| first_commit | `20261015T101710Z-g6bsme` |
+| parent_commit | `20261015T101806Z-uec87p` |
+| pending | `20261015T101800Z-4418x5` |
+| rerun_before_checkpoint | `20261015T101728Z-goieom` |
+
+Detailed local artifacts are `task-7-report.md`, `task-7-code-review.md`,
+`task-7-broad-classification.md`, `t7-final-campaign.sh`, `t7-final.head`,
+`t7-e2e-final.{log,exit}`, `t7-broad-final.{log,exit}` and
+`t7-classify.{log,exit}`. This committed section preserves their acceptance
+summary. Clock/boot tests are injected controls, not physical host suspend,
+reboot or power-loss experiments. No autonomous watchdog is selected; an open
+interval charges downtime/suspension and refuses across boots.
+
 ## Task 10: native authentication follow-up (2026-10-15)
 
 This is a current feasibility investigation, not F4 or production qualification.
