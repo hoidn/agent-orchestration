@@ -61,6 +61,7 @@ class _Discovery:
         self.order = _Order()
         self.starts = {}
         self.settlements = {}
+        self.agent_cursor = {}
         for entry in snapshot.entries:
             row = entry.data
             if row['record'] in {'started', 'settled'}:
@@ -77,13 +78,25 @@ class _Discovery:
             self._frontier(reached)
             raise MissingCommit(identity)
         self._check_order(commit)
-        dependencies = effect_dependencies(operands, launch_workspace)
+        dependencies = self._advance_agent_cursor(commit, effect_dependencies(operands, launch_workspace))
         if dependencies != commit.data['depends_on']:
             raise MemoError('memo_inconsistent', 'committed dependencies differ from reached operands')
         self.consumed.add(identity)
         self.prefix.commits.append(reached)
         self.order.predecessors = (commit,)
         return committed_value(self.authority, node, commit, identity)
+
+    def _advance_agent_cursor(self, commit, dependencies):
+        """Logical cursor: an `agent_turn` commit names the agent's previous replayed turn as its predecessor (and
+        dependency), then becomes the agent's head. No native read: later turns may already exist natively."""
+        if commit.data['effect_class'] != 'agent_turn':
+            return dependencies
+        proof = commit.data['proof']
+        head = self.agent_cursor.get(proof['agent'])
+        if proof['predecessor'] != head:
+            raise MemoError('memo_inconsistent', 'agent turn predecessor differs from the replayed agent cursor')
+        self.agent_cursor[proof['agent']] = commit.data['identity']
+        return sorted(set(dependencies) | ({head} if head else set()))
 
     def _frontier(self, reached):
         self.frontiers.add(reached.identity)

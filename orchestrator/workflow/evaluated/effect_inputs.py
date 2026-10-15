@@ -20,6 +20,8 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
 from .agent_sessions import resolve_allocation_input
+from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
+from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
@@ -45,14 +47,19 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
         authority, node, operands, identity, workspace, reader,
         commit, None, None, commit.data["result_path"],
         check_command_destinations=False, owner=owner, launch_cwd=resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=commit),
+        snapshot=snapshot,
     )
     dependencies = effect_dependencies(operands, launch_workspace)
+    if node["class"] == "agent_turn":
+        dependencies = list(turn_dependencies(resolved, dependencies))
     result = _reuse_effect_commit(
         authority, commit, node, identity, parts, canonical_sha256(parts), dependencies
     )
+    settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
-        validate_evaluated_run_ref(authority, resolved, identity, workspace, commit,
-            settled=(identity, commit.data["attempt"]) in snapshot.settlements)
+        validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
+    elif node["class"] == "agent_turn":
+        validate_turn(authority, resolved, identity, commit, settled=settled)
     return result
 
 
@@ -89,28 +96,50 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
 def _resolve_effect_input(
     authority, node, operands, identity, workspace, reader,
     commit, baseline, attempt_directory, result_path, *, owner, workspace_files=None, check_command_destinations=True, launch_cwd=None,
+    snapshot=None,
 ):
-    """Resolve only the reached effect; command closure checks stay local."""
+    """Resolve only the reached effect; command closure checks stay local. `snapshot` is required for `agent_turn`."""
     if launch_cwd is not None and (commit is not None or baseline is not None):
         _check_retry_cwd(identity, commit or baseline, workspace, launch_cwd)
     if node["class"] == "command":
         resolved, parts, implementation_files = _resolve_command_input(authority, node, operands, identity, owner, workspace,
             commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations, launch_cwd)
-    elif node["class"] == "run_ref":
-        require_run_ref_root(authority)
-        resolved, parts = resolve_run_ref_input(node, operands)
-        implementation_files = {}
-    elif node["class"] == "agent":
-        resolved, parts = resolve_allocation_input(node, operands)
-        implementation_files = {}
     else:
-        resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
-            commit, result_path, launch_cwd)
-        parts = dict(resolved.input_parts)
+        resolved, parts = _resolve_external_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd, snapshot)
         implementation_files = {}
     if launch_cwd is not None:
         parts["launch_cwd"] = _cwd_digest(workspace, launch_cwd)
     return resolved, parts, implementation_files
+
+
+def _resolve_external_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd, snapshot):
+    if node["class"] == "run_ref":
+        require_run_ref_root(authority)
+        return resolve_run_ref_input(node, operands)
+    if node["class"] == "agent":
+        return resolve_allocation_input(node, operands)
+    if node["class"] == "agent_turn":
+        resolved = _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd, snapshot)
+    else:
+        resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd)
+    return resolved, dict(resolved.input_parts)
+
+
+def _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd, snapshot):
+    """A committed turn replays against its historical predecessor and its committed delivery rendering."""
+    try:
+        return resolve_turn_input(authority, node, operands, identity, workspace, reader, snapshot=snapshot,
+            result_path=result_path, launch_cwd=launch_cwd, committed_offset=None if commit is None else commit.offset,
+            delivery_name=None if commit is None else _provider_delivery_name(node, commit, identity))
+    except (AgentTurnError, MemoError):
+        raise
+    except Exception as exc:
+        if commit is not None:
+            raise _EffectInputDiverged(identity, f"agent turn inputs could not be resolved: {exc}") from exc
+        raise
 
 
 def _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd):

@@ -48,6 +48,7 @@ from .resume_prefix import (
 )
 from .views import ViewPublicationError
 from . import effect_inputs
+from . import agent_turns
 
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ def execute_pure_run(
             nonlocal provider_executor
             if node.get("class") not in {"command", "provider", "run_ref", "agent", "agent_turn"}:
                 raise RuntimeError("unsupported evaluated effect class")
-            if node["class"] == "provider" and provider_executor is None:
+            if node["class"] in {"provider", "agent_turn"} and provider_executor is None:
                 provider_executor = ProviderExecutor(
                     workspace, ProviderRegistry(), provider_observation_enabled=False
                 )
@@ -272,16 +273,22 @@ def prepare_effect(
     resolved, parts, implementation_files = effect_inputs._resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files, launch_cwd=launch_cwd,
+        snapshot=snapshot,
     )
     input_digest = canonical_sha256(parts)
     dependencies = effect_inputs.effect_dependencies(operands, launch_workspace)
     if commit is not None:
         return _reuse_reached_commit(authority, node, identity, parts, input_digest,
             dependencies, resolved, workspace, commit, snapshot, site_classes)
+    if node['class'] == 'agent_turn':
+        return agent_turns.prepare_agent_attempt(authority, node, operands, identity, snapshot, ordinal=ordinal,
+            attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
+            implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
+            workspace=workspace, workspace_files=workspace_files, site_classes=site_classes,
+            provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated")
-    assert ordinal is not None and attempt_directory is not None
     if baseline is not None:
         logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
     if node['class'] == 'run_ref':
@@ -298,12 +305,18 @@ def prepare_effect(
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
     resolved, workspace, commit, snapshot, site_classes):
+    if node["class"] == "agent_turn":
+        dependencies = list(agent_turns.turn_dependencies(resolved, dependencies))
     result = effect_inputs._reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies)
+    settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
-        settled = (identity, commit.data["attempt"]) in snapshot.settlements
         validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
         if not settled:
             reconcile_evaluated_run_ref(authority, resolved, identity, workspace, commit, site_classes)
+    elif node["class"] == "agent_turn":
+        agent_turns.validate_turn(authority, resolved, identity, commit, settled=settled)
+        if not settled:
+            agent_turns.reconcile_turn(authority, resolved, identity, commit, site_classes)
     return result
 
 
@@ -338,7 +351,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
             committed['proof'] = proof
         _append_effect_commit(authority, committed, fatal_publication)
         if prepared is not None:
-            settle_evaluated_run_ref(authority, attempt.resolved, attempt.identity, attempt.ordinal,
+            settle = settle_evaluated_run_ref if node['class'] == 'run_ref' else agent_turns.settle_turn
+            settle(authority, attempt.resolved, attempt.identity, attempt.ordinal,
                 attempt.workspace, attempt.site_classes, prepared, committed)
         return EvaluatedValue(result.value, result.descriptor,
             dependencies=(*attempt.dependencies, attempt.identity),
@@ -346,8 +360,7 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
     except ViewPublicationError:
         raise
     except Exception as exc:
-        if getattr(exc, "publication_failure", False) or (fatal_publication
-                and getattr(exc, "code", "") == "reserved_run_root_changed"):
+        if _keeps_start_unfailed(exc, fatal_publication):
             raise
         publication_error = _fail_started_effect(
             authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
@@ -355,6 +368,13 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         raise
     finally:
         attempt.attempt_files.close()
+
+
+def _keeps_start_unfailed(exc, fatal_publication):
+    """Publication failures propagate as they are; an unresolved agent turn (`keep_pending`) keeps its `started`
+    pending, so neither `failed` nor a terminal is appended."""
+    return bool(getattr(exc, "publication_failure", False) or getattr(exc, "keep_pending", False)
+                or (fatal_publication and getattr(exc, "code", "") == "reserved_run_root_changed"))
 
 
 def _append_effect_commit(authority, committed, fatal_publication):
@@ -374,6 +394,8 @@ def _raise_if_publication_fatal(error, fatal_publication):
 def _validate_attempt_outcome(attempt, outcome):
     if attempt.node['class'] == 'run_ref':
         return project_evaluated_run_ref(attempt.node, outcome.run_ref, attempt.attempt_files)
+    if attempt.node['class'] == 'agent_turn':
+        return agent_turns.project_turn(attempt, outcome)
     if attempt.node['class'] == 'agent':
         result, digest = allocation_result(attempt)
     elif attempt.node['class'] == 'command':

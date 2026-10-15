@@ -479,6 +479,46 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     `provider_result_projection` as the provider spellings of the command
     result codes; `stdout.txt` and `stderr.txt` are evidence only. Attempt files are created exclusively and
     never overwritten by a later attempt.
+- Agent turn request and attempt files (target 2.38)
+  - The request is the ordinary provider request of the agent's pinned
+    template with session request `fresh` (first turn) or `resume <locator>`
+    (later turns); policy is the allocation's `model`/`effort` plus the
+    turn's `timeout_sec`; environment and prompt as for providers, run from
+    the workspace (the allocation pins that directory). The delivery
+    rendering is selected structurally from the template's metadata mode
+    (`legacy` for OMP JSON, else the current file rendering); a committed
+    turn replays with its committed rendering.
+  - Resolved input parts are the provider parts plus `agent` (digest of the
+    Agent descriptor, which carries the pinned configuration digest) and
+    `predecessor` (digest of `{turn, proof}` of the agent's previous
+    committed turn, or of `null`). The predecessor is also a `depends_on`
+    entry. A template, default or working-directory change since
+    allocation, or a provider outside the node's `origins`, refuses
+    `agent_policy_mismatch` before `started`.
+  - Before `started` and again before launch, the runtime reads the native
+    store head and refuses `agent_session_unavailable` (missing, ambiguous or
+    unreadable store) or `agent_session_diverged` (head differs from the
+    predecessor's committed position, or an open turn). It writes
+    `receipt.json` (`intent`) before launch; the receipt records `launching`
+    with the child's process group and the group leader's start time
+    (`/proc/<pid>/stat` field 22) as soon as the executor binds it, then
+    `completed` with the native locator and position once the store shows
+    exactly one completed turn after the predecessor whose user message
+    carries this attempt's `result.json` path. Receipt updates are monotone:
+    binding fields never change and `completion` never moves backwards; a
+    malformed receipt is `memo_inconsistent`.
+  - Commit requires that exact native completion and the ordinary
+    typed-result validation; a result file alone is never a result, and a
+    Claude `result` with `is_error: true` is an invalid result. An invalid
+    typed result closes the attempt `failed` with `provider_result_invalid`
+    (first turn) or `agent_turn_result_invalid` (later turns). A failed
+    process closes `failed` with its provider code only when no child was
+    spawned or the adapter proves a resumed conversation's head unchanged
+    (receipt `not_dispatched`). Every other exception after `launching`
+    keeps the `started` row pending with `agent_turn_unresolved` (receipt
+    `unknown` before the adapter confirmed completion, `completed` after
+    it); no `failed` or terminal is appended and resume reconciles the same
+    ordinal without redispatch.
 - Run references: the resolved input parts are `config` (the step-config
   digest) and `inputs`; the child runs in its clone workspace under the
   ledger of [State](state.md#target-224-run-ref-state-settlement-and-resume)

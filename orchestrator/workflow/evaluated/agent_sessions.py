@@ -163,15 +163,15 @@ def write_receipt(files: WorkspaceFiles, receipt: Receipt) -> None:
     files.write_atomic("receipt.json", canonical_json_bytes(asdict(receipt)))
 
 
-def update_receipt(files: WorkspaceFiles, **changes) -> Receipt:
-    """Monotone update from the stored receipt: a field already set keeps its value unless `changes` gives one."""
+def merged_receipt(files: WorkspaceFiles, **changes) -> Receipt:
+    """The stored receipt with `changes` applied: a field already set keeps its value unless `changes` gives one.
+
+    Callers write the result through `write_receipt`, which refuses a non-monotone update.
+    """
     current = read_receipt(files)
     if current is None:
         raise MemoError("memo_inconsistent", "receipt update without a stored receipt")
-    merged = {name: value for name, value in changes.items() if value is not None or getattr(current, name) is None}
-    updated = replace(current, **merged)
-    write_receipt(files, updated)
-    return updated
+    return replace(current, **{name: value for name, value in changes.items() if value is not None or getattr(current, name) is None})
 
 
 def read_receipt(files: WorkspaceFiles) -> Receipt | None:
