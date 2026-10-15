@@ -132,7 +132,7 @@ def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_pat
     assert tree(tmp_path) == before
 
 
-@pytest.mark.parametrize("target", ["2.34", "2.35", "2.36", "2.37"])
+@pytest.mark.parametrize("target", ["2.34", "2.35", "2.36", "2.37", "2.38"])
 def test_explain_flat_views_refuse_without_build_or_export_writes(tmp_path, target):
     source = tmp_path / "retired.orc"
     source.write_text(PROGRAM.format(target=target))

@@ -127,7 +127,7 @@ def ensure_loop_projectable_type(
             span=span,
             form_path=form_path,
         )
-    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt"}:
+    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt", "Agent"}:
         _raise_loop_error(
             code=code,
             message=f"`{type_ref.name}` cannot be carried across `loop/recur` outputs",

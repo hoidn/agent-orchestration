@@ -360,6 +360,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
     state.run_ref_origins_by_source_key = {
         ("session-module", "expression-key"): bytes.fromhex("04" * 32)
     }
+    state.agent_origins_by_binding = {1: (object(), frozenset({"providers.outer"}))}
     state.parametric_specialization_requests = {
         "specialization": cast(
             "PendingParametricProcedureSpecialization", object()
@@ -398,6 +399,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
             "run_ref_origins_by_source_key": dict(
                 state.run_ref_origins_by_source_key
             ),
+            "agent_origins_by_binding": dict(state.agent_origins_by_binding),
             "run_ref_metadata_by_name": dict(
                 state.run_ref_metadata_by_name
             ),
@@ -498,6 +500,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "loop_carrier_metadata_by_expr_key": {},
         "loop_carrier_families_by_expr_key": {},
         "run_ref_origins_by_source_key": {},
+        "agent_origins_by_binding": {},
         "run_ref_metadata_by_name": {},
         "run_ref_metadata_by_expr_key": {},
         "parametric_specialization_requests": {},

@@ -8,7 +8,8 @@ Old-profile IO/persistence details below are historical contracts, while shared 
 services remain in use for admitted evaluated effects. Definitions of session,
 supervision, peers, phased or adjudicated IO do not admit those excluded
 workflow effects. Targets 2.35/2.36 retain current support; registered 2.37
-retains only its [bounded qualification](versioning.md#version-gating-summary).
+and registered bounded 2.38 (agent sessions; see versioning) retain only their
+[bounded qualification](versioning.md#version-gating-summary).
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
@@ -323,9 +324,11 @@ retains only its [bounded qualification](versioning.md#version-gating-summary).
 
 ## Evaluated Command And Provider IO (target 2.35)
 
-This contract applies to admitted evaluated effects at 2.35/2.36 and bounded
-2.37. W3 changes authoring, not command/provider IO or the public lifecycle;
-2.37 registration does not imply general parallel qualification. See
+This contract applies to admitted evaluated effects at 2.35/2.36, bounded
+2.37 and registered bounded 2.38 (agent sessions; see versioning). W3 changes
+authoring, not command/provider IO or the public lifecycle; 2.37 registration
+does not imply general parallel qualification, and 2.38 registration does not
+imply agent-session runtime delivery. See
 [versioning](versioning.md#version-gating-summary) for the target limits.
 
 This section owns the request a target-2.35 command or provider receives,
@@ -476,6 +479,55 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     `provider_result_projection` as the provider spellings of the command
     result codes; `stdout.txt` and `stderr.txt` are evidence only. Attempt files are created exclusively and
     never overwritten by a later attempt.
+- Agent turn request and attempt files (target 2.38)
+  - The request is the ordinary provider request of the agent's pinned
+    template with session request `fresh` (first turn) or `resume <locator>`
+    (later turns); policy is the allocation's `model`/`effort` plus the
+    turn's `timeout_sec`; environment and prompt as for providers, run from
+    the workspace (the allocation pins that directory). The delivery
+    rendering is selected structurally from the template's metadata mode
+    (`legacy` for OMP JSON, else the current file rendering). A committed
+    turn replays with its committed rendering and its inline proof alone: no
+    current template, session support or native store is consulted.
+  - Resolved input parts are the provider parts plus `agent` (digest of the
+    Agent descriptor, which carries the pinned configuration digest) and
+    `predecessor` (digest of `{turn, proof}` of the agent's previous
+    committed turn, or of `null`). The predecessor is also a `depends_on`
+    entry. A template, default or working-directory change since
+    allocation, or a provider outside the node's `origins`, refuses
+    `agent_policy_mismatch` before `started`.
+  - Before `started` and again before launch, the runtime reads the native
+    store head and refuses `agent_session_unavailable` (missing, ambiguous or
+    unreadable store) or `agent_session_diverged` (head differs from the
+    predecessor's committed position, or an open turn). It writes
+    `receipt.json` (`intent`) before launch; the receipt records `launching`
+    with the child's process group and the group leader's start time
+    (`/proc/<pid>/stat` field 22) as soon as the executor binds it, then
+    `completed` with the native locator and position once the store shows
+    exactly one completed turn after the predecessor whose user message
+    carries this attempt's `result.json` path. Receipt updates are monotone:
+    binding fields never change and `completion` moves only `intent` ->
+    `launching` | `not_dispatched` | `unknown`, `launching` -> `unknown` |
+    `completed` | `not_dispatched`, `unknown` -> `completed` | `abandoned`,
+    `completed` -> `completed` (adding the result digest) | `abandoned`
+    (`not_dispatched` and `abandoned` are final); a malformed receipt is
+    `memo_inconsistent`.
+  - Commit requires that exact native completion and the ordinary
+    typed-result validation; a result file alone is never a result, and a
+    Claude `result` with `is_error: true` is an invalid result. An invalid
+    typed result closes the attempt `failed` with `provider_result_invalid`
+    (first turn) or `agent_turn_result_invalid` (later turns). These Agent
+    validation errors expose only logical agent identity and safe code, with
+    `exit_info {}` and no `violations`; raw provider/result detail is not copied
+    into public diagnostics, state or reports ([State](state.md#memo-records)). A failed
+    process closes `failed` with its provider code only when no child was
+    spawned or the adapter proves a resumed conversation's head unchanged
+    (receipt `not_dispatched`). Every other exception after `launching`
+    keeps the `started` row pending with `agent_turn_unresolved` (receipt
+    `unknown` before the adapter confirmed completion, `completed` after
+    it), including a failure to record that state and a failed memo commit
+    after the prepared proof; no `failed` or terminal is appended and resume
+    reconciles the same ordinal without redispatch.
 - Run references: the resolved input parts are `config` (the step-config
   digest) and `inputs`; the child runs in its clone workspace under the
   ledger of [State](state.md#target-224-run-ref-state-settlement-and-resume)

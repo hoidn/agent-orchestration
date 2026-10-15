@@ -79,6 +79,7 @@ EXPECTED = {
     "workflows/examples/kiss_backlog_item.orc::run-backlog-item": Built(12),
     "workflows/examples/plan_review_execute.orc::run": Built(4),
     "workflows/examples/design_review_execute.orc::run": Built(4),
+    "workflows/examples/design_review_execute_agents.orc::run": Built(6),
     "workflows/examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
     "workflows/examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel": Built(2),
     "workflows/examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
@@ -119,7 +120,7 @@ EXPECTED = {
 }
 
 EXPECTED_PARTITION = {
-    "Built": 39,
+    "Built": 40,
     "Gap": 9,
     "Refused": 5,
 }
@@ -804,7 +805,7 @@ def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
 def test_corpus_keys_and_pinned_partition_are_exact() -> None:
     workflows = corpus()
     keys = [workflow.key for workflow in workflows]
-    assert len(workflows) == 53
+    assert len(workflows) == 54
     assert len(set(keys)) == len(keys)
     assert set(keys) == set(EXPECTED)
 
@@ -812,7 +813,7 @@ def test_corpus_keys_and_pinned_partition_are_exact() -> None:
 def test_pinned_corpus_partition_is_exact() -> None:
     counts = Counter(type(outcome).__name__ for outcome in EXPECTED.values())
     assert counts == EXPECTED_PARTITION
-    assert sum(counts.values()) == 53
+    assert sum(counts.values()) == 54
 
 
 @pytest.mark.parametrize(

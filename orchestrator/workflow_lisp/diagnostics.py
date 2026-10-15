@@ -197,6 +197,11 @@ _TYPE_CODES = frozenset(
         "generic_union_unresolved_argument",
         "generic_union_instantiation_cycle",
         "generic_union_not_generic",
+        # Agent sessions (target 2.38).
+        "agent_target_dsl_unsupported", "agent_provider_invalid", "agent_keyword_invalid",
+        "agent_model_type_invalid", "agent_effort_type_invalid", "agent_policy_operand_not_inline_lowerable",
+        "agent_turn_policy_override_forbidden", "agent_turn_option_unsupported", "agent_transport_forbidden",
+        "parallel_agent_boundary", "let_proc_capture_agent_forbidden", "agent_origin_mismatch",
     }
 )
 _LOWERING_SURFACE_CODES = frozenset(

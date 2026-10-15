@@ -53,6 +53,8 @@ from orchestrator.workflow.type_descriptor import _named_type_basename
 from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
 
 from .targets import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from . import check_agents
+from .node_walk import _effect_value_children
 from .names import (
     _parse_identity,
     _render_key_identity,
@@ -111,7 +113,7 @@ _VALUE_KEYS = {
     "perform": {
         "k", "class", "result", "repeat", "site", "@", "boundary", "command",
         "closure", "contract", "argv", "document", "argv_transport", "provider", "prompt", "inputs",
-        "dependencies", "policy", "config", "arm_inputs", "question",
+        "dependencies", "policy", "config", "arm_inputs", "question", "agent", "origins",
     },
 }
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
@@ -319,6 +321,7 @@ class _Checker:
         self._check_call_graph()
         self._compute_effectful_definitions()
         self._check_effect_configurations()
+        check_agents.check_parallel_agents(self)
         self._validate_run_ref_origins()
         self._check_run_ref_signatures_and_digests()
         self._check_pending_boundaries()
@@ -566,6 +569,8 @@ class _Checker:
 
     def _effect_children(self, node: Mapping[str, Any]) -> list[Any]:
         effect_class = node.get("class")
+        if effect_class in {"agent", "agent_turn"}:
+            return _effect_value_children(node)
         if effect_class == "command":
             children = list(node.get("argv", [])) if isinstance(node.get("argv"), list) else []
             plans = node.get("argv_transport", [])
@@ -895,6 +900,9 @@ class _Checker:
         for owner, scope in scopes:
             for node in self.performs.get(owner, []):
                 effect_class = node.get("class")
+                if effect_class in {"agent", "agent_turn"}:
+                    check_agents.check_agent_configuration(self, node, scope, owner)
+                    continue
                 if effect_class == "run_ref":
                     continue
                 if effect_class == "command":
@@ -1755,6 +1763,7 @@ class _Checker:
             validate_compiler_normalized_type_descriptor(descriptor)
         except (TypeError, ValueError, RecursionError) as exc:
             self.fail("type_descriptor", f"invalid normalized descriptor: {exc}", node)
+        check_agents.check_agent_target(self, descriptor, node)
         kind = descriptor["kind"]
         if kind == "primitive" and descriptor["name"] not in COMPILER_PRIMITIVE_TYPE_NAMES:
             self.fail("type_mismatch", f"unknown compiler primitive {descriptor['name']!r}", node)
@@ -2179,6 +2188,7 @@ class _Checker:
         for descriptor in [*residual["params"], residual["result"]]:
             self._validate_key_type(descriptor, runtime_only=True)
         self._validate_key_values(key)
+        check_agents.check_key_agents(self, key)
 
     @staticmethod
     def _is_projected_selector(selector):
@@ -2439,6 +2449,7 @@ class _Checker:
         except (TypeError, ValueError, RecursionError) as exc:
             self.fail("definition_key", f"invalid projected key type: {exc}")
         self._validate_key_primitive_names(normalized)
+        check_agents.check_agent_target(self, normalized)
 
     def _validate_key_primitive_names(self, descriptor: Any) -> None:
         if not isinstance(descriptor, Mapping):
@@ -2945,6 +2956,7 @@ class _Checker:
             if set(value) != {"k", "v", "type"}:
                 self.fail("definition_key", "closed literal has invalid fields")
             self._validate_key_type(value["type"])
+            check_agents.require_no_agent(self, value["type"], value)
         elif kind == "name":
             if set(value) != {"k", "n"} or not isinstance(value["n"], str):
                 self.fail("definition_key", "closed name has invalid fields")
@@ -3052,6 +3064,7 @@ class _Checker:
             self.fail("call_signature", "parameters must be an array")
         self._parameter_environment(params, defaults, node=self.tree)
         self._validate_descriptor(result)
+        check_agents.check_workflow_signature(self, params, result, self.tree)
 
     def _parameter_environment(
         self,
@@ -3078,6 +3091,7 @@ class _Checker:
         if not set(defaults).issubset(env):
             self.fail("call_signature", "defaults refer to an unknown parameter", node)
         for name, value in defaults.items():
+            check_agents.require_no_agent(self, env[name], node)
             try:
                 _coerce_checked_value(value, env[name], context=f"default {name}")
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
@@ -3272,6 +3286,7 @@ class _Checker:
             state_type = node.get("state_type")
             loop_result = node.get("result")
             self._validate_descriptor(state_type, node=node)
+            check_agents.require_no_agent(self, [state_type, loop_result], node)
             self._validate_descriptor(loop_result, node=node)
             budget_type = self._value(node.get("budget"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(budget_type, {"kind": "primitive", "name": "Int"}, "type_mismatch", node["budget"])
@@ -3350,7 +3365,7 @@ class _Checker:
             self._validate_descriptor(result, node=node)
             self.performs.setdefault(owner, []).append(node)
             self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
-            return result, node.get("class") == "provider"
+            return result, node.get("class") in {"provider", "agent_turn"}
         if kind == "call":
             return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
         return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
@@ -3377,6 +3392,7 @@ class _Checker:
         if allowed is None:
             self.fail("node_kind", f"unknown value node kind {kind!r}", node)
         self._node_shape(node, allowed, node=node)
+        check_agents.check_agent_value(self, node, env)
         if kind == "lit":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)
@@ -3474,7 +3490,7 @@ class _Checker:
                     branch_origins = (branch_origins - {name}) | ({name} if provider else set())
                 branch_types.append(self._value(arm.get("value"), branch_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=frozenset(branch_origins), command_roots=command_roots, command_index=command_index))
             self._require_type(branch_types[1], branch_types[0], "type_mismatch", node)
-            return branch_types[0]
+            return dict(branch_types[0])  # a fresh descriptor: a selected agent is untraced (check_agents)
         if kind == "list":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)
@@ -3811,6 +3827,7 @@ class _Checker:
         item_type, result = node["item_type"], node["result"]
         self._validate_descriptor(item_type, node=node)
         self._validate_descriptor(result, node=node)
+        check_agents.require_no_agent(self, [item_type, result], node, rule="parallel_agent_boundary")
         context = dict(owner=owner, loops=(), scope=scope, allow_effect=False,
             provider_origins=provider_origins, command_roots=command_roots,
             command_index=command_index)
@@ -3824,7 +3841,7 @@ class _Checker:
         if workspace.get("kind") != "path" and workspace != {"kind": "primitive", "name": "String"}:
             self.fail("type_mismatch", "parallel map workspace must be a String or path", node)
         body_index = self._parallel_map_index(node, nested)
-        outcomes = self._body(node["body"], nested, owner=owner, result=result["item"],
+        outcomes = check_agents.check_parallel_agent_body(self, node["body"], nested, owner=owner, result=result["item"],
             joins={}, loops=(), scope=scope, provider_origins=context["provider_origins"],
             command_roots=command_roots, command_index=body_index)
         self._halt_body_type(outcomes, result["item"], rule="parallel_map_control",
@@ -3988,6 +4005,7 @@ class _Checker:
         value_type: Mapping[str, Any],
         node: Mapping[str, Any],
     ) -> None:
+        check_agents.require_no_agent(self, value_type, node)
         if not isinstance(renderer_id, str) or not renderer_id:
             self.fail("effect_shape", "provider input renderer id must be a nonempty string", node)
         try:
@@ -4361,7 +4379,7 @@ class _Checker:
         self._check_command_contract(node)
         self._check_command_operand_argv(node, value_context["scope"])
         for value in node["argv"]:
-            self._value(value, env, allow_effect=False, **value_context)
+            check_agents.require_no_agent(self, self._value(value, env, allow_effect=False, **value_context), node)
         if "document" in node:
             self._check_command_document_values(node, env, **value_context)
         if "argv_transport" in node:
@@ -4407,6 +4425,10 @@ class _Checker:
         command_index=None,
     ) -> None:
         effect_class = node.get("class")
+        if effect_class in {"agent", "agent_turn"}:
+            return check_agents.check_agent_effect_node(
+                self, node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins,
+                command_roots=command_roots, command_index=command_index)
         if effect_class == "command":
             self._check_command_effect_node(node, env, owner=owner, loops=loops,
                 scope=scope, provider_origins=provider_origins,
@@ -4593,6 +4615,7 @@ class _Checker:
         arg_types: list[dict[str, Any]],
         definition: Mapping[str, Any],
     ) -> None:
+        check_agents.require_no_agent(self, [*arg_types, node.get("type")], node)
         boundary = node.get("boundary")
         if not isinstance(boundary, Mapping) or set(boundary) != {"params", "direct", "inputs", "outputs"}:
             self.fail("call_boundary", "annotated call boundary has invalid fields", node)

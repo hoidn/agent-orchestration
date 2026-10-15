@@ -1255,6 +1255,9 @@ def _typecheck_let_proc_expr_impl(
                 form_path=expr.binding.form_path,
                 expansion_stack=expr.binding.expansion_stack,
             )
+        from .typecheck_agents import require_no_agent
+        require_no_agent(capture_type, where=f"`let-proc` capture `{capture_name}`", span=expr.binding.span,
+                         form_path=expr.binding.form_path, code="let_proc_capture_agent_forbidden")
         capture_params.append(
             ProcedureParam(
                 name=capture_name,

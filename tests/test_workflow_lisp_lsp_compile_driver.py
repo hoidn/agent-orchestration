@@ -4494,7 +4494,7 @@ def test_observe_disk_path_routes_frozen_member_to_configuration_latch(
     assert transition.effects.restart_notice_required is True
 
 
-@pytest.mark.parametrize("target", ("2.34", "2.35", "2.36", "2.37"))
+@pytest.mark.parametrize("target", ("2.34", "2.35", "2.36", "2.37", "2.38"))
 def test_analysis_build_accepts_supported_headers_without_flat_emission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str,
 ) -> None:

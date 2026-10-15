@@ -44,6 +44,7 @@ from .expressions import (
     PureOpExpr,
     ProcedureCallExpr,
     ProviderBundlePathExpr,
+    AgentExpr,
     ProviderResultExpr,
     RequestInputExpr,
     RecordExpr,
@@ -91,6 +92,7 @@ from .typecheck_context import (
     _type_refs_compatible,
     _typed,
 )
+from .typecheck_agents import record_agent_origin, typecheck_agent_expr
 from .typecheck_drain_phase import (
     typecheck_phase_target_expr,
     typecheck_produce_one_of_expr,
@@ -949,6 +951,7 @@ def _typecheck(
             )
             local_binding_env[name] = binding_identity
             binding_identities.append(binding_identity)
+            record_agent_origin(context, binding_identity, rhs_expr, typed_binding.type_ref, rhs_binding_env)
             local_value_expr_env[name] = typed_binding.expr
             rewritten_bindings.append((name, typed_binding.expr))
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
@@ -1203,6 +1206,8 @@ def _typecheck(
             recurse=recurse,
             typed_factory=_typed,
         )
+    if type(expr) is AgentExpr:
+        return typecheck_agent_expr(expr, context=context, recurse=recurse, typed_factory=_typed)
     if type(expr) is ProviderResultExpr:
         return _typecheck_provider_result_expr(
             expr,

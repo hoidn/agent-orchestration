@@ -637,6 +637,7 @@ def test_codex_jsonl_accumulator_handles_split_coalesced_chunks_and_one_eof_tail
         "session_id": "thread-\N{SNOWMAN}",
         "normalized_stdout": "first second",
         "event_count": 4,
+        "turns_completed": 1,
     }
 
 
@@ -1487,6 +1488,7 @@ def test_session_spool_failure_does_not_block_authoritative_accumulator(
         "session_id": "thread-spool",
         "normalized_stdout": "still valid",
         "event_count": 3,
+        "turns_completed": 1,
     }
 
 
@@ -1599,6 +1601,7 @@ def test_session_executor_uses_real_codex_shape_and_preserves_raw_stdout(
         "session_id": "thread-real",
         "normalized_stdout": "real output",
         "event_count": 3,
+        "turns_completed": 1,
     }
 
 
@@ -1626,6 +1629,7 @@ def test_legacy_codex_jsonl_parser_delegates_to_shared_real_shape_codec(
         "session_id": "thread-real",
         "normalized_stdout": "delegated",
         "event_count": 3,
+        "turns_completed": 1,
     }
 
 

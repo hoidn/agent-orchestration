@@ -11,10 +11,10 @@ from typing import Any, Callable
 
 MAX_TRANSPORT_VALUE_DEPTH = 64
 MAX_TRANSPORT_VALUE_BYTES = 16_777_216
-_NONTRANSPORTABLE_PRIMITIVES = frozenset({"Json", "Provider", "Prompt"})
+_NONTRANSPORTABLE_PRIMITIVES = frozenset({"Json", "Provider", "Prompt", "Agent"})
 COMPILER_PRIMITIVE_TYPE_NAMES = frozenset(
     {
-        "String", "Int", "Float", "Bool", "Json", "Provider", "Prompt",
+        "String", "Int", "Float", "Bool", "Json", "Provider", "Prompt", "Agent",
         "PathRel", "RunId", "Symbol", "Value",
     }
 )

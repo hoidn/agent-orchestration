@@ -106,11 +106,17 @@ not require all five axes to pass before useful capabilities can ship.
 
 Native sequential turns are separately recorded as
 [PQ-1 in runtime Phase 4](2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
-on 2026-10-01: a pending, consumer-conditioned addition, not another research
-unit or a prerequisite for portable context, the executable core, or the
-early migration pilot. The [queue design](../design/workflow_lisp_provider_prompt_queue.md)
-owns delayed delivery and recovery; shared session/turn adapters must not
-become a parallel session manager.
+on 2026-10-01 and selected on 2026-10-14. The first slice is implemented at
+target 2.38: the two-agent `design_review_execute` variant on Claude and Codex.
+[PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
+deterministic proofs and bounded adapter smokes; the separately authorized
+clean and failed/resumed acceptance comparison (PQ-1c) has not run. The
+`reviewed_change` coder variant remains a future second slice, with its turn
+shape selected then. [Agent Sessions](../design/workflow_lisp_agent_sessions.md)
+supersedes the [queue design](../design/workflow_lisp_provider_prompt_queue.md)
+for first delivery, with one shared native-turn owner and a typed memo commit
+per turn. This adds no research unit or prerequisite for portable context,
+the executable core, or the early migration pilot.
 
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.

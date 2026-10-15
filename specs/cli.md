@@ -7,8 +7,8 @@ contract describes the implemented cutoff candidate; [gate R and its
 closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 own qualification and delivery, not a published package-version claim.
 
-Only evaluated entries at 2.35/2.36 and bounded 2.37 are executable, with their
-existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
+Only evaluated entries at 2.35/2.36, bounded 2.37 and registered bounded 2.38
+(agent sessions; see versioning) are executable, with their existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
 `compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
 `workflow_execution_target_retired`, exit 2, before build/run publication or
 execution locks. The captured compiled entry is checked again before
@@ -224,9 +224,11 @@ callers share this retirement, with no evaluated trial port.
 
 ### Evaluated execution (target 2.35)
 
-This contract applies to evaluated entries at 2.35/2.36 and the admitted
-bounded 2.37 surface. W3 changes authoring, not command/provider IO or the
-public lifecycle; 2.37 registration does not establish full parallel delivery.
+This contract applies to evaluated entries at 2.35/2.36, the admitted
+bounded 2.37 surface and registered bounded 2.38 (agent sessions; see
+versioning). W3 changes authoring, not command/provider IO or the public
+lifecycle; 2.37 registration does not establish full parallel delivery, and
+2.38 registration does not establish agent-session runtime delivery.
 See [versioning](versioning.md#version-gating-summary) for qualification limits.
 
 An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`
@@ -332,7 +334,17 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   Repeating the command after the record survived, including after a lost
   acknowledgment, reports `invalidate_not_committed` and leaves the run
   resumable with the whole suffix cancelled. A suffix containing a committed
-  run reference refuses whole with `invalidate_coordinator_committed`. A
+  run reference or a committed agent turn refuses whole with
+  `invalidate_coordinator_committed`; a suffix (by journal order of starts,
+  including abandoned bootstrap attempts) containing an agent turn attempt that
+  was dispatched, advanced its native session or is of uncertain outcome
+  refuses `invalidate_agent_session_advanced`. A pending agent attempt in the
+  suffix always refuses (resume first, so it is reconciled or bootstrapped).
+  Only attempts started at or after the chosen commit are affected; the
+  receipts required are those of such attempts closed `failed` with a
+  non-dispatched code, and one that is unreadable is `memo_inconsistent`;
+  unused allocations and proven-undispatched attempts invalidate normally.
+  All checks precede tail repair or any write. A
   journal or view failure after the checks (`memo_*`, `view_write_failed`)
   also exits `2`; after `view_write_failed` the range record is already
   durable, which is the lost-acknowledgment case above. Invalidation cancels
@@ -418,7 +430,25 @@ authority, memo, attempts or views, in this order:
     effect check the retry baseline (`effect_input_diverged` for changed
     implementation files, `lexical_restore_pending_effect_unsafe` for a
     `must_not_repeat` command; a pending provider start re-reads its C6
-    sources in memory).
+    sources in memory). An agent turn with a pending start is classified
+    from its receipt and the native store, never by the retry baseline, and
+    nothing is signalled: a live recorded process group is admitted and
+    stopped under the writer lock before reconciliation; `recoverable`
+    (adapter-confirmed completion bound to the attempt and an intact
+    `result.json`) is committed at the same ordinal without dispatch;
+    `not_dispatched` (no `launching` receipt, or a stopped group and an
+    adapter-proven unchanged predecessor head) closes the attempt `failed`
+    and allocates the next one; `unresolved` refuses `agent_turn_unresolved`
+    after the agent's first committed turn and takes the bootstrap path
+    before it. Bootstrap is admitted at preflight without writing and executed
+    under the writer lock before the next `started`: the old candidate's
+    receipt becomes `abandoned` and `abandoned.json` is written, the attempt is
+    closed `failed agent_bootstrap_restarted` if still pending (never twice
+    after a crash), and `[agent_bootstrap_restarted]` is logged; a first turn
+    whose latest attempt failed after dispatch (`provider_result_invalid`)
+    restarts the same way. A later turn whose latest attempt closed
+    `agent_turn_result_invalid` refuses with that code, before any
+    native-head check.
 11. Only then is a torn tail repaired (a failure there is still a refusal,
     exit `2`) and evaluation continued. A condition of step 10 that is first
     reached after continuation has committed new effects fails the run with
@@ -463,10 +493,15 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `run_already_active`, `workspace_run_already_active` | `run`, `resume` | 2 | None |
 | `memo_busy` | `invalidate` | 2 | None |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
+| `agent_session_unavailable`, `agent_session_diverged`, `agent_policy_mismatch` | a reached agent turn (target 2.38) before its `started` and dispatch of a new turn | 1 during execution; 2 in `resume` preflight | No dispatch; failed terminal where the journal permits |
+| `agent_turn_unresolved` | a dispatched agent turn attempt whose completion or result cannot be established | 1 | The `started` stays pending: no `failed` row and no terminal; `resume` reconciles the attempt |
+| `agent_turn_result_invalid` | a later agent turn that completed natively with a missing/invalid result | 1 when first classified (`run` or `resume` continuation); 2 on subsequent `resume` preflight | `failed` row with `exit_info {}` and no `violations`; public validation diagnostic contains only logical agent identity and safe code; the attempt files kept |
+| `agent_bootstrap_restarted` | `resume` abandoning a first-turn candidate | diagnostic | Logged; the abandoned attempt's `failed` row carries this code with `exit_info {abandoned_attempt, locator}` |
+| `invalidate_agent_session_advanced` | `invalidate` over an agent turn attempt whose native session advanced or may have advanced | 2 | None written |
 | `undefined_variables`, `effect_input_invalid` | a reached command's template or input document before its `started` | 1; 2 in resume preflight at a command with a retry baseline | No `started`, directory or dispatch; failed terminal where the journal permits. Against an active commit the same condition is `effect_input_diverged`; with only a prior start the code is kept |
 | `command_closure_unreadable` | a reached command's closure before a first attempt (missing, unreadable, cyclic or unsupported entry), or a C4 destination overlap (reason `runtime destination overlaps command closure`) | 1 | No `started`, directory or dispatch; failed terminal where the journal permits. Against a prior start or commit a resolution failure is `effect_input_diverged`; a destination overlap keeps this code |
 | `effect_attempt_path_exists`, `effect_attempt_allocation_failed` | attempt allocation after `started` | 1 | `failed` row with `exit_info {errno}`; the existing directory is preserved; failed terminal where permitted |
-| `command_exit_nonzero`, `command_result_missing`, `command_result_unreadable`, `command_result_contract`, `command_result_projection`, `command_module_origin_mismatch`, `command_closure_written`, `provider_preparation_failed`, `provider_exit_nonzero`, `provider_timeout`, `provider_result_missing`, `provider_result_unreadable`, `provider_result_invalid`, `provider_result_contract`, `provider_result_projection` | a dispatched attempt (no timeout is applied to an evaluated command, so `command_timeout` is not raised on this route) | 1 | `failed` row (`exit_info` where [State](state.md#memo-records) gives one; `violations` for `provider_result_invalid`) and the attempt files kept; failed terminal where permitted; `resume` retries at the next ordinal |
+| `command_exit_nonzero`, `command_result_missing`, `command_result_unreadable`, `command_result_contract`, `command_result_projection`, `command_module_origin_mismatch`, `command_closure_written`, `provider_preparation_failed`, `provider_exit_nonzero`, `provider_timeout`, `provider_result_missing`, `provider_result_unreadable`, `provider_result_invalid`, `provider_result_contract`, `provider_result_projection` | a dispatched attempt (no timeout is applied to an evaluated command, so `command_timeout` is not raised on this route) | 1 | `failed` row (`exit_info` where [State](state.md#memo-records) gives one; `violations` for ordinary-provider `provider_result_invalid`; a first Agent turn's `provider_result_invalid` instead has `exit_info {}`, no `violations` and only logical agent identity/safe code in its public validation diagnostic) and the attempt files kept; failed terminal where permitted; `resume` retries at the next ordinal under the class-specific rules above |
 | `evaluated_execution_failed` | a command `result.json` that fails its declared contract (`failed` row with `exit_info {}` and `violations`); any other failure during evaluation that carries no code of its own; the `failed` code of a run reference that fails before its child | 1 | As above |
 | `pure_expr_*` (a pure operator or refinement failure, for example `pure_expr_division_by_zero`, or `pure_expr_operand_type_mismatch` at a result-path form whose run root is not under `.orchestrate/runs`), `provider_result_path_missing` (a result-path form whose producer is not in scope) | `run`; continuation of `resume` (reached in resume replay it is a refusal, exit 2) | 1 | Failed terminal carrying that code; no `failed` row, since no effect is involved; read-only replay reports the run as it stands |
 | `view_write_failed` | derived-view replacement after an append | `run`/`resume` 1; `invalidate` 2 | The appended record stays authority; no `failed` row or terminal; readers reconstruct the view |

@@ -406,6 +406,9 @@ def resolve_proc_ref_value(
                         ),
                     )
                 )
+            from .typecheck_agents import require_no_agent
+            require_no_agent(type_ref, where=f"`bind-proc` argument `:{binding.name}`", span=binding.keyword_span,
+                             form_path=binding.keyword_form_path, code="let_proc_capture_agent_forbidden")
             if binding.name in bound_args_by_name:
                 raise LispFrontendCompileError(
                     (
