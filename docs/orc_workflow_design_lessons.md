@@ -6,8 +6,8 @@ Source: experiments of 2026-09-28, reported in
 evaluated route on 2026-10-14 ([E-A](reports/2026-10-14-orc-versus-single-call-evaluated.md),
 [E-B](reports/2026-10-14-design-review-execute-versus-single-call.md),
 [postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md)), the
-[difficulty calibration](reports/2026-10-14-task-difficulty-calibration.md) and the calibrated
-[E-B2](reports/2026-10-15-calibrated-orc-versus-single-call.md) of 2026-10-15
+[difficulty calibration](reports/2026-10-14-task-difficulty-calibration.md) and its
+[continuation](reports/2026-10-15-calibration-continuation.md) of 2026-10-15
 Audience: workflow authors and reviewers
 Normative contracts: `specs/`
 
@@ -16,10 +16,8 @@ itself. A workflow improves on it only by supplying something the agent cannot
 give itself. This guide records what did and did not, and the authoring
 mistakes that cost runs. On the evaluated route, the two patterns that gained in
 September still gained over their own first or average candidate. Each scored
-less than half a point (of 8) above a single call of the selector's model. On
-the calibrated harder task of E-B2, scored by hidden tests, review-and-revise
-did not improve its first patch and plan-review-execute passed the same share
-as a single call.
+less than half a point (of 8) above a single call of the selector's model. No
+comparison has yet been run on a calibration-qualified task.
 
 The compiler/runtime observations and workarounds below describe the original
 pre-2.35 experiment targets. For current 2.35/2.36 admission and execution,
@@ -37,8 +35,8 @@ add the step.
 
 | Question | Why |
 | --- | --- |
-| What does each step add that the previous agent did not have? | Gains came from independent candidates to choose from, and from a judge with different knowledge than the author; both were measured on judge scores. On E-B2's hidden tests no pattern gained. A deterministic gate and a human decision were not measured here |
-| Is the judge a different, stronger model than the author? | With the author's own model as reviewer or selector, September's results ranged from -0.5 to +0.44 on an 8-point scale. With a stronger model from another family, from +0.58 to +1.02 in September and E-A; on E-B2's harder task, +0.33 by judges and 0 on hidden tests |
+| What does each step add that the previous agent did not have? | Gains came from independent candidates to choose from, and from a judge with different knowledge than the author; both were measured on judge scores. A deterministic gate and a human decision were not measured here |
+| Is the judge a different, stronger model than the author? | With the author's own model as reviewer or selector, September's results ranged from -0.5 to +0.44 on an 8-point scale. With a stronger model from another family, from +0.58 to +1.02 in September and E-A |
 | Does a single call already solve the task? | On a task one call solved every time, every workflow tied and cost twice as much. A feature chosen as too large for one call (the REPL, with its public interface spelled out) was finished by one call, 16/16 and 14/16 hidden tests. Measure this before running any treatment |
 | How will you know the workflow helped? | A verdict such as `READY` is not evidence. With a same-model reviewer, verdicts did not track quality |
 
@@ -51,9 +49,9 @@ The measurements below help choose a pattern; they do not define its API.
 | Pattern | Use when | Measured |
 | --- | --- | --- |
 | Generate several candidates, select one | single calls vary in quality and a stronger judge is available | Flat route (2026-09-28): +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs. Evaluated route ([E-A](reports/2026-10-14-orc-versus-single-call-evaluated.md)): +1.02, gain in 4 of 6 runs, one run short of its criterion; +0.33 over single calls |
-| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged. Calibrated harder task ([E-B2](reports/2026-10-15-calibrated-orc-versus-single-call.md)): the reviewer blocked in every run, but no revision changed the hidden-test score (gain 0 in 3 of 3 runs); judges +0.33 |
+| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged. |
 | Review and revise with the author's model | no benefit was demonstrated in this bounded experiment; validate it on the intended task | Flat route (2026-09-28) only: -0.5 to 0; not rerun on the evaluated route |
-| Plan with one model, review the plan with another, then execute | not established: no gain in hidden acceptance was measured | Calibrated harder task (E-B2): the same hidden-test share as one call of the executor's model (0.49 each), at four calls and about five times the wall clock; judges +1.0 |
+| Plan with one model, review the plan with another, then execute | not established | Not measured on a calibration-qualified task; the [E-B](reports/2026-10-14-design-review-execute-versus-single-call.md) task did not qualify |
 
 Selection leaves candidate patches unchanged, though it can choose a worse
 candidate than the alternative. Revision can damage a selected patch: in one
@@ -157,7 +155,7 @@ file, so a provider that delivers nothing in a later loop iteration fails with
 | Predeclare the paired baseline and report the comparator actually used | the best-of-N criterion here compared the selected patch with its group mean, not its first call; see the [comparison report](reports/2026-09-28-orc-versus-single-call.md#workflow-1-generate-four-select-one) |
 | Repeat anchor patches across batches | judges used different parts of the scale; two anchors moved from 8.0 and 3.0 to 7.0 and 5.0 |
 | Do not score with tests the agent can run | agents test themselves until they pass; every arm reached 100 percent |
-| Report judge agreement | in September it ranged from 19 of 60 to 68 of 72 ratings; r = 0.81 in E-A and 0.64 in E-B2 |
+| Report judge agreement | in September it ranged from 19 of 60 to 68 of 72 ratings; r = 0.81 in E-A |
 | Calibrate difficulty before freezing the criterion: expected review blockers on single-call patches at least one; report the single call's hidden acceptance, which is not a condition | the reviewer approved 4 of 6 first patches unchanged, which leaves review-and-revise nothing to gain; the E-B task did not qualify. The [calibration](reports/2026-10-14-task-difficulty-calibration.md) also required every single call below half of hidden acceptance, and no rung met it; the owner removed that condition on 2026-10-15. Continuation evidence (post-data, owner-approved): with a third sample, [rung 1 qualifies](reports/2026-10-15-calibration-continuation.md) on blockers 1, 1 and 1 |
 | Smoke with the real agents before freezing, and isolate them (own `/tmp`, process list, result paths inside the workspace) | live agents misplaced result files and inherited another session's environment; a batch and a half of runs were discarded |
 | Compute interim readouts with the summarizer's own join and check the anchors first | a positional join reported both workflows losing; joined by clone id they met most clauses |

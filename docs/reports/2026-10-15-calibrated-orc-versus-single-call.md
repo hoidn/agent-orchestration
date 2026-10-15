@@ -1,5 +1,14 @@
 # E-B2: Maintained Workflows Against A Single Call On A Calibrated Task
 
+> **Historical, not calibration-qualified.** This notice was added on 2026-10-15 at the owner's instruction. Despite
+> the title, this experiment did not run on a calibrated task.
+> - The owner chose rung 3 before its calibration was complete. Its two review-blocker counts were 1 and 1, which is
+>   borderline under the current rule (R55): it needs a third sample, and that sample was never taken.
+> - The measurements below are kept unchanged as the record of that run. They are not results of a calibrated
+>   comparison, and they are not current performance guidance.
+> - A later post-data continuation qualified rung 1 instead
+>   ([report](2026-10-15-calibration-continuation.md)). No comparison has been run on it yet.
+
 Status: complete. The criterion was frozen and committed before any batch run. The sections below were filled in
 after the one `summarize` over the final pool.
 

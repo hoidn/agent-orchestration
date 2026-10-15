@@ -21,6 +21,13 @@ on the blocker rule alone, and Task 9 ran ([E-B2 report](../reports/2026-10-15-c
 both claims were evaluated and neither held. Later on 2026-10-15 the owner removed the single-call hidden-acceptance
 condition from calibration (R55): future qualification rests on review blockers alone, and the Task 8 outcome above
 stays as recorded.
+
+Notice (2026-10-15, at the owner's instruction): Task 9 (E-B2) ran on rung 3 before rung 3's calibration was complete.
+Under R55 its blockers (1, 1) are borderline, and the third sample was never taken. Its results are therefore neither
+a calibrated comparison nor current performance evidence. This plan's "calibrated experiment" wording for Task 9 is
+historical. A later post-data
+[continuation](../reports/2026-10-15-calibration-continuation.md) qualified rung 1, and no comparison has been run on
+it yet.
 **Design:** [comparison harness and experiments](../design/orc_effectiveness_comparison_harness.md).
 **Goal:** a comparison between a maintained workflow and a single call can be
 run on current `main` with one command per arm, scored blind side by side

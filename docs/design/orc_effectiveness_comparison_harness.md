@@ -495,13 +495,19 @@ task, not run. Census commits of a few hundred lines are not candidates. The
 E-B qualification rule above (both control runs below half on hidden
 acceptance) governed E-B only and is not a check for follow-on experiments.
 The procedure, the review-only arm and the candidate ladder are in the plan's
-Task 8, and the calibrated experiment is in its Task 9. The first calibration
+Task 8. The plan's Task 9 ran on rung 3, which the owner chose before its
+calibration was complete. Rung 3 was borderline under the current rule and
+never got its third sample, so Task 9 is not a calibrated comparison. The first calibration
 ([report](../reports/2026-10-14-task-difficulty-calibration.md)) ran under the
 earlier two-condition rule, which also required every single call to pass less
 than half of the hidden tests: it found the blocker condition met on every rung
 tried, but no rung where both calibration single calls passed less than half,
 so no rung qualified then. The owner removed that condition on 2026-10-15
 (ruling R55; the criterion's `amends_4`); the frozen outcome stays as recorded.
+A later post-data continuation chosen by the owner
+([report](../reports/2026-10-15-calibration-continuation.md)) completed rung 1
+with a third sample: blockers 1, 1 and 1, so rung 1 qualifies. No comparison has
+yet been run on it.
 
 Budget, serial, approximate. E-A: six `best_of_n` runs of five calls, six
 `reviewed_change` runs of two to six calls and six single-call control runs,
