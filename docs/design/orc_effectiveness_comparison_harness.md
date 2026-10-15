@@ -319,8 +319,10 @@ otherwise.
    working directory the arm requires (§Contracts).
 2. The run executes the maintained workflow. On every agent call the shim
    writes, in the run's records directory, `calls/<n>/{prompt.txt,stdout.txt,stderr.txt,patch-cand-<k>.diff}`;
-   each diff is taken after `git add -A -N .` so new files are included, and
-   the index is reset afterwards.
+   each diff is taken through a temporary copy of the index, after
+   `git add -A -N .`, so new files are included and the agent's own index is
+   never changed. Until `50bb27be` the shim reset the real index after each
+   call, which unstaged files an agent had staged (E-A report, Limits).
 3. `prepare.py collect` reads the run's `memo.jsonl`, pairs provider effects
    with call directories one to one, and copies every patch the arm's
    comparator needs into the run's `collected/`: all candidates for `best_of_n`,
