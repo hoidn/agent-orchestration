@@ -7,6 +7,13 @@
 # runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), an empty /var/tmp (other sessions keep
 # worktrees there), a private /dev/shm and process list;
 # the rest of the filesystem, home and network stay shared: reads there are only detected (R35).
+# The model guard (./model-guard, installed as $COMPARE_TREE/.model-guard/claude) comes first on the agent's
+# PATH: the top-level claude call and every claude process started through PATH inside the sandbox run
+# through it. Parallel calls in one tree (a judge's batches) never write or replace a script another call is
+# running: an identical guard is left alone, a missing one is created by hard-linking a fully written copy (it
+# cannot be replaced that way), and only a guard whose content differs (edited) is replaced by rename; bwrap's
+# execvp can miss a file that is being renamed over. CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 with ..._FORCE=1 pins the Claude
+# CLI's in-process subagents (Agent tool, teammates, workflow agents; Claude Code >= 2.1.257) to Opus.
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
 sandbox=$(command -v bwrap) || { echo "shim: bubblewrap (bwrap) is required on PATH" >&2; exit 127; }
 [ -d "$COMPARE_TREE/tmp" ] || { echo "shim: $COMPARE_TREE/tmp is missing (the agent's /tmp)" >&2; exit 70; }
@@ -24,9 +31,18 @@ until mkdir "$COMPARE_ROOT/calls/$n" 2>/dev/null; do
   n=$((n + 1))
 done
 call="$COMPARE_ROOT/calls/$n"
+guard="$COMPARE_TREE/.model-guard"; staged=
+cmp -s "$here/model-guard" "$guard/claude" || {
+  mkdir -p "$guard" && staged=$(mktemp "$guard/.claude.XXXXXX") && cp "$here/model-guard" "$staged" &&
+    chmod 755 "$staged" &&
+    { ln "$staged" "$guard/claude" 2>/dev/null || cmp -s "$staged" "$guard/claude" || mv -f "$staged" "$guard/claude"; } &&
+    rm -f "$staged"
+} || { [ -n "$staged" ] && rm -f "$staged"; echo "shim: cannot install the model guard in $guard" >&2; exit 70; }
+[ "$name" = claude ] && real="$guard/claude"
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$sandbox" \
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$guard:$path" \
+  CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
   --dev-bind / / --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
   "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}

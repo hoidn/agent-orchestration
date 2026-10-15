@@ -136,6 +136,26 @@ def test_pool_excludes_contaminated_runs_and_includes_cleared_ones(world):
         "contaminated: read the fix", sorted([str(cleared), str(clean)]))
 
 
+def fable_session(home, directory):
+    slug = "".join(c if c.isalnum() else "-" for c in str(directory))
+    (home / ".claude/projects" / slug).mkdir(parents=True)
+    (home / ".claude/projects" / slug / "s.jsonl").write_text(json.dumps(
+        {"type": "assistant", "message": {"model": "claude-fable-5-1", "content": []}}) + "\n")
+
+
+def test_pool_excludes_a_run_whose_sessions_answered_with_fable(world):
+    records, record = start(world, "direct_task")
+    call(world, record, "true")
+    write_memo(record, ["true"], True)
+    prepare.collect(records)
+    fable_session(world.tmp / "home", record["tree"])
+    prepare.scan(records, world.solution, home=world.tmp / "home")
+    clean, _ = drive(world, "direct_task", ["true"], True)
+    mapping = pooling.pool(world.task, world.criterion, world.outside / "pool", ["j"], [records, clean])
+    assert (mapping["runs"][str(records)]["excluded"].startswith("Fable model"),
+            {c["run"] for c in mapping["clones"].values() if c["run"]}) == (True, {str(clean)})
+
+
 def run_judge_script(pooled, judge, script, *args):
     command = f"bash {pooled.out / 'records' / f'{script}-{judge}.sh'} {' '.join(args)}"
     return json.loads(subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=True).stdout)
@@ -183,6 +203,16 @@ def test_summarize_refuses_judge_hits_without_a_verdict_and_leaves_out_a_contami
     results = summarize.summarize(pooled.out, world.criterion)
     assert (results["judges"], results["excluded_judges"]) == (
         ["judge-b"], {"judge-a": "contaminated: read the mapping"})
+
+
+def test_summarize_leaves_out_a_judge_whose_sessions_answered_with_fable(pooled, world):
+    fable_session(world.tmp / "home", pooled.out / "judges" / pooled.mapping["judges"]["judge-a"]["dir"])
+    for judge in ("judge-a", "judge-b"):
+        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+    with pytest.raises(SystemExit, match="Fable model"):
+        pooling.adjudicate_judge(pooled.out, "judge-a", "cleared", "a probe")
+    results = summarize.summarize(pooled.out, world.criterion)
+    assert (results["judges"], results["excluded_judges"]["judge-a"].startswith("Fable model")) == (["judge-b"], True)
 
 
 def judge_call(pooled, world, judge, script):

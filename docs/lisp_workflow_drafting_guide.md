@@ -1438,7 +1438,7 @@ its typed result. Turns run in source order; aliases, aggregates, branches and
 same-run `defproc` arguments/returns reuse the same agent.
 
 Constructor `:model`/`:effort` pin instance policy; prompts, inputs and timeouts
-belong to turns. The example preserves baseline models (`claude-fable-5-1`,
+belong to turns. The example keeps the baseline's models (`claude-opus-5-5`,
 `gpt-6.1-sol`), effort and timeouts. Override models initially with
 `--input planner_model=...` / `--input reviewer_model=...`, never on a turn.
 

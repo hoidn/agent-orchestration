@@ -9,6 +9,16 @@
 > - A later post-data continuation qualified rung 1 instead
 >   ([report](2026-10-15-calibration-continuation.md)). No comparison has been run on it yet.
 
+> **Model disclosure.** Added on 2026-10-15, after an audit of Claude session files. This experiment was not
+> Fable-free overall. Inside `design_review_execute` run-1 and run-2, the candidate repository's own tests ran its
+> provider probe. The probe calls `claude -p --model fable`, `fable` being its default model, through the user's
+> `claude` CLI, which answered with `claude-fable-5-1`.
+> - 120 sessions: 80 in run-1 and 40 in run-2.
+> - Each session is one `Say OK only.` probe answered in one assistant message. Together they are 480 output tokens.
+> - These were not registered role calls: the planner was Opus, as stated below. Whether they affected the agents'
+>   work was not measured. No run was remeasured, and no result changes.
+> - The audit is `agent-orchestration-compare-evidence/calibration/no-fable-experiments/fable-nested-audit.json`. Later runs guard against this (see the harness README's model policy).
+
 Status: complete. The criterion was frozen and committed before any batch run. The sections below were filled in
 after the one `summarize` over the final pool.
 

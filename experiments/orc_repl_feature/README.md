@@ -5,6 +5,9 @@
 it, and Codex executed it in the worktree on branch `feature/orc-repl`. The
 brief is `inputs.json`; the provider bindings are `providers.json`.
 
+That 2026-10-12 run used Fable. `planner_model` now defaults to `claude-opus-5-5`, because experiments no longer use
+Fable models (owner, 2026-10-15).
+
 `repl_feature.orc` is the variation of
 [`workflows/examples/design_review_execute.orc`](../../workflows/examples/design_review_execute.orc)
 whose prompts name the documents, code and contracts this feature touches. It

@@ -35,6 +35,6 @@ def test_variant_keeps_the_baseline_declarations_models_effort_and_timeouts() ->
     for prompt in ("draft-design", "review-design", "revise-design", "execute-design"):
         start = baseline.index(f"(defprompt {prompt}"); end = baseline.index("\n\n", start)
         assert baseline[start:end] in variant
-    assert '(planner_model String :default "claude-fable-5-1")' in variant and '(reviewer_model String :default "gpt-6.1-sol")' in variant
+    assert '(planner_model String :default "claude-opus-5-5")' in variant and '(reviewer_model String :default "gpt-6.1-sol")' in variant
     assert variant.count(":timeout-sec 3600") == 3 and ":timeout-sec 14400" in variant
     assert variant.count(':effort "high"') == 2

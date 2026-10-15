@@ -100,11 +100,13 @@ def add_clone(out, task, ref, patch, entry):
 
 
 def exclusion(scan, calls, adjudicate):
-    """Why a scanned run or judge is excluded (a contaminated verdict), or None. Refuses a scan that
+    """Why a scanned run or judge is excluded (Fable answers, or a contaminated verdict), or None. Refuses a scan that
     covers another number of calls than were made (a resume after it), and hits without a verdict (R20)."""
     if scan["calls"] != calls:
         raise SystemExit(f"the scan covers {scan['calls']} calls but {calls} were made: {adjudicate} --hash SOL")
     hits, verdict = scan["hits"], scan["verdict"]
+    if contamination.model_policy(hits):
+        return contamination.model_policy(hits)
     if hits and verdict is None:
         raise SystemExit(f"{len(hits)} scan hits and no verdict: {adjudicate} --verdict contaminated|cleared "
                          "--reason TEXT")
@@ -216,6 +218,7 @@ def adjudicate_judge(out, judge, verdict, reason):
     if not path.is_file():
         raise SystemExit(f"judge {judge} has not been scanned")
     scan = load(path)
+    contamination.refuse_clearing(verdict, scan["hits"], f"judge {judge}")
     dump(path, scan | {"verdict": {"verdict": verdict, "reason": reason, "hits": len(scan["hits"])}})
 
 

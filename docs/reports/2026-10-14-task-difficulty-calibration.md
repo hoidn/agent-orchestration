@@ -14,6 +14,18 @@ results. Under the new rule, rungs 2 (mean 2.5) and 4 (2.0) meet the threshold o
 (mean 1.0) are borderline and unresolved: qualification would need a third single call and review, which were never
 run. No run was added.
 
+Model disclosure (2026-10-15, after an audit of Claude session files): the Cost section's "No Anthropic agent calls"
+counted the registered role calls only. Inside rung 2's two single-call runs (`direct_task/run-3` and `run-4`), the
+candidate repository's own tests ran its provider probe. The probe calls `claude -p --model fable`, `fable` being its
+default model, through the user's `claude` CLI, which answered with `claude-fable-5-1`.
+- 100 sessions: 60 in run-3 and 40 in run-4.
+- Each session is one `Say OK only.` probe answered in one assistant message. Together they are 400 output tokens.
+- They were not registered role calls. Whether they affected the agents' work was not measured.
+- No run was remeasured, and no result changes.
+
+The audit is `agent-orchestration-compare-evidence/calibration/no-fable-experiments/fable-nested-audit.json`. Later runs guard against this: the shims refuse Fable and default nested `claude` to
+`claude-opus-5-5`, and the scan flags Fable answers.
+
 ## Question And Criterion
 
 The question is which task on a frozen ladder is the first where two conditions hold:

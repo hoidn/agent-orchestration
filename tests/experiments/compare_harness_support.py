@@ -125,11 +125,11 @@ def start(world, arm, candidates=None, sets=(), task=None, root=None, apply=None
     return records, json.loads((records / "record.json").read_text())
 
 
-def call(world, record, script, binary="claude"):
+def call(world, record, script, binary="claude", args=("-p",)):
     env = {**os.environ, "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}", "COMPARE_ROOT": record["records"],
            "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"], "PYTHONPATH": str(world.runtime),
            "OLDPWD": str(world.runtime)}
-    return subprocess.run([str(SHIM / binary), "-p"], input=script, text=True, capture_output=True,
+    return subprocess.run([str(SHIM / binary), *args], input=script, text=True, capture_output=True,
                           cwd=record["cwd"], env=env)
 
 

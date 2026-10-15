@@ -19,6 +19,9 @@ default budget; set it to a smaller value for a short game or smoke run. It does
 not check move legality, adjudicate the game, or detect checkmate or draws; it
 stops early only when an agent returns `Blocked`.
 
+White defaults to `gpt-6.1-sol` and Black to `claude-opus-5-5`. Override them with `--input white_model=...` or
+`--input black_model=...`, but not with a Fable model: experiments do not use one (owner, 2026-10-15).
+
 `providers.black` uses the existing `claude_unrestricted_workspace` profile so
 Claude can write its result bundle in the attempt directory. Use it only in a
 trusted local workspace. The selected board file is display output; workflow

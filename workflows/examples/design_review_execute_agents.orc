@@ -57,7 +57,7 @@
 
   (defworkflow run
     ((task String)
-     (planner_model String :default "claude-fable-5-1")
+     (planner_model String :default "claude-opus-5-5")
      (reviewer_model String :default "gpt-6.1-sol"))
     -> Execution
     (let* ((designer (agent providers.claude :model planner_model :effort "high"))

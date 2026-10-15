@@ -60,7 +60,7 @@ What it does not isolate:
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
 | `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root`. For `best_of_n` it is `<tree>/.orchestrate/best-of-n-runs/<run_id>/`, linked from every `cand-k/.orchestrate/` (R37) |
-| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N` and `tmp/` (TMPDIR, and `/tmp` inside the sandbox); `record.json` names the tree |
+| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N`, `tmp/` (TMPDIR, and `/tmp` inside the sandbox) and `.model-guard/claude` (first on the agent's `PATH`); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` and `tmp/` (its `/tmp` inside the sandbox) |
 | `P/records/judges/<judge>/` | the judge's shim call records (`calls/<n>/`) and `scan.json` |
@@ -85,6 +85,44 @@ git -C $MAIN worktree add --detach $RT $C        # 0. frozen runtime outside MAI
 PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 ```
 
+Model policy (owner, 2026-10-15): no experiment call uses a Fable model. This covers arms, controls, reviews,
+judges and delegated agents, and Claude planning uses `claude-opus-5-5`. A new criterion records the models it
+freezes. E-B's frozen `criteria/eb.json` pin of `claude-fable-5-1` is historical.
+
+Agents share `$HOME`, and the user's `~/.claude/settings.json` selects Fable. So the harness both guards and checks.
+It does not claim perfect isolation.
+- **Guard.** On every call, the shims install `shim/model-guard` as `<tree>/.model-guard/claude` and put it first on
+  the sandboxed agent's `PATH`.
+  - Parallel calls in one tree (a judge's batches) never write over or replace a guard that another call is running.
+    - An identical guard is left as it is.
+    - A missing one is created by hard-linking a fully written copy, which cannot replace an existing guard.
+    - Only an edited guard is replaced, by rename, which restores it on the next call.
+    - Rename alone is not enough: `bwrap`'s `execvp` was seen to fail with "No such file" for a file being renamed
+      over.
+  - Every `claude` process started through `PATH` therefore goes through it: the top-level call, one a Codex agent
+    starts, a `claude` subprocess an agent starts, or one a candidate's tests start.
+  - It refuses a `--model` or `--fallback-model` that names Fable, with exit 2, and the real CLI never runs. Both
+    the two-argument and the `=` forms are checked, and every model in a comma-separated fallback list.
+  - It adds `--model claude-opus-5-5` when no `--model` is given, even if a fallback model is.
+  - Otherwise it runs the real CLI unchanged.
+- **In-process subagents.** A Claude CLI's Agent-tool subagents, teammates and workflow agents run inside its
+  process, not through `PATH`. The shims therefore set `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` and
+  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the sandbox environment, which nested processes inherit.
+  - By the CLI's documented contract ([run every subagent on one model](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model), Claude Code 2.1.257 or later; 2.1.301
+    is installed), these two variables override the models of agent definitions and of each invocation.
+  - The main model, the explicit `--model`, is unchanged.
+  - The harness tests check that both variables reach the agent. They cannot check the CLI's internal behaviour.
+- **Check.** A few paths bypass both of the above:
+  - an absolute path to the real CLI;
+  - a reset `PATH`;
+  - an environment that deliberately drops the two variables;
+  - an older CLI;
+  - a direct API call.
+
+  The scan reads answering models in recorded Claude sessions under the tree (see step 4), including subagent transcripts. A direct API call without such a session is invisible. A
+  Fable answer cannot be cleared. Sessions started with a literal sandbox `/tmp/...` working directory, rather than
+  under `TMPDIR`, are not attributed to the run.
+
 1. **Prepare** one run per invocation. It prints the command, writes it to `R/command.sh` and
    writes `R/resume.sh`.
 
@@ -92,7 +130,7 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    $PY $H/prepare.py run --task $T --arm best_of_n --root $W --runtime $RT [--candidates 4]
    $PY $H/prepare.py run --task $T --arm reviewed_change --root $W --runtime $RT
    $PY $H/prepare.py run --task $T --arm design_review_execute --root $W --runtime $RT \
-     --set planner_model=claude-fable-5-1 --set reviewer_model=gpt-6.1-sol
+     --set planner_model=claude-opus-5-5 --set reviewer_model=gpt-6.1-sol
    $PY $H/prepare.py run --task $T --arm direct_task --root $W --runtime $RT \
      --set model=gpt-6-sol --set effort=high
    $PY $H/prepare.py run --task $T --arm review_once --root $W --runtime $RT \
@@ -163,13 +201,18 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
      state is in its working directory, so no records path is legitimate);
    - another run's tree name;
    - `github.com`, `gh ` and `git fetch`;
-   - the solution hash.
+   - the solution hash;
+   - `Fable model`: an assistant message whose `message.model` metadata names Fable, in any of the tree's Claude
+     sessions. Printed text naming a model does not count. This applies to every session,
+     including nested ones such as `<tree>/tmp/pytest-…`.
 
    A path also matches when it is written under `~`, `$HOME` or `${HOME}`.
 
    For a run with hits, the controller reads them and records a verdict. `pool` refuses a run
    with hits and no verdict, excludes contaminated runs (listed with the reason) and includes
-   cleared ones.
+   cleared ones. A `Fable model` hit breaks the model policy and cannot be cleared:
+   - `scan --verdict cleared` refuses it;
+   - `pool` excludes the run, and `summarize` excludes the judge, with the number of Fable messages.
 
    ```bash
    $PY $H/prepare.py scan --run $R --hash $SOL

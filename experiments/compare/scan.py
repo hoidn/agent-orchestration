@@ -17,7 +17,12 @@ state is under its tree's .orchestrate/, so no records path is legitimate); the 
 directory beside this one; github.com, the gh command, git fetch and the solution commit's first
 seven characters; any mention of other sessions' transcripts or tmux sockets (.claude/projects,
 .codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths
-match as typed: absolute, or under ~, $HOME or ${HOME} (R23). Standard library only.
+match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
+
+Model policy (owner, 2026-10-15): no experiment call may use a Fable model. The same Claude sessions are
+also read for each assistant message's message.model metadata (only there: printed text naming a model is
+not an answer); a Fable one is a "Fable model" hit, which cannot be cleared and excludes the run or judge
+(model_policy). Standard library only.
 """
 
 import json
@@ -25,6 +30,7 @@ import re
 from pathlib import Path
 
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
+FABLE = "Fable model"
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
 
 
@@ -57,6 +63,24 @@ def claude_actions(row):
             for c in content or [] if isinstance(c, dict) and c.get("type") == "tool_use"]
 
 
+def answering_model(row):
+    """The model that answered, from an assistant row's message.model metadata."""
+    model = (row.get("message") or {}).get("model") if row.get("type") == "assistant" else None
+    return [model] if isinstance(model, str) else []
+
+
+def model_policy(hits):
+    """Why Fable answers in the scanned sessions exclude the run or judge, or None (they cannot be cleared)."""
+    fable = sum(hit["pattern"] == FABLE for hit in hits)
+    return f"Fable model used in {fable} assistant message(s): no experiment call may use Fable" if fable else None
+
+
+def refuse_clearing(verdict, hits, subject):
+    """A controller may not clear Fable answers: they break the model policy, whatever the reason."""
+    if verdict == "cleared" and model_policy(hits):
+        raise SystemExit(f"{subject}: {model_policy(hits)}; it cannot be cleared")
+
+
 def codex_actions(row):
     payload = row.get("payload") or {}
     if payload.get("type") not in ("function_call", "custom_tool_call", "local_shell_call"):
@@ -85,14 +109,19 @@ def sources(calls_root, tree, since, home):
     for path in sorted(calls_root.glob("calls/*/std*.txt")):
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
             yield path, number, line
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
-    for project in sorted((home / ".claude" / "projects").glob(slug + "*")):
-        if project.name == slug or project.name.startswith(slug + "-"):
-            for path in sorted(project.rglob("*.jsonl")):
-                yield from json_actions(path, claude_actions)
+    for path in claude_sessions(tree, home):
+        yield from json_actions(path, claude_actions)
     for path in sorted((home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl")):
         if path.stat().st_mtime >= since and (codex_cwd(path) + "/").startswith(f"{tree}/"):
             yield from json_actions(path, codex_actions)
+
+
+def claude_sessions(tree, home):
+    """The Claude CLI's session files for the tree and every directory under it."""
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
+    for project in sorted((home / ".claude" / "projects").glob(slug + "*")):
+        if project.name == slug or project.name.startswith(slug + "-"):
+            yield from sorted(project.rglob("*.jsonl"))
 
 
 def siblings(tree):
@@ -107,4 +136,8 @@ def find_hits(calls_root, tree, since, home, compiled):
             if found:
                 hits.append({"file": str(path), "line": number, "pattern": name,
                              "text": text[max(0, found.start() - 80):found.end() + 80]})
+    for path in claude_sessions(Path(tree), Path(home)):  # the model policy reads metadata, never printed text
+        for _, number, model in json_actions(path, answering_model):
+            if "fable" in model.lower():
+                hits.append({"file": str(path), "line": number, "pattern": FABLE, "text": f"message.model: {model}"})
     return hits

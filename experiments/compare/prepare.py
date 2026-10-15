@@ -302,6 +302,7 @@ def adjudicate(records, verdict, reason):
     record = load(records / "record.json")
     if "scan" not in record:
         raise SystemExit(f"{records} has not been scanned")
+    contamination.refuse_clearing(verdict, record["scan"]["hits"], records)
     record["scan"]["verdict"] = {"verdict": verdict, "reason": reason, "hits": len(record["scan"]["hits"])}
     dump(records / "record.json", record)
 

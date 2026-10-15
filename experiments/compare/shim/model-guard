@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Stand-in for the claude CLI on an experiment agent's PATH (owner policy 2026-10-15: no Fable model in any
+# experiment call). The shim copies it to $COMPARE_TREE/.model-guard/claude and puts that directory first on
+# the sandboxed agent's PATH, so the top-level call and any claude an agent, a Codex agent or a candidate's
+# tests start through PATH come here. It refuses a --model or --fallback-model (either as two arguments or
+# with =; a fallback may list several models, comma-separated) naming Fable (exit 2, the real CLI never
+# runs), adds --model claude-opus-5-5 when no --model is given, whatever the fallback (the shared
+# ~/.claude/settings.json default must not win), and otherwise runs the next real claude on PATH with the
+# same arguments, stdin, streams and exit status. In-process subagents never pass through PATH; the shim's
+# CLAUDE_CODE_SUBAGENT_MODEL(_FORCE) environment pins them. An absolute path to the real CLI, a reset PATH or a
+# direct API call bypasses prevention. The scan detects Fable only in recorded Claude sessions under the
+# tree; a direct API call without such a session is invisible (scan.py, "Fable model").
+here=$(cd "$(dirname "$0")" && pwd -P); real=
+IFS=: read -ra dirs <<< "$PATH"
+for d in "${dirs[@]}"; do
+  [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
+  [ -x "$d/claude" ] && { real="$d/claude"; break; }
+done
+[ -n "$real" ] || { echo "model guard: no real claude on PATH outside $here" >&2; exit 127; }
+given=; args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case ${args[i]} in
+    --model) given=1; model=${args[i + 1]-} ;;
+    --model=*) given=1; model=${args[i]#--model=} ;;
+    --fallback-model) model=${args[i + 1]-} ;;
+    --fallback-model=*) model=${args[i]#--fallback-model=} ;;
+    *) continue ;;
+  esac
+  shopt -s nocasematch
+  [[ $model == *fable* ]] && { echo "model guard: '$model' names a Fable model, which no experiment call may use" >&2; exit 2; }
+  shopt -u nocasematch
+done
+[ -n "$given" ] || set -- --model claude-opus-5-5 "$@"
+exec "$real" "$@"

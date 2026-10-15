@@ -28,6 +28,11 @@ a calibrated comparison nor current performance evidence. This plan's "calibrate
 historical. A later post-data
 [continuation](../reports/2026-10-15-calibration-continuation.md) qualified rung 1, and no comparison has been run on
 it yet.
+
+Model notice (2026-10-15, owner): no new experiment call uses a Fable model. This covers workflow arms, controls,
+reviews, judges and delegated agents. The Claude planner is `claude-opus-5-5`. This notice supersedes this plan's
+`claude-fable-5-1` defaults, its Fable role table and its experiment-provider exception for any future run. Those
+remain as the record of what was planned and run.
 **Design:** [comparison harness and experiments](../design/orc_effectiveness_comparison_harness.md).
 **Goal:** a comparison between a maintained workflow and a single call can be
 run on current `main` with one command per arm, scored blind side by side

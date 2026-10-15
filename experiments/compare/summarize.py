@@ -30,8 +30,10 @@ from statistics import mean
 
 try:
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
+    from .scan import model_policy
 except ImportError:  # run as a script
     from prepare import paired_calls, read_memo
+    from scan import model_policy
 
 SCORES = {"S0": 0, "S1": 1, "S2": 2}  # score.orc's Score enumeration
 CRITERIA = ("root_cause", "scope", "generality", "layering")
@@ -49,6 +51,8 @@ def judge_exclusion(pool, judge):
     if scan["calls"] != calls:
         raise SystemExit(f"judge {judge}: the scan covers {scan['calls']} calls but {calls} were made: "
                          f"{command} --hash SOL")
+    if model_policy(scan["hits"]):
+        return model_policy(scan["hits"])
     if scan["hits"] and scan["verdict"] is None:
         raise SystemExit(f"judge {judge} has {len(scan['hits'])} scan hits and no verdict: {command} "
                          "--verdict contaminated|cleared --reason TEXT")

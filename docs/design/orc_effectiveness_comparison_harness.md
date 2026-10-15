@@ -211,7 +211,8 @@ Non-goals:
   path is legitimate); another run's tree name; other sessions' transcripts
   and tmux sockets (`.claude/projects`, `.codex/sessions`, `.codex/history`,
   `claude-tmux-sockets`), which stay readable; `github.com`, `gh ` and
-  `git fetch`; and the solution commit's hash.
+  `git fetch`; the solution commit's hash; and, in the Claude sessions, an
+  assistant message answered by a Fable model (model policy, below).
   A path also matches when written under `~`, `$HOME` or `${HOME}`; a bare
   path fragment does not, to limit benign hits from file contents. The scan
   records every hit with its file, line and context and decides nothing:
@@ -471,13 +472,44 @@ funds it (Q4).
 **E-B, the class a single call does not finish.** Qualification first: two
 control runs on the candidate task; the task qualifies when both score below
 half on hidden acceptance; these runs are excluded from the baseline arm.
-Treatment: `design_review_execute.orc` with planner `claude-fable-5-1`,
+Treatment, as frozen for E-B on 2026-10-14 (historical):
+`design_review_execute.orc` with planner `claude-fable-5-1`,
 reviewer and executor `gpt-6.1-sol`; control: the harness `direct_task.orc`
 with `gpt-6.1-sol`, effort high, the same binding and the same time limit.
 Four runs per arm. Primary criterion: mean hidden-acceptance pass fraction,
 treatment minus control, at least +0.3. Secondary: judge score, call count
 and wall clock per run. `plan_review_execute.orc` may be added as a second
 treatment when budget allows; it is not required.
+
+**Model policy (owner, 2026-10-15).** No new experiment call uses a Fable
+model: no workflow arm, control, review, judge or delegated agent. Claude
+planning uses `claude-opus-5-5`. Frozen historical criteria, such as E-B's, keep
+the models they recorded.
+
+Agents share `$HOME`, where the user's Claude settings select Fable. So the shims
+put a model guard first on the sandboxed agent's `PATH`. Every `claude` started
+through `PATH`, top-level or nested, runs through it. It refuses a Fable
+`--model` or `--fallback-model`, and adds `--model claude-opus-5-5` when no
+`--model` is given. Parallel calls in one tree never write over or replace a guard
+in use. A missing guard is created by hard link. An edited one is restored by
+rename on the next call. The shims also set `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` and
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the sandbox. Under the CLI's documented
+contract ([run every subagent on one model](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model), Claude Code 2.1.257 or later;
+2.1.301 is installed), these pin in-process subagents, teammates and workflow
+agents to Opus, and they leave the main model unchanged. The D5 scan also reads
+each Claude session's answering model, from the `message.model` metadata only,
+never from printed text. A Fable answer is a hit that cannot be cleared, and it
+excludes the run or judge. The guard and the variables prevent the ordinary
+paths. The following bypass prevention; the scan is a backstop only when they leave a Claude session under the tree (a direct API call without one is invisible):
+- an absolute path to the real CLI;
+- a reset `PATH`;
+- an environment that deliberately drops the variables;
+- an older CLI;
+- a direct API call.
+
+Sessions with a literal sandbox `/tmp` working directory are not attributed to a
+run. Earlier runs had no guard: nested Fable probes ran in Task 8 and E-B2 (see
+their reports).
 
 **Difficulty calibration for follow-on experiments (owner, 2026-10-14; amended
 2026-10-15).** A task can show a workflow's value only when the work leaves

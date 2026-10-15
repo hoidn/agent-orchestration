@@ -4,7 +4,7 @@
   (defmodule plan_review_execute)
   (export run)
 
-  ;; Fable drafts a plan; Codex reviews it; Fable revises the plan with that
+  ;; Opus drafts a plan; Codex reviews it; Opus revises the plan with that
   ;; feedback; Codex executes the revised plan.
   ;;
   ;;   python -m orchestrator compile workflows/examples/plan_review_execute.orc \
@@ -24,11 +24,11 @@
     "Execute this plan in the current repository.\n\nTask: {task}\nPlan: {steps}")
 
   (defworkflow run ((task String)) -> Execution
-    (let* ((draft (provider-result providers.claude :model "claude-fable-5-1" :effort "high"
+    (let* ((draft (provider-result providers.claude :model "claude-opus-5-5" :effort "high"
                     :prompt (draft-plan :task task)))
            (feedback (provider-result providers.codex
                        :prompt (review-plan :task task :steps draft.steps)))
-           (revised (provider-result providers.claude :model "claude-fable-5-1" :effort "high"
+           (revised (provider-result providers.claude :model "claude-opus-5-5" :effort "high"
                       :prompt (revise-plan :task task :steps draft.steps :findings feedback.findings))))
       (provider-result providers.codex
         :prompt (execute-plan :task task :steps revised.steps))))

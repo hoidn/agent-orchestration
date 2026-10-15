@@ -26,7 +26,7 @@
      (path BoardPath)
      (rounds Int :default 100)
      (white_model String :default "gpt-6.1-sol")
-     (black_model String :default "claude-fable-5-1"))
+     (black_model String :default "claude-opus-5-5"))
     -> GameOutcome
     (let* ((initial-save (save-board board path)))
       (loop/recur
