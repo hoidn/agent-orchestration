@@ -1,5 +1,20 @@
 # Backlog Item: Migrate Key Workflows To Workflow Lisp And Validate Them
 
+Current disposition: **historical YAML-to-ORC migration proposal.**
+
+The family migration/parity program is historical. Current executable families and admitted typed imports follow the registry and evaluated cutoff; not all old criteria are universally certified.
+
+Gate retained: No universal migration completion claim; no old primary or YAML comparison executable restored.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-05-28
 - Plan: docs/plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md

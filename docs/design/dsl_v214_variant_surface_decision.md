@@ -1,5 +1,12 @@
 # DSL v2.14 Variant Surface Decision
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [Step IO](../../specs/io.md), the [frontend baseline](workflow_lisp_frontend_specification.md), and the [current drafting guide](../lisp_workflow_drafting_guide.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 ## Status
 
 This note is the durable design authority for the Phase 1 tagged-union output

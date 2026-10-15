@@ -1,5 +1,7 @@
 # Observability Step-Visit Summaries
 
+Status scope: proposed visit-selection correction. The problem statement below records the design-time observation; it is not a fresh reproduction of a current defect. [Observability](../../specs/observability.md) and retained summary tests own actual emission and reader behavior; acceptance requires the visit-specific checks below.
+
 Status: draft implementation design
 
 ## Problem

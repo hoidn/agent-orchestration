@@ -36,11 +36,11 @@ root `W`, where agents work, and `run` refuses one inside it. `W` and `P` must n
 `/dev/shm` or `/var/tmp`, since the shims' sandbox mounts private or empty ones there and an agent would lose its working
 directory; `run` and `pool` refuse them. `run` and `pool` also refuse a runtime with uncommitted
 changes to tracked files, and record its `HEAD` as `runtime_commit` in `record.json` and
-`mapping.json`. The live runtime is `/home/ollie/compare-runtime`; the E-A reruns used the work
-root `/home/ollie/compare-work2`, E-B `/home/ollie/compare-work-eb2`.
+`mapping.json`. Current paths are supplied through the recipe placeholders; historical
+[recorded runtime/work roots](../../docs/reports/documentation-history/experiments-compare-README-history.md#recorded-runtime-and-work-roots) are evidence.
 `run` refuses a task base whose candidates do not ignore `.orchestrate/`, where run state lives.
 
-What the sandbox isolates (R35):
+What the sandbox isolates:
 - each agent and judge CLI runs under `bwrap --dev-bind / / --bind <tree>/tmp /tmp --tmpfs /dev/shm --tmpfs /var/tmp
   --unshare-pid --proc /proc --die-with-parent`;
 - hard-coded `/tmp` paths land in the tree's `tmp/` (a judge's own `tmp/` for judges), so they are
@@ -59,7 +59,7 @@ What it does not isolate:
 | Path | Holds |
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
-| `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root`. For `best_of_n` it is `<tree>/.orchestrate/best-of-n-runs/<run_id>/`, linked from every `cand-k/.orchestrate/` (R37) |
+| `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root`. For `best_of_n` it is `<tree>/.orchestrate/best-of-n-runs/<run_id>/`, linked from every `cand-k/.orchestrate/` |
 | `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N`, `tmp/` (TMPDIR, and `/tmp` inside the sandbox) and `.model-guard/claude` (first on the agent's `PATH`); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` and `tmp/` (its `/tmp` inside the sandbox) |
@@ -154,11 +154,11 @@ It does not claim perfect isolation.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
    `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). Except for `best_of_n` it
    passes no `--state-dir`, so the state goes to the runtime's default `<cwd>/.orchestrate/runs` and
-   every provider prompt names a result path inside the agent's workspace. A state root outside the
-   workspace made the reviewer misplace its report, and once left `result.json` unwritten (R34).
+   every provider prompt names a result path inside the agent's workspace. Result paths must resolve inside the provider's workspace; see the
+   [recorded incident](../../docs/reports/documentation-history/experiments-compare-README-history.md#provider-result-path-incident).
    `best_of_n`'s workspace is the tree, but its implementers work in `cand-k` and resolve the
    tree-relative result path there; its state goes to `<tree>/.orchestrate/best-of-n-runs`, and each
-   candidate's `.orchestrate/best-of-n-runs` links to it, so the path resolves from either (R37). An
+   candidate's `.orchestrate/best-of-n-runs` links to it, so the path resolves from either location. An
    agent that deletes its candidate's `.orchestrate/` (for example `git clean -fdx`) loses the link.
    The task bases' `.gitignore` covers `.orchestrate/` and `artifacts/`. Before an agent starts,
    the shims strip `PYTHONPATH`, `OLDPWD`, the `COMPARE_*` variables and their own directory from
@@ -187,7 +187,7 @@ It does not claim perfect isolation.
    $PY $H/prepare.py collect --run $R
    ```
 
-4. **Scan, then adjudicate** (D5 as amended by R20). `scan` records every hit with its file, line,
+4. **Scan, then adjudicate**. `scan` records every hit with its file, line,
    pattern and an excerpt, and decides nothing. It searches:
    - the shims' stdout and stderr;
    - the Claude CLI's session files for the tree;

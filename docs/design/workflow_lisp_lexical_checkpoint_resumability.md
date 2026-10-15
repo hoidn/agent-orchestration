@@ -1,5 +1,12 @@
 # Workflow Lisp Lexical Checkpoint Resumability
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [State](../../specs/state.md), [evaluated execution](workflow_lisp_evaluated_execution.md), and [executor retirement](workflow_lisp_executor_retirement.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: predecessor draft; not current next-work routing
 Kind: architecture decision / runtime target
 Created: 2026-06-12

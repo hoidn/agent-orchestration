@@ -1,6 +1,6 @@
 # Workflow Lisp Type Catalog
 
-Status: draft internal design; target-2.19 `Value` mapping implemented
+Status: current shared typed catalog; historical flat contract projections; target-2.19 `Value` mapping implemented
 
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
 

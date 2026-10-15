@@ -8,8 +8,9 @@ Proposed changes are owned by
 [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 (inference-default optional restrictions and consumer-led metadata cleanup) and
 [pure-call composition](workflow_lisp_pure_call_composition.md)
-(semantic effects versus expression representation). Neither is implemented by
-this routing note. Current source retains its declaration and placement rules.
+(implemented resolved-inline semantic-effects versus expression-representation
+subset). This note selects no optional effect-ledger proposal. Current source
+retains declaration rules and the pure-call component owns its admitted positions.
 
 ## Purpose
 
@@ -85,26 +86,10 @@ These views change compiler bookkeeping only. They do not authorize a workflow
 family migration, a new runtime effect kind, or a weaker declared-effect
 contract.
 
-## Generated Visibility Effects
+<a id="generated-visibility-effects"></a>
+<a id="open-questions"></a>
 
-The current checkout also promotes a small set of generated visibility effects
-into Semantic IR so runtime-visible generated structure is inspectable without
-inventing fake authored statements:
-
-- `snapshot_capture`
-- `pointer_materialization`
-- `pure_projection`
-- `materialize_view`
-
-`pure_projection` is visibility for one generated runtime projection boundary,
-not evidence that the authored expression gained provider, command, IO, or
-state-mutation effects. The underlying pure-expression tree remains effect-free.
-
-Declared runtime-native `resource-transition` is a real state-mutation effect,
-not just visibility metadata. The generated step must therefore emit explicit
-`resource_transition` effect entries with backend/resource identity, while any
-still-live compatibility adapter route may additionally surface
-`resource_transition` / `ledger_update` through command-boundary metadata.
+Historical flat generated-effect projections remain useful analysis/read metadata. They do not admit generated projection, view or resource effects to current evaluated execution; the checked site table and inferred typed effects govern that route. See the [preserved record](../reports/documentation-history/workflow_lisp_effect_graph-history.md#generated-visibility-effects).
 
 ## Pure Forms
 
@@ -121,17 +106,6 @@ The compiler rejects pure forms that:
 - inspect wall-clock time
 - generate random values
 - mutate workflow state
-
-When lowering emits a runtime-visible `pure_projection` step, Semantic IR may
-carry a generated `pure_projection` effect with payload digest, schema version,
-and private bundle lineage. That effect is observational metadata for the
-generated boundary, not permission to treat the expression body as effectful.
-
-When lowering emits a runtime-visible `materialize_view` step, Semantic IR may
-carry a generated `materialize_view` effect with renderer identity, renderer
-schema version, target/allocation lineage, and authority class. The effect is
-real file-rendering visibility, but the rendered file remains a representation
-only; it must not become semantic authority for bridge-backed state or resume.
 
 ## Macro Boundary
 
@@ -150,24 +124,18 @@ views above and current frontend tests):
 - disallowed effects are rejected in pure contexts
 - workflow summaries include nested procedure effects
 - resource transitions have required capabilities
-- runtime-native resource transitions expose private `resource_state` and
-  `transition_audit` lineage
+- historical resource-transition projections preserve private `resource_state`
+  and `transition_audit` lineage without current effect admission
 - command and provider effects have output validation
 - semantic command behavior is either a typed procedure, a typed call, a
   certified command adapter, or a runtime-native effect
 
 ## Required Invariants
 
-- Effects are semantic IR data, not comments.
+- Effects are typed structured analysis data, not comments.
 - Runtime execution must be explainable from the effect graph and source map.
-- Effect checking must not weaken existing YAML validation.
+- Effect checking preserves retained imported-source validation; historical
+  YAML validation does not restore YAML execution.
 - Inline command glue that mutates semantic state must not disappear into a
   generic `uses_command` entry; it needs adapter metadata or a stronger typed
   construct.
-
-## Open Questions
-
-- Whether YAML workflows receive inferred effect graphs in the first tranche or
-  only frontend-generated workflows do.
-- How to model undeclared filesystem writes from arbitrary command processes
-  without pretending the runtime can fully sandbox them.

@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted
+- **Status:** implemented current introspection contract at evaluated targets 2.35/2.36
 - **Kind:** feature
 - **Owner:** Workflow Lisp frontend and CLI maintainers
 - **Reviewers:** Independent design and implementation reviewers

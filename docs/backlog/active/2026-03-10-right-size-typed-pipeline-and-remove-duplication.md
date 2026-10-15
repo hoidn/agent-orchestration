@@ -1,5 +1,20 @@
 # Backlog Item: Right-Size Typed Pipeline And Remove Duplication
 
+Current disposition: **unselected simplification intent; original pipeline snapshot historical.**
+
+The architectural-debt question and measurable simplification criteria remain unselected. The three-layer projection/executor snapshot is historical; delivered components do not prove every original debt criterion.
+
+Gate retained: Existing component completion does not prove every original debt criterion or authorize new refactor.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-03-10
 - Depends on:

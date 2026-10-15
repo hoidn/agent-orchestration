@@ -1,5 +1,20 @@
 # Backlog Item: Migrate Key Workflows To Document-Role Conventions
 
+Current disposition: **unselected document-role migration intent.**
+
+Document-role separation remains an unselected migration intent. Original drain consumers are historical; the current work-definition model does not prove every workflow migrated.
+
+Gate retained: No workflow variants, template rewiring or prompt changes selected by editorial cleanup.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [work definition model](../../work_definition_model.md), [2026-07-22-workflow-lisp-evolution-follow-on-roadmap](../../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-05-28
 - Plan: none yet

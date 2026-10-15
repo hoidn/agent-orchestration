@@ -1,5 +1,7 @@
 # Typed Program Gates: Staged Checking, Generational Execution, And The Parked Eval Terminal
 
+Admission boundary: this remains an unselected target with its C3 gate intact. Historical M2/derived replay and trial execution are retired; they are evidence, not available prerequisites. A selected implementation must prove its checked-program/evaluated consumer and required public lifecycle without restoring those profiles. Current fallback is external analysis of ordinary admitted source variants.
+
 ## Metadata
 
 - **Status:** accepted design; revision of an external exploratory draft

@@ -1,6 +1,6 @@
 # Workflow Lisp Reference Catalog
 
-Status: draft internal design  
+Status: current typed/reference-kind contract with historical flat reference spellings
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
 
 ## Purpose
@@ -11,7 +11,9 @@ and exit codes as interchangeable strings.
 
 ## Reference Kinds
 
-Required kinds:
+Retained reference kinds; `root.steps.*` spellings below are historical
+flat/read formats. Evaluated values use lexical environments and typed memo
+results, not a reconstructed `root.steps` execution model:
 
 - `ArtifactRef`: `root.steps.<Step>.artifacts.<name>`
 - `SnapshotRef`: `root.steps.<Step>.snapshots.<name>`
@@ -66,8 +68,8 @@ The catalog validates:
 - Snapshots are durable evidence, not artifacts.
 - Pointer files are not reference authority unless the referenced artifact value
   is explicitly a pointer path.
-- A frontend field-selection expression must lower to a catalog lookup, not an
-  ad hoc string path.
+- Frontend field selection uses checked typed value/catalog identity, never
+  an ad hoc string path. Historical catalog validation does not select an executor.
 
 ## Open Questions
 

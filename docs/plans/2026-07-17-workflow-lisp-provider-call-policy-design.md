@@ -1,5 +1,16 @@
 # Workflow Lisp Provider-Call Policy Design
 
+Status: **Historical checkpoint; original body preserved.**
+
+Original call-policy design/review record. Current source/policy/template contracts are promoted; the old candidate approval state, two-family rollout and flat/checkpoint representations below are historical.
+
+Current owner: [workflow_lisp_provider_call_policy.md](../design/workflow_lisp_provider_call_policy.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - **Status:** Reviewed implementation candidate; completion conditional on two final approvals and byte-identical commit
 - **Kind:** feature / architecture decision
 - **Owner:** Workflow Lisp frontend and shared workflow runtime maintainers

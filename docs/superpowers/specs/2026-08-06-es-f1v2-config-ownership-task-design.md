@@ -1,5 +1,12 @@
 # ES F1v2: Config-Ownership Campaign Task Design
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [comparison harness](../../design/orc_effectiveness_comparison_harness.md) and its linked experiment reports.
+
+The historical body begins below; original results and qualifications are unchanged.
+
 **Status:** Replacement task design for the ES effectiveness study, following the
 Task 3A out-of-band scale rejection of F1 (extension-boundary task, measured 615
 implementation additions against the required 5,000–10,000 band). Owner-selected

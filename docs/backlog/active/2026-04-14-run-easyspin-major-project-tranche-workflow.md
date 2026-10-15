@@ -1,5 +1,20 @@
 # Backlog Item: Run EasySpin Major Project Tranche Workflow
 
+Current disposition: **external EasySpin launch proposal; current completion unverified.**
+
+The EasySpin brief, environment and tmux requirements are a historical external-run proposal. No external outcome was verified here; a newly selected admitted launch still requires ptycho311.
+
+Gate retained: New launch requires current admitted workflow and external project selection; ptycho311 requirement remains if launched.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-14
 - Plan: none yet

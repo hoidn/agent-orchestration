@@ -1,5 +1,20 @@
 # Backlog Item: Temporary Failure-State Testing Guidance
 
+Current disposition: **open testing-guidance proposal; no implementation selected.**
+
+The target-versus-blocker honesty requirement remains an open prompt/skill-hygiene proposal. Repository testing rules do not prove every prompt adopted it; no prompt change is selected.
+
+Gate retained: Never turn temporary failure into target acceptance; no prompt edit selected by this reconciliation.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-28
 - Plan: none yet

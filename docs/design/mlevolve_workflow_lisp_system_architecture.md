@@ -1,5 +1,7 @@
 # MLEvolve Workflow Lisp System Architecture
 
+Admission boundary: this remains an unselected research architecture. Historical certified-adapter, YAML-parity or trial execution descriptions are not current launch authority. Before any activation, rebase the selected consumer onto [evaluated execution](workflow_lisp_evaluated_execution.md), [executor retirement](workflow_lisp_executor_retirement.md) and its own public compile/run/recovery evidence. The fallback is ordinary separately authored admitted programs; this page authorizes no experiment.
+
 Status: draft design
 Kind: system architecture / workflow-library design
 Created: 2026-06-09

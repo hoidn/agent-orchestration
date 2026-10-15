@@ -1,12 +1,13 @@
 # Workflow Lisp Semantic Workflow IR
 
-Status: current-checkout component contract
-Scope: shared semantic-layer contract implemented in this repository for Workflow Lisp and imported workflow bundles
+Status: retained typed analysis and historical-reader contract
+Scope: Semantic IR catalogs, validation and lineage; historical flat executable projections
 
 ## Purpose
 
-This document records the durable Semantic IR contract that the current
-checkout already implements.
+This document records retained Semantic IR data/validation contracts. Current
+checked-program artifacts and the evaluated memo own executable behavior; this
+projection cannot authorize a flat build or old-profile replay.
 
 Semantic IR is the typed semantic contract surface for validated workflows. It
 captures semantic structure in durable typed form for provenance, diagnostics,
@@ -36,52 +37,10 @@ In current code, that surface is anchored by:
 - `LoadedWorkflowBundle.semantic_ir`
 - `workflow_semantic_ir(...)`
 
-## Authority Boundary
+<a id="authority-boundary"></a>
+<a id="relationship-to-adjacent-layers"></a>
 
-Semantic IR is the durable typed semantic contract surface for the current
-checkout, but validated executable IR remains executable authority.
-
-In current code, executable authority means `LoadedWorkflowBundle.ir`
-containing validated executable structure. Semantic IR does not replace that
-authority, and it does not own runtime execution semantics.
-
-Semantic IR must be derived from the shared bundle path. It must not be
-reconstructed from reports, debug YAML, pointer files, shell text, adapter
-payload prose, dashboards, or summary documents.
-
-Structured semantic data is authority for the semantic layer. Reports and
-projections are views.
-
-## Relationship To Adjacent Layers
-
-The current shared pipeline is:
-
-```text
-frontend source / YAML surface
-  -> frontend-specific loading or Workflow Lisp WCC/schema-2 lowering
-  -> Core Workflow AST
-  -> shared validation and lowering
-  -> validated executable IR
-  -> derived runtime plan and state projection
-  -> derived Semantic IR
-  -> loaded bundle / build artifacts / existing runtime
-```
-
-Workflow Lisp lowers through WCC/schema 2 into the same shared bundle path as
-imported YAML workflows. The frontend does not bypass shared lowering to build
-Semantic IR directly, and WCC metadata is consumed only as provenance,
-scope/proof/effect, and source-map input for the ordinary projections.
-
-The boundary with adjacent layers is:
-
-- `LoadedWorkflowBundle.ir` / `ExecutableWorkflow` remain executable
-  authority.
-- `LoadedWorkflowBundle.semantic_ir` is the typed semantic projection exposed
-  on the shared bundle.
-- `runtime_plan`, build summaries, dashboards, and debug YAML are derived
-  views and do not redefine semantic authority.
-- source maps are traceability artifacts, not competing semantic or runtime
-  authority.
+The flat executable-IR authority and linkage pipeline are historical; retained Semantic IR is an analysis/read projection, never current executable authority. See the [preserved record](../reports/documentation-history/workflow_lisp_semantic_workflow_ir-history.md#authority-boundary).
 
 ## Current Semantic Surface
 
@@ -99,8 +58,7 @@ The current contract is implemented in
 - `SemanticTypeEntry`, `SemanticContractEntry`, and `SemanticRefEntry` record
   the typed catalog for types, contracts, and resolved references.
 - `SemanticEffectEntry` records explicit effects, including promoted generated
-  or adapter-backed effects that survive as shared semantic metadata. In the
-  current checkout this includes generated `pure_projection` effects that carry
+  or adapter-backed effects that survive as shared semantic metadata. Historical flat projections include generated `pure_projection` effects that carry
   payload digest, pure-expression schema version, result-type descriptor, and
   private output-bundle lineage, generated `materialize_view` effects that
   carry renderer id/version/schema, value-type descriptor, authority class, and
@@ -149,8 +107,9 @@ The current contract is implemented in
 - `SemanticExecutableBridge` records the semantic-to-executable linkage for
   node ids, presentation keys, and resume-checkpoint identities.
 
-This surface is current-checkout inventory, not an aspirational schema wish
-list.
+This is retained data-model inventory. Generated flat effects and executable
+bridges describe historical artifacts; their presence in a schema or reader is
+not admission to evaluated execution.
 
 ## Validation Ownership
 
@@ -170,30 +129,9 @@ This contract narrows the authority lane: workflows may come from different
 authoring surfaces, but semantic authority is recognized only through the
 shared derived-and-validated `SemanticWorkflowIR` surface.
 
-## Executable And Runtime-Plan Linkage
+<a id="executable-and-runtime-plan-linkage"></a>
 
-Semantic IR is derived from shared executable and runtime-facing bundle
-surfaces; it is not a replacement for them.
-
-Current linkage rules:
-
-- `SemanticExecutableBridge` ties each semantic workflow to executable node
-  ids, presentation keys, and resume-checkpoint identities.
-- semantic statements can point at executable node ids without redefining the
-  executable contract itself.
-- `runtime_plan` remains a derived runtime-facing summary used for ordering,
-  presentation, and checkpoint linkage.
-- Provider prompt-dependency and fragment configuration remain in validated
-  executable and semantic ownership. `runtime_plan` stays topology-only and
-  does not acquire path operands, injection policy, compiler-contract
-  metadata, compiled fragment identity, content digests, rendered prompt
-  bytes, or evidence locations.
-- build summaries, dashboards, and debug YAML may summarize these surfaces,
-  but they do not become semantic or executable authority.
-
-If executable structure or runtime-plan linkage changes in the future, the
-semantic projection must be revised through a separate reviewed contract rather
-than by implication from this document.
+Historical flat executable/runtime-plan linkage; current execution is owned by the checked closed program and memo. See the [preserved record](../reports/documentation-history/workflow_lisp_semantic_workflow_ir-history.md#executable-and-runtime-plan-linkage).
 
 ## Command Boundary Constraints
 
@@ -224,36 +162,9 @@ that lineage explicit for diagnostics, audits, and generated-structure review.
 This preserves the Workflow Lisp rule that authoring-time abstractions compile
 away before durable semantic or executable artifacts are produced.
 
-## Build Artifacts And Evidence
+<a id="build-artifacts-and-evidence"></a>
 
-The current checkout emits durable Semantic IR evidence through the shared
-build path.
-
-- `workflow_semantic_ir_to_json(...)` serializes the semantic artifact.
-- `orchestrator/workflow_lisp/build.py` emits `semantic_ir.json` and records
-  it in build outputs alongside adjacent artifacts.
-- `tests/test_workflow_semantic_ir.py` provides current evidence for catalog
-  population, source-map and executable bridges, command-boundary coverage,
-  promoted effects including `pure_projection` and `resource_transition`, and
-  `semantic_ir_invalid` rejection behavior.
-- `tests/test_workflow_lisp_build_artifacts.py` provides current evidence for
-  `semantic_ir.json` emission, schema-version locking, build-manifest lineage,
-  and generated-path visibility for pure projection and resource-transition
-  bundles.
-- `tests/test_workflow_lisp_prompt_calculus.py` and
-  `tests/test_workflow_lisp_prompt_calculus_e2e.py` provide current evidence
-  that the target-2.20 prompt fragment contract and identity reach
-  `SemanticPromptSurface`, remain equal to executable carriage, and survive
-  clean build and compatible resume.
-- `tests/test_workflow_semantic_ir.py` and
-  `tests/test_workflow_lisp_prompt_calculus_runtime.py` provide current
-  evidence that target-2.21 prompt output positions carry the exact v2
-  identity/contract pair and `expected_outputs` rows through the semantic
-  boundary, reject pair drift, and preserve target-2.20 v1 bytes.
-
-Those artifacts are durable evidence for the implemented surface. They do not
-change the rule that Semantic IR is derived from shared validated structures
-rather than from reports or other projections.
+Historical flat build-emission evidence. These records prove their original surfaces, not present flat build availability. See the [preserved record](../reports/documentation-history/workflow_lisp_semantic_workflow_ir-history.md#build-artifacts-and-evidence).
 
 ## Out Of Scope
 

@@ -1,10 +1,10 @@
 # YAML Workflow Estate Triage
 
-Frozen human projection of `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` → `yaml_retirement_handoff`. The handoff remains capture authority; Task 6's separately checked execution index and live projection will own deletion progress.
+Frozen human projection of `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` → `yaml_retirement_handoff`. The handoff remains capture authority; Task 6's execution index records the completed deletion work, not a live queue.
 
 Capture commit: `56a832bffc11ea4572eae3e6285690a74db7d990`.  Normalized estate-path digest: `sha256:ca994efbfba9c69836821b99239b7fb9d90656979701c3d679cdcb5b519fe2b5`.
 
-This table preserves the original 110-path Stage-6 routing projection. All five queues are drained, the authored YAML/YML estate is empty, and Task 7 is current and eligible but not implemented. The final holdout row carries the Task-6 completion overlay; the other row statuses remain frozen capture history rather than live queue state. This projection authorizes no workflow launch or run mutation.
+This table preserves the original 110-path Stage-6 routing projection. All five queues are drained, the authored YAML/YML estate is empty, and Stage 6 Tasks 1–7 are complete; the public YAML parser is removed. See the [Stage 6 completion owner](plans/2026-07-07-yaml-retirement-program.md). The final holdout row carries the Task-6 completion overlay; the other row statuses remain frozen capture history rather than live queue state. This projection authorizes no workflow launch or run mutation.
 
 | path | queue | disposition | replacement or rationale | legacy rows | archive | status | deletion gate |
 |---|---|---|---|---:|---|---|---|

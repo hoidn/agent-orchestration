@@ -1,5 +1,11 @@
 # Workflow Lisp Strict Boolean Control Flow
 
+Execution scope: the 2.26 minimum remains a source/type/import gate. Flat
+closed-member, projection and Executable IR examples are historical backend
+encodings. Current evaluated control must preserve strict `Bool`, selected-arm
+laziness, once-only operands and variant-proof identity without restoring that
+backend or admitting live-provider/peer effects.
+
 ## Metadata
 
 - **Status:** accepted; implemented at target DSL 2.26
@@ -643,38 +649,7 @@ controls `tests/test_workflow_lisp_e1_normative_contract.py` and
 `tests/test_workflow_lisp_e2_trial_contract.py`. No statement above extends
 beyond what those selectors demonstrate.
 
-## Implementation Handoff
+<a id="implementation-handoff"></a>
+<a id="open-questions"></a>
 
-The implementation plan should keep one vertical path:
-
-1. prove the internal `WccSelect` path through closed provider members,
-   materialize a pre-provider whole selection through the existing
-   owner-scope `pure_projection` plus `typed_binding_ref` path, and correct the
-   existing pure-projection `kind: "if"` evaluator to be lazy; then run the
-   five feasibility fixtures above and stop on any remaining
-   public-IR/runtime/state gap;
-2. add target/version gating, contextual tag typing, and binding-identity
-   possible-set analysis;
-3. recursively normalize effects through existing `let*`, projection, and
-   structured-`if` machinery, retain effect-free selections as `WccSelect`
-   where a WCC value is required, then erase temporary `cond` structure without
-   discarding reachable effect prefixes or short-circuit boundaries;
-4. carry branch proof through WCC into existing runtime guards and resume proof
-   descriptors; and
-5. complete runtime/source-map evidence and governing-doc updates.
-
-Likely frontend owners include `expressions.py`, `typecheck_dispatch.py`,
-`typecheck_pure_ops.py`, `typecheck_proofs.py`, `conditionals.py`, and the WCC
-control lowerers. The plan must first trace every `IfExpr`, `PureOpExpr`, and
-proof-scope traversal rather than adding a schema-1-only or workflow-specific
-branch.
-
-No cond-specific node may survive typed frontend normalization. Do not
-introduce a new runtime execution form, a second proof graph, a public IR
-envelope change, or a new state family unless the feasibility fixtures disprove
-the accepted composition. Any such need reopens this design.
-
-## Open Questions
-
-None. Core syntax, typing, evaluation order, short-circuit behavior, failure,
-proof, exhaustiveness, compatibility, and verification semantics are decided.
+Historical target-2.26 implementation handoff; the strict-Bool, normalization, proof and version rules above remain the language contract. See the [preserved record](../reports/documentation-history/workflow_lisp_strict_boolean_control_flow-history.md#implementation-handoff).

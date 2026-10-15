@@ -14,16 +14,16 @@ state, artifacts, provider calls, command calls, and control flow.
 authored Workflow Lisp source (.orc)
         |
         v
-frontend compiler / shared validation
+typed frontend / checked closed-program validation
         |
         v
-typed workflow state, output contracts, artifact lineage, source maps
+checked program, typed contracts, effect sites and source provenance
         |
         v
-runtime execution
+evaluated runtime and effect memo
         |
         v
-run state, logs, artifacts, reports, and resume evidence
+run header, checked artifact, memo, attempt evidence and derived views
 ```
 
 ## What Is Authoritative?
@@ -36,9 +36,10 @@ Normative runtime behavior lives in `specs/`, especially:
 - [State](../specs/state.md)
 - [Dependencies](../specs/dependencies.md)
 
-Within a run, structured state, output bundles, typed variants, validated
-artifacts, snapshots, and source-mapped executable nodes are the semantic
-authority. They decide routing, resume, publication, and terminal status.
+Within an evaluated run, the immutable header and checked program, validated
+input/result values and append-only memo own execution, reuse and terminal
+status. Effect sites and activation paths identify effects; source spans explain
+them. Historical state/snapshot formats retain only their explicit read contract.
 
 ## What Is A View?
 
@@ -76,15 +77,17 @@ Typed outputs, variants, and contracts prevent common workflow mistakes:
 ## Why Workflow Lisp?
 
 Workflow Lisp (`.orc`) is an authoring frontend for reusable typed composition.
-It should make high-level workflows easier to write without changing runtime
-authority. The frontend lowers through shared validation, semantic IR, executable
-IR, source maps, and the existing runtime.
+It provides typed modules, procedures, bounded control and visible effects.
+Shared typed elaboration, specialization and scope/proof analysis construct a
+checked closed program, which the evaluated runtime executes against its memo.
+Resume re-evaluates from the entry and reuses validated committed effects.
 
-That is the runnable route through target 2.34. The accepted
-[evaluated-execution design](design/workflow_lisp_evaluated_execution.md) instead
-compiles a closed program for evaluation. Public compilation and execution are
-available at targets 2.35/2.36 for their admitted classes; target 2.37 parallel
-execution has bounded qualification. The [capability matrix](capability_status_matrix.md)
+Public compilation and execution use admitted evaluated targets: 2.35/2.36,
+bounded 2.37 parallel-map support, and bounded 2.38 Agent Sessions and command-only
+confined run references. Public confined providers remain gated. The
+[evaluated design](design/workflow_lisp_evaluated_execution.md) owns that model;
+the [flat-route retrospective](reports/2026-10-13-flat-route-retirement-retrospective.md)
+records the retired predecessor. The [capability matrix](capability_status_matrix.md)
 owns current availability, copy-safety and remaining gates for each surface.
 
 Workflow Lisp is the only fresh authoring frontend. If the required form is not

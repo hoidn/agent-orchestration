@@ -1,5 +1,12 @@
 # Workflow Lisp LSP Authored Reference Navigation
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [language-server contract](workflow_lisp_language_server.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 - **Status:** implemented and incorporated into
   `docs/design/workflow_lisp_language_server.md` after the ordered design and
   plan reviews. The implementation landed collision-safe rows at `95e05c01`,
@@ -205,8 +212,8 @@ a best-effort subset.
   workflow-call hits remain exact. WCC reconstruction, generated/expanded
   calls, null `authored_callee_span`, unsupported kinds, and positions outside
   existing exact tokens remain null.
-- A real stdio check against
-  `workflows/examples/review_revise_design_docs.orc` resolves the fragment
+- A real stdio check against the retained source fixture
+  `tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc` resolves the fragment
   application head and preserves the already-working `(call ...)` result. Its
   two macro-consumed proc-refs and its macro head remain null and are
   regression-locked.

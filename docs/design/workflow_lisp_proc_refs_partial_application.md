@@ -332,12 +332,6 @@ Negative tests must prove:
 - records, unions, workflow outputs, artifacts, ledgers, and runtime state cannot
   contain `ProcRef`.
 
-## Estimated Effort
+<a id="estimated-effort"></a>
 
-Relative to the completed Workflow Lisp frontend implementation:
-
-- plain compile-time `ProcRef`: about 5-10%;
-- `ProcRef` plus `bind-proc`: about 12-20%;
-- true runtime first-class procedures: 35-70% or more.
-
-The implementation target for this tranche is `ProcRef` plus `bind-proc`.
+Historical implementation sequencing/closure. Current semantics, compatibility rules and acceptance requirements remain in this contract; the linked plan owns execution evidence. See the [preserved record](../reports/documentation-history/workflow_lisp_proc_refs_partial_application-history.md#estimated-effort).

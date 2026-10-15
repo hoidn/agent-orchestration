@@ -8,24 +8,24 @@
 - **Minimum targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
   `(:target-dsl "2.21")`; Q3 evidence/runtime behavior
   `(:target-dsl "2.22")`
-- **Q2 design reviews:** independent specification rereview
-  `Q2_DESIGN_SPEC_REAPPROVED`, then independent quality review
-  `Q2_DESIGN_QUALITY_APPROVED` (2026-07-26)
-- **Q2 implementation plan:** accepted after independent
-  `Q2_PLAN_SPEC_APPROVED` then `Q2_PLAN_QUALITY_APPROVED`;
-  `docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`
-- **Q3 design reviews:** `Q3_DESIGN_SPEC_APPROVED`, then
-  `Q3_DESIGN_QUALITY_APPROVED`, over immutable snapshot
-  `fdf16f362f93eae89c05600e6954a118270fe7b7`
+<a id="original-delivery-metadata"></a>
+
+Q2/Q3 review and implementation receipts are historical; the implemented functional contracts below remain binding. See the [preserved record](../reports/documentation-history/workflow_lisp_prompt_calculus-history.md#original-delivery-metadata).
+
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_transportable_value_type.md`
   - `docs/design/workflow_lisp_native_transportable_returns.md`
-  - `docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md`
+  - `docs/design/workflow_lisp_provider_prompt_dependencies.md`
   - `docs/design/workflow_lisp_program_search_boundaries.md`
   - `docs/design/workflow_language_design_principles.md`, especially
     principle 29
   - `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
+
+The Q1–Q3 migration scenarios below record the original consumer. Its source is
+retained at `tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc`;
+its retired executable target is not a current usage recipe. Current invocation
+and recovery follow the [evaluated execution contract](workflow_lisp_evaluated_execution.md).
 
 ## Decision
 

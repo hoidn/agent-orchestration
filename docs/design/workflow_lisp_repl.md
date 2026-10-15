@@ -430,22 +430,9 @@ Persistence specs require no new wire contract. The introspection design and
 its execution plan own the bounded catalog/source/type-query addition;
 availability is recorded in the capability matrix and verification in plans.
 
-## Implementation Handoff
+<a id="implementation-handoff"></a>
 
-Likely files: `workflow_lisp/workflows.py`, `compiler.py`,
-`closed/{frontend,artifact}.py` for transient context;
-`workflow/evaluated/{views,capture}.py` for visible bindings and capture;
-`workflow_lisp/repl_expr.py` for the ordinary expression bridge;
-`cli/commands/{repl,__init__}.py`, `cli/main.py` and the installed CLI entry
-in `pyproject.toml` for registration/session;
-`tests/test_workflow_evaluated_repl.py` and the documentation surfaces above.
-
-The safe first step is the transient compile-result seam, checked against
-existing build callers and artifact bytes. Review capture/terminal parity and
-recursive purity guards before integrating the CLI. Keep new modules below
-500 lines, use current helpers, and retain error validation at every boundary.
-Implementation and test preparation follow subagent-driven execution; the
-coordinator owns integration, independent review and fresh final verification.
+Historical implementation sequencing/closure. Current semantics, compatibility rules and acceptance requirements remain in this contract; the linked plan owns execution evidence. See the [preserved record](../reports/documentation-history/workflow_lisp_repl-history.md#implementation-handoff).
 
 ## Open Questions
 

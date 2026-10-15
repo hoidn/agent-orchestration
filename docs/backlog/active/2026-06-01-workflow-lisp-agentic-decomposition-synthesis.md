@@ -1,5 +1,20 @@
 # Backlog Item: Agentic Decomposition To Workflow Lisp
 
+Current disposition: **future agent-authored decomposition proposal; unselected.**
+
+Agent-authored decomposition remains unselected future work. No runtime-functions/inline-English-evaluation limit is waived; checked-program evaluation/progressive execution require their own current effect routes and selection.
+
+Gate retained: Requires accepted current effect route and separate selection; generated provider programs are not currently generally admitted.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-06-01
 - Plan: none yet

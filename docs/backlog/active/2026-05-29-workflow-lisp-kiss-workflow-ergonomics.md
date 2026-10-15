@@ -1,5 +1,20 @@
 # Backlog Item: Improve Workflow Lisp KISS Workflow Ergonomics
 
+Current disposition: **unselected ergonomics intent; retired specimen baseline.**
+
+Reducing authoring plumbing remains an unselected ergonomics intent. The 199-line kiss_backlog_item/old-runtime specimen is historical; use maintained examples and W3/std-improve for current usage.
+
+Gate retained: Retired specimen is not runnable/copy-safe; no old stack refactor or ergonomic effectiveness claim selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-05-29
 - Plan: none yet

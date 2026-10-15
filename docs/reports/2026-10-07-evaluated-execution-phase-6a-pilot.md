@@ -1,5 +1,16 @@
 # Evaluated Execution Phase 6a Pilot
 
+Status: **Historical checkpoint; original body preserved.**
+
+Historical early Phase6a pilot checkpoint. The original W3 choices/pending delivery and pure-inline-shadow observations below retain their tested revision and limits. The linked W3 closeout owns subsequent bounded correction/qualification; global Phase6a/6b are not closed by either bounded record.
+
+Current contracts: [write-once hooks](../design/workflow_lisp_write_once.md) and [evaluated execution](../design/workflow_lisp_evaluated_execution.md). Subsequent bounded evidence: [W3 closeout](2026-10-07-evaluated-execution-phase-4c-w3-closeout.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Status: Tasks 1–3 have independent bounded PASS reviews. The final full campaign at pilot candidate `688695e3` (production `b11e678`) passes all 21 pilot cases, but the full suite is RED: 425 failed, 23079 passed, 36 skipped and 178 xfailed, exit 1. Failure disposition is recorded below; independent final phase/documentation review is PASS and the bounded pilot was delivered to `main` and `origin/main` at `0aaddf5f`. Global Phase 6a and W3 Task 4 remain open for grammar/inference, target, standard-module, checkpoint and migration decisions; the W3 specimen is proposed-only.
 
 Subsequent bounded update: the [pure-capture correction](2026-10-07-workflow-lisp-pure-capture-correction.md)

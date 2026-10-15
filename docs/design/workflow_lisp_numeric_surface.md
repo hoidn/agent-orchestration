@@ -95,8 +95,9 @@ converted.
 
 ### N4. Refusals
 
-Every refusal names the operator, prints the operands and points at the
-expression.
+Every refusal names the operator and operands. Compile-time literal refusals
+point at the expression; evaluated runtime refusals currently locate the pure
+region rather than the individual failing application.
 
 | Code | When |
 | --- | --- |
@@ -176,8 +177,8 @@ waits for a fixture that needs it.
 - The rules apply at target 2.34. Targets through 2.33 retain their previous
   behaviour: they refuse decimal literals in expressions and accept
   non-finite values at boundaries, as summarized in section 2.
-- The pure evaluator is shared by both execution routes, so the operators do
-  not depend on evaluated execution.
+- The shared pure evaluator preserves historical numeric semantics for typed
+  imports; executable entries use the evaluated route. Old entry targets are retired.
 
 ## 7. Evidence Requirements
 

@@ -1,5 +1,20 @@
 # Backlog Item: Structured Branch Composition and Optional Branch Outputs
 
+Current disposition: **historical flat structured-control limitation report.**
+
+The nested-match/optional-output failures record the original flat-route trigger. Current admitted composition is owned by evaluated execution; any remaining defect needs fresh reproduction and separate selection.
+
+Gate retained: Any still-open current behavior requires fresh reproduction and separate plan; no old runtime repair selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-03-12
 - Plan: none yet

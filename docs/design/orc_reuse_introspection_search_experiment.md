@@ -11,13 +11,12 @@ The plan owns current selection and resource limits; this design selects no
 new study or budget. Earlier human-only, zero-paid-R1a, and constrained-authoring
 proposals remain historical context, not the normal agent-session contract below.
 
-The reduced pilot, assisted C1 feasibility and qualitative ergonomic assessment
-are recorded. The remaining C1 receipt-interface repair is unselected; consult
-the plan for current disposition. Completed development does not select a new
-study or establish comparative efficacy.
+<a id="original-delivery-metadata"></a>
 
-Normative behavior remains in `specs/`. The existing [trial design](workflow_lisp_trial_runs.md)
-owns child-run/evaluation methodology; [program-search boundaries](workflow_lisp_program_search_boundaries.md)
+Completed pilot/C1 and qualitative-assessment status belongs to the linked plan/report. The remaining repair remains unselected; completion does not establish comparative efficacy. See the [preserved record](../reports/documentation-history/orc_reuse_introspection_search_experiment-history.md#original-delivery-metadata).
+
+Normative behavior remains in `specs/`. The [historical trial design](workflow_lisp_trial_runs.md)
+records child-run/evaluation methodology without current trial admission; [program-search boundaries](workflow_lisp_program_search_boundaries.md)
 record the current architecture. This proposal adds no language target.
 
 Owner scope clarification, 2026-09-08: **execution safety is excluded from the

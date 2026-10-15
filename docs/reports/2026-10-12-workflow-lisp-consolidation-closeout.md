@@ -1,5 +1,16 @@
 # Workflow Lisp Consolidation Execution Record
 
+Status: **Historical checkpoint; original body preserved.**
+
+Historical bounded consolidation checkpoint. Original then-pending/unselected retirement/deletion statements below preserve that receipt; accepted subsequent cutoff/deletion is owned by the linked executor-retirement closeout. No original RED/PASS evidence is reinterpreted.
+
+Current contracts: [executor retirement](../design/workflow_lisp_executor_retirement.md) and [evaluated execution](../design/workflow_lisp_evaluated_execution.md). Subsequent delivery evidence: [retirement closeout](2026-10-13-best-of-n-and-executor-retirement-closeout.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Status: **bounded extraction complete**. Tasks 0–4/Gates A–D of the
 [consolidation plan](../plans/2026-10-12-workflow-lisp-consolidation-plan.md) are
 accepted at integrated revision `bfd0f324`, after independent Astra review and

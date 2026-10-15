@@ -1,5 +1,13 @@
 # Example: Dependency Injection Modes (Informative)
 
+Status: **Historical example — YAML execution retired.** The original body
+below is preserved to interpret versioned schemas, validation and old run
+records; its original commands and present tense are not current launch
+instructions. Use the [current `.orc` drafting guide](../../docs/lisp_workflow_drafting_guide.md)
+and [public lifecycle recipe](../../docs/lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate).
+Current admission, recovery and reader behavior remain owned by
+[CLI](../cli.md) and [State](../state.md).
+
 ```yaml
 version: "1.1.1"
 name: "injection_modes_demo"

@@ -1,5 +1,20 @@
 # Backlog Item: Refactor Design/Plan/Implementation Stack To Consume Stdlib Review Loop
 
+Current disposition: **historical retired-stack stdlib-consumption proposal.**
+
+The migration/LOC/proof context is frozen evidence for a retired stack entry. Maintained review/revise usage follows the library/W3 contract; admitted typed imports remain separate.
+
+Gate retained: Do not port old stack or claim all acceptance already complete; keep typed imports where admitted.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-06-05
 - Priority: P2

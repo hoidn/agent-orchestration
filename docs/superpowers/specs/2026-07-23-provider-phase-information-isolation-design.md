@@ -1,8 +1,17 @@
 # Provider-Phase Information Isolation Design
 
+Current fallback: ordinary trusted provider execution under the existing
+provider contract. This target must refuse when its requested isolation cannot
+be enforced; it never silently falls back to trusted execution. Current delivery
+and native/public qualification gates live in the linked implementation plan
+and [capability matrix](../../capability_status_matrix.md). All threat-model,
+rootfs/FD/credential, network and acceptance rules below remain required.
+
 ## Metadata
 
-- **Status:** accepted for implementation
+- **Status:** accepted security target, partial implementation; public provider
+  isolation qualification/admission remains gated. The sibling run-ref profile
+  does not satisfy or promote this profile.
 - **Kind:** architecture decision
 - **Owner:** Orchestrator maintainers
 - **Reviewers:** independent specification and quality re-reviews approved the

@@ -1,5 +1,20 @@
 # Backlog Item: Workflow Boundary `kind`/`type` Redundancy
 
+Current disposition: **retired merged item.**
+
+The item remains retired/merged into provider-prompt source clarity. The YAML redundancy account below is historical, not a separate open obligation.
+
+Gate retained: Merged disposition unchanged.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: retired
 - Created on: 2026-03-09
 - Plan: `docs/plans/2026-03-09-workflow-boundary-kind-type-redundancy-implementation-plan.md`

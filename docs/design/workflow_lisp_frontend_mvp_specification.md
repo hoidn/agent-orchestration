@@ -1,5 +1,12 @@
 # Workflow Lisp Frontend MVP Specification
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [frontend baseline](workflow_lisp_frontend_specification.md), [evaluated execution](workflow_lisp_evaluated_execution.md), and [executor retirement](workflow_lisp_executor_retirement.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: historical MVP scope; implemented baseline has advanced beyond this tranche
 Parent architecture: `docs/design/workflow_lisp_frontend_specification.md`
 Target substrate: v2.14+ Core Workflow AST and existing runtime

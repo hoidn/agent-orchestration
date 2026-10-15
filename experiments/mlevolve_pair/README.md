@@ -1,5 +1,33 @@
 # MLEvolve-inspired paired search
 
+Status: maintained evaluated 2.35 compact controller with deterministic leaves.
+No live-model, cost, GPU-throughput or broader search-efficacy claim.
+
+## Current Compact-Controller Recipe
+
+The maintained compact controller in `search_compact.orc` targets evaluated execution
+2.35 and retains the policy, typed trial history and budget described below. Its module path is
+`mlevolve_pair/search_compact`, so its certified adapter manifest is
+`commands_compact.json` (the `owner_module` metadata matches that module; each
+command declares `leaves.py` as its closure).
+From the repository root, compile, inspect admission, or run the compact controller:
+
+```bash
+python -m orchestrator run experiments/mlevolve_pair/search_compact.orc \
+  --entry-workflow run-search --source-root experiments \
+  --command-boundaries-file experiments/mlevolve_pair/commands_compact.json \
+  --input max_evaluations=12 --dry-run
+```
+
+Use `compile` instead of `run` and omit the input and `--dry-run` to persist its
+checked artifact. Omit `--dry-run` to execute; `orchestrator resume RUN_ID` reuses
+committed effects, and `orchestrator report --run-id RUN_ID --format json` shows
+the typed result. Scripted public tests compare results and ordered leaf requests
+with the Python reference across budgets, invalid candidates, repair and fusion,
+including interrupted and completed resume.
+
+## Shared Numerical Policy And Fixture Scope
+
 This is a small, scripted comparison of two independent search controllers.
 Both search the same integer model `a*x + b*x*x` against `2*x + 3*x*x` at
 `x = [-2, -1, 1, 2]`; the score is the sum of squared errors. Coefficients
@@ -34,41 +62,9 @@ that length to inject the invalid candidate once; it never chooses the
 operation or branch.
 The two seed candidates are fixed and valid by fixture construction.
 
-`search.orc` records the authored ORC policy, but this specimen does not claim
-that the policy executed: the original release compiler rejected the controller. It
-first met the 256-node limit of a pure expression; since bound values are
-shared in a payload it meets a loop inside a branch
-(`workflow_boundary_type_invalid`). `compare.py` runs the Python controller with
-direct and subprocess leaves, then attempts the ORC compile and public run.
-The following reproduction is historical and requires its original release and
-environment. In the current package, the old entry refuses at the retirement
-boundary before the former lowerer diagnostic; this command is not the current
-compact-controller recipe:
 
-```bash
-python -m experiments.mlevolve_pair.compare --output /tmp/mlevolve-pair-evidence.json
-```
 
-The maintained compact controller in `search_compact.orc` targets evaluated execution
-2.35 and retains the policy, typed trial history and budget described above. Its module path is
-`mlevolve_pair/search_compact`, so its certified adapter manifest is
-`commands_compact.json` (the `owner_module` metadata matches that module; each
-command declares `leaves.py` as its closure).
-From the repository root, compile, inspect admission, or run the compact controller:
-
-```bash
-python -m orchestrator run experiments/mlevolve_pair/search_compact.orc \
-  --entry-workflow run-search --source-root experiments \
-  --command-boundaries-file experiments/mlevolve_pair/commands_compact.json \
-  --input max_evaluations=12 --dry-run
-```
-
-Use `compile` instead of `run` and omit the input and `--dry-run` to persist its
-checked artifact. Omit `--dry-run` to execute; `orchestrator resume RUN_ID` reuses
-committed effects, and `orchestrator report --run-id RUN_ID --format json` shows
-the typed result. Scripted public tests compare results and ordered leaf requests
-with the Python reference across budgets, invalid candidates, repair and fusion,
-including interrupted and completed resume.
+The old full-controller compiler diagnostic and compare command are historical reproduction, not the current compact-controller recipe. See the [preserved record](../../docs/reports/documentation-history/experiments-mlevolve_pair-README-history.md#historical-operational-record-5).
 
 The broader findings are in the
 [comparison report](../../docs/reports/2026-09-29-mlevolve-orc-python-comparison.md).

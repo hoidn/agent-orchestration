@@ -60,6 +60,32 @@ Indexes, catalogs, maps, and README hubs own discoverability: links, reading
 paths, status, and evidence routing. They do not redefine the behavior or policy
 owned by the linked spec, design, plan, or artifact contract.
 
+## Current Guidance And Historical Records
+
+Choose a document's role from what consumes it, not its directory or date.
+A dated design can still own a contract; a file under `active/` can contain a
+superseded proposal.
+
+| Role | Keep in the maintained document | Keep in a historical record |
+| --- | --- | --- |
+| Spec or component contract | Rules, invariants, supported versions, rationale, limits and remaining qualification gates | Review rounds, implementation scheduling and delivery receipts |
+| Guide or runbook | Prerequisites, current commands, choices and troubleshooting needed to perform the task | Past incidents, obsolete workarounds and captured run locations |
+| Index, catalog or capability matrix | Purpose, present scope/status and links to the owner and evidence | Commit lists, test counts and repeated implementation narratives |
+| Active plan or roadmap | Selected work, dependencies, remaining obligations and gates | Superseded sequencing and completed execution detail |
+| Closed plan, report or handoff | Capture scope and a pointer to the current owner when needed | Original decisions, commands, results, failures and qualifications |
+
+When a historical document is discoverable as current guidance, add a short
+scope notice. Preserve its original body rather than continuously updating its
+past-tense checkpoint. An old instruction does not select new work. Conversely,
+moving implementation history does not retire a supported format, remove a
+security invariant, waive qualification or close an unresolved obligation.
+
+Promote lasting rules out of mixed plans before archiving them. When extracting
+sections, preserve cited anchors or update their incoming references, and
+resolve relative links from the new location. Keep frozen fixtures, hash-pinned
+inputs and generated evidence intact; annotate their discovery route instead.
+Do not duplicate an entire document merely to shorten its introduction.
+
 ## Durable References
 
 Reference mutable source and documentation by path, symbol, or section. Use

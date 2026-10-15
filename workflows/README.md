@@ -83,7 +83,7 @@ Fresh preferred starting points:
   the Design Delta family is deprecated, apart from its reusable library
   procedures. Its authored YAML family is archived; the historical promotion
   report remains preserved as evidence of the route decision.
-- The earlier examples that targeted 2.14 or 2.23 are test fixtures under
+- Earlier examples targeting 2.14 or 2.23 are retained as test fixtures under
   `tests/fixtures/workflow_lisp/retired_examples/`; release `v0.1.0` runs them.
 
 Reference corpus:
@@ -139,7 +139,7 @@ route-readiness registry rather than falling back to a retired YAML monolith.
 ## Prompt Resolution
 
 Resolution rules:
-- `input_file` is repo-root relative and is intended for workspace-owned or runtime-generated prompt material.
+- `input_file` is WORKSPACE-relative and is intended for workspace-owned or runtime-generated prompt material.
 - `asset_file` is relative to the workflow source file and is intended for prompt assets bundled with reusable workflows.
 - `asset_depends_on` follows the same workflow-source-relative rule as `asset_file`.
 
@@ -159,9 +159,9 @@ Resolution rules:
 
 | Path | Status | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- | --- |
-| `workflows/library/generic_run_watchdog/watchdog.orc` | Historical reference; executable entry retired | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Retired generic watchdog. Promotion/parity evidence was recorded at `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json` (untracked; absent from the checkout); no new launches. |
-| `workflows/library/lisp_frontend_design_delta/drain.orc` | Historical reference; executable entry retired | `2.14` | `lisp_frontend_design_delta/drain::drain` | Retired Design Delta entry; reusable typed procedures remain only where admitted. Historical promotion/parity reports remain preserved; the current registry supplies no launch promotion. |
-| `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.35` | `verified_iteration_drain/drain::drain` | Evaluated verified-iteration primary with command closures, captured ledger history and public run/resume evidence. New launches use this `.orc` route; the final typed parity report was recorded at `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json` (untracked; absent from the checkout). |
+| `workflows/library/generic_run_watchdog/watchdog.orc` | Historical reference; executable entry retired | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Retired watchdog entry; shared read-only probing is separate. No current launch; [historical catalog record](../docs/reports/documentation-history/workflows-README-history.md#historical-catalog-entries). |
+| `workflows/library/lisp_frontend_design_delta/drain.orc` | Historical reference; executable entry retired | `2.14` | `lisp_frontend_design_delta/drain::drain` | Retired Design Delta drain; admitted reusable typed imports are separate. No current launch; [historical catalog record](../docs/reports/documentation-history/workflows-README-history.md#historical-catalog-entries). |
+| `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.35` | `verified_iteration_drain/drain::drain` | Evaluated primary with command closures, captured ledger history and public run/resume evidence; use the launch recipe above. |
 | `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp W3 `std/improve` evidence; input-required | `2.36` | `improve_experiment_proposal::run-experiment` | Drafts a typed proposal, uses inferred local review/revise signatures and lexical context with the four-argument graph-selected helper, and passes the returned proposal to the workspace launcher in every outcome. Implemented at 2.36. Bounded public lifecycle evidence uses deterministic provider shims. Compile/dry-run validate manifests and the command closure declaration without certifying launcher bytes. Execution requires configured providers and the workspace-owned `scripts/launch_experiment.py` at that exact path; the example does not supply it; [recipe](../docs/lisp_library_reference.md#review-and-revise-with-stdimprove). |
 | `workflows/examples/plan_review_execute.orc` | Workflow Lisp preferred current guidance; compile evidence | `2.35` | `plan_review_execute::run` | README example: a planner drafts, a reviewer from another model family gives feedback, the planner revises, and the reviewer's model executes the revised plan, as one typed sequence. Compile evidence: `tests/test_workflow_lisp_plan_review_execute_example.py`; public dry run recorded in the [consolidation closeout](../docs/reports/2026-10-12-workflow-lisp-consolidation-closeout.md); no live provider run is recorded. |
 | `workflows/examples/design_review_execute.orc` | Workflow Lisp preferred current guidance; compile evidence | `2.35` | `design_review_execute::run` | File-based variant of the README example: the planner drafts `artifacts/design/<slug>.md`, the reviewer reads it through a `:doc` fill, the planner writes the final `docs/design/<slug>.md` as a new file so the review's input never changes and `resume` can retry any step, and the reviewer's model executes it. Compile evidence: `tests/test_workflow_lisp_design_review_execute_example.py`; live provider runs are recorded by [E-B](../docs/reports/2026-10-14-design-review-execute-versus-single-call.md) and [E-B2](../docs/reports/2026-10-15-calibrated-orc-versus-single-call.md). Both are mechanics records on tasks that were not calibration-qualified, not performance evidence. |
@@ -175,9 +175,9 @@ locates modules; it does not grant execution support to historical entries.
 | Path | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- |
 | `workflows/library/control/direct_task.orc` | `2.35` | `control/direct_task::direct-task` | E0 canonical direct control with typed inputs `task: String`, `model: String`, and `effort: String`, exactly one composed provider boundary, and a direct `Bool` result. `PASS_E0` makes it copy-safe only for this bounded one-call direct-task shape, not for trials, child runs, controllers, report-shaped results, or customized orchestration. |
-| `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the tracked design phase contract. |
-| `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the tracked plan phase contract. |
-| `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the implementation phase contract. |
+| `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Historical 2.14 entry; typed/import scope only where admitted. Retained tracked-design prompt/contract reference. |
+| `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Historical 2.14 entry; typed/import scope only where admitted. Retained tracked-plan prompt/contract reference. |
+| `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Historical 2.14 entry; typed/import scope only where admitted. Retained implementation prompt/contract reference. |
 
 ## Related Docs
 

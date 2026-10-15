@@ -1,6 +1,6 @@
 # Dashboard Observability Summary GUI
 
-Status: draft implemented plan
+Status: current read-only dashboard design; [Observability](../../specs/observability.md) owns runtime artifacts and [CLI dashboard contract](../../specs/cli.md) owns operator use
 
 ## Goal
 

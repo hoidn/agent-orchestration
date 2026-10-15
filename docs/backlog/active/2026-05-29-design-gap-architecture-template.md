@@ -1,5 +1,20 @@
 # Backlog Item: Create A Design Gap Architecture Template
 
+Current disposition: **unselected bounded-gap-template proposal.**
+
+The bounded-gap versus system/spec distinction remains an unselected template question. Existing template guidance is example-oriented, not proof of a full reusable schema or permission to change prompts.
+
+Gate retained: Creating a new template/altering prompts requires selected follow-on; cleanup may fix routing/role wording only.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Status: active
 
 ## Context

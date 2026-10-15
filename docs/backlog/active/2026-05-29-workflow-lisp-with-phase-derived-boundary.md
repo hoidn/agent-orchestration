@@ -1,5 +1,20 @@
 # Backlog Item: Clarify Workflow Lisp `with-phase` Derived Boundary
 
+Current disposition: **unselected with-phase boundary audit; old implementation description historical.**
+
+The sugar-versus-semantic-boundary concern remains an unselected audit. Current std/phase exports a macro calling __with-phase__; typed/import support does not establish executable phase-effect admission or universal erasure.
+
+Gate retained: Retained typed/import macro support differs from executable phase-effect admission.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Status: active
 
 ## Context

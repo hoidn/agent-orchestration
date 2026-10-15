@@ -1,5 +1,20 @@
 # Backlog Item: Separate Watchdog Recovery Action From Recovery Certification
 
+Current disposition: **historical watchdog recovery-status proposal.**
+
+The watchdog action/liveness/certification proposal targets a retired executable family. The incident and fact-separation rationale remain evidence; the current read-only probe is separate.
+
+Gate retained: No watchdog executable/repair port or runtime schema change selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-05-30
 - Plan: none yet

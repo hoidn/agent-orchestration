@@ -1154,8 +1154,10 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       the admitted WCC route.
 
   - reusable-call contract boundary:
-    - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
-    - When Task 11 lands, those fields require `version: "2.5"` or higher.
+    - `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` have the
+      retained source/type semantics below at version 2.5 or higher. Their
+      historical flat execution is retired; evaluated entries use checked
+      definitions and their admitted call contracts.
     - `version: "2.4"` is a documentation/contract boundary, not a promise that the current compiler/runtime executes reusable-call workflows.
 
 ### Retired YAML authoring surface
@@ -1185,7 +1187,9 @@ identity, execution, or exit codes.
   - The referenced value must resolve to an array; otherwise the step fails with exit 2 and error context.
   - Dot-paths do not support wildcards or advanced expressions.
 
-## Planned Reusable-Call Contract Boundary (v2.4 docs, v2.5 execution)
+<a id="planned-reusable-call-contract-boundary-v24-docs-v25-execution"></a>
+
+## Reusable-Call Source And Boundary Contract (v2.5 and later)
 
 - Path taxonomy
   - Workflow-source-relative paths:
@@ -1204,7 +1208,9 @@ identity, execution, or exit codes.
   - `call` does not reinterpret authored workspace-relative paths; it only introduces call-scoped identities for state, lineage, freshness, and logs.
 
 - Boundary semantics
-  - `call` executes inline within the same run once Task 11 lands.
+  - Current admitted calls remain within the evaluated run and checked
+    definition graph. The following `steps.*`/call-frame projections describe
+    the historical flat v2.5 wire contract, not current executable state.
   - Caller-visible results remain on the outer step at `steps.<CallStep>.artifacts.<output-name>`.
   - Only declared callee `outputs` cross back into the caller.
   - Imported workflow `providers`, `artifacts`, and `context` defaults remain private to the callee unless a future contract explicitly binds or exports them.

@@ -1,3 +1,11 @@
+HISTORICAL CHECKPOINT — original handoff text below is preserved, including
+accounting, qualifications and then-next-work wording. It is not a current
+selector or runnable instruction: review_revise_design_docs.orc has a retired
+executable entry. Consult docs/plans/2026-09-08-orc-research-demonstration-plan.md,
+docs/reports/2026-09-08-orc-research-demonstration.md and the current CLI/capability
+contracts before any separately selected continuation. No relaunch or new
+spend is authorized by this checkpoint.
+
 CURRENT DISPOSITION: assisted C1 ORC/Python development feasibility and a concise code-grounded qualitative ergonomic assessment are recorded in docs/reports/2026-09-08-orc-research-demonstration.md, section Assisted C1 development and corrected interpretation. R1/R2/R3 passed with current-reviewed-candidate results and actual handoff/cancellation files. One openly assisted author built both languages; no blindness, independent-author or per-language inference-cost claim. Original scored sources, freeze, scores and receipts remain unchanged.
 
 EVALUATOR CORRECTION: incidental callback/initialization counts, receipt formatting and ordering are valid requirements only when a real task/consumer needs them. The C3/Python rejections were avoidable brittle evaluation design, not fixed by disclosure. Accept semantically equivalent outcomes. Preserve historical checker outputs but withdraw task/language conclusions based on invalid checks; do not silently regrade or infer all unexamined obligations passed. Exact-current-candidate approval and real handoff/blocked outcomes remain meaningful requirements.

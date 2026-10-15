@@ -1,5 +1,7 @@
 # Dashboard Summary Invocation Tabs
 
+Status scope: target design; implementation acceptance is not established by this page. Current operator behavior is owned by [Observability](../../specs/observability.md) and the [CLI dashboard contract](../../specs/cli.md). Use existing read-only run/summary pages until the lineage-selection acceptance criteria are met.
+
 Status: draft implementation design
 
 ## Problem

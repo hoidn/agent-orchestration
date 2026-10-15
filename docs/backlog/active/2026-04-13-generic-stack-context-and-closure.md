@@ -1,5 +1,20 @@
 # Backlog Item: Backport Context And Closure Discipline To Generic Stack
 
+Current disposition: **historical generic-stack revision proposal.**
+
+The brief/supporting_context wiring belongs to the retired generic family. Original intent remains provenance; no successor port or full acceptance claim is selected.
+
+Gate retained: No evidence that all original acceptance passed; no successor selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-13
 - Plan: none yet

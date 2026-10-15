@@ -22,6 +22,21 @@ blocking_signals:
 
 # Backlog Item: Retire Pointer Files From Workflow Lisp Internal Semantics
 
+Current disposition: **historical pointer-retirement proposal with machine frontmatter.**
+
+The original machine frontmatter/check commands and Design Delta/internal-flat context are preserved exactly. Current state/artifact authority remains normative; no absent old test, pointer deletion or root-manifest change is selected.
+
+Gate retained: No root-backlog manifest mutation or removal of retained compatibility pointers; no current claim from absent old tests.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 ## Problem
 
 Workflow Lisp is moving toward typed composition, private runtime context,

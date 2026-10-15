@@ -1,5 +1,20 @@
 # Backlog Item: Restore Injected Design Template Asset
 
+Current disposition: **unselected asset-packaging proposal for historical stacks.**
+
+The active-run compatibility check and asset-packaging tradeoff remain required for any separately selected packaging change. Original DraftDesign/DraftBigDesign consumers are retired-family context.
+
+Gate retained: Require current consumer inventory and preserved running workflows before packaging changes.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-14
 - Plan: none yet

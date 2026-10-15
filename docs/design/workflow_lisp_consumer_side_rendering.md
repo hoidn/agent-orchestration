@@ -1,5 +1,12 @@
 # Workflow Lisp Consumer-Side Rendering
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [consumer value-flow contract](workflow_lisp_private_runtime_state_and_consumer_value_flow.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: draft target design (future target; describes intended behavior, not
 the current checkout)
 Kind: architecture / ergonomics and materialization-reduction target

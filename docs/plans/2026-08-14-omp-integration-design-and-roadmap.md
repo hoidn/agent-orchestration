@@ -1,5 +1,16 @@
 # OMP Integration: Design And Roadmap Extension
 
+Status: **Historical checkpoint; original body preserved.**
+
+Original OMP-I1 implementation target and evidence. Current provider/codec/conf/native continuation contracts live in the component owner. Prompt run/import, scaffold/session-link creation and old :session-artifact execution are retired; exact old schema/scaffold/link validation remains required on the native continuation read side. OMP-I2 remains unselected and gated.
+
+Current owner: [omp_provider_and_native_continuation.md](../design/omp_provider_and_native_continuation.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 ## Metadata
 
 - **Title:** OMP integration — provider templates, JSON session transport, prompt scaffolding, multiagent conf presets, and session bridge

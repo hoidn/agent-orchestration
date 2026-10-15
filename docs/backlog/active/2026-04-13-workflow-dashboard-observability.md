@@ -1,5 +1,20 @@
 # Backlog Item: Workflow Dashboard for Run Status and Artifacts
 
+Current disposition: **partially represented dashboard proposal; residual scope unverified.**
+
+Current dashboard operation is owned by CLI/observability and the dashboard component design. The original feature inventory has unverified residual desiderata; an existing dashboard does not prove the entire item complete.
+
+Gate retained: Existing dashboard does not prove every original acceptance criterion.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [cli](../../../specs/cli.md), [observability](../../../specs/observability.md), [dashboard observability summary gui](../../design/dashboard_observability_summary_gui.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-13
 - Plan: none yet

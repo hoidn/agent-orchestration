@@ -1,5 +1,16 @@
 # Workflow Lisp Provider Prompt Dependencies Design
 
+Status: **Historical checkpoint; original body preserved.**
+
+Original prompt-dependency design/execution record. Current evaluated dependency composition is promoted to the component owner; old WCC/flat allocation ledgers and rollout receipts below are historical, with retained format evidence only.
+
+Current owner: [workflow_lisp_provider_prompt_dependencies.md](../design/workflow_lisp_provider_prompt_dependencies.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 ## Metadata
 
 - **Status:** partially implemented: retained functional contract

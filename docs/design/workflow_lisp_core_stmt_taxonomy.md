@@ -1,6 +1,13 @@
 # Workflow Lisp Core Statement Taxonomy
 
-Status: draft internal design  
+Scope: the family/metadata inventory below is retained for shared typed
+analysis and historical readers. Matrix columns describing runtime-plan steps,
+projection bundles, transitions or flat resume are historical projections,
+not current executable admission. Current execution uses the
+[checked closed program](workflow_lisp_evaluated_execution.md); no inventory row
+is permission to recreate a retired emitter or executor.
+
+Status: retained Core dataclass inventory; historical flat projection semantics
 Depends on: `docs/design/workflow_lisp_core_workflow_ast.md`,
 `docs/design/workflow_command_adapter_contract.md`
 
@@ -39,8 +46,10 @@ The current checkout defines these validation-relevant base families:
 - `CoreForEach`
 - `CoreRepeatUntil`
 
-These are the only statement families that shared Core AST validation accepts
-today. Frontends may elaborate into them, but may not bypass them.
+These are the statement families accepted by retained shared Core AST
+validation. Consumers constructing that historical/data-model representation
+must validate it; current evaluated frontends construct checked closed programs
+without passing through a flat Core execution graph.
 
 ## Structural Nested Blocks
 
@@ -80,7 +89,7 @@ facets instead of standalone `CoreStmt` dataclasses:
   match-case proof narrowing remains shared-validation behavior, not a new
   statement family.
 - Promoted semantic effects
-  `resource_transition` now exists in two shared forms: compiler-generated
+  `resource_transition` has two retained historical shared forms: compiler-generated
   `CoreResourceTransitionStep` for declared runtime-native transitions, and
   promoted certified-adapter effects for compatibility routes that still lower
   through `CoreCommandStep`. `ledger_update` remains adapter-promoted for those
@@ -100,7 +109,9 @@ artifact/path values, and validated shared artifacts remain authoritative; build
 artifacts, reports, source maps, and observability summaries remain views over
 that authority.
 
-## Validation And Runtime Ownership
+<a id="validation-and-runtime-ownership"></a>
+
+## Retained Validation And Historical Projection Ownership
 
 Ownership remains split across existing shared layers:
 
@@ -118,7 +129,9 @@ Ownership remains split across existing shared layers:
 - Runtime/executor modules
   Execution semantics, persistence, resume, and observability rendering.
 
-## Statement-Family Contract Matrix
+<a id="statement-family-contract-matrix"></a>
+
+## Retained Families And Historical Flat Projection Matrix
 
 | Family | Inputs | Outputs or projections | Effects | Proof or scope behavior | State or write-root behavior | Source-map fields | Ownership |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -140,25 +153,6 @@ Ownership remains split across existing shared layers:
 | `CoreForEach` | items or `items_from`, loop body | statement row plus nested body nodes | none directly | creates nested lexical scope for body statements | runtime plan creates loop-frame checkpoints; write-root policy remains shared | step origin for statement and nested body statements | Core AST + runtime plan |
 | `CoreRepeatUntil` | body steps, outputs, condition, max iterations | loop outputs, runtime checkpoints, nested body nodes | none directly | nested lexical scope plus validated loop-output contract | runtime plan creates repeat-frame checkpoints | step origin for statement and nested body statements | Core AST + runtime plan |
 
-## Drift From Older Draft
+<a id="drift-from-older-draft"></a>
 
-The earlier one-row-per-family draft no longer matches the current checkout
-literally. The current contract is:
-
-- `CoreForEach` is a real shared base family and belongs in the inventory.
-- `CorePureProjectionStep` is now a real shared generated base family used for
-  runtime-visible pure computation and private projection-bundle transport.
-- `publish`, `consume_bundle`, `variant_output`, and `pre_snapshot` are current
-  attached facets, not standalone `CoreStmt` dataclasses.
-- `CoreResourceTransitionStep` is now a real shared generated base family for
-  declared runtime-native transitions, while certified-adapter
-  `resource_transition` / `ledger_update` compatibility routes still travel
-  through `CoreCommandStep`.
-- `snapshot_capture` and `pointer_materialization` are still promoted generated
-  effects with source-map lineage, not statement families.
-- Source maps, runtime-plan summaries, build artifacts, and observability views
-  remain derived projections. They must not become semantic authority.
-
-The practical rule is: update this document only when the shared implementation
-changes, and describe new behavior in terms of real shared dataclasses plus real
-attached facets rather than reviving obsolete standalone-family names.
+The earlier taxonomy comparison is historical rationale; the retained dataclasses own family identity. See the [preserved record](../reports/documentation-history/workflow_lisp_core_stmt_taxonomy-history.md#drift-from-older-draft).

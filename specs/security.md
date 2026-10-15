@@ -288,12 +288,16 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
   - Baseline snapshots, candidate workspaces, composed prompts, evaluator packets, score ledgers, logs, and promotion staging can contain sensitive source or prompt material. Retain and share run roots using the same confidentiality assumptions as the original workspace.
   - `evaluator.evidence_confidentiality: same_trust_boundary` is an explicit author attestation that the evaluator provider may receive complete score-critical evidence. The runtime may scan declared secret values before packet persistence, but this is not a substitute for choosing providers within the right trust boundary.
 
-- Reusable-call operational-risk boundary (Task 10 contract; v2.5 execution)
+- Reusable-call operational-risk boundary (versioned v2.5 contract; ordinary host calls)
   - The first `call` tranche is intentionally non-isolating.
   - The loader/runtime must not claim proof of arbitrary child-process filesystem effects from imported `command` / `provider` steps.
   - Every DSL-managed reusable-workflow write root that must remain distinct across invocations is expected to be surfaced as a typed workflow `input` with `type: relpath`.
   - Call sites are expected to bind distinct per-invocation values for those write-root inputs whenever repeated or concurrent calls could otherwise alias the same managed paths.
-  - Reusable workflows that hard-code DSL-managed write roots instead of parameterizing them as typed `relpath` inputs are outside the first shippable reusable-library subset and should be rejected once Task 11 implements `call`.
+  - In the retained v2.5 reusable-library contract, DSL-managed write roots
+    that need per-invocation separation must be typed `relpath` inputs; fixed
+    roots outside that subset are rejected by the owning validation. Current
+    checked command/provider IO preserves its own path/closure/root validation;
+    old source/type support does not admit a flat call executor.
   - This contract covers orchestrator-managed paths only. Undeclared child-process reads/writes remain an accepted operational risk until a later execution-boundary change exists.
 
 - Secrets handling

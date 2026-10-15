@@ -1,11 +1,17 @@
 # Dependencies and Injection (Normative)
 
+Scope: dependency/path/render semantics are retained shared contracts; older
+YAML-shaped fields describe versioned notation and typed imports, not execution
+admission. Current `.orc` providers use the exact dependency contract below and
+[IO](io.md)'s checked input/memo guards. [CLI](cli.md) owns old-profile refusal;
+retaining a renderer never admits a retired executor.
+
 - Resolution and validation
   - `depends_on.required`: POSIX globs must each match ≥1 path after substitution; otherwise exit 2 with error context.
   - `depends_on.optional`: missing matches are allowed and omitted without error.
   - Patterns resolve relative to WORKSPACE; symlinks are followed; dotfiles matched only when explicitly specified; case sensitivity follows the host FS.
   - Globstar `**` is not supported in v1.1.
-  - When reusable `call` lands, plain `depends_on` keeps these same workspace-relative semantics inside imported workflows; it does not become import-local automatically.
+  - Under reusable `call`, plain `depends_on` keeps these same workspace-relative semantics inside imported typed workflows; it does not become import-local automatically.
 
 - Injection (v1.1.1)
   - Shorthand: `inject: true` ≡ `{ mode: 'list', position: 'prepend' }` with default instruction.
@@ -26,7 +32,9 @@
   - Follow symlinks; if the resolved real path escapes WORKSPACE, reject the path.
   - Enforce at load time and before FS operations. See `security.md#path-safety`.
 
-## Planned Source-Relative Asset Surface (Task 10 contract; v2.5 execution)
+<a id="planned-source-relative-asset-surface-task-10-contract-v25-execution"></a>
+
+## Source-Relative Asset Contract (v2.5 and later)
 
 - `depends_on` remains the workspace-relative runtime dependency surface.
   - Use it for authored files that are expected to exist in the execution workspace at run time.
@@ -105,44 +113,22 @@ Workflow Lisp `provider-result` may add this closed clause:
   invalid-UTF-8 selected file fails that attempt rather than being silently
   skipped.
 - The typed compiler contract, not the YAML-shaped `depends_on` mapping,
-  identifies the exact-path Workflow Lisp surface. The compiler retains it in
-  a typed side table keyed by provider-step identity. `runtime_plan` remains a
-  topology/checkpoint projection and carries no prompt-dependency paths,
-  policy, or content metadata.
+  identifies the exact-path Workflow Lisp surface. Evaluated compilation closes
+  its operands/configuration under the checked provider effect and the runtime
+  retains exact per-attempt input/evidence identity. The historical flat
+  compiler used a provider-step keyed typed side table; `runtime_plan` was
+  topology-only and never owned dependency paths, policy or content metadata.
 
-YAML `depends_on.inject.mode: content` remains a legacy authoring surface. Its
-successful below-cap prompt bytes stay compatible, and it shares the immutable
-per-attempt snapshot/render owner, including a fresh snapshot on each retry.
-YAML does not acquire the compiler-only typed contract or Workflow Lisp
-attempt-evidence side effect.
+The retained YAML-shaped `depends_on.inject.mode: content` mapping is historical
+notation for shared rendering and typed-import contracts, not a fresh authoring
+or execution surface. Its versioned below-cap bytes are preserved by the shared
+immutable snapshot/render owner; it does not acquire a compiler-only typed
+contract or Workflow Lisp attempt-evidence side effect.
 
-## Migration and Best Practices
+<a id="migration-and-best-practices"></a>
+<a id="migrating-from-v11-to-v111"></a>
+<a id="had-to-maintain-file-list-in-both-places"></a>
+<a id="single-source-of-truth"></a>
+<a id="benefits-of-injection"></a>
 
-### Migrating from v1.1 to v1.1.1
-Existing workflows with `depends_on` continue to work unchanged. To adopt injection:
-
-**Before (v1.1):**
-```yaml
-# Had to maintain file list in both places
-depends_on:
-  required:
-    - "artifacts/architect/*.md"
-input_file: "prompts/implement.md"  # Must list files manually
-```
-
-**After (v1.1.1):**
-```yaml
-# Single source of truth
-version: "1.1.1"
-depends_on:
-  required:
-    - "artifacts/architect/*.md"
-  inject: true  # Automatically informs provider
-input_file: "prompts/generic_implement.md"  # Can be generic
-```
-
-### Benefits of Injection
-- **DRY Principle**: Declare files once in YAML.
-- **Pattern Support**: Globs like `*.md` expand automatically.
-- **Maintainability**: Change file lists in one place.
-- **Flexibility**: Generic prompts work across projects.
+The v1.1→v1.1.1 YAML adoption recipe is historical. Current `.orc` dependency authoring uses the typed exact-path clause above. See the [preserved record](../docs/reports/documentation-history/specs-dependencies-history.md#historical-operational-record-3).

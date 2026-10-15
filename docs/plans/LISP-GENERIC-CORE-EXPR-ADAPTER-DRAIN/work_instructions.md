@@ -1,5 +1,16 @@
 # Workflow Lisp Generic Core / Adapter Retirement Drain Work Instructions
 
+Status: **Historical checkpoint; original body preserved.**
+
+Historical work instructions for the incorporated generic-core target. They select no new implementation or Design Delta launch; current component contracts and roadmap govern later work.
+
+Current owner: [workflow_lisp_frontend_specification.md](../../design/workflow_lisp_frontend_specification.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Status: active work instructions
 
 ## Objective

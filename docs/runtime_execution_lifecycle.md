@@ -27,10 +27,10 @@ states remain readable; nothing converts a run between profiles.
 
 | Profile | Targets | Authority on disk | Sections |
 | --- | --- | --- | --- |
-| Flat (historical, read-only) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | Historical protocol below, up to the evaluated section; no creation, replay, repair or translation in this package |
+| Flat (historical, read-only) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | [Historical protocol](#execution-timeline); no creation, replay, repair or translation in this package |
 | Evaluated | 2.35/2.36, bounded 2.37 and bounded 2.38 Agent Sessions and command-only confined run-ref children | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235); [Agent Sessions guide](lisp_workflow_drafting_guide.md#agent-sessions-target-238); [confined-command recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only) (public confined providers remain closed) |
 
-The flat sections below preserve the historical protocol for interpreting
+The linked flat record preserves the historical protocol for interpreting
 old state, not commands to execute with this package. Recovery requires an
 exact retained release/environment and evidence for that run family; the
 [retirement contract](design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)
@@ -39,198 +39,17 @@ states the limits. The normative format owner is [State](../specs/state.md), wit
 the evaluated profile's design is
 [evaluated execution](design/workflow_lisp_evaluated_execution.md).
 
-## Execution Timeline
+<a id="execution-timeline"></a>
+<a id="run-artifacts"></a>
+<a id="step-state-machine"></a>
+<a id="provider-step-runtime-order"></a>
+<a id="consumepublish-runtime-semantics-v12"></a>
+<a id="control-flow-resolution-order"></a>
+<a id="retry-and-timeout-behavior"></a>
+<a id="for_each-runtime-shape"></a>
+<a id="failure-taxonomy-common"></a>
 
-Historical flat profile (targets through 2.34); the following protocol is retired.
-
-```text
-1) Enforce the `.orc` source boundary, then parse/typecheck Workflow Lisp
-2) Elaborate the source into immutable typed surface AST nodes
-   - run version-gated validation
-   - normalize authored shapes (`if`, `match`, `repeat_until`, `finally`, `call`, `for_each`)
-   - assign durable `step_id` values
-   - capture typed provenance/import metadata and parse structured refs/predicates
-3) Lower the surface AST into immutable executable IR plus a compatibility projection
-   - bind refs/predicates to durable addresses
-   - resolve routed transfers (`goto`, branch/case routing, loop/call/finalization edges) to node ids
-   - map node ids back to compatibility surfaces such as `steps.*`, `current_step.index`, `finalization.*`, and report ordering
-4) After successful frontend build and validation, initialize run root and `state.json`
-5) Iterate executable nodes in IR order (or explicit routed transfers)
-6) For each node:
-   a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
-   b) evaluate `when` (may skip)
-   c) enforce consumes preflight (if configured)
-   c1) for v2.10 session-enabled provider steps, create the canonical provider-session metadata + transport-spool artifacts before persisting `current_step`
-   d) execute the node body (`assert`/command/provider/wait_for/for_each/call)
-   e) validate deterministic outputs (`expected_outputs` or `output_bundle`)
-   f) record published artifacts (if configured)
-   f1) project normalized step `outcome` metadata for observable results
-   g) compute the next node from IR fallthrough or routed transfers (`on.success`, `on.failure`, `on.always`, structured control, loop/call return)
-   h) increment `transition_count` if control transfers into another top-level compatibility step
-7) If declared, run workflow `finally` exactly once after the body settles on success or failure
-8) Export workflow `outputs` (v2.1+, if declared) only after successful finalization, then persist final run status and report artifacts
-```
-
-Identity note:
-- v2.0 assigns every step a durable internal `step_id`.
-- Surface AST is the authored-shape truth; executable IR is the execution-shape truth.
-- Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping, resume planning, and report ordering now flow through the IR compatibility projection rather than raw lowered dict layout.
-- `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
-- v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
-- v2.3 structured `finally` lowers to stable cleanup-step identities under `finally.<StepName>` while keeping durable ancestry rooted under `root.finally.<block-id-or-finally>`.
-- v2.5 `call` keeps the authored outer step as the caller-visible node and persists nested callee execution under `state.call_frames[call_frame_id]`.
-- v2.7 `repeat_until` keeps the authored loop frame as the caller-visible node, derives per-iteration nested identities such as `root.review_loop#1.iteration_body.run_review_loop` or `root.review_loop#1.iteration_body.route_decision.revise_path.write_revision`, and persists resume bookkeeping under `state.repeat_until`.
-- `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
-- v2.10 provider-session resume is distinct from workflow resume:
-  - workflow `resume` restarts the orchestrator run
-  - `provider_session.mode: resume` resumes one provider-native session inside a later step
-- When finalization is partially complete, `resume` restarts at the first unfinished cleanup step instead of replaying completed cleanup.
-- When a run stops inside a `call`, `resume` reuses the unfinished `call_frame_id` and restarts the callee from its first unfinished nested step instead of replaying completed nested work.
-- When a run stops inside `repeat_until`, `resume` uses `state.repeat_until` plus indexed nested step results to restart from the first unfinished nested step in the current iteration; if that iteration's condition already evaluated, resume advances without replaying the settled iteration.
-- Provider attempts are at-least-once across ordinary, session, supervision,
-  peer-group, and phased execution. Compatible completed results remain
-  invocation-free. After ordinary source, checksum, projection, checkpoint,
-  and completed-result guards validate an exact interrupted in-flight visit,
-  `resume` discards only that visit's partial result authority, emits exactly
-  one `provider_attempt_interrupted_rerun`, and lets ordinary dispatch enter a
-  fresh visit with fresh attempt identities. No interrupted provider session
-  is resumed and no peer message is retargeted.
-- Missing, malformed, conflicting, ambiguous, or checksum-incompatible
-  provider-recovery state still fails closed before provider launch.
-- During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
-- Runtime code no longer needs workflow-path/import magic fields or helper-key inspection to resume/report typed runs; typed provenance/import metadata plus the compatibility projection are the maintained bridge back to the persisted compatibility surfaces.
-- `expanded.debug.yaml` is an intentionally historical filename for an optional
-  JSON-rendered projection. It is never source authority and is not read by
-  fresh execution or legacy compatibility views.
-
-## Run Artifacts
-
-Flat profile. Primary run directory:
-- `.orchestrate/runs/<run_id>/`
-
-Core files/directories:
-- `state.json`: authoritative execution record
-- `logs/`: stdout/stderr spill files, prompt audits (debug mode), orchestrator logs
-- `summaries/`: optional advisory step summaries when enabled by CLI flags
-
-Console visibility:
-- `--stream-output` live-streams provider stdout/stderr to the terminal during execution.
-- `--debug` also streams provider output, but additionally enables prompt-audit and debug-mode artifacts.
-
-## Step State Machine
-
-Flat profile.
-
-```text
-pending -> running -> completed
-pending -> running -> failed
-pending -> skipped
-```
-
-Key notes:
-- `when` false produces `skipped` with `exit_code: 0`.
-- `assert` false produces `failed` with `exit_code: 3` and `error.type: "assert_failed"`.
-- `cycle_guard_exceeded` fails the target step before body execution and stops further routed step execution; step-level recovery edges do not override it.
-- `contract_violation` failures are represented as failed steps (typically exit code `2`).
-- `call` executes an imported workflow inline with its own nested state, private providers/artifacts/context defaults, and caller-visible outputs exported only after the callee body and callee finalization succeed.
-- Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
-- Ordinary resumed execution clears `current_step` when it reaches terminal
-  state. Early root checksum or projection rejection before the prologue is an
-  exception: it may retain the unchanged cursor for forensics. The root
-  `status` and `error` govern observability; the retained cursor is not live
-  for status, heartbeat, or stalled-run interpretation. See the [state
-  integrity contract](../specs/state.md#state-integrity-and-recovery).
-- For structured `if/else`, non-selected lowered branch nodes appear as `skipped`, while the selected-branch outputs are materialized on the join node under the authored statement name.
-- For `repeat_until`, the loop frame stays `running` while iterations are in progress, materializes declared loop outputs after each completed iteration, and fails with `repeat_until_iterations_exhausted` if `max_iterations` is reached before the condition becomes true.
-- For structured `finally`, cleanup failures after body success become the run's primary failure; if the body already failed, cleanup failures are recorded as secondary diagnostics under `state.finalization`.
-
-## Provider Step Runtime Order
-
-Authoring-surface note:
-- Workflow-boundary `inputs` / `outputs` are interface contracts, not prompt sources.
-- Runtime dependencies (`depends_on`, `consumes`) are resolved before execution; they are distinct from both boundary contracts and prompt-source selection.
-- Provider prompt sources are `input_file`, `asset_file`, and `asset_depends_on`.
-- Artifact storage / lineage surfaces are `artifacts`, `expected_outputs`, `output_bundle`, and `publishes`.
-
-For provider steps, runtime behavior is effectively:
-
-```text
-compose prompt
-  = base prompt source literal (input_file from WORKSPACE, or asset_file from the workflow source tree)
-  + optional asset_depends_on injection
-  + optional depends_on injection
-  + optional consumed-artifacts injection (v1.2+)
-  + optional output-contract suffix
-
-execute provider command template (argv or stdin mode)
-
-capture stdout/stderr
-
-validate deterministic outputs if declared
-```
-
-For v2.10 session-enabled provider steps, runtime behavior adds:
-- select `command`, `session_support.fresh_command`, or `session_support.resume_command`
-- bind `${SESSION_ID}` only from the reserved `session_id_from` consume
-- normalize provider transport before `output_capture`
-- publish fresh session handles only after the exact visit's terminal step result, same-visit lineage appends, and matching `current_step` clearance are committed together
-
-Prompt composition details are normative in `specs/providers.md`.
-
-## Consume/Publish Runtime Semantics (v1.2+)
-
-Before step execution:
-- `consumes` preflight selects artifact versions according to policy/freshness.
-- Missing or stale required artifacts fail preflight with `contract_violation`.
-- In v1.2 / v1.3, relpath consume preflight materializes the selected value to the canonical pointer file.
-- In v1.4, relpath consume preflight is pointer-safe/read-only (no pointer-file mutation).
-- Scalar consumes never write pointer files.
-- Optional `consume_bundle` writes resolved consume values to deterministic JSON for the step.
-
-After successful step execution + output validation:
-- `publishes` appends new artifact versions to `artifact_versions` in state.
-- `artifact_consumes` tracks last consumed version(s) for freshness enforcement.
-- For `call`, callee-private publish/consume state remains inside the persisted call frame; only declared callee outputs cross back to the caller-visible outer step.
-
-## Control-Flow Resolution Order
-
-Runtime resolves next step in this order:
-1. Applicable `on.success` or `on.failure`
-2. `on.always` (if present)
-3. Default flow behavior (next sequential step or strict-flow/on-error behavior)
-
-After the next top-level target is known, the executor increments `transition_count`. If the next routed target would exceed `max_transitions`, that target fails pre-execution on entry.
-
-Special target:
-- `_end`: explicit successful termination.
-
-## Retry and Timeout Behavior
-
-- `timeout_sec` applies to command/provider execution and can produce exit code `124`.
-- Provider steps have retry defaults for retryable exit codes.
-- Command steps retry only when per-step retry config is present.
-- Step-level retry config overrides default/global retry behavior.
-
-See `specs/dsl.md`, `specs/providers.md`, and `specs/io.md` for normative details.
-
-## for_each Runtime Shape
-
-At runtime, loop results are recorded per iteration:
-- `steps.<LoopName>[i].<NestedStepName>`
-
-Loop variables are resolved per iteration (`item`, alias, `loop.index`, `loop.total`).
-Typed predicates in v2.0 may also read scoped refs from the current loop scope (`self.steps.*`) or the enclosing scope (`parent.steps.*`) without changing legacy `${steps.*}` substitution semantics.
-
-## Failure Taxonomy (Common)
-
-- process failure: command/provider non-zero exit
-- gate failure: first-class `assert` evaluated false
-- timeout failure: enforced timeout (often exit `124`)
-- parse failure: invalid JSON capture when strict JSON mode required
-- contract failure: deterministic output or consume/publish contract violation
-- predicate evaluation failure: typed predicate/ref resolution failed before the step body could complete
-
-These are reflected in step `status`, `exit_code`, and `error` fields in `state.json`.
+The retired flat timeline/state machine/provider/call protocol is preserved for historical interpretation. No creation, replay, repair or translation is supported; historical recovery needs demonstrated exact-release/environment evidence under the retirement contract. See the [preserved record](reports/documentation-history/docs-runtime_execution_lifecycle-history.md#historical-operational-record-1).
 
 ## Evaluated Profile (Target 2.35)
 

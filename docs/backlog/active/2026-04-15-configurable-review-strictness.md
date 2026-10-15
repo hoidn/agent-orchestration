@@ -1,5 +1,20 @@
 # Backlog Item: Add Configurable Review Strictness
 
+Current disposition: **unselected configurable-review proposal.**
+
+Typed strictness and its non-negotiable gates remain an unselected design question. Historical stack examples establish no current strictness feature or permission to weaken acceptance/security.
+
+Gate retained: Do not implement knobs, retune prompts or weaken deterministic acceptance/security gates.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-15
 - Plan: none yet

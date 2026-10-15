@@ -1,5 +1,20 @@
 # Backlog Item: A/B Test Major-Project Prompt Boundary Changes
 
+Current disposition: **unselected checkpoint-pinned prompt experiment.**
+
+Before/after commits and experiment criteria remain a checkpoint-pinned proposed protocol, not adopted defaults or authorization to spend/run/rescore.
+
+Gate retained: No new run, rescoring, budget or prompt change selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md), [workflow lisp provider prompt dependencies](../../design/workflow_lisp_provider_prompt_dependencies.md), [workflow lisp provider call policy](../../design/workflow_lisp_provider_call_policy.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-15
 - Plan: none yet

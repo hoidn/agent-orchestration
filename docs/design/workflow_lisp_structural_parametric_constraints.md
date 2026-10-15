@@ -1,5 +1,12 @@
 # Workflow Lisp Structural Parametric Constraints
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [parametric type system](workflow_lisp_parametric_type_system.md) and [frontend baseline](workflow_lisp_frontend_specification.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: superseded by `docs/design/workflow_lisp_parametric_type_system.md`
 (2026-07-06); retained as a historical record, do not extend
 Kind: Workflow Lisp type-system design direction

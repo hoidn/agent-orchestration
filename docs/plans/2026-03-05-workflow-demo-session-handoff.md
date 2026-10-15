@@ -1,5 +1,16 @@
 # Workflow Demo Session Handoff
 
+Status: **Historical checkpoint; original body preserved.**
+
+Historical demo-session handoff. Original active/next-step wording, YAML commands and latest-verified status below are checkpoint evidence, not runnable current instructions or new selection. Use admitted current examples and the maintained experiment catalog.
+
+Current owner: [README.md](../../workflows/README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 **Status:** Active handoff / continuation document  
 **Date:** 2026-03-05  
 **Audience:** Any engineer continuing the workflow-demo effort with no prior chat context

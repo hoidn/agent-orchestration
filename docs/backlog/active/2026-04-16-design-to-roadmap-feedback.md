@@ -1,5 +1,20 @@
 # Backlog Item: Add Design-To-Roadmap Feedback For Major-Project Workflows
 
+Current disposition: **historical major-project roadmap-feedback proposal.**
+
+The mechanism targets the retired major-project family. The distinction between target semantics and work sequencing remains useful; current roadmap/plan owners govern future amendments.
+
+Gate retained: Do not claim feature complete from escalation plans; no stack port selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-16
 - Plan: none yet

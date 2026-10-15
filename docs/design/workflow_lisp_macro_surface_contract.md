@@ -1,6 +1,12 @@
 # Workflow Lisp Macro Surface Contract
 
-Status: accepted current-surface contract  
+Current pipeline scope: macros emit hygienic frontend AST for ordinary shared
+type/effect/proof checking and checked-program construction. References below to
+Core/Semantic/Executable projections are historical wire/provenance constraints,
+not permission to emit flat execution or bypass the checked builder. Hygiene,
+determinism, complete effect visibility and source provenance remain required.
+
+Status: accepted current-surface contract
 Scope: bounded `defmacro` behavior implemented in the current checkout  
 Relationship to other docs: this narrows the macro surface from
 `workflow_lisp_frontend_specification.md` to the implemented contract and does

@@ -1,5 +1,12 @@
 # Workflow Lisp Evolution Substrate And Feature Design
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [program-search boundaries](../../design/workflow_lisp_program_search_boundaries.md) and the [current roadmap](../../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 ## Metadata
 
 - **Status:** draft

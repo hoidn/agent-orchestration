@@ -1,5 +1,12 @@
 # Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [language-server contract](workflow_lisp_language_server.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 - **Status:** implemented, incorporated, and complete at
   `251d9d53674e863fddae4535ea4f7022914287cd`, tree
   `e2417d395cbcabe9adaffb136759ebff3d42b677`

@@ -1,5 +1,20 @@
 # Backlog Item: Separate Prerequisite Recovery From Target Design Revision
 
+Current disposition: **historical Design Delta recovery-routing proposal.**
+
+The sequencing-prerequisite versus target-amendment distinction remains useful. The recovery classifier/Design Delta route is historical; no drain or automatic target-design change is selected.
+
+Gate retained: No drain reactivation or automatic target-design edits selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [work definition model](../../work_definition_model.md), [2026-07-22-workflow-lisp-evolution-follow-on-roadmap](../../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-06-19
 - Priority: P1

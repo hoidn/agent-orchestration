@@ -1,5 +1,12 @@
 # Workflow Lisp Refactor Architecture
 
+Current architecture: `workflow_lisp/compiler.py` coordinates shared parsing,
+linking, typed analysis and specialization; `workflow_lisp/closed/` owns checked
+program construction. The evaluated loader/checker and runtime own execution.
+Preserve their accepted [consolidation topology](workflow_lisp_consolidation.md)
+when making a behavior-preserving refactor; do not restore a lowering facade,
+flat executor or compatibility alias merely to match the original proposal.
+
 Status: draft architecture guidance
 Scope: `orchestrator/workflow_lisp` maintainability and tech-debt reduction
 Parent contract: [Workflow Lisp Frontend Specification](workflow_lisp_frontend_specification.md)
@@ -124,42 +131,10 @@ Target ownership:
 Compatibility wrappers may remain during migration, but new code should receive
 an explicit context object.
 
-### Compiler Pipeline
+<a id="compiler-pipeline"></a>
+<a id="lowering"></a>
 
-`compiler.py` should coordinate passes, not own every pass boundary.
-
-Target ownership:
-
-- pipeline entrypoints and result assembly stay in compiler coordination;
-- graph compilation accumulators move into a named compile-state object;
-- command adapter defaults move to a stdlib/adapter registry;
-- executable-validation remapping is exposed through public lowering/source-map
-  APIs, not private helper imports;
-- single-file and linked-module stage-3 paths share a common pipeline object.
-
-### Lowering
-
-Lowering is the most important split. It is allowed to remain the runtime-facing
-frontend boundary, but operation families should not all live in one file and
-one mutable context.
-
-Target ownership:
-
-- lowering facade: public entrypoints and compatibility exports;
-- lowering context: split into frozen config, lexical scope, and mutable output
-  sinks;
-- structured-result lowering: provider-result, command-result, produce-one-of;
-- phase lowering: with-phase, phase-target, run-provider-phase,
-  review-revise-loop, resume-or-start;
-- resource/drain lowering: resource-transition, finalize-selected-item,
-  backlog-drain;
-- procedure lowering: inline/private/specialized procedure workflow generation;
-- source-map bridge: generated step origins, hidden input origins, validation
-  subject remapping.
-
-The package split may happen before or after the first helper extractions, but
-the long-term shape should preserve `orchestrator.workflow_lisp.lowering` as a
-facade while moving implementation clusters behind it.
+The former compiler/flat-lowering facade decomposition is historical architecture guidance, not a required future module split. See the [preserved record](../reports/documentation-history/workflow_lisp_refactor_architecture-history.md#compiler-pipeline).
 
 ### Contracts And Type Projection
 
@@ -304,9 +279,6 @@ refactor regressions.
 - How much exact generated-YAML shape should remain in tests versus moving to
   semantic assertions.
 
-## Implementation Handoff
+<a id="implementation-handoff"></a>
 
-Use the execution plan at
-[Workflow Lisp Low-Hanging Refactor Implementation Plan](../plans/2026-06-02-workflow-lisp-low-hanging-refactor-plan.md).
-The first implementation tranche should address the concrete hazards and
-expression traversal before larger package or registry moves.
+The completed low-hanging refactor handoff is historical. This document selects no new refactor project. See the [preserved record](../reports/documentation-history/workflow_lisp_refactor_architecture-history.md#implementation-handoff).

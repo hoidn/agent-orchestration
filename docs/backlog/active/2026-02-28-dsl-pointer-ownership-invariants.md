@@ -1,5 +1,20 @@
 # Backlog Item: Prewritten Output Pointer Mode Follow-On
 
+Current disposition: **parked; no reactivation selected.**
+
+The concrete-consumer reactivation condition remains parked. The pointer-mode proposal is historical DSL context, not a current evaluated-runtime requirement.
+
+Gate retained: Reactivate only on a demonstrated remaining invariant and a current-route design.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: parked
 - Created on: 2026-02-28
 - Prior plan: `docs/plans/2026-02-28-dsl-pointer-ownership-invariants-implementation.md` (superseded in part by `docs/plans/2026-03-02-v14-consumes-read-only-pointer-semantics.md`)

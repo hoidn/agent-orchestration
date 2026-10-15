@@ -1,6 +1,12 @@
 # Workflow Lisp State Layout
 
-Status: draft internal design  
+Current checked-program evaluation keeps pure values in lexical environments
+and the effect memo; it does not allocate the old pure-projection persistence
+profile. Allocation identity, isolation, allowed-root checks, atomic-write
+placement and source provenance remain required where shared services use them.
+Historical role names must remain readable without recreating their old executor.
+
+Status: retained allocation/ownership contract; historical flat path roles
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
 
 ## Purpose
@@ -90,51 +96,9 @@ Resume must reconstruct the same concrete generated path for the same run and
 call-frame/loop identity. A new run may receive a different private concrete
 path while preserving the same semantic identity in debug output.
 
-## Current Generated Path Roles
+<a id="current-generated-path-roles"></a>
 
-The current checkout adds these generated path roles:
-
-- `PURE_PROJECTION_BUNDLE`
-  Compiler/runtime-private bundle transport for a visible generated
-  `pure_projection` step. These allocations are `PRIVATE_GENERATED`, resume at
-  `STEP_VISIT` scope, and normally render through a generated managed
-  write-root input rather than a user-authored path. Historical and noneligible
-  projections retain that behavior. Under exact
-  `result_persistence_profile: derived_pure_replay.v1`, an eligible projection
-  retains the allocation only as compiled path carriage for executable identity
-  and historical compatibility. That carriage does not authorize a runtime
-  bundle read, reuse, or write. The runtime may derive the canonical path
-  read-only when auditing that no forbidden persisted surface exists.
-  The supported automatic creation policy selects the profile for typed public
-  `.orc` run and force-restart roots plus fresh non-iterative typed Workflow
-  Lisp children. Generic initialization remains explicit opt-in. Existing
-  roots/frames, non-Workflow-Lisp callees, and iteration-owned frames retain
-  historical bundle layout; a fresh eligible retry selects the profile without
-  changing its failed predecessor.
-- `ENTRYPOINT_MANAGED_WRITE_ROOT`
-  Companion allocation that gives the generated write-root input a concrete
-  run-scoped `.json` path under `.orchestrate/workflow_lisp/entry/...`.
-- managed write-root input bridge
-  The generated input name remains private runtime boundary surface. Loaded
-  bundles must classify it as a managed write-root input rather than exposing
-  it as a public authored workflow input.
-- `RESOURCE_STATE`
-  Runtime-owned private generated document path for native
-  `Resource<TState>` backing. These allocations are `PRIVATE_GENERATED`,
-  resume at `RUN` scope, and hold versioned typed state rather than public
-  authored workflow inputs.
-- `MATERIALIZED_VALUE_VIEW`
-  Generated path role string for compiler/runtime-managed view files. Despite
-  older design shorthand that said `materialized_view`, the shipped semantic
-  role string remains `materialized_value_view`. These allocations are
-  `PRIVATE_GENERATED` when the target is compiler-allocated, resume at
-  `STEP_VISIT` scope, and hold deterministic rendered representations rather
-  than semantic state.
-- `TRANSITION_AUDIT`
-  Runtime-owned private generated JSONL ledger path for append-only
-  transition-audit rows. These allocations are `PRIVATE_GENERATED`, resume at
-  `RUN` scope, and carry idempotency/replay evidence rather than user-authored
-  artifacts.
+Historical flat allocation roles and derived-replay creation policy. These formats are read-only history; current evaluated allocation/persistence is owned by [State](../../specs/state.md) and the [evaluated contract](workflow_lisp_evaluated_execution.md). See the [preserved record](../reports/documentation-history/workflow_lisp_state_layout-history.md#current-generated-path-roles).
 
 ## Validation Responsibilities
 
@@ -148,10 +112,8 @@ State layout validation checks:
 - generated names are stable across compile/resume where required
 - generated private write paths are collision-proof across parallel/repeated
   runs unless explicitly authored as stable workspace artifacts
-- historical and noneligible `pure_projection_bundle` allocations round-trip
-  through the same managed write-root bridge as other private generated result
-  bundles; exact-profile eligible projections instead validate absence and
-  create no bridge output
+- historical reader validation preserves the original projection allocation
+  versus exact-profile positive-absence distinction without creating bridge outputs
 - `resource_state` and `transition_audit` allocations remain private generated
   state, not public boundary inputs or materialized view paths
 - `materialized_value_view` allocations remain rendered views, not bridge
@@ -165,9 +127,9 @@ State layout validation checks:
   transport, not public authored workflow inputs. Retained compiled allocation
   carriage for an exact-profile eligible projection is compatibility identity,
   not runtime persistence permission.
-- Automatic profile selection is confined to the supported typed creation
-  points above. Ordinary resume does not backfill existing state, and
-  recurrent or iteration-owned pure state remains durable.
+- Old persistence profiles have no creation, replay, repair or backfill path
+  in this package. Historical allocations retain identity only for validated
+  readers; a retained exact release owns any demonstrated old-run recovery.
 - Runtime-owned `resource_state` and `transition_audit` paths remain private
   generated state even when one transition still bridges to a legacy state
   document.

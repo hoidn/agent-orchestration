@@ -1,5 +1,20 @@
 # Backlog Item: Reduce Reviewed Phase YAML Boilerplate
 
+Current disposition: **historical reviewed-phase YAML boilerplate proposal.**
+
+The proposed authoring surface is retired YAML. The ergonomic rationale is preserved; current review/revise composition uses the library reference/std-improve without restoring the old family.
+
+Gate retained: No YAML authoring restoration or old-family port selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-14
 - Plan: none yet

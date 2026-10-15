@@ -1,5 +1,20 @@
 # Backlog Item: Remediate Review-Loop Compiler Specialization Debt
 
+Current disposition: **historical review-loop compiler-intrinsic debt proposal.**
+
+The __stdlib-specialization__ diagnosis is historical. Current std/phase review-revise-loop-proc/macro delegation uses generic rules; removal of one intrinsic proves neither every old criterion nor effect admission.
+
+Gate retained: Removal of observed intrinsic does not establish every old acceptance criterion or runtime admission.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-06-02
 - Priority: P2

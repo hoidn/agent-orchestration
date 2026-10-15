@@ -1,5 +1,7 @@
 # Progressive Execution From An Agreed Goal
 
+Admission boundary: this is a proposed demo/coordinator architecture, not an implemented conversation runner. Historical portable context capture and host-input effects are retired; current [Agent Sessions](workflow_lisp_agent_sessions.md) has only its bounded native-turn contract. Use admitted evaluated workflows under the drafting guide; selecting this target requires a separately accepted route for every required effect.
+
 Status: draft target design; not an implemented framework or runnable example.
 
 Scope: a software-task demo and a small callable `.orc` coordinator.

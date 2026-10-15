@@ -12,11 +12,10 @@ their behavior into Workflow Lisp. Its YAML snippets are historical schema
 notation, not runnable examples or maintenance instructions.
 
 Reports and dashboards may show persisted legacy state without parsing its
-source. `resume` loads the selected persisted state, then every recorded
-non-`.orc` suffix fails closed with `.orc required`, regardless of run
-terminality or force-restart selection. Legacy state remains viewable only
-through state-only report/dashboard observability; those compatibility reads
-do not restore an authored YAML surface.
+source. Current resume/invalidation admission and refusal precedence are owned
+by [CLI](../specs/cli.md#executable-support-boundary) and [State](../specs/state.md);
+this historical guide does not redefine that boundary. Compatibility reads
+do not restore authored YAML, old-profile execution or a resume fallback.
 
 Companion docs:
 - Concept model and terminology: `docs/orchestration_start_here.md`

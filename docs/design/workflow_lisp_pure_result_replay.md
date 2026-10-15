@@ -1,5 +1,12 @@
 # Workflow Lisp Pure-Result Replay
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [State](../../specs/state.md), [evaluated execution](workflow_lisp_evaluated_execution.md), and [executor retirement](workflow_lisp_executor_retirement.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 ## Metadata
 
 - **Status:** accepted M2 design; M2 feasibility complete; M3a supported

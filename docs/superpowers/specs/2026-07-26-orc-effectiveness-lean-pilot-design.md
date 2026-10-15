@@ -1,5 +1,12 @@
 # `.orc` Effectiveness Lean Pilot Design
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [comparison harness](../../design/orc_effectiveness_comparison_harness.md) and its linked experiment reports.
+
+The historical body begins below; original results and qualifications are unchanged.
+
 ## Metadata
 
 - **Status:** implemented; A1-v7 exploratory evidence and owner handoff complete

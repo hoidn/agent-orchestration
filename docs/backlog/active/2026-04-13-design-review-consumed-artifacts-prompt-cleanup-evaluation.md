@@ -1,5 +1,20 @@
 # Backlog Item: Evaluate Design Review Consumed-Artifacts Prompt Cleanup
 
+Current disposition: **unselected prompt-cleanup evaluation proposal.**
+
+The behavioral comparison and recommendation criteria remain a proposed evaluation. Described cleanup does not prove an efficacy measurement ran; original families are historical contexts.
+
+Gate retained: Do not infer measurement completion from prompt changes; separate study selection.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md), [workflow lisp provider prompt dependencies](../../design/workflow_lisp_provider_prompt_dependencies.md), [workflow lisp provider call policy](../../design/workflow_lisp_provider_call_policy.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-13
 - Plan: none yet

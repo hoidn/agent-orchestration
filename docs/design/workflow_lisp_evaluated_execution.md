@@ -2,60 +2,26 @@
 
 ## Metadata
 
-- **Status:** accepted for the first release at gate G1 on 2026-09-29.
-  Phase 2 compilation and Phase 3 Tasks 1–17 are complete at target 2.35
-  for the admitted first-release classes: commands, portable composed
-  providers without context capture, calls/captures and path-mode run
-  references. Public `compile`, `--dry-run`, `run`, `resume`, `invalidate`
-  and readers (`report`, dashboard, monitor, watchdog probe/watcher) are
-  delivered to `main` and `origin/main` at `06130a53`; tested code is
-  `ef689a39`. The [Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
-  and [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
-  own completion, receipts, the original RED full-suite dispositions and
-  qualified compatibility/live evidence. Later classes and phases are not
-  selected by this closure. Since then the owner retired the flat route
-  (2026-10-13, §13), registered bounded parallel map at target 2.37 (§11),
-  and registered target 2.38 for agent sessions (first slice implemented,
-  §9.2) and confined run-reference children (command, recovery and export
-  paths implemented; public confined provider dispatch pending, §8.4 and
-  [`specs/versioning.md`](../../specs/versioning.md#version-gating-summary)).
-  The [early Phase 6a pilot](../reports/2026-10-07-evaluated-execution-phase-6a-pilot.md)
-  has bounded caller reviews and 21 passing pilot cases at `688695e3`,
-  with production corrections at `d6adb627` and `b11e678`. Its full suite
-  remains RED; the report owns closeout status. The
-  pilot recorded the pre-existing pure-inline shadow result 101 instead of
-  lexical 8. The subsequent [pure-capture correction](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
-  demonstrates lexical 8 and coupled effect-once repair with bounded raw/resume
-  historical evidence; final code/spec reviews passed and the bounded prerequisite
-  was accepted before interruption. Recovery qualification and delivery are
-  recorded in the Phase 4c closeout. This does
-  not establish universal admitted-program correctness. Global Phase 6a remains
-  open. The subsequent owner selection assigns W3 to 2.36 with one
-  `std/improve` API per source import graph and old source caller migration
-  on retargeting; the [Phase 4c plan](../plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
-  owns executable qualification and compatibility proof. W3 target registration,
-  local bindings/captures/signatures and graph-selected helper are implemented
-  at 2.36. The bounded
-  extern/capture correction and public proposal/reviewed-change lifecycle
-  checks are accepted; Task14B pilot/census evidence has bounded
-  independent acceptance. Exact old-artifact/resume proof and affected/full freeze
-  are recorded in the [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md). This does not close
-  [remaining composition limits](workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
-  or evaluated LSP F2 (**OPEN_NOT_WAIVED**).
-  `evaluated_execution_unavailable` remains the refusal of
-  `resume --force-restart` on an evaluated run. Old-profile resume now refuses
-  with `workflow_execution_profile_retired` before writes
-  ([`specs/cli.md`](../../specs/cli.md#diagnostics)); it no longer refuses
-  `run` or `resume` of a 2.35 entry. Normative owners remain `specs/state.md`
-  (profile, header, journal, view), `specs/io.md` (command closure and typed
-  inputs), `specs/cli.md` (entries, exits, locks) and `specs/versioning.md`
-  (admission); this design links to them. Public owners are named in §17/18,
-  the [compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py)
-  and [target tests](../../tests/test_workflow_lisp_target_evaluated_execution.py).
-  The [Phase 2 closeout](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md)
-  retains its compiler evidence; the spike under
-  `experiments/evaluated_execution_spike/` remains separate historical
-  runtime evidence (§18).
+- **Status:** current execution contract. Target 2.35 admits commands, portable
+  composed providers without context capture, calls/captures and path-mode run
+  references. Target 2.36 adds bounded W3; 2.37 parallel-map qualification and
+  2.38 confined-provider qualification remain separately gated. Target 2.38
+  has bounded Agent Sessions and command-only confined run-ref admission.
+- **Current limits:** old executable entries and old-profile resume are retired
+  before writes; evaluated `resume --force-restart` refuses with
+  `evaluated_execution_unavailable`. Evaluated LSP F2 is **OPEN_NOT_WAIVED**.
+  No current claim establishes universal admitted-program correctness or closes
+  global Phase 6a/6b; the [plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
+  and [Phase 3 closeout](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)
+  own bounded evidence and remaining qualification.
+- **Normative owners:** [State](../../specs/state.md), [IO](../../specs/io.md),
+  [CLI](../../specs/cli.md) and [versioning](../../specs/versioning.md).
+
+
+<a id="original-delivery-metadata"></a>
+
+Implementation receipts, phase/caller history and qualified compatibility results are preserved as evidence; they do not widen admission. See the [preserved record](../reports/documentation-history/workflow_lisp_evaluated_execution-history.md#original-delivery-metadata).
+
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
@@ -78,7 +44,7 @@
   release; decision 6 selects target 2.35 (owner, 2026-09-30).
   Delivery order and consumer migration are owned by that plan, not this
   execution contract.
-- **Amends when the first release lands:**
+- **Companion contracts:**
   [core calculus middle-end](workflow_lisp_core_calculus_middle_end.md)
   (§10.1 constructs, §11.4 identity, §15 alternatives, §16 deferred work),
   `specs/state.md`, `specs/io.md`, `specs/cli.md`, `specs/versioning.md`,
@@ -3245,11 +3211,6 @@ questions below stay open.
 | 7 | How sessions, observation files and secrets are named and resumed | Sessions are designed and implemented at target 2.38 ([Agent Sessions](workflow_lisp_agent_sessions.md)); observation files and secrets are not designed and enter with the class that needs them (§1.1) |
 | 8 | Whether an interrupted, unsettled judge attempt spends a trial's budget | Owner decision before trial admission: preserve the current charged-at-allocation policy (a crash may change the decision), or change charging/retry semantics with explicit evidence. This design selects neither; trials are retired without a port (§9.2) |
 
-## 20. Decision Log
+<a id="20-decision-log"></a>
 
-| Date | Decision | Reason |
-| --- | --- | --- |
-| 2026-10-04 | `result_root` is a third optional header fact (§8.4, *Immutable result root*), written by both production publishers, compared on resume (`resume_result_root_changed`) and lazy on historical absence (`result_root_missing` only at a reached X4) | The run root's position under the workspace is recoverable from no other stored fact, and the memo stores run-relative result paths on purpose. The alternative, a workspace input to every reader, was rejected by the owner |
-| 2026-10-04 | `depends_on` is computed per value and documented as a superset (C9); narrowing it to the parts actually read is an entry condition of the release that scopes invalidation by C9 | No value, path, reuse decision or invalidation uses `depends_on` in this release; only lineage evidence is wider than real, and C6 read digests carry consumption evidence |
-| 2026-10-06 | `__pycache__` directories and their bytecode are outside closure evidence (C5, §7.3) | A process writing a `.pyc` between commit and resume made resume refuse a whole-package closure with `effect_input_diverged`; bytecode is not the bytes of a declared file |
-| 2026-10-06 | R2 splits by effect class: a provider receives the absolute path of its attempt's result file; a command and the prompt's path line keep the workspace-relative spelling, and every stored or digested fact keeps its existing relative spelling. Older targets are unchanged | An agent's working directory is not the workspace. A provider may change directory while it works, and a relative destination then names a file the runtime never reads; the attempt ends without a result although the provider wrote one. The prompt and the digests keep the relative spelling so that prompt parity (R4) and whole-workspace relocation (§8.4) hold; commands keep it because the certified adapters and library scripts they run accept only workspace-relative destinations, and they do not change directory |
+Historical decision sequence. Binding rules and their rationale are incorporated in §§4–18; later capabilities retain their explicit gates in §19. See the [preserved record](../reports/documentation-history/workflow_lisp_evaluated_execution-history.md#20-decision-log).

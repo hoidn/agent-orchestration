@@ -4,6 +4,7 @@ Read `docs/index.md` before making changes.
 
 Documentation routing:
 - Start at `docs/index.md` for current docs/spec routing.
+- Follow each document's stated role: current contracts/guides govern work; historical records preserve evidence and do not select new work. Keep delivery chronology out of maintained guidance; follow [documentation conventions](docs/documentation_conventions.md#current-guidance-and-historical-records).
 - Use `docs/capability_status_matrix.md` to check whether a surface is implemented, partial, library-provided, designed, future, or legacy before copying it.
 - Use `docs/design/README.md` to choose the relevant design doc; `MIND_MAP.md` is a secondary orientation map, not the agent entry point.
 

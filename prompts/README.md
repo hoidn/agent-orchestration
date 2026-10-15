@@ -1,42 +1,51 @@
 # Prompt Index
 
-This index catalogs the canonical prompt files worth reusing. It is intentionally curated rather than exhaustive.
+This is a catalog of reusable prompt text and its actual consumer scope.
+Prompt availability does not establish executable workflow admission. Start
+runnable work with [Which example should I copy?](../workflows/README.md#which-example-should-i-copy)
+and the entry's manifests, inputs and provider prerequisites.
 
-Selection rule:
-- include the new repo hygiene prompt
-- include prompt families used by workflows run in the last two days
-- collapse near-duplicate prompt families to the most recent and/or strongest prompt, and note the superseded variants
+## Manual Prompts And Document Templates
 
-## Canonical Prompts
+| Asset | Purpose | Prerequisites and scope |
+| --- | --- | --- |
+| [Repository hygiene review](repo_hygiene_review.md) | Review module size, generated drift, brittle tests and duplicate patterns. | Manual maintenance prompt; no workflow launch is implied. |
+| [Design template](../docs/templates/design_template.md) | Structure a design document. | Current document template when supplied by the target checkout; its use by a prompt does not qualify a phase family. |
+| [DSL review](workflows/dsl_review_fix_loop/review.md) and [fix](workflows/dsl_review_fix_loop/fix.md) | Retained task-specific ADR review/fix text. | Adapt the hard-coded ADR `docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md`, artifact/output paths, review's `state/review_path.txt` and exact `## High` heading before manual reuse. These are not generic drop-in prompts. |
 
-| Prompt | Purpose | Used By / Chosen For | Notes |
-| --- | --- | --- | --- |
-| [repo_hygiene_review.md](/home/ollie/Documents/agent-orchestration/prompts/repo_hygiene_review.md) | Simple repo hygiene review looking for oversized modules, generated-file drift, brittle tests, and duplicated patterns. | Manual maintenance prompt. | This is the prompt that would have surfaced the need to refactor `orchestrator/workflow/executor.py`. |
-| [review.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/review.md) | Fresh principal-engineer review of a single design/ADR draft. | Retained prompt reference. | Small “review-first” prompt for manual reuse or migration comparison. |
-| [fix.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/fix.md) | Apply the latest review directly to the ADR under review. | Retained prompt reference. | Minimal fix-loop companion to `review.md`. |
-| [design_template.md](/home/ollie/Documents/agent-orchestration/docs/templates/design_template.md) | Shared design-document structure for design -> plan -> implementation workflows, with optional sections for modularity, contracts, invariants, verification, and handoff. | Read by the design drafting prompts in [tracked_design_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.orc) when present in the target checkout. | Stored under `docs/templates/` so workflows can pick it up through prompt instructions without requiring additional asset wiring. |
-| [draft_design.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/draft_design.md) | Draft a design / ADR from a brief with explicit contracts, invariants, and sequencing constraints. | [tracked_design_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.orc) | Canonical current design-drafting prompt, bound by the Workflow Lisp counterpart. |
-| [review_design.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/review_design.md) | Structured design review with tracked findings and scope classification. | [tracked_design_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.orc) | Chosen because it upgrades plain markdown review into tracked JSON findings with blocking-vs-followup scope. |
-| [revise_design.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/revise_design.md) | Revise a design against unresolved blocking or in-scope findings. | [tracked_design_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.orc) | Canonical design-fix companion to the tracked design review prompt. |
-| [draft_plan.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/draft_plan.md) | Draft an execution plan from an approved design with tranche boundaries and verification. | [tracked_plan_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_plan_phase.orc) | Current Workflow Lisp plan-drafting binding. |
-| [review_plan.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/review_plan.md) | Fresh plan review reconciled against an open-findings ledger and emitted as JSON. | [tracked_plan_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_plan_phase.orc) | Canonical current plan-review prompt because it carries stable findings forward instead of churning prose. |
-| [revise_plan.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/revise_plan.md) | Revise a plan against unresolved in-scope findings while preserving tranche order and verification. | [tracked_plan_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_plan_phase.orc) | Chosen as the current plan-fix companion. |
-| [implement_plan.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md) | Execute an approved plan in the current checkout and emit a bounded execution report. | [design_plan_impl_implementation_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.orc) | Canonical current implementation prompt; it carries the no-worktree/current-checkout rule and structured execution-report contract. |
-| [review_implementation.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md) | Review implementation against the full approved plan and prioritize unfinished required work over non-blocking cleanup. | [design_plan_impl_implementation_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.orc) | Chosen because it has the strongest guidance around plan completion, blocking defects, and next coherent tranche selection. |
-| [fix_implementation.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md) | Fix blocking defects and continue the next coherent required tranche by checking the plan directly, not trusting the review as complete. | [design_plan_impl_implementation_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.orc) | Canonical current implementation-fix prompt. |
-| [major_project_stack/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/major_project_stack) | Retained roadmap, big-design, plan, implementation, and roadmap-revision prompt references for broad project tranches. | Retained prompt reference. | Historical prompt assets remain available for inspection; they no longer have a live YAML workflow consumer. |
-| [revision_study_stack/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/revision_study_stack) | Design, plan, implement, review, and fix prompts for paper revision studies seeded by an immutable revision design doc. | Retained prompt reference. | Historical prompt assets remain available for inspection; they no longer have a live YAML workflow consumer. |
+## Current Evaluated Workflow Prompts
 
-## Superseded Near-Duplicates
+| Asset | Purpose | Consumer and prerequisites |
+| --- | --- | --- |
+| [Work](../workflows/library/prompts/verified_iteration_drain/work.md), [iteration review](../workflows/library/prompts/verified_iteration_drain/review_iteration.md), [done review](../workflows/library/prompts/verified_iteration_drain/review_done.md) | Work and review inputs for the verified-iteration drain. | Evaluated 2.35; use the [catalog launch recipe](../workflows/README.md#verified-iteration-drain-launch), provider/prompt/command manifests and target-owned design/check paths. Compatibility verdict/decision files remain consumed by its Prepare/Record scripts. |
 
-These prompt families were used by workflows run in the last two days, but they are intentionally not indexed as separate canonical entries because the files above are newer and/or structurally stronger.
+## Retained Phase Prompt Contracts
 
-- [dsl_follow_on_plan_impl_loop/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop)
-  Reason: older markdown-only follow-on plan/implementation loop prompts retained for comparison. Superseded by the call-stack family above for plan and implementation phases.
-- [dsl_follow_on_plan_impl_loop_v2/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop_v2)
-  Reason: structured-v2 rewrite, but still an intermediate step between the older monolith and the current call-based stack.
-- [dsl_follow_on_plan_impl_loop_v2_call/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call)
-  Reason: call-oriented predecessor to the current stack prompts; retained on disk but superseded by the newer design/plan/implementation stack family.
+The [design/plan/implementation family](../workflows/library/prompts/design_plan_impl_stack_v2_call/)
+retains the following task and output contracts for explicit manual adaptation:
 
-Excluded as non-canonical scratch/test run:
-- `tmp/review_call_runtime/caller.yaml`
+| Assets | Purpose | Retained consumer |
+| --- | --- | --- |
+| [draft_design.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/draft_design.md), [review_design.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/review_design.md), [revise_design.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/revise_design.md) | Draft, review with structured findings, and revise a design. | [tracked_design_phase.orc](../workflows/library/tracked_design_phase.orc) |
+| [draft_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/draft_plan.md), [review_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/review_plan.md), [revise_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/revise_plan.md) | Draft, review and revise a plan with an open-findings ledger. | [tracked_plan_phase.orc](../workflows/library/tracked_plan_phase.orc) |
+| [implement_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md), [review_implementation.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md), [fix_implementation.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md) | Execute an approved plan, review the full target and apply required corrections. | [implementation phase](../workflows/library/design_plan_impl_implementation_phase.orc) |
+
+Those executable entries target 2.14 and are retired; admitted typed imports
+are assessed separately. Existing `design_plan_impl_stack.prompts.json` and
+`kiss_backlog_item/prompts.json` mappings do not establish current entry
+admission. Consumed Artifacts, output pointers, structured findings and
+commit/current-checkout instructions are operational requirements of the text;
+review and adapt them explicitly for the intended manual task.
+
+## Other Retained References
+
+| Family | Scope |
+| --- | --- |
+| [Major project stack](../workflows/library/prompts/major_project_stack/) | Retained roadmap/design/plan/implementation prompts. |
+| [Revision study stack](../workflows/library/prompts/revision_study_stack/) | Retained paper-study design, plan, implementation, review and fix prompts. |
+| [DSL follow-on loop](workflows/dsl_follow_on_plan_impl_loop/), [v2](workflows/dsl_follow_on_plan_impl_loop_v2/), [call-based v2](../workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call/) | Retained task/phase prompt references. |
+
+No current `.orc` or JSON workflow consumer was found for those family paths.
+That is a catalog observation, not a claim that the text cannot be reused
+manually. Keep its task assumptions and supplied artifact/output contracts
+visible when adapting it.

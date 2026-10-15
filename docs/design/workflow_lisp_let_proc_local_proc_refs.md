@@ -6,7 +6,7 @@ Parent contract: `workflow_lisp_frontend_specification.md`
 Primary feature: `let-proc` local compile-time procedure bindings
 Non-goal: runtime closures, runtime first-class procedures, or bypassing unresolved effectful-composition lowering gaps
 
-The accepted ProcRef / `bind-proc` delta remains the semantic base: `ProcRef[...]` targets named `defproc`s, `(proc-ref name)` is explicit, `bind-proc` is keyword-only partial application, specialization happens before Core AST / Semantic IR lowering, and executable/runtime artifacts must not contain unresolved procedure values.
+The accepted ProcRef / `bind-proc` delta remains the semantic base: `ProcRef[...]` targets named `defproc`s, `(proc-ref name)` is explicit, `bind-proc` is keyword-only partial application, specialization happens before checked-program construction, and executable/runtime artifacts must not contain unresolved procedure values.
 
 Current evidence lives in `tests/test_workflow_lisp_procedures.py` and
 `tests/fixtures/workflow_lisp/valid/let_proc_proc_ref_forwarding.orc`, including
@@ -21,7 +21,7 @@ calls, recursion and runtime closures remain outside W3. Existing nonescape
 checks still apply. This delta does not resolve the
 [remaining composition limits](workflow_lisp_composition_first.md#114-evaluated-w3-boundaries).
 
-It also keeps the parent frontend constraints intact: Workflow Lisp lowers through Core AST, shared validation, Semantic IR, and executable IR; it is not a runtime replacement, not a YAML text generator, and frontend forms are implementation-ready only when they can lower into the shared contracts. The effect and source-map constraints are likewise inherited: abstractions must not hide provider/command/state/artifact effects, and generated Core/Semantic/Executable nodes must remain source-mapped and diagnosable.
+The parent frontend contract supplies shared typed analysis and checked-program construction. Abstractions must expose all provider/command/state/artifact effects and retain exact source provenance. Historical Core/Semantic/Executable projections are not the current execution pipeline.
 
 ## 1. Summary
 
@@ -86,7 +86,7 @@ The accepted ProcRef delta remains the semantic authority for procedure referenc
 - `(proc-ref name)` is required when a procedure is passed as a value.
 - Bare procedure names are not procedure values.
 - `bind-proc` specializes a known procedure reference by binding named arguments.
-- Specialization happens before Core AST / Semantic IR lowering.
+- Specialization happens before checked-program construction.
 - Executable IR must contain no unresolved procedure values.
 - Procedure refs may not be stored in state, artifacts, records, unions, ledgers, result bundles, provider results, command results, or workflow outputs.
 
@@ -116,7 +116,7 @@ Full realistic `let-proc` bodies depend on the Workflow Lisp effectful-compositi
 
 `let-proc` must not be used to bypass unresolved lowering gaps.
 
-A `let-proc` body is valid only when the generated `defproc`-equivalent, used in the same enclosing workflow/procedure context, lowers to Core AST that passes the same shared validation path as an authored `defproc` would.
+A `let-proc` body is valid only when the generated `defproc`-equivalent, used in the same enclosing workflow/procedure context, elaborates and passes the same typed and checked-program validation as an authored `defproc` would.
 
 If the equivalent generated `defproc` cannot lower, the `let-proc` body must be rejected for the same underlying reason.
 

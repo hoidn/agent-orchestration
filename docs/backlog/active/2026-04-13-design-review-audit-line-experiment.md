@@ -1,5 +1,20 @@
 # Backlog Item: Design Review Transformation-Necessity Experiment
 
+Current disposition: **unselected prompt experiment proposal.**
+
+The transformation-necessity/null-path experiment and candidate prompt block remain unselected research. Named old-stack consumers are historical contexts, not current defaults.
+
+Gate retained: Separate study selection and budget; no prompt edits or live calls authorized.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-04-13
 - Plan: none yet

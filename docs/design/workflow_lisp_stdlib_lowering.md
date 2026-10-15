@@ -1,30 +1,31 @@
 # Workflow Lisp Frontend Standard Library Lowering
 
-Status: draft internal design  
+Status: current stdlib composition/invariant contract with historical flat projections
 Depends on: `docs/design/workflow_lisp_core_stmt_taxonomy.md`,
 `docs/design/workflow_lisp_semantic_workflow_ir.md`,
 `docs/design/workflow_command_adapter_contract.md`
 
 ## Purpose
 
-This document defines the contract for high-level Lisp library forms to compile
-through the accepted WCC/schema-2 middle-end into Core AST and Semantic IR
-without hiding unresolved semantics.
+High-level Lisp library forms use ordinary typed `.orc` composition, shared
+elaboration and checked-program construction. They must not hide unresolved
+semantics. Core/Semantic/Executable IR projection shapes are historical;
+[evaluated execution](workflow_lisp_evaluated_execution.md) owns current admission.
 
 The default implementation path is ordinary `.orc` stdlib code compiled through
-the shared WCC effectful-composition model. A form should receive bespoke
+the shared typed and evaluated composition model. A form should receive bespoke
 compiler lowering only when it is explicitly accepted as a primitive rather
-than as a library abstraction. Legacy schema-1 or direct per-form lowerers are
-compatibility routes, not the promoted stdlib architecture.
+than as a library abstraction. Schema-1 and direct per-form flat lowerers are
+retired; historical compatibility descriptions do not retain those routes.
 
-Each standard-library form needs an exact generated-shape contract before it can
-be implemented or promoted.
+Each standard-library form needs an exact typed/effect/identity contract and
+public execution evidence before claiming an admitted evaluated route.
 
 For the key-workflow migration tranche, `review-revise-loop` is not accepted as
 a compiler-special primitive. Its implemented route is ordinary imported stdlib
-composition that emits the existing executable surfaces (`repeat_until`,
-structured provider results, `match`, projection/materialization, source maps,
-and resume-safe loop state). If later work proves that a review-loop-specific
+composition over typed loops, structured provider results and `match`, with
+source provenance and memo-safe effect identity. The historical flat projection
+used `repeat_until` and generated materialization steps. If later work proves that a review-loop-specific
 compiler branch is necessary for another workflow family, the migration
 architecture must be revised before primary promotion.
 
@@ -45,13 +46,13 @@ compiler branch.
 
 Current stdlib status: `phase-scope`, `finalize-selected-item`, and
 `backlog-drain` lower through ordinary imported stdlib composition on the
-accepted route. `std/resource` and `std/drain` are builtin modules. Legacy
-per-form lowerers, where retained, are compatibility-only routes and are not
-the authoring contract.
-The dedicated executable-boundary proof for imported `std/drain` remains the
-`validation_profile="DEDICATED_RUNTIME_PROOF"` lane exercised by
-`tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`; frontend-only
-`validate_shared=False` evidence is still non-executable.
+typed route. `std/resource` and `std/drain` are builtin modules. Their old
+per-form flat lowerers are retired; retained modules do not retain that backend.
+Builtin module/type availability does not admit every reachable effect.
+`resource-transition`, generated materialized views and old reusable-state
+execution remain excluded unless their evaluated owner explicitly admits them.
+Historical dedicated flat runtime-proof lanes do not establish current admission;
+frontend-only proof is non-executable.
 
 Historical note: earlier bridge-era feasibility work used
 `ReviewReviseLoopExpr` as a shape reference while proving the route. That
@@ -66,7 +67,7 @@ owner seam for ordinary stdlib composition.
 | `command-result` | implemented authoring surface | pending union/proof and bundle-path parity | `output_bundle` for fixed records; union results require a variant-proof surface or validator/projection |
 | `review-revise-loop` | implemented authoring surface for current fixtures/examples | pending parity evidence per workflow family | ordinary imported stdlib composition over compile-time `ProcRef` review/fix hooks, generic `loop/recur`, and the explicit `validate_review_findings_v1` command boundary; no review-loop-specific compiler branch |
 | `resume-or-start` | library/adapter-backed or pending by usage | pending | requires canonical reusable-state validation |
-| `resource-transition` | implemented declared transition surface | pending parity evidence where used | runtime-native effect, with certified adapters only as explicit compatibility backends |
+| `resource-transition` | versioned typed/library surface | no current evaluated effect admission | historical native/adapter backends; a separate accepted port is required |
 
 ## Required Forms
 
@@ -88,8 +89,8 @@ Each form must specify:
 
 - inputs and return type
 - effects
-- generated Core statements
-- generated Semantic IR facts
+- checked-program representation and effect-site identity
+- retained catalog/proof facts; historical Core/Semantic projections where read
 - state layout use
 - reference catalog entries
 - proof graph entries
@@ -97,23 +98,9 @@ Each form must specify:
 - runtime backend requirements
 - negative validation cases
 
-## Example: `produce-one-of`
+<a id="example-produce-one-of"></a>
 
-Expected lowering:
-
-```text
-CorePreSnapshot
-CoreProducerStep
-CoreSelectVariantOutput
-```
-
-Semantic requirements:
-
-- snapshot candidates match union variants
-- exactly one candidate changes
-- selected bundle validates before commit
-- selected variant fields are availability-scoped
-- mtime is debug metadata only
+Historical flat snapshot/selection projection. Current library import/type support does not admit excluded evaluated effects. See the [preserved record](../reports/documentation-history/workflow_lisp_stdlib_lowering-history.md#example-produce-one-of).
 
 ## Example: `backlog-drain`
 
@@ -194,6 +181,6 @@ specified before the form can claim runtime-integrated semantics.
   projection conveniences.
 - Whether `resume-or-start` needs a new canonical-state validation primitive.
 
-`resource-transition` itself is not open: durable mutation is a runtime-owned
-declared transition effect, while certified adapters remain compatibility
-backends for the same typed contract.
+The historical transition ownership rule remains a constraint on any later port:
+durable mutation needs explicit runtime authority and typed adapter contracts.
+It supplies no current evaluated transition admission.

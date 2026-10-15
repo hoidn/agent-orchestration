@@ -1,5 +1,16 @@
 # Lisp Frontend Design Delta Drain .orc Migration Record
 
+Status: **Historical checkpoint; original body preserved.**
+
+Historical migration checkpoint, including its entire original Authority/current-selector section. The 2.14 Design Delta entry is retired; original primary/registry labels and YAML-twin status below are dated observations, not current launch permission.
+
+Current owner: [workflow_lisp_executor_retirement.md](../../design/workflow_lisp_executor_retirement.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Workflow family: Lisp frontend design delta drain
 Primary `.orc`: `workflows/library/lisp_frontend_design_delta/drain.orc`
 Compatibility YAML twin: `workflows/examples/lisp_frontend_design_delta_drain.yaml`

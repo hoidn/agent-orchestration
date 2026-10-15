@@ -1,5 +1,14 @@
 # Workflow Lisp Shared Owner-Lane Prerequisites
 
+Current scope: this page records minimum shared-owner contracts and consumer
+claim limits. WCC/schema-2 generated projections, callable-boundary bridges and
+family migration examples below describe their historical substrate. Their
+current replacements must prove the same typed/effect/proof/lineage invariants
+on an admitted checked-program route; builtin imports or a retained schema do
+not admit retired effects. Use the [evaluated contract](workflow_lisp_evaluated_execution.md)
+and [readiness registry](../workflow_lisp_route_readiness_registry.json) for
+present route claims; no family is promoted by this checklist alone.
+
 Status: reference target / prerequisite ledger
 Kind: shared capability contracts gating imported stdlib adoption claims
 Created: 2026-07-01
@@ -601,4 +610,3 @@ Until that shared contract exists, a family may still adopt request-record,
 projection, transition, publication, parent-loop, and phase-boundary
 cleanup slices that do not depend on the broken `std/phase` owner lane, but it
 must not claim completion of the imported child-phase/stdlib route.
-

@@ -43,14 +43,11 @@ provider-free command cases do not imply that the sandbox is optional.
 
 ## Running E2E Tests
 ```bash
-# From project root, in an activated virtualenv and a tmux session
-ORCHESTRATE_E2E=1 pytest -q -n 16 --dist=worksteal tests/e2e/test_e2e_provider_supervision.py tests/e2e/test_e2e_provider_peer_delivery.py
-
 # Run one live provider module with its CLI and authentication available
 ORCHESTRATE_E2E=1 pytest -q -m e2e tests/e2e/test_e2e_codex_provider_session_control.py
 
-# Run deterministic provider-free E2E coverage
-pytest -q tests/test_workflow_lisp_native_returns_e2e.py
+# Run a public deterministic lifecycle smoke (command and provider shim; no real providers)
+pytest -q tests/test_workflow_evaluated_invalidate_smoke.py
 ```
 
 The retained `test_e2e_codex_provider.py` and `test_e2e_claude_provider.py`
@@ -61,10 +58,10 @@ those legacy cases; use the explicit current selectors above.
 
 ## Artifact-Contract Selectors
 
-Use these selectors for deterministic handoff (`expected_outputs`, contract validation, and prompt injection):
+Use these selectors for shared output validation and prompt rendering; their
+retained contract coverage does not admit a historical workflow executor:
 
 ```bash
-pytest tests/test_loader_validation.py -k "expected_outputs or inject_output_contract" -v
 pytest tests/test_output_contract.py -v
 pytest tests/test_workflow_output_contract_integration.py -v
 pytest tests/test_prompt_contract_injection.py -v
@@ -73,7 +70,7 @@ pytest tests/test_prompt_contract_injection.py -v
 Runtime-focused smoke selector:
 
 ```bash
-pytest -q tests/test_workflow_lisp_native_returns_e2e.py
+pytest -q tests/test_workflow_evaluated_invalidate_smoke.py
 ```
 
 E2E infrastructure selector:
@@ -106,7 +103,9 @@ pytest tests/test_demo_provisioning.py tests/test_demo_nanobragg_provisioning.py
 ## Conventions
 - Keep E2E fixtures explicit about filesystem layout (e.g., `inbox/`, `processed/`, `failed/`, `artifacts/`).
 - Prefer real provider CLI invocations only when necessary; otherwise, simulate via test doubles that honor `specs/providers.md` contracts.
-- Assert observable state via `state.json`, `logs/`, and on-disk artifacts rather than parsing agent prose.
+- Assert evaluated authority via `run.json`, the checked artifact, `memo.jsonl`
+  and typed results; inspect `state.json` as a derived view. Historical formats
+  use their explicit retained reader contracts. Do not parse agent prose.
 
 ## Examples
 - Current workflow E2E examples use the same `.orc`-only

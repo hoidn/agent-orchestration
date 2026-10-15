@@ -1,5 +1,12 @@
 # Workflow Lisp Generic Resource And Context Core
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [frontend baseline](workflow_lisp_frontend_specification.md), [evaluated execution](workflow_lisp_evaluated_execution.md), and [executor retirement](workflow_lisp_executor_retirement.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: incorporated historical direction (historical implementation target:
 `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`)
 Kind: architecture decision / simplification target

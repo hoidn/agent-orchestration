@@ -5,24 +5,9 @@ Status: implemented; Workflow Lisp production primary (does not replace the
 Created: 2026-07-02
 Implementation plan: `docs/plans/2026-07-02-verified-iteration-drain.md`
 
-The promoted authoring and launch surface is
-`workflows/library/verified_iteration_drain/drain.orc`, entry
-`verified_iteration_drain/drain::drain`. Its final typed parity report is
-`artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`.
-The historical YAML twin was retired after its Stage 6 Task 6 reference and
-supported-run deletion gates passed.
+<a id="original-delivery-metadata"></a>
 
-The sections below describe the implemented baseline. The
-[accepted history-input extension](#accepted-extension-prepare-selected-history-input)
-changes the canonical consumer in both execution routes and is implemented on
-both: Phase 3 Task 13D (`4acd38ec`) revised the shared source, its two
-prompts and the Prepare script, extended the legacy-route tests and added the
-public target-2.35 copy with its fixture
-(`tests/test_workflow_evaluated_verified_drain.py`); the maintained consumer
-programs followed at 2.35 (`ad6498d9`), and Task 14 proved the drain's argv
-parity beside the watchdog handoff (`f8f2d150`). The owners are named in
-[evaluated execution §9.1.2](workflow_lisp_evaluated_execution.md#912-artifact-handoff-within-the-admitted-release).
-Historical parity evidence above does not verify that extension.
+Original YAML/flat promotion and dual-route implementation receipts are historical. Current maintained drain execution uses target 2.35 and the history-input contract below. See the [preserved record](../reports/documentation-history/verified_iteration_drain-history.md#original-delivery-metadata).
 
 ## Problem
 
@@ -275,14 +260,11 @@ route.
 
 ## Accepted Extension: Prepare-Selected History Input
 
-This target design preserves completed-resume without runtime versioning.
-The single canonical `drain.orc` remains at target 2.15; the public evaluated
-fixture copies its revised source and changes only the target to 2.35, with
-the required manifests/closures. There is no alternate drain, script or
-target-dependent behavior. This extension changes both routes' source,
-prompts, freshness and inventory; runs already started are not migrated or
-rewritten. Existing program/closure compatibility and resume refusals still
-apply to those runs.
+The maintained `workflows/library/verified_iteration_drain/drain.orc` executes
+at target 2.35 using the ordinary checked-program/memo lifecycle and required
+manifests/closures. Prepare-selected history is the baseline input contract,
+not a separate drain implementation. Existing runs are not migrated or rewritten;
+program/closure/input compatibility and retirement refusals remain applicable.
 
 Prepare reads the current raw bytes of the cumulative `ledger.md` once per
 execution and publishes or reuses

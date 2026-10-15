@@ -7,11 +7,10 @@
   into [frontend baseline §8.6](workflow_lisp_frontend_specification.md#86-defun)
 - **Owner:** Workflow Lisp typechecking, pure-expression lowering, and WCC
 - **Created:** 2026-09-08
-- **Implementation target:** 2.30, Package C in the owner-requested composition
-  implementation plan. Forty-eight focused checks include selected hooks,
-  strict rechecking, once-only evaluation and public committed-boundary resume;
-  Astra approved the shared-owner correction and old-target compatibility proof.
-  This does not select a research allocation or establish superior reuse utility.
+<a id="original-delivery-metadata"></a>
+
+Package-C verification/review receipts are preserved as historical evidence; the versioned resolved-inline semantics remain binding. See the [preserved record](../reports/documentation-history/workflow_lisp_pure_call_composition-history.md#original-delivery-metadata).
+
 - **Roadmap:** [EC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#ec-1--pure-call-expression-composition-pending-unselected)
 - **Companion:** [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 - **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)

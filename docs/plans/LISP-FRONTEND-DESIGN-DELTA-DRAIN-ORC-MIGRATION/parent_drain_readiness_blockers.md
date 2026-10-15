@@ -1,5 +1,16 @@
 # Parent Drain `.orc` Readiness Blockers
 
+Status: **Historical checkpoint; original body preserved.**
+
+Historical parent-migration readiness/blocker evidence. The original flat compiler/family limitations below are not fresh current restrictions and do not select old-runtime repair. Current admitted composition and retirement owners govern new work.
+
+Current owner: [workflow_lisp_evaluated_execution.md](../../design/workflow_lisp_evaluated_execution.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Status: active blocker record
 Updated: 2026-06-09
 

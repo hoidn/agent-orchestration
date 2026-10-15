@@ -1,5 +1,20 @@
 # Claim-Support Big-Design Prompt Experiment
 
+Current disposition: **unselected claim-support experiment.**
+
+The explicit do-not-apply-until-selected boundary and candidate scope remain. Major-project execution context is historical; candidate wording is not adopted policy.
+
+Gate retained: Do not convert candidate prompt wording into adopted contract or run experiment.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md), [workflow lisp provider prompt dependencies](../../design/workflow_lisp_provider_prompt_dependencies.md), [workflow lisp provider call policy](../../design/workflow_lisp_provider_call_policy.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 ## Status
 
 Active backlog item. Do not apply the prompt edits until this experiment is intentionally selected.

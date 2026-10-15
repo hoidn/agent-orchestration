@@ -1,8 +1,8 @@
 # Workflow Command Adapter Contract
 
-Status: draft design guidance
-Scope: workflow YAML, v2.14+ deterministic surfaces, future frontend lowering,
-legacy migration adapters, command steps
+Status: current command/adapter contract
+Scope: admitted evaluated commands and shared closure/adapter services;
+historical YAML/flat migration examples do not admit retired execution
 
 This document defines how workflow-authored command behavior should be treated
 when it carries semantic meaning. It does not ban Python, shell, or command

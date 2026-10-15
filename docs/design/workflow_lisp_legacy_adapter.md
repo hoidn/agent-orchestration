@@ -1,6 +1,6 @@
 # Workflow Lisp Legacy Adapter
 
-Status: draft internal design  
+Status: current adapter-quarantine policy; historical flat projections
 Depends on: `docs/design/workflow_language_design_principles.md`,
 `docs/design/workflow_command_adapter_contract.md`
 

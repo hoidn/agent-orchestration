@@ -1,5 +1,20 @@
 # Backlog Item: Clarify Design-Delta Prompt And API Boundaries
 
+Current disposition: **historical ProcRef/Design Delta prompt API proposal.**
+
+The full/MVP-versus-target/baseline prompt-boundary debate is retired-family provenance. Existing imports may remain typed evidence; no prompt fork, wrapper or drain launch is selected.
+
+Gate retained: No shared-prompt fork, new wrapper or drain launch selected; original scope not declared complete.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../../design/workflow_lisp_evaluated_execution.md), [cli](../../../../specs/cli.md), [workflow lisp provider prompt dependencies](../../../design/workflow_lisp_provider_prompt_dependencies.md), [workflow lisp provider call policy](../../../design/workflow_lisp_provider_call_policy.md).
+[Backlog status inventory](../../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 - Status: active
 - Created on: 2026-05-28
 - Plan: none yet

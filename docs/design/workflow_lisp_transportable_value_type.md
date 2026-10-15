@@ -1,6 +1,7 @@
 # Workflow Lisp Transportable `Value` Type
 
-- **Status:** accepted prerequisite (owner-selected 2026-07-26)
+- **Status:** current implemented strict-JSON transport contract; source syntax
+  requires 2.19 or later, independently of executable entry admission
 - **Review:** `VALUE_DESIGN_SPEC_APPROVED`, then
   `VALUE_DESIGN_QUALITY_APPROVED`
 - **Kind:** language and transport contract

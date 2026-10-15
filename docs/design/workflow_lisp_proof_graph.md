@@ -1,6 +1,6 @@
 # Workflow Lisp Proof Graph
 
-Status: draft internal design  
+Status: current typed proof/analysis contract; historical executable projections
 Depends on: `docs/design/workflow_lisp_reference_catalog.md`
 
 ## Purpose

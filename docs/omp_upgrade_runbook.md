@@ -23,8 +23,10 @@ The current pin is:
 - final executable SHA-256
   `df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb`.
 
-The design rationale and complete reproducible-build evidence are in
-`docs/plans/2026-08-14-omp-integration-design-and-roadmap.md`. The executable
+The [OMP component contract](design/omp_provider_and_native_continuation.md)
+owns retained provider and native-continuation behavior. Design rationale and
+reproducible-build evidence are preserved in the
+[historical integration record](plans/2026-08-14-omp-integration-design-and-roadmap.md). The executable
 recipe is Task 1 of
 `docs/plans/2026-08-21-omp-i1-implementation-plan.md`.
 

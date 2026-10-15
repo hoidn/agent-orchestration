@@ -1,6 +1,6 @@
 # Workflow Lisp Parametric Type System
 
-Status: draft design (consolidates and supersedes
+Status: current implemented parametric contract (consolidates and supersedes
 `workflow_lisp_compile_time_parametric_specialization.md` and
 `workflow_lisp_structural_parametric_constraints.md`)
 Kind: Workflow Lisp language design / implementation architecture
@@ -9,8 +9,10 @@ Created: 2026-07-06
 Related docs:
 
 - `docs/design/workflow_lisp_frontend_specification.md` (parent language contract)
-- `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`
-  (owns `ReviewFindings` / `ReviewDecision` / `ReviewLoopResult` schemas)
+- [Frontend baseline](workflow_lisp_frontend_specification.md#27-review-revise-loop)
+  (owns current `ReviewFindings` / `ReviewDecision` / `ReviewLoopResult` schemas);
+  [original integration delta](workflow_lisp_review_revise_stdlib_parametric_integration.md)
+  is historical rationale and migration evidence
 - `docs/design/workflow_lisp_type_catalog.md` (type-to-contract mapping)
 - `docs/design/workflow_lisp_stdlib_lowering.md`
 - `docs/design/workflow_lisp_macro_surface_contract.md`
@@ -459,7 +461,10 @@ Generated helper names are implementation details. Source maps and debug
 projection must identify the authored generic definition, the call site, the
 instantiation arguments, and generated nodes.
 
-**Checkpoint identity across migration is a proof obligation, not a given.**
+**Supported persisted identity across migration is a proof obligation.**
+Current evaluated identity follows checked-program/site and memo contracts. The
+following lexical-checkpoint formula describes the historical flat format and
+its then-required migration proof, not current replay or a new remap service.
 Resume lookup keys on `workflow_name` + `checkpoint_id`
 (`lexical_checkpoints.py`), and `derive_checkpoint_id` digests the program
 point id, an executable identity (`wcc_node_id`/`wcc_scope_id` plus lowered
@@ -623,9 +628,9 @@ substituted bodies.
 Compiler-known stdlib forms are classified once and recorded in the form
 registry taxonomy:
 
-**Permanent effect primitives** — the forms `.orc` bodies bottom out in.
-They encapsulate runtime effects or compiler-generated state that has no
-meaningful `.orc` expression, and they are not migration debt:
+**Historical registry effect primitives** — the old taxonomy distinguishes
+runtime effects from library control flow. It does not admit those effects to
+current evaluated execution:
 `resource-transition`, `materialize-view`, `resume-or-start`,
 `run-provider-phase`, `produce-one-of`, and generated-seed intrinsics.
 
@@ -644,126 +649,16 @@ precedents.
    bespoke specialization paths, leaving at most registry/contract residue;
 3. behavior parity is machine-checked (existing parity/fixture gates for the
    form's consumers pass unchanged, or with reviewed contract deltas);
-4. checkpoint/resume identity for existing runs of consuming workflows is
-   preserved.
+4. supported identity/resume contracts are preserved, with any explicit
+   retirement or exact-release recovery governed by the retirement contract.
 
 The registry classification replaces the `TEMP_COMPILER_INTRINSIC` framing:
 "temporary" applies only to migration-destined forms, and permanent
 primitives stop carrying an implied rescue obligation.
 
-## Tranche 2: backlog-drain Migration (flagship)
+<a id="tranche-2-backlog-drain-migration-flagship"></a>
 
-Target: author the drain loop as a generic `defproc` in `std/drain.orc` and
-retire the intrinsic.
-
-Signature shape (normative for the migration; body elided):
-
-```lisp
-(defproc backlog-drain-proc
-  :forall (CtxT SelectionT SelPayloadT GapPayloadT RunResultT GapResultT)
-  ((ctx CtxT)
-   (selector    ProcRef[(CtxT) -> SelectionT])
-   (run-item    ProcRef[(std/context/ItemCtx SelPayloadT) -> RunResultT])
-   (gap-drafter ProcRef[(CtxT GapPayloadT) -> GapResultT])
-   (max-iterations Int))
-  :where ((CtxT is-record)
-          (CtxT has-field run std/context/RunCtx)
-          (CtxT has-field state-root Path.state-root)
-          (CtxT has-field manifest Path.state-root)
-          (CtxT has-field ledger Path.state-root)
-          (SelectionT is-union)
-          (SelectionT has-union-variant EMPTY)
-          (SelectionT has-union-variant SELECTED (selection SelPayloadT))
-          (SelectionT has-union-variant GAP (gap GapPayloadT))
-          (SelectionT has-union-variant BLOCKED (reason String))
-          (SelPayloadT is-record)
-          (SelPayloadT has-field item-id String)
-          (SelPayloadT has-field item-state-root Path.state-root)
-          (GapPayloadT is-record)
-          (RunResultT has-union-variant CONTINUE (summary-path WorkReport))
-          (RunResultT has-union-variant BLOCKED
-            (summary-path WorkReport) (blocker-class BlockerClass))
-          (GapResultT has-union-variant CONTINUE)
-          (GapResultT has-union-variant BLOCKED
-            (progress-report-path WorkReport) (blocker-class BlockerClass)))
-  -> std/drain/DrainLoopTerminal
-  ...)
-```
-
-The `RunResultT` clauses match `std/resource` `SelectedItemResult`
-(`CONTINUE (summary-path)`, `BLOCKED (summary-path blocker-class)`); the
-`GapResultT` clauses match `std/drain` `GapResult` — the two field
-vocabularies differ deliberately and must not be conflated. The two
-`SelPayloadT has-field` clauses are the G2 amendment raised by the
-backlog-drain generic migration plan
-(`docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md`, Task 4
-Step 1): the generic body projects exactly the selection-payload fields the
-intrinsic reads when building the item context —
-`selection.item-id` and `selection.item-state-root`
-(`lowering/phase_drain.py`, `_phase_stdlib_lower_backlog_drain_impl`,
-`item_ctx_value` construction). The ctx
-path-field clauses name base path families; consumer contexts satisfy them
-through rule 4 assignment compatibility (e.g. `DesignDeltaDrainCtx.manifest`
-is the consumer-refined `StateFileExisting`, which narrows
-`Path.state-root`). The intrinsic's current ctx check
-(`ensure_drain_context_type`) is likewise refinement-tolerant ("path field
-under `state`"), so rule 4 — not strict equality — is what preserves
-"callers do not change."
-
-The `run-item` first parameter is the concrete `std/context/ItemCtx`; the
-production consumer's hook already takes exactly that type. If parity
-(prerequisite 5) surfaces a consumer whose hook takes a structurally
-conforming but distinct item-context record — which the intrinsic accepts
-today — the parameter generalizes to an `ItemCtxT` with `has-field`
-constraints rather than forcing that caller to change.
-
-The existing `backlog-drain` macro re-targets from the intrinsic to this proc;
-callers do not change. Concretely, the caller-facing compatibility contract
-is the macro keyword surface — `(backlog-drain <name> :ctx … :selector …
-:run-item … :gap-drafter … :max-iterations …)` — which is **frozen** across
-the migration: existing call sites remain byte-stable. The
-`SELECTED (selection SelPayloadT)` clause carries the cross-hook payload
-contract that the intrinsic's Python validators enforce today; the
-exact-field checks in those validators are dropped per Subset Semantics.
-
-Prerequisites, in order:
-
-1. Minimal fixture proving the two landed constraint capabilities end to end
-   — constraint satisfaction, constraint failure diagnostics, and
-   specialization for each: (a) type-parameter constraint field types
-   (Constraint Vocabulary rule 3); (b) directional assignment compatibility
-   for constraint field types, including refined-path narrowing and
-   refinement survival through substitution (rule 4). These feasibility
-   prerequisites are implemented and covered by focused fixtures.
-2. Diagnostics regression fixture (Diagnostics Contract), including
-   report-all constraint failures and the definition-site coverage check
-   (implemented).
-3. Authored loop body in `std/drain.orc` using existing terminal helpers
-   (`finalize-drain-terminal`, `consume-drain-terminal-effects`).
-4. Checkpoint-identity preservation demonstrated by compiled-artifact
-   comparison: the lexical checkpoint points (checkpoint ids) of consuming
-   workflows are unchanged across the intrinsic-to-generic route swap, or an
-   explicit reviewed identity-migration step remaps persisted records (see
-   Specialization Pipeline). This is the riskiest item in the migration and
-   must not be discovered downstream of retirement.
-5. Parity: existing drain consumers (`lisp_frontend_design_delta/drain.orc`
-   and fixture families) compile and pass their existing gates against the
-   generic route; census/boundary/provider-metadata obligations move to
-   shared validation surfaces, not into the generic body.
-6. Retirement: the phase-drain lowerer, drain-terminal helper module's
-   intrinsic-only paths, the form-specific monomorphizer, and the
-   name-keyed validators (including the dead shadowed copies in
-   `typecheck_dispatch.py`, which may be deleted immediately and
-   independently of this tranche).
-
-Implementation, migration-gate, and next-work status is routed to
-`docs/capability_status_matrix.md` and
-`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`.
-
-Expected residue on the order of the review loop's (registry entry, stdlib
-contract, output-contract shaping). Residue materially above that is a signal
-to stop and reassess against the per-form migration test rather than push
-through.
+The original backlog-drain generic migration is historical. Generic constraints and assignment compatibility above remain current; the builtin stdlib and admitted evaluated route own present use. See the [preserved record](../reports/documentation-history/workflow_lisp_parametric_type_system-history.md#tranche-2-backlog-drain-migration-flagship).
 
 ## Acceptance Checks
 
@@ -814,8 +709,7 @@ through.
   `workflow_lisp_structural_parametric_constraints.md`; those documents remain
   in-tree as historical records with supersession notices and must not be
   extended.
-- `workflow_lisp_review_revise_stdlib_parametric_integration.md` continues to
-  own the review/revise schemas (`ReviewFindings.v1` envelope,
+- `workflow_lisp_frontend_specification.md` owns the promoted review/revise schemas (`ReviewFindings.v1` envelope,
   `ReviewDecision`, `ReviewLoopResult`) and their validation obligations;
   nothing here redefines them.
 - `workflow_lisp_type_catalog.md` owns type-to-contract mapping and

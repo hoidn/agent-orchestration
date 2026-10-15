@@ -1,23 +1,38 @@
 # nanoBragg Reference Harness
 
-This directory holds the offline maintenance harness used to derive hidden
-ground-truth tensors for the scoped nanoBragg accumulation task.
+Status: offline maintenance harness, scoped-simplified-harness-v1.
+This produces expected tensors for the scoped nanoBragg accumulation task;
+it does not establish parity with the complete external nanoBragg program.
 
-Scope:
-- source file: `../nanoBragg/golden_suite_generator/nanoBragg.c`
-- intended slice: lines 2839-3404
-- purpose: regenerate hidden evaluator tensors from a trusted C reference
+`run_reference_case.py` compiles `reference_harness.c` with `cc`, loads the
+shared library through `ctypes` and emits a float64 JSON tensor for one visible
+fixture. `reference_types.h` defines its narrow input boundary.
+`build_nanobragg_reference_cases.py` invokes that runner to write hidden
+expected tensors during offline maintenance.
 
-Non-goals:
-- trial-time execution
-- compiling or driving the full original `nanoBragg.c` program
-- exposing this harness to either the direct or workflow demo arm
+From the repository root with `cc` on PATH, inspect one visible fixture:
 
-Current status:
-- `extract_accumulation_slice.py` validates anchor coverage and reports slice metadata
-- `reference_harness.c` is a stub interface scaffold only
-- `reference_types.h` defines the initial narrow data boundary
+```bash
+python scripts/demo/nanobragg_reference/run_reference_case.py examples/demo_task_nanobragg_accumulation_port/fixtures/visible/case_small.json
+```
 
-Planned next step:
-- implement a fixture-driven offline harness that emits detector-image tensors
-  and optional trace taps for the visible JSON cases
+The builder also needs the project's Torch environment. Supply both `--case-id`
+and `--output-path` to generate one temporary output without replacing the
+tracked hidden corpus:
+
+```bash
+python scripts/demo/build_nanobragg_reference_cases.py --case-id case_small --fixture-path examples/demo_task_nanobragg_accumulation_port/fixtures/visible/case_small.json --output-path /tmp/nanobragg-expected-case-small.pt
+```
+
+The source anchor metadata refers to the separately available sibling
+`nanoBragg/golden_suite_generator/nanoBragg.c`, intended accumulation slice
+2839–3404. `extract_accumulation_slice.py` reports anchor/slice metadata;
+its `--compile-check` only emits metadata and does not compile that source.
+The runner compiles the scoped local harness, not an extracted full program,
+and supplies no trace-tap or broader scientific-equivalence claim.
+
+Keep this harness and hidden expected tensors outside both demo arms' staged
+workspaces. Visible JSON fixtures may be shared; offline hidden-answer
+maintenance is not trial-time execution and does not grant either arm reference
+harness access. Omitting `--case-id` from the builder regenerates the full
+hidden corpus and is not an inspection command.

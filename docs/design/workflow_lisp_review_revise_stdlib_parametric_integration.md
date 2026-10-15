@@ -1,5 +1,12 @@
 # Workflow Lisp Review/Revise Stdlib Integration With Refactor Preconditions and Parametric Constraints
 
+Status: **Historical — archived in place.** The complete original record below,
+including its original status, present-tense descriptions, schedules and
+acceptance language, is preserved for provenance. It supplies no current
+execution admission, work selection or copy-safe recipe. Current authority: [parametric type system](workflow_lisp_parametric_type_system.md) and [frontend baseline](workflow_lisp_frontend_specification.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: implemented companion design / target-delta history
 Kind: incremental architecture / stdlib migration spec / consuming design for parametric Workflow Lisp
 Created: 2026-06-03

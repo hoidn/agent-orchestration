@@ -17,47 +17,16 @@ selection supplies one W3 `std/improve` API and existing generated local
 procedures. The [Phase 4c plan](../../docs/plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
 records qualification and delivery evidence.
 
-Start with these project docs before changing the package:
 
-- [Workflow Lisp Frontend Specification](../../docs/design/workflow_lisp_frontend_specification.md):
-  accepted baseline and umbrella language contract. Start here for current
-  surface semantics, pure-expression behavior, and frontend/runtime authority
-  boundaries.
-- [Workflow Lisp Core Calculus Middle-End](../../docs/design/workflow_lisp_core_calculus_middle_end.md):
-  accepted WCC middle-end (elaboration, ANF normalization, analysis); its
-  flat defunctionalization route is retired.
-- [Workflow Lisp Evaluated Execution](../../docs/design/workflow_lisp_evaluated_execution.md):
-  accepted design for the checked closed program and the evaluated runtime
-  that executes it at targets 2.35 and later.
-- [Workflow Lisp Runtime Migration Foundation](../../docs/design/workflow_lisp_runtime_migration_foundation.md):
-  completed foundation target for structured output authority, private value
-  transport, and generated path allocation; its manifest-driven parity gates
-  are historical evidence.
-- [Workflow Lisp Post-Foundation Composition And Stdlib Migration](../../docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md):
-  incorporated historical target for nested composition, stdlib reuse,
-  private executable context, typed projection, resource transitions, and
-  parent-callable parity evidence. Use the frontend and component contracts
-  for current behavior; the inventory and parity generator are retired.
-- [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](../../docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md):
-  incorporated historical target for the small runtime core, pure expression surface,
-  materialized views, typed transitions, context generalization, and retiring
-  workflow-semantics Python adapters.
-- [Workflow Lisp Frontend MVP Specification](../../docs/design/workflow_lisp_frontend_mvp_specification.md):
-  historical MVP scope and original acceptance story.
-- [Workflow Lisp MVP Comparison](../../docs/workflow_lisp_mvp_comparison.md):
-  quick side-by-side explanation of why the `.orc` form is more concise than
-  the equivalent YAML.
-- [Workflow Lisp Stdlib Lowering](../../docs/design/workflow_lisp_stdlib_lowering.md):
-  intended lowering contracts for higher-level forms such as `provider-result`,
-  `command-result`, `resume-or-start`, `resource-transition`, and
-  `backlog-drain`.
-- [Workflow Command Adapter Contract](../../docs/design/workflow_command_adapter_contract.md):
-  rules for command adapters and why inline Python/shell glue is migration
-  debt.
-- [Workflow Lisp Unified Design for Unimplemented Surfaces](../../docs/design/workflow_lisp_unified_frontend_design.md):
-  incremental future-target design for non-implemented, partial, and deferred
-  Workflow Lisp surfaces. Use this when selecting or reviewing missing frontend
-  increments that are not already governed by the current target docs above.
+
+The former broad project/design reading list is historical routing context; use the current owners below. See the [preserved record](../../docs/reports/documentation-history/orchestrator-workflow_lisp-README-history.md#historical-operational-record-3).
+
+Start with the [frontend baseline](../../docs/design/workflow_lisp_frontend_specification.md),
+[evaluated contract](../../docs/design/workflow_lisp_evaluated_execution.md) and
+[retained middle-end](../../docs/design/workflow_lisp_core_calculus_middle_end.md).
+The [capability matrix](../../docs/capability_status_matrix.md) distinguishes
+implementation from qualification; the [design index](../../docs/design/README.md)
+routes focused current versus proposed/historical contracts.
 
 ## Pipeline
 
@@ -96,9 +65,9 @@ retained middle-end: the calculus model, elaboration, scope hygiene, ANF
 normalization, and scope analysis. The `closed/` package turns the typed
 program into the checked closed program; `orchestrator/contracts/closed_program/`
 assigns effect sites and validates the program without source access; and
-`orchestrator/workflow/evaluated/` executes it. `wcc/defunctionalize.py`,
-`wcc/lower.py`, `lowering/`, `source_map.py`, and `debug_yaml.py` were
-deleted with the flat route (commit `026f2fa4`).
+`orchestrator/workflow/evaluated/` executes it. The
+[executor-retirement closeout](../../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
+records accepted deletion and retained shared services.
 
 Use [../../docs/workflow_lisp_route_readiness_registry.json](../../docs/workflow_lisp_route_readiness_registry.json)
 and `route_readiness.py` when deciding whether an example, fixture, or
@@ -185,8 +154,8 @@ not select compiler/runtime behavior or certify evaluated LSP support.
 - `closed/build.py`: builds one checked closed-program tree from an admitted
   typed program (WCC elaboration and ANF, then closed forms).
 - `closed/values.py`: WCC and retained surface values into checked JSON values.
-- `closed/effects.py`: closed forms for command effects and located gaps for
-  the remaining effects.
+- `closed/effects.py`: translation of admitted command/provider/run-reference
+  effects and located gaps for excluded effect classes.
 - `closed/agent_effects.py`: closed forms for `agent` allocation and
   `agent_turn` (target 2.38).
 - `closed/command_templates.py` / `closed/command_interfaces.py`: command
@@ -231,18 +200,16 @@ determine implemented behavior. Use the capability status matrix and route
 readiness registry to classify current, partial, future, and legacy surfaces
 before copying examples or claiming migration evidence.
 
-Pure expressions are implemented for the closed operator set documented in the
-frontend specification and checked by `typecheck_pure_ops.py`. Runtime-visible
-pure input-derived values are compiler-generated pure projections, not a
-separate authored surface; the closed program carries them as checked pure
-value nodes that `orchestrator/workflow/evaluated/values.py` evaluates.
+Pure expressions use the closed operator set in the frontend baseline and
+`typecheck_pure_ops.py`. The closed program carries checked pure value nodes
+that `orchestrator/workflow/evaluated/values.py` evaluates in lexical scope.
+There is no generated pure-projection step/bundle in this execution route.
 
-The generic-core target is not fully implemented. Current code still contains
-compatibility surfaces for named contexts, phase/resource helper modules, and
-adapter-backed resource behavior. New work should move toward the small runtime
-core (`RunCtx`, `Resource<TState>`, `Transition<TRequest, TResult>`), stdlib
-domain contexts, typed projections, materialized views, and certified adapters
-as described in the target design.
+Named context/resource types and stdlib helper modules retain typed/import
+contracts. Their old generic-core/materialized-view/transition target is
+historical; retaining modules does not admit those evaluated effects or select
+a port. Change current typed/checked owners for an admitted consumer, with its
+own contract and public lifecycle evidence.
 
 Runtime closures remain deferred. Normal Workflow Lisp artifacts must not emit
 runtime-closure payloads, registries, or invocation nodes. `let-proc` remains

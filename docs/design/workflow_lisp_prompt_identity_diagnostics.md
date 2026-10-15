@@ -1,13 +1,22 @@
 # Workflow Lisp Prompt Identity And Diagnostics
 
+Current scope: shared content-free identity/evidence validation, comparison
+and reporting remain retained contracts. Targets 2.22/2.23 name versioned source
+and historical attempt formats, not executable entry admission. Old flat
+call-frame/checkpoint and phased-coordinator descriptions are historical; current
+admitted composed providers use checked-program/memo ownership under
+[evaluated execution](workflow_lisp_evaluated_execution.md). No report repairs,
+replays, settles or authorizes a historical attempt.
+
 - **Status:** accepted
 - **Kind:** target design
 - **Owner:** Workflow Lisp prompt-calculus Q3
 - **Target:** DSL 2.22
 - **Depends on:** implemented Q1 prompt core and Q2 output positions
-- **Design reviews:** `Q3_DESIGN_SPEC_APPROVED`, then
-  `Q3_DESIGN_QUALITY_APPROVED`, over immutable reviewed snapshot
-  `fdf16f362f93eae89c05600e6954a118270fe7b7`
+<a id="original-delivery-metadata"></a>
+
+Q3 design-review receipts are historical evidence; schema and identity rules remain below. See the [preserved record](../reports/documentation-history/workflow_lisp_prompt_identity_diagnostics-history.md#original-delivery-metadata).
+
 - **Does not select:** Q4 judgment views, prompt search/evolution, P1–P5,
   runtime debugging, or any parked roadmap
 
@@ -887,6 +896,11 @@ not mutate run state.
 
 ## Resume And Compatibility
 
+Historical flat completed-boundary guards below describe old attempt formats.
+Current executable reuse follows the evaluated memo contract; no target-2.22
+entry or old-profile replay is admitted. Evidence remains non-authoritative in
+either format.
+
 Q3 does not make evidence authoritative:
 
 - compatible completed-result reuse applies the existing source, root,
@@ -906,9 +920,11 @@ Targets below 2.22 preserve their existing artifact, runtime, checkpoint,
 state, and evidence bytes. A target-2.22 runtime must not silently emit v1
 evidence for a fragment-backed attempt.
 
-## Implemented Target-2.23 Phased-Delivery Amendment
+<a id="implemented-target-223-phased-delivery-amendment"></a>
 
-Target 2.23 preserves the complete Q3 role model and binding-plan authority
+## Retained Target-2.23 Phased Evidence Read Contract
+
+The historical target-2.23 format preserves the complete Q3 role model and binding-plan authority
 while adding one versioned distinction for explicit phased delivery:
 
 - omitted and explicit composed calls retain
@@ -923,7 +939,7 @@ while adding one versioned distinction for explicit phased delivery:
   without persisting prompt or candidate content; and
 - a composed/phased identity-evidence mismatch fails before provider start.
 
-The current report projection is
+The retained report projection is
 `workflow_prompt_context_report.v2`. Every non-null identity has the fixed
 keys `identity_version`, `composition_sha256`,
 `legacy_final_prompt_sha256`, `canonical_composed`, `actual_deliveries`, and

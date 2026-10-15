@@ -1,5 +1,20 @@
 # Provider Step Token Usage Accounting
 
+Current disposition: **unselected structured usage-accounting proposal.**
+
+Per-visit usage/aggregation remains an unselected goal. The original absence statement is historical: current gateway and OMP codec expose bounded usage, without proving every proposed Codex/state/report requirement.
+
+Gate retained: No pricing/model calls or generalized accounting implementation selected.
+This is a documentation disposition, not evidence of implementation completion
+or authorization for new execution, spend, prompt edits or runtime work.
+Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md), [workflow lisp provider prompt dependencies](../../design/workflow_lisp_provider_prompt_dependencies.md), [workflow lisp provider call policy](../../design/workflow_lisp_provider_call_policy.md).
+[Backlog status inventory](../README.md).
+
+Original proposal / historical checkpoint begins below. Its original status,
+commands, measurements and tense are preserved; they do not override the current
+scope notice.
+
+
 Active backlog item.
 
 ## Problem
