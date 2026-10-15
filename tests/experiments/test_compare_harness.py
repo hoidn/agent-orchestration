@@ -82,9 +82,9 @@ def test_run_refuses_a_runtime_inside_the_work_root(world):
         start(world, "direct_task", root=world.tmp)
 
 
-@pytest.mark.parametrize("root", ["/tmp/compare-work", "/dev/shm/compare-work"])
+@pytest.mark.parametrize("root", ["/tmp/compare-work", "/dev/shm/compare-work", "/var/tmp/compare-work"])
 def test_run_refuses_a_work_root_the_sandbox_would_hide(world, root):
-    with pytest.raises(SystemExit, match="under /tmp or /dev/shm"):
+    with pytest.raises(SystemExit, match="which the shims. sandbox replaces"):
         start(world, "direct_task", root=Path(root))
 
 
@@ -181,9 +181,10 @@ def test_shim_hides_the_runtime_and_the_records_from_the_agent(world):
 
 def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
     _, record = start(world, "direct_task")
-    done = call(world, record, "echo probe > /tmp/probe.txt; ps -e --no-headers | wc -l")
-    assert ((Path(record["tree"]) / "tmp/probe.txt").read_text(), int(done.stdout.split()[-1]) <= 10) == (
-        "probe\n", True)
+    done = call(world, record, "echo probe > /tmp/probe.txt; ps -e --no-headers | wc -l; ls -A /var/tmp | wc -l")
+    processes, var_tmp_entries = (int(n) for n in done.stdout.split()[-2:])
+    assert ((Path(record["tree"]) / "tmp/probe.txt").read_text(), processes <= 10, var_tmp_entries) == (
+        "probe\n", True, 0)
 
 
 def test_shim_passes_stderr_through_and_records_the_same_bytes(world):

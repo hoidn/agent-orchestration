@@ -9,7 +9,7 @@ criterion frozen before scoring.
 | --- | --- |
 | `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `verify-pool` |
 | `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
-| `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list) with the bookkeeping variables stripped; record `calls/<n>/` |
+| `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list; empty `/var/tmp`) with the bookkeeping variables stripped; record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
 | `control/review_once.orc` | one review of a given patch (difficulty calibration): `reviewed_change`'s `review-prompt`, `Review` and `ReviewReport`, copied, and its reviewer's binding; module `control/review_once` |
 | `control/direct_task.providers.json`, `control/review_once.providers.json`, `providers/design_review_execute.json` | bindings for the control, the review-only arm and the E-B treatment |
@@ -32,8 +32,8 @@ The work root `W`, the pool `P` and the frozen runtime `RT` must not lie under t
 path prefix (for `/home/ollie/Documents/agent-orchestration`, that includes every sibling such as
 `...-compare` or `...-repl`): those checkouts hold solutions, and the scan counts any mention of the
 prefix as a hit. `prepare.py` refuses such paths. The frozen runtime must also lie outside the work
-root `W`, where agents work, and `run` refuses one inside it. `W` and `P` must not lie under `/tmp`
-or `/dev/shm`, since the shims' sandbox mounts private ones there and an agent would lose its working
+root `W`, where agents work, and `run` refuses one inside it. `W` and `P` must not lie under `/tmp`,
+`/dev/shm` or `/var/tmp`, since the shims' sandbox mounts private or empty ones there and an agent would lose its working
 directory; `run` and `pool` refuse them. `run` and `pool` also refuse a runtime with uncommitted
 changes to tracked files, and record its `HEAD` as `runtime_commit` in `record.json` and
 `mapping.json`. The live runtime is `/home/ollie/compare-runtime`; the E-A reruns used the work
@@ -41,11 +41,12 @@ root `/home/ollie/compare-work2`, E-B `/home/ollie/compare-work-eb2`.
 `run` refuses a task base whose candidates do not ignore `.orchestrate/`, where run state lives.
 
 What the sandbox isolates (R35):
-- each agent and judge CLI runs under `bwrap --dev-bind / / --bind <tree>/tmp /tmp --tmpfs /dev/shm
+- each agent and judge CLI runs under `bwrap --dev-bind / / --bind <tree>/tmp /tmp --tmpfs /dev/shm --tmpfs /var/tmp
   --unshare-pid --proc /proc --die-with-parent`;
 - hard-coded `/tmp` paths land in the tree's `tmp/` (a judge's own `tmp/` for judges), so they are
   private, and so are `/tmp` tmux sockets;
-- `/dev/shm` is private, and the process list shows only the agent's own processes.
+- `/dev/shm` is private, and the process list shows only the agent's own processes;
+- `/var/tmp` is empty, because other sessions keep repository worktrees there.
 - `/tmp` is private per run, not per agent: `best_of_n`'s implementers share the tree's `tmp/`;
 - the PID namespace ends with the call, so any server or tmux session an agent starts dies when
   its call ends.

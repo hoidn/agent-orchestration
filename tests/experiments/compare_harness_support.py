@@ -44,7 +44,7 @@ OUTSIDE_SANDBOX_MOUNTS = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / 
 def skip_without_sandbox():
     """Skip the calling test module where the shims cannot build their sandbox (no bwrap on PATH, or no
     unprivileged user namespaces)."""
-    probe = ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/dev/shm", "--unshare-pid", "--proc", "/proc", "true"]
+    probe = ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/dev/shm", "--tmpfs", "/var/tmp", "--unshare-pid", "--proc", "/proc", "true"]
     if shutil.which("bwrap") is None or subprocess.run(probe, capture_output=True).returncode:
         pytest.skip(f"the shims need bubblewrap: `{' '.join(probe)}` fails here", allow_module_level=True)
 

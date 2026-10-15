@@ -4,7 +4,8 @@
 # $COMPARE_ROOT/calls/<n>/ with each $COMPARE_TREE/cand-* patch against $COMPARE_BASE, taken through a
 # copy of the candidate's index so what the agent staged stays staged. The agent loses PYTHONPATH,
 # OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and records) and
-# runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), /dev/shm and process list;
+# runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), an empty /var/tmp (other sessions keep
+# worktrees there), a private /dev/shm and process list;
 # the rest of the filesystem, home and network stay shared: reads there are only detected (R35).
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
 sandbox=$(command -v bwrap) || { echo "shim: bubblewrap (bwrap) is required on PATH" >&2; exit 127; }
@@ -26,7 +27,7 @@ call="$COMPARE_ROOT/calls/$n"
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
 env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE PATH="$path" "$sandbox" \
-  --dev-bind / / --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --unshare-pid --proc /proc --die-with-parent \
+  --dev-bind / / --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
   "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"

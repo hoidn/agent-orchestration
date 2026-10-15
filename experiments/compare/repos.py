@@ -67,11 +67,11 @@ def guard(main, *paths):
 
 
 def visible_in_sandbox(*paths):
-    """Refuse agents' or judges' directories under /tmp or /dev/shm: the shims' sandbox mounts private
-    ones over them (R35), so the agent would not find its working directory."""
+    """Refuse agents' or judges' directories under /tmp, /dev/shm or /var/tmp: the shims' sandbox mounts
+    private or empty ones over them (R35), so the agent would not find its working directory."""
     for path in paths:
-        if any(str(path) == root or str(path).startswith(root + "/") for root in ("/tmp", "/dev/shm")):
-            raise SystemExit(f"{path} lies under /tmp or /dev/shm, which the shims' sandbox replaces; "
+        if any(str(path) == root or str(path).startswith(root + "/") for root in ("/tmp", "/dev/shm", "/var/tmp")):
+            raise SystemExit(f"{path} lies under /tmp, /dev/shm or /var/tmp, which the shims' sandbox replaces; "
                              "use a directory elsewhere")
 
 
