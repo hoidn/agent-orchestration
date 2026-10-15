@@ -71,12 +71,14 @@ The live smoke ran after the criterion was frozen and alongside the first batch,
 They did not fail. The impression came from the wrong interim readout (item 5). E-A's numbers are close to
 September's:
 
-| measure | September | now |
+| measure | September ([report](2026-09-28-orc-versus-single-call.md), confirmation run) | now |
 | --- | --- | --- |
+| `best_of_n` mean gain over its candidate group | +0.83, positive in 6 of 6 runs | +1.02, positive in 4 of 6 runs |
+| `best_of_n` against single calls of the selector's model | 7.25 against 6.67 (+0.58) | 6.08 against 5.75 (+0.33) |
 | `reviewed_change` gain over the first patch | +0.58 | +0.67 |
-| `best_of_n` mean gain over its candidate group | +0.75 bar met, with 5 of 6 runs | +1.02, with 4 of 6 runs |
 
-The `best_of_n` clause that failed turns on one run. Each judge alone would reverse a different clause, so the
+The judges, the batch layout and the runtime differ from September (E-A report, Limits). The `best_of_n` clause
+that failed turns on one run. Each judge alone would reverse a different clause, so the
 honest reading is "small positive effect, not robustly above the bar".
 
 Two limits make a stronger claim impossible on this task:
