@@ -359,6 +359,13 @@ host-binary deviation. This investigation advances no task status or dependency:
 Task 10 integration still follows Task 9; production admission remains subject to
 the final Task 13 contract and admission gate. Claude remains unqualified.
 
+Current native gate: the pinned owner admits a fictitious managed-policy conflict
+and performs auxiliary migration despite the requested overrides. The reviewed
+[blocking disposition](../reports/run-ref-confinement-feasibility/README.md#native-managed-policy-gate-blocked)
+requires effective preventive admission or a fully verified installation profile;
+neither is demonstrated. No further real startup is selected. Internal transport
+work does not satisfy this gate or unblock completion of Tasks 11–13.
+
 ## Task 11: Complete author use case
 
 **Create:** `workflows/examples/run_ref_confined/{run_ref_confined.orc,commands.json,providers.json,inputs.json,README.md}`, entry `run_ref_confined::main`. **Modify:** `experiments/orc_vs_single_call/{README.md,workflows/best_of_n.orc,workflows/best_of_n.providers.json}`, `tests/workflow_evaluated_consumer_sources.py`, `tests/test_workflow_evaluated_consumers.py`, `workflows/README.md` registry row. Do not modify the historical harness.

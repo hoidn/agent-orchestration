@@ -1214,6 +1214,42 @@ meaning. Local SDD `task-10-native-backfill-reader-live-report.md` has SHA-256
 its `root-execution-observation.json` has SHA-256
 `099ab11d5110dece91b973ce5bb4f5e39650e3122ad66cc6448122ef966eb723`.
 
+### Native managed-policy gate: blocked
+
+The next offline recipe removed the private `sqlite_home` override, retained
+native SQLite resolution, and requested both auxiliary rollout features off.
+Its real-login entry remains disabled. A pinned-native fixture with fictitious
+managed requirements set those features on: startup returned a valid account
+binding and exit 0, while migration rows changed from 0 to 1 and rollout files
+changed. This is a failed admission gate, despite zero inference requests and
+an empty process group. It does not show conflicting policy in the user's
+installation or explain either historical 90-second timeout.
+
+Pinned source confirms that managed feature normalization can replace the
+requested values. Exact requirements can also replace SQLite/log destinations,
+catalog, provider, base URL and credential backend with warnings; `--strict-config`
+does not turn those valid substitutions into errors. Earlier schema acceptance
+and positive fixtures therefore do not establish conflict rejection for an
+arbitrary managed installation. The D7 requirement to reject conflicts remains
+unchanged, and public provider admission remains closed.
+
+The independently reviewed disposition requires either a native check of the
+same owner's effective configuration before each protected consumer and relevant
+reload, or a complete installation profile with verified composition and stable
+restrictions. Neither is demonstrated. A later config RPC, a separate feature
+listing or another local override is insufficient. No further real startup or
+request for activation permission is justified by this blocked recipe. Reusing
+native shared SQLite would additionally require resolving authorization for its
+writes, migrations and possible backup/rebuild; existing login authorization
+does not automatically cover those changes.
+
+Local SDD `task-10-native-managed-policy-decision.md` has SHA-256
+`4ef7098cca81bdfef068c0a8e7f2dcee0bb84300591beb364a8765a48465a7b4`;
+its independent design review is `task-10-native-managed-policy-review.md`,
+SHA-256 `6932e9b90109282812b0307ca57413645b4af7e5d99c358ecf0efd9913633313`.
+The documentary PASS accepts this blocking disposition, not the transport.
+Task 10/F4 remain unqualified; dependent Tasks 11–13 cannot claim completion.
+
 ## Task 10: internal request authority (2026-10-15)
 
 Commit `9cd25356` adds the two parent-ledger facts for conservative request
