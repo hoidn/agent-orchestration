@@ -98,7 +98,10 @@ def classify_pending_turn(authority, node, identity, snapshot, workspace, resolv
     A receipt locator is only a candidate until `locate` finds its store and that store shows this attempt's turn.
     """
     pending = snapshot.pending_starts[identity]
-    files = authority.run_files.subroot(Path(pending.data["result_path"]).parent)
+    try:
+        files = authority.run_files.subroot(Path(pending.data["result_path"]).parent)
+    except FileNotFoundError:       # killed between the `started` append and `mkdir_exclusive`: no receipt, no launch
+        return PendingTurn("not_dispatched", None, None, "attempt directory never created")
     try:
         receipt = read_receipt(files)
         result_present = files.exists("result.json")

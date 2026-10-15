@@ -65,8 +65,15 @@ sys.exit(main())
 '''
 
 
+# `_stopped` runs every driver (here and in the modules importing it) with the file-only observation fake: a driver
+# killed by `os._exit` skips the runtime's cleanup and would otherwise leak a real tmux server.
+_FAKE_OBSERVATION = ("from orchestrator.workflow.evaluated import runtime\n"
+                     "from tests.test_provider_observation import _FakeObservationBackend\n"
+                     "runtime.observation_backend = _FakeObservationBackend\n")
+
+
 def _stopped(root, script, env, *argv):
-    done = subprocess.run([sys.executable, "-c", script, *argv], cwd=root, check=False, capture_output=True, text=True,
+    done = subprocess.run([sys.executable, "-c", _FAKE_OBSERVATION + script, *argv], cwd=root, check=False, capture_output=True, text=True,
                           env={**os.environ, "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1", **env})
     assert done.returncode == 75, done.stderr
     return done
@@ -274,6 +281,23 @@ def test_resume_proves_a_launched_attempt_not_dispatched_and_allocates_the_next(
     expected = "receipt records proven non-dispatch" if crash_in_window else "head unchanged, process group quiescent"
     assert rows[1]["code"] == "provider_preparation_failed" and expected in rows[1]["exit_info"]["error"]
     assert [r["tool"] for r in shim_requests(tmp_path)] == ["claude", "codex", "claude", "codex"]
+
+
+def test_kill_between_started_and_attempt_directory_allocates_the_next_attempt(tmp_path, monkeypatch) -> None:
+    """`started` is appended before `mkdir_exclusive`: a kill in that window leaves no directory, no receipt, no launch.
+    Resume classifies it like a missing receipt (read-only at preflight), closes it `failed` and runs attempt 2."""
+    _install(tmp_path, monkeypatch)
+    _stopped(tmp_path, STOP_AFTER_RECORD, {"STOP_RECORD": "started", "STOP_TURN": "/ a2"}, "run", *fixture(tmp_path))
+    run_root, _a, _c, memo = memo_of(tmp_path)
+    (pending,) = memo.pending_starts.values()
+    assert not (run_root / Path(pending.data["result_path"]).parent).exists()
+    resumed = _cli(tmp_path, "resume", run_root.name)
+    assert resumed.returncode == 0, resumed.stderr
+    _r, _a, classes, after = memo_of(tmp_path)
+    rows = [e.data for e in after.entries if e.data.get("identity") == pending.data["identity"] and e.data["record"] in {"started", "failed"}]
+    assert [r["record"] for r in rows] == ["started", "failed", "started"]
+    assert rows[1]["code"] == "provider_preparation_failed" and "attempt directory never created" in rows[1]["exit_info"]["error"]
+    assert turns(after, classes)["a2"]["attempt"] == 2 and len(shim_requests(tmp_path)) == 4
 
 
 @pytest.mark.parametrize("record, turn", [("committed", "/ b1"), ("settled", "/ a2")])
