@@ -1045,10 +1045,26 @@ def _typed_body(definition):
     return getattr(typed_body, "expr", typed_body)
 
 
-def _reachable_child(name: str, program):
-    """Yield (effect summary, typed body) of every callable the child reaches."""
+def _callees(body, program):
+    """Yield the (kind, name) of every workflow or named procedure one body reaches directly."""
 
-    pending, seen = [("workflow", name)], set()
+    for node in walk_expr(body):
+        if isinstance(node, ex.CallExpr):
+            yield "workflow", node.callee_name
+        elif isinstance(node, ex.WorkflowRefLiteralExpr):
+            yield "workflow", node.target_name
+        # Local let-proc bodies are inline in this body; named and
+        # specialized (hook) procedures live in the program table.
+        elif isinstance(node, ex.ProcedureCallExpr) and node.callee_name in program.procedures:
+            yield "procedure", node.callee_name
+        elif isinstance(node, ex.ProcRefLiteralExpr) and node.target_name in program.procedures:
+            yield "procedure", node.target_name
+
+
+def _reachable(roots, program):
+    """Yield (effect summary, typed body) of every callable reachable from `roots`."""
+
+    pending, seen = list(roots), set()
     while pending:
         kind, callee = pending.pop()
         if (kind, callee) in seen:
@@ -1056,23 +1072,54 @@ def _reachable_child(name: str, program):
         seen.add((kind, callee))
         table = program.workflows if kind == "workflow" else program.procedures
         definition = table.get(callee)
+        imported = program.imported_programs.get(callee) if kind == "workflow" else None
+        if definition is None and imported is not None:
+            # A call by import alias runs that compiled program's entry.
+            yield from _reachable([("workflow", imported.entry.definition.name)], imported)
+            continue
         if definition is None:
             raise TypecheckSessionStateCollisionError(
-                f"confined run-ref child reaches unresolved {kind} {callee!r}"
+                f"confined run-ref check reaches unresolved {kind} {callee!r}"
             )
         summary = getattr(definition, "transitive_effect_summary", None) or definition.effect_summary
         yield summary, _typed_body(definition)
-        for node in walk_expr(_typed_body(definition)):
-            if isinstance(node, ex.CallExpr):
-                pending.append(("workflow", node.callee_name))
-            elif isinstance(node, ex.WorkflowRefLiteralExpr):
-                pending.append(("workflow", node.target_name))
-            # Local let-proc bodies are inline in this body; named and
-            # specialized (hook) procedures live in the program table.
-            elif isinstance(node, ex.ProcedureCallExpr) and node.callee_name in program.procedures:
-                pending.append(("procedure", node.callee_name))
-            elif isinstance(node, ex.ProcRefLiteralExpr) and node.target_name in program.procedures:
-                pending.append(("procedure", node.target_name))
+        pending.extend(_callees(_typed_body(definition), program))
+
+
+def _reachable_child(name: str, program):
+    return _reachable([("workflow", name)], program)
+
+
+def _is_confined_site(node) -> bool:
+    return isinstance(node, RunRefExpr) and isinstance(node.program, RunRefWorkflowProgram)
+
+
+def _map_frame_body(node):
+    """Return the body of a `list/map-effect` frame, serial or parallel, else None."""
+
+    if isinstance(node, ex.ListMapEffectExpr):
+        return node.body_expr
+    # A serial `list/map-effect` is typed as a synthetic loop stamped with this
+    # exhaustion code (typecheck_structural_values); authored loops never carry it.
+    if isinstance(node, ex.LoopRecurExpr) and node.exhaustion_diagnostic_code == "list_map_effect_cap_exceeded":
+        return node.body_expr
+    return None
+
+
+def _refuse_confined_site_in_map_frame(body, program) -> None:
+    """Ruling P12: no confined site in a `list/map-effect` body, directly or through calls."""
+
+    bodies = (body, *(reached for _, reached in _reachable(_callees(body, program), program)))
+    site = next((node for row in bodies for node in walk_expr(row) if _is_confined_site(node)), None)
+    if site is not None:
+        raise_error(
+            f"confined `run-ref` child `{site.program.workflow_name}` is not permitted in a "
+            "`list/map-effect` body",
+            code="run_ref_placement_invalid",
+            span=body.span,
+            form_path=body.form_path,
+            expansion_stack=body.expansion_stack,
+        )
 
 
 def _child_refusal(site, program) -> tuple[str, str] | None:
@@ -1091,7 +1138,8 @@ def _child_refusal(site, program) -> tuple[str, str] | None:
 
 
 def refuse_unsupported_confined_children(program) -> None:
-    """Refuse every confined run-ref site whose child reaches an unsupported effect.
+    """Refuse every confined run-ref site whose child reaches an unsupported effect,
+    and every confined site placed in a `list/map-effect` frame (Ruling P12).
 
     Runs over a finished typed program (workflows and procedures typed, effect
     summaries at their fixpoint), so the walk follows workflow calls, procedure
@@ -1100,7 +1148,10 @@ def refuse_unsupported_confined_children(program) -> None:
 
     for definition in (*program.workflows.values(), *program.procedures.values()):
         for site in walk_expr(_typed_body(definition)):
-            if not (isinstance(site, RunRefExpr) and isinstance(site.program, RunRefWorkflowProgram)):
+            frame_body = _map_frame_body(site)
+            if frame_body is not None:
+                _refuse_confined_site_in_map_frame(frame_body, program)
+            if not _is_confined_site(site):
                 continue
             refusal = _child_refusal(site, program)
             if refusal is not None:

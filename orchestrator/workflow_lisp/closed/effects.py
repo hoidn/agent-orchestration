@@ -477,6 +477,11 @@ def _translate_run_ref_workflow(builder, perform, d, env):
     type is the outcome union, whose `COMPLETED.result` is the generated envelope.
     """
 
+    from .names import run_ref_outcome_result
+
+    origin = run_ref_outcome_result(perform.metadata.type_ref).run_ref_origin
+    if tuple(name for name, _type_ref in origin[1]) != tuple(name for name, _value in perform.keyword_args):
+        raise ValueError("run-ref WCC inputs disagree with the retained result origin")
     [commit] = perform.positional_args
     node = {
         "k": "perform",

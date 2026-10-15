@@ -186,6 +186,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         recipe = header["resume_request"]
         request = _resume_build_request(header, workspace, run_files)
         fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
+        refuse_confined_run_ref_sites(fresh.program)
         if fresh.program.digest != header["program_digest"]:
             raise _ResumeRefusal("resume_program_changed", "current program differs from the run header")
         inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)

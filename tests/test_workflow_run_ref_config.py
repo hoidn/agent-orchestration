@@ -1266,6 +1266,18 @@ def test_confined_decoder_refuses_old_config_bytes() -> None:
         decode_run_ref_confined_static_config(encode_run_ref_static_config(_config(mode="path")))
 
 
+# SHA-256 of the exact v1 path-mode bytes built from this fixture at 6f08fd49,
+# before `run_ref_static_config.v2` existed; v2 work must not move v1 bytes.
+V1_PATH_CONFIG_SHA256 = "065985759a5490ad96d35f8685ea6a422580b8e2f3c8159a918067112e9d0e60"
+
+
+def test_v1_path_config_bytes_are_unchanged() -> None:
+    payload = encode_run_ref_static_config(_config(mode="path", target_dsl_version="2.35"))
+
+    assert (len(payload), hashlib.sha256(payload).hexdigest(), decode_run_ref_static_config(payload).record[
+        "schema_version"]) == (6315, V1_PATH_CONFIG_SHA256, RUN_REF_STATIC_CONFIG_SCHEMA)
+
+
 def _reencoded(edit) -> bytes:
     record = _confined_config().record
     edit(record)
@@ -1283,6 +1295,7 @@ CONFINED_CONFIG_TAMPERING = {
     "open-network": lambda r: r["environment"].update(network="internet"),
     "unnormalized-repo": lambda r: r["source"].update(normalized_locator="file:///srv/../srv/project.git"),
     "older-target": lambda r: r.update(target_dsl_version="2.37"),
+    "memory-below-reserve": lambda r: r["environment"]["limits"][1].__setitem__(1, 3007),
 }
 
 

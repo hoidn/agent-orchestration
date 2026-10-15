@@ -14,6 +14,9 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.run_ref.contracts import (
+    CONFINED_IMAGE_RE,
+    RUN_REF_CONFINED_LIMITS,
+    RUN_REF_CONFINEMENT_RESERVED_MIB,
     RunRefSourceRefusal,
     SetupCommand,
     SetupPolicy,
@@ -21,11 +24,6 @@ from orchestrator.workflow.run_ref.contracts import (
 from orchestrator.workflow.run_ref.source import (
     normalize_repository_locator,
     validate_commit_sha,
-)
-from orchestrator.workflow.run_ref.contracts import (
-    CONFINED_IMAGE_RE,
-    RUN_REF_CONFINED_LIMITS,
-    RUN_REF_CONFINEMENT_RESERVED_MIB,
 )
 from orchestrator.contracts.closed_program.targets import (
     RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION,

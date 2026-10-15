@@ -30,6 +30,7 @@ from .contracts import (
     RUN_REF_CONFINED_NETWORKS,
     RUN_REF_CONFINEMENT_CONSTANTS_MIB,
     RUN_REF_CONFINEMENT_PROFILE,
+    RUN_REF_CONFINEMENT_RESERVED_MIB,
     canonical_json_bytes,
     canonical_sha256,
 )
@@ -87,6 +88,9 @@ class ConfinedPolicy:
             or any(len(row) != 2 or type(row[1]) is not int or row[1] < 1 for row in self.limits)
         ):
             raise ValueError("confined limits must be the six positive integer limits in order")
+        limits = dict(self.limits)
+        if limits["memory-mib"] < limits["workspace-mib"] + RUN_REF_CONFINEMENT_RESERVED_MIB:
+            raise ValueError("confined memory-mib is below workspace-mib plus the profile reserve")
 
     @property
     def record(self) -> dict[str, object]:

@@ -713,14 +713,17 @@ def test_substituted_child_entry_or_owner_configuration_is_refused(tmp_path, cas
         ClosedProgram.from_artifact(_tampered(program, lambda tree: CHILD_TAMPERING[case](tree, other)))
 
 
+LEAF_CHILD = ((":program (:workflow candidate-body) :inputs (:seed seed :task \"t\")",
+               ":program (:workflow leaf) :inputs (:value \"v\")"),
+              ("((COMPLETED c) c.result.value)", "((COMPLETED c) 1)"))
+
+
 def test_preparation_comparison_distinguishes_confined_policies(tmp_path):
     from orchestrator.workflow_lisp.closed.preparation_check import _Comparison
 
-    payload = _wcc_perform(_confined(tmp_path)).operation_payload
-    other = _wcc_perform(_confined(tmp_path / "b", (":network :model-only", ":network :none"),
-                                   (":program (:workflow candidate-body) :inputs (:seed seed :task \"t\")",
-                                    ":program (:workflow leaf) :inputs (:value \"v\")"),
-                                   ("((COMPLETED c) c.result.value)", "((COMPLETED c) 1)"))).operation_payload
+    payload = _wcc_perform(_confined(tmp_path / "a", *LEAF_CHILD)).operation_payload
+    other = _wcc_perform(_confined(tmp_path / "b", *LEAF_CHILD,
+                                   (":network :model-only", ":network :none"))).operation_payload
     comparison = object.__new__(_Comparison)
 
     comparison.run_ref_header(payload, payload, "payload")
@@ -729,8 +732,6 @@ def test_preparation_comparison_distinguishes_confined_policies(tmp_path):
 
 
 def test_generated_outcome_name_resolves_to_the_site_union(tmp_path):
-    from orchestrator.workflow_lisp.expressions import RunRefExpr  # noqa: F401
-
     typed = _confined(tmp_path)
     outcome = _site(typed).run_ref_metadata.outcome_type_ref
     env = typed.workflow_type_envs["controller::run"]
@@ -771,13 +772,30 @@ def test_running_a_confined_site_is_refused_before_any_run_state(tmp_path):
             list((tmp_path / "state").iterdir())) == (2, True, [])
 
 
-def test_target_238_program_without_a_confined_site_runs(tmp_path):
-    source = CONFINED.replace("EXTRA", "").replace("RUN_REF", RUN_REF).replace(
-        "(let* ((child", "(let* ((unused 0) (child").split("    (let* ((unused 0)")[0] + "    (+ seed 1)))"
+PLAIN_238 = CONFINED.replace("EXTRA", "").split("    (let* ((child")[0] + "    (+ seed 1)))"
 
-    completed = _run(tmp_path, source, "seed=1", "revision=x")
+
+def test_target_238_program_without_a_confined_site_runs(tmp_path):
+    completed = _run(tmp_path, PLAIN_238, "seed=1", "revision=x")
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_resuming_into_a_confined_site_is_refused_before_loading_the_run(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    assert _run(tmp_path, PLAIN_238, "seed=1", "revision=" + "c" * 40).returncode == 0
+    [run_root] = list((tmp_path / "state").iterdir())
+    (tmp_path / "controller.orc").write_text(CONFINED.replace("EXTRA", "").replace("RUN_REF", RUN_REF))
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "orchestrator", "resume", run_root.name, "--state-dir", "state"],
+        cwd=tmp_path, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+        capture_output=True, text=True, timeout=180)
+
+    assert (completed.returncode, "run_ref_child_target_unavailable" in completed.stderr) == (2, True)
 
 
 def test_commit_operand_is_demanded_by_the_run_ref_like_its_inputs(tmp_path):
@@ -800,3 +818,80 @@ def test_program_without_confined_sites_refuses_child_entries(tmp_path, children
 
     with pytest.raises(ClosedProgramInvalid):
         ClosedProgram.from_artifact(json.dumps(tree))
+
+
+def test_forged_confined_memory_below_profile_reserve_is_refused_on_read_back(tmp_path):
+    from base64 import b64decode, b64encode
+    from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
+
+    program = _built(_confined(tmp_path))
+    node, _config = _confined_site(program)
+
+    def forge(tree):
+        from orchestrator.workflow.evaluated.machine import site_nodes
+
+        record = json.loads(b64decode(node["config"]))
+        record["environment"]["limits"][1][1] = 1
+        forged = b64encode(json.dumps(record, sort_keys=True, separators=(",", ":")).encode()).decode()
+        [target] = [row for row in site_nodes(ClosedProgram(tree, (), "")).values() if row["class"] == "run_ref"]
+        target["config"] = forged
+
+    with pytest.raises(ClosedProgramInvalid):
+        ClosedProgram.from_artifact(_tampered(program, forge))
+
+
+def test_confined_translation_refuses_inputs_that_disagree_with_the_typed_origin(tmp_path):
+    from orchestrator.workflow_lisp.closed.effects import _translate_run_ref_workflow
+
+    perform = _wcc_perform(_confined(tmp_path))
+    reordered = replace(perform, keyword_args=tuple(reversed(perform.keyword_args)))
+
+    with pytest.raises(ValueError, match="retained result origin"):
+        _translate_run_ref_workflow(None, reordered, None, {})
+
+
+# Ruling P12: a confined site is refused in any `list/map-effect` frame,
+# serial or parallel, directly or through calls.
+
+MAP_CALLEES = (
+    f"(defworkflow one ((seed Int) (revision String)) -> Int (let* ((child {RUN_REF})) "
+    "(match child ((COMPLETED c) c.result.value) ((FAILED f) 0))))"
+    "(defworkflow two ((seed Int) (revision String)) -> Int (call one :seed seed :revision revision))"
+    f"(defworkflow onep ((seed Int) (revision String)) -> Int (let* ((child {PATH_RUN_REF})) 1))"
+)
+MAP_RUN_BODY = "(let* ((child RUN_REF))\n      (match child\n        ((COMPLETED c) c.result.value)\n        ((FAILED f) f.accounting.attempt_ordinal)))"
+MAP_PLACEMENTS = {
+    "serial-direct": "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 "
+                     + RUN_REF.replace(":seed seed", ":seed x") + "))) 1)",
+    "serial-through-call": "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 "
+                           "(call one :seed x :revision revision)))) 1)",
+    "serial-through-nested-call": "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 "
+                                  "(call two :seed x :revision revision)))) 1)",
+    "parallel-through-call": '(let* ((xs (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 '
+                             ":workspace repo (call one :seed 1 :revision revision)))) 1)",
+}
+
+
+def _map_program(tmp_path, body):
+    source = CONFINED.replace("EXTRA", MAP_CALLEES).replace(MAP_RUN_BODY, body)
+    install(tmp_path, {"helper.orc": NESTED_HELPER, "controller.orc": source})
+    return compile_typed_program(
+        tmp_path / "controller.orc", entry_workflow="controller::run", source_roots=(tmp_path,),
+        command_boundaries=BOUNDARIES, provider_externs={"providers.review": "probe-provider"},
+        prompt_externs={"prompts.base": PROMPTS["prompt"]}, workspace_root=tmp_path)
+
+
+@pytest.mark.parametrize("case", sorted(MAP_PLACEMENTS))
+def test_confined_site_in_a_list_map_effect_frame_is_refused(tmp_path, case):
+    assert MAP_RUN_BODY in CONFINED
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _map_program(tmp_path, MAP_PLACEMENTS[case])
+
+    assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
+
+
+def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_path):
+    typed = _map_program(tmp_path, "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 "
+                                   "(call onep :seed x :revision revision)))) 1)")
+
+    assert len(_built(typed).sites) == 1
