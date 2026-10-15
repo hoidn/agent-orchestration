@@ -449,7 +449,7 @@ def test_admission_refuses_an_image_absent_from_the_store(world, tmp_path):
     assert caught.value.code == "run_ref_environment_unavailable"
 
 
-def test_admission_refuses_a_child_with_effect_sites_until_leaves_are_confined(tmp_path):
+def test_admission_refuses_a_child_with_a_provider_site_until_its_transport_exists(tmp_path):
     from tests.test_workflow_lisp_run_ref_workflow_program import _built, _confined, _confined_site
 
     program = _built(_confined(tmp_path))
@@ -460,8 +460,27 @@ def test_admission_refuses_a_child_with_effect_sites_until_leaves_are_confined(t
     with pytest.raises(RunRefRuntimeError) as caught:
         _admit(world)
 
-    assert (caught.value.code, caught.value.detail) == (
-        "run_ref_environment_unavailable", "confined_leaf_execution_unavailable")
+    assert caught.value.code == "run_ref_provider_transport_unavailable"
+
+
+def test_admission_admits_a_child_whose_effects_are_commands(tmp_path, store_image):
+    from tests.test_workflow_lisp_run_ref_workflow_program import DIGEST, _built, _confined, _confined_site
+
+    store, image = store_image
+    program = _built(_confined(tmp_path / "source", (
+        "(let* ((verdict (provider-result providers.review :prompt prompts.base\n"
+        "                      :inputs (task) :returns Verdict)))\n"
+        "      (if verdict.ok (let* ((n (bump seed)) (box (fetch n))) box.n) 0))",
+        "(let* ((n (bump seed)) (box (fetch n))) box.n)"),
+        (":network :model-only", ":network :none"), (f"registry.example/project@sha256:{DIGEST}", image)))
+    _node, config = _confined_site(program)
+    world = {"commit": "c" * 40, "inputs": {"seed": 1, "task": "t"}, "store": store,
+             "config": config, "program": program}
+
+    admission = _admit(world)
+    admission.close()
+
+    assert admission.program.digest == config.program.child_program_digest
 
 
 def test_each_activation_and_attempt_gets_its_own_clone_and_control_root(world):
@@ -665,7 +684,8 @@ def _witness(world, admission, provisioned, value):
     descriptor = world["config"].result_descriptor["envelope"]["fields"][0]["type"]
     return validate_confined_child_terminal(child_root=layout.child_root, clone_root=layout.workspace,
                                             expected_header=header, recipe_bytes=provisioned.recipe_bytes,
-                                            value_descriptor=descriptor, direct_value=value)
+                                            value_descriptor=descriptor, direct_value=value,
+                                            image_digest=admission.image.record["tree_digest"])
 
 
 def test_terminal_witness_replays_the_committed_memo_from_the_control_root(world):

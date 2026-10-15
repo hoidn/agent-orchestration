@@ -10,14 +10,8 @@ import time
 from typing import Any, Mapping, Sequence
 
 from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths
-from orchestrator.workflow.evaluated.closure import (
-    ClosureEvidenceError,
-    resolve_command_evidence,
-)
-from orchestrator.workflow.evaluated.commands import (
-    CommandPerformerError,
-    command_result,
-)
+from orchestrator.workflow.evaluated.commands import CommandPerformerError, command_result  # noqa: F401 (re-export)
+from orchestrator.workflow.evaluated.confined_dispatch import require_confinable
 from orchestrator.workflow.evaluated.memo import (
     MemoError,
     append_record,
@@ -57,8 +51,13 @@ def execute_pure_run(
     workspace: Path,
     provider_io: ProviderIOContext | None = None,
     stream_output: bool = False,
+    confined: Any = None,
 ) -> tuple[int, Any]:
-    """Evaluate the checked table and persist its terminal outcome under its writer lock."""
+    """Evaluate the checked table and persist its terminal outcome under its writer lock.
+
+    `confined` is a confined run-ref child's session (`run_ref.confined_session`): its
+    command attempts dispatch only through the session's holder (no host route).
+    """
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     workspace = Path(workspace).resolve(strict=True)
@@ -97,10 +96,11 @@ def execute_pure_run(
                 provider_executor=provider_executor,
                 stream_output=stream_output,
                 launch_workspace=launch_workspace,
+                confined=confined,
             )
 
         handler = _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
-            checked_site_classes, run_files, workspace_files, stream_output)
+            checked_site_classes, run_files, workspace_files, stream_output, confined)
         try:
             value = evaluate_closed_program(
                 authority.program,
@@ -133,13 +133,14 @@ def execute_pure_run(
 
 
 def _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
-                       site_classes, run_files, workspace_files, stream_output):
+                       site_classes, run_files, workspace_files, stream_output, confined=None):
     from .parallel import ParallelCoordinator, has_parallel
     if not has_parallel(authority.program):
         return handle
     frontiers = _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io, site_classes)
     return ParallelCoordinator(handle, authority, dict(workspace=workspace, run_files=run_files,
-        workspace_files=workspace_files, site_classes=site_classes, stream_output=stream_output), frontiers=frontiers)
+        workspace_files=workspace_files, site_classes=site_classes, stream_output=stream_output,
+        confined=confined), frontiers=frontiers)
 
 
 def _can_append_failure_terminal(exc):
@@ -154,6 +155,7 @@ def execute_pure_resume(
     workspace: Path,
     provider_io: ProviderIOContext | None = None,
     stream_output: bool = False,
+    confined: Any = None,
 ) -> tuple[int, Any]:
     """Replay committed effects before allowing resume to repair or continue."""
     if not isinstance(authority, RunAuthority):
@@ -163,7 +165,7 @@ def execute_pure_resume(
     try:
         snapshot, commits, consumed, value, reached_boundary = _replay_resume_prefix(
             authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
-            site_classes=checked_site_classes,
+            site_classes=checked_site_classes, confined=confined,
         )
     except Exception as exc:
         return _resume_refusal(exc)
@@ -179,15 +181,15 @@ def execute_pure_resume(
             return _resume_refusal(exc)
     return execute_pure_run(
         authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
-        stream_output=stream_output,
+        stream_output=stream_output, confined=confined,
     )
 
 
-def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes):
+def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
     from .parallel import has_parallel
     if has_parallel(authority.program):
         from .run_ref import inventory_parallel_run_ref_recovery
@@ -215,16 +217,16 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     return frozenset(reached.identity for reached in prefix.frontiers)
 
 
-def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False):
+def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None):
     for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
-            launch_workspace=reached.launch_workspace)
+            launch_workspace=reached.launch_workspace, confined=confined)
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)
     for reached in prefix.frontiers:
         effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,
             reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers,
-            launch_workspace=reached.launch_workspace)
+            launch_workspace=reached.launch_workspace, confined=confined)
     if prefix.fault is not None and not (defer_parallel_fault and prefix.fault_in_parallel):
         raise prefix.fault
 
@@ -319,12 +321,15 @@ def prepare_effect(
     launch_workspace: EvaluatedValue | None = None,
     parallel_frontiers: frozenset[str] = frozenset(),
     parallel_unsettled: bool = False,
+    confined: Any = None,
 ) -> PreparedAttempt | EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
     if commit is None:
         effect_inputs._ensure_effect_can_start(snapshot, identity,
             reached_frontiers=parallel_frontiers, allow_unsettled=parallel_unsettled)
+        if confined is not None:  # Q1: before `started`, so a refusal leaves no attempt record
+            require_confinable(node, authority.header["interpreters"])
     baseline = None if commit is not None else effect_inputs._retry_baseline(
         snapshot, identity, snapshot.latest_starts.get(identity))
     launch_cwd = effect_inputs.resolve_launch_cwd(workspace, launch_workspace,
@@ -335,7 +340,10 @@ def prepare_effect(
     resolved, parts, implementation_files = effect_inputs._resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files, launch_cwd=launch_cwd,
+        confined=confined,
     )
+    if confined is not None and commit is None:  # D5 attempt snapshot of named clone files (P1, Q3, Q5)
+        parts = {**parts, **confined.clone_input_parts(node, launch_cwd)}
     input_digest = canonical_sha256(parts)
     dependencies = effect_inputs.effect_dependencies(operands, launch_workspace)
     if commit is not None:
@@ -349,6 +357,7 @@ def prepare_effect(
         logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
     if node['class'] == 'run_ref':
         validate_evaluated_run_ref_start(authority, resolved, identity, ordinal, workspace)
+    leaf_context = None if confined is None else confined.leaf_context()  # after the snapshot copy (R3)
     started = dict(record='started', identity=identity, attempt=ordinal,
         input_digest=input_digest, input_parts=parts, implementation_files=implementation_files,
         result_path=result_path, time=time.time())
@@ -356,7 +365,7 @@ def prepare_effect(
     attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority)
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
-        site_classes, provider_executor, attempt_files, launch_cwd, stream_output)
+        site_classes, provider_executor, attempt_files, launch_cwd, stream_output, leaf_context)
 
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
@@ -390,8 +399,9 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         if error is not None:
             raise error
         result, digest, proof, prepared = _validate_attempt_outcome(attempt, outcome)
-        implementation = (_rehash_command_implementation(node, attempt.workspace,
-            attempt.implementation_files, attempt.launch_cwd) if node['class'] == 'command' else {})
+        implementation = (effect_inputs.rehash_command_implementation(node, attempt.workspace,
+            attempt.implementation_files, attempt.launch_cwd, authority=authority, confined=attempt.confined)
+            if node['class'] == 'command' else {})
         _require_retained_root(authority.run_files)
         committed = dict(record='committed', identity=attempt.identity, attempt=attempt.ordinal,
             input_digest=attempt.input_digest, input_parts=attempt.parts, value=result.json_value(),
@@ -444,28 +454,6 @@ def _validate_attempt_outcome(attempt, outcome):
         result, digest = provider_result(attempt.node, attempt.resolved, attempt.attempt_files,
             attempt.workspace_files, outcome.result_path)
     return result, digest, None, None
-
-
-def _rehash_command_implementation(node, workspace, implementation_files, launch_cwd=None):
-    try:
-        after_files = resolve_command_evidence(
-            node["command"],
-            node["closure"],
-            workspace_root=workspace,
-            prior=implementation_files,
-            launch_cwd=launch_cwd,
-        )
-    except ClosureEvidenceError as exc:
-        raise CommandPerformerError(
-            "command_closure_written",
-            f"command closure changed during its attempt: {exc}",
-        ) from exc
-    if after_files != implementation_files:
-        raise CommandPerformerError(
-            "command_closure_written",
-            f"command closure changed during its attempt: {effect_inputs._changed_evidence(implementation_files, after_files)}",
-        )
-    return after_files
 
 
 def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exception | None:

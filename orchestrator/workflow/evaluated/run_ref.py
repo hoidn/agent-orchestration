@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 
 from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
+from orchestrator.workflow.run_ref.confined_config import (
+    RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA,
+    RunRefConfinedStaticConfig,
+    decode_run_ref_confined_static_config,
+)
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
 from orchestrator.workflow.run_ref.runtime import (
@@ -34,9 +40,20 @@ def require_run_ref_root(authority):
     return Path(root)
 
 
+def _static_config(payload: bytes):
+    if json.loads(payload).get("schema_version") == RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA:
+        return decode_run_ref_confined_static_config(payload)
+    return decode_run_ref_static_config(payload)
+
+
 def resolve_run_ref_input(node, operands):
-    config = RunRefStepConfig(common=StepCommonConfig(), run_ref=decode_run_ref_static_config(
-        base64.b64decode(node["config"], validate=True)))
+    """Checked config and parent state; a confined (v2) site's first operand is its `:commit`."""
+    static = _static_config(base64.b64decode(node["config"], validate=True))
+    config = RunRefStepConfig(common=StepCommonConfig(), run_ref=static)
+    confined = type(static) is RunRefConfinedStaticConfig
+    if confined != ("commit" in node):
+        raise MemoError("memo_inconsistent", "checked run-ref commit operand disagrees with its config")
+    commit, operands = (operands[0].json_value(), operands[1:]) if confined else (None, operands)
     rows = config.run_ref.inputs
     if len(operands) != len(rows) or [name for name, _ in node["inputs"]] != [row.name for row in rows]:
         raise MemoError("memo_inconsistent", "checked run-ref input order disagrees")
@@ -47,6 +64,9 @@ def resolve_run_ref_input(node, operands):
     }}
     values = resolve_run_ref_parent_input_values_for_config(config, parent_state)
     parts = {"config": config.step_config_digest, "inputs": canonical_sha256(values)}
+    if confined:
+        parent_state["commit"] = commit
+        parts["commit"] = canonical_sha256(commit)
     return (config, parent_state), parts
 
 
@@ -55,10 +75,12 @@ def _request(authority, resolved, identity, attempt, workspace):
     visit = RunRefVisitKey(parent_run_id=authority.run_root.name,
         execution_frame_id="root", call_frame_id=None,
         step_id="root." + canonical_sha256(identity).removeprefix("sha256:"), visit_count=1)
+    confined = type(config.run_ref) is RunRefConfinedStaticConfig  # no child process takes a parent fd
     return RunRefRuntimeRequest(step_config=config, visit=visit, parent_state=parent_state,
         parent_workspace=workspace, parent_run_root=authority.run_root,
         run_ref_root=require_run_ref_root(authority), run_files=authority.run_files,
-        parent_identity=identity, parent_attempt=attempt)
+        parent_identity=None if confined else identity, parent_attempt=None if confined else attempt,
+        parent_program=authority.program)
 
 
 def validate_evaluated_run_ref_start(authority, resolved, identity, attempt, workspace):

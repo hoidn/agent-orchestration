@@ -3,9 +3,9 @@
 Admission (`admit_confined_child`) checks, in order: the durable child request
 against its site and parent-resolved operands (a mismatch is
 `run_ref_environment_escape_rejected`), the parent's checked child artifact,
-that the child is pure (leaf execution arrives with the holder; until then any
-effect site is `run_ref_environment_unavailable`, never a host fallback), the
-host prerequisites and the sealed image, rehashed through the descriptor the
+that every effect site is a command (a provider site is
+`run_ref_provider_transport_unavailable` until its transport exists; never a host
+fallback), the host prerequisites and the sealed image, rehashed through the descriptor the
 launch will bind. Provisioning (`provision_confined_child`) allocates the
 attempt's clone with sanitized host Git beneath the run-reference root and the
 child's control root beneath the parent run root, next to
@@ -16,7 +16,7 @@ checked child artifact, the request, the admission record and the clone
 baseline. An existing control root is reused only when its recipe, image pins
 and clone baseline still match (`run_ref_environment_changed` otherwise).
 
-The holder, its scope and leaves are not here (Task 6).
+The holder, its scope and leaves are in `holder.py` and `confined_session.py`.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from .workspace import freeze_tree
 
 CHILD_ROOTS_DIRNAME = "run-ref-children"
 RECIPE_FILENAME = "child-recipe.json"
+CHECKPOINT_HEADER = "checkpoint.json"  # the clone's two-phase checkpoint header (checkpoint.py)
 RECIPE_SCHEMA = "run_ref_confined_child_recipe.v1"
 ADMISSION_SCHEMA = "run_ref_environment_admission.v1"
 CHILD_RUN_IDENTITY_SCHEMA = "run_ref_confined_child_run_identity.v1"
@@ -119,6 +120,16 @@ def checked_child_program(parent_program: ClosedProgram, config: RunRefConfinedS
     return program
 
 
+def refuse_unconfinable_sites(program: ClosedProgram) -> None:
+    """Commands run as confined leaves; providers wait for their transport (Task 10, P33)."""
+    kinds = {node["class"] for node in site_nodes(program).values()}
+    if "provider" in kinds:
+        raise RunRefRuntimeError("run_ref_provider_transport_unavailable", "confined_provider_transport_unavailable")
+    if kinds - {"command"}:
+        raise RunRefRuntimeError("run_ref_environment_effect_unsupported",
+                                 f"confined_child_effects_unsupported:{','.join(sorted(kinds - {'command'}))}")
+
+
 @dataclass
 class ConfinedAdmission:
     """Everything admitted before provisioning; owns the image descriptor."""
@@ -168,8 +179,7 @@ def admit_confined_child(
     except (TypeError, ValueError) as exc:
         raise RunRefRuntimeError("run_ref_environment_escape_rejected", "confined_child_request_disagrees") from exc
     program = checked_child_program(parent_program, config)
-    if site_nodes(program):
-        raise RunRefRuntimeError("run_ref_environment_unavailable", "confined_leaf_execution_unavailable")
+    refuse_unconfinable_sites(program)
     require_host_prerequisites(host)
     try:
         image = open_sealed_image(image_store, config.policy.image)
@@ -356,7 +366,7 @@ def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttem
     if {name: stored.get(name) for name in admission.environment_record} != admission.environment_record:
         raise RunRefRuntimeError("run_ref_environment_changed", "image_snapshot_or_pins_changed")
     try:
-        manifest = freeze_tree(layout.workspace, excluded_roots=(".git",))
+        manifest = freeze_tree(layout.workspace, excluded_roots=(".git", ".orchestrate"))
     except (OSError, ValueError) as exc:
         raise RunRefRuntimeError("run_ref_environment_changed", "clone_unreadable") from exc
     try:
@@ -366,12 +376,31 @@ def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttem
             raise TypeError("baseline digest is not a string")
     except (TypeError, ValueError) as exc:
         raise RunRefRuntimeError("run_ref_evidence_invalid", "confined_child_recipe_disagrees") from exc
-    if manifest.digest != recipe["baseline_digest"]:
-        raise RunRefRuntimeError("run_ref_environment_changed", "clone_differs_from_baseline")
+    expected_digest = _last_committed_digest(layout, recipe)
+    if expected_digest is not None and manifest.digest != expected_digest:
+        raise RunRefRuntimeError("run_ref_environment_changed", "clone_differs_from_its_last_checkpoint")
     source = ConfinedSource(repository_revision_id=revision, verified_git_tree=verified_tree,
                             mirror_path=mirror_path, workspace_path=layout.workspace,
                             source_tree_manifest=manifest)
     return ProvisionedChild(layout=layout, source=source, recipe=recipe)
+
+
+def _last_committed_digest(layout: ConfinedAttemptLayout, recipe: Mapping[str, Any]) -> str | None:
+    """The clone must equal its last `committed` checkpoint (the baseline before any).
+
+    An `intent` header is repaired by re-freezing before the next holder launch, so
+    no digest is checked here (`confined_session`).
+    """
+    from .checkpoint import RunRefCheckpointError, read_checkpoint_header
+
+    path = layout.child_root / CHECKPOINT_HEADER
+    if not os.path.lexists(path):
+        return recipe["baseline_digest"]
+    try:
+        header = read_checkpoint_header(path)
+    except RunRefCheckpointError as exc:
+        raise RunRefRuntimeError(exc.code, "checkpoint_header_unreadable") from exc
+    return header.manifest_digest if header.state == "committed" else None
 
 
 def confined_child_accounting(layout: ConfinedAttemptLayout, *, attempt_ordinal: int, terminal_status: str,
@@ -394,5 +423,6 @@ __all__ = [
     "probe_host",
     "provision_confined_child",
     "refuse_overlapping_roots",
+    "refuse_unconfinable_sites",
     "require_host_prerequisites",
 ]

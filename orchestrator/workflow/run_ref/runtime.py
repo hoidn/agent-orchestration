@@ -477,6 +477,8 @@ class RunRefRuntimeRequest:
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
     parent_identity: str | None = None
     parent_attempt: int | None = None
+    # The parent's checked program; a confined (v2) site takes its checked child entry from it.
+    parent_program: Any = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         paths = _validate_run_ref_runtime_request_authority(
@@ -1567,6 +1569,12 @@ def _input_digest(
     )
 
 
+def _is_confined(step_config: RunRefStepConfig) -> bool:
+    """A `run_ref_static_config.v2` site runs the confined lifecycle (`confined_lifecycle.py`)."""
+    from .confined_config import RunRefConfinedStaticConfig
+    return type(step_config.run_ref) is RunRefConfinedStaticConfig
+
+
 def _policy_digest(step_config: RunRefStepConfig) -> str:
     source = canonical_source_request(step_config.run_ref.source)
     program = step_config.run_ref.program
@@ -1673,6 +1681,10 @@ def _attempt_bindings(
     parent_values: Mapping[str, Any],
     effect_instance_digest: str | None = None,
 ) -> RunRefAttemptBindings:
+    if _is_confined(request.step_config):
+        from .confined_lifecycle import confined_attempt_bindings
+        return confined_attempt_bindings(request, attempt_ordinal=attempt_ordinal, workspace=workspace,
+                                         parent_values=parent_values)
     static = request.step_config.run_ref
     program = static.program
     capsule_or_compiler_digest = (
@@ -2560,6 +2572,9 @@ def drive_run_ref_lifecycle(
                 "lifecycle_allocation_authority_disagrees",
             )
         bindings = allocation.bindings
+        if _is_confined(request.step_config):
+            from .confined_lifecycle import drive_confined_lifecycle
+            return drive_confined_lifecycle(request, allocation=allocation, emit=emit, effects=effects)
         emit(
             stage="allocated",
             event_kind="allocation",
@@ -3084,6 +3099,9 @@ def _validate_bound_authority(
     *,
     effect_instance_digest: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if _is_confined(request.step_config):
+        from .confined_lifecycle import validate_confined_bound_authority
+        return validate_confined_bound_authority(request, row)
     if row.visit != request.visit:
         raise RunRefRuntimeError(
             "run_ref_evidence_invalid",

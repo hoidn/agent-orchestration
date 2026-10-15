@@ -768,7 +768,7 @@ def test_running_a_confined_site_is_refused_before_any_run_state(tmp_path):
 
     completed = _run(tmp_path, source, "seed=1", "revision=" + "c" * 40)
 
-    assert (completed.returncode, "run_ref_child_target_unavailable" in completed.stderr,
+    assert (completed.returncode, "run_ref_provider_transport_unavailable" in completed.stderr,
             list((tmp_path / "state").iterdir())) == (2, True, [])
 
 
@@ -795,7 +795,7 @@ def test_resuming_into_a_confined_site_is_refused_before_loading_the_run(tmp_pat
         cwd=tmp_path, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
         capture_output=True, text=True, timeout=180)
 
-    assert (completed.returncode, "run_ref_child_target_unavailable" in completed.stderr) == (2, True)
+    assert (completed.returncode, "run_ref_provider_transport_unavailable" in completed.stderr) == (2, True)
 
 
 def test_commit_operand_is_demanded_by_the_run_ref_like_its_inputs(tmp_path):
