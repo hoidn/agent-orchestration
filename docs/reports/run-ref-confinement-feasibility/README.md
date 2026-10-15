@@ -1010,6 +1010,55 @@ summary. Clock/boot tests are injected controls, not physical host suspend,
 reboot or power-loss experiments. No autonomous watchdog is selected; an open
 interval charges downtime/suspension and refuses across boots.
 
+## Task 8: exports, retained proof and cleanup accepted (2026-10-15)
+
+Implementation `e85fcbf950539bf1d8ea5dc1f8eeaf3c0a851744` has independent
+conformance and subsequent code/security PASS. The coordinator inspected the
+diff and fresh outputs and verified all 18 runtime and 10 test hashes after
+commit. The frozen runtime manifest is
+`948342c2e667af8619f91b7a99d4e2df8201e10ea1b590a8b601c8bed8dbbfe6`;
+the test manifest is
+`42c95389cc18788dc46381b2803ccb4b059c696522acd784f8934d8d83908390`.
+
+Typed nested paths now export through bounded copies and durable staged-object
+identity before no-overwrite publication. Terminal proof retains canonical
+trees, image inventory, inputs and results without requiring a disposable clone,
+materialized baseline or live image store. Cleanup follows durable parent
+settlement, preserves foreign replacements and exposes retryable obligations
+without changing the completed workflow result. A completed resume returns 2
+while cleanup remains pending and 0 after successful cleanup; report is read-only.
+
+| Final check | Result |
+| --- | --- |
+| Collection of selected changed modules | 296 collected, exit 0 |
+| Nineteen affected modules, `pytest -q -n 16 --dist=worksteal` | 634 passed, 71.95 s, exit 0 |
+| Real child/recovery/export modules, serial `ORCHESTRATE_E2E=1 RUN_REF_REQUIRE_IMAGE=1` | 18 passed, 118.92 s, exit 0 |
+
+Review reproduced and closed inconsistent delta capture and checkpoint
+recreation during cleanup. Retained delta validation checks its catalog and
+structural consistency; exact diff text is validated against live files before
+capture and bound thereafter, not regenerated from deleted file bytes. Export
+root selection now checks path ancestors rather than every pair; deterministic
+1024/2048-path tests preserve overlap and ordering behavior.
+
+The final F6 runs are `20261015T113509Z-vvykr7` (retained proof) and
+`20261015T113517Z-qi4yjp` (cleanup pending/retry). They use image
+`example.invalid/run-ref-holder-fixture@sha256:3c331d46f0667e83b9e7cf6198835c4d5814c26d83a5455cc94facdbcc9690bf`
+and tree `sha256:7fcf53d85fd9edcd41863c396e045b04a461a0d1de26f9a71102340466154070`,
+including the 294 MB native executable and its absolute/subtree closure. The
+663934-byte image inventory supports replay after baseline/image withdrawal.
+The parent consumes the exported path after clone/checkpoint removal.
+
+Local `.tmp/task8/` retains exact commands, logs, exits, per-file pins and the
+explicit `real-final-runs` basetemp; `real-final-evidence/authority-index.json`
+binds 17 unique parent roots and 19 child recipes. The SDD `task-8-report.md`
+and `task-8-code-review.md` retain the detailed evidence and review. Earlier
+temporary F6 paths were rotated by pytest; these final runs replace that lost
+temporary evidence. Integrated exception tests cover export preparation/rename
+recovery without redispatch. External public SIGKILL at those export windows and
+before parent settlement remains Task 12 work. No provider admission, global
+suite PASS or Increment A acceptance is claimed by this Task 8 result.
+
 ## Task 10: native authentication follow-up (2026-10-15)
 
 This is a current feasibility investigation, not F4 or production qualification.
