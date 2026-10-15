@@ -275,9 +275,10 @@ fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_run_ref_settlement.py` and
 `tests/test_workflow_evaluated_invalidate.py`.
 
-Targets 2.35/2.36 and admitted bounded 2.37 use this persistence contract.
-[Versioning](versioning.md#version-gating-summary) owns 2.37's qualification
-limits; W3 changes authoring and graph-selected helper source without changing
+Targets 2.35/2.36, admitted bounded 2.37 and registered bounded 2.38 (agent
+sessions; see versioning) use this persistence contract.
+[Versioning](versioning.md#version-gating-summary) owns the 2.37 and 2.38
+qualification limits; W3 changes authoring and graph-selected helper source without changing
 this profile, journal or resume guards.
 
 ### Authority and run root
@@ -297,7 +298,8 @@ Under exact `result_persistence_profile: "evaluated_execution.v1"` with
 | `state.json` | Derived view (below), absent until the first journal record; never authority |
 
 The artifact's top-level `target` must be a string registered for the evaluated
-route: `"2.35"`, `"2.36"` or bounded `"2.37"`, with the
+route: `"2.35"`, `"2.36"`, bounded `"2.37"` or registered bounded `"2.38"`
+(agent sessions; see versioning), with the
 [existing qualification limits](versioning.md#version-gating-summary). It is
 not the representation version.
 The separate internal run-reference target remains `2.35`. Schema, profile,

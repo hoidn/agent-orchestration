@@ -7,8 +7,8 @@ contract describes the implemented cutoff candidate; [gate R and its
 closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 own qualification and delivery, not a published package-version claim.
 
-Only evaluated entries at 2.35/2.36 and bounded 2.37 are executable, with their
-existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
+Only evaluated entries at 2.35/2.36, bounded 2.37 and registered bounded 2.38
+(agent sessions; see versioning) are executable, with their existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
 `compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
 `workflow_execution_target_retired`, exit 2, before build/run publication or
 execution locks. The captured compiled entry is checked again before
@@ -224,9 +224,11 @@ callers share this retirement, with no evaluated trial port.
 
 ### Evaluated execution (target 2.35)
 
-This contract applies to evaluated entries at 2.35/2.36 and the admitted
-bounded 2.37 surface. W3 changes authoring, not command/provider IO or the
-public lifecycle; 2.37 registration does not establish full parallel delivery.
+This contract applies to evaluated entries at 2.35/2.36, the admitted
+bounded 2.37 surface and registered bounded 2.38 (agent sessions; see
+versioning). W3 changes authoring, not command/provider IO or the public
+lifecycle; 2.37 registration does not establish full parallel delivery, and
+2.38 registration does not establish agent-session runtime delivery.
 See [versioning](versioning.md#version-gating-summary) for qualification limits.
 
 An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`

@@ -8,7 +8,8 @@ Old-profile IO/persistence details below are historical contracts, while shared 
 services remain in use for admitted evaluated effects. Definitions of session,
 supervision, peers, phased or adjudicated IO do not admit those excluded
 workflow effects. Targets 2.35/2.36 retain current support; registered 2.37
-retains only its [bounded qualification](versioning.md#version-gating-summary).
+and registered bounded 2.38 (agent sessions; see versioning) retain only their
+[bounded qualification](versioning.md#version-gating-summary).
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
@@ -323,9 +324,11 @@ retains only its [bounded qualification](versioning.md#version-gating-summary).
 
 ## Evaluated Command And Provider IO (target 2.35)
 
-This contract applies to admitted evaluated effects at 2.35/2.36 and bounded
-2.37. W3 changes authoring, not command/provider IO or the public lifecycle;
-2.37 registration does not imply general parallel qualification. See
+This contract applies to admitted evaluated effects at 2.35/2.36, bounded
+2.37 and registered bounded 2.38 (agent sessions; see versioning). W3 changes
+authoring, not command/provider IO or the public lifecycle; 2.37 registration
+does not imply general parallel qualification, and 2.38 registration does not
+imply agent-session runtime delivery. See
 [versioning](versioning.md#version-gating-summary) for the target limits.
 
 This section owns the request a target-2.35 command or provider receives,
