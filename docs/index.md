@@ -290,6 +290,11 @@ navigation are complete.
 **Keywords:** calibration, difficulty, review blockers, hidden acceptance, single call, ladder
 **Use this when:** Choosing a task for a workflow-versus-single-call experiment (take the qualification rule from the design and the amended criterion, the measurements from this report). The owner then chose rung 3 on the blocker rule alone, and Task 9 ran on it ([E-B2](reports/2026-10-15-calibrated-orc-versus-single-call.md)).
 
+### [Calibration Continuation: Rung 1's Third Sample](reports/2026-10-15-calibration-continuation.md)
+**Description:** A post-data continuation (2026-10-15) that the owner approved (ruling R56). It is separate from the frozen Task 8 record. Rung 1 (`cf1-generic-unions`) got its third `gpt-6.1-sol` single call and `gpt-6-sol` review under criterion [`calibration-continuation.json`](../experiments/compare/criteria/calibration-continuation.json). Blockers were 1, 1 and 1, a mean of 1.0, so rung 1 qualifies under the blocker-only rule (R55), and nothing beyond it ran. As description, the third single call passed 154 of 164 hidden tests.
+**Keywords:** calibration, continuation, rung 1, review blockers, post-data
+**Use this when:** Picking the qualifying task under the current calibration rule. Read its limits before using it: it is post-data, `k = 3`, the samples were a day apart, and the "single call" delegated internally.
+
 ### [E-B2: Workflows Against A Single Call On A Calibrated Task](reports/2026-10-15-calibrated-orc-versus-single-call.md)
 **Description:** Plan Task 9 result (2026-10-15) on calibration rung 3 (`adopted-attempt-lineage`), three runs per arm, criterion frozen before any run. Both claims were evaluated and neither held: `design_review_execute` passed the same share of the 52 hidden tests as one `gpt-6.1-sol` call (0.49 each), and `reviewed_change`'s revisions never raised its first patch's hidden fraction (gain 0 in 3 runs), although its reviewer blocked in every run.
 **Keywords:** e-b2, calibrated, design-review-execute, reviewed-change, hidden acceptance, single call, judges
