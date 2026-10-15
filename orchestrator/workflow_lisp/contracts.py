@@ -155,6 +155,10 @@ def is_transportable_result_type(
     express it as one direct JSON root value.
     """
 
+    from .typecheck_agents import contains_agent
+
+    if contains_agent(type_ref):
+        return False
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return True
     target = target_dsl_version or getattr(type_env, "target_dsl_version", None)
@@ -170,7 +174,7 @@ def is_transportable_result_type(
             type_env=type_env,
             allow_nested_structures=allow_nested_structures,
         )
-    except (LispFrontendCompileError, TypeError, ValueError):
+    except (LispFrontendCompileError, TypeError):
         return False
     return True
 

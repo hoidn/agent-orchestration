@@ -5,7 +5,10 @@ uses its `fail`, `_value`, `_require_type`, `_same`, `_check_effect_node` and `t
 An `agent` perform's result descriptor object is recorded by identity, so an
 `agent_turn` whose operand names a `let` bound to that perform (directly or by
 alias; the checker's environment carries the same descriptor object) must list
-that perform's provider among its `origins` (`agent_origin_mismatch`).
+that perform's provider among its `origins`; any other operand (parameter, field,
+`select` result, join) must list every allocation provider in the tree
+(`agent_origin_mismatch`). No `par-map` worker may reach an agent effect through
+any call edge (`parallel_agent_boundary`).
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .node_walk import _ast_nodes
 from .targets import target_dsl_supports_agent_sessions
 
 AGENT_DESCRIPTOR = {"kind": "primitive", "name": "Agent"}
@@ -25,6 +29,58 @@ _TURN_REQUIRED = _TURN_KEYS - {"k", "class", "result", "site", "@"}
 
 def _allocated_providers(checker) -> dict[int, str]:
     return vars(checker).setdefault("_agent_result_providers", {})
+
+
+def _all_allocation_providers(checker) -> set[str]:
+    """Providers of every `agent` perform in the tree: the bound for an untraced operand."""
+
+    cached = vars(checker).get("_all_allocation_providers")
+    if cached is None:
+        cached = {node.get("provider") for node in _tree_nodes(checker.tree)
+                  if node.get("k") == "perform" and node.get("class") == "agent"}
+        checker._all_allocation_providers = cached
+    return cached
+
+
+def _tree_nodes(tree):
+    for body in (tree["body"], *(definition["body"] for definition in tree["definitions"].values())):
+        yield from _ast_nodes(body)
+
+
+def find_parallel_agent(tree) -> tuple[Mapping[str, Any], Mapping[str, Any]] | None:
+    """The first `par-map` whose worker reaches an agent effect, with that effect.
+
+    Calls are followed through `tree["definitions"]` transitively (memoised).
+    """
+
+    definitions = tree["definitions"]
+    reached: dict[str, Mapping[str, Any] | None] = {}
+
+    def reach(body):
+        for node in _ast_nodes(body):
+            if node.get("k") == "perform" and node.get("class") in {"agent", "agent_turn"}:
+                return node
+            if node.get("k") == "call" and node.get("callee") in definitions:
+                callee = node["callee"]
+                if callee not in reached:
+                    reached[callee] = None  # cycle guard; the call graph is acyclic once checked
+                    reached[callee] = reach(definitions[callee]["body"])
+                if reached[callee] is not None:
+                    return reached[callee]
+        return None
+
+    for node in _tree_nodes(tree):
+        if node.get("k") == "par-map" and (found := reach(node["body"])) is not None:
+            return node, found
+    return None
+
+
+def check_parallel_agents(checker) -> None:
+    """Backstop: no agent may be allocated or turned inside a parallel worker."""
+
+    found = find_parallel_agent(checker.tree)
+    if found is not None:
+        checker.fail("parallel_agent_boundary", "a parallel worker reaches an agent effect", found[0])
 
 
 def _configured(providers: Any, provider: Any) -> bool:
@@ -92,10 +148,10 @@ def _check_agent_turn(checker, node, env, walk) -> None:
         checker.fail("effect_shape", "agent turn policy may only carry timeout_sec", node)
     agent = node["agent"]
     checker._require_type(checker._value(agent, env, allow_effect=False, **walk), AGENT_DESCRIPTOR, "type_mismatch", node)
-    if isinstance(agent, Mapping) and agent.get("k") == "name" and agent.get("n") in env:
-        allocated = _allocated_providers(checker).get(id(env[agent["n"]]))
-        if allocated is not None and allocated not in origins:
-            checker.fail("agent_origin_mismatch", f"agent turn origins {origins!r} omit its agent's provider "
-                         f"{allocated!r}", node)
+    traced = agent.get("k") == "name" and _allocated_providers(checker).get(id(env.get(agent.get("n"))))
+    required = {traced} if traced else _all_allocation_providers(checker)
+    if not required <= set(origins):
+        checker.fail("agent_origin_mismatch", f"agent turn origins {origins!r} omit reachable providers "
+                     f"{sorted(required - set(origins))!r}", node)
     provider_view = {key: value for key, value in node.items() if key not in {"agent", "origins"}}
     checker._check_effect_node({**provider_view, "class": "provider", "provider": origins[0]}, env, **walk)

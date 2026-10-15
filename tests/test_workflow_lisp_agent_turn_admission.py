@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.contracts.closed_program.check import CheckedFormError, validate
-from orchestrator.contracts.closed_program.sites import _ast_nodes, _effect_value_children
+from orchestrator.contracts.closed_program.sites import _ast_nodes, _effect_value_children, assign_sites
 from orchestrator.workflow.pure_expr import PureExprEvaluationError, coerce_pure_value
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle_in_memory
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
@@ -122,6 +122,39 @@ def test_checker_refuses_empty_or_mismatched_origins(tmp_path: Path, mutate, rul
     assert excinfo.value.rule == rule
 
 
+@pytest.mark.parametrize("owner", ["helper", "branch"])
+@pytest.mark.parametrize("narrowed", [[CLAUDE], [CODEX]])
+def test_checker_refuses_untraced_turn_narrowed_below_every_allocation(tmp_path: Path, owner: str, narrowed) -> None:
+    tree = deepcopy(build_closed_program_bundle(_request(tmp_path, TWO_AGENTS)).program.tree)
+    body = next(iter(tree["definitions"].values()))["body"] if owner == "helper" else tree["body"]
+    (turn,) = [n for n in _ast_nodes(body) if n.get("class") == "agent_turn" and len(n["origins"]) == 2]
+    turn["origins"] = narrowed
+    with pytest.raises(CheckedFormError) as excinfo:
+        validate(tree)
+    assert excinfo.value.rule == "agent_origin_mismatch"
+
+
+def test_checker_refuses_agent_effect_reached_from_a_parallel_worker(tmp_path: Path) -> None:
+    control = HEADER + '(defworkflow child ((t String)) -> Note (provider-result providers.claude :prompt (ask :task t))) ' \
+        + PAR.format(body='(call child :t item)')
+    tree = deepcopy(build_closed_program_bundle(_request(tmp_path, control)).program.tree)
+    allocation = build_closed_program_bundle(_request(tmp_path, ALIAS)).program.tree["body"]
+    child = next(iter(tree["definitions"].values()))
+    child["body"] = {"k": "let", "name": "w", "value": next(n for n in _ast_nodes(allocation) if n.get("class") == "agent"),
+                     "body": child["body"]}
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+    with pytest.raises(CheckedFormError) as excinfo:
+        validate(tree)
+    assert excinfo.value.rule == "parallel_agent_boundary"
+
+
+def test_turn_result_admits_its_provider_bundle_path(tmp_path: Path) -> None:
+    source = HEADER.replace("(defrecord Note", '(defpath ResultBundle :kind relpath :under ".orchestrate/runs" '
+                            ':must-exist false) (defrecord Note') + D + \
+        '(let* ((r (provider-result d :prompt (ask :task task))) (p (provider-bundle-path r :as ResultBundle))) r))))'
+    assert len(_turns(build_closed_program_bundle(_request(tmp_path, source)).program.tree)) == 1
+
+
 TURN = '(defworkflow run ((task String)) -> Note (let* ((designer (agent providers.claude))) {tail})))'
 
 
@@ -139,6 +172,11 @@ def test_agent_turn_rejects_overrides_and_unbounded_options(tmp_path: Path, tail
 
 
 D = '(defworkflow run ((task String)) -> Note (let* ((d (agent providers.claude))) '
+PICK = '(defunion Pick (a (lead Agent)) (b (label String))) '
+PAR = '(defworkflow run ((items List[String])) -> List[Note] (list/map-effect ((item items)) :max 2 :parallel 2 :workspace "." {body})))'
+MK = ('(defproc mk ((t String)) -> Note :effects ((uses-provider providers.claude)) '
+      '(let* ((w (agent providers.claude))) (provider-result w :prompt (ask :task t)))) ')
+APPLY = '(defproc apply-it ((f ProcRef[String -> Note]) (t String)) -> Note :effects () (f t)) '
 RR = ('(run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567") '
       ':program (:path "child.orc" :entry run) ')
 POLICY = ':policy (:environment :deterministic-effect-free :setup ())'
@@ -161,7 +199,18 @@ POLICY = ':policy (:environment :deterministic-effect-free :setup ())'
      "workflow_boundary_type_invalid"),
     (HEADER + '(defworkflow run ((task String)) -> Agent (agent providers.claude)))', "workflow_return_type_invalid"),
     (HEADER + '(defworkflow run ((task String)) -> Team (let* ((a (agent providers.claude))) (record Team :lead a :label "l"))))',
+     "workflow_return_type_invalid"),
+    (HEADER + '(defworkflow run ((t Team)) -> Note (provider-result t.lead :prompt (ask :task "t"))))',
      "workflow_boundary_type_invalid"),
+    (HEADER + '(defworkflow child ((t Team)) -> Note (record Note :text t.label)) ' + D
+     + '(call child :t (record Team :lead d :label "l")))))', "workflow_boundary_type_invalid"),
+    (HEADER + PICK + '(defworkflow run ((p Pick)) -> Note (record Note :text "x")))', "workflow_boundary_type_invalid"),
+    # structured results carrying an Agent
+    (HEADER + '(defprompt mk (:fills (task :text)) -> Team "T {task}") ' + D
+     + '(let* ((x (provider-result providers.codex :prompt (mk :task task)))) (record Note :text x.label)))))',
+     "provider_result_return_type_invalid"),
+    (HEADER + D + '(let* ((x (command-result tool :argv ("python" "t.py") :returns Team))) (record Note :text x.label)))))',
+     "command_result_return_type_invalid"),
     (HEADER + '(defworkflow child ((who Agent)) -> Note (provider-result who :prompt (ask :task "t"))) ' + D
      + '(call child :who d))))', "workflow_boundary_type_invalid"),
     # run-ref input and result refinement
@@ -185,7 +234,16 @@ POLICY = ':policy (:environment :deterministic-effect-free :setup ())'
      '(defworkflow run ((items List[String])) -> Note (let* ((teams (list/map-effect ((item items)) :max 2 :parallel 2'
      ' :workspace "." (mk item)))) (record Note :text "x"))))',
      "parallel_agent_boundary"),
-    # closure capture
+    # parallel worker reaching an allocation through a child workflow, a macro, or a ProcRef callee
+    (HEADER + '(defworkflow child ((t String)) -> Note (let* ((w (agent providers.claude))) (provider-result w :prompt (ask :task t)))) '
+     + PAR.format(body='(call child :t item)'), "parallel_agent_boundary"),
+    (HEADER + '(defmacro alloc () (agent providers.claude)) (defproc mk ((t String)) -> Note :effects ((uses-provider providers.claude)) '
+     '(let* ((w (alloc))) (provider-result w :prompt (ask :task t)))) ' + PAR.format(body='(mk item)'), "parallel_agent_boundary"),
+    (HEADER + MK + APPLY + PAR.format(body='(apply-it (proc-ref mk) item)'), "parallel_agent_boundary"),
+    # closure capture: let-proc and bind-proc
+    (HEADER + '(defproc use ((who Agent) (t String)) -> Note :effects ((uses-provider providers.claude) (uses-provider providers.codex)) '
+     '(provider-result who :prompt (ask :task t))) ' + APPLY + D + '(apply-it (bind-proc (proc-ref use) :who d) task))))',
+     "let_proc_capture_agent_forbidden"),
     (HEADER + D + '(let-proc (f ((t String)) -> Note :captures (d) (provider-result d :prompt (ask :task t)))'
      ' (let* ((h (proc-ref f))) (h task))))))', "let_proc_capture_agent_forbidden"),
     # pure handling: equality, print

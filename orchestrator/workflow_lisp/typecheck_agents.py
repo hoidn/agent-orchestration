@@ -187,70 +187,26 @@ def require_no_agent(type_ref, *, where: str, span, form_path, expansion_stack=(
         )
 
 
-def agent_return_boundary_diagnostic(workflow_def, return_type_ref: TypeRef):
-    """A record/union workflow return carrying an `Agent` cannot cross the workflow boundary."""
-
-    from .diagnostics import LispFrontendDiagnostic
-
-    if not contains_agent(return_type_ref):
-        return None
-    return LispFrontendDiagnostic(
-        code="workflow_boundary_type_invalid",
-        message=f"workflow `{workflow_def.name}` return `{workflow_def.return_type_name}` carries an `Agent`",
-        span=workflow_def.span, form_path=workflow_def.form_path, expansion_stack=workflow_def.expansion_stack,
-    )
-
-
 def check_parallel_body(expr, typed_body, context) -> None:
-    """Refuse a parallel worker that receives, allocates, turns or returns an `Agent`.
+    """Refuse a parallel worker that receives, allocates, turns or returns an `Agent` in its own body.
 
-    Allocation is searched in the typed body and, syntactically, in every
-    procedure the body reaches through `context.procedure_catalog.call_graph`.
+    Allocation reached through callees (helpers, workflows, ProcRefs, macro output) is
+    refused on the closed tree by `closed.agent_effects.refuse_parallel_agents`.
     """
 
     from .expression_traversal import free_expr_names, walk_expr
-    from .expressions import ProcedureCallExpr, ProviderResultExpr
+    from .expressions import ProviderResultExpr
 
     free = free_expr_names(expr.body_expr, bound=frozenset({expr.binder_name}))
-    nodes = list(walk_expr(typed_body.expr))
-    callees = {node.callee_name for node in nodes if isinstance(node, ProcedureCallExpr)}
     if (
         contains_agent(typed_body.type_ref)
         or any(contains_agent(context.value_env[name]) for name in free if name in context.value_env)
         or any(isinstance(node, AgentExpr)
-               or isinstance(node, ProviderResultExpr) and node.agent_origins is not None for node in nodes)
-        or _procedures_allocate(callees, context.procedure_catalog)
+               or isinstance(node, ProviderResultExpr) and node.agent_origins is not None
+               for node in walk_expr(typed_body.expr))
     ):
         raise_error(
             "a parallel worker cannot receive, allocate, turn or return an `Agent`",
             code="parallel_agent_boundary",
             span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
         )
-
-
-def _procedures_allocate(names: set[str], catalog) -> bool:
-    """Whether any procedure reachable from `names` writes an `agent` form."""
-
-    if catalog is None:
-        return False
-    pending, seen = list(names), set()
-    while pending:
-        name = pending.pop()
-        definition = catalog.definitions_by_name.get(name)
-        if name in seen or definition is None:
-            continue
-        seen.add(name)
-        if _datum_allocates(definition.body.datum):
-            return True
-        pending.extend(catalog.call_graph.get(name, ()))
-    return False
-
-
-def _datum_allocates(datum) -> bool:
-    items = getattr(datum, "items", None)
-    if items is None:
-        return False
-    head = items[0] if items else None
-    if getattr(head, "display_name", getattr(head, "name", None)) == "agent":
-        return True
-    return any(_datum_allocates(item) for item in items)

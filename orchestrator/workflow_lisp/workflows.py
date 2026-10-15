@@ -2960,8 +2960,7 @@ def _workflow_return_boundary_diagnostic(
             )
         return None
     if closed_program:
-        from .typecheck_agents import agent_return_boundary_diagnostic
-        return agent_return_boundary_diagnostic(workflow_def, return_type_ref)
+        return None
     return_analysis = analyze_workflow_boundary_type(
         return_type_ref,
         source_path=("return",),

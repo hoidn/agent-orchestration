@@ -321,6 +321,7 @@ class _Checker:
         self._check_call_graph()
         self._compute_effectful_definitions()
         self._check_effect_configurations()
+        check_agents.check_parallel_agents(self)
         self._validate_run_ref_origins()
         self._check_run_ref_signatures_and_digests()
         self._check_pending_boundaries()
@@ -3357,7 +3358,7 @@ class _Checker:
             self._validate_descriptor(result, node=node)
             self.performs.setdefault(owner, []).append(node)
             self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
-            return result, node.get("class") == "provider"
+            return result, node.get("class") in {"provider", "agent_turn"}
         if kind == "call":
             return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
         return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
@@ -3481,7 +3482,7 @@ class _Checker:
                     branch_origins = (branch_origins - {name}) | ({name} if provider else set())
                 branch_types.append(self._value(arm.get("value"), branch_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=frozenset(branch_origins), command_roots=command_roots, command_index=command_index))
             self._require_type(branch_types[1], branch_types[0], "type_mismatch", node)
-            return branch_types[0]
+            return dict(branch_types[0])  # a fresh descriptor: a selected agent is untraced (check_agents)
         if kind == "list":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)

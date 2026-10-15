@@ -707,9 +707,8 @@ def _require_transportable(type_ref, *, expr, role: str, type_env) -> None:
     # Import lazily: contracts owns workflow-signature projection and therefore
     # reaches this dispatch module through the workflow compiler at import time.
     from .contracts import is_transportable_result_type
-    from .typecheck_agents import contains_agent
 
-    if is_transportable_result_type(type_ref, type_env=type_env) and not contains_agent(type_ref):
+    if is_transportable_result_type(type_ref, type_env=type_env):
         return
     raise_error(
         f"`run-ref` {role} type `{type_ref.name}` is not transportable",

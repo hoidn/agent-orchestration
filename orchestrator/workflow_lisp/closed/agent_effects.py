@@ -69,3 +69,29 @@ def _translate_agent_turn(builder: Any, perform: WccPerform, d: Any, env: Mappin
     node.update(provenance)
     builder.retain_generated_result_contract(node, perform, d)
     return node
+
+
+def refuse_parallel_agents(tree: Mapping[str, Any]) -> None:
+    """Refuse a parallel worker that reaches an agent allocation or turn through any callee.
+
+    The closed tree is the one place where macro expansion, specialized helpers, ProcRef
+    callees and child workflows are all explicit `call` edges.
+    """
+
+    from orchestrator.contracts.closed_program.check_agents import find_parallel_agent
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    found = find_parallel_agent(tree)
+    if found is None:
+        return
+    worker, _effect = found
+    path, line, column = worker["@"]["span"].rsplit(":", 2)
+    position = SourcePosition(path=path, line=int(line), column=int(column), offset=0)
+    raise LispFrontendCompileError((LispFrontendDiagnostic(
+        code="parallel_agent_boundary",
+        message="a parallel worker cannot allocate or turn an `Agent`, including through called helpers or workflows",
+        span=SourceSpan(start=position, end=position),
+        form_path=tuple(worker["@"]["form"]),
+        phase="lowering",
+    ),))
