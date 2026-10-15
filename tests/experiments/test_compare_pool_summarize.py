@@ -331,3 +331,9 @@ def test_summarize_runs_hidden_acceptance_in_an_untouched_copy_without_git_and_l
     failed = [clone["hidden_failed"] for clone in results["clones"].values()]
     assert (results["measures"]["direct_task.hidden_mean"], failed) == (
         pytest.approx(3 / 4), [["tests/test_hidden.py::test_missing"]])
+
+
+def test_reviewed_change_hidden_paired_gain_is_the_final_minus_the_first_hidden_fraction():
+    values = summarize.run_values("reviewed_change", None, {"first": 3, "final": 5}, {"first": 0.25, "final": 0.75})
+    rows = [{"arm": "reviewed_change", "calls": 4, "wall_clock_sec": 60, **values}]
+    assert summarize.measures(rows)["reviewed_change.hidden_paired_gain_mean"] == 0.5

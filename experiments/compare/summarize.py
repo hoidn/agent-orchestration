@@ -124,6 +124,8 @@ def run_values(arm, selected, scores, hidden):
     values = {"value": scores["final"], "hidden_value": hidden.get("final")}
     if arm == "reviewed_change":
         values["paired_gain"] = scores["final"] - scores["first"]
+        if {"first", "final"} <= hidden.keys():
+            values["hidden_paired_gain"] = hidden["final"] - hidden["first"]
     return values
 
 
@@ -154,7 +156,7 @@ def arm_measures(arm, done):
 
 def gain_measures(arm, done):
     m = {}
-    for key in ("paired_gain", "group_gain"):
+    for key in ("paired_gain", "group_gain", "hidden_paired_gain"):
         gains = [r[key] for r in done if key in r]
         if gains:
             m |= {f"{arm}.{key}_mean": mean(gains), f"{arm}.{key}_runs_positive": sum(g > 0 for g in gains),

@@ -241,6 +241,8 @@ value is its selected candidate (`best_of_n`) or its final patch. Measures per a
 - `best_of_n` and `reviewed_change`: `.paired_gain_mean`, `.paired_gain_runs_positive`,
   `.paired_gain_runs_negative`;
 - `best_of_n`: the same three for `group_gain`;
+- `reviewed_change` with hidden acceptance: the same three for `hidden_paired_gain`, the final patch's
+  hidden fraction minus the first patch's;
 - every arm except `direct_task`: `.minus_control` and `.hidden_minus_control`.
 
 A criterion entry is `{"measure", "op", "value"}`, with `op` one of `>=`, `<=`, `>` or `<`.
