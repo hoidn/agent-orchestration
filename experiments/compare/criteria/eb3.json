@@ -1,0 +1,191 @@
+{
+  "experiment": "E-B3: on rung 1 of the difficulty calibration (cf1-generic-unions), which qualified on review blockers 1, 1, 1 (post-data continuation, R56) while three single gpt-6.1-sol calls passed 149, 148 and 154 of 164 hidden tests, (a) does design_review_execute (Opus plans and revises, gpt-6.1-sol reviews and executes) deliver more of the hidden acceptance tests than one gpt-6.1-sol call with the same task text and time limit, and (b) does reviewed_change's review loop raise its own first patch's hidden acceptance? Exploratory, three runs per arm.",
+  "status": "FROZEN prospectively for the nine-run E-B3 batch, after independent Opus approval, exact model-guard backport, S1 (116 passed), upstream anchor (164/164) and S2 (four Opus sessions including a native subagent). No batch run has started. The criterion commit and sha256 are recorded in evidence start.json before launch.",
+  "task": "experiments/compare/tasks/cf1-generic-unions-r48",
+  "base_commit": "c77e7ec0b0626914f81b7d1bd6249491e6c59c89",
+  "solution": "1798fc7034d38dc5938472a7cff883b8381703e4",
+  "arms": [
+    "design_review_execute",
+    "reviewed_change",
+    "direct_task"
+  ],
+  "comparator": {
+    "design_review_execute": "direct_task runs in the same pool (hidden_minus_control primary; minus_control secondary)",
+    "reviewed_change": "its own first patch (hidden_paired_gain primary; paired_gain secondary); direct_task for hidden_minus_control, secondary only",
+    "direct_task": "none: the control, gpt-6.1-sol through the codex binding the treatment's executor uses, effort high, :timeout-sec 14400 like the executor"
+  },
+  "calibration": {
+    "reports": [
+      "docs/reports/2026-10-14-task-difficulty-calibration.md",
+      "docs/reports/2026-10-15-calibration-continuation.md"
+    ],
+    "criteria_sha256": {
+      "calibration.json (amends_4, R55)": "9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46",
+      "calibration-continuation.json (R56)": "c6cfb85a9b21268fcffb32209fa45974ca139743c3cc1cdb0444d04e7c37efc9"
+    },
+    "rung_1": "single calls 149/164 (0.909), 148/164 (0.902), 154/164 (0.939), mean 150.33 (0.917), sample SD 3.2 node ids; reviews REQUEST_CHANGES with 1, 1, 1 blockers (mean 1.0); upstream anchor 164/164 and stub 1/164 (original anchor, continuation pool)",
+    "qualification": "rung 1 qualifies under the blocker-only rule (R55) through a post-data continuation the owner chose (R56); it never met the original Task 8 criterion 3149bc36, under which no rung qualified. Samples 1-2 ran at 2b9efd81 on 2026-10-14 and sample 3 on 2026-10-15.",
+    "data_use": "calibration and continuation runs are never pooled, measured or used as control data here (calibration-continuation.json data_use); their hidden fractions are cited as description only and do not fix the fresh control's value"
+  },
+  "threshold_choice": {
+    "chosen_by": "the coordinator, provisionally, at 2026-10-15T21:57:10Z (evidence eb3/coordinator-threshold-note.json), after an optional question to the owner went unanswered; it is not an explicit owner answer",
+    "rule": "one additional hidden node id on average (1/164) for design_review_execute.hidden_minus_control and reviewed_change.hidden_paired_gain_mean, with reviewed_change's no-negative-run rule kept",
+    "numeric": "written as >= 0.005. With exactly three valued runs per arm (nine designed runs, no replacement), arm means and mean differences are multiples of 1/492: one node on average is 3/492 = 0.0061 and the next lower value is 2/492 = 0.0041, so >= 0.005 admits exactly the results that 1/164 - 1e-12 (the note's tolerance) admits, and floating-point rounding (about 1e-16) cannot cross it. Fixed before any E-B3 run; never adjusted after results",
+    "owner_answer": "none recorded. An owner answer received before freeze replaces this choice and is recorded here with its timestamp and wording; it is not a precondition of freeze"
+  },
+  "primary": [
+    {
+      "measure": "design_review_execute.hidden_minus_control",
+      "op": ">=",
+      "value": 0.005
+    },
+    {
+      "measure": "design_review_execute.runs",
+      "op": ">=",
+      "value": 3
+    },
+    {
+      "measure": "direct_task.runs",
+      "op": ">=",
+      "value": 3
+    },
+    {
+      "measure": "reviewed_change.hidden_paired_gain_mean",
+      "op": ">=",
+      "value": 0.005
+    },
+    {
+      "measure": "reviewed_change.hidden_paired_gain_runs_negative",
+      "op": "<=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.runs",
+      "op": ">=",
+      "value": 3
+    }
+  ],
+  "secondary": [
+    {
+      "measure": "design_review_execute.minus_control",
+      "op": ">=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.paired_gain_mean",
+      "op": ">=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.hidden_minus_control",
+      "op": ">=",
+      "value": 0
+    }
+  ],
+  "claims": {
+    "design_review_execute": [
+      "design_review_execute.hidden_minus_control",
+      "design_review_execute.runs",
+      "direct_task.runs"
+    ],
+    "reviewed_change": [
+      "reviewed_change.hidden_paired_gain_mean",
+      "reviewed_change.hidden_paired_gain_runs_negative",
+      "reviewed_change.runs"
+    ]
+  },
+  "scale": "hidden: a node id passes iff pytest exits 0 within 1800 s, run alone in a copy of the clone (no .git) with hidden/ copied over it; a clone's value is its passed/164; a run's hidden value is its final clone's; reviewed_change's hidden paired gain is its final clone's fraction minus its first clone's (0 when the first and final patches are identical after D8 stripping). Failed and excluded runs have none. Judge score 0-8 as in E-A and E-B2.",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
+  "judge_bindings": {
+    "claude-opus-5-5": "experiments/compare/score.providers.json",
+    "gpt-6-sol": "experiments/compare/providers/score_codex.json"
+  },
+  "runs_per_arm": {
+    "design_review_execute": 3,
+    "reviewed_change": 3,
+    "direct_task": 3
+  },
+  "anchors": [
+    "cf1-generic-unions-upstream",
+    "cf1-generic-unions-stub"
+  ],
+  "anchor_roles": {
+    "cf1-generic-unions-upstream": "the repository's own change (c77e7ec0..1798fc70) restricted to orchestrator/, specs/ and workflows/ (R48): 45 files, sha256 4f74faa3c17edb0d788dc9f5130d96df5055b41268153553a81aff6924b48101. It keeps the main-branch runtime repair 5a02cb0f that merge df39415b brought into the range, because task.txt asks for 'the loop-exhaustion and checkpoint-restore repairs they depend on'; it drops the 53 docs, AGENTS.md and experiments/orc_vs_single_call files the original 98-file anchor carried",
+    "cf1-generic-unions-stub": "low anchor, byte-identical to the calibration package: GENERIC_UNION_MIN_TARGET_DSL_VERSION and a resolve_restore_source_node that returns None (passes 1/164, kept under R49)"
+  },
+  "package": {
+    "variant_of": "experiments/compare/tasks/cf1-generic-unions (sha256 23681b729c512c7589cc9a6f0a12e7be102d7928d8f7967d2e6ca87a20dcd728, never edited)",
+    "identical_files": "task.txt, intent.txt, base_commit, hidden_tests.txt (164 node ids), hidden/ and anchors/cf1-generic-unions-stub.diff are byte-identical to the calibration package (diff -r shows only the upstream anchor); neither package has seed/",
+    "changed_files": "anchors/cf1-generic-unions-upstream.diff only, rebuilt under R48",
+    "anchor_check": "before the freeze the rebuilt upstream anchor, applied alone at the base, passes 164/164 node ids run alone with the hidden_acceptance interpreter (evidence eb3/anchor-upstream-r48.json); fewer stops the experiment for design resolution, and the hidden set is never edited. The binding gate remains validity's per-batch upstream fraction of 1.0"
+  },
+  "guard_commit": "60775825ca0f4efaf5c0b8434efe410030f301ed",
+  "known_differences": [
+    "rung 1 qualified on review blockers only, through a post-data continuation (R56); hidden acceptance was descriptive in calibration. At the calibration single-call level (0.902-0.939) design_review_execute has an expected headroom of about 0.08 (13.7 node ids on average) over the control; the fresh control may differ. reviewed_change's paired gain is measured against its own first Sonnet patch, whose level the Codex calibration does not bound",
+    "design_review_execute's planner is claude-opus-5-5 (owner decision; no experiment call uses a Fable model); it is the same model as the Claude judge, whose view excludes the planner's documents (D8)",
+    "reviewed_change's coder is claude-sonnet-5-5 with 5400 s per call, the control is gpt-6.1-sol with 14400 s: reviewed_change.hidden_minus_control measures model and time limit as well as workflow, so it is secondary only; rung 1 is a larger change (45 runtime/spec/workflow files upstream) than E-B2's rung 3, so a Sonnet call may hit 5400 s, which is a failed run",
+    "judges: gpt-6-sol is reviewed_change's reviewer (R54) and shares the OpenAI family with design_review_execute's reviewer and executor and with the control; claude-opus-5-5 is design_review_execute's planner; judge scores bear only on secondary entries and the self-preference this allows is reported",
+    "model guard (new since calibration and E-B2): every agent and judge CLI runs with <tree>/.model-guard/claude first on PATH, which refuses a Fable --model or --fallback-model and adds --model claude-opus-5-5 to a claude call without one, and with CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 and CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1, which pin in-process Claude subagents; the scan reads every Claude session's answering model, and a Fable answer is a hit that cannot be cleared. The shared ~/.claude/settings.json default is claude-fable-5-1, so a nested claude call without a model that calibration's runs would have sent to claude-fable-5-1 now answers with claude-opus-5-5, and any guard bypass reaches claude-fable-5-1. Calibration rung 1 ran without the guard; the guard audit (eb3 evidence cites no-fable-experiments/fable-nested-audit.json) found no Fable session attributed to rung 1's runs or the continuation, within its coverage of session files under the run trees",
+    "runtime: the orchestrator, the arms' workflows, provider templates and score.orc are blob-identical to E-B2's e8882086 (and the orchestrator to calibration's 2b9efd81); only harness files (shim, model guard, scan, pool, prepare, summarize, README and their tests) differ, backported byte-identical from the reviewed guard commit. Current main's orchestrator is not what is measured",
+    "three runs per arm with run floors of three and no replacement: any failed or excluded run leaves that arm's claim not evaluated",
+    "the task text (about 3000 words) names the entry points, std/improve layout, example names and internal fields the hidden tests drive (R46)",
+    "the solution is public and present in the main checkout and sibling worktrees; detection by scan, adjudicated per run",
+    "design artifacts (docs/design/, artifacts/) are stripped from every pooled patch so judges cannot tell the arms apart (D8)",
+    "design_review_execute makes four calls (three of up to 3600 s before the 14400 s executor) and reviewed_change up to six calls of 5400 s, against the control's one; only the executor's limit is equalized; calls_mean and wall_clock_mean are reported",
+    "one hidden node id is 1/164 = 0.0061 of the scale; with three runs per arm an arm mean or a mean difference moves in steps of 1/492",
+    "agents run under bubblewrap with a private /tmp, /dev/shm and process list and an empty /var/tmp (R35, R45); home, other sessions' transcripts and the network stay reachable and are covered by the scan only",
+    "reviewed_change's first and final patches sit in different stage batches, so its judge paired_gain compares scores across batches",
+    "the stale editable install (unqualified import of orchestrator resolves to .worktrees/omp-i1-prerequisites) is recorded, as in the continuation; the executor is pinned by PYTHONPATH=<runtime> -P"
+  ],
+  "exclusions": "Exactly nine designed runs, records/<arm>/run-1..run-3 under work_root; no run is replaced, relaunched or added. A run is excluded when the controller adjudicates it contaminated (R20; scan hash 1798fc7034d38dc5938472a7cff883b8381703e4) or when it holds a Fable-model hit (scan or the attributed -tmp- sweep; never clearable), every verdict recorded before pool. Infrastructure failures (rate limit, usage limit, auth, CLI crash before agent output; R3) are resumed with resume.sh in the same directory, never relaunched. Every other failure, provider_timeout included, stays a failed run and is never pooled. Any excluded or failed run leaves its arm's claim not evaluated; if budget or quota stops the batch, the affected claims are 'not evaluated'.",
+  "fable_halt": "A Fable answer found at any time (watchdog tick, scan or sweep) stops new launches and resumes at once; it is recorded and investigated. Launches continue only if the recorded cause lies outside the frozen runtime and needs no runtime change; otherwise the experiment halts without a result. No call that could reach Fable is ever retried.",
+  "written_before_scoring": true,
+  "runtime": {
+    "path": "/home/ollie/eb3-runtime",
+    "commit": "6f43fae173b5b09374665fb17ae7a7c120514dee",
+    "why_one_checkout": "the scan's frozen-runtime pattern names this one path, and the checkout holds the package and its anchors"
+  },
+  "package_sha256": "5e2ef0a4aa54b1c9938b57ffc65d18f9099311af9c66567c4092402c605f0f80",
+  "package_sha256_method": "cd <runtime>/<task>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum",
+  "work_root": "/home/ollie/eb3-work",
+  "pool": "/home/ollie/eb3-work/pool",
+  "inputs": {
+    "design_review_execute": {
+      "planner_model": "claude-opus-5-5",
+      "reviewer_model": "gpt-6.1-sol"
+    },
+    "reviewed_change": "task, intent and repo from the package; models fixed by the workflow (coder claude-sonnet-5-5, reviewer gpt-6-sol)",
+    "direct_task": {
+      "model": "gpt-6.1-sol",
+      "effort": "high"
+    }
+  },
+  "model_policy": "No call in this experiment uses a Fable model (owner, 2026-10-15): arms, nested calls, in-process subagents, judges and every coordination, authoring and review subagent. Allowed Claude answering models: claude-opus-5-5 (planner, Claude judge, guard default, subagent pin) and claude-sonnet-5-5 (reviewed_change coder); OpenAI models gpt-6.1-sol and gpt-6-sol through Codex. The scan records Fable hits per run and judge. The controller's evidence-only census (eb3/model_census.py, standard library, reusing scan.claude_sessions and scan.answering_model) records answering-model counts per run tree and judge directory, metadata only. Its sweep lists -tmp- project sessions written in the batch window with session id, mtime, cwd and model counts only, and attributes one to a run only when its /tmp/<rel> cwd exists under exactly one E-B3 tree's tmp/ and not on the host /tmp; every other such session is reported unattributed (host sessions default to Fable, so they are expected and only counted). A session started by an absolute CLI path or a reset PATH outside /tmp and outside a tree is invisible to both scan and sweep",
+  "hidden_acceptance": "summarize.py --python /home/ollie/miniconda3/bin/python (the interpreter that gave the upstream anchor 164/164 and the stub 1/164 in calibration); one summarize over the final pool (all nine runs terminal and adjudicated, both judges terminal, verified and scanned) stands; no patch, hidden fraction or judge score is read before it; any later summarize is reported beside it and never replaces it.",
+  "reported": [
+    "design_review_execute.hidden_mean",
+    "reviewed_change.hidden_mean",
+    "direct_task.hidden_mean",
+    "reviewed_change.hidden_paired_gain_runs_positive",
+    "design_review_execute.calls_mean",
+    "reviewed_change.calls_mean",
+    "direct_task.calls_mean",
+    "design_review_execute.wall_clock_mean",
+    "reviewed_change.wall_clock_mean",
+    "direct_task.wall_clock_mean",
+    "per-run hidden node counts and failing node ids (results.json clones.<id>.hidden_failed), beside the calibration single-call spread (148-154, SD 3.2 node ids)",
+    "answering-model counts per run and judge from the census, the sweep's attributed and unattributed counts, and every scan hit with its verdict"
+  ],
+  "verdict_rules": "Each claim is judged separately. A claim is 'not evaluated' if any of its <arm>.runs entries is not met or not emitted; otherwise it holds iff all its other entries are met, and a measure summarize does not emit counts as not met. Secondary entries never change a verdict; a gain of exactly 0 is neither positive nor negative. A claim that holds is a directional observation on three runs per arm of one task, not a significance test or a population estimate.",
+  "validity": "Void unless: mapping.json's task is <runtime>/<task>; the package hash matches at runtime.commit; its judges equal `judges`; every batch carries exactly the `anchors` stems; mapping.json's runtime_commit and every pooled run's record.json runtime_commit equal runtime.commit (checked by the controller); mapping.json's runs are exactly records/<arm>/run-1..run-3 under work_root for the three arms; every pooled run's tree and every counted judge's directory holds .model-guard/claude byte-identical to <runtime>/experiments/compare/shim/model-guard; no pooled run and no counted judge has a Fable-model hit or an attributed Fable sweep session; and the upstream anchor's hidden fraction is 1.0 in every batch, checked before any other measure is read.",
+  "anchor_use": "Anchor judge scores and hidden fractions are reported; apart from the upstream validity check nothing is adjusted, excluded or re-scored because of them.",
+  "judge_rules": "Judge scores bear only on secondary entries, but summarize needs at least one judge to emit any measure (a run with no judge score has no value and is not counted in <arm>.runs). A judge is left out only by a contaminated scan verdict or a Fable-model hit recorded, with its reason, before summarize; with one left the report says so; with none, summarize refuses and both claims are not evaluated. A judge stopped by a provider failure is resumed (R38), never re-run.",
+  "threshold_provenance": "Chosen by the coordinator (threshold_choice) after rung 1's calibration numbers were known and before any E-B3 run. Rung 1's three single calls passed 149, 148 and 154 of 164 (mean 0.917). If the fresh control lands near that level, E-B2's design_review_execute threshold (+0.3) would need a treatment mean above 1.0, so it would be expected to fail unless the fresh control falls far below calibration; the one-node threshold keeps the DRE question answerable at the expected control level. reviewed_change's paired gain compares its final patch with its own first Sonnet patch, whose level is not calibrated, so no headroom is claimed for it; one node on average is used for it for symmetry, with no run negative. One node id is smaller than the calibration single calls' spread (range 6, sample SD 3.2 node ids), so a met claim says the observed means differ in the stated direction by at least one node on this task and these runs; it is not a power calculation, a significance test or an estimate for other tasks. Per-run values are reported beside the calibration spread.",
+  "decisions": {
+    "owner": "2026-10-15: no Fable model in any experiment call; design_review_execute planner claude-opus-5-5; 'continue the experiments' after the continuation qualified rung 1 (R56)",
+    "coordinator": "2026-10-15: rung 1 with E-B2's arms, bindings, judges and measures; three runs per arm, nine designed runs, no best_of_n, no replacement, infrastructure resumes only (continuing E-B2's owner-approved design under 'continue the experiments'); the one-node threshold (threshold_choice); runtime Option A (e8882086 + exact guard backport); the R48 package as a new directory"
+  }
+}
