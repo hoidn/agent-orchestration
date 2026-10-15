@@ -249,6 +249,33 @@ def test_kill_after_intent_before_launch_allocates_the_next_attempt_on_resume(tm
     assert len(shim_requests(tmp_path)) == 4
 
 
+@pytest.mark.parametrize("crash_in_window", [False, True], ids=["once", "crash-after-receipt"])
+def test_resume_proves_a_launched_attempt_not_dispatched_and_allocates_the_next(tmp_path, monkeypatch, crash_in_window) -> None:
+    """R5/R6: killed after `launching` while the CLI still sleeps before any store write. Resume stops the live group,
+    the adapter proves the predecessor head unchanged, the receipt records `not_dispatched`, the attempt closes `failed`
+    with its proof, and a2 runs as attempt 2. A resume that dies between that receipt write and the `failed` row is
+    finished by the next resume from the receipt alone."""
+    plan = {"claude": [{"mode": "success", "result": {"text": "d1"}}, {"mode": "timeout", "result": {}},
+                       {"mode": "success", "result": {"text": "d2"}}], "codex": PLAN["codex"]}
+    _install(tmp_path, monkeypatch, plan)
+    _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "launching", "STOP_TURN": "/ a2"}, "run", *fixture(tmp_path))
+    run_root, _a, _c, memo = memo_of(tmp_path)
+    (pending,) = memo.pending_starts.values()
+    assert _receipt(run_root, pending)["completion"] == "launching"
+    if crash_in_window:
+        _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "not_dispatched", "STOP_TURN": "/ a2"}, "resume", run_root.name)
+        assert set(memo_of(tmp_path)[3].pending_starts) == {pending.data["identity"]}
+    resumed = _cli(tmp_path, "resume", run_root.name)
+    assert resumed.returncode == 0, resumed.stderr
+    _r, _a, classes, after = memo_of(tmp_path)
+    assert turns(after, classes)["a2"]["attempt"] == 2 and _receipt(run_root, pending)["completion"] == "not_dispatched"
+    rows = [e.data for e in after.entries if e.data.get("identity") == pending.data["identity"] and e.data["record"] in {"started", "failed"}]
+    assert [r["record"] for r in rows] == ["started", "failed", "started"]
+    expected = "receipt records proven non-dispatch" if crash_in_window else "head unchanged, process group quiescent"
+    assert rows[1]["code"] == "provider_preparation_failed" and expected in rows[1]["exit_info"]["error"]
+    assert [r["tool"] for r in shim_requests(tmp_path)] == ["claude", "codex", "claude", "codex"]
+
+
 @pytest.mark.parametrize("record, turn", [("committed", "/ b1"), ("settled", "/ a2")])
 def test_kill_after_commit_or_settle_reconciles_without_native_append(tmp_path, monkeypatch, record, turn) -> None:
     _install(tmp_path, monkeypatch)

@@ -99,7 +99,9 @@ def classify_pending_turn(authority, node, identity, snapshot, workspace, resolv
     if receipt is not None and (receipt.turn, receipt.attempt, receipt.input_digest) != (
             identity, pending.data["attempt"], pending.data["input_digest"]):
         raise MemoError("memo_inconsistent", f"receipt of {identity} disagrees with its started reservation")
-    if receipt is None or receipt.completion in {"intent", "not_dispatched"}:
+    if receipt is not None and receipt.completion == "not_dispatched":
+        return PendingTurn("not_dispatched", receipt, None, "receipt records proven non-dispatch")
+    if receipt is None or receipt.completion == "intent":
         return PendingTurn("not_dispatched", receipt, None, "no child bound (no `launching` receipt)")
     first_turn = resolved.predecessor is None
     if receipt.completion == "abandoned":
