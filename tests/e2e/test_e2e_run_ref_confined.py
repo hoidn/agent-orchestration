@@ -377,7 +377,7 @@ def test_stopped_or_signalled_spawner_and_setsid_daemon_fail_the_attempt_with_an
     }
     daemon_holder_slot = members(daemon.cg / "holder") == daemon.recorded
     daemon_left = [pid for cgroup in daemon.cg.rglob("cgroup.procs") for pid in cgroup.read_text().split()
-                   if b"300" in Path(f"/proc/{pid}/cmdline").read_bytes()]
+                   if Path(f"/proc/{pid}/cmdline").read_bytes() == b"sleep\x00300\x00"]
 
     assert {
         "outcomes": {name: (r["outcome"], r.get("reason")) for name, r in outcomes.items()},
@@ -399,8 +399,11 @@ def test_stopped_or_signalled_spawner_and_setsid_daemon_fail_the_attempt_with_an
 def test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected(launch):
     holder = launch()
 
+    class HostReadBlocked(BaseException):
+        """Not an OSError, so the harness cannot class a blocked host open as a guest refusal."""
+
     def _hung(signum, frame):
-        raise TimeoutError("host result read blocked")
+        raise HostReadBlocked("host result read blocked")
 
     previous = signal.signal(signal.SIGALRM, _hung)
     signal.alarm(10)  # a blocking host open on the FIFO fails the test instead of hanging the suite

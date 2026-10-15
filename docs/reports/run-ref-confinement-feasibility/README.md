@@ -702,7 +702,7 @@ Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7,
 
 ### Commands
 
-- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `11 passed in 6.92s` (5 Task 1 tests and 6 new ones; fix round 1 added the FIFO result witness).
+- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `11 passed in 7.82s` (5 Task 1 tests and 6 new ones; fix round 1 added the FIFO result witness).
 - Without `ORCHESTRATE_E2E`: `11 skipped in 0.06s`. With `XDG_RUNTIME_DIR=/nonexistent DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`: all skipped, reason `user systemd manager unreachable` (`systemctl --user show -p Version` fails). The Task 1 tests share this skip.
 - A missing image record skips the holder tests. With `RUN_REF_REQUIRE_IMAGE=1` it fails them instead (`Failed: Task 1 image record ... absent`).
 - `pytest --collect-only -q tests/e2e/test_e2e_run_ref_confined.py` -> `11 tests collected`.
@@ -723,8 +723,8 @@ Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7,
 | `setsid` leaf: `kill 0` spares the spawner; leaf pid = ack (P4) | channels test | **PASS** | Probe leaf: `ack 3`, `leaf_nspid 3`, `pid 3`, `sid 3`, `pgid 3`, spawner pgid `1`. `kill 0` leaf: `ack 5`, stdout `5`, status `143` (killed its own group). The next leaf was acknowledged and the holder set was unchanged. |
 | Stopped spawner -> failed attempt, empty scope | `test_stopped_or_signalled_spawner_and_setsid_daemon_fail_the_attempt_with_an_empty_scope` | **PASS** | `kill -STOP $PPID`: `holder_death`, `no status line within the deadline` after 2.06 s; scope killed, `scope_populated false`. |
 | Signalled spawner | same | **PASS** | `kill -KILL $PPID`: `holder_death`, `control socket EOF` after 0.014 s; `bwrap` exited 137; scope empty. |
-| `setsid` daemon | same | **PASS (interpretation recorded)** | `setsid sleep 300 &`: status `0`, then outcome `lingering` (failed attempt: the leaf slot was still populated after its status line). It was killed in the leaf slot: no process with `300` in its cmdline remains anywhere in the scope, and the holder set is unchanged and quiescent. The scope empties at stop, which the fixture teardown asserts. The daemon is a failed attempt and not a holder death. |
-| Non-regular result entry refused without blocking (fix round 1) | `test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected` | **PASS** | The leaf runs `rm /result/fifo/stdout && mkfifo /result/fifo/stdout`. Host: `escape_rejected`, `result read refused: /result/fifo/stdout is not a regular file`, 0.065 s, scope empty. A 10 s `SIGALRM` guard turns a blocking open into a failure instead of a hang. |
+| `setsid` daemon | same | **PASS (interpretation recorded)** | `setsid sleep 300 &`: status `0`, then outcome `lingering` (failed attempt: the leaf slot was still populated after its status line). It was killed in the leaf slot: no process whose cmdline is exactly `sleep\0300\0` remains anywhere in the scope, and the holder set is unchanged and quiescent. The scope empties at stop, which the fixture teardown asserts. The daemon is a failed attempt and not a holder death. |
+| Non-regular result entry refused without blocking (fix round 1) | `test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected` | **PASS** | The leaf runs `rm /result/fifo/stdout && mkfifo /result/fifo/stdout`. Host: `escape_rejected`, `result read refused: /result/fifo/stdout is not a regular file`, 0.065 s, scope empty. A 10 s `SIGALRM` guard raises `HostReadBlocked`, a `BaseException` and not an `OSError`, so a blocking open crashes the test instead of hanging or being classed as a guest refusal. |
 | `/dev`, `/run` read-only; `/dev/shm` sized | channels test (scratch leaves) | **PASS** | `{"/dev/x": "EROFS", "/run/x": "EROFS", "/run/runref/x": "EROFS"}`; `/dev/shm` fill stopped at `8388608` bytes with `ENOSPC`. |
 | Earlier leaf's `/result` entry gone | same | **PASS** | `scratch-a` wrote `/result/scratch-b/forged`, `/result/scratch-a/extra`, `/tmp/left` and `/dev/shm/left`. `scratch-b` then saw `{"/result": ["scratch-b"], "/result/scratch-b": ["stderr", "stdout"], "/tmp": [], "/dev/shm": []}`. |
 | Host creates files in `/workspace` through `/proc/<holder>/root` | same | **PASS** | `openat(<workspace root fd>, "from-host", O_CREAT|O_EXCL|O_NOFOLLOW)`; the next leaf read `written through /proc/<holder>/root`. |
@@ -748,9 +748,10 @@ Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7,
 | M10 `TasksMax=1000` | limits | RED: 100 forks succeeded (no fork failure line) |
 | M11 `MemoryMax=1024M` | limits | RED: the 512 MiB allocation completed (status 0) |
 | M12 missing status treated as exit | spawner | RED: the stopped spawner became `exited`, scope still populated |
-| M13 blocking host read (no `O_NONBLOCK`, no `S_ISREG`) | FIFO result | RED: the host open blocked until the 10 s alarm (`10.01` s, reason `host result read blocked`) |
+| M13 blocking host read (no `O_NONBLOCK`, no `S_ISREG`) | FIFO result | RED (test error): the host open blocked until the 10 s alarm, which raised `HostReadBlocked: host result read blocked` |
 | M13b `O_NONBLOCK` without `S_ISREG` | FIFO result | RED: the FIFO read returned empty bytes and the leaf counted as `exited` |
 | M14 pinned tree digest differs | any holder test | RED: `sealed rootfs does not match the pinned tree digest` |
+| M15 lingering daemon left alive (leaf-slot kills and the post-leaf quiescence check removed) | spawner | RED: `daemon_left_in_scope ['1852146']`, `daemon_holder_quiescent False` (the exact matcher finds the live `sleep 300`) |
 
 "FIFO instead of socketpair" is not a cheap mutation of the protocol. The FIFO/pipe positive-control test is the evidence that a FIFO or pipe channel would be reopenable.
 
