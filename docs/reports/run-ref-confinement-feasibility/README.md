@@ -1181,6 +1181,21 @@ the real cause; there is no automatic reactivation. Local SDD
 `dbda33a8f9bed0fb49a5401b8575c1b41a00dcba30f75ee92d414e9552b80417`,
 and its adjacent evidence directory retain the exact invocation and result.
 
+
+The subsequent pinned-source disposition selected one offline control and one
+held-bundle comparison in isolated namespaces with fictitious business auth.
+The control received initialize at 605.808698 ms and finished at 1.121769382 s;
+the held-bundle owner exited at 20.354260842 s, before the 90-second deadline,
+without an initialize response. Both groups were observed empty; Holder/carrier
+were N/A. Two bundle requests and no unexpected endpoint were observed in the
+perturbation. This condition did not reproduce the 90-second symptom; it does
+not exclude cloud generally or identify the actual cause. No actual auth or
+inference was repeated. Local SDD `task-10-native-initialize-pair-report.md`
+has SHA-256 `666ec70360478a783e0e17bf9397b2ae0764238f0b505f31ff6c8c8fac829bad`.
+Its observation addendum distinguishes observed worker exits 0/3 from the outer
+runner exit, which was inferred rather than captured and remains UNKNOWN.
+
+
 ## Task 10: internal request authority (2026-10-15)
 
 Commit `9cd25356` adds the two parent-ledger facts for conservative request
@@ -1208,20 +1223,6 @@ secrets and installed pins before the first reservation. The private gateway,
 native owner containment, independent cancellation observer, real provider
 qualification and public integration remain pending. No global suite was
 rerun for this slice; the earlier broad RED classification remains.
-
-
-The subsequent pinned-source disposition selected one offline control and one
-held-bundle comparison in isolated namespaces with fictitious business auth.
-The control received initialize at 605.808698 ms and finished at 1.121769382 s;
-the held-bundle owner exited at 20.354260842 s, before the 90-second deadline,
-without an initialize response. Both groups were observed empty; Holder/carrier
-were N/A. Two bundle requests and no unexpected endpoint were observed in the
-perturbation. This condition did not reproduce the 90-second symptom; it does
-not exclude cloud generally or identify the actual cause. No actual auth or
-inference was repeated. Local SDD `task-10-native-initialize-pair-report.md`
-has SHA-256 `666ec70360478a783e0e17bf9397b2ae0764238f0b505f31ff6c8c8fac829bad`.
-Its observation addendum distinguishes observed worker exits 0/3 from the outer
-runner exit, which was inferred rather than captured and remains UNKNOWN.
 
 ## Task 10: private transport core (2026-10-15)
 
