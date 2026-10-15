@@ -65,6 +65,12 @@ F1-F4 are proved in Task 1; F5 and F6 are the acceptance of Tasks 7 and 8. A fak
 | C (complete author use case) | Public compile/run/interrupted-resume/completed-resume/report for serial generation, evaluation and typed selection with a real sandbox and a real tool-enabled provider | Pending / none |
 | D (release review) | Narrow and broad checks classified, final code plus security review PASS, contract review PASS, documentation accurate, explicit incremental commits | Pending / none |
 
+The F4 row preserves the historical 2026-10-14 result under P2's API-key-only
+selection. Missing API keys do not block the selected native-login investigation;
+[Task 10's follow-up](#task-10-provider-transport) records its current evidence
+and remaining qualification gates. The historical result is not a native-login
+qualification or current production admission.
+
 At execution, append evidence rows to `docs/reports/run-ref-confinement-feasibility/README.md` with task/gate, exact command, exit, tested commit, fixture/image digests, run id and reviewer disposition, and summarize them here. That committed report is the retention location: `artifacts/` is gitignored (`.gitignore:11`) and has no retention policy. Keep secrets out of logs. The design document must not become a task checklist or a run-status log.
 
 ## Task 0: Baseline and readiness
