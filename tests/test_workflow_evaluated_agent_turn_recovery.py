@@ -381,12 +381,30 @@ def test_completed_receipt_freezes_its_native_facts(tmp_path, field, value) -> N
 
 
 @pytest.mark.parametrize("field, value", [("adapter", "claude_stream_json_stdout"), ("locator", "00000000-0000-4000-8000-000000000000")])
-def test_replay_refuses_a_committed_proof_that_disagrees_with_its_receipt(tmp_path, monkeypatch, field, value) -> None:
-    """Task 10 review: replay checks the proof against the receipt it can see (tamper detection), without the template."""
+def test_replay_ignores_a_receipt_that_disagrees_with_a_committed_proof(tmp_path, monkeypatch, field, value) -> None:
+    """R8: a committed turn, settled or not, never consults its attempt receipt; the inline proof is sole authority."""
     _install(tmp_path, monkeypatch)
     assert _cli(tmp_path, "run", *fixture(tmp_path)).returncode == 0
     run_root, _a, classes, memo = memo_of(tmp_path)
     path = run_root / Path(turns(memo, classes)["b1"]["result_path"]).parent / "receipt.json"
     path.write_text(json.dumps({**json.loads(path.read_text()), field: value}))
+    resumed = _cli(tmp_path, "resume", run_root.name)
+    assert resumed.returncode == 0, resumed.stderr
+    assert len(shim_requests(tmp_path)) == 4
+
+
+@pytest.mark.parametrize("field, value", [("adapter", "unknown_native_store"), ("config_digest", "sha256:" + "1" * 64)])
+def test_replay_refuses_a_tampered_committed_proof(tmp_path, monkeypatch, field, value) -> None:
+    """The proof itself is still checked: an unknown store adapter (replay) or a config digest that disagrees with the
+    allocation (reducer) refuses `memo_inconsistent`."""
+    _install(tmp_path, monkeypatch)
+    assert _cli(tmp_path, "run", *fixture(tmp_path)).returncode == 0
+    run_root, _a, classes, memo = memo_of(tmp_path)
+    lines = (run_root / "memo.jsonl").read_bytes().splitlines(keepends=True)
+    index = next(n for n, line in enumerate(lines) if b'"record":"committed"' in line and turns(memo, classes)["b1"]["identity"].encode() in line)
+    row = json.loads(lines[index])
+    row["proof"][field] = value
+    lines[index] = json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    (run_root / "memo.jsonl").write_bytes(b"".join(lines))
     resumed = _cli(tmp_path, "resume", run_root.name)
     assert resumed.returncode == 2 and "memo_inconsistent" in resumed.stderr, resumed.stderr

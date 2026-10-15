@@ -407,30 +407,15 @@ def settle_turn(authority, resolved, identity, attempt, workspace, site_classes,
 
 
 def validate_turn(authority, resolved: ResolvedTurn, identity, commit, *, settled) -> None:
-    """Replay: the committed proof must agree with the resolved agent and its historical predecessor; no native read
-    and no current template (the proof's `adapter` is its own authority)."""
+    """Replay: the committed proof must agree with the resolved agent and its historical predecessor; no native read,
+    no current template (the proof's `adapter` is its own authority) and, settled or not, no attempt receipt (R8)."""
     proof = commit.data["proof"]
     expected = None if resolved.predecessor is None else resolved.predecessor.data["identity"]
     if (proof["agent"], proof["predecessor"], proof["config_digest"]) != (
             resolved.agent.identity, expected, resolved.agent.config_digest):
         raise MemoError("memo_inconsistent", f"agent turn proof of {identity} disagrees with its replayed agent or predecessor")
-    if _proof_contradicts_receipt(authority, commit):
-        raise MemoError("memo_inconsistent", f"agent turn proof of {identity} disagrees with its adapter or attempt receipt")
-
-
-def _proof_contradicts_receipt(authority, commit) -> bool:
-    """Tamper detection from facts replay can see: a known store adapter, and the attempt receipt when one is kept
-    (an operator may delete receipts of a completed run; the journal alone then stays authoritative)."""
-    proof = commit.data["proof"]
     if native_store_adapter(proof["adapter"]) is None:
-        return True
-    files = authority.run_files.subroot(Path(commit.data["result_path"]).parent)
-    try:
-        receipt = read_receipt(files)
-    finally:
-        files.close()
-    return receipt is not None and (receipt.adapter, receipt.locator, receipt.position_after, receipt.result_digest) != (
-        proof["adapter"], proof["locator"], proof["position"], commit.data["result_digest"])
+        raise MemoError("memo_inconsistent", f"agent turn proof of {identity} names an unknown native store adapter")
 
 
 def reconcile_turn(authority, resolved, identity, commit, site_classes) -> None:

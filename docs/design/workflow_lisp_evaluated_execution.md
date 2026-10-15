@@ -1678,8 +1678,11 @@ The range's `from_commit` names the chosen commit's immutable byte offset in
 range record and cancel precisely the commits active in that prefix whose
 offset is at or after the anchor. The record itself closes the range; later
 retry commits are not canceled by it. Validate that the anchor names an active
-commit and that its suffix contains no coordinator commit, or report
-`memo_inconsistent`. Derive the chosen identity and affected attempts from
+commit and that its suffix contains no coordinator commit and, at target
+2.38, no `agent_turn` attempt started at or after the anchor that is still
+pending or closed `failed` with a dispatched-failure code
+(`agent_bootstrap_restarted`, `agent_turn_result_invalid`,
+`provider_result_invalid`), or report `memo_inconsistent`. Derive the chosen identity and affected attempts from
 those records, without storing a second list or emitting per-effect records.
 
 One complete range record reopens the preceding terminal and changes every

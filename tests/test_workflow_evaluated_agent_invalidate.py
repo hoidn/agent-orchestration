@@ -126,18 +126,18 @@ def test_committed_turns_never_need_their_receipts_on_resume(tmp_path, monkeypat
     assert _cli(tmp_path, "run", *fixture(tmp_path)).returncode == 0
     run_root, *_ = memo_of(tmp_path)
     for receipt in run_root.rglob("receipt.json"):
-        receipt.unlink()                                # settled replay needs no receipt sidecar (the inline proof decides)
+        receipt.write_text("{garbage")                  # unreadable sidecars beside committed turns are ignored (R8)
     assert _cli(tmp_path, "resume", run_root.name).returncode == 0 and len(shim_requests(tmp_path)) == 4
 
 
 def test_pending_turn_after_a_kill_is_refused_by_preflight_and_the_row_would_not_reduce(tmp_path, monkeypatch) -> None:
     """NEW-I2 agreement proof: the preflight refuses; a forged `invalidated` row over the same journal is memo_inconsistent on read."""
-    from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT, _stopped
+    from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECORD, _stopped
     from orchestrator.workflow.evaluated.memo import MemoError, read_memo
     from orchestrator.workflow.evaluated.authority import load_run_authority
     from orchestrator.workflow.evaluated.machine import site_classes
     _install(tmp_path, monkeypatch)
-    _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "intent", "STOP_TURN": "/ a1"}, "run", *fixture(tmp_path))
+    _stopped(tmp_path, STOP_AFTER_RECORD, {"STOP_RECORD": "started", "STOP_TURN": "/ a1"}, "run", *fixture(tmp_path))
     run_root, _a, classes, memo = memo_of(tmp_path)
     assert next(iter(memo.pending_starts)).endswith("/ a1")       # no committed turn after the reviewer allocation
     before = _tree_bytes(run_root)
@@ -151,7 +151,7 @@ def test_pending_turn_after_a_kill_is_refused_by_preflight_and_the_row_would_not
     with pytest.raises(MemoError, match="memo_inconsistent"):
         read_memo(forged, site_classes(load_run_authority(run_root).program))
     forged.unlink()
-    # resume reconciles the pending designer turn (`intent` receipt: never dispatched -> closed failed -> next attempt)
+    # resume reconciles the pending designer turn (no attempt directory: never dispatched -> closed failed -> next attempt)
     assert _cli(tmp_path, "resume", run_root.name).returncode == 0
 
 
@@ -241,3 +241,57 @@ def test_resume_refuses_a_bootstrap_restart_without_its_abandoned_marker(tmp_pat
     resumed = _cli(tmp_path, "resume", run_root.name)
     assert resumed.returncode == 2 and "memo_inconsistent" in resumed.stderr
     assert _tree_bytes(run_root) == before
+
+
+# Hand-built journals for R7: only attempts started at or after the cut are affected (start order).
+def _journal_with_failed_turn(tmp_path, receipt_text: bytes, *tail_rows):
+    from dataclasses import asdict
+    from orchestrator.workflow.evaluated.agent_sessions import Receipt
+    from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+    from tests.test_workflow_evaluated_memo import _line, _started, _write
+    from tests.test_workflow_evaluated_memo_agent_classes import ALLOC, TURN, _alloc_commit
+    started = _started(TURN)
+    failed = {"record": "failed", "identity": TURN, "attempt": 1, "code": "provider_preparation_failed", "exit_info": {}}
+    raw = _write(tmp_path / "memo.jsonl", _started(ALLOC), _alloc_commit(), started, failed, *tail_rows)
+    directory = tmp_path / Path(started["result_path"]).parent
+    directory.mkdir(parents=True)
+    receipt = Receipt("run", ALLOC, TURN, 1, None, started["input_digest"], "claude_native_store", "sha256:" + "0" * 64,
+                      "fresh", None, None, None, None, None, "intent", None)
+    (directory / "receipt.json").write_bytes(canonical_json_bytes(asdict(receipt)) if receipt_text is None else receipt_text)
+    return raw, raw.index(_line(_alloc_commit())), WorkspaceFiles(tmp_path), _line
+
+
+def test_a_stale_allocation_identity_in_an_older_receipt_does_not_block_a_later_cut(tmp_path) -> None:
+    """T#1 fails with an `intent` receipt; invalidate at A; A re-committed as A#2; invalidating A#2 is allowed by both
+    the preflight and the reducer, although T#1's receipt names A (a stale identity, R7)."""
+    from orchestrator.workflow.evaluated.memo import invalidate_suffix, read_memo
+    from tests.test_workflow_evaluated_memo import _committed, _started
+    from tests.test_workflow_evaluated_memo_agent_classes import ALLOC, AGENT_VALUE, SITES
+    _raw, anchor, files, line = _journal_with_failed_turn(tmp_path, None)
+    path = tmp_path / "memo.jsonl"
+    assert invalidate_suffix(path, ALLOC, SITES, run_files=files)["from_commit"] == anchor
+    with path.open("ab") as stream:
+        stream.write(line(_started(ALLOC, 2)) + line(_committed(ALLOC, 2, value=AGENT_VALUE, effect_class="agent")))
+    invalidate_suffix(path, ALLOC, SITES, run_files=files)
+    assert ALLOC not in read_memo(path, SITES).active_commits
+
+
+def test_a_corrupt_receipt_on_an_older_failed_attempt_does_not_block_a_later_cut(tmp_path) -> None:
+    from orchestrator.workflow.evaluated.memo import invalidate_suffix, read_memo
+    from tests.test_workflow_evaluated_memo import _committed, _started
+    command = "workflow:demo::run / written"
+    _raw, _anchor, files, _line = _journal_with_failed_turn(tmp_path, b"{not json", _started(command), _committed(command))
+    from tests.test_workflow_evaluated_memo_agent_classes import SITES
+    sites = {**SITES, command: "command"}
+    invalidate_suffix(tmp_path / "memo.jsonl", command, sites, run_files=files)
+    assert command not in read_memo(tmp_path / "memo.jsonl", sites).active_commits
+
+
+def test_resume_never_consults_the_receipt_of_a_failed_attempt_with_a_non_dispatched_code(tmp_path) -> None:
+    from types import SimpleNamespace
+    from orchestrator.workflow.evaluated.agent_guards import validate_prefix_receipts
+    from orchestrator.workflow.evaluated.memo import read_memo
+    from tests.test_workflow_evaluated_memo_agent_classes import SITES
+    _raw, _anchor, files, _line = _journal_with_failed_turn(tmp_path, b"{not json")
+    validate_prefix_receipts(SimpleNamespace(run_files=files), read_memo(tmp_path / "memo.jsonl", SITES), SITES)

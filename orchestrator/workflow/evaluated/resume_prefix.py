@@ -12,7 +12,6 @@ import logging
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
 from . import agent_guards, effect_inputs
-from .machine import site_classes
 from .memo import MemoError, read_memo
 from .replay import discover_prefix
 
@@ -30,7 +29,7 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes, defer_parallel_fault=True)
     from .parallel import has_parallel
     if has_parallel(authority.program):
         from .run_ref import inventory_parallel_run_ref_recovery
@@ -45,7 +44,7 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     if not snapshot.entries:
         return frozenset()
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes, defer_parallel_fault=True)
     run_ref_obligations = []
     for reached in prefix.commits:
         if reached.node['class'] == 'run_ref' and (reached.identity, reached.commit.data['attempt']) not in snapshot.settlements:
@@ -58,12 +57,12 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     return frozenset(reached.identity for reached in prefix.frontiers)
 
 
-def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False):
+def _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes, *, defer_parallel_fault=False):
     for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
             launch_workspace=reached.launch_workspace)
-    agent_guards.validate_prefix_receipts(authority, snapshot, site_classes(authority.program))
+    agent_guards.validate_prefix_receipts(authority, snapshot, site_classes)
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)
     for reached in prefix.frontiers:
         effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,

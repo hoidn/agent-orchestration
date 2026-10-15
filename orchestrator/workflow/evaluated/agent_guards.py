@@ -16,37 +16,41 @@ from .agent_sessions import Receipt, read_receipt
 from .memo_reducer import MemoError, _DYNAMIC_INDEX
 from .memo_reducer_agents import DISPATCHED_FAILURE_CODES, check_invalidation_cut
 
-_UNDISPATCHED = {None, "intent", "not_dispatched"}            # receipt completion; None = no receipt
+_UNDISPATCHED = {"intent", "not_dispatched"}
 _AFTER_DISPATCH = {"abandoned", "completed", "unknown"}
 
 
 def check_invalidation_suffix(snapshot, chosen, run_files, site_classes) -> None:
     """Refuse a cut at `chosen` over agent attempt history before any write (C8, Agent Sessions).
 
-    Raises `invalidate_agent_session_advanced` for an attempt that is pending, dispatched, advanced or of uncertain
-    outcome, and `memo_inconsistent` for an unreadable required receipt.
+    Only attempts started at or after the cut are affected (start order). An attempt started before the cut cannot
+    depend on the suffix: the reducer requires an active allocation before a turn starts (`check_started`) and an
+    active predecessor before it commits (`check_committed_proof`), so its real allocation and predecessor precede the
+    cut; a receipt naming a later re-commit of the same identity is stale (R7). Raises
+    `invalidate_agent_session_advanced` for a pending, dispatched, advanced or uncertain attempt in the suffix, and
+    `memo_inconsistent` for an unreadable required receipt: that of an attempt in the suffix closed `failed` with a
+    non-dispatched code.
     """
     cut = chosen.offset
     journal = SimpleNamespace(entries=snapshot.entries, site_class=lambda identity: _site_class(site_classes, identity),
                               inconsistent=_advanced_by_journal)
     check_invalidation_cut(journal, cut)        # the reducer's own rule: pending or dispatched-failure starts at/after the cut
-    suffix = {identity for identity, commit in snapshot.active_commits.items() if commit.offset >= cut}
     for entry, closing in _uncommitted_agent_attempts(snapshot, site_classes):
-        row = entry.data
+        if entry.offset < cut:
+            continue
+        row = entry.data                        # closed `failed` with a non-dispatched code: the journal rule passed
         receipt = _receipt(run_files, row)
-        completion = None if receipt is None else receipt.completion
-        if entry.offset >= cut and completion not in _UNDISPATCHED:
-            # closed `failed` with a non-dispatched code (the journal rule passed) yet launched: uncertain
+        if receipt is not None and receipt.completion not in _UNDISPATCHED:
             raise MemoError("invalidate_agent_session_advanced", f"agent turn {row['identity']} #{row['attempt']} failed "
-                            f"({closing['code']}) after launch; its receipt records {completion}")
-        if entry.offset < cut and completion not in {None, "not_dispatched"} and {receipt.agent, receipt.predecessor} & suffix:
-            raise MemoError("invalidate_agent_session_advanced", f"agent turn {row['identity']} #{row['attempt']} "
-                            f"depends on the cancelled suffix and its receipt records {completion}")
+                            f"({closing['code']}) after launch; its receipt records {receipt.completion}")
 
 
 def validate_prefix_receipts(authority, snapshot, site_classes) -> None:
-    """At resume, receipts of uncommitted agent attempts must agree with the journal (`memo_inconsistent`)."""
+    """At resume, receipts of pending and dispatched-failure agent attempts must agree with the journal
+    (`memo_inconsistent`); a failed attempt with a non-dispatched code is never consulted."""
     for entry, closing in _uncommitted_agent_attempts(snapshot, site_classes):
+        if closing is not None and closing["code"] not in DISPATCHED_FAILURE_CODES:
+            continue
         row = entry.data
         problem = _receipt_disagreement(authority.run_files, row, closing, _receipt(authority.run_files, row))
         if problem is not None:

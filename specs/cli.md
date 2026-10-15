@@ -338,9 +338,13 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `invalidate_coordinator_committed`; a suffix (by journal order of starts,
   including abandoned bootstrap attempts) containing an agent turn attempt that
   was dispatched, advanced its native session or is of uncertain outcome
-  refuses `invalidate_agent_session_advanced`; an unreadable required receipt
-  is `memo_inconsistent`; unused allocations and proven-undispatched attempts
-  invalidate normally. All checks precede tail repair or any write. A
+  refuses `invalidate_agent_session_advanced`. A pending agent attempt in the
+  suffix always refuses (resume first, so it is reconciled or bootstrapped).
+  Only attempts started at or after the chosen commit are affected; the
+  receipts required are those of such attempts closed `failed` with a
+  non-dispatched code, and one that is unreadable is `memo_inconsistent`;
+  unused allocations and proven-undispatched attempts invalidate normally.
+  All checks precede tail repair or any write. A
   journal or view failure after the checks (`memo_*`, `view_write_failed`)
   also exits `2`; after `view_write_failed` the range record is already
   durable, which is the lost-acknowledgment case above. Invalidation cancels
