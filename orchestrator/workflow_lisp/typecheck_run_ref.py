@@ -1061,8 +1061,13 @@ def _callees(body, program):
             yield "procedure", node.target_name
 
 
-def _reachable(roots, program):
-    """Yield (effect summary, typed body) of every callable reachable from `roots`."""
+def _reachable(roots, program, *, strict: bool = True):
+    """Yield (effect summary, typed body) of every callable reachable from `roots`.
+
+    `strict` refuses an unresolved workflow callee; otherwise it is skipped,
+    because only workflow-bundle and lookup-alias callees resolve outside the
+    program's workflow and imported-program tables.
+    """
 
     pending, seen = list(roots), set()
     while pending:
@@ -1075,7 +1080,9 @@ def _reachable(roots, program):
         imported = program.imported_programs.get(callee) if kind == "workflow" else None
         if definition is None and imported is not None:
             # A call by import alias runs that compiled program's entry.
-            yield from _reachable([("workflow", imported.entry.definition.name)], imported)
+            yield from _reachable([("workflow", imported.entry.definition.name)], imported, strict=strict)
+            continue
+        if definition is None and not strict and kind == "workflow":
             continue
         if definition is None:
             raise TypecheckSessionStateCollisionError(
@@ -1094,6 +1101,16 @@ def _is_confined_site(node) -> bool:
     return isinstance(node, RunRefExpr) and isinstance(node.program, RunRefWorkflowProgram)
 
 
+def _contains_confined_site(program) -> bool:
+    """Whether a confined site exists in the program or any program it imports."""
+
+    return any(
+        _is_confined_site(node)
+        for definition in (*program.workflows.values(), *program.procedures.values())
+        for node in walk_expr(_typed_body(definition))
+    ) or any(_contains_confined_site(imported) for imported in program.imported_programs.values())
+
+
 def _map_frame_body(node):
     """Return the body of a `list/map-effect` frame, serial or parallel, else None."""
 
@@ -1109,7 +1126,7 @@ def _map_frame_body(node):
 def _refuse_confined_site_in_map_frame(body, program) -> None:
     """Ruling P12: no confined site in a `list/map-effect` body, directly or through calls."""
 
-    bodies = (body, *(reached for _, reached in _reachable(_callees(body, program), program)))
+    bodies = (body, *(reached for _, reached in _reachable(_callees(body, program), program, strict=False)))
     site = next((node for row in bodies for node in walk_expr(row) if _is_confined_site(node)), None)
     if site is not None:
         raise_error(
@@ -1146,6 +1163,8 @@ def refuse_unsupported_confined_children(program) -> None:
     calls and procedure-reference hooks transitively, local and imported.
     """
 
+    if not _contains_confined_site(program):
+        return
     for definition in (*program.workflows.values(), *program.procedures.values()):
         for site in walk_expr(_typed_body(definition)):
             frame_body = _map_frame_body(site)

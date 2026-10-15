@@ -895,3 +895,76 @@ def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_p
                                    "(call onep :seed x :revision revision)))) 1)")
 
     assert len(_built(typed).sites) == 1
+
+
+# Fix round 2: the map placement walk runs only for programs with confined
+# sites, follows imported programs, and skips callees resolved elsewhere.
+
+PRODUCER_238 = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+  (defmodule producer) (export get)
+  (defworkflow leaf ((n Int)) -> Int (+ n 1))
+  (defworkflow get ((n Int)) -> Int
+    (let* ((child (run-ref :source (:repo "file:///srv/p.git" :commit "{"a" * 40}")
+                    :program (:workflow leaf) :inputs (:n n) :policy {POLICY.replace(":model-only", ":none")})))
+      (match child ((COMPLETED c) c.result.value) ((FAILED f) 0)))))'''
+PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+  (defmodule producer) (export get)
+  (defworkflow get ((n Int)) -> Int (+ n 1)))'''
+MAP_DEP = "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 (call dep :n x)))) 1)"
+
+
+def _bundle_build(tmp_path, producer: str, body: str):
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "producer.orc").write_text(producer)
+    (tmp_path / "imports.json").write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc"}}))
+    (tmp_path / "consumer.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+      (defmodule consumer) (export run)
+      (defworkflow run () -> Int BODY))'''.replace("BODY", body))
+    return build_closed_program_bundle(FrontendBuildRequest(
+        source_path=tmp_path / "consumer.orc", entry_workflow="run", workspace_root=tmp_path,
+        source_roots=(tmp_path,), imported_workflow_bundles_path=tmp_path / "imports.json"))
+
+
+def test_confined_site_in_an_imported_program_under_a_map_body_is_refused(tmp_path):
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _bundle_build(tmp_path, PRODUCER_238, MAP_DEP)
+
+    assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
+
+
+def test_confined_site_in_an_imported_program_called_directly_compiles(tmp_path):
+    built = _bundle_build(tmp_path, PRODUCER_238, "(call dep :n 1)")
+
+    assert len(built.program.tree["children"]) == 1
+
+
+def test_map_body_calling_an_imported_bundle_compiles_as_before(tmp_path):
+    built = _bundle_build(tmp_path, PLAIN_PRODUCER, MAP_DEP)
+
+    assert ("children" in built.program.tree, len(built.program.sites)) == (False, 0)
+
+
+def _with_imports(typed, **imported_programs):
+    # As for a workflow-bundle or lookup-alias callee: `dep` is in neither table.
+    return replace(typed, imported_programs=imported_programs)
+
+
+def test_map_walk_never_runs_for_a_program_without_confined_sites(tmp_path):
+    from orchestrator.workflow_lisp.typecheck_run_ref import refuse_unsupported_confined_children
+
+    typed = _bundle_build(tmp_path, PLAIN_PRODUCER, MAP_DEP).typed_program
+
+    assert refuse_unsupported_confined_children(_with_imports(typed)) is None
+
+
+def test_map_walk_skips_callees_resolved_outside_the_program_tables(tmp_path):
+    from orchestrator.workflow_lisp.typecheck_run_ref import refuse_unsupported_confined_children
+
+    typed = _bundle_build(tmp_path / "map", PLAIN_PRODUCER, MAP_DEP).typed_program
+    confined = _bundle_build(tmp_path / "confined", PRODUCER_238, "(call dep :n 1)").typed_program
+
+    assert refuse_unsupported_confined_children(
+        _with_imports(typed, other=confined.imported_programs["dep"])) is None
