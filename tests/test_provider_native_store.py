@@ -225,3 +225,58 @@ def test_locate_rejects_a_locator_that_is_not_a_plain_id(tmp_path, monkeypatch, 
     (tmp_path / store).mkdir()
     with pytest.raises(NativeStoreError):
         native_store_adapter(mode).locate(locator)
+
+
+# --- Claude final message split across content-block rows (observed with CLI 2.1.300) ---------------------------------
+
+def _split_final(rows, prompt_id: str):
+    """Rewrite one turn's final as the observed split: a thinking row then a text row, same message.id, chained."""
+    index = next(i for i, row in enumerate(rows) if row["uuid"] == f"assistant-{prompt_id}")
+    text = rows[index]
+    thinking = {**text, "uuid": f"thinking-{prompt_id}",
+                "message": {**text["message"], "id": f"msg-{prompt_id}", "content": [{"type": "thinking", "thinking": ""}]}}
+    text["message"]["id"] = f"msg-{prompt_id}"
+    text["parentUuid"] = thinking["uuid"]
+    return rows[:index] + [thinking] + rows[index:]
+
+
+def test_claude_split_final_binds_its_last_row(tmp_path) -> None:
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, _split_final(_claude_rows([("p1", "m1", True)]), "p1"))
+    turn = native_store_adapter("claude_stream_json_stdout").completed_turn(path, after=None, prompt_marker="m1")
+    assert (turn.position, turn.user_line) == (NativePosition("p1", 3), 1)
+
+
+def test_claude_sequential_turns_after_a_split_final_bind_in_order(tmp_path) -> None:
+    adapter = native_store_adapter("claude_stream_json_stdout")
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    turns = [("p1", "m1", True), ("p2", "m2", True), ("p3", "m3", True)]
+    bound, after = [], None
+    for count in (1, 2, 3):
+        _jsonl(path, _split_final(_claude_rows(turns[:count]), "p1"))
+        turn = adapter.completed_turn(path, after=after, prompt_marker=f"m{count}")
+        bound.append((turn.position, turn.user_line))
+        after = turn.position
+    assert bound == [(NativePosition("p1", 3), 1), (NativePosition("p2", 5), 4), (NativePosition("p3", 7), 6)]
+
+
+def test_claude_two_distinct_final_messages_in_one_turn_stay_unbound(tmp_path) -> None:
+    rows = _claude_rows([("p1", "m1", True)])
+    rows[-1]["message"]["id"] = "msg-a"
+    rows.append({**rows[-1], "uuid": "assistant-b", "parentUuid": "assistant-p1",
+                 "message": {**rows[-1]["message"], "id": "msg-b"}})
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, rows)
+    assert native_store_adapter("claude_stream_json_stdout").completed_turn(path, after=None, prompt_marker="m1") is None
+
+
+@pytest.mark.parametrize("field", ["stop_reason", "promptId"])
+def test_claude_inconsistent_split_message_is_rejected(tmp_path, field) -> None:
+    rows = _split_final(_claude_rows([("p1", "m1", True)]), "p1")
+    if field == "stop_reason":
+        rows[1]["message"]["stop_reason"] = None
+    else:
+        del rows[1]["promptId"]
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, rows)
+    assert native_store_adapter("claude_stream_json_stdout").completed_turn(path, after=None, prompt_marker="m1") is None

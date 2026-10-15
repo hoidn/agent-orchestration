@@ -326,6 +326,37 @@ def _claude_is_final(row: dict[str, Any]) -> bool:
     return row.get("type") == "user" and row.get("toolEndsTurn") is True
 
 
+def _claude_message_id(row: dict[str, Any]) -> Any:
+    return row["message"].get("id") if row.get("type") == "assistant" else None
+
+
+def _claude_split_message_ok(rows: Records) -> bool:
+    """Rows of one assistant message agree on `stop_reason` and `promptId`, each the parent of the next."""
+    first = rows[0][1]
+    return all(
+        row["message"].get("stop_reason") == first["message"].get("stop_reason")
+        and row.get("promptId") == first.get("promptId") and row.get("parentUuid") == previous["uuid"]
+        for (_line, previous), (_next_line, row) in zip(rows, rows[1:])
+    )
+
+
+def _claude_logical_finals(turn: Records) -> Records | None:
+    """Final rows, one per logical message; None when a final message split across rows is inconsistent.
+
+    The CLI writes one row per content block of an assistant message (same `message.id`, observed with
+    2.1.300 when a thinking block precedes the text); such a message ends at its last row.
+    """
+    groups: dict[str, Records] = {}
+    for line, row in turn:
+        if _identity(_claude_message_id(row)):
+            groups.setdefault(row["message"]["id"], []).append((line, row))
+    final_groups = [rows for rows in groups.values() if any(_claude_is_final(row) for _line, row in rows)]
+    if not all(_claude_split_message_ok(rows) for rows in final_groups):
+        return None
+    singles = [(line, row) for line, row in turn if _claude_is_final(row) and not _identity(_claude_message_id(row))]
+    return singles + [rows[-1] for rows in final_groups]
+
+
 def _claude_next_parent(turn: Records, final_line: int, final_row: dict[str, Any], session_id: str, *, is_last: bool) -> str | None:
     """The id the next submitted turn must descend from: the final, or its one resume-padding row (never on the last turn)."""
     trailing = [row for line, row in turn if line > final_line]
@@ -340,8 +371,8 @@ def _claude_turn_final(turn: Records, submitted: dict[str, Any], by_id, session_
     """(final line, id the next submitted turn must descend from) for a complete turn, else None."""
     if not all(_claude_row_in_lineage(line, row, submitted, by_id, session_id) for line, row in turn):
         return None
-    finals = [(line, row) for line, row in turn if _claude_is_final(row)]
-    if len(finals) != 1:
+    finals = _claude_logical_finals(turn)
+    if finals is None or len(finals) != 1:
         return None
     final_line, final_row = finals[0]
     if final_row.get("type") == "user" and _claude_structured_result(final_line, final_row, by_id) is None:

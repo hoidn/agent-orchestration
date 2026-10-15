@@ -100,9 +100,14 @@ def turn(prompt_id, text, complete):
     rows.append({"type": "user", "uuid": user_id, "parentUuid": parent, "sessionId": session, "promptId": prompt_id,
                  "isSidechain": False, "message": {"role": "user", "content": text}})
     if complete:
-        final_id = str(uuid.uuid4())
-        rows.append({"type": "assistant", "uuid": final_id, "parentUuid": user_id, "sessionId": session, "promptId": prompt_id,
-                     "isSidechain": False, "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}})
+        # The real CLI (2.1.300) writes one row per content block of a message, same message.id, each the parent
+        # of the next; the file's first turn mirrors that split (thinking + text), later turns are one text row.
+        message_id, final_id = "msg_" + uuid.uuid4().hex, user_id
+        blocks = ([{"type": "thinking", "thinking": ""}] if parent is None else []) + [{"type": "text", "text": "ok"}]
+        for block in blocks:
+            row_parent, final_id = final_id, str(uuid.uuid4())
+            rows.append({"type": "assistant", "uuid": final_id, "parentUuid": row_parent, "sessionId": session, "promptId": prompt_id,
+                         "isSidechain": False, "message": {"id": message_id, "role": "assistant", "stop_reason": "end_turn", "content": [block]}})
         parent = final_id
 if mode == "overlap":
     turn(str(uuid.uuid4()), "external operator turn", True)
