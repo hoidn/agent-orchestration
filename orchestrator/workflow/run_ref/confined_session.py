@@ -12,12 +12,14 @@ through. Per child attempt (design R3, N4, N5, N9, P5, P29):
 * after every leaf that quiesced by exiting, the tmpfs is checkpointed onto the
   clone by the same helper under the two-phase header, before the memo commit;
   never after a timeout, wall exhaustion, a lingering leaf or a holder death.
-* a checkpoint failure under the live controller re-freezes the partial clone,
-  publishes `committed` and then ends the child like a holder death, keeping
+* a checkpoint failure under the live controller stops the scope, re-freezes the
+  partial clone and publishes `committed`, ending the child like a holder death, keeping
   `run_ref_environment_escape_rejected` when the copier refused.
-* `:wall-seconds` is cumulative: holder launch (with the image rehash), seeding,
-  each attempt snapshot copy, each leaf with its result import and each
-  checkpoint are charged; each leaf's timeout is clamped to what remains.
+* one monotonic wall clock starts before admission and ends after holder stop:
+  admission/provisioning, snapshot copies, pure evaluation, launch/rehash, seeding,
+  leaves/result import, checkpoints and shutdown all consume the same allowance;
+  each helper/leaf timeout is clamped to what remains. Witness validation and
+  parent settlement remain outside the child execution accounting.
   Exhaustion fails the attempt with `run_ref_budget_exhausted`.
 
 A failure ends the session: later leaves are refused with the same code. A launch
@@ -31,8 +33,7 @@ session must be driven from the thread that runs the child (the evaluated runtim
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 import json
 import os
@@ -99,7 +100,7 @@ class ConfinedChildSession:
     """The holder, budget and attempt snapshots of one confined child attempt (`LeafRunner`)."""
 
     def __init__(self, admission: Any, provisioned: Any, *, holder_factory: Callable[..., Any] | None = None,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic, started_at: float | None = None) -> None:
         from orchestrator.workflow.workspace_files import WorkspaceFiles
         from .evaluated_child import SNAPSHOTS_DIRNAME
 
@@ -115,7 +116,11 @@ class ConfinedChildSession:
                            for entry in os.scandir(self.snapshots.root_fd))
         self._holder_factory, self._clock = holder_factory or Holder, clock
         self.holder: Any = None
-        self.host_seconds = self.guest_seconds = 0.0
+        self.host_seconds = 0.0
+        self.guest_seconds = 0.0
+        self._wall_started = self._clock() if started_at is None else started_at
+        self._finished_at: float | None = None
+        self._stop_record: dict[str, Any] | None = None
         self.failure: tuple[str, str] | None = None
         self.prerelease_error: RunRefRuntimeError | None = None
         self._clone_fd: int | None = None
@@ -123,19 +128,22 @@ class ConfinedChildSession:
     # -- budget (R3) -------------------------------------------------------------------------------
     @property
     def charged_seconds(self) -> float:
-        return self.host_seconds + self.guest_seconds
+        end = self._clock() if self._finished_at is None else self._finished_at
+        return end - self._wall_started
 
     @property
     def remaining(self) -> float:
         return self.budget - self.charged_seconds
 
-    @contextmanager
-    def _host(self) -> Iterator[None]:
-        started = self._clock()
-        try:
-            yield
-        finally:
-            self.host_seconds += self._clock() - started
+    def _require_wall_budget(self) -> None:
+        if self.remaining > 0:
+            return
+        code, detail = BUDGET_EXHAUSTED, "child wall budget is exhausted"
+        if self.holder is None:
+            self.prerelease_error = RunRefRuntimeError(code, detail)
+        else:
+            self._fail(code, detail)
+        raise _performer_error(code, detail)
 
     def _fail(self, code: str, detail: str) -> tuple[str, str]:
         """End the session like a holder death: no later leaf, the holder stopped now."""
@@ -149,17 +157,19 @@ class ConfinedChildSession:
         return self.failure
 
     # -- evaluated child runtime interface ---------------------------------------------------------
-    def clone_input_parts(self, node: Mapping[str, Any], launch_cwd: Path | None) -> dict[str, str]:
+    def clone_input_parts(self, node: Mapping[str, Any], launch_cwd: Path | None, operands=()) -> dict[str, str]:
         """Bind and store the clone files the command names (D5); charged to the wall budget."""
         from orchestrator.workflow.evaluated.confined_dispatch import (
-            GUEST_WORKSPACE, bind_clone_inputs, command_clone_rows, guest_cwd, store_attempt_snapshot,
+            GUEST_WORKSPACE, bind_clone_inputs, command_clone_rows, document_clone_rows, guest_cwd, store_attempt_snapshot,
         )
 
+        self._require_wall_budget()
         cwd = guest_cwd(self.layout.workspace, launch_cwd).removeprefix(GUEST_WORKSPACE).lstrip("/") or "."
-        with self._host():
-            allowance = EVIDENCE_ALLOWANCE_BYTES - self._stored
-            binding = bind_clone_inputs(command_clone_rows(node, cwd), self.clone_files, max_bytes=allowance)
-            self._stored += store_attempt_snapshot(self.snapshots, binding.blobs, allowance_bytes=allowance)
+        allowance = EVIDENCE_ALLOWANCE_BYTES - self._stored
+        document_rows = document_clone_rows(node, operands, self.clone_files)
+        rows = [*command_clone_rows(node, cwd), *document_rows]
+        binding = bind_clone_inputs(rows, self.clone_files, max_bytes=allowance, directory_rows=document_rows)
+        self._stored += store_attempt_snapshot(self.snapshots, binding.blobs, allowance_bytes=allowance)
         return binding.parts
 
     def verified_parts(self, input_parts: Mapping[str, str]) -> dict[str, str]:
@@ -181,29 +191,30 @@ class ConfinedChildSession:
             raise RunRefRuntimeError(*self.failure)
         if self.holder is not None:
             return
-        with self._host():
-            self._clone_fd = os.open(self.layout.workspace, _DIRECTORY)
-            try:
-                preflight_checkpoint(self.header_path, self._clone_fd)
-            except RunRefCheckpointError as exc:
-                self.prerelease_error = RunRefRuntimeError(exc.code, f"clone_checkpoint_refused:{exc.detail}")
-                raise self.prerelease_error from exc
-            control = self.layout.child_root / HOLDER_DIRNAME
-            control.mkdir(mode=0o700, exist_ok=True)
-            git_fd = os.open(self.layout.workspace / ".git", _DIRECTORY)
-            try:
-                holder = self._holder_factory(self.image, self.limits, control_dir=control, git_dir_fd=git_fd)
-                holder.launch()
-            except RunRefRuntimeError as exc:
-                if exc.code == UNAVAILABLE:
-                    self.prerelease_error = exc
-                else:
-                    self.failure = (exc.code, exc.detail)
-                raise
-            finally:
-                os.close(git_fd)
-            self.holder = holder
-            seeded = self._helper("seed", str(self.limits["workspace-mib"] << 20))
+        self._require_wall_budget()
+        self._clone_fd = os.open(self.layout.workspace, _DIRECTORY)
+        try:
+            preflight_checkpoint(self.header_path, self._clone_fd)
+        except RunRefCheckpointError as exc:
+            self.prerelease_error = RunRefRuntimeError(exc.code, f"clone_checkpoint_refused:{exc.detail}")
+            raise self.prerelease_error from exc
+        self._require_wall_budget()
+        control = self.layout.child_root / HOLDER_DIRNAME
+        control.mkdir(mode=0o700, exist_ok=True)
+        git_fd = os.open(self.layout.workspace / ".git", _DIRECTORY)
+        try:
+            holder = self._holder_factory(self.image, self.limits, control_dir=control, git_dir_fd=git_fd)
+            holder.launch()
+        except RunRefRuntimeError as exc:
+            if exc.code == UNAVAILABLE:
+                self.prerelease_error = exc
+            else:
+                self.failure = (exc.code, exc.detail)
+            raise
+        finally:
+            os.close(git_fd)
+        self.holder = holder
+        seeded = self._helper("seed", str(self.limits["workspace-mib"] << 20))
         if seeded is not None:
             raise RunRefRuntimeError(*self._fail(*seeded))
 
@@ -237,7 +248,6 @@ class ConfinedChildSession:
         spent = self._clock() - started
         guest = min(spent, outcome.duration_ms / 1000)
         self.guest_seconds += guest
-        self.host_seconds += spent - guest  # quiescence, attribute checks and the result import
         if outcome.holder_death is not None:
             self._fail(outcome.holder_death.code, outcome.holder_death.detail)
             return outcome
@@ -252,33 +262,42 @@ class ConfinedChildSession:
 
     def _checkpoint(self, leaf_id: str) -> None:
         effect, _, ordinal = leaf_id.rpartition("-attempt-")
-        with self._host():
-            failed = self._helper("checkpoint", str(self.header_path), effect, ordinal,
-                                  str(self.limits["workspace-mib"] << 20))
-            if failed is None:
-                return
-            try:  # N5/P5: re-freeze the partial clone and publish `committed` before ending the child
-                preflight_checkpoint(self.header_path, self._clone_fd)
-            except (RunRefCheckpointError, OSError) as exc:
-                failed = (failed[0], f"{failed[1]}; re-freeze failed: {exc}")
-        raise _performer_error(*self._fail(*failed))
+        failed = self._helper("checkpoint", str(self.header_path), effect, ordinal,
+                              str(self.limits["workspace-mib"] << 20))
+        if failed is None:
+            return
+        failed = self._fail(*failed)  # N5: stop the scope before reading the partial clone
+        try:  # P5: retain the copier's refusal while publishing the repaired checkpoint
+            preflight_checkpoint(self.header_path, self._clone_fd)
+        except (RunRefCheckpointError, OSError) as exc:
+            self.failure = (failed[0], f"{failed[1]}; re-freeze failed: {exc}")
+        raise _performer_error(*self.failure)
+
+    def finish(self) -> None:
+        """Quiesce before the completed memo terminal, including shutdown in the wall limit."""
+        self.stop()
+        self._require_wall_budget()
 
     def stop(self) -> dict[str, Any]:
-        """Stop the holder at the child terminal; record and return the budget split."""
+        """Stop once and freeze the wall/guest split; all remaining elapsed time is host work."""
+        if self._stop_record is not None:
+            return self._stop_record
         try:
             if self.holder is not None:
-                with self._host():
-                    self.holder.stop()
+                self.holder.stop()
         finally:
             if self._clone_fd is not None:
                 os.close(self._clone_fd)
                 self._clone_fd = None
             self.snapshots.close()
             self.clone_files.close()
+        self._finished_at = self._clock()
+        self.host_seconds = max(0.0, self.charged_seconds - self.guest_seconds)
         record = {"schema_version": BUDGET_SCHEMA, "budget_ms": int(self.budget * 1000),
                   "guest_ms": int(self.guest_seconds * 1000), "host_ms": int(self.host_seconds * 1000),
                   "charged_ms": int(self.guest_seconds * 1000) + int(self.host_seconds * 1000)}
         durable_atomic_write(self.layout.child_root / BUDGET_FILENAME, canonical_json_bytes(record))
+        self._stop_record = record
         return record
 
 

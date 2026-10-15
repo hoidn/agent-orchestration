@@ -56,7 +56,9 @@ GUEST_RESULT = "/result"
 # The complete base environment of every leaf; the attempt overlay is added on top.
 GUEST_ENV = {"PATH": ":".join(GUEST_PATH), "HOME": "/tmp", "TMPDIR": "/tmp"}
 OUTPUT_LIMIT = 16 * 1024 * 1024
-CLONE_FILE, CLONE_LINK = "clone-file:", "clone-link:"
+CLONE_FILE, CLONE_LINK, CLONE_DIRECTORY = "clone-file:", "clone-link:", "clone-directory:"
+_DIRECTORY_MARKER = canonical_json_bytes({"directory": True})
+_DIRECTORY_MARKER_DIGEST = "sha256:" + hashlib.sha256(_DIRECTORY_MARKER).hexdigest()
 _NOFOLLOW_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
@@ -251,7 +253,27 @@ def command_clone_rows(node: Mapping[str, Any], guest_cwd_relative: str = ".") -
     return rows
 
 
-def bind_clone_inputs(rows: Sequence[tuple[str, str]], clone: WorkspaceFiles, *, max_bytes: int) -> CloneBinding:
+def document_clone_rows(node, operands, files):
+    """Bind typed document paths to the same D5 snapshots as stable command tokens."""
+    from orchestrator.contracts.output_contract import _require_nested_transport_path
+    from orchestrator.workflow.type_descriptor import validate_transport_value
+    from .commands import command_document_operands
+
+    if "document" not in node:
+        return []
+    rows = []
+    for index, value in enumerate(command_document_operands(node, operands)):
+        def capture(path, descriptor):
+            path = _require_nested_transport_path(path, descriptor, files.workspace, workspace_files=files)
+            rows.append((f"document-{index}", path))
+            return path
+        validate_transport_value(value.json_value(), value.descriptor, allow_nested_structures=True,
+                                 path_validator=capture)
+    return rows
+
+
+def bind_clone_inputs(rows: Sequence[tuple[str, str]], clone: WorkspaceFiles, *, max_bytes: int,
+                      directory_rows: Sequence[tuple[str, str]] = ()) -> CloneBinding:
     """Select and read named clone files through the no-follow reader (Q5).
 
     Every component is opened no-follow beneath the clone root and pinned to its
@@ -261,8 +283,9 @@ def bind_clone_inputs(rows: Sequence[tuple[str, str]], clone: WorkspaceFiles, *,
     """
     binding = CloneBinding()
     walk = _Bind(binding, os.fstat(clone.root_fd).st_dev, max_bytes)
+    selected_directories = set(directory_rows)
     for label, relative in rows:
-        walk.path(clone.root_fd, label, relative)
+        walk.path(clone.root_fd, label, relative, directory=(label, relative) in selected_directories)
     return binding
 
 
@@ -283,7 +306,7 @@ class _Bind:
         self.binding.parts[name] = digest
         self.binding.blobs[digest] = content
 
-    def path(self, root_fd: int, label: str, relative: str) -> None:
+    def path(self, root_fd: int, label: str, relative: str, *, directory=False) -> None:
         parts = [] if relative == "." else relative.split("/")
         fd = os.dup(root_fd)
         try:
@@ -301,6 +324,13 @@ class _Bind:
                 child = os.open(name, _NOFOLLOW_DIRECTORY, dir_fd=fd)
                 os.close(fd)
                 fd = child
+                if os.fstat(fd).st_dev != self.device:
+                    raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone directory crosses a device")
+            if os.fstat(fd).st_dev != self.device:
+                raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone directory crosses a device")
+            if directory:
+                self.count_entry()
+                self.add(CLONE_DIRECTORY, label, relative, _DIRECTORY_MARKER)
             self.tree(fd, label, relative, depth=0)
         finally:
             os.close(fd)
@@ -308,9 +338,16 @@ class _Bind:
     def tree(self, fd: int, label: str, prefix: str, *, depth: int) -> None:
         if depth > MAX_TREE_DEPTH:
             raise ConfinedDispatchRefusal(ESCAPE_REJECTED, f"clone tree {prefix} is too deep to bind")
-        for name in sorted(os.listdir(fd)):
-            if name == "__pycache__" or (prefix == "." and name in (".git", ".orchestrate")):
-                continue
+        if os.fstat(fd).st_dev != self.device:
+            raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone directory crosses a device")
+        names = []
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                if entry.name == "__pycache__" or (prefix == "." and entry.name in (".git", ".orchestrate")):
+                    continue
+                self.count_entry()
+                names.append(entry.name)
+        for name in sorted(names):
             path = name if prefix == "." else f"{prefix}/{name}"
             info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             if stat.S_ISDIR(info.st_mode):
@@ -320,12 +357,16 @@ class _Bind:
                 finally:
                     os.close(child)
             else:
-                self.entry(fd, name, info, label, path)
+                self.entry(fd, name, info, label, path, counted=True)
 
-    def entry(self, fd: int, name: str, info: os.stat_result, label: str, path: str) -> None:
+    def count_entry(self) -> None:
         self.entries += 1
         if self.entries > MAX_CHECKPOINT_ENTRIES:
             raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "too many clone entries to bind")
+
+    def entry(self, fd: int, name: str, info: os.stat_result, label: str, path: str, *, counted=False) -> None:
+        if not counted:
+            self.count_entry()
         if stat.S_ISLNK(info.st_mode):
             try:
                 link = canonical_json_bytes({"symlink": os.readlink(name, dir_fd=fd)})
@@ -371,8 +412,10 @@ def verify_attempt_snapshot(store: WorkspaceFiles, parts: Mapping[str, str]) -> 
     Returns the `clone-*` parts, which replay reuses instead of reading the current
     clone; a missing or altered blob is tampered evidence (never `effect_input_diverged`).
     """
-    bound = {name: digest for name, digest in parts.items() if name.startswith((CLONE_FILE, CLONE_LINK))}
+    bound = {name: digest for name, digest in parts.items() if name.startswith((CLONE_FILE, CLONE_LINK, CLONE_DIRECTORY))}
     for name, digest in bound.items():
+        if name.startswith(CLONE_DIRECTORY) and digest != _DIRECTORY_MARKER_DIGEST:
+            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"directory snapshot marker of {name} is invalid")
         try:
             actual = store.sha256(digest.removeprefix("sha256:"))
         except (OSError, ValueError):
@@ -380,3 +423,33 @@ def verify_attempt_snapshot(store: WorkspaceFiles, parts: Mapping[str, str]) -> 
         if actual != digest:
             raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot of {name} is missing or tampered")
     return bound
+
+
+class SnapshotPaths:
+    """The lexical path/existence reader needed by document replay, using verified evidence only."""
+
+    def __init__(self, workspace: Path, parts: Mapping[str, str]):
+        self.workspace = workspace
+        self.files, self.links, self.directories = set(), set(), set()
+        kinds = {CLONE_FILE[:-1]: self.files, CLONE_LINK[:-1]: self.links,
+                 CLONE_DIRECTORY[:-1]: self.directories}
+        for name in parts:
+            kind, _label, path = name.split(":", 2)
+            kinds[kind].add(path)
+
+    def relative(self, path):
+        path = Path(path)
+        if path.is_absolute():
+            path = path.relative_to(self.workspace)
+        if ".." in path.parts:
+            raise ValueError("snapshot path escapes workspace")
+        return path
+
+    def exists(self, path):
+        relative = self.relative(path).as_posix()
+        if any(relative == link or relative.startswith(link + "/") for link in self.links):
+            raise OSError("snapshot path passes through a symlink")
+        if any(relative.startswith(path + "/") for path in self.files):
+            raise OSError("snapshot path passes through a regular file")
+        return relative == "." or relative in self.files | self.directories or any(
+            name.startswith(relative + "/") for name in self.files | self.links | self.directories)

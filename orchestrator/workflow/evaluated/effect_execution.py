@@ -53,7 +53,7 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
     node = attempt.node
     if attempt.confined is not None:
         return ExternalOutcome(result_path=dispatch_confined(attempt))
-    if any(map(is_image_pin, attempt.authority.header["interpreters"].values())):
+    if attempt.authority.confined or any(map(is_image_pin, attempt.authority.header["interpreters"].values())):
         raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, "an image-pinned run has no confined leaf runner")
     logical_root = attempt.workspace if attempt.launch_cwd is not None else None
     if node['class'] == 'command':

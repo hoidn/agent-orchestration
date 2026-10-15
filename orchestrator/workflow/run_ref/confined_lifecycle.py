@@ -36,6 +36,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import time
 from typing import Any
 
 from .confined_session import ConfinedChildSession, ensure_checkpoint_header
@@ -146,7 +147,7 @@ def _snapshot_baseline(workspace: Path, baseline: Path) -> TreeManifest:
 
 
 def _checked_child(request, layout, recipe_bytes: bytes, inputs: Mapping[str, Any],
-                   status: str, direct_value: Any) -> tuple[dict[str, Any], str]:
+                   status: str, direct_value: Any, image=None) -> tuple[dict[str, Any], str]:
     """The child result document and terminal digest from the control root's witness."""
     config = request.step_config.run_ref
     try:
@@ -162,7 +163,7 @@ def _checked_child(request, layout, recipe_bytes: bytes, inputs: Mapping[str, An
         if status == "completed":
             value, _path, digest = validate_confined_child_terminal(
                 **common, value_descriptor=config.result_descriptor["envelope"]["fields"][0]["type"],
-                direct_value=direct_value)
+                direct_value=direct_value, image=image)
             return {**document, "value": value}, digest
         code, detail, _path, digest = validate_confined_child_failure(**common)
         return {**document, "code": code, "detail": detail}, digest
@@ -206,18 +207,25 @@ def _evidence(request, ordinal: int, bindings: RunRefAttemptBindings, layout, *,
 
 def drive_confined_lifecycle(request, *, allocation, emit: Callable[..., Any], effects):
     """Admit, provision, run and witness one confined child attempt (see the module docstring)."""
+    started_at = time.monotonic()
     parent_values = resolve_run_ref_parent_input_values(request)
     record = _request_record(request, parent_values)
     admission = admit_confined_child(request.step_config.run_ref, record, commit=request.parent_state["commit"],
                                      inputs=parent_values, parent_program=request.parent_program,
                                      image_store=request.run_ref_root / IMAGES_DIRNAME, host=probe_host())
     try:
-        return _drive(request, admission, record, parent_values, allocation, emit, effects)
+        _require_prerelease_budget(admission, started_at)
+        return _drive(request, admission, record, parent_values, allocation, emit, effects, started_at)
     finally:
         admission.close()
 
 
-def _drive(request, admission, record, parent_values, allocation, emit, effects):
+def _require_prerelease_budget(admission, started_at):
+    if time.monotonic() - started_at >= dict(admission.config.policy.limits)["wall-seconds"]:
+        raise RunRefRuntimeError("run_ref_budget_exhausted", "child wall budget exhausted before release")
+
+
+def _drive(request, admission, record, parent_values, allocation, emit, effects, started_at):
     ordinal, bindings = allocation.attempt_ordinal, allocation.bindings
 
     def advance(stage: str, updates: Mapping[str, Any], *, kind: str = "progress", extra=None):
@@ -240,10 +248,11 @@ def _drive(request, admission, record, parent_values, allocation, emit, effects)
                                 "post_setup_baseline_digest": baseline.digest})
     _write_canonical_document(attempt_root / _REQUEST_FILENAME, record)
     advance("program_prepared", {"program_preparation_digest": _preparation_digest(request, record)})
+    _require_prerelease_budget(admission, started_at)
     advance("launched", {"child_launch_digest": canonical_sha256(record)})
     effects.crash_hook("launch")
 
-    session = ConfinedChildSession(admission, provisioned)
+    session = ConfinedChildSession(admission, provisioned, started_at=started_at)
     status, value = "completed", None
     try:
         value = execute_confined_child(admission, provisioned, run_ref_root=request.run_ref_root, session=session)
@@ -256,7 +265,7 @@ def _drive(request, admission, record, parent_values, allocation, emit, effects)
     finally:
         budget = session.stop()
     document, state_digest = _checked_child(request, layout, provisioned.recipe_bytes, admission.inputs,
-                                            status, value)
+                                            status, value, image=admission.image)
     _write_canonical_document(attempt_root / _CHILD_RESULT_FILENAME, document)
     advance("child_completed", {"child_terminal_state_digest": state_digest,
                                 "result_payload_digest": canonical_sha256(document)})

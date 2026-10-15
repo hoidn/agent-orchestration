@@ -46,7 +46,7 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     resolved, parts, _implementation_files = _resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, None, None, commit.data["result_path"],
-        check_command_destinations=False, owner=owner, launch_cwd=resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=commit),
+        check_command_destinations=False, owner=owner, launch_cwd=resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=commit, recorded=confined is not None),
         confined=confined,
     )
     dependencies = effect_dependencies(operands, launch_workspace)
@@ -140,10 +140,15 @@ def _provider_delivery_name(node, commit, identity):
     return DELIVERY_NAMES_BY_DIGEST[digest]
 
 
-def resolve_launch_cwd(workspace, value, *, identity=None, previous=None):
+def resolve_launch_cwd(workspace, value, *, identity=None, previous=None, recorded=False):
     if value is None:
         return None
     try:
+        if recorded:
+            from .confined_dispatch import guest_cwd
+            cwd = Path(workspace) / value.json_value()
+            guest_cwd(Path(workspace), cwd)  # lexical confinement check; no mutable clone lookup
+            return cwd
         cwd = (Path(workspace) / value.json_value()).resolve(strict=True)
         if not cwd.is_dir():
             raise ValueError("launch workspace is not a directory")
@@ -190,6 +195,9 @@ def _resolve_command_input(authority, node, operands, identity, owner, workspace
     confined=None):
     previous = commit if commit is not None else baseline
     external = command_binding_kind(authority.program, owner, node["boundary"]) == "external_tool"
+    if confined is not None and commit is not None:
+        from .confined_dispatch import SnapshotPaths
+        workspace_files = SnapshotPaths(Path(workspace), confined.verified_parts(commit.data["input_parts"]))
     with nullcontext(workspace_files) if workspace_files is not None else closing(WorkspaceFiles(workspace)) as files:
         argv, document, contract = _render_resolved_argv(node, operands, commit, identity,
             external=external, workspace=workspace, workspace_files=files)

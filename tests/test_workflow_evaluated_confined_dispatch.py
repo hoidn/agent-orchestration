@@ -253,7 +253,7 @@ def _attempt(owners, image, node, *, runner, kind="command", argv=None, document
                                      remaining_wall_seconds=remaining)
     workspace = owners.workspace_files.workspace
     return PreparedAttempt(
-        SimpleNamespace(header={"interpreters": pins}), {**node, "class": kind}, "site", 1,
+        SimpleNamespace(header={"interpreters": pins}, confined=False), {**node, "class": kind}, "site", 1,
         RESULT_PATH, "sha256:" + "0" * 64, {}, {}, (),
         (argv or ["python3", "probe.py", "payload"], document), workspace, owners.workspace_files,
         {}, None, owners.attempt_files, launch_cwd, False, context)

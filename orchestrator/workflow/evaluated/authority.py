@@ -65,6 +65,12 @@ class RunAuthority:
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
 
     @property
+    def confined(self) -> bool:
+        """The checked child-recipe variant identifies confinement even with no executable pins."""
+        return ((self.header.get("resume_request") or {}).get("source_roots") == []
+                and self.header["workflow_file"] == (self.run_root / PROGRAM_FILENAME).as_posix())
+
+    @property
     def header_path(self) -> Path:
         return self.run_root / HEADER_FILENAME
 

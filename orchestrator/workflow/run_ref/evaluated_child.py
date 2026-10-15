@@ -181,10 +181,10 @@ def require_confined_child_header(header, expected, image_digest):
 
 def _verify_committed_snapshots(child_root, snapshot):
     """Every committed command's clone inputs still match their attempt snapshot (P1, Q5)."""
-    from orchestrator.workflow.evaluated.confined_dispatch import CLONE_FILE, CLONE_LINK, verify_attempt_snapshot
+    from orchestrator.workflow.evaluated.confined_dispatch import CLONE_DIRECTORY, CLONE_FILE, CLONE_LINK, verify_attempt_snapshot
 
     bound = [entry.data["input_parts"] for entry in snapshot.active_commits.values()
-             if any(name.startswith((CLONE_FILE, CLONE_LINK)) for name in entry.data["input_parts"])]
+             if any(name.startswith((CLONE_FILE, CLONE_LINK, CLONE_DIRECTORY)) for name in entry.data["input_parts"])]
     if not bound:
         return
     store = WorkspaceFiles(Path(child_root) / SNAPSHOTS_DIRNAME)
@@ -195,17 +195,17 @@ def _verify_committed_snapshots(child_root, snapshot):
         store.close()
 
 
-def _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_value):
+def _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_value, clone_root, recipe_bytes, image):
     """Committed-memo witness: completed terminal, no unfinished effect, replayed halt."""
     snapshot = reduce_memo(memo_bytes, site_classes(authority.program))
     terminal = snapshot.terminal
     if (snapshot.tail or terminal is None or terminal.data["outcome"] != "completed"
             or snapshot.pending_starts or snapshot.unsettled_coordinators):
         raise ValueError("confined child requires a completed terminal with every effect settled")
-    _verify_committed_snapshots(authority.run_root, snapshot)
     prefix = discover_prefix(authority, snapshot)
     if not prefix.halted or prefix.frontiers or prefix.fault is not None:
         raise ValueError("confined child replay does not halt over its committed effects")
+    _verify_confined_effect_inputs(authority, snapshot, prefix, clone_root, recipe_bytes, image)
     value = terminal.data["value"]
     checked_values = (
         prefix.value,
@@ -217,6 +217,36 @@ def _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_val
     if any(canonical_json_bytes(other) != encoded for other in checked_values):
         raise ValueError("child terminal, replayed halt and direct result disagree")
     return value, snapshot.complete_bytes
+
+
+def _verify_confined_effect_inputs(authority, snapshot, prefix, clone_root, recipe_bytes, image=None):
+    """Recompute reached inputs using sealed image bytes and captured snapshots, never the clone."""
+    if not prefix.commits:
+        return
+    import json
+    from types import SimpleNamespace
+    from orchestrator.workflow.evaluated.confined_dispatch import require_confinable, verify_attempt_snapshot
+    from orchestrator.workflow.evaluated.runtime import _validate_discovered_prefix
+    from .image_store import open_sealed_image
+
+    recorded_image = json.loads(recipe_bytes)["admission"]["image"]
+    owned_image = image is None
+    if owned_image:
+        image = open_sealed_image(Path(authority.header["run_ref_root"]) / "images", recorded_image["image"])
+    try:
+        if image.record["tree_digest"] != recorded_image["tree_digest"]:
+            raise ValueError("confined witness image differs from its admission")
+        store = WorkspaceFiles(authority.run_root / SNAPSHOTS_DIRNAME)
+        try:
+            for reached in prefix.commits:
+                require_confinable(reached.node, authority.header["interpreters"])
+            context = SimpleNamespace(image=image, verified_parts=lambda parts: verify_attempt_snapshot(store, parts))
+            _validate_discovered_prefix(authority, prefix, snapshot, clone_root, confined=context)
+        finally:
+            store.close()
+    finally:
+        if owned_image:
+            image.close()
 
 
 def _captured_confined_authority(child_root, clone_root, expected_header, recipe_bytes, image_digest):
@@ -239,12 +269,12 @@ def _confined_digest(domain, header_bytes, program_bytes, memo_prefix, recipe_by
 
 
 def validate_confined_child_terminal(*, child_root, clone_root, expected_header, recipe_bytes,
-                                     value_descriptor, direct_value, image_digest):
+                                     value_descriptor, direct_value, image_digest, image=None):
     """Return the checked value, header path and terminal digest from the external control root."""
     child_root, clone_root = Path(child_root), Path(clone_root)
     authority, header_bytes, program_bytes, memo_bytes = _captured_confined_authority(
         child_root, clone_root, expected_header, recipe_bytes, image_digest)
-    value, complete_bytes = _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_value)
+    value, complete_bytes = _confined_terminal_value(authority, memo_bytes, value_descriptor, direct_value, clone_root, recipe_bytes, image)
     digest = _confined_digest(CONFINED_TERMINAL_SCHEMA, header_bytes, program_bytes,
                               memo_bytes[:complete_bytes], recipe_bytes)
     return value, child_root / "run.json", digest
