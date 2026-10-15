@@ -154,7 +154,7 @@ def _check_receipt(receipt: Receipt) -> None:
             if position is not None:
                 NativePosition.from_record(position)
     except ValueError as exc:
-            raise MemoError("memo_inconsistent", f"agent turn receipt is malformed: {exc}") from exc
+            raise MemoError("memo_inconsistent", "agent turn receipt is malformed: a recorded position") from exc
 
 
 def write_receipt(files: WorkspaceFiles, receipt: Receipt) -> None:

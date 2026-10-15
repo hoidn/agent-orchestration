@@ -174,19 +174,18 @@ def _head_or_refuse(resolved: ResolvedTurn):
     """D1: before an append, the native head must equal the recorded committed position of the predecessor."""
     if resolved.predecessor is None:
         return None, None
-    proof = resolved.predecessor.data["proof"]
+    proof, predecessor = resolved.predecessor.data["proof"], resolved.predecessor.data["identity"]
     located = resolved.adapter.locate(proof["locator"])
     if located.path is None:
         raise AgentTurnError("agent_session_unavailable",
-                             f"native session {proof['locator']!r} is {'ambiguous' if located.ambiguous else 'missing'}")
+                             f"native session of {predecessor} is {'ambiguous' if located.ambiguous else 'missing'}")
     try:
         head = resolved.adapter.head(located.path)
     except NativeStoreError as exc:
-        raise AgentTurnError("agent_session_unavailable", str(exc)) from exc
+        raise AgentTurnError("agent_session_unavailable", f"native session of {predecessor} is unreadable") from exc
     expected = NativePosition.from_record(proof["position"])
     if head.open_turn or head.position != expected:
-        raise AgentTurnError("agent_session_diverged",
-                             f"native head {head.position} differs from the recorded position {expected} of {resolved.predecessor.data['identity']}")
+        raise AgentTurnError("agent_session_diverged", f"native head differs from the recorded position of {predecessor}")
     return proof["locator"], expected
 
 
@@ -280,7 +279,7 @@ def _after_launch(attempt, exc: Exception) -> Exception:
         return AgentTurnError(err.code, f"{attempt.identity}: {err}", keep_pending=True)
     if stored is None or stored.completion == "intent":
         return exc
-    return _unresolved(attempt, stored.locator or _session_from_stdout(attempt), f"{type(exc).__name__} after launch: {exc}")
+    return _unresolved(attempt, stored.locator or _session_from_stdout(attempt), f"{type(exc).__name__} after launch")
 
 
 def _verify_completion(attempt, resolved, session_id, before):
@@ -290,7 +289,7 @@ def _verify_completion(attempt, resolved, session_id, before):
     try:
         turn = resolved.adapter.completed_turn(located.path, after=before, prompt_marker=_result_path(attempt))
     except NativeStoreError as exc:
-        raise _unresolved(attempt, session_id, str(exc)) from exc
+        raise _unresolved(attempt, session_id, "native store is unreadable after dispatch") from exc
     if turn is None:        # an external turn landed after ours, or a later open turn exists: possible advancement
         raise _unresolved(attempt, session_id, "native store does not show exactly one completed turn for this attempt")
     update_receipt(attempt.attempt_files, locator=session_id, position_after=turn.position.record(), completion="completed")
@@ -302,13 +301,13 @@ def _unresolved(attempt, locator, detail):
     try:
         update_receipt(attempt.attempt_files, locator=locator, completion="unknown")
     except Exception as err:
-        detail = f"{detail}; recording `unknown` failed: {type(err).__name__}: {err}"
+        detail = f"{detail}; recording `unknown` failed: {type(err).__name__}"
     return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {detail}", keep_pending=True)
 
 
 def unresolved_after_projection(attempt, exc: Exception) -> AgentTurnError:
     """Failure table rows 6/7: after confirmed completion, only an invalid typed result may close `failed`."""
-    return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {type(exc).__name__} after native completion: {exc}",
+    return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {type(exc).__name__} after native completion",
                           keep_pending=True)
 
 
@@ -350,10 +349,10 @@ def _unresolved_or_failed(attempt, exc: ProviderPerformerError):
             update_receipt(attempt.attempt_files, completion="not_dispatched")
             return exc
         except Exception as err:
-            return _unresolved(attempt, receipt.locator, f"{exc.code}; recording `not_dispatched` failed: {err}")
+            return _unresolved(attempt, receipt.locator, f"{exc.code}; recording `not_dispatched` failed: {type(err).__name__}")
     # fresh: a locator exists only if the CLI created a conversation
     locator = receipt.locator if receipt is not None and receipt.locator else _session_from_stdout(attempt)
-    return _unresolved(attempt, locator, f"{exc.code}: native advance not disproved (locator {locator!r})")
+    return _unresolved(attempt, locator, f"{exc.code}: native advance not disproved")
 
 
 def _session_from_stdout(attempt) -> str | None:

@@ -135,9 +135,9 @@ def _classify_native(first_turn, receipt: Receipt, adapter, marker, result_prese
     try:
         facts = _native_facts(receipt, adapter, marker, before)
     except NativeStoreError as exc:
-        return _uncertain(first_turn, receipt, None, f"native store: {exc}")
+        return _uncertain(first_turn, receipt, None, f"native store is unreadable ({type(exc).__name__})")
     if facts is None:
-        return _uncertain(first_turn, receipt, None, f"native locator {receipt.locator!r} is missing, ambiguous or unknown")
+        return _uncertain(first_turn, receipt, None, "native session is missing, ambiguous or unknown")
     head, turn = facts
     if turn is not None and result_present and _agrees(receipt, turn):
         return PendingTurn("recoverable", receipt, turn, "native completion and result evidence intact")

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+
+import pytest
 
 from orchestrator.workflow.evaluated.views import load_evaluated_view
 from tests.agent_session_shims import install_agent_shims
@@ -57,3 +60,35 @@ def test_pending_unresolved_turn_is_running_and_report_succeeds(tmp_path, monkey
     report = _cli(tmp_path, "report", "--run-id", run_root.name, "--format", "json")
     assert report.returncode == 0, report.stderr
     assert json.loads(report.stdout)["progress"]["running"] == 1
+
+
+@pytest.mark.parametrize("change", ["missing", "advanced"])
+def test_d1_refusal_reaches_state_and_report_without_native_facts(tmp_path, monkeypatch, change) -> None:
+    """Task 14 review: the run is killed after a1 settles; before resume the designer's native session is deleted
+    (`agent_session_unavailable`) or advanced by hand (`agent_session_diverged`). a2's D1 refusal becomes the failed
+    terminal's message, which the view and both report formats publish; none of them may carry the locator, the
+    recorded position or the native store path."""
+    import shutil
+    import subprocess
+    from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECORD, _stopped
+    plan = {"claude": [{"mode": "success", "result": {"text": "d1"}}, {"mode": "success", "result": {"text": "by hand"}}], "codex": PLAN["codex"]}
+    install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=plan)
+    _stopped(tmp_path, STOP_AFTER_RECORD, {"STOP_RECORD": "settled", "STOP_TURN": "/ a1"}, "run", *fixture(tmp_path))
+    run_root, _authority, classes, memo = memo_of(tmp_path)
+    proof = turns(memo, classes)["a1"]["proof"]
+    if change == "missing":
+        shutil.rmtree(tmp_path / "claude")
+    else:
+        subprocess.run([str(tmp_path / "bin" / "claude"), "-p", "--resume", proof["locator"]], input=b"by hand", cwd=tmp_path,
+                       check=True, env={**os.environ, "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(tmp_path / "by-hand.json")})
+    code = {"missing": "agent_session_unavailable", "advanced": "agent_session_diverged"}[change]
+    resumed = _cli(tmp_path, "resume", run_root.name)
+    assert resumed.returncode == 1 and code in resumed.stderr, resumed.stderr
+    secrets = [proof["locator"], proof["position"]["turn_id"], str(tmp_path / "claude")]
+    outputs = [(run_root / "state.json").read_text(), resumed.stderr]
+    assert code in outputs[0]
+    for fmt in ("json", "md"):
+        report = _cli(tmp_path, "report", "--run-id", run_root.name, "--format", fmt)
+        assert report.returncode == 0, report.stderr
+        outputs.append(report.stdout)
+    assert not [(i, s) for i, text in enumerate(outputs) for s in secrets if s in text]
