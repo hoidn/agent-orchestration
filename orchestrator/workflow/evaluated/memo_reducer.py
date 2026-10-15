@@ -346,6 +346,7 @@ class _Reducer:
         _finite_time(row["time"])
         self._check_invalidation(anchor)
         self.active = {identity: item for identity, item in self.active.items() if item.offset < anchor}
+        self.pending = {identity: item for identity, item in self.pending.items() if item.offset < anchor}
         self.terminal = None
 
     def _check_invalidation(self, anchor: int) -> None:

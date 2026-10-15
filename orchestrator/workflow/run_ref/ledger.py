@@ -19,6 +19,7 @@ from .contracts import canonical_json_bytes, canonical_sha256
 
 
 RUN_REF_ATTEMPT_LEDGER_SCHEMA = "run_ref_attempt_ledger.v1"
+RUN_REF_CONFINED_LEDGER_SCHEMA = "run_ref_attempt_ledger.v2"
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _GIT_TREE_RE = re.compile(r"git-tree:[0-9a-f]{40}\Z")
@@ -294,11 +295,16 @@ class RunRefAttemptRecord:
     status: str
     recorded_at: str
     bindings: RunRefAttemptBindings
+    schema_version: str = RUN_REF_ATTEMPT_LEDGER_SCHEMA
+    event_kind: str | None = None
+    event: Mapping[str, Any] | None = None
 
     @property
     def record(self) -> dict[str, object]:
         return {
-            "schema_version": RUN_REF_ATTEMPT_LEDGER_SCHEMA,
+            "schema_version": self.schema_version,
+            **({"event_kind": self.event_kind, "event": dict(self.event)}
+               if self.schema_version == RUN_REF_CONFINED_LEDGER_SCHEMA else {}),
             "sequence": self.sequence,
             "previous_row_digest": self.previous_row_digest,
             "row_digest": self.row_digest,
@@ -402,9 +408,14 @@ def _row_payload_without_digest(
     status: str,
     recorded_at: str,
     bindings: RunRefAttemptBindings,
+    schema_version: str = RUN_REF_ATTEMPT_LEDGER_SCHEMA,
+    event_kind: str | None = None,
+    event: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     return {
-        "schema_version": RUN_REF_ATTEMPT_LEDGER_SCHEMA,
+        "schema_version": schema_version,
+        **({"event_kind": event_kind, "event": dict(event or {})}
+           if schema_version == RUN_REF_CONFINED_LEDGER_SCHEMA else {}),
         "sequence": sequence,
         "previous_row_digest": previous_row_digest,
         "visit": visit.record,
@@ -426,7 +437,12 @@ def _build_row(
     status: str,
     recorded_at: str,
     bindings: RunRefAttemptBindings,
+    schema_version: str = RUN_REF_ATTEMPT_LEDGER_SCHEMA,
+    event_kind: str | None = None,
+    event: Mapping[str, Any] | None = None,
 ) -> RunRefAttemptRecord:
+    if schema_version == RUN_REF_ATTEMPT_LEDGER_SCHEMA:
+        event_kind, event = None, None
     payload = _row_payload_without_digest(
         sequence=sequence,
         previous_row_digest=previous_row_digest,
@@ -435,7 +451,7 @@ def _build_row(
         stage=stage,
         status=status,
         recorded_at=_timestamp(recorded_at),
-        bindings=bindings,
+        bindings=bindings, schema_version=schema_version, event_kind=event_kind, event=event,
     )
     return RunRefAttemptRecord(
         sequence=sequence,
@@ -446,7 +462,7 @@ def _build_row(
         stage=stage,
         status=status,
         recorded_at=recorded_at,
-        bindings=bindings,
+        bindings=bindings, schema_version=schema_version, event_kind=event_kind, event=event,
     )
 
 
@@ -492,8 +508,10 @@ def _bindings_from_record(value: object) -> RunRefAttemptBindings:
 
 
 def _decode_row(value: object, *, expected_sequence: int) -> RunRefAttemptRecord:
-    row = _closed_mapping(value, _ROW_KEYS, field="ledger row")
-    if row["schema_version"] != RUN_REF_ATTEMPT_LEDGER_SCHEMA:
+    version = value.get("schema_version") if isinstance(value, Mapping) else None
+    keys = _ROW_KEYS | {"event_kind", "event"} if version == RUN_REF_CONFINED_LEDGER_SCHEMA else _ROW_KEYS
+    row = _closed_mapping(value, keys, field="ledger row")
+    if version not in {RUN_REF_ATTEMPT_LEDGER_SCHEMA, RUN_REF_CONFINED_LEDGER_SCHEMA}:
         _fail("ledger row schema version is invalid")
     sequence = _positive_integer(row["sequence"], field="sequence")
     if sequence != expected_sequence:
@@ -521,7 +539,7 @@ def _decode_row(value: object, *, expected_sequence: int) -> RunRefAttemptRecord
             stage=stage,
             status=status,
             recorded_at=recorded_at,
-            bindings=bindings,
+            bindings=bindings, schema_version=version, event_kind=row.get("event_kind"), event=row.get("event"),
         )
     )
     digest = _sha256(row["row_digest"], field="row_digest")
@@ -531,6 +549,7 @@ def _decode_row(value: object, *, expected_sequence: int) -> RunRefAttemptRecord
         sequence=sequence,
         previous_row_digest=previous,
         row_digest=digest,
+        schema_version=version, event_kind=row.get("event_kind"), event=row.get("event"),
         visit=visit,
         attempt_ordinal=attempt_ordinal,
         stage=stage,
@@ -594,7 +613,7 @@ def _parse_attempt_ledger(payload: bytes) -> RunRefAttemptLedger:
         row = _parse_ledger_row(framed, sequence=sequence)
         if row.previous_row_digest != previous_digest:
             _fail("ledger hash chain is discontinuous")
-        if rows and row.recorded_at < rows[-1].recorded_at:
+        if rows and row.schema_version == RUN_REF_ATTEMPT_LEDGER_SCHEMA and row.recorded_at < rows[-1].recorded_at:
             _fail("ledger timestamps are not monotonic")
         rows.append(row)
         previous_digest = row.row_digest
@@ -617,7 +636,7 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
         _validate_stage_bindings(row)
 
         attempts = by_visit.setdefault(row.visit, {})
-        if row.stage == "allocated":
+        if row.stage == "allocated" and row.event_kind not in {"budget_open", "budget_close", "failed_terminal"}:
             existing = attempts.get(row.attempt_ordinal)
             if existing is None:
                 expected_ordinal = max(attempts, default=0) + 1
@@ -643,6 +662,8 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
                 child_runs.add(row.bindings.child_run_id)
                 attempts[row.attempt_ordinal] = row
                 continue
+            if row.schema_version != existing.schema_version:
+                _fail("attempt ledger version changed")
             if row.status == "discarded":
                 _validate_discard_transition(existing, row)
                 attempts[row.attempt_ordinal] = row
@@ -654,6 +675,15 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
             _fail("attempt transition has no allocated predecessor")
         if row.attempt_ordinal != max(attempts):
             _fail("attempt transition targets a superseded ordinal")
+        if row.schema_version != previous.schema_version:
+            _fail("attempt ledger version changed")
+        if row.event_kind in {"budget_open", "budget_close", "failed_terminal"}:
+            if row.stage != previous.stage or row.status != previous.status or row.bindings != previous.bindings:
+                _fail("confined event changed work stage or bindings")
+            if previous.status != "in_progress":
+                _fail("confined event follows a terminal work stage")
+            attempts[row.attempt_ordinal] = row
+            continue
         if row.status == "discarded":
             _validate_discard_transition(previous, row)
             attempts[row.attempt_ordinal] = row
@@ -666,8 +696,116 @@ def _validate_lifecycle(rows: tuple[RunRefAttemptRecord, ...]) -> None:
         _validate_binding_transition(previous.bindings, row.bindings, row.stage)
         attempts[row.attempt_ordinal] = row
 
+    for visit in by_visit:
+        confined_budget(rows, visit)
+
+
+def _nonnegative_ns(value, field):
+    if type(value) is not int or value < 0:
+        _fail(f"{field} must be nonnegative integer nanoseconds")
+    return value
+
+
+def confined_budget(rows, visit):
+    """Reduce the one visit's BOOTTIME intervals; never derive usage from UTC."""
+    state = None
+    failed = set()
+    for row in rows:
+        if row.visit != visit or row.schema_version != RUN_REF_CONFINED_LEDGER_SCHEMA:
+            continue
+        kind, event = row.event_kind, row.event
+        if not isinstance(event, Mapping):
+            _fail("confined event must be a mapping")
+        if kind == "allocation":
+            _closed_mapping(event, frozenset({"limit_ns", "boot_id", "since_ns"}), field="budget allocation")
+            limit = _positive_integer(event["limit_ns"], field="limit_ns")
+            if state is not None and (state["active"] is not None or state["limit_ns"] != limit):
+                _fail("fresh ordinal changed or abandoned the visit budget")
+            state = dict(limit_ns=limit, charged_ns=0 if state is None else state["charged_ns"],
+                         active=None, closure_digest=None if state is None else state["closure_digest"])
+        elif state is None:
+            _fail("confined event has no budget reservation")
+        if kind in {"allocation", "budget_open"}:
+            if kind == "budget_open":
+                _closed_mapping(event, frozenset({"boot_id", "since_ns"}), field="budget opening")
+            if (state["active"] is not None or row.attempt_ordinal in failed
+                    or _STAGES.index(row.stage) >= _STAGES.index("child_completed")):
+                _fail("budget already open or child terminal")
+            state["active"] = dict(boot_id=_nonempty_text(event["boot_id"], field="boot_id"),
+                since_ns=_nonnegative_ns(event["since_ns"], "since_ns"),
+                attempt_ordinal=row.attempt_ordinal, opening_sequence=row.sequence)
+        elif kind == "budget_close":
+            _closed_mapping(event, frozenset({"opening_sequence", "boot_id", "until_ns"}), field="budget closure")
+            active = state["active"]
+            if active is None or active["attempt_ordinal"] != row.attempt_ordinal:
+                _fail("budget closure has no active interval")
+            until = _nonnegative_ns(event["until_ns"], "until_ns")
+            if (event["opening_sequence"] != active["opening_sequence"] or event["boot_id"] != active["boot_id"]
+                    or until < active["since_ns"]):
+                _fail("budget closure epoch, opening or clock disagrees")
+            state["charged_ns"] += until - active["since_ns"]
+            state["active"], state["closure_digest"] = None, row.row_digest
+        elif kind == "failed_terminal":
+            if state["active"] is not None or row.attempt_ordinal in failed:
+                _fail("failed terminal requires its sole closed budget")
+            _closed_mapping(event, frozenset({"code", "detail", "closure_digest", "prefix_bytes", "prefix_digest",
+                "boundary", "accounting", "effect_failure"}), field="failed proof")
+            _nonempty_text(event["code"], field="code")
+            _nonempty_text(event["detail"], field="detail")
+            _sha256(event["prefix_digest"], field="prefix_digest")
+            _nonnegative_ns(event["prefix_bytes"], "prefix_bytes")
+            if event["closure_digest"] != state["closure_digest"] or not isinstance(event["accounting"], Mapping):
+                _fail("failed terminal budget binding disagrees")
+            boundary = event["boundary"]
+            if not isinstance(boundary, Mapping) or boundary.get("kind") not in {
+                    "started_attempt", "before_start", "pure_fault", "finalization"}:
+                _fail("failed terminal boundary invalid")
+            keys = {"started_attempt": {"kind", "identity", "attempt"}, "before_start": {"kind", "identity", "site"},
+                    "pure_fault": {"kind", "diagnostic_digest"}, "finalization": {"kind", "halt_digest"}}[boundary["kind"]]
+            _closed_mapping(boundary, frozenset(keys), field="failed boundary")
+            for name in keys - {"kind"}:
+                if name == "attempt":
+                    _positive_integer(boundary[name], field=name)
+                elif name.endswith("digest"):
+                    _sha256(boundary[name], field=name)
+                else:
+                    _nonempty_text(boundary[name], field=name)
+            failed.add(row.attempt_ordinal)
+        elif kind == "progress":
+            if event:
+                _fail("work event carries unexpected evidence")
+            if row.status == "discarded" and (state["active"] is not None or row.attempt_ordinal in failed):
+                _fail("discard abandoned an open budget or durable terminal")
+            if row.stage in {"child_completed", "delta_captured", "completed_pending_parent_commit", "committed"} and state["active"] is not None:
+                _fail("terminal work stage precedes budget closure")
+        else:
+            _fail("confined event kind unsupported")
+    return state
+
+
+def append_confined_event(path, *, visit, attempt_ordinal, event_kind, event, run_files=None):
+    """Append through the parent-owned ledger without advancing a work stage."""
+    if event_kind not in {"budget_open", "budget_close", "failed_terminal"}:
+        _fail("not a confined side event")
+    ledger = load_attempt_ledger(path, run_files=run_files)
+    previous = _latest_attempt(ledger, visit=visit, attempt_ordinal=attempt_ordinal)
+    if previous.schema_version != RUN_REF_CONFINED_LEDGER_SCHEMA:
+        _fail("confined event requires ledger version v2")
+    row = _build_row(sequence=len(ledger.rows) + 1, previous_row_digest=ledger.rows[-1].row_digest,
+        visit=visit, attempt_ordinal=attempt_ordinal, stage=previous.stage, status=previous.status,
+        recorded_at=_utc_timestamp(), bindings=previous.bindings,
+        schema_version=previous.schema_version, event_kind=event_kind, event=dict(event))
+    _validate_lifecycle((*ledger.rows, row))
+    _persist_append(path, ledger, row, run_files=run_files)
+    return row
+
 
 def _validate_stage_bindings(row: RunRefAttemptRecord) -> None:
+    if row.schema_version == RUN_REF_CONFINED_LEDGER_SCHEMA:
+        if row.event_kind == "allocation" and (row.stage != "allocated" or row.status != "in_progress"):
+            _fail("confined allocation work stage invalid")
+        if row.event_kind == "progress" and row.stage == "allocated" and row.status != "discarded":
+            _fail("confined work event repeats allocation")
     stage_index = _STAGES.index(row.stage)
     for candidate_stage, names in _INTRODUCED_BINDINGS.items():
         introduced_index = _STAGES.index(candidate_stage)
@@ -747,6 +885,7 @@ def allocate_attempt(
     bindings: RunRefAttemptBindings,
     recorded_at: str | None = None,
     run_files: WorkspaceFiles | None = None,
+    confined_opening: Mapping[str, Any] | None = None,
 ) -> RunRefAttemptRecord:
     """Allocate and durably persist the first fresh ordinal for one visit."""
 
@@ -777,7 +916,11 @@ def allocate_attempt(
         status="in_progress",
         recorded_at=recorded_at or _utc_timestamp(),
         bindings=bindings,
+        schema_version=RUN_REF_CONFINED_LEDGER_SCHEMA if confined_opening is not None else RUN_REF_ATTEMPT_LEDGER_SCHEMA,
+        event_kind="allocation" if confined_opening is not None else None,
+        event=confined_opening,
     )
+    _validate_lifecycle((*ledger.rows, row))
     _persist_append(path, ledger, row, run_files=run_files)
     return row
 
@@ -841,10 +984,12 @@ def advance_attempt(
         stage=stage,
         status=_STATUS_BY_STAGE[stage],
         recorded_at=recorded_at or _utc_timestamp(),
-        bindings=bindings,
+        bindings=bindings, schema_version=previous.schema_version,
+        event_kind="progress" if previous.event_kind is not None else None, event={},
     )
     _validate_binding_transition(previous.bindings, row.bindings, stage)
     _validate_stage_bindings(row)
+    _validate_lifecycle((*ledger.rows, row))
     _persist_append(path, ledger, row, run_files=run_files)
     return row
 
@@ -1043,9 +1188,11 @@ def reconcile_pending_parent_commit(
         stage="committed",
         status="committed",
         recorded_at=recorded_at or _utc_timestamp(),
-        bindings=pending.bindings,
+        bindings=pending.bindings, schema_version=pending.schema_version,
+        event_kind="progress" if pending.event_kind is not None else None, event={},
     )
     _validate_binding_transition(pending.bindings, row.bindings, "committed")
+    _validate_lifecycle((*ledger.rows, row))
     _persist_append(path, ledger, row, run_files=run_files)
     return row
 
@@ -1159,19 +1306,24 @@ def record_discarded_attempt(
         stage=previous.stage,
         status="discarded",
         recorded_at=recorded_at or _utc_timestamp(),
-        bindings=bindings,
+        bindings=bindings, schema_version=previous.schema_version,
+        event_kind="progress" if previous.event_kind is not None else None, event={},
     )
     _validate_discard_transition(previous, row)
     if os.path.lexists(workspace):
         _fail("discard workspace reappeared before disposition was recorded")
     if load_attempt_ledger(path, run_files=run_files) != ledger:
         _fail("ledger changed while discard absence was validated")
+    _validate_lifecycle((*ledger.rows, row))
     _persist_append(path, ledger, row, run_files=run_files)
     return row
 
 
 __all__ = [
     "RUN_REF_ATTEMPT_LEDGER_SCHEMA",
+    "RUN_REF_CONFINED_LEDGER_SCHEMA",
+    "append_confined_event",
+    "confined_budget",
     "RunRefAttemptBindings",
     "RunRefAttemptLedger",
     "RunRefAttemptRecord",

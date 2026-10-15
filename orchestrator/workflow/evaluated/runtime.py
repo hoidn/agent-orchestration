@@ -119,6 +119,8 @@ def execute_pure_run(
             message = str(exc) or code
             logger.error("[%s] %s", code, message)
             if _can_append_failure_terminal(exc):
+                if confined is not None:
+                    confined.record_failure(authority, exc)
                 _append_failed_terminal_if_clear(
                     authority, checked_site_classes, code=code, message=message
                 )
@@ -174,6 +176,8 @@ def execute_pure_resume(
             site_classes=checked_site_classes, confined=confined,
         )
     except Exception as exc:
+        if confined is not None:
+            confined.resume_error = exc
         return _resume_refusal(exc)
     if consumed != len(commits):
         return _resume_refusal(MemoError("memo_inconsistent", "active commits remain after replay"))
@@ -223,11 +227,13 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     return frozenset(reached.identity for reached in prefix.frontiers)
 
 
-def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None):
+def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None, proof_only=False):
     for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
             launch_workspace=reached.launch_workspace, confined=confined)
+    if proof_only:
+        return
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)
     for reached in prefix.frontiers:
         effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,
@@ -368,7 +374,8 @@ def prepare_effect(
         input_digest=input_digest, input_parts=parts, implementation_files=implementation_files,
         result_path=result_path, time=time.time())
     _require_retained_root(run_files)
-    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority)
+    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority,
+        before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
         site_classes, provider_executor, attempt_files, launch_cwd, stream_output, leaf_context)
@@ -428,6 +435,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         if getattr(exc, "publication_failure", False) or (fatal_publication
                 and getattr(exc, "code", "") == "reserved_run_root_changed"):
             raise
+        if attempt.confined is not None:
+            attempt.confined.runner.record_failure(authority, exc)
         publication_error = _fail_started_effect(
             authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
         _raise_if_publication_fatal(publication_error, fatal_publication)

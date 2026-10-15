@@ -1,31 +1,10 @@
-"""Confined (`run_ref_static_config.v2`) attempts through the ordinary E1 lifecycle.
+"""Confined children through the ordinary parent-owned, acknowledged E1 lifecycle.
 
-`drive_run_ref_lifecycle` hands a confined site here after allocation; the same
-acknowledged ledger stages are emitted with confined evidence:
-
-* `allocated`: bindings from the v2 config, the evaluated `:commit` and the inputs,
-  with the child run id and clone of `confinement.confined_attempt_layout`; the
-  child is admitted before (a refusal leaves no ledger row and aborts the parent
-  effect under ordinary EE rules).
-* `materialized` / `setup_completed`: the sanitized clone and control root
-  (`provision_confined_child`), the baseline snapshot beside the clone, the
-  initial `committed` checkpoint header; setup evidence is the child recipe.
-* `program_prepared` / `launched`: the durable confined request
-  (`run_ref_confined_child_request.v1`) written as `child-request.json`.
-* `child_completed`: the child run under a `ConfinedChildSession` (one holder per
-  attempt, stopped at the child terminal), then its terminal witness: a completed
-  memo replayed over its committed effects, or the child's failed terminal. A
-  failure after release settles as `FAILED (code, detail, accounting)` (P32); a
-  launch refused before release aborts the parent effect.
-* `delta_captured` / `completed_pending_parent_commit`: delta from the baseline to
-  the clone after its last checkpoint, accounting (`elapsed_ms` is the wall time
-  charged to `:wall-seconds`, host work included) and the evidence manifest; the
-  envelope is the site's outcome union.
-
-`validate_confined_bound_authority` rebuilds the same envelope from the durable
-evidence for settlement, reconciliation and reuse. The durable failed terminal
-row, crash recovery and K4 changes are Task 7's. Dependencies: `confinement.py`,
-`confined_session.py`, `evaluated_child.py`, `delta.py`, `runtime.py` documents.
+V2 reservation opens the visit budget before admission. Recovery quiesces exact
+scopes and resolves terminality/budget before retaining progress or applying K4.
+A child failure closes its budget and acknowledges a boundary proof before its
+memo failure/terminal. The ordinary prepare/parent-commit/settle chain owns both
+outcomes; v1 path attempts continue through the legacy driver.
 """
 
 from __future__ import annotations
@@ -36,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import time
 from typing import Any
 
 from .confined_session import ConfinedChildSession, ensure_checkpoint_header
@@ -165,6 +143,8 @@ def _checked_child(request, layout, recipe_bytes: bytes, inputs: Mapping[str, An
                 **common, value_descriptor=config.result_descriptor["envelope"]["fields"][0]["type"],
                 direct_value=direct_value, image=image)
             return {**document, "value": value}, digest
+        from .confined_recovery import validate_failed_terminal_evidence
+        validate_failed_terminal_evidence(request, layout)
         code, detail, _path, digest = validate_confined_child_failure(**common)
         return {**document, "code": code, "detail": detail}, digest
     except _WITNESS_ERRORS as exc:
@@ -205,77 +185,204 @@ def _evidence(request, ordinal: int, bindings: RunRefAttemptBindings, layout, *,
     }
 
 
+def prepare_confined_recovery_allocation(request, effects):
+    """Resolve budget/terminality under the parent writer before selecting K4 or continuation."""
+    from .ledger import load_attempt_ledger, identify_incomplete_attempt, confined_budget
+    from .holder_scope import recover_holder_scopes
+    from .confined_budget import boottime_ns, remaining_ns
+    from .runtime import (select_run_ref_lifecycle_allocation, _discard_incomplete_attempt,
+                          persist_run_ref_lifecycle_event, RunRefLifecycleEvent)
+    head = identify_incomplete_attempt(request.ledger_path, visit=request.visit,
+        current_step_config_digest=request.step_config.step_config_digest, run_files=request.run_files)
+    if head is None:
+        return select_run_ref_lifecycle_allocation(request)
+    rows = load_attempt_ledger(request.ledger_path, run_files=request.run_files).rows
+    state = confined_budget(rows, request.visit)
+    if state is None:
+        raise _invalid("confined_attempt_requires_v2_ledger")
+    if state["limit_ns"] != dict(request.step_config.run_ref.policy.limits)["wall-seconds"] * 1_000_000_000:
+        raise _invalid("confined_budget_limit_disagrees")
+    remaining_ns(state)  # an open old-boot interval refuses before scope-name reuse
+    layout = _layout(request, head.attempt_ordinal)
+    expected = confined_attempt_bindings(request, attempt_ordinal=head.attempt_ordinal,
+        workspace=layout.workspace, parent_values=resolve_run_ref_parent_input_values(request))
+    if any(getattr(head.bindings, name) != getattr(expected, name) for name in _STATIC_BINDINGS):
+        raise _invalid("retained_attempt_bindings_disagree")
+    if (layout.child_root / RECIPE_FILENAME).exists():
+        from .confinement import _read_recipe, require_owned_roots
+        recipe = _read_recipe(layout)
+        if head.bindings.setup_evidence_digest is not None and canonical_sha256(recipe) != head.bindings.setup_evidence_digest:
+            raise _invalid('retained_recipe_digest_disagrees')
+        if head.bindings.setup_evidence_digest is None and (layout.child_root / 'holder').exists():
+            raise _invalid('holder_before_bound_provisioning')
+        require_owned_roots(layout, request.run_ref_root, recipe)
+    recover_holder_scopes(layout.child_root / "holder")  # before every checkpoint/clone reader
+    if state['active'] is not None:
+        active = state['active']
+        event = RunRefLifecycleEvent.build(sequence=1, event_kind='budget_close', stage=head.stage,
+            visit=request.visit, attempt_ordinal=head.attempt_ordinal, effect_instance_root=request.parent_run_root,
+            payload={'event': dict(opening_sequence=active['opening_sequence'], boot_id=active['boot_id'], until_ns=boottime_ns())})
+        persist_run_ref_lifecycle_event(request, event)
+        rows = load_attempt_ledger(request.ledger_path, run_files=request.run_files).rows
+        head = next(row for row in reversed(rows) if row.visit == request.visit)
+        state = confined_budget(rows, request.visit)
+    # Terminal evidence is checked before reopening execution accounting, including pure zero-commit children.
+    terminal = None
+    commits = False
+    if (layout.child_root / 'run.json').exists():
+        from orchestrator.workflow.evaluated.authority import load_run_authority
+        from orchestrator.workflow.evaluated.memo import read_memo
+        from orchestrator.workflow.evaluated.machine import site_classes
+        authority = load_run_authority(layout.child_root)
+        memo = read_memo(authority.memo_path, site_classes(authority.program))
+        commits = bool(memo.active_commits)
+        terminal = memo.terminal
+    failure = next((row for row in reversed(rows) if row.visit == request.visit
+                    and row.attempt_ordinal == head.attempt_ordinal and row.event_kind == 'failed_terminal'), None)
+    if terminal is None and failure is None and not commits and remaining_ns(state) > 0:
+        _discard_incomplete_attempt(request, effects)
+        return select_run_ref_lifecycle_allocation(request)
+    fresh = select_run_ref_lifecycle_allocation(request)
+    return replace(fresh, attempt_ordinal=head.attempt_ordinal, bindings=head.bindings, retained=head)
+
+
 def drive_confined_lifecycle(request, *, allocation, emit: Callable[..., Any], effects):
-    """Admit, provision, run and witness one confined child attempt (see the module docstring)."""
-    started_at = time.monotonic()
+    """The same E1 driver reserves accounting before admission and retains committed child progress."""
+    from .confined_budget import VisitBudget, boot_id, boottime_ns
+    from .ledger import confined_budget, load_attempt_ledger
+    ordinal, bindings = allocation.attempt_ordinal, allocation.bindings
+    stage = 'allocated' if allocation.retained is None else allocation.retained.stage
+
+    def side(kind, event):
+        return emit(stage=stage, event_kind=kind, attempt_ordinal=ordinal, payload={'event': event})
+
+    def advance(target, updates, *, kind='progress', extra=None):
+        nonlocal bindings, stage
+        bindings = replace(bindings, **updates)
+        ack = emit(stage=target, event_kind=kind, attempt_ordinal=ordinal,
+                   payload={'binding_updates': dict(updates), **(extra or {})})
+        stage = target
+        return ack
+
+    rows = load_attempt_ledger(allocation.ledger_path, run_files=request.run_files).rows
+    if (len(rows) + 1 != allocation.expected_ledger_sequence
+            or (rows[-1].row_digest if rows else None) != allocation.expected_previous_row_digest):
+        raise _invalid('confined_allocation_head_changed')
+    if allocation.retained is not None and next((row for row in reversed(rows) if row.visit == request.visit), None) != allocation.retained:
+        raise _invalid('confined_retained_head_changed')
+    prior = confined_budget(rows, request.visit)
+    if allocation.retained is None:
+        opening = dict(limit_ns=dict(request.step_config.run_ref.policy.limits)['wall-seconds'] * 1_000_000_000,
+                       boot_id=boot_id(), since_ns=boottime_ns())
+        ack = emit(stage='allocated', event_kind='allocation', attempt_ordinal=ordinal,
+                   payload={'bindings': bindings.record, 'confined_opening': opening})
+        state = dict(limit_ns=opening['limit_ns'], charged_ns=0 if prior is None else prior['charged_ns'],
+                     active={**{k:v for k,v in opening.items() if k != 'limit_ns'},
+                             'attempt_ordinal': ordinal, 'opening_sequence': ack.authority.sequence},
+                     closure_digest=None if prior is None else prior['closure_digest'])
+        effects.crash_hook('allocation')
+    else:
+        state = prior
+    budget = VisitBudget(state, side)
+    layout = _layout(request, ordinal)
+    # A retained terminal never opens another execution interval or starts a holder.
+    from .confined_recovery import retained_terminal, record_failure
+    terminal = retained_terminal(request, layout, rows, state) if allocation.retained is not None else None
+    if terminal is None and budget.state['active'] is None:
+        if budget.remaining <= 0:
+            from .confined_recovery import fail_exhausted_retained
+            terminal = fail_exhausted_retained(request, layout, rows, budget, side)
+        else:
+            opening = dict(boot_id=boot_id(), since_ns=boottime_ns())
+            ack = side('budget_open', opening)
+            budget.state = dict(budget.state, active={**opening, 'attempt_ordinal': ordinal,
+                                                     'opening_sequence': ack.authority.sequence})
+    if terminal is not None:
+        document, state_digest = terminal
+        return _finish_confined(request, allocation, bindings, stage, advance, document, state_digest,
+                                budget.state['charged_ns'] // 1_000_000, effects)
+    if budget.remaining <= 0:
+        budget.close()
+        raise RunRefRuntimeError('run_ref_budget_exhausted', 'child wall budget exhausted before release')
     parent_values = resolve_run_ref_parent_input_values(request)
     record = _request_record(request, parent_values)
-    admission = admit_confined_child(request.step_config.run_ref, record, commit=request.parent_state["commit"],
-                                     inputs=parent_values, parent_program=request.parent_program,
-                                     image_store=request.run_ref_root / IMAGES_DIRNAME, host=probe_host())
+    admission = None
+    session = None
     try:
-        _require_prerelease_budget(admission, started_at)
-        return _drive(request, admission, record, parent_values, allocation, emit, effects, started_at)
-    finally:
-        admission.close()
-
-
-def _require_prerelease_budget(admission, started_at):
-    if time.monotonic() - started_at >= dict(admission.config.policy.limits)["wall-seconds"]:
-        raise RunRefRuntimeError("run_ref_budget_exhausted", "child wall budget exhausted before release")
-
-
-def _drive(request, admission, record, parent_values, allocation, emit, effects, started_at):
-    ordinal, bindings = allocation.attempt_ordinal, allocation.bindings
-
-    def advance(stage: str, updates: Mapping[str, Any], *, kind: str = "progress", extra=None):
-        nonlocal bindings
-        bindings = replace(bindings, **updates)
-        return emit(stage=stage, event_kind=kind, attempt_ordinal=ordinal,
-                    payload={"binding_updates": dict(updates), **(extra or {})})
-
-    emit(stage="allocated", event_kind="allocation", attempt_ordinal=ordinal, payload={"bindings": bindings.record})
-    effects.crash_hook("allocation")
-    layout = _layout(request, ordinal)
-    provisioned = provision_confined_child(admission, layout, run_ref_root=request.run_ref_root,
-                                           parent_run_root=request.parent_run_root,
-                                           parent_workspace=request.parent_workspace)
-    advance("materialized", {"verified_git_tree_id": provisioned.source.verified_git_tree.value})
-    attempt_root = layout.workspace.parent
-    baseline = _snapshot_baseline(layout.workspace, attempt_root / _BASELINE_DIRECTORY)
-    ensure_checkpoint_header(layout.child_root, baseline.digest)
-    advance("setup_completed", {"setup_evidence_digest": canonical_sha256(provisioned.recipe),
-                                "post_setup_baseline_digest": baseline.digest})
-    _write_canonical_document(attempt_root / _REQUEST_FILENAME, record)
-    advance("program_prepared", {"program_preparation_digest": _preparation_digest(request, record)})
-    _require_prerelease_budget(admission, started_at)
-    advance("launched", {"child_launch_digest": canonical_sha256(record)})
-    effects.crash_hook("launch")
-
-    session = ConfinedChildSession(admission, provisioned, started_at=started_at)
-    status, value = "completed", None
-    try:
-        value = execute_confined_child(admission, provisioned, run_ref_root=request.run_ref_root, session=session)
+        admission = admit_confined_child(request.step_config.run_ref, record, commit=request.parent_state['commit'],
+            inputs=parent_values, parent_program=request.parent_program,
+            image_store=request.run_ref_root / IMAGES_DIRNAME, host=probe_host())
+        if budget.remaining <= 0:
+            raise RunRefRuntimeError('run_ref_budget_exhausted', 'child wall budget exhausted before release')
+        provisioned = provision_confined_child(admission, layout, run_ref_root=request.run_ref_root,
+            parent_run_root=request.parent_run_root, parent_workspace=request.parent_workspace)
+        attempt_root = layout.workspace.parent
+        if allocation.retained is None:
+            advance('materialized', {'verified_git_tree_id': provisioned.source.verified_git_tree.value})
+            baseline = _snapshot_baseline(layout.workspace, attempt_root / _BASELINE_DIRECTORY)
+            ensure_checkpoint_header(layout.child_root, baseline.digest)
+            advance('setup_completed', {'setup_evidence_digest': canonical_sha256(provisioned.recipe),
+                                       'post_setup_baseline_digest': baseline.digest})
+            _write_canonical_document(attempt_root / _REQUEST_FILENAME, record)
+            advance('program_prepared', {'program_preparation_digest': _preparation_digest(request, record)})
+            advance('launched', {'child_launch_digest': canonical_sha256(record)})
+            effects.crash_hook('launch')
+        session = ConfinedChildSession(admission, provisioned, budget_context=budget,
+            failure_callback=lambda authority, exc: record_failure(request, provisioned, authority, exc, budget, side))
+        status, value = 'completed', None
+        try:
+            value = execute_confined_child(admission, provisioned, run_ref_root=request.run_ref_root, session=session)
+        except RunRefRuntimeError as exc:
+            if session.prerelease_error is not None:
+                raise session.prerelease_error from exc
+            if exc.detail != 'workflow_execution_failed':
+                raise
+            status = 'failed'
+        finally:
+            session.stop()
+        document, state_digest = _checked_child(request, layout, provisioned.recipe_bytes, admission.inputs,
+                                               status, value, image=admission.image)
+        return _finish_confined(request, allocation, bindings, stage, advance, document, state_digest,
+                                budget.state['charged_ns'] // 1_000_000, effects)
     except RunRefRuntimeError as exc:
-        if session.prerelease_error is not None:
-            raise session.prerelease_error from exc
-        if exc.detail != "workflow_execution_failed":
-            raise
-        status = "failed"
+        if session is None and exc.code == 'run_ref_budget_exhausted' and budget.remaining <= 0:
+            budget.close()
+            from .confined_recovery import _released, fail_exhausted_retained
+            if allocation.retained is not None and _released(layout):
+                document, state_digest = fail_exhausted_retained(request, layout, rows, budget, side)
+                return _finish_confined(request, allocation, bindings, stage, advance, document, state_digest,
+                                        budget.state['charged_ns'] // 1_000_000, effects)
+        raise
     finally:
-        budget = session.stop()
-    document, state_digest = _checked_child(request, layout, provisioned.recipe_bytes, admission.inputs,
-                                            status, value, image=admission.image)
+        if session is None:
+            budget.close()
+        if admission is not None:
+            admission.close()
+
+
+def _finish_confined(request, allocation, bindings, stage, advance, document, state_digest, elapsed_ms, effects):
+    ordinal = allocation.attempt_ordinal
+    layout = _layout(request, ordinal)
+    attempt_root = layout.workspace.parent
+    baseline = freeze_tree(attempt_root / _BASELINE_DIRECTORY)
+    status = document['status']
+    from .confinement import _recover_checkpoint
+    _recover_checkpoint(layout)
+    if bindings.child_terminal_state_digest is not None and (bindings.child_terminal_state_digest != state_digest
+            or bindings.result_payload_digest != canonical_sha256(document)):
+        raise _invalid('retained_child_terminal_binding_disagrees')
     _write_canonical_document(attempt_root / _CHILD_RESULT_FILENAME, document)
-    advance("child_completed", {"child_terminal_state_digest": state_digest,
-                                "result_payload_digest": canonical_sha256(document)})
+    if bindings.child_terminal_state_digest is None:
+        advance("child_completed", {"child_terminal_state_digest": state_digest,
+                                    "result_payload_digest": canonical_sha256(document)})
+        bindings = replace(bindings, child_terminal_state_digest=state_digest, result_payload_digest=canonical_sha256(document))
     effects.crash_hook("child_completion")
 
-    delta = build_workspace_delta(base=provisioned.source.repository_revision_id,
+    delta = build_workspace_delta(base=confined_revision(request.step_config.run_ref.repo, request.parent_state["commit"])[1],
                                   baseline_root=attempt_root / _BASELINE_DIRECTORY, baseline_manifest=baseline,
                                   workspace_root=layout.workspace, declared_artifacts=_declared(request, document))
     accounting = confined_child_accounting(layout, attempt_ordinal=ordinal, terminal_status=status,
-                                           elapsed_ms=budget["charged_ms"])
+                                           elapsed_ms=elapsed_ms)
     _write_canonical_document(attempt_root / _WORKSPACE_DELTA_FILENAME, delta.record)
     _write_canonical_document(attempt_root / _ACCOUNTING_FILENAME, accounting)
     envelope, artifacts = _outcome(request, document, delta.record, accounting)
@@ -283,18 +390,24 @@ def _drive(request, admission, record, parent_values, allocation, emit, effects,
     evidence = _evidence(request, ordinal, replace(bindings, **updates), layout,
                          envelope_digest=canonical_sha256(envelope), final_digest=delta.final_manifest.digest)
     _write_canonical_document(attempt_root / _EVIDENCE_FILENAME, evidence)
-    advance("delta_captured", {**updates, "evidence_manifest_digest": canonical_sha256(evidence)})
+    if bindings.evidence_manifest_digest is None:
+        advance("delta_captured", {**updates, "evidence_manifest_digest": canonical_sha256(evidence)})
+        bindings = replace(bindings, **updates, evidence_manifest_digest=canonical_sha256(evidence))
     effects.crash_hook("delta")
-    pending = advance("completed_pending_parent_commit", {}, kind="prepared", extra={
-        "result_envelope_digest": canonical_sha256(envelope),
-        "artifact_projection_digest": canonical_sha256(artifacts),
-        "evidence_manifest_digest": bindings.evidence_manifest_digest})
+    if stage == "completed_pending_parent_commit":
+        pending_digest = allocation.retained.row_digest
+    else:
+        pending = advance("completed_pending_parent_commit", {}, kind="prepared", extra={
+            "result_envelope_digest": canonical_sha256(envelope),
+            "artifact_projection_digest": canonical_sha256(artifacts),
+            "evidence_manifest_digest": bindings.evidence_manifest_digest})
+        pending_digest = pending.authority_digest
     return PreparedRunRefSettlement(
         envelope=envelope, artifacts=artifacts,
         settled_result=SettledRunRefResultBinding(
             visit=request.visit, attempt_ordinal=ordinal, step_config_digest=bindings.step_config_digest,
             run_ref_root=bindings.run_ref_root, workspace_path=bindings.workspace_path,
-            child_run_id=bindings.child_run_id, pending_row_digest=pending.authority_digest,
+            child_run_id=bindings.child_run_id, pending_row_digest=pending_digest,
             child_terminal_state_digest=bindings.child_terminal_state_digest,
             result_contract_digest=bindings.result_contract_digest,
             result_payload_digest=bindings.result_payload_digest,
@@ -317,6 +430,14 @@ def validate_confined_bound_authority(request, row) -> tuple[dict[str, Any], dic
         if getattr(row.bindings, name) != getattr(expected, name):
             raise _invalid(f"{name}_binding_invalid")
     bindings, attempt_root = row.bindings, layout.workspace.parent
+    from .confinement import _read_recipe, require_owned_roots, _recover_checkpoint
+    from .holder_scope import recover_holder_scopes
+    recipe = _read_recipe(layout)
+    if canonical_sha256(recipe) != bindings.setup_evidence_digest:
+        raise _invalid('setup_evidence_binding_invalid')
+    require_owned_roots(layout, request.run_ref_root, recipe)
+    recover_holder_scopes(layout.child_root / 'holder')
+    _recover_checkpoint(layout)
     record = _request_record(request, parent_values)
     stored = _read_canonical_document(attempt_root / _REQUEST_FILENAME, label="child_request")
     if (stored != record or canonical_sha256(record) != bindings.child_launch_digest
@@ -352,6 +473,10 @@ def validate_confined_bound_authority(request, row) -> tuple[dict[str, Any], dic
             or (accounting["child_run_id"], accounting["attempt_ordinal"], accounting["terminal_status"])
             != (bindings.child_run_id, row.attempt_ordinal, document["status"])):
         raise _invalid("accounting_binding_invalid")
+    from .ledger import confined_budget, load_attempt_ledger
+    state = confined_budget(load_attempt_ledger(request.ledger_path, run_files=request.run_files).rows, request.visit)
+    if state is None or state['active'] is not None or accounting['elapsed_ms'] != state['charged_ns'] // 1_000_000:
+        raise _invalid('accounting_budget_binding_invalid')
     envelope, artifacts = _outcome(request, document, delta_record, accounting)
     evidence = _read_canonical_document(attempt_root / _EVIDENCE_FILENAME, label="evidence_manifest")
     if (evidence != _evidence(request, row.attempt_ordinal, bindings, layout,

@@ -167,6 +167,9 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     suffix = [item for item in snapshot.active_commits.values() if item.offset >= chosen.offset]
     if any(item.data["effect_class"] == "run_ref" for item in suffix):
         raise MemoError("invalidate_coordinator_committed", identity)
+    if checked_authority is not None:
+        from .run_ref import guard_confined_invalidation
+        guard_confined_invalidation(checked_authority, snapshot, chosen.offset)
     if snapshot.tail:
         repair_torn_tail(path, snapshot, run_files=run_files)
     row = {"record": "invalidated", "from_commit": chosen.offset, "time": time.time()}

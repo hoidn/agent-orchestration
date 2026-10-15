@@ -197,7 +197,8 @@ class RunRefLifecycleEvent:
     ) -> RunRefLifecycleEvent:
         if type(sequence) is not int or sequence < 1:
             raise ValueError("run-ref lifecycle sequence must be positive")
-        expected_kind = (
+        side_event = event_kind in {"budget_open", "budget_close", "failed_terminal"}
+        expected_kind = event_kind if side_event else (
             "allocation"
             if stage == "allocated"
             else "prepared"
@@ -227,8 +228,12 @@ class RunRefLifecycleEvent:
             raise TypeError("run-ref lifecycle payload must be a mapping")
         payload_json = canonical_json_bytes(dict(payload))
         payload_copy = json.loads(payload_json)
-        if event_kind == "allocation":
-            expected_payload = {"bindings"}
+        if side_event:
+            expected_payload = {"event"}
+            if not isinstance(payload_copy.get("event"), Mapping):
+                raise ValueError("run-ref confined event evidence is not a mapping")
+        elif event_kind == "allocation":
+            expected_payload = {"bindings", "confined_opening"} if "confined_opening" in payload_copy else {"bindings"}
             binding_keys = set(RunRefAttemptBindings.__dataclass_fields__)
             bindings = payload_copy.get("bindings")
             if not isinstance(bindings, Mapping) or set(bindings) != binding_keys:
@@ -335,6 +340,7 @@ class RunRefLifecycleAllocation:
     effect_instance_digest: str | None = None
     expected_ledger_sequence: int = 1
     expected_previous_row_digest: str | None = None
+    retained: RunRefAttemptRecord | None = None
 
     def __post_init__(self) -> None:
         if type(self.attempt_ordinal) is not int or self.attempt_ordinal < 1:
@@ -361,6 +367,11 @@ class RunRefLifecycleAllocation:
             self.expected_previous_row_digest is None
         ):
             raise ValueError("run-ref expected ledger head binding is invalid")
+        if self.retained is not None and (type(self.retained) is not RunRefAttemptRecord
+                or self.retained.attempt_ordinal != self.attempt_ordinal or self.retained.bindings != self.bindings
+                or self.retained.schema_version != "run_ref_attempt_ledger.v2"
+                or self.retained.status not in {"in_progress", "pending_parent_commit"}):
+            raise ValueError("run-ref retained allocation authority is invalid")
         object.__setattr__(self, "effect_instance_root", root)
 
     @property
@@ -2393,7 +2404,17 @@ def _validate_lifecycle_acknowledgement_authority(
     ):
         raise ValueError("run-ref lifecycle acknowledgement authority disagrees")
     payload = event.payload
-    if event.stage == "allocated":
+    if event.event_kind in {"budget_open", "budget_close", "failed_terminal"}:
+        if row.event_kind != event.event_kind or row.event != payload["event"]:
+            raise ValueError("run-ref confined event acknowledgement disagrees")
+        return
+    if event.event_kind == "allocation":
+        opening = payload.get("confined_opening")
+        if opening is not None and (row.schema_version != "run_ref_attempt_ledger.v2"
+                or row.event_kind != "allocation" or row.event != opening):
+            raise ValueError("run-ref lifecycle budget opening acknowledgement disagrees")
+        if opening is None and row.schema_version != "run_ref_attempt_ledger.v1":
+            raise ValueError("run-ref lifecycle allocation version acknowledgement disagrees")
         if row.bindings.record != payload["bindings"]:
             raise ValueError(
                 "run-ref lifecycle allocation acknowledgement disagrees"
@@ -2566,7 +2587,12 @@ def drive_run_ref_lifecycle(
             parent_values=parent_values,
             effect_instance_digest=allocation.effect_instance_digest,
         )
-        if allocation.bindings != expected_bindings:
+        compatible = allocation.bindings == expected_bindings
+        if allocation.retained is not None:
+            compatible = _is_confined(request.step_config) and all(
+                getattr(allocation.bindings, name) == getattr(expected_bindings, name)
+                for name in expected_bindings.__dataclass_fields__ if getattr(expected_bindings, name) is not None)
+        if not compatible:
             raise RunRefRuntimeError(
                 "run_ref_ledger_invalid",
                 "lifecycle_allocation_authority_disagrees",
@@ -2884,13 +2910,30 @@ def persist_run_ref_lifecycle_event(
     payload = event.payload
     ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
     try:
-        if event.stage == "allocated":
+        if event.event_kind in {"budget_open", "budget_close", "failed_terminal"}:
+            from .ledger import append_confined_event
+            current = load_attempt_ledger(ledger_path, run_files=request.run_files)
+            head = next((row for row in reversed(current.rows) if row.visit == event.visit
+                         and row.attempt_ordinal == event.attempt_ordinal), None)
+            if head is None or head.stage != event.stage:
+                raise RunRefLedgerError("confined event work stage disagrees")
+            row = append_confined_event(ledger_path, visit=request.visit, attempt_ordinal=event.attempt_ordinal,
+                event_kind=event.event_kind, event=payload["event"], run_files=request.run_files)
+        elif event.event_kind == "allocation":
+            opening = payload.get("confined_opening")
+            if _is_confined(request.step_config):
+                limit = dict(request.step_config.run_ref.policy.limits)["wall-seconds"] * 1_000_000_000
+                if not isinstance(opening, Mapping) or opening.get("limit_ns") != limit:
+                    raise RunRefLedgerError("confined reservation checked budget disagrees")
+            elif opening is not None:
+                raise RunRefLedgerError("legacy allocation cannot carry a confined reservation")
             bindings = RunRefAttemptBindings(**payload["bindings"])
             row = allocate_attempt(
                 ledger_path,
                 visit=request.visit,
                 bindings=bindings,
                 run_files=request.run_files,
+                confined_opening=payload.get("confined_opening"),
             )
             if row.attempt_ordinal != event.attempt_ordinal:
                 raise RunRefLedgerError(
@@ -2944,8 +2987,12 @@ def prepare_run_ref_lifecycle_allocation(request, *, dependencies=None):
         raise TypeError("dependencies must be exact RunRefRuntimeDependencies")
     started_ns = effects.monotonic_ns()
     try:
-        _discard_incomplete_attempt(request, effects)
-        allocation = select_run_ref_lifecycle_allocation(request)
+        if _is_confined(request.step_config):
+            from .confined_lifecycle import prepare_confined_recovery_allocation
+            allocation = prepare_confined_recovery_allocation(request, effects)
+        else:
+            _discard_incomplete_attempt(request, effects)
+            allocation = select_run_ref_lifecycle_allocation(request)
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     return allocation, started_ns

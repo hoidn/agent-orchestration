@@ -17,6 +17,8 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import tempfile
+import secrets
 
 import pytest
 
@@ -59,7 +61,9 @@ class FakeHolder:
     leaves: list[str] = []
 
     def __init__(self, image, limits, *, control_dir, git_dir_fd=None):
-        self.workspace, self.result = Path(control_dir) / "fake-workspace", Path(control_dir) / "fake-result"
+        self.control_dir = Path(control_dir)
+        scratch = Path(tempfile.mkdtemp(prefix="fake-", dir=control_dir))
+        self.workspace, self.result = scratch / "fake-workspace", scratch / "fake-result"
         self.workspace.mkdir()
         self.result.mkdir()
         self.fd = os.open(self.workspace, os.O_RDONLY | os.O_DIRECTORY)
@@ -68,6 +72,19 @@ class FakeHolder:
     def launch(self):
         if FakeHolder.launch_error is not None:
             raise FakeHolder.launch_error
+        from orchestrator.providers.isolation_backend import DurableLaunchReleaseGate
+        from orchestrator.workflow.run_ref.confined_budget import boot_id
+        from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+        token = secrets.token_hex(32)
+        identity = "sha256:" + "b" * 64
+        (self.control_dir / f"scope-{token[:16]}.json").write_bytes(canonical_json_bytes({
+            "schema_version": "run_ref_holder_scope.v1", "boot_id": boot_id(),
+            "scope_path": f"/sys/fs/cgroup/run-ref-{token[:16]}.scope", "unit": f"run-ref-{token[:16]}.scope",
+            "launch_token": "sha256:" + token, "containment_identity": identity}))
+        gate = DurableLaunchReleaseGate.create(self.control_dir / f"holder-release-{token[:16]}.json",
+            launch_token="sha256:" + token, containment_identity=identity)
+        gate.record_intent()
+        gate.consume_release(gate.record_commit())
         FakeHolder.launched.append(self)
         return self
 

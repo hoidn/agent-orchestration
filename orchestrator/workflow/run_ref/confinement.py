@@ -238,7 +238,31 @@ class ProvisionedChild:
         return canonical_json_bytes(self.recipe)
 
 
-def _recipe(admission: ConfinedAdmission, layout: ConfinedAttemptLayout, source: ConfinedSource) -> dict[str, Any]:
+def _owned_root_identity(path: Path) -> dict[str, Any]:
+    """Original no-follow directory identity; later cleanup must preserve replacement roots."""
+    from orchestrator.providers.isolation_runtime_authority import _statx_mount_id
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        value = os.fstat(fd)
+        return dict(device=value.st_dev, inode=value.st_ino, mount_id=_statx_mount_id(fd))
+    finally:
+        os.close(fd)
+
+
+def require_owned_roots(layout, run_ref_root, recipe):
+    """Compare original provisioning authority before reading or deleting any retained clone."""
+    from orchestrator.providers.isolation_runtime_authority import MountIdentityUnavailable
+    roots = recipe.get('owned_roots')
+    try:
+        valid = isinstance(roots, Mapping) and all(roots.get(name) == _owned_root_identity(path)
+            for name, path in (('clone', layout.workspace), ('control', layout.child_root), ('run_ref_root', run_ref_root)))
+    except (OSError, MountIdentityUnavailable) as exc:
+        raise RunRefRuntimeError('run_ref_environment_changed', 'provisioned_root_identity_changed') from exc
+    if not valid:
+        raise RunRefRuntimeError('run_ref_environment_changed', 'provisioned_root_identity_changed')
+
+
+def _recipe(admission: ConfinedAdmission, layout: ConfinedAttemptLayout, source: ConfinedSource, run_ref_root: Path) -> dict[str, Any]:
     return {
         "schema_version": RECIPE_SCHEMA,
         "child_run_id": layout.child_run_id,
@@ -253,6 +277,8 @@ def _recipe(admission: ConfinedAdmission, layout: ConfinedAttemptLayout, source:
         "mirror_path": source.mirror_path.as_posix(),
         "baseline_digest": source.source_tree_manifest.digest,
         "admission": admission.record,
+        "owned_roots": {name: _owned_root_identity(path) for name, path in (
+            ("clone", layout.workspace), ("control", layout.child_root), ("run_ref_root", run_ref_root))},
     }
 
 
@@ -272,7 +298,7 @@ def provision_confined_child(
         except RunRefRuntimeError:
             _discard_unpublished_attempt(layout)
         else:
-            return _reuse_provisioned_child(admission, layout)
+            return _reuse_provisioned_child(admission, layout, run_ref_root)
     elif os.path.lexists(layout.workspace):
         # The control root, named by the child run id, is durable before any clone, so a
         # clone without it was not made for this child: keep it and fail closed.
@@ -296,7 +322,7 @@ def provision_confined_child(
     if any(entry.kind == "directory" and entry.path.count("/") + 1 > MAX_TREE_DEPTH
            for entry in source.source_tree_manifest.entries):
         raise RunRefRuntimeError("run_ref_environment_unavailable", "clone_exceeds_depth_bound")
-    provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source))
+    provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source, run_ref_root))
     fd = os.open(layout.child_root / RECIPE_FILENAME,
                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
@@ -353,7 +379,9 @@ def _read_recipe(layout: ConfinedAttemptLayout) -> dict[str, Any]:
     return recipe
 
 
-def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttemptLayout) -> ProvisionedChild:
+def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttemptLayout, run_ref_root: Path) -> ProvisionedChild:
+    from .holder_scope import recover_holder_scopes
+    recover_holder_scopes(layout.child_root / "holder")
     recipe = _read_recipe(layout)
     _source, revision = confined_revision(admission.config.repo, admission.commit)
     expected = {
@@ -368,6 +396,8 @@ def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttem
     stored = recipe.get("admission") or {}
     if {name: stored.get(name) for name in admission.environment_record} != admission.environment_record:
         raise RunRefRuntimeError("run_ref_environment_changed", "image_snapshot_or_pins_changed")
+    require_owned_roots(layout, run_ref_root, recipe)
+    _recover_checkpoint(layout)
     try:
         manifest = freeze_tree(layout.workspace, excluded_roots=(".git", ".orchestrate"))
     except (OSError, ValueError) as exc:
@@ -386,6 +416,46 @@ def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttem
                             mirror_path=mirror_path, workspace_path=layout.workspace,
                             source_tree_manifest=manifest)
     return ProvisionedChild(layout=layout, source=source, recipe=recipe)
+
+
+def _recover_checkpoint(layout):
+    """Only a coherent memo attempt may authorize repairing a checkpoint intent."""
+    import hashlib
+    from .checkpoint import read_checkpoint_header, preflight_checkpoint, RunRefCheckpointError
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.machine import site_classes
+    from orchestrator.workflow.evaluated.memo import read_memo
+    path = layout.child_root / CHECKPOINT_HEADER
+    if not os.path.lexists(path):
+        return
+    try:
+        header = read_checkpoint_header(path)
+    except RunRefCheckpointError as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "checkpoint_header_invalid") from exc
+    memo = None
+    if (layout.child_root / 'run.json').exists():
+        authority = load_run_authority(layout.child_root)
+        memo = read_memo(authority.memo_path, site_classes(authority.program))
+    commits = [] if memo is None else list(memo.active_commits.values())
+    last = max(commits, key=lambda entry: entry.offset) if commits else None
+    initial = header.effect_identity == 'none' and header.ordinal == 0
+    if initial:
+        valid = not commits
+    else:
+        starts = [] if memo is None else [entry for entry in memo.entries if entry.data['record'] == 'started'
+            and hashlib.sha256(entry.data['identity'].encode()).hexdigest() == header.effect_identity
+            and entry.data['attempt'] == header.ordinal]
+        valid = len(starts) == 1 and (last is None or starts[0].offset > last.offset or (
+            starts[0].data['identity'], starts[0].data['attempt']) == (last.data['identity'], last.data['attempt']))
+    if not valid:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "checkpoint_attempt_identity_invalid")
+    fd = os.open(layout.workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        preflight_checkpoint(path, fd)
+    except RunRefCheckpointError as exc:
+        raise RunRefRuntimeError(exc.code, exc.detail) from exc
+    finally:
+        os.close(fd)
 
 
 def _last_committed_digest(layout: ConfinedAttemptLayout, recipe: Mapping[str, Any]) -> str | None:

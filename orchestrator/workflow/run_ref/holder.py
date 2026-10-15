@@ -1,4 +1,4 @@
-"""Bubblewrap holder runtime of `run_ref_confinement.v1`: one `Holder` per child attempt.
+"""Bubblewrap holder runtime of `run_ref_confinement.v1`: one `Holder` per controller incarnation.
 
 `Holder` implements `LeafRunner` over one `HolderScope` (`holder_scope.py`:
 scope, launch, quiescence, teardown). Per leaf (design D-g, R5, R6, F3b-1,
@@ -26,7 +26,7 @@ from orchestrator.providers.isolation_backend import CgroupV2ContainmentSlot, Pr
 
 from . import holder_spawner as profile
 from .holder_broker import GuestRefusal, LeafReads, read_leaf_results, wipe_mount, write_inputs
-from .holder_scope import CGROUP_MOUNT, CONTAINMENT_ERRORS, ESCAPE, LOST, HolderDeathError, HolderScope
+from .holder_scope import CGROUP_MOUNT, CONTAINMENT_ERRORS, ESCAPE, LOST, HolderDeathError, HolderScope, wall_seconds
 from .image_store import SealedImage
 from .leaf import HolderDeath, LeafOutcome, LeafRequest
 from .runtime import RunRefRuntimeError
@@ -105,13 +105,13 @@ class Holder:
         profile.validate_leaf_request(request)
         if self._death is not None:
             return _death_outcome(self._death, 0, False)
-        started = time.monotonic()
+        started = wall_seconds()
         progress = {"timed_out": False}
         try:
             return self._run(request, progress)
         except (HolderDeathError, *CONTAINMENT_ERRORS) as exc:
             death = self._die(exc)
-            return _death_outcome(death, int((time.monotonic() - started) * 1000), progress["timed_out"])
+            return _death_outcome(death, int((wall_seconds() - started) * 1000), progress["timed_out"])
 
     def _die(self, exc: BaseException) -> HolderDeath:
         if isinstance(exc, HolderDeathError):
@@ -162,11 +162,11 @@ class Holder:
         slot.add_pid(pid)
         if slot.members() != (pid,) or set(sandbox.slots["holder"].members()) != sandbox.recorded:
             raise HolderDeathError(ESCAPE, f"leaf {leaf} did not stay in its slot")
-        started = time.monotonic()
+        started = wall_seconds()
         assert sandbox.gate_socket is not None
         sandbox.gate_socket.sendall(b"go\n")
         status, timed_out, lingered = self._await_status(slot, started + timeout_sec, progress)
-        duration_ms = int((time.monotonic() - started) * 1000)
+        duration_ms = int((wall_seconds() - started) * 1000)
         slot.kill()
         try:
             slot.wait_empty(timeout_seconds=STATUS_GRACE)
@@ -196,7 +196,7 @@ class Holder:
         sandbox = self.sandbox
         assert sandbox.ctrl is not None
         sandbox.ctrl.sendall(leaf.encode() + b"\n")
-        deadline = time.monotonic() + ACK_SECONDS
+        deadline = wall_seconds() + ACK_SECONDS
         try:
             ack = sandbox.line(deadline)
         except TimeoutError as exc:
@@ -215,7 +215,7 @@ class Holder:
                 if _nspid(pid) != int(value):
                     raise HolderDeathError(ESCAPE, "holder-slot member is not the acknowledged leaf")
                 return pid
-            if time.monotonic() > deadline:
+            if wall_seconds() > deadline:
                 raise HolderDeathError(ESCAPE, "no leaf member within the deadline")
             time.sleep(0.005)
 
@@ -224,7 +224,7 @@ class Holder:
         """(status, timed out, lingered): the status line within its deadline, or a holder death."""
         grace: float | None = None
         while True:
-            now = time.monotonic()
+            now = wall_seconds()
             if grace is None and not slot.populated:
                 grace = now + STATUS_GRACE
             if grace is None and now > wall_deadline:
@@ -242,8 +242,8 @@ class Holder:
             kind, _, value = line.partition(" ")
             if kind != "status" or not value.isdecimal():
                 raise HolderDeathError(LOST, "malformed status line")
-            linger_deadline = time.monotonic() + LINGER_SECONDS
-            while slot.populated and time.monotonic() < linger_deadline:
+            linger_deadline = wall_seconds() + LINGER_SECONDS
+            while slot.populated and wall_seconds() < linger_deadline:
                 time.sleep(0.01)
             timed_out = progress["timed_out"]
             return int(value), timed_out, not timed_out and slot.populated

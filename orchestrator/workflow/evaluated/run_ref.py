@@ -144,6 +144,36 @@ def reconcile_evaluated_run_ref(authority, resolved, identity, workspace, expect
         "attempt": attempt, "by": "reconcile"}, run_files=authority.run_files, checked_authority=authority)
 
 
+def guard_confined_invalidation(authority, snapshot, from_offset):
+    """K8 starts at a confined child's first commit, before its parent has a result."""
+    from .replay import discover_prefix
+    from .machine import site_classes
+    from .authority import load_run_authority
+    from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
+    from orchestrator.workflow.run_ref.confinement import confined_attempt_layout
+    prefix = discover_prefix(authority, snapshot)
+    for reached in prefix.frontiers:
+        started = snapshot.latest_starts.get(reached.identity)
+        if reached.node['class'] != 'run_ref' or started is None or started.offset < from_offset:
+            continue
+        resolved, _parts = resolve_run_ref_input(reached.node, reached.operands)
+        if type(resolved[0].run_ref) is not RunRefConfinedStaticConfig:
+            continue
+        visit = RunRefVisitKey(parent_run_id=authority.run_root.name, execution_frame_id='root',
+            call_frame_id=None, step_id='root.' + canonical_sha256(reached.identity).removeprefix('sha256:'), visit_count=1)
+        rows = load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl', run_files=authority.run_files).rows
+        for row in reversed(rows):
+            if row.visit != visit:
+                continue
+            layout = confined_attempt_layout(run_ref_root=require_run_ref_root(authority), parent_run_root=authority.run_root,
+                visit=visit, attempt_ordinal=row.attempt_ordinal, config=resolved[0].run_ref)
+            if (layout.child_root / 'run.json').exists():
+                child = load_run_authority(layout.child_root)
+                if read_memo(child.memo_path, site_classes(child.program)).active_commits:
+                    raise MemoError('invalidate_coordinator_committed', reached.identity)
+            break
+
+
 def prepare_parallel_run_ref(attempt):
     from orchestrator.workflow.run_ref.runtime import prepare_run_ref_lifecycle_allocation
     request = _request(attempt.authority, attempt.resolved, attempt.identity, attempt.ordinal, attempt.workspace)
@@ -198,8 +228,13 @@ def _validate_parallel_event_scope(request, allocation, event, sequence):
     if (event.visit != request.visit or event.attempt_ordinal != allocation.attempt_ordinal
             or event.effect_instance_root != allocation.effect_instance_root):
         raise MemoError('memo_inconsistent', 'parallel E1 event allocation disagrees')
-    if sequence == 1 and (event.stage != 'allocated' or event.payload['bindings'] != allocation.bindings.record):
-        raise MemoError('memo_inconsistent', 'parallel E1 allocation event bindings disagree')
+    if sequence == 1:
+        if allocation.retained is None:
+            if (event.event_kind != 'allocation' or event.stage != 'allocated'
+                    or event.payload.get('bindings') != allocation.bindings.record):
+                raise MemoError('memo_inconsistent', 'parallel E1 allocation event bindings disagree')
+        elif (event.event_kind == 'allocation' or event.attempt_ordinal != allocation.retained.attempt_ordinal):
+            raise MemoError('memo_inconsistent', 'parallel E1 retained continuation disagrees')
 
 
 def parallel_run_ref_authority_failure(error):

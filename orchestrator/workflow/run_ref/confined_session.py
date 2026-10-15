@@ -4,7 +4,7 @@
 (`execute_pure_run(confined=...)`) and the `LeafRunner` its command attempts dispatch
 through. Per child attempt (design R3, N4, N5, N9, P5, P29):
 
-* one `Holder`, launched lazily before the first leaf (a pure child never launches
+* one `Holder` per controller incarnation, launched lazily before its first leaf (a pure child never launches
   one; a provider site is refused before any launch). Before the launch the clone
   must equal its last `committed` checkpoint header (an `intent` header is repaired
   by re-freezing); after it, the tmpfs `/workspace` is seeded from the clone by a
@@ -15,10 +15,11 @@ through. Per child attempt (design R3, N4, N5, N9, P5, P29):
 * a checkpoint failure under the live controller stops the scope, re-freezes the
   partial clone and publishes `committed`, ending the child like a holder death, keeping
   `run_ref_environment_escape_rejected` when the copier refused.
-* one monotonic wall clock starts before admission and ends after holder stop:
+* one fixed Linux BOOTTIME clock starts before admission and ends after holder stop:
   admission/provisioning, snapshot copies, pure evaluation, launch/rehash, seeding,
   leaves/result import, checkpoints and shutdown all consume the same allowance;
-  each helper/leaf timeout is clamped to what remains. Witness validation and
+  each helper/leaf timeout is clamped to the visit budget that remains, including
+  downtime/suspension; acknowledged ledger closures preserve charge across recovery. Witness validation and
   parent settlement remain outside the child execution accounting.
   Exhaustion fails the attempt with `run_ref_budget_exhausted`.
 
@@ -44,6 +45,7 @@ from typing import Any
 
 from orchestrator._common.io_atomic import durable_atomic_write
 
+from .confined_budget import boottime_ns
 from .checkpoint import RunRefCheckpointError, preflight_checkpoint, publish_initial_header
 from .confinement import CHECKPOINT_HEADER
 from .contracts import canonical_json_bytes
@@ -100,7 +102,8 @@ class ConfinedChildSession:
     """The holder, budget and attempt snapshots of one confined child attempt (`LeafRunner`)."""
 
     def __init__(self, admission: Any, provisioned: Any, *, holder_factory: Callable[..., Any] | None = None,
-                 clock: Callable[[], float] = time.monotonic, started_at: float | None = None) -> None:
+                 clock: Callable[[], float] | None = None, started_at: float | None = None,
+                 budget_context=None, failure_callback=None) -> None:
         from orchestrator.workflow.workspace_files import WorkspaceFiles
         from .evaluated_child import SNAPSHOTS_DIRNAME
 
@@ -114,7 +117,14 @@ class ConfinedChildSession:
         self.clone_files = WorkspaceFiles(self.layout.workspace)
         self._stored = sum(entry.stat(follow_symlinks=False).st_size
                            for entry in os.scandir(self.snapshots.root_fd))
-        self._holder_factory, self._clock = holder_factory or Holder, clock
+        self._holder_factory = holder_factory or Holder
+        self._clock = clock or (lambda: boottime_ns() / 1_000_000_000)
+        self.budget_context, self.failure_callback = budget_context, failure_callback
+        self.failed_proof = None
+        self.resume_error = None
+        from .confined_recovery import _released
+        self.released = _released(self.layout)
+        self._split_known = budget_context is None or budget_context.state["charged_ns"] == 0
         self.holder: Any = None
         self.host_seconds = 0.0
         self.guest_seconds = 0.0
@@ -129,6 +139,8 @@ class ConfinedChildSession:
     # -- budget (R3) -------------------------------------------------------------------------------
     @property
     def charged_seconds(self) -> float:
+        if self.budget_context is not None:
+            return self.budget_context.charged_ns / 1_000_000_000
         end = self._clock() if self._finished_at is None else self._finished_at
         return end - self._wall_started
 
@@ -140,7 +152,7 @@ class ConfinedChildSession:
         if self.remaining > 0:
             return
         code, detail = BUDGET_EXHAUSTED, "child wall budget is exhausted"
-        if self.holder is None:
+        if not self.released:
             self.prerelease_error = RunRefRuntimeError(code, detail)
         else:
             self._fail(code, detail)
@@ -228,6 +240,7 @@ class ConfinedChildSession:
         finally:
             os.close(git_fd)
         self.holder = holder
+        self.released = True
         seeded = self._helper("seed", str(self.limits["workspace-mib"] << 20))
         if seeded is not None:
             raise RunRefRuntimeError(*self._fail(*seeded))
@@ -287,6 +300,18 @@ class ConfinedChildSession:
             self.failure = (failed[0], f"{failed[1]}; re-freeze failed: {exc}")
         raise _performer_error(*self.failure)
 
+    def record_failure(self, authority, exc):
+        """Close accounting and await the parent's failed-row ack before any memo failure."""
+        if self.failed_proof is not None:
+            return self.failed_proof
+        if self.prerelease_error is not None:
+            raise self.prerelease_error
+        if self.failure_callback is None:
+            return None
+        self.stop()
+        self.failed_proof = self.failure_callback(authority, exc)
+        return self.failed_proof
+
     def finish(self) -> None:
         """Quiesce before the completed memo terminal, including shutdown in the wall limit."""
         self.stop()
@@ -305,10 +330,14 @@ class ConfinedChildSession:
             self.snapshots.close()
             self.clone_files.close()
         self._finished_at = self._clock()
+        if self.budget_context is not None:
+            self.budget_context.close()
         self.host_seconds = max(0.0, self.charged_seconds - self.guest_seconds)
         record = {"schema_version": BUDGET_SCHEMA, "budget_ms": int(self.budget * 1000),
                   "guest_ms": int(self.guest_seconds * 1000), "host_ms": int(self.host_seconds * 1000),
-                  "charged_ms": int(self.guest_seconds * 1000) + int(self.host_seconds * 1000)}
+                  "charged_ms": int(self.charged_seconds * 1000)}
+        if not self._split_known:
+            record["host_ms"] = record["guest_ms"] = "UNKNOWN"
         durable_atomic_write(self.layout.child_root / BUDGET_FILENAME, canonical_json_bytes(record))
         self._stop_record = record
         return record

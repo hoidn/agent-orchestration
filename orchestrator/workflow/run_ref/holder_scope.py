@@ -30,10 +30,12 @@ import hashlib
 import json
 import os
 import platform
+import re
 import secrets
 import select
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -48,6 +50,9 @@ from orchestrator.providers.isolation_backend import (
     ProviderIsolationStateError,
 )
 
+from orchestrator._common.io_atomic import durable_atomic_write
+from .contracts import canonical_json_bytes
+from .confined_budget import boot_id, boottime_ns
 from . import holder_spawner as profile
 from .image_store import ImageStoreError, SealedImage
 from .leaf import HolderDeath
@@ -93,6 +98,10 @@ def memfd(data: bytes) -> int:
     return fd
 
 
+def wall_seconds() -> float:
+    return boottime_ns() / 1_000_000_000
+
+
 def procs(cgroup: Path) -> set[int]:
     return {int(pid) for pid in (cgroup / "cgroup.procs").read_text().split()}
 
@@ -114,12 +123,88 @@ def kill_cgroup(cgroup: Path, timeout: float = 10.0) -> bool:
     except OSError as exc:
         if exc.errno not in _VANISHED:
             raise
-    deadline = time.monotonic() + timeout
+    deadline = wall_seconds() + timeout
     while populated(cgroup):
-        if time.monotonic() > deadline:
+        if wall_seconds() > deadline:
             return False
         time.sleep(0.01)
     return True
+
+
+def recover_holder_scopes(control_dir: Path) -> bool:
+    """Validate all recorded incarnations, then kill and empty their exact scopes, host included."""
+    control_dir = Path(control_dir)
+    try:
+        directory = control_dir.lstat()
+    except FileNotFoundError:
+        return False
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
+            or stat.S_IMODE(directory.st_mode) & 0o077):
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "holder_control_root_invalid")
+    records = []
+    current_boot = boot_id()
+    try:
+        for path in sorted(control_dir.glob("scope-*.json")):
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            with os.fdopen(fd, "rb") as stream:
+                raw = stream.read()
+            row = json.loads(raw)
+            if (not isinstance(row, dict) or set(row) != {"schema_version", "boot_id", "scope_path", "unit",
+                    "launch_token", "containment_identity"} or raw != canonical_json_bytes(row)
+                    or row["schema_version"] != "run_ref_holder_scope.v1"):
+                raise ValueError("scope inventory shape invalid")
+            token = row["launch_token"]
+            if (not isinstance(token, str) or not isinstance(row["boot_id"], str) or not row["boot_id"]
+                    or "\0" in row["boot_id"] or not isinstance(row["containment_identity"], str)
+                    or re.fullmatch(r"sha256:[0-9a-f]{64}", row["containment_identity"]) is None):
+                raise ValueError("scope identity shape invalid")
+            digest = token.removeprefix("sha256:")
+            if re.fullmatch(r"[0-9a-f]{64}", digest) is None or token != "sha256:" + digest:
+                raise ValueError("scope token invalid")
+            scope = Path(row["scope_path"])
+            if (path.name != f"scope-{digest[:16]}.json" or row["unit"] != profile.unit_name(digest)
+                    or scope.name != row["unit"] or not scope.is_relative_to(CGROUP_MOUNT)
+                    or scope == CGROUP_MOUNT or ".." in scope.parts or scope != Path(os.path.normpath(scope))):
+                raise ValueError("scope locator invalid")
+            gate_path = control_dir / f"holder-release-{digest[:16]}.json"
+            if gate_path.exists():
+                gate = DurableLaunchReleaseGate.load(gate_path)
+                if gate.launch_token != token or gate.containment_identity != row["containment_identity"]:
+                    raise ValueError("scope release binding invalid")
+                released = gate.release_consumed
+            else:
+                released = False  # inventory is durable before gate creation; launcher is still blocked
+            # A reboot destroys the old scope; its name grants no authority over the new boot.
+            if row["boot_id"] != current_boot:
+                continue
+            try:
+                scope.lstat()
+            except FileNotFoundError:
+                root = None
+            else:
+                root = CgroupV2ContainmentRoot.from_scope_path(scope, slot_prefix="run-ref-")
+                if root.identity_digest != row["containment_identity"]:
+                    raise RunRefRuntimeError("run_ref_environment_changed", "scope_identity_changed")
+                root.revalidate()
+            records.append((scope, released, root))
+        known = {path.name.removeprefix("scope-").removesuffix(".json") for path in control_dir.glob("scope-*.json")}
+        if any(path.name.removeprefix("holder-release-").removesuffix(".json") not in known
+               for path in control_dir.glob("holder-release-*.json")):
+            raise ValueError("release has no scope inventory")
+    except RunRefRuntimeError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, *CONTAINMENT_ERRORS) as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "holder_scope_inventory_invalid") from exc
+    for scope, _released, root in records:
+        if root is not None:
+            try:
+                scope.lstat()
+            except FileNotFoundError:
+                continue
+            root.revalidate()
+        if not kill_cgroup(scope):
+            raise RunRefRuntimeError(LOST, "recovery_scope_not_empty")
+    return any(released for _scope, released, _root in records)
 
 
 def process_state(pid: int) -> str:
@@ -131,9 +216,11 @@ def drain(fd: int, deadline: float) -> bytes:
     data = b""
     try:
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+            remaining = deadline - wall_seconds()
+            if remaining <= 0:
                 raise TimeoutError("holder info pipe did not close")
+            if not select.select([fd], [], [], min(remaining, .1))[0]:
+                continue
             chunk = os.read(fd, 4096)
             if not chunk:
                 return data
@@ -176,6 +263,8 @@ class HolderScope:
             self._launch()
         except BaseException as exc:
             error: BaseException = exc
+            if isinstance(exc, RunRefRuntimeError) and self._released and exc.code == UNAVAILABLE:
+                error = RunRefRuntimeError(LOST, exc.detail)
             if isinstance(exc, Exception) and not isinstance(exc, RunRefRuntimeError):
                 code = LOST if self._released else UNAVAILABLE
                 error = RunRefRuntimeError(code, f"holder_launch_failed:{type(exc).__name__}:{exc}")
@@ -244,6 +333,10 @@ class HolderScope:
         if not {"cpu", "memory", "pids"} <= controllers:
             raise RunRefRuntimeError(UNAVAILABLE, f"scope_controllers_missing:{sorted(controllers)}")
         self._read_back(path)
+        durable_atomic_write(self.control_dir / f"scope-{self.token_digest[:16]}.json", canonical_json_bytes({
+            "schema_version": "run_ref_holder_scope.v1", "boot_id": boot_id(),
+            "scope_path": path.as_posix(), "unit": self.unit,
+            "launch_token": "sha256:" + self.token_digest, "containment_identity": root.identity_digest}))
         gate = self.gate = DurableLaunchReleaseGate.create(
             self.control_dir / f"holder-release-{self.token_digest[:16]}.json",
             launch_token="sha256:" + self.token_digest, containment_identity=root.identity_digest)
@@ -273,7 +366,7 @@ class HolderScope:
     def _await_ready(self, info_read: int) -> None:
         assert self.process is not None
         try:
-            info = drain(info_read, time.monotonic() + LAUNCH_SECONDS)
+            info = drain(info_read, wall_seconds() + LAUNCH_SECONDS)
         except TimeoutError as exc:
             raise RunRefRuntimeError(UNAVAILABLE, f"holder_info_pipe_not_ready:{exc}") from exc
         if not info:  # released, but bwrap never reported its sandbox
@@ -282,7 +375,7 @@ class HolderScope:
                                                   f"{self._stderr()}")
         child_pid = json.loads(info)["child-pid"]
         try:
-            ready = self.line(time.monotonic() + LAUNCH_SECONDS)
+            ready = self.line(wall_seconds() + LAUNCH_SECONDS)
         except TimeoutError:
             ready = None  # silence is refused like EOF: no guest code has run yet
         if ready != "ready":
@@ -311,14 +404,14 @@ class HolderScope:
         """One control-socket line; None on EOF; TimeoutError past `deadline`."""
         assert self.ctrl is not None
         while b"\n" not in self._buffer:
-            remaining = deadline - time.monotonic()
+            remaining = deadline - wall_seconds()
             if remaining <= 0:
                 raise TimeoutError
-            self.ctrl.settimeout(remaining)
+            self.ctrl.settimeout(min(remaining, .1))
             try:
                 chunk = self.ctrl.recv(4096)
-            except socket.timeout as exc:
-                raise TimeoutError from exc
+            except socket.timeout:
+                continue
             if not chunk:
                 return None
             self._buffer += chunk
@@ -383,8 +476,17 @@ class HolderScope:
                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         finally:
             os.close(procs_fd)
+        deadline = wall_seconds() + timeout_sec
         try:
-            stdout, stderr = process.communicate(timeout=timeout_sec)
+            while True:
+                remaining = deadline - wall_seconds()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(argv, timeout_sec)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(remaining, .1))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
         except subprocess.TimeoutExpired as exc:
             host.kill()
             process.communicate()

@@ -241,7 +241,7 @@ def _verify_confined_effect_inputs(authority, snapshot, prefix, clone_root, reci
             for reached in prefix.commits:
                 require_confinable(reached.node, authority.header["interpreters"])
             context = SimpleNamespace(image=image, verified_parts=lambda parts: verify_attempt_snapshot(store, parts))
-            _validate_discovered_prefix(authority, prefix, snapshot, clone_root, confined=context)
+            _validate_discovered_prefix(authority, prefix, snapshot, clone_root, confined=context, proof_only=True)
         finally:
             store.close()
     finally:
@@ -284,7 +284,7 @@ def validate_confined_child_failure(*, child_root, clone_root, expected_header, 
     """Return `(code, detail, header path, digest)` of the child's failed terminal (FAILED, P32).
 
     The child memo must end in its own failed terminal with no unfinished effect; the
-    durable failed terminal row of the attempt ledger is Task 7's.
+    lifecycle validates its acknowledged parent-ledger boundary proof separately.
     """
     child_root, clone_root = Path(child_root), Path(clone_root)
     authority, header_bytes, program_bytes, memo_bytes = _captured_confined_authority(
@@ -351,6 +351,9 @@ def execute_confined_child(admission, provisioned, *, run_ref_root, session=None
         finally:
             files.close()
     if status != 0:
+        if session is not None and session.resume_error is not None:
+            error = session.resume_error
+            raise RunRefRuntimeError(getattr(error, "code", "resume_preflight_failed"), str(error)) from error
         raise RunRefRuntimeError("run_ref_child_launch_failed", "workflow_execution_failed")
     return value
 

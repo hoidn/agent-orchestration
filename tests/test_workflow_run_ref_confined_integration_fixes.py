@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from orchestrator.workflow.run_ref import confined_lifecycle, confined_session, evaluated_child, image_store
+from orchestrator.workflow.run_ref import confined_budget, confined_lifecycle, confined_session, evaluated_child, image_store
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 from orchestrator.workflow.run_ref.runtime import RunRefRuntimeError
 from tests import test_workflow_run_ref_confined_child as child
@@ -157,7 +157,7 @@ def test_admission_rehash_is_charged_before_any_holder_or_leaf(world, monkeypatc
         clock.now += 2
 
     monkeypatch.setattr(image_store.SealedImage, 'rehash', rehash)
-    monkeypatch.setattr(confined_lifecycle, 'time', SimpleNamespace(monotonic=clock), raising=False)
+    monkeypatch.setattr(confined_budget, 'boottime_ns', lambda: int(clock() * 1_000_000_000))
     session_init = confined_session.ConfinedChildSession.__init__
 
     def init(session, *args, **kwargs):
@@ -188,7 +188,7 @@ def test_checkpoint_failure_stops_scope_before_refreezing(world, monkeypatch):
 
 def test_budget_exhausted_after_launch_settles_failed_without_seed(world, monkeypatch):
     clock = Clock()
-    monkeypatch.setattr(confined_lifecycle, 'time', SimpleNamespace(monotonic=clock))
+    monkeypatch.setattr(confined_budget, 'boottime_ns', lambda: int(clock() * 1_000_000_000))
     session_init = confined_session.ConfinedChildSession.__init__
     launch = child.FakeHolder.launch
     helper_calls = []
@@ -213,7 +213,7 @@ def test_budget_exhausted_after_launch_settles_failed_without_seed(world, monkey
 def test_baseline_copy_exhaustion_aborts_before_release(world, monkeypatch):
     clock = Clock()
     baseline = confined_lifecycle._snapshot_baseline
-    monkeypatch.setattr(confined_lifecycle, 'time', SimpleNamespace(monotonic=clock))
+    monkeypatch.setattr(confined_budget, 'boottime_ns', lambda: int(clock() * 1_000_000_000))
 
     def copy(*args):
         manifest = baseline(*args)
@@ -287,7 +287,7 @@ def test_pure_child_runtime_exhaustion_aborts_before_release(world, monkeypatch)
     monkeypatch.setattr(child, 'PARENT', child.PARENT.replace(
         '(command-result first :argv ("FIRST_EXE" "first.sh") :returns Int)', '3').replace(
         '(command-result second :argv ("sh" "second.sh") :returns Int)', '4'))
-    monkeypatch.setattr(confined_lifecycle, 'time', SimpleNamespace(monotonic=clock))
+    monkeypatch.setattr(confined_budget, 'boottime_ns', lambda: int(clock() * 1_000_000_000))
     session_init = confined_session.ConfinedChildSession.__init__
     evaluate = runtime.evaluate_closed_program
 
@@ -309,7 +309,7 @@ def test_pure_child_runtime_exhaustion_aborts_before_release(world, monkeypatch)
 
 def test_holder_stop_time_is_charged_before_child_completion(world, monkeypatch):
     clock = Clock()
-    monkeypatch.setattr(confined_lifecycle, 'time', SimpleNamespace(monotonic=clock))
+    monkeypatch.setattr(confined_budget, 'boottime_ns', lambda: int(clock() * 1_000_000_000))
     session_init = confined_session.ConfinedChildSession.__init__
     stop = child.FakeHolder.stop
 
