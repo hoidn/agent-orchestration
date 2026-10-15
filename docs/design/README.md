@@ -8,8 +8,10 @@ frontend direction, future/deferred work, and historical notes. It is a routing
 page, not a replacement for the linked docs.
 
 Current executable admission follows [executor retirement](workflow_lisp_executor_retirement.md)
-and the [CLI contract](../../specs/cli.md): 2.35/2.36 and bounded 2.37 use
-checked evaluated execution. Old-header type/import/LSP analysis and required
+and the [CLI contract](../../specs/cli.md): 2.35/2.36, bounded 2.37 and
+the bounded 2.38 [Agent Sessions extension](../lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+and [command-only confined children](../lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+use checked evaluated execution; public confined providers remain closed. Old-header type/import/LSP analysis and required
 shared services remain; flat execution, replay and emissions are retired.
 Historical completion below does not restore a removed executor. The
 [retirement closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)

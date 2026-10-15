@@ -313,7 +313,8 @@ Think in five layers.
 | Effects | What work occurs? | Admitted `provider-result`, `command-result`, calls and path-mode `run-ref` | Effect identity, validated results, memo commits |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
-For targets 2.35/2.36, the compiler elaborates and checks `.orc` source into a
+For evaluated targets 2.35/2.36 and the admitted bounded 2.37/2.38 extensions,
+the compiler elaborates and checks `.orc` source into a
 closed program; the evaluator computes its values and memoizes its effects.
 The checked `closed_program.json` is execution authority. The memo is effect
 result authority, and `state.json` is a derived view. The
@@ -340,8 +341,10 @@ adapter.
 Use the [Capability Status Matrix](capability_status_matrix.md) to distinguish
 implemented, library-provided, designed, future and legacy surfaces. Compiler
 acceptance at an older target does not establish evaluated runtime admission.
-New entry workflows in this guide use 2.35 or 2.36 and the scope in
-[Section 2A](#2a-program-shapes-what-runs-today).
+New entry workflows in this guide use 2.35 or 2.36 for ordinary calls, or
+2.38 for bounded [Agent Sessions](#agent-sessions-target-238) and
+[command-only confined children](#confined-workflow-children-target-238-command-only).
+[Section 2A](#2a-program-shapes-what-runs-today) owns the current shape limits.
 
 The shared authoring surface includes declarations (`defenum`, `defpath`,
 `defrecord`, `defunion`, `defschema`), modules/imports/exports, `defworkflow`,
@@ -389,7 +392,9 @@ route.
 
 ## 2A. Program Shapes: What Runs Today
 
-Author new entry workflows at target **2.35** or **2.36**. Both select evaluated
+Author ordinary entry workflows at target **2.35** or **2.36**; use **2.38**
+for bounded [Agent Sessions](#agent-sessions-target-238) or
+[command-only confined children](#confined-workflow-children-target-238-command-only). These select evaluated
 execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
 shown in [Section 13.7](#137-improve). An older module can still be imported
 when its own syntax gates and the evaluated graph's admission rules allow it.
@@ -1415,36 +1420,99 @@ its executable route is retired, with no evaluated capture port selected.
 
 Status: allocation, turns, recovery, C8 guards and instance views are implemented
 at target 2.38. The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
-contains deterministic mechanism/consumer proofs and bounded real-provider adapter smokes.
-It does not establish a benefit over the artifact-handoff baseline; PQ-1c's clean and
-failed/resumed comparison remains separately authorized. PQ-1a in the
-[evaluated execution plan](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
-owns qualification. The [Agent Sessions design](design/workflow_lisp_agent_sessions.md)
-owns the contract.
+contains deterministic proofs and bounded adapter smokes; the clean and failed/resumed
+comparison (PQ-1c) has not run and requires separate owner authorization. The
+[Agent Sessions design](design/workflow_lisp_agent_sessions.md) owns the contract.
 
-Choose an agent over an artifact handoff when a later call should see the
-earlier call's whole conversation, for example a designer who revises the
-draft it wrote after a review. Keep the artifact handoff (independent calls,
-typed paths, `:doc` fills) when each call should see only its typed inputs.
-The cost: an invalidation whose suffix contains any committed agent turn is
-refused (C8), so a committed turn, and any earlier step that precedes one,
-cannot be rerun in place; a first turn interrupted before its commit may have
-run more than once.
+Choose an agent when later calls should continue the same native conversation; use independent
+calls and artifact handoffs when typed inputs suffice. The cost: invalidating a
+suffix containing a committed agent turn is refused (C8); earlier work cannot
+be rerun in place. An interrupted first turn may run more than once.
+
+The opt-in [worked example](../workflows/examples/design_review_execute_agents.orc)
+uses this complete four-turn body. Its `defworkflow` inputs, path/record types and
+inline `defprompt` declarations are in that file:
 
 ```lisp
 (let* ((designer (agent providers.claude :model planner_model :effort "high"))
+       (reviewer (agent providers.codex :model reviewer_model :effort "high"))
        (draft (provider-result designer :timeout-sec 3600
-                :prompt (draft-design :task task))))
-  ...)
+                :prompt (draft-design :task task)))
+       (feedback (provider-result reviewer :timeout-sec 3600
+                   :prompt (review-design :task task :design draft.doc)))
+       (revised (provider-result designer :timeout-sec 3600
+                  :prompt (revise-design :task task :design draft.doc :draft_path draft.doc
+                                         :blocking feedback.blocking :notes feedback.notes))))
+  (provider-result reviewer :timeout-sec 14400
+    :prompt (execute-design :task task :design revised.doc)))
 ```
 
+`designer` and `reviewer` are separate conversations. The designer retains its
+draft context for revision; the reviewer retains its review context for execution.
+Each turn also returns its own checked value: `Draft` carries `doc`, `Feedback`
+carries `blocking` and `notes`, `Design` carries the revised `doc`, and `Execution`
+carries the final summary, commits, checks and unfinished work. The `:doc` fills
+still deliver the current typed document; native history does not replace current
+inputs or result contracts.
+
 `(agent <provider-extern> [:model String] [:effort String])` allocates one
-`Agent` and launches no provider. The provider must be a compiler-known
-provider extern; model and effort are its only options and must be inline
-`String` operands. `(provider-result <agent> :prompt ... [:timeout-sec N])`
-takes one turn and returns its typed result, like an ordinary call. Turns on
-one agent run in source order. Aliases, record fields, branch selection and
-same-run `defproc` arguments and returns carry the same agent, never a copy.
+`Agent` without launching a provider. Its provider must be compiler-known;
+model/effort are its only options and must be inline `String` operands.
+`(provider-result <agent> :prompt ... [:timeout-sec N])` takes a turn and returns
+its typed result. Turns run in source order; aliases, aggregates, branches and
+same-run `defproc` arguments/returns reuse the same agent.
+
+Constructor `:model`/`:effort` pin instance policy; prompts, inputs and timeouts
+belong to turns. The example preserves baseline models (`claude-fable-5-1`,
+`gpt-6.1-sol`), effort and timeouts. Override models initially with
+`--input planner_model=...` / `--input reviewer_model=...`, never on a turn.
+
+Use the existing manifests, from the repository root:
+
+- [providers.json](../workflows/examples/inputs/design_review_execute_agents/providers.json)
+  binds `providers.claude` to `claude_unrestricted_workspace` and `providers.codex`
+  to `codex`.
+- [inputs.json](../workflows/examples/inputs/design_review_execute_agents/inputs.json)
+  supplies a sample `task` string. Select the intended task before a real run;
+  your own input JSON can use the same fields.
+- No prompt manifest is required: the four prompts are inline `defprompt` declarations.
+
+Prerequisites: a repository/worktree containing `AGENTS.md`, `docs/index.md` and
+`docs/templates/design_template.md`, and installed Python dependencies. Real work
+requires authenticated `claude`/`codex` on `PATH`, using existing
+`CODEX_HOME`/`CLAUDE_CONFIG_DIR` or default homes; no homes/credentials are provisioned.
+The final turn modifies and commits the workspace. [Tmux views](../specs/observability.md) are read-only,
+best-effort and optional.
+
+Compile and dry-run validate the maintained example without invoking providers:
+
+```bash
+python -m orchestrator compile workflows/examples/design_review_execute_agents.orc \
+  --provider-externs-file workflows/examples/inputs/design_review_execute_agents/providers.json
+
+python -m orchestrator run workflows/examples/design_review_execute_agents.orc \
+  --provider-externs-file workflows/examples/inputs/design_review_execute_agents/providers.json \
+  --input-file workflows/examples/inputs/design_review_execute_agents/inputs.json \
+  --dry-run
+```
+
+To opt into paid provider work after checking the task and workspace, run the
+second command with `--dry-run` removed, using the intended input JSON. Use its
+`RUN_ID` to continue or inspect the run from that same workspace:
+
+```bash
+python -m orchestrator resume RUN_ID
+python -m orchestrator report --run-id RUN_ID --format json
+```
+
+Use `resume`, including admitted first-turn bootstrap; `--force-restart` is
+unavailable. Native loss or external advancement can block new turns; completed
+replay needs no native session. See the normative
+[resume contract](../specs/cli.md#evaluated-execution-target-235) and
+[Agent persistence/recovery limits](design/workflow_lisp_agent_sessions.md#persistence-recovery-and-invalidation)
+for refusal/invalidation rules. This example remains opt-in with bounded evidence;
+the recipe earns no further qualification or PQ-1c acceptance. REPL remains
+2.35/2.36; use `report` here.
 
 Refused at compile time:
 
@@ -1467,12 +1535,8 @@ Refused at compile time:
 | `pure_expr_operand_type_mismatch` | Equality or printing of an `Agent` |
 | `agent_origin_mismatch` | Closed-program check: a turn's provider origins omit a provider its `Agent` operand can reach, as in a hand-edited closed program |
 
-`workflows/examples/design_review_execute_agents.orc` is the worked example:
-the four-turn [`design_review_execute.orc`](../workflows/examples/design_review_execute.orc)
-with a designer agent on Claude and a reviewer agent on Codex. The
-[state spec](../specs/state.md) owns the allocation and turn memo
-records. Agent sessions supersede the proposed
-`prompt-queue` form, which is not implemented.
+The [state spec](../specs/state.md) owns allocation/turn records. Agent sessions
+supersede `prompt-queue`, which is not implemented.
 
 ### Durable Host Input
 

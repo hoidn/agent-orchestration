@@ -1,5 +1,11 @@
 # Agent Sessions integration notes — 2026-10-15
 
+Historical handoff: integration completed at `ed39c44e` under owner authorization.
+The original instructions and evidence below are preserved as history. For current
+usage, follow the [Agent Sessions guide](../lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+and [qualification record](2026-10-14-agent-sessions-pq1a-qualification.md);
+the PQ-1c comparison has not run and requires separate owner authorization.
+
 This is a merge handoff, not another contract or qualification record. The
 `feat/agent-sessions` worktree started from `0c156966`; the main checkout has
 advanced independently to `23e6eed6` and carries other sessions' uncommitted

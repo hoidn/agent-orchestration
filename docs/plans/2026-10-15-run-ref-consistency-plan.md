@@ -53,7 +53,7 @@ copies of the same rules.
 
 ## Result
 
-Completed the scoped pass across 19 maintained documents and this plan. Current
+Completed the scoped pass across 20 maintained documents and this plan. Current
 contracts and discovery routes distinguish public command-only admission,
 accepted private provider implementation, and pending real/provider qualification.
 The drafting guide now covers local OCI provisioning and the public command
@@ -63,10 +63,10 @@ implementation owners; historical results and compatibility anchors were kept.
 Independent documentation review found no remaining blocking contradictions in
 the traced scope. The trace covered the hub, capability matrix, design catalog,
 owning specs/designs, active implementation plan, drafting/library guides,
-acceptance index and test guidance. There is no run-ref entry in the readiness
+acceptance index, runtime lifecycle and test guidance. There is no run-ref entry in the readiness
 registry requiring an eligibility change. This was not a repository-wide audit.
 
-Validation checked local targets and heading/explicit-HTML anchors in all 20
+Validation checked local targets and heading/explicit-HTML anchors in all 21
 pages. The literal guide's OCI import, compile, run, parent completed-resume and
 report succeeded in the real sandbox using the existing local image fixture;
 the reported scalar matched the producer and no provider was invoked. Four

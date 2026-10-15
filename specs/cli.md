@@ -225,10 +225,14 @@ callers share this retirement, with no evaluated trial port.
 ### Evaluated execution (target 2.35)
 
 This contract applies to evaluated entries at 2.35/2.36, the admitted
-bounded 2.37 surface and registered bounded 2.38 (agent sessions; see
-versioning). W3 changes authoring, not command/provider IO or the public
-lifecycle; 2.37 registration does not establish full parallel delivery, and
-2.38 registration does not establish agent-session runtime delivery.
+bounded 2.37 surface and bounded 2.38 Agent Sessions and command-only confined
+run-ref children. The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+records host/image prerequisites; public confined providers remain closed. W3 changes
+authoring, not command/provider IO or the public lifecycle; 2.37 registration
+does not establish full parallel delivery. For Agent Sessions,
+[PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
+deterministic proofs and bounded adapter smokes; the real-provider comparison
+(PQ-1c) has not run and requires separate owner authorization.
 See [versioning](versioning.md#version-gating-summary) for qualification limits.
 
 An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`
@@ -460,8 +464,14 @@ authority, memo, attempts or views, in this order:
     from its receipt and the native store, never by the retry baseline, and
     nothing is signalled: a live recorded process group is admitted and
     stopped under the writer lock before reconciliation; `recoverable`
-    (adapter-confirmed completion bound to the attempt and an intact
-    `result.json`) is committed at the same ordinal without dispatch;
+    (adapter-confirmed native completion bound to the attempt, with a result
+    file present for a first turn) enters result validation at the same ordinal
+    without dispatch and commits only a valid result. A completed first turn
+    with no result file takes the bootstrap path on its first explicit resume.
+    A later completed turn enters validation even with no result file; a
+    conclusively missing/invalid result closes
+    `failed agent_turn_result_invalid` during continuation (exit `1`); a
+    subsequent resume refuses that failure at preflight (exit `2`);
     `not_dispatched` (no `launching` receipt, or a stopped group and an
     adapter-proven unchanged predecessor head) closes the attempt `failed`
     and allocates the next one; `unresolved` refuses `agent_turn_unresolved`
@@ -520,7 +530,7 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `memo_busy` | `invalidate` | 2 | None |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
 | `agent_session_unavailable`, `agent_session_diverged`, `agent_policy_mismatch` | a reached agent turn (target 2.38) before its `started` and dispatch of a new turn | 1 during execution; 2 in `resume` preflight | No dispatch; failed terminal where the journal permits |
-| `agent_turn_unresolved` | a dispatched agent turn attempt whose completion or result cannot be established | 1 | The `started` stays pending: no `failed` row and no terminal; `resume` reconciles the attempt |
+| `agent_turn_unresolved` | a dispatched agent turn attempt whose completion or result cannot be established | 1 during execution; 2 in `resume` preflight | The `started` stays pending: no `failed` row and no terminal; `resume` reconciles the attempt |
 | `agent_turn_result_invalid` | a later agent turn that completed natively with a missing/invalid result | 1 when first classified (`run` or `resume` continuation); 2 on subsequent `resume` preflight | `failed` row with `exit_info {}` and no `violations`; public validation diagnostic contains only logical agent identity and safe code; the attempt files kept |
 | `agent_bootstrap_restarted` | `resume` abandoning a first-turn candidate | diagnostic | Logged; the abandoned attempt's `failed` row carries this code with `exit_info {abandoned_attempt, locator}` |
 | `invalidate_agent_session_advanced` | `invalidate` over an agent turn attempt whose native session advanced or may have advanced | 2 | None written |

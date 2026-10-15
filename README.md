@@ -12,12 +12,7 @@ from its last committed effect. There is no service: a run is a directory
 under `.orchestrate/runs/<run_id>/` holding state, composed prompts, logs,
 and the source map back to the authored program.
 
-The stance is that an LLM agent is an unreliable, effectful coprocessor. The
-deterministic side of the system should own every correctness obligation it
-can carry, and the agent should be asked only for the part that needs
-judgement.
-
-## Why: static types and runtime checks, not prose
+## Motivation
 
 Most agent frameworks check one call at a time. A schema validates what a
 single model call returns, and the host language carries the result to the
@@ -34,10 +29,9 @@ shape, that every outcome is routed somewhere, that every loop ends, and what
 each step may touch. During the run, what the agent actually returns is
 validated against the same type before any later step can read it; a result
 that fails is never committed, and a run that stops can resume from its last
-committed result. The program carries the correctness obligations. The
-prompts carry only the task.
+committed result.
 
-## Sixty seconds of Workflow Lisp
+## Example
 
 Claude drafts a plan. Codex reviews it. Claude revises the plan with that
 feedback. Codex executes the revised plan. This is
@@ -78,8 +72,7 @@ keeps it as a markdown file under `docs/design/` and passes its typed path.
 )
 ```
 
-The prompts say what to do. They do not describe JSON. `-> Plan` and
-`-> Feedback` fix the contracts: the runtime appends the required fields,
+`-> Plan` and `-> Feedback` fix the contracts: the runtime appends the required fields,
 their types and the result location to the composed prompt, parses what the
 agent writes, and validates it before the next call can use it. A field
 access such as `feedback.findings` is checked at compile time against the
@@ -135,19 +128,20 @@ Nothing routes on them.
 
 - **The middle end is a small core calculus in ANF**, roughly ten constructs:
   atoms, `let`, effect performs, variant inject and case, join points, bounded
-  recursion, calls, halt. The form-by-form lowerers it replaced rejected
-  well-typed programs after validation; the calculus exists so that the
-  typechecker and the lowerer agree on the language boundary.
+  recursion, calls, halt.
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
-- **Evaluated execution** (targets 2.35 and 2.36): values are computed in a
+- **Evaluated execution** (targets 2.35/2.36, with bounded 2.37 and 2.38 extensions): values are computed in a
   lexical environment and have no stored copy. An effect is identified by its
   site and the path of activations that reached it, and nothing else. An
   effect runs only when the memo holds no committed result for that identity.
   Resume evaluates the program again from its entry and takes each committed
   result from the memo. What a reader sees as "steps" is a view derived from
-  the memo and the program.
+  the memo and the program. The bounded 2.38 [Agent Sessions guide](docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)
+  shows native conversations with a typed result and memo commit per turn;
+  the separate 2.37 parallel-map qualification gates remain in its
+  [Phase 5 plan](docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions).
 - **Identity is semantic and versioned.** It derives from the effect's site
   and the activations that reached it, loop ordinals included, under the run's
   schema version; never from source spans, file paths, or formatting. Resume
@@ -163,22 +157,13 @@ Deeper reading:
 [frontend specification](docs/design/workflow_lisp_frontend_specification.md),
 and the normative [spec index](specs/index.md).
 
-## Evidence rather than claims
-
-The repository records negative results next to positive ones.
+## Experiments
 
 | Study | What was measured | Outcome |
 | --- | --- | --- |
 | [Workflows versus single calls on the evaluated route](docs/reports/2026-10-14-orc-versus-single-call-evaluated.md) | A real compiler defect, criterion frozen before any run; six runs per workflow and six single calls, sandboxed agents, two blind judges | Review-and-revise replicated (+0.67 over its first patch, no run worse); generate-four-select-one fell one run short (4 of 6 runs gained, mean +1.02); both scored under half a point above the single calls |
 | [Workflows versus a single call on a calibrated, harder task](docs/reports/2026-10-15-calibrated-orc-versus-single-call.md) | A 3200-line feature on which single calls passed 31–52% of 52 hidden tests and every review raised a blocker; criterion frozen before any run, three runs per arm, hidden tests as the primary measure | Neither claim held. Plan, review, then execute passed the same share of hidden tests as the single call (0.49 each) at about five times the wall clock. Review-and-revise never raised its first patch's hidden-test score (0 in 3 runs), although its reviewer blocked in every run |
-| [Language limitations found in use](docs/reports/2026-09-29-orc-language-limitations-and-solutions.md) | A search controller written five ways against the flat step runtime | Three refusals, one 361-node expression against a 256-node bound. This motivated evaluated execution, which now runs that controller with its source unchanged |
-| [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Independent candidates plus a judge with different knowledge than the author were the only measured sources of gain |
-
-The conclusion the evidence supports is narrow. On the evaluated route the two
-patterns that improved on their own first attempts scored under half a point
-above a single call, and on the calibrated harder task neither workflow passed
-more hidden tests than one call. The cost of finding out is one disciplined experiment. The runtime's value is that the experiment is
-cheap to run and its evidence is complete.
+| [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Gains come from independent candidates and from a judge with different knowledge than the author |
 
 ## Scale and provenance
 
@@ -200,7 +185,7 @@ codebases outside this repository, among them ptychographic reconstruction and
 EPR spectroscopy simulation; those runs used an earlier YAML frontend that has
 since been retired in favor of `.orc`.
 
-## Where this points
+## Planned and partial capabilities
 
 Statuses follow the
 [capability status matrix](docs/capability_status_matrix.md).
@@ -296,7 +281,7 @@ contracts before changing prompts.
 | --- | --- |
 | [`orchestrator/`](orchestrator/) | Workflow Lisp frontend and compiler, the `std/` library modules, validator, evaluator, providers, CLI, dashboard, language server |
 | [`specs/`](specs/) | Normative DSL, CLI, state, provider, IO, security, and versioning contracts |
-| [`docs/`](docs/) | Guides, design docs, plans, and reports, including negative results |
+| [`docs/`](docs/) | Guides, design docs, plans, and reports |
 | [`workflows/`](workflows/) | Runnable examples, library workflows, templates, and prompt assets |
 | [`experiments/`](experiments/) | Material of the studies cited above: workflows, rubrics, ratings, harnesses |
 | [`tests/`](tests/) | Unit, compiler, runtime, workflow, and fixture tests |

@@ -856,8 +856,9 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       `run_ref_provider_transport_unavailable` before run-state creation or
       holder launch; the provider contract below requires separate transport
       qualification and public admission. Target 2.38 also independently admits
-      the bounded Agent surface; Agent allocation and turns are excluded from
+      the bounded [Agent Sessions surface](../docs/design/workflow_lisp_agent_sessions.md); Agent allocation and turns are excluded from
       confined children.
+
       Path mode, its admission, configuration bytes, recovery and
       internal target `2.35` are unchanged. Authority:
       [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#authored-contract)
