@@ -24,6 +24,7 @@ scope per launch, killed by `stop()`; files only under `workdir`.
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
@@ -119,11 +120,16 @@ def members(cgroup: Path) -> set[int]:
     return {int(pid) for pid in (cgroup / "cgroup.procs").read_text().split()}
 
 
+_VANISHED = (errno.ENOENT, errno.ENODEV)  # a cgroup being removed fails its file ops with ENODEV first
+
+
 def populated(cgroup: Path) -> bool:
     try:  # systemd removes an emptied scope (and our slots under it) asynchronously
         return "populated 1" in (cgroup / "cgroup.events").read_text()
-    except FileNotFoundError:
-        return False
+    except OSError as exc:
+        if exc.errno in _VANISHED:
+            return False
+        raise
 
 
 def kill_and_wait(cgroup: Path, timeout: float = 10) -> bool:
@@ -131,8 +137,10 @@ def kill_and_wait(cgroup: Path, timeout: float = 10) -> bool:
     if populated(cgroup):
         try:
             (cgroup / "cgroup.kill").write_text("1")
-        except FileNotFoundError:  # systemd removed the emptied scope between the check and the write
-            return True
+        except OSError as exc:  # systemd removed (or is removing) the emptied scope since the check
+            if exc.errno in _VANISHED:
+                return True
+            raise
     deadline = time.monotonic() + timeout
     while populated(cgroup):
         if time.monotonic() > deadline:
@@ -461,7 +469,10 @@ class Holder:
                 sock.close()
         report["scope_populated"] = self.scope is not None and populated(self.scope)
         # A unit stopped by systemd (e.g. OOMPolicy=stop) stays listed as failed; non-zero when already gone.
-        subprocess.run(["systemctl", "--user", "reset-failed", self.unit], capture_output=True, timeout=15)
+        try:
+            subprocess.run(["systemctl", "--user", "reset-failed", self.unit], capture_output=True, timeout=15)
+        except subprocess.TimeoutExpired as exc:  # best effort: recorded, never raised from teardown
+            report["reset_failed_timeout"] = str(exc)
         shutil.rmtree(self.runref, ignore_errors=True)
         return report
 
