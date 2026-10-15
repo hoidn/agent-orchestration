@@ -68,6 +68,37 @@ schema notation, not authored workflow files.
     a validated preterminal resume boundary. Provider name, input mode, TTY
     behavior, or session support without that declaration never implies the
     capability.
+  - Native session stores (target 2.38 agent sessions). The Codex store is
+    `$CODEX_HOME` (default `~/.codex`) `sessions/**/rollout-*<thread id>.jsonl`
+    whose first row is `session_meta`; the Claude store is
+    `$CLAUDE_CONFIG_DIR` (default `~/.claude`) `projects/**/<session id>.jsonl`.
+    The orchestrator reads them (`orchestrator/providers/native_store.py`,
+    selected by `session_support.metadata_mode`) to establish the head position
+    (last completed turn id and its terminal line) and to bind one completed
+    turn to one attempt (the user message carrying the attempt's result path);
+    it never writes them, never selects a per-run home and never provisions
+    credentials. A turn binds only when it is the store's head, directly
+    follows the expected predecessor position and is the only user message
+    carrying the marker. Codex completion is the turn's `task_complete` after
+    exactly one `final_answer` agent message; Claude completion is exactly one
+    final in the turn's lineage (every row descends from the submitted user
+    row, same session and prompt, no sidechain): a `StructuredOutput`
+    `toolEndsTurn` row with its matching `structured_output` attachment
+    (observed live) or an assistant `stop_reason: end_turn` row (a hypothesis
+    for the plain `stream-json` form until the Plan A Task 6a probe settles
+    it). Anything else, including a second final or a trailing row other than
+    the synthetic resume padding, is incomplete, never guessed. A locator
+    matching zero or more than one file (any `*<id>.jsonl` under the store
+    counts unless its header names another session) is
+    `agent_session_unavailable` at the runtime (Plan B); an open (incomplete)
+    head refuses a new append. Operator limit (D1): the check-then-append
+    window against a concurrent external writer (an operator resuming the
+    same native session from a shell) is not closed; external advancement
+    inside the window is detected at the next turn. Retention: native history
+    stays in the provider default home under the provider's own retention;
+    the orchestrator neither deletes nor garbage-collects it and promises no
+    remote durability; the run retains only receipts and proofs. These facts
+    are evidence for the memo, not authority.
 
   - The code-owned OMP registry family consists of public `omp`,
     `omp_unrestricted_workspace`, `omp_no_tools`, and `omp_conf`, plus internal
