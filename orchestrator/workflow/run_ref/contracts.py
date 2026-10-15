@@ -20,6 +20,40 @@ _SETUP_RUNTIME_ENV_NAMES = frozenset(
     {"PWD", "ORC_RUN_REF_SETUP_EVIDENCE_PATH"}
 )
 
+# `run_ref_confinement.v1` profile constants. They live here, not in
+# `config.py`, because the compiler imports them and must not import the
+# neutral static-config module (see the config import-firewall test).
+RUN_REF_CONFINEMENT_PROFILE = "run_ref_confinement.v1"
+# The confined profile has no setup: its revisions carry this literal setup
+# identity, admitted only together with the sanitized materializer version.
+RUN_REF_NO_SETUP_IDENTITY = "none"
+RUN_REF_CONFINED_MATERIALIZER_VERSION = "git-detached-clone-sanitized-v1"
+RUN_REF_CONFINED_LIMITS = (
+    "wall-seconds",
+    "memory-mib",
+    "cpus",
+    "pids",
+    "workspace-mib",
+    "output-mib",
+)
+RUN_REF_CONFINED_NETWORKS = frozenset({"none", "model-only"})
+# Profile memory reserved above `:workspace-mib` (design D-d, R7): sandbox
+# scratch, sized /dev/shm, result ingress and process headroom. The parser's
+# compile-time rule `:memory-mib >= :workspace-mib + reserved` uses the total.
+RUN_REF_CONFINEMENT_CONSTANTS_MIB = (
+    ("scratch", 256),
+    ("dev-shm", 64),
+    ("result", 128),
+    ("headroom", 512),
+)
+RUN_REF_CONFINEMENT_RESERVED_MIB = sum(
+    value for _, value in RUN_REF_CONFINEMENT_CONSTANTS_MIB
+)
+CONFINED_IMAGE_RE = re.compile(
+    r"(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*"
+    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[0-9a-f]{64}\Z"
+)
+
 
 def canonical_json_bytes(value: Any) -> bytes:
     """Encode a JSON value with the repository's stable digest representation."""
@@ -135,7 +169,13 @@ def _validate_repository_revision_components(components: dict[str, str]) -> None
         raise ValueError(
             "repository revision commit must be exactly 40 lowercase hexadecimal characters"
         )
-    if _SHA256_ID_RE.fullmatch(components["authored_setup_identity"]) is None:
+    setup = components["authored_setup_identity"]
+    if setup == RUN_REF_NO_SETUP_IDENTITY:
+        if components["materializer_version"] != RUN_REF_CONFINED_MATERIALIZER_VERSION:
+            raise ValueError(
+                "repository revision setup identity none requires the confined materializer"
+            )
+    elif _SHA256_ID_RE.fullmatch(setup) is None:
         raise ValueError(
             "repository revision setup identity must be sha256:<64 lowercase hex>"
         )

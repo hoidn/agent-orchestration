@@ -100,6 +100,10 @@ def strip_provenance(node: Any) -> Any:
     result = deepcopy(node)
     if not isinstance(result, dict):
         return result
+    children = result.get("children")
+    if isinstance(children, Mapping):
+        # Child entries are checked programs; their source maps are not identity.
+        result["children"] = {name: strip_provenance(child) for name, child in children.items()}
     bodies = [result.get("body")]
     definitions = result.get("definitions")
     if isinstance(definitions, Mapping):

@@ -434,9 +434,11 @@ def _translate_run_ref(
     env: Mapping[str, Any],
 ) -> dict[str, Any]:
     from orchestrator.workflow.run_ref.config import PathProgram
-    from orchestrator.workflow_lisp.wcc.model import WccRunRefPayload
+    from orchestrator.workflow_lisp.wcc.model import WccRunRefPayload, WccRunRefWorkflowPayload
 
     payload = perform.operation_payload
+    if isinstance(payload, WccRunRefWorkflowPayload):
+        return _translate_run_ref_workflow(builder, perform, d, env)
     if not isinstance(payload, WccRunRefPayload):
         raise ValueError("run-ref perform has no retained static configuration")
     if not isinstance(payload.program, PathProgram):
@@ -465,4 +467,36 @@ def _translate_run_ref(
         d,
         run_ref_producer=producer,
     )
+    return node
+
+
+def _translate_run_ref_workflow(builder, perform, d, env):
+    """Translate one confined workflow-mode site and compile its private child entry.
+
+    The site's sole positional operand is the parent-evaluated `:commit`; its
+    type is the outcome union, whose `COMPLETED.result` is the generated envelope.
+    """
+
+    from .names import run_ref_outcome_result
+
+    origin = run_ref_outcome_result(perform.metadata.type_ref).run_ref_origin
+    if tuple(name for name, _type_ref in origin[1]) != tuple(name for name, _value in perform.keyword_args):
+        raise ValueError("run-ref WCC inputs disagree with the retained result origin")
+    [commit] = perform.positional_args
+    node = {
+        "k": "perform",
+        "class": "run_ref",
+        "result": {},
+        "repeat": "rerun",
+        "config": "",
+        "commit": builder.value(commit, d, env),
+        "inputs": [
+            [name, builder.value(value, d, env)]
+            for name, value in perform.keyword_args
+        ],
+    }
+    node.update(builder.provenance(perform.metadata))
+    producer = builder.register_run_ref(perform, d, node)
+    producer.child = builder.child_entry(d.source_program, perform.operation_payload.workflow_name)
+    node["result"] = builder.desc(perform.metadata.type_ref, d, run_ref_producer=producer)
     return node

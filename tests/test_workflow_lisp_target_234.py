@@ -115,8 +115,8 @@ def test_target_234_is_registered(registry) -> None:
 
 
 
-def test_target_238_is_refused_as_unsupported(tmp_path: Path) -> None:
-    files = _write_program(tmp_path, "2.38")
+def test_target_239_is_refused_as_unsupported(tmp_path: Path) -> None:
+    files = _write_program(tmp_path, "2.39")
     line = next(n for n, text in enumerate(files["source"].read_text().splitlines(), 1) if ":target-dsl" in text)
 
     with pytest.raises(LispFrontendCompileError) as excinfo:

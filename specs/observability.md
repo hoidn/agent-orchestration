@@ -121,6 +121,21 @@ derives solely from the validated `.orc` executable and `state.json`.
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
   - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
+  - Proposed target 2.38 confined-child cleanup projection (unimplemented):
+    evaluated views and reports include `run_ref_cleanup`, exposed as
+    `run.run_ref_cleanup` in report JSON, whenever pending obligations exist,
+    and omit it otherwise. It is an array ordered by coordinator `identity`
+    and `attempt`; each entry has those existing coordinates,
+    `status: "pending"`, and `error`, either `null` when no cleanup outcome is
+    durable or the latest durable cleanup diagnostic as `{code, message}`;
+    when cleanup moved a replacement, its message includes the preserved
+    private location. Markdown renders the same pending obligations and
+    reasons. The projection comes from validated coordinator ledger
+    authority, never from `state.json`; readers neither repair nor execute
+    cleanup. Cleanup does not change the workflow terminal, suppress outputs
+    or populate the run-level error. No completed cleanup history is required
+    in this projection. Rendering the report is not a full revalidation of
+    export bytes; settlement and resume retain that responsibility.
   - Status/report snapshots may expose `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, `run.current_executor_session`, `run.excluded_suspended_ms`, and `run.suspended_gap_excluded` when executor-session accounting is available.
   - v2.10 status/report snapshots may expose:
     - bounded `provider_attempt_interrupted_rerun` context for a validated

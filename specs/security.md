@@ -89,6 +89,193 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     execution remains unrestricted until the production launcher, state,
     CLI/resume, and attestation integration is complete and verified.
 
+- Run-ref confinement profile `run_ref_confinement.v1` (proposed for target 2.38; unimplemented, not copy-safe)
+  - Status: proposed and not current admission. Nothing here changes the
+    process authority of current commands, providers or `run-ref` children
+    stated above. Authority:
+    [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
+    (D1, F3 deltas table); security acceptance also requires an independent
+    isolation review and the design's F3, F3b-channel and F3b-checkpoint
+    gates.
+  - The profile is a sibling of `provider_phase_isolation.v1` on the same
+    rootless Bubblewrap substrate (descriptor-bound root, cgroup v2
+    containment slots, `DurableLaunchReleaseGate`, result broker). It is not
+    registered as a provider-isolation backend and never selects, renames,
+    weakens or satisfies `provider_phase_isolation.v1`; a request for it
+    through that policy refuses as an unsupported backend. No container
+    engine, setuid helper or host execution fallback exists.
+  - Rootfs: the runtime imports the digest-pinned `:image` at installation
+    into a sealed content-addressed snapshot under the snapshot assembly
+    rules above, with empty mount points `/workspace`, `/result`, `/tmp`,
+    `/run`, `/dev` and `/proc` in its manifest. Image entrypoints never run.
+    Each holder launch rehashes the rootfs through a retained descriptor and
+    binds that descriptor. Provider executables, `/bin/sh`, `/usr/bin/env`,
+    `setsid` and the relay interpreter are image executable pins; no host
+    binary is bound, and host `PATH` pins or package-origin checks never
+    authorize them.
+  - Containment: each holder launch runs in its own transient delegated user
+    scope (`Delegate=yes`, `MemoryMax`, `MemorySwapMax=0`, `TasksMax`,
+    `CPUQuota`, `OOMPolicy=continue`) around a launcher released only by an
+    exact token after the scope's limits and policy read back equal to the
+    request and the scope root is verified empty. The scope holds a `holder`
+    slot, a `host` slot for host helpers and one slot per leaf. An
+    unavailable user manager, refused delegation, a missing controller or a
+    read-back mismatch refuses before release with
+    `run_ref_environment_unavailable`. The provider-isolation containment
+    root and this scope never share a path.
+  - Holder: one `bwrap` per child attempt and controller session with user,
+    IPC, PID, network, UTS and cgroup namespaces unshared,
+    `--disable-userns`, all capabilities dropped, `--clearenv`,
+    `--new-session` and `--die-with-parent`; size-bounded tmpfs at
+    `/workspace` (`:workspace-mib`), `/tmp` and HOME (256 MiB), `/dev/shm`
+    (64 MiB) and `/result` (128 MiB); `/dev` and `/run` read-only; no
+    `/sys`; the sanitized `.git` read-only at `/workspace/.git`. The
+    in-namespace holder processes hold only `/dev/null`, the two inherited
+    unix socketpairs and guest-owned objects. Leaves run serially under the
+    image's `setsid` in their own slots; the host trusts only cgroup
+    membership, whole-slot quiescence, its deadlines and its own bounded
+    reads. A foreign holder-slot member refuses with
+    `run_ref_environment_escape_rejected` and kills the scope; a holder
+    death fails the pending attempt with `run_ref_environment_lost`.
+    Admission records `kernel.yama.ptrace_scope >= 1`.
+  - Authority outside the clone: the child's control root (run header,
+    checked child artifact, memo, attempt evidence, checkpoint header, holder
+    release gate) lives beneath the parent run root, next to
+    `run-ref-attempts.jsonl`, outside the clone and every mount and
+    descriptor granted to the guest. The guest sees only the workspace
+    execution copy, bounded scratch, the result ingress and, for
+    `:model-only`, the relay socket. Host `/`, home, parent and peer
+    workspaces, the source mirror, credentials, SSH agents, engine sockets
+    and orchestration state are absent.
+  - Host Git materialization runs with no credential helpers, SSH agent,
+    global or system configuration or proxy environment, and leaves no
+    alternates, shared mutable objects, worktree links, executable hooks,
+    host-bearing remotes or parent links reachable from the clone;
+    submodules and LFS stay rejected. Delta collection never runs
+    repository-controlled hooks, filters, external diff or configuration.
+  - Host reads of candidate-controlled data: the holder tmpfs is read only
+    by the checkpoint copier and result import, through one root descriptor
+    per mount opened from `/proc/<holder>/root`, validated by holder-slot
+    membership and never reopened by path; traversal is component-wise with
+    `O_NOFOLLOW` and an `st_dev` pin, regular files and directories only,
+    symlink targets as strings, bounded bytes; `st_nlink > 1` is admitted on
+    the tmpfs only. Every other host read uses the existing descriptor-rooted
+    owner on the host clone after quiescence. Clone files named by
+    stable-command tokens, document fills and prompt dependencies are bound
+    by content at `started` through that no-follow reader: a symlinked token
+    binds its target string and never a host target. Executables, closures
+    and interpreters must be image pinned; one that resolves into the clone
+    refuses at dispatch before `started` with
+    `run_ref_environment_effect_unsupported`.
+  - Network: `:none` grants none. `:model-only` keeps the network namespace
+    unshared and binds one unix socket to a host-owned inference gateway.
+    It admits only qualified provider/model operations toward a fixed upstream,
+    with request/response byte limits, an attempt-bound expiring capability,
+    a request ceiling and the remaining durable child wall budget. Cancellation,
+    expiry, revocation, wall exhaustion or per-request byte excess cancel pending
+    local auth and transport operations and streams. Token/cost ceilings require
+    endpoint-specific enforcement evidence; if installation policy requires an unsupported
+    ceiling, admission refuses. Bytes or disconnection do not establish remote
+    generation/cost limits, and incomplete usage/cost is UNKNOWN. No arbitrary
+    URL, CONNECT, redirects, host tools, filesystem API or credential reads are
+    exposed. The image-pinned relay runs in the provider leaf and dies with it;
+    issued capabilities are excluded from runtime-authored durable transport/
+    control records and their projections, and irreversibly revoked at attempt
+    stop and before result import or workspace checkpoint. Guest-authored copies may remain as
+    inert data under the [retention and teardown rule](#confined-capability-retention-and-transport-teardown).
+    Qualified Codex managed ChatGPT login may be reused only by a private
+    per-leaf pinned native auth owner, with serialized acquisition, initial
+    account/origin/routing binding and strict refusal on mismatch or error as
+    specified by D7. Native refresh stays native. Authfiles, permanent upstream
+    credentials and owner RPC channels never enter the guest; the host owner
+    cannot execute candidate coding or tools. Unsupported transports refuse.
+  - <a id="confined-capability-retention-and-transport-teardown"></a>Confined capability retention and transport teardown:
+    this explicitly narrows the former universal durable-artifact exclusion for
+    the capability deliberately issued to a guest. Never persist that token or
+    its hash in runtime-authored transport/control, policy/configuration,
+    ledger/binding, admission or diagnostic fields, env/argv/request dumps, or
+    their projections. Construct retained configuration and prompt inputs before
+    injecting the capability into the ephemeral launch overlay/script; never
+    serialize that prepared request or transcribe its private channels.
+    Guest-authored stdout/stderr, typed results, workspace files, permitted names
+    and symlink targets may reproduce, split or encode the capability. After
+    irreversible revocation they follow ordinary IO, checkpoint, evidence,
+    snapshot, memo, export and retention rules, including existing bounds and
+    truncation. Their copies and derived inputs remain untrusted guest data,
+    never permission, binding or a grant. No production token scanner, special
+    coincidence rejection or content sanitizer is selected; there is no promise
+    of absence of this information in guest content. Arbitrary guest strings,
+    including names/targets equal to or encoding the token, must not reach
+    persisted error/control metadata: use closed diagnostic categories before
+    persistence, not token matching or replacement. This exception does not
+    admit authfiles, upstream bearers, permanent credentials or native auth RPC
+    into the guest or runtime-authored evidence/diagnostics.
+    Before import, checkpoint or publication of guest content, irreversibly
+    revoke the grant, close channels, terminate/reap owned work, prove quiescence
+    and verify removal of the private leaf script. A close, quiescence or script
+    retirement failure blocks those boundaries and successful leaf return.
+    During a blocked ACK or after controller loss, a revoked script may remain
+    as inert private transport residue pending validated retirement; it is never
+    retained evidence, exported content or reusable authority. Scope emptiness
+    and script absence are distinct oracles. The cancellation observer performs
+    no filesystem cleanup. The lifecycle retires its validated script tree after
+    quiescence; recovery first validates inventories and empties exact scopes,
+    then validates and retires only the recognized private tree before further
+    effects. Validate roots/parents, ownership, modes, mount boundaries and the
+    closed directory/leaf-script shape without following links or interpreting
+    script bytes. Preserve detected replacements or unexpected objects and
+    block dependent continuation; readonly recovery never mutates. Namespace
+    authority assumes the runtime is the sole authorized script mutator, not
+    protection against an arbitrary same-uid host replacement after identity
+    loss. A recovered token never restores authority; another leaf/incarnation
+    requires a fresh reservation and capability.
+  - During a provider leaf, its private gateway and native auth owner execute
+    in the existing host containment slot, under the scope's resource limits.
+    No checkpoint/helper runs concurrently with them. Revoke and close their
+    channels, terminate and reap owned work, and prove both host and leaf slots
+    empty before the normal quiescence/import/checkpoint boundary. Controller
+    loss must terminate both gateway and native owner; a worker-only death
+    signal is insufficient. Recovery retains the existing whole-scope kill and
+    validation order. No trusted-process exception to inter-leaf quiescence is
+    introduced.
+  - Before the first reservation and native startup, establish one absolute
+    BOOTTIME deadline from the minimum of the provider timeout and the durable
+    remaining child allowance. Guest release and later acknowledgements do not
+    reset it. A bounded leaf-local cancellation observer remains active across
+    every persistence, emit and acknowledgement wait, independently of the
+    lifecycle writer. It can only revoke, close channels and stop/empty owned
+    containment; it cannot grant authority, bind an account, write the ledger or
+    publish budget closures or terminal records. Expiry or cancellation is
+    irreversible for that incarnation: a late acknowledgement cannot activate
+    an owner, capability, release, acquisition or POST. Any reservation that
+    became durable remains consumed. The lifecycle alone validates durable
+    authority and quiescence and publishes subsequent terminal facts. This is
+    not a service or an autonomous budget watchdog after controller loss.
+    The observer is a bounded controller thread independent of the lifecycle's
+    writer lock, persistence queue, callback Future and locks held during durable
+    waits; cancellation reaches it directly. Its containment authority is bound
+    to the already validated scope and needs no ledger query. The process-creation
+    thread preserves its parent-death lifetime; the controller-to-worker-to-owner
+    chain and owned descendants must terminate on controller loss. A blocked
+    administrative response does not close or truncate wall accounting. The
+    [parent ledger](state.md#confined-provider-capacity-and-binding) owns
+    reservations/binding; neither this observer nor a gateway thread writes it.
+  - Enforced resources: CPU, memory, process count, workspace and scratch
+    bytes, export bytes, file count and depth, and bounded stdout/stderr; a post-run `du`
+    is insufficient. Protected evidence is charged to a separate
+    installation-policy evidence allowance, never to `:output-mib`.
+    Effective limits and kernel settings are retained in admission evidence.
+    Cumulative child wall time includes host-side work and is checked by the
+    live controller. The [durable wall-budget rule](state.md#confined-wall-budget-recovery)
+    charges open intervals through recovery quiescence, including controller
+    downtime and host suspension using fixed `CLOCK_BOOTTIME`; a different
+    boot with an open interval refuses resume. This accounting does not
+    enforce an autonomous wall deadline while the controller is absent; no
+    watchdog is selected. Kernel containment remains in force, and recovery
+    must kill and empty every exact boot-bound remnant, including `host`,
+    before checkpoint reads or replacement. Ambiguous identity or failed
+    quiescence blocks recovery, never authorizes a replacement or FAILED.
+
 - Adjudicated provider child workspaces (v2.11)
   - Candidate workspaces are run-owned copies created from a fixed immutable baseline snapshot. They are isolation boundaries for orchestrator-managed output validation and promotion, not OS sandboxes.
   - Baseline copy policy `adjudicated_provider.baseline_copy.v1` excludes `.orchestrate/`, `.git/`, dependency/cache roots, common generated cache directories, local secret denylist entries such as `.env`, unsafe symlinks, broken symlinks, and symlinks whose resolved targets would escape or point into excluded paths.

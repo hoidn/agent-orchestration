@@ -544,3 +544,77 @@ def test_fstat_failure_closes_every_opened_descriptor(
         with pytest.raises(OSError) as caught:
             os.read(opened_fd, 1)
         assert caught.value.errno == errno.EBADF
+
+
+def test_device_pin_admits_entries_on_the_pinned_device(tmp_path: Path) -> None:
+    (tmp_path / "f.txt").write_bytes(b"pinned")
+    fd = _tree_descriptor(tmp_path)
+    try:
+        assert read_regular_file(fd, "f.txt", device=os.fstat(fd).st_dev) == b"pinned"
+    finally:
+        os.close(fd)
+
+
+def test_device_pin_refuses_entries_on_another_device(tmp_path: Path) -> None:
+    (tmp_path / "f.txt").write_bytes(b"foreign")
+    fd = _tree_descriptor(tmp_path)
+    try:
+        with pytest.raises(SafeTreeRejectionError):
+            read_regular_file(fd, "f.txt", device=os.fstat(fd).st_dev + 1)
+    finally:
+        os.close(fd)
+
+
+def test_workspace_files_bounded_read_refuses_oversized_file(tmp_path: Path) -> None:
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    (tmp_path / "big").write_bytes(b"x" * 10)
+    files = WorkspaceFiles(tmp_path)
+    try:
+        with pytest.raises(OSError):
+            files.read("big", max_bytes=9)
+    finally:
+        files.close()
+
+
+def test_workspace_files_read_refuses_fifo_without_blocking(tmp_path: Path) -> None:
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    os.mkfifo(tmp_path / "pipe")
+    files = WorkspaceFiles(tmp_path)
+    try:
+        with pytest.raises(OSError):
+            files.read("pipe", max_bytes=1024)
+    finally:
+        files.close()
+
+
+def test_workspace_files_readlink_returns_target_string(tmp_path: Path) -> None:
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    (tmp_path / "dir").mkdir()
+    os.symlink("/etc/hostname", tmp_path / "dir" / "token")
+    files = WorkspaceFiles(tmp_path)
+    try:
+        assert files.readlink("dir/token") == "/etc/hostname"
+    finally:
+        files.close()
+
+
+def test_workspace_files_readlink_never_follows_a_symlink_component(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    os.symlink("/etc/hostname", outside / "token")
+    root = tmp_path / "root"
+    root.mkdir()
+    os.symlink(outside, root / "dir")
+    files = WorkspaceFiles(root)
+    try:
+        with pytest.raises(OSError):
+            files.readlink("dir/token")
+    finally:
+        files.close()

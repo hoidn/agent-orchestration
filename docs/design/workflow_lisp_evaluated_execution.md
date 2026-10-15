@@ -899,6 +899,12 @@ the closed program, supplied by the evaluator, the same on every resume.
 | X3 | `phase-target` | The named target's field of the phase context in scope, or the path join `<artifact-root>/<phase>/<target>.md` for a generic `PhaseCtx`, elaborated at the `with-phase` site (§4.3) |
 | X4 | `provider-bundle-path` | The committed attempt's result file, relative to the workspace (§8.2): the header's immutable `result_root` joined with the committed record's run-relative `result_path` (§8.4, *Immutable result root*), so it is the same on every resume and names the destination the performer received (R2): a command's R2 value is this string, and a provider's R2 value is the workspace's absolute path joined with it. At the new target the form is typed as a path under `.orchestrate/runs` and meets that root whenever the run root lies under `<workspace>/.orchestrate/runs`; both legacy routes type it under `state` and refuse their own value (`outside_under_root`) |
 
+**Proposed amendment for target 2.38 confined children, X4 and
+`result_root`** (unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): `provider-bundle-path`
+refuses at compile time inside a confined child with
+`run_ref_child_transport_unsupported`, and the child's `result_root`
+records its external control root.
+
 ## 5. Values
 
 A value is immutable and typed. The evaluator holds values in an environment:
@@ -1049,6 +1055,22 @@ files that differ.
 | C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares; `__pycache__` contents of a declared directory (§7.3), including bytecode Python loads without checking its source bytes (`unchecked-hash`, or timestamp bytecode whose recorded source mtime and size match). A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
 | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
 | C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
+
+**Proposed amendment for target 2.38 confined children, C2/C4/C6/C7
+attempt-snapshot binding** (unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): clone files
+named by stable-command tokens (C2), document fills and prompt dependencies
+(C6) are selected and bound by content at `started` through the no-follow
+reader beneath the clone root and retained in a content-addressed attempt
+snapshot; a symlinked token binds its target string and never a host target.
+A committed effect's
+resolved input and the C7 preflight use that snapshot and the recorded
+evidence map, never the current clone, after its bytes verify against the
+`started` digests (a mismatch fails closed, never `effect_input_diverged`).
+C4's retry comparison and precommit rehash (`command_closure_written`) cover
+the image-pinned closure only, so a command may rewrite the clone files it
+names. Declared closures, interpreters and package closures must be image
+pinned; one resolving into the clone refuses at dispatch before `started`.
+Host runs keep C2, C4, C6 and C7 unchanged.
 
 At build, the implemented C1 checks explicit declarations and the C2 projection
 records canonical logical paths in configuration/program identity. It does
@@ -1393,6 +1415,20 @@ An invalidation may cancel committed results, but cannot forgive a newer
 uncommitted attempt's closure mismatch. A start that did commit and was later
 invalidated does not pin that explicitly authorized re-execution to old bytes.
 
+**Proposed amendment for target 2.38 confined children** (unimplemented,
+not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the attempt retry rules in this table remain unchanged.
+First resolve the confined child's terminal state and
+[durable visit budget](../../specs/state.md#confined-wall-budget-recovery).
+Only actual continuation without a failed terminal row and with remaining
+budget applies C4's comparison and this table's next-attempt rule, including
+`must_not_repeat` and portable tool-enabled provider attempts. The
+[FAILED proof](../../specs/state.md#confined-failed-terminal-boundaries)
+validates the committed prefix and recorded boundary from retained snapshots
+without retry preflight or mutable clone reads. Thus `must_not_repeat` does
+not prevent repair/settlement of a durable FAILED or terminalization for
+proven postrelease exhaustion without redispatch. It still forbids rerun;
+evidence failures never become permission to manufacture a terminal.
+
 ### 8.2 Running an attempt
 
 1. Under the writer lock choose one more than the greatest `started` ordinal
@@ -1445,6 +1481,21 @@ even if new coverage reaches the journal/view. Never replace the start's
 evidence, adopt orphan output or bypass the retry baseline because no `failed`
 record survived.
 
+**Proposed amendment for target 2.38 confined children** (unimplemented,
+not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the running-attempt rules remain unchanged. A leaf failure
+under a live controller, including holder death (`run_ref_environment_lost`),
+fails the pending attempt and ends the child with no in-run retry. The
+coordinator's durable FAILED row follows acknowledged budget closure after
+quiescence and precedes the child memo's `failed`/terminal and parent value.
+[State defines its four boundaries and repair order](../../specs/state.md#confined-failed-terminal-boundaries):
+only a real `started_attempt` gets an effect `failed`; `before_start`, a
+reproducible `pure_fault` and a halted `finalization` failure invent no effect
+record. A closure resolving into the clone still refuses in step 1 before
+`started`. A genuine pure fault after valid admission can fail without a
+holder; prerelease exhaustion still aborts the parent. The same emit/ack
+protocol and separate parent-ledger/child-memo writers apply, without an ack
+dependency on a child record that has not yet been authorized.
+
 ### 8.3 What a stop leaves, and what resume does
 
 | The process stops | The memo holds | Resume |
@@ -1494,6 +1545,12 @@ view is reconstructed from the header, checked program and memo, not used
 to infer or upgrade the profile. A missing header with journal activity
 remains `memo_inconsistent`. No legacy state is converted.
 
+**Proposed amendment for target 2.38 confined children** (unimplemented,
+not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): confined workflow children compile at target 2.38, which
+is registered; confined sites are not admitted for execution until
+Increment A qualifies, and path children keep the internal run-reference
+target 2.35 stated above.
+
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
 the closed program (§4.2), and the interpreters fixed for the run (C3). The
@@ -1510,6 +1567,13 @@ Publication and all subsequent header/artifact/memo/evidence IO under a reserved
 CLI overrides preserve the parser's values before binding: strings for `--input`, with the last duplicate name winning. An admitted service caller preserves its explicitly supplied JSON values before binding. Read the indicated input file anew, then apply these overrides and bind against the freshly built program; do not seed that operation from historical `bound_inputs` or copy applied defaults into the recipe. Missing or invalid requested files remain preflight failures even if overrides cover their fields. Compare the fresh program digest before binding inputs; only an equal program proceeds to the fresh input-digest comparison. The same recipe supplies initial binding and every resume, without a second read solely for publication; normalize `input_file` before that initial read and use that same locator. With no file or overrides, bind the fresh program's defaults again. The recipe itself adds no program/input identity component and no snapshot guarantee against concurrent file changes.
 
 Previously published headers without `resume_request` remain valid stored authority for read-only projection and invalidation. Resume refuses them with `resume_request_missing` before reading memo records or changing authority, memo, attempts or views; no recipe is inferred or backfilled. A present but malformed recipe is `memo_inconsistent`: its eight fields are mandatory and exact, including string keys and finite JSON-transportable override values; null for the object, missing/unknown fields or invalid locators are not historical absence. New publication requires a valid explicit recipe, validated before creating the run root. This preserves the existing profile/schema and does not convert or retire a run representation. Invalidation never requires current source/configuration/input equality or a rebuild recipe; ordinary stored-authority and journal validation still apply. A caller that selects additional semantic compiler options must have their preservation concretely specified before admission; the ordinary entry's fixed defaults do not silently cover such a caller.
+
+**Proposed amendment for target 2.38 confined children, `resume_request`
+child-recipe variant** (unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child
+has no `workflow_file` or `source_roots`; its header records the
+parent-bound child artifact identity, and the fresh-build comparison is
+replaced for the child by validation of the stored checked artifact. Parent
+public resume keeps the ordinary fresh build and comparison.
 
 #### Immutable run-reference root
 
@@ -1678,6 +1742,11 @@ retry commits are not canceled by it. Validate that the anchor names an active
 commit and that its suffix contains no coordinator commit, or report
 `memo_inconsistent`. Derive the chosen identity and affected attempts from
 those records, without storing a second list or emitting per-effect records.
+
+The same range retires pending starts whose byte offsets are at or after
+its anchor, without removing their history or changing §8.1 retry
+permission. Pending starts before the anchor remain; an independent
+parallel sibling can have started before the chosen commit.
 
 One complete range record reopens the preceding terminal and changes every
 affected row's status to `invalidated`. A crash before it or during a torn
@@ -2605,6 +2674,25 @@ run's state; the memo replaces that commit.
 | K8 | A committed coordinator effect is never superseded in the first release: no new visit key or attempt for an identity that committed through a coordinator, and no rollback of the child's workspace delta (§3) |
 | K9 | Every coordinator in a release has evidence through the public run and resume entries: a compiled program killed from outside at each of its two gaps, resumed to the uninterrupted value, with no committed child started twice, and refused before any launch after a declared file changes |
 
+**Proposed amendment for target 2.38 confined children, K4 and K8**
+(unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): a confined child with a validated durable terminal (COMPLETED or FAILED),
+or an incomplete child with at least one committed effect, is never discarded
+and keeps neither K4's discard nor its fresh-child path. This includes a
+pure zero-commit COMPLETED child. A failed terminal row takes
+precedence: the child is terminal and never reruns, whatever the number of
+committed effects. Otherwise resolve the
+[durable budget](../../specs/state.md#confined-wall-budget-recovery) before
+K4 or any new holder: proven exhaustion after the retained attempt's release
+terminalizes it at its real boundary without redispatch. With valid remaining
+budget, a child with a committed effect resumes in the same run/clone under
+§8.1; a nonterminal child with zero commits keeps K4's fresh path.
+The fresh ordinal carries the visit's charge, but not its predecessor's
+release; exhaustion before its own release still aborts the parent. K8's
+no-supersession starts at the first committed child effect; `invalidate`
+stays available before it. A pending `must_not_repeat` after that commit is
+a permanent barrier to execution requiring its rerun, not to proving or
+repairing FAILED without a rerun. Path children keep K4 and K8 unchanged.
+
 For §1.2's repeated placements, each iteration instantiates the complete
 activation identity (§6), hence a distinct K7 step id and visit with count 1,
 even for identical inputs/configuration. A request or proof bound to one
@@ -2723,6 +2811,12 @@ value, given by a rule. A field not listed here is equal on both routes.
 | R10 | `command.env` | The command clause of R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
 | R11 | Generated helper commands | None. The present route runs inline Python steps that write managed write roots under `.orchestrate/workflow_lisp/`; the model has no write roots and no call frames, so nothing writes them |
 | R12 | A value in a command argument | Rendered by §§9.1/9.1.3 with checked static-template/value classification and explicit scope captures; preserve successful legacy bytes, including literal `True`/`False` versus substituted `true`/`false`, single-pass runtime strings and selected native/private scope resets |
+
+**Proposed amendment for target 2.38 confined children, R2/R3 guest
+spelling** (unimplemented, not copy-safe; [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): for a confined attempt, R2 in
+the provider and command environment and R3's `- path:` line both name
+`/result/<attempt-relative>`; prompt identity of confined attempts differs
+from host attempts by design at the new target.
 
 R2's two spellings name one file, and the provider's spelling is the only
 request field whose form depends on the effect class. That spelling enters

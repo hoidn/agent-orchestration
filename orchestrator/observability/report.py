@@ -662,6 +662,11 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
         lines.extend(["## Outputs", "```json", json.dumps(run["workflow_outputs"], indent=2), "```", ""])
     if run.get("error"):
         lines.extend(["## Run Error", _render_kv_lines(run["error"].items()), ""])
+    if run.get('run_ref_cleanup'):
+        lines.extend(['## Run-ref Cleanup', ''])
+        for pending in run['run_ref_cleanup']:
+            lines.append(_render_kv_lines(pending.items()))
+            lines.append('')
     lines.extend(["## Progress", _render_kv_lines(snapshot["progress"].items()), "", "## Steps"])
     for step in snapshot["steps"]:
         lines.extend([f"### {step['name']} ({step['status']})", _render_kv_lines(

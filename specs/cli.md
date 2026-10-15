@@ -304,6 +304,30 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `[resume_preflight_failed] --run-ref-root must be a canonical absolute path`,
   exit `2`) and must equal the recorded root. A completed run resumes to its
   recorded terminal with exit `0` and no write, however often it is repeated.
+  - Proposed amendment for target 2.38 confined children (unimplemented,
+    not current behavior): a completed run that records a pending run-ref
+    workspace-cleanup obligation retries that cleanup on resume, records the
+    outcome and dispatches nothing; a completed run without one keeps the
+    no-write rule above
+    ([State](state.md#proposed-run-ref-confined-child-state-target-238)).
+    For a valid completed run, resume exits `0` when no cleanup obligation
+    is pending or all known obligations complete. If a cleanup retry leaves
+    an obligation pending, resume exits `2` and emits
+    `[run_ref_cleanup_pending]` with the existing coordinator identity,
+    attempt and bounded reason, including the preserved private location
+    when a replacement was moved there. The persisted terminal remains
+    completed with its original value; cleanup failure neither appends a
+    workflow failure nor alters parent commitment or settlement. The pending
+    obligation survives for a later resume. Integrity and preflight refusals
+    retain their existing codes and do not authorize mutation of invalid
+    authority. These paths dispatch no child effect, start no holder and
+    allocate no child. A completed run without pending cleanup retains the
+    no-write rule.
+    `report` projects pending obligations read-only and preserves the
+    completed status, workflow outputs and run-level error of the terminal.
+    Successfully reading and rendering a report exits `0` even when cleanup
+    is pending; report never attempts cleanup. The pending projection is
+    specified in [Observability](observability.md).
 - `invalidate RUN_ID IDENTITY [--state-dir DIR]` (also
   `python -m orchestrator invalidate ...`) uses the same path resolution as
   `resume` (`.orchestrate/runs/RUN_ID`, or `DIR/RUN_ID`); unlike `resume`,
@@ -336,8 +360,11 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   journal or view failure after the checks (`memo_*`, `view_write_failed`)
   also exits `2`; after `view_write_failed` the range record is already
   durable, which is the lost-acknowledgment case above. Invalidation cancels
-  commits only: a newer uncommitted attempt whose closure changed is still
-  refused on resume by C4.
+  the committed suffix and retires pending starts in that journal suffix,
+  while preserving attempt history. A newer uncommitted attempt still
+  supplies its C4/§8.1 retry baseline and `must_not_repeat` restriction when
+  its identity is reached again; pending starts before the anchor remain
+  pending.
 - Readers: `report`, `dashboard` and `monitor` recognize an evaluated run
   root and render its [derived view](state.md#derived-view-statejson)
   (`steps` keyed by identity, `current_step`, `next_effect`, `error`,

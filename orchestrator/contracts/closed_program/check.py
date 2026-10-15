@@ -31,6 +31,10 @@ from orchestrator.workflow.run_ref.config import (
     ReferenceBinding,
     decode_run_ref_static_config,
 )
+from orchestrator.workflow.run_ref.confined_config import (
+    RunRefConfinedStaticConfig,
+    decode_run_ref_confined_static_config,
+)
 from orchestrator.workflow.run_ref.result_contract import (
     RUN_REF_RESULT_CONTRACT_SCHEMA,
 )
@@ -111,11 +115,12 @@ _VALUE_KEYS = {
     "perform": {
         "k", "class", "result", "repeat", "site", "@", "boundary", "command",
         "closure", "contract", "argv", "document", "argv_transport", "provider", "prompt", "inputs",
-        "dependencies", "policy", "config", "arm_inputs", "question",
+        "dependencies", "policy", "config", "arm_inputs", "question", "commit",
     },
 }
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 _GENERATED_RESULT_RE = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
+
 _RESULT_CONTRACT_METADATA_KEYS = frozenset(
     {
         "path",
@@ -238,6 +243,13 @@ class _SiteLabels:
     anonymous_count: int = 0
 
 
+def _run_ref_site_result(config: Any) -> Any:
+    """Return the site's result type: the envelope, or a confined site's outcome union."""
+    if isinstance(config, RunRefConfinedStaticConfig):
+        return config.outcome_descriptor
+    return config.result_descriptor["envelope"]
+
+
 def validate(tree: dict[str, Any]) -> None:
     """Validate one complete closed program without a frontend type environment."""
 
@@ -283,7 +295,7 @@ class _Checker:
         self._validate_json(self.tree)
         if not isinstance(self.tree, dict):
             self.fail("program_shape", "closed program must be a JSON object")
-        if set(self.tree) - {"command_params"} != _TOP_FIELDS:
+        if set(self.tree) - {"command_params", "children"} != _TOP_FIELDS:
             self.fail("program_shape", "closed program has missing or extra top-level fields")
         if self.tree.get("schema") != "workflow-lisp/closed-program/1":
             self.fail("program_schema", "unsupported closed-program schema")
@@ -321,6 +333,7 @@ class _Checker:
         self._check_effect_configurations()
         self._validate_run_ref_origins()
         self._check_run_ref_signatures_and_digests()
+        self._check_confined_children()
         self._check_pending_boundaries()
         self._check_key_runtime_agreement()
         self._check_command_decision_agreement()
@@ -597,7 +610,8 @@ class _Checker:
             return children
         if effect_class == "run_ref":
             rows = node.get("inputs", [])
-            return [row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else []
+            commit = [node["commit"]] if "commit" in node else []
+            return commit + ([row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2] if isinstance(rows, list) else [])
         return []
 
     def _check_document_argv(self, node, owner):
@@ -939,15 +953,26 @@ class _Checker:
                     self.fail("run_ref_config", "run-ref config was not decoded during typed validation", node)
                 generated = config.generated_result_type
                 envelope = config.result_descriptor["envelope"]
-                if envelope.get("name") != generated or not self._same(node.get("result"), envelope):
+                if envelope.get("name") != generated or not self._same(node.get("result"), _run_ref_site_result(config)):
                     self.fail("run_ref_result", "run-ref result node differs from its decoded generated envelope", node)
                 registered = self.types.get(generated)
                 if not isinstance(registered, Mapping) or not self._same(registered, envelope):
                     self.fail("nominal_definition", f"generated run-ref result {generated!r} differs from its type-table row", node)
+                if isinstance(config, RunRefConfinedStaticConfig) and not self._same(
+                        self.types.get(config.generated_outcome_type), node.get("result")):
+                    self.fail("nominal_definition", "generated run-ref outcome differs from its type-table row", node)
                 origins.setdefault(generated, []).append(
                     {"owner": owner, "node": node, "config": config, "site": node.get("site")}
                 )
+        outcomes = {
+            row["config"].generated_outcome_type
+            for rows in origins.values()
+            for row in rows
+            if isinstance(row["config"], RunRefConfinedStaticConfig)
+        }
         for name, descriptor in self.types.items():
+            if name.startswith("RunRefOutcome$") and name not in outcomes:
+                self.fail("run_ref_origin", f"generated run-ref outcome {name!r} has no lexical producer")
             if name.startswith("RunRefResult$"):
                 if _GENERATED_RESULT_RE.fullmatch(name) is None:
                     self.fail("run_ref_result", f"reserved generated type name {name!r} is malformed")
@@ -1036,6 +1061,39 @@ class _Checker:
                 self.fail("run_ref_digest", "run-ref generated result name does not match its site digest", node)
             if config.result_descriptor["envelope"].get("name") != config.generated_result_type:
                 self.fail("run_ref_result", "run-ref config envelope name differs from its generated identity", node)
+
+    def _check_confined_children(self) -> None:
+        """Validate each private child entry as a full checked program bound to its site."""
+
+        from .program import canonical_digest, program_digest
+
+        configs = [config for config in self.run_ref_configs.values()
+                   if isinstance(config, RunRefConfinedStaticConfig)]
+        children = self.tree.get("children")
+        if children is None and not configs:
+            return
+        if not isinstance(children, Mapping) or not children or set(children) != {
+            config.program.child_program_digest for config in configs
+        }:
+            self.fail("run_ref_child", "child entries differ from the confined sites that name them")
+        for digest, child in children.items():
+            if not isinstance(child, dict) or "children" in child:
+                self.fail("run_ref_child", "a confined child entry cannot carry its own child entries")
+            _Checker(child).run()
+            if program_digest(child) != digest:
+                self.fail("run_ref_child", "child entry content differs from its checked identity")
+        for config in configs:
+            child = children[config.program.child_program_digest]
+            value = config.result_descriptor["envelope"]["fields"][0]["type"]
+            if (
+                child["entry"] != f"workflow:{config.program.workflow_name}"
+                or child["target"] != config.target_dsl_version
+                or canonical_digest(child["configuration"]) != config.program.owner_configuration_digest
+                or [name for name, _ in child["params"]] != [row.name for row in config.inputs]
+                or not all(self._same(row[1], expected.type_descriptor) for row, expected in zip(child["params"], config.inputs))
+                or not self._same(child["result"], value)
+            ):
+                self.fail("run_ref_child", f"child entry {config.program.workflow_name!r} differs from its site configuration")
 
     def _check_key_markers(self, value: Any, signatures: set[str]) -> None:
         if not isinstance(value, list) or len(value) not in (9, 10):
@@ -4514,18 +4572,25 @@ class _Checker:
                 self.fail("effect_shape", "provider prompt must be an extern source or typed template", node)
             return
         if effect_class == "run_ref":
-            if set(node) - {"k", "class", "result", "repeat", "site", "@", "config", "inputs"}:
+            confined = "commit" in node
+            if set(node) - {"k", "class", "result", "repeat", "site", "@", "config", "inputs", "commit"}:
                 self.fail("effect_shape", "run-ref effect has class-inappropriate fields", node)
             if node.get("repeat") != "rerun":
                 self.fail("effect_repeat", "run-ref repeat must be rerun", node)
             encoded = node.get("config")
             if not isinstance(encoded, str):
                 self.fail("run_ref_config", "run-ref config must be base64 text", node)
+            decode = decode_run_ref_confined_static_config if confined else decode_run_ref_static_config
             try:
-                config = decode_run_ref_static_config(base64.b64decode(encoded, validate=True))
+                config = decode(base64.b64decode(encoded, validate=True))
             except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
                 self.fail("run_ref_config", f"run-ref static config is invalid: {exc}", node)
-            if config.target_dsl_version != EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION or config.program.__class__.__name__ != "PathProgram":
+            if confined:
+                if config.target_dsl_version != self.tree["target"]:
+                    self.fail("run_ref_config", "confined run-ref config must select the program target", node)
+                commit = self._value(node["commit"], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+                self._require_type(commit, {"kind": "primitive", "name": "String"}, "type_mismatch", node["commit"])
+            elif config.target_dsl_version != EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION or config.program.__class__.__name__ != "PathProgram":
                 self.fail("run_ref_config", "checked run-ref config must select target 2.35 path mode", node)
             self.run_ref_configs[id(node)] = config
             inputs = node.get("inputs")
@@ -4540,7 +4605,7 @@ class _Checker:
                 self._require_type(actual, config_input.type_descriptor, "type_mismatch", row[1])
                 if config_input.binding.record != {"kind": "reference", "reference": f"inputs.{row[0]}"}:
                     self.fail("run_ref_config", "run-ref input must use its own inputs reference", node)
-            if not self._same(node.get("result"), config.result_descriptor["envelope"]):
+            if not self._same(node.get("result"), _run_ref_site_result(config)):
                 self.fail("effect_result", "run-ref node result differs from its decoded config", node)
             return
         self.fail("effect_class", f"unsupported effect class {effect_class!r}", node)

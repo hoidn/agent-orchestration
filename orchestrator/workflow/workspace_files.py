@@ -182,9 +182,21 @@ class WorkspaceFiles:
         finally:
             os.close(parent_fd)
 
-    def read(self, path: str | Path) -> bytes:
+    def read(self, path: str | Path, *, max_bytes: int | None = None) -> bytes:
+        """Read a no-follow regular file, refusing more than ``max_bytes``."""
         with self.open_read(path) as source:
-            return source.read()
+            content = source.read() if max_bytes is None else source.read(max_bytes + 1)
+        if max_bytes is not None and len(content) > max_bytes:
+            raise OSError(errno.EFBIG, f"result file exceeds {max_bytes} bytes")
+        return content
+
+    def readlink(self, path: str | Path) -> str:
+        """Return a symlink's target string; no component is ever followed."""
+        parent_fd, leaf = self._parent(path, create=False)
+        try:
+            return os.readlink(leaf, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
 
     def open_read(self, path: str | Path):
         """Return a buffered stream for a descriptor-rooted regular file."""

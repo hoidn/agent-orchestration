@@ -51,6 +51,7 @@ from .delta import (
     validate_workspace_delta,
 )
 from .ledger import (
+    CONFINED_LIFECYCLE_EVENTS,
     RunRefAttemptBindings,
     RunRefAttemptRecord,
     RunRefLedgerError,
@@ -197,7 +198,8 @@ class RunRefLifecycleEvent:
     ) -> RunRefLifecycleEvent:
         if type(sequence) is not int or sequence < 1:
             raise ValueError("run-ref lifecycle sequence must be positive")
-        expected_kind = (
+        side_event = event_kind in CONFINED_LIFECYCLE_EVENTS
+        expected_kind = event_kind if side_event else (
             "allocation"
             if stage == "allocated"
             else "prepared"
@@ -227,8 +229,12 @@ class RunRefLifecycleEvent:
             raise TypeError("run-ref lifecycle payload must be a mapping")
         payload_json = canonical_json_bytes(dict(payload))
         payload_copy = json.loads(payload_json)
-        if event_kind == "allocation":
-            expected_payload = {"bindings"}
+        if side_event:
+            expected_payload = {"event"}
+            if not isinstance(payload_copy.get("event"), Mapping):
+                raise ValueError("run-ref confined event evidence is not a mapping")
+        elif event_kind == "allocation":
+            expected_payload = {"bindings", "confined_opening"} if "confined_opening" in payload_copy else {"bindings"}
             binding_keys = set(RunRefAttemptBindings.__dataclass_fields__)
             bindings = payload_copy.get("bindings")
             if not isinstance(bindings, Mapping) or set(bindings) != binding_keys:
@@ -335,6 +341,7 @@ class RunRefLifecycleAllocation:
     effect_instance_digest: str | None = None
     expected_ledger_sequence: int = 1
     expected_previous_row_digest: str | None = None
+    retained: RunRefAttemptRecord | None = None
 
     def __post_init__(self) -> None:
         if type(self.attempt_ordinal) is not int or self.attempt_ordinal < 1:
@@ -361,6 +368,11 @@ class RunRefLifecycleAllocation:
             self.expected_previous_row_digest is None
         ):
             raise ValueError("run-ref expected ledger head binding is invalid")
+        if self.retained is not None and (type(self.retained) is not RunRefAttemptRecord
+                or self.retained.attempt_ordinal != self.attempt_ordinal or self.retained.bindings != self.bindings
+                or self.retained.schema_version != "run_ref_attempt_ledger.v2"
+                or self.retained.status not in {"in_progress", "pending_parent_commit"}):
+            raise ValueError("run-ref retained allocation authority is invalid")
         object.__setattr__(self, "effect_instance_root", root)
 
     @property
@@ -477,6 +489,8 @@ class RunRefRuntimeRequest:
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
     parent_identity: str | None = None
     parent_attempt: int | None = None
+    # The parent's checked program; a confined (v2) site takes its checked child entry from it.
+    parent_program: Any = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         paths = _validate_run_ref_runtime_request_authority(
@@ -860,10 +874,16 @@ def build_run_ref_accounting(
 def declared_artifacts_from_value(
     value: Any,
     descriptor: Mapping[str, Any],
+    *, pointer_locations: bool = False,
 ) -> tuple[DeclaredArtifact, ...]:
     """Derive the complete deterministic artifact catalog from path leaves."""
 
     rows: list[DeclaredArtifact] = []
+    def child_location(parent, key, *, indexed=False):
+        if pointer_locations:
+            escaped = str(key).replace('~', '~0').replace('/', '~1')
+            return parent + '/' + escaped
+        return f'{parent}[{key}]' if indexed else f'{parent}.{key}'
 
     def visit(item: Any, shape: Mapping[str, Any], path: str) -> None:
         kind = shape.get("kind")
@@ -876,16 +896,16 @@ def declared_artifacts_from_value(
             return
         if kind == "list":
             for index, child in enumerate(item):
-                visit(child, shape["item"], f"{path}[{index}]")
+                visit(child, shape["item"], child_location(path, index, indexed=True))
             return
         if kind == "map":
             for key in sorted(item, key=lambda candidate: candidate.encode("utf-8")):
-                visit(item[key], shape["value"], f"{path}[{key}]")
+                visit(item[key], shape["value"], child_location(path, key, indexed=True))
             return
         if kind == "record":
             for field in shape["fields"]:
                 name = field["name"]
-                visit(item[name], field["type"], f"{path}.{name}")
+                visit(item[name], field["type"], child_location(path, name))
             return
         if kind == "union":
             selected = next(
@@ -895,7 +915,7 @@ def declared_artifacts_from_value(
             )
             for field in selected["fields"]:
                 name = field["name"]
-                visit(item[name], field["type"], f"{path}.{name}")
+                visit(item[name], field["type"], child_location(path, name))
 
     visit(value, descriptor, "value")
     return tuple(sorted(rows, key=lambda row: (row.name.encode("utf-8"), row.path.encode("utf-8"))))
@@ -1567,6 +1587,12 @@ def _input_digest(
     )
 
 
+def _is_confined(step_config: RunRefStepConfig) -> bool:
+    """A `run_ref_static_config.v2` site runs the confined lifecycle (`confined_lifecycle.py`)."""
+    from .confined_config import RunRefConfinedStaticConfig
+    return type(step_config.run_ref) is RunRefConfinedStaticConfig
+
+
 def _policy_digest(step_config: RunRefStepConfig) -> str:
     source = canonical_source_request(step_config.run_ref.source)
     program = step_config.run_ref.program
@@ -1594,21 +1620,33 @@ def _workspace_for_ordinal(
     *,
     effect_instance_digest: str | None = None,
 ) -> Path:
+    return run_ref_visit_workspace(request.run_ref_root, request.visit, attempt_ordinal,
+                                   effect_instance_digest=effect_instance_digest)
+
+
+def run_ref_visit_workspace(
+    run_ref_root: Path,
+    visit: RunRefVisitKey,
+    attempt_ordinal: int,
+    *,
+    effect_instance_digest: str | None = None,
+) -> Path:
+    """The one clone path of a visit attempt beneath the run-reference root."""
     parent_segment = _safe_workspace_segment(
-        request.visit.parent_run_id,
+        visit.parent_run_id,
         fallback="parent",
     )
     step_segment = _safe_workspace_segment(
-        request.visit.step_id,
+        visit.step_id,
         fallback="step",
     )
     visit_segment = "visit-" + canonical_sha256(
         {
             "schema_version": "run_ref_workspace_visit_identity.v1",
-            "visit": request.visit.record,
+            "visit": visit.record,
         }
     ).removeprefix("sha256:")
-    workspace_root = request.run_ref_root
+    workspace_root = run_ref_root
     if effect_instance_digest is not None:
         if _SHA256_RE.fullmatch(effect_instance_digest) is None:
             raise RunRefRuntimeError(
@@ -1661,6 +1699,10 @@ def _attempt_bindings(
     parent_values: Mapping[str, Any],
     effect_instance_digest: str | None = None,
 ) -> RunRefAttemptBindings:
+    if _is_confined(request.step_config):
+        from .confined_lifecycle import confined_attempt_bindings
+        return confined_attempt_bindings(request, attempt_ordinal=attempt_ordinal, workspace=workspace,
+                                         parent_values=parent_values)
     static = request.step_config.run_ref
     program = static.program
     capsule_or_compiler_digest = (
@@ -2369,7 +2411,17 @@ def _validate_lifecycle_acknowledgement_authority(
     ):
         raise ValueError("run-ref lifecycle acknowledgement authority disagrees")
     payload = event.payload
-    if event.stage == "allocated":
+    if event.event_kind in CONFINED_LIFECYCLE_EVENTS:
+        if row.event_kind != event.event_kind or row.event != payload["event"]:
+            raise ValueError("run-ref confined event acknowledgement disagrees")
+        return
+    if event.event_kind == "allocation":
+        opening = payload.get("confined_opening")
+        if opening is not None and (row.schema_version != "run_ref_attempt_ledger.v2"
+                or row.event_kind != "allocation" or row.event != opening):
+            raise ValueError("run-ref lifecycle budget opening acknowledgement disagrees")
+        if opening is None and row.schema_version != "run_ref_attempt_ledger.v1":
+            raise ValueError("run-ref lifecycle allocation version acknowledgement disagrees")
         if row.bindings.record != payload["bindings"]:
             raise ValueError(
                 "run-ref lifecycle allocation acknowledgement disagrees"
@@ -2542,12 +2594,20 @@ def drive_run_ref_lifecycle(
             parent_values=parent_values,
             effect_instance_digest=allocation.effect_instance_digest,
         )
-        if allocation.bindings != expected_bindings:
+        compatible = allocation.bindings == expected_bindings
+        if allocation.retained is not None:
+            compatible = _is_confined(request.step_config) and all(
+                getattr(allocation.bindings, name) == getattr(expected_bindings, name)
+                for name in expected_bindings.__dataclass_fields__ if getattr(expected_bindings, name) is not None)
+        if not compatible:
             raise RunRefRuntimeError(
                 "run_ref_ledger_invalid",
                 "lifecycle_allocation_authority_disagrees",
             )
         bindings = allocation.bindings
+        if _is_confined(request.step_config):
+            from .confined_lifecycle import drive_confined_lifecycle
+            return drive_confined_lifecycle(request, allocation=allocation, emit=emit, effects=effects)
         emit(
             stage="allocated",
             event_kind="allocation",
@@ -2857,13 +2917,37 @@ def persist_run_ref_lifecycle_event(
     payload = event.payload
     ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
     try:
-        if event.stage == "allocated":
+        if event.event_kind in CONFINED_LIFECYCLE_EVENTS:
+            from .ledger import append_confined_event
+            current = load_attempt_ledger(ledger_path, run_files=request.run_files)
+            head = next((row for row in reversed(current.rows) if row.visit == event.visit
+                         and row.attempt_ordinal == event.attempt_ordinal), None)
+            if head is None or head.stage != event.stage:
+                raise RunRefLedgerError("confined event work stage disagrees")
+            before_append = None
+            if event.event_kind in {'provider_reservation', 'provider_binding'}:
+                from .confined_evidence import evidence_usage
+                from .confined_lifecycle import _layout
+                before_append = lambda size: evidence_usage(_layout(request, event.attempt_ordinal),
+                    ledger_path=ledger_path, visit=request.visit, extra_bytes=size)
+            row = append_confined_event(ledger_path, visit=request.visit, attempt_ordinal=event.attempt_ordinal,
+                event_kind=event.event_kind, event=payload["event"], run_files=request.run_files,
+                before_append=before_append)
+        elif event.event_kind == "allocation":
+            opening = payload.get("confined_opening")
+            if _is_confined(request.step_config):
+                limit = dict(request.step_config.run_ref.policy.limits)["wall-seconds"] * 1_000_000_000
+                if not isinstance(opening, Mapping) or opening.get("limit_ns") != limit:
+                    raise RunRefLedgerError("confined reservation checked budget disagrees")
+            elif opening is not None:
+                raise RunRefLedgerError("legacy allocation cannot carry a confined reservation")
             bindings = RunRefAttemptBindings(**payload["bindings"])
             row = allocate_attempt(
                 ledger_path,
                 visit=request.visit,
                 bindings=bindings,
                 run_files=request.run_files,
+                confined_opening=payload.get("confined_opening"),
             )
             if row.attempt_ordinal != event.attempt_ordinal:
                 raise RunRefLedgerError(
@@ -2917,8 +3001,12 @@ def prepare_run_ref_lifecycle_allocation(request, *, dependencies=None):
         raise TypeError("dependencies must be exact RunRefRuntimeDependencies")
     started_ns = effects.monotonic_ns()
     try:
-        _discard_incomplete_attempt(request, effects)
-        allocation = select_run_ref_lifecycle_allocation(request)
+        if _is_confined(request.step_config):
+            from .confined_lifecycle import prepare_confined_recovery_allocation
+            allocation = prepare_confined_recovery_allocation(request, effects)
+        else:
+            _discard_incomplete_attempt(request, effects)
+            allocation = select_run_ref_lifecycle_allocation(request)
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
     return allocation, started_ns
@@ -3072,6 +3160,10 @@ def _validate_bound_authority(
     *,
     effect_instance_digest: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if _is_confined(request.step_config):
+        from .confined_lifecycle import validate_confined_bound_authority
+        return validate_confined_bound_authority(request, row)
+    _canonical_absolute(row.bindings.workspace_path, field='workspace_path')
     if row.visit != request.visit:
         raise RunRefRuntimeError(
             "run_ref_evidence_invalid",

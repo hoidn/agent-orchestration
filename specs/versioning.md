@@ -1142,6 +1142,25 @@ full public qualification and phase delivery remain pending. Parallel source is
 not yet a copy-safe authoring surface. Existing
 2.35/2.36 contracts remain unchanged.
 
+Target **2.38** is registered for run-ref confined workflow children
+(`run-ref :program (:workflow ...)` under the sibling profile
+`run_ref_confinement.v1`), which are proposed, unimplemented and not
+copy-safe
+([design](../docs/design/workflow_lisp_run_ref_expression_environments.md),
+[plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md)).
+Confined sites are not admitted for execution until Increment A qualifies;
+the compiler types them and refuses them with
+`run_ref_child_target_unavailable`. A 2.38 entry with no confined site
+accepts exactly what bounded 2.37 accepts, and no existing target widens. Path
+children keep the internal run-reference target 2.35, their configuration
+bytes and recovery. Contracts:
+[DSL](dsl.md), [State](state.md#proposed-run-ref-confined-child-state-target-238),
+[IO](io.md#proposed-run-ref-confined-child-io-target-238),
+[Security](security.md), [Providers](providers.md) and the
+[CLI completed-resume amendment](cli.md#evaluated-execution-target-235).
+Rollback means declining the target and profile while retaining read-only
+diagnostics for their recorded artifacts.
+
 | DSL version | Key features enabled | Notes |
 | --- | --- | --- |
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |
@@ -1190,5 +1209,6 @@ not yet a copy-safe authoring surface. Existing
 | 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
 | 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Older module headers retain typed/import contracts; old executable entries/profiles are retired without artifact conversion. |
 | 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, several local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with old-caller migration on retargeting and unchanged snapshot/resume guards. See v2.36 additions and the Phase 4c plan for qualification status. |
+| 2.38 (registered; confined sites proposed) | Workflow Lisp run-ref confined workflow children | Confined sites are not admitted for execution until Increment A qualifies; otherwise accepts exactly what bounded 2.37 does. Named private child entry, `:commit` expression, closed confinement policy, `COMPLETED`/`FAILED` site union, `run_ref_static_config.v2` and `run_ref_confinement.v1`. See the 2.38 paragraph above. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

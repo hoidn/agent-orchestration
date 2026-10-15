@@ -440,7 +440,8 @@ def test_direct_child_refuses_superseded_live_permission(tmp_path, monkeypatch, 
                                             workspace_path=workspace, disposition_digest="sha256:" + "c" * 64, run_files=owner)
             if supersession == "new_ordinal":
                 bindings = runtime._attempt_bindings(request, attempt_ordinal=2,
-                           workspace=workspace, parent_values={"payload": "mode2-child-input"})
+                           workspace=runtime.run_ref_visit_workspace(request.run_ref_root, request.visit, 2),
+                           parent_values={"payload": "mode2-child-input"})
                 ledger.allocate_attempt(request.ledger_path, visit=request.visit, bindings=bindings, run_files=owner)
         before = _tree_bytes(request.parent_run_root)
         monkeypatch.setattr(child, "_admit_path_request", lambda *_args, **_kwargs: pytest.fail("compiled"))

@@ -150,6 +150,10 @@ def _view(authority, snapshot, terminal, next_effect, halted, active):
         else:
             view["error"] = {"type": terminal.data["code"], "code": terminal.data["code"],
                              "message": terminal.data["message"]}
+    from orchestrator.workflow.run_ref.confined_cleanup import cleanup_projection
+    cleanup = cleanup_projection(authority, snapshot)
+    if cleanup:
+        view['run_ref_cleanup'] = cleanup
     return view
 
 

@@ -565,6 +565,101 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
   value, finalize an isolation attestation, or make public run/resume
   integration complete.
 
+## Proposed Run-Ref Confined Child IO (target 2.38)
+
+Status: proposed for target 2.38; unimplemented, not current admission and
+not copy-safe. Evaluated command, provider and path-mode run-reference IO
+above is unchanged. Authority:
+[run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#results-paths-and-lifetime).
+
+- Result transport (R2/R3 guest spelling): for a confined attempt both
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` and the prompt's `- path:` line name
+  `/result/<attempt-relative>`, so prompt identity of confined attempts
+  differs from host attempts by design. Before each leaf the host empties
+  `/tmp`, `/dev/shm` and `/result` and creates `/result/<leaf>` exclusively;
+  after leaf quiescence the result broker copies validated bytes from it into
+  the protected attempt through the retained descriptor. Host absolute paths,
+  run-root descriptors and host interpreter pins never cross.
+- Leaf IO: cwd `/workspace`, stdin from the host-written leaf file,
+  stdout/stderr into `/result/<leaf>/`, bounded. Exit status and output are
+  untrusted guest data from the candidate's trust domain; provider stderr is
+  bounded evidence, not the typed result. Before importing/publishing these
+  bytes or checkpointing workspace content, require irreversible capability
+  revocation, closed/reaped transport owners, quiescence and verified private
+  script retirement under [Security](security.md#confined-capability-retention-and-transport-teardown).
+  A failed teardown blocks those boundaries; active guest output is not teed to
+  durable host evidence. Structural, byte-limit, type and lineage validation
+  does not prove absence of secrets. Guest-authored literal, split or encoded
+  copies of its issued capability, including permitted names/targets, remain
+  ordinary untrusted data after revocation, with existing bounds/truncation and
+  exact admitted bytes. This extends to derived snapshots, manifests, result
+  memo, exports and later inputs; none restores authority. No production token
+  scanner, coincidence rejection or sanitizer is selected. Runtime-authored
+  control/configuration/diagnostic fields remain subject to token exclusion;
+  arbitrary names/targets cannot be copied into persisted error details. The
+  separate prohibitions on authfiles, upstream bearers, permanent credentials
+  and native auth RPC remain intact.
+- Typed path inputs are copied into a child-owned location that still
+  satisfies each input descriptor; unsafe links refuse, and the copy is
+  revalidated before launch. They are never host mounts.
+- Typed export: each returned path leaf of a descriptor with a nonempty
+  workspace-relative `:under` (outside reserved control/Git roots) and
+  `:must-exist true` must exist below that root as a regular file or bounded
+  tree without symlinks, special files, unsafe hardlinks or nested mounts.
+  The host copies it from the clone after the final checkpoint to
+  `<under>/.run-ref-exports/<parent-run>/<activation>/<attempt>/<path relative to under>`
+  with retained roots, no-follow traversal, the exact byte bound
+  `:output-mib`, bounded file count and depth, and atomic no-overwrite
+  publication. Identical child paths
+  share one copy; conflicting descriptors, roots or destinations refuse.
+  Aliases require the same canonical complete path descriptor and retain all
+  result field locations. Overlapping returned trees share each source
+  object once only when they use the same `under` and induce the same
+  destination mapping; otherwise they refuse before publication. Distinct
+  source paths are not aliases merely because their bytes match. Every
+  exported regular file must have a link count of one. Validate every source
+  and destination component and reject nested mounts, including bind mounts
+  on the same device. Atomic publication is per non-overlapping subtree on
+  its destination filesystem; parent commitment waits for the complete
+  validated set. Before rename, durably bind the staged object's identity
+  to the attempt and the staging/destination roots and parents, including
+  device, inode and mount identity. Recovery may reuse an existing
+  publication only by proving it is that same staged object under the bound
+  parents/mounts, and validating its inventory and bytes. A pathname
+  reservation and matching content do not establish ownership: refuse an
+  identical foreign destination created before rename or substituted after
+  rename, without changing it. The coordinator owns the durable binding's
+  representation; this adds no separate publication ledger.
+  The boundary validator checks the original child value and the rebased parent
+  value against the same complete descriptor; this is not prefix replacement
+  or a nominal cast. Destinations, original paths, field locations, sizes and
+  digests are recorded in the settlement proof. A corrupted, missing,
+  oversized or unrebaseable export refuses with `run_ref_export_invalid` and
+  is never regenerated by rerunning the child. `FAILED` exports nothing.
+- Export structural limits are the fixed `run_ref_confinement.v1` workspace
+  tree limits: 262,144 unique source entries and 128 directory levels. The
+  checkpoint policy owns these values; export applies them to the combined
+  inventory of all returned paths, not separately per path or `under`.
+  Count regular files and directories, including empty directories, returned
+  directory roots and source ancestors needed to materialize the exported
+  suffixes, once each. A declared `under` used only as an anchor and the
+  synthetic export namespace directories are not copied source entries.
+  Directory depth is relative to `under` at level zero; directories through
+  level 128 and files immediately within them are allowed. The clone's own
+  checkpoint limits still apply independently. Record the effective bounds
+  in protected admission/settlement evidence; there is no authored override.
+  `:output-mib` is the aggregate regular-file byte bound over this same unique
+  inventory. Exceeding an export bound refuses with `run_ref_export_invalid`.
+- Export lifetime: exports are never removed automatically and share the
+  parent run's retention lifetime. Retiring a run means removing its run
+  root, which holds the child control roots, and its
+  `<under>/.run-ref-exports/<parent-run>` directories. `invalidate` never
+  reaches an export, because exports exist only after the coordinator
+  commits and K8 refuses superseding it. No new command is introduced.
+- Workspace delta is collected from the clone after the final checkpoint
+  through the existing tree-manifest path; it is a bounded description, not
+  authority to read clone files.
+
 ## Source-Relative vs Workspace-Relative Taxonomy
 
 - Workflow-source-relative reads:

@@ -220,8 +220,9 @@ def _run_git(
     *,
     check: bool = True,
     text: bool = True,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[Any]:
-    """Run one argument-bounded Git command for the materializer."""
+    """Run one argument-bounded Git command; `env` None inherits the host's."""
 
     return subprocess.run(
         argv,
@@ -229,18 +230,19 @@ def _run_git(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=text,
+        **({} if env is None else {"env": dict(env)}),
     )
 
 
-def _git_stdout(argv: tuple[str, ...]) -> str:
-    stdout = _run_git(argv).stdout
+def _git_stdout(argv: tuple[str, ...], env: Mapping[str, str] | None = None) -> str:
+    stdout = _run_git(argv, env=env).stdout
     if not isinstance(stdout, str):
         raise TypeError("text Git command returned non-text stdout")
     return stdout.strip()
 
 
-def _git_bytes(argv: tuple[str, ...]) -> bytes:
-    stdout = _run_git(argv, text=False).stdout
+def _git_bytes(argv: tuple[str, ...], env: Mapping[str, str] | None = None) -> bytes:
+    stdout = _run_git(argv, text=False, env=env).stdout
     if not isinstance(stdout, bytes):
         raise TypeError("binary Git command returned non-bytes stdout")
     return stdout
@@ -452,6 +454,7 @@ def _source_policy_refusal(
 def _git_tree_objects(
     git_dir: Path,
     commit: str,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[_GitTreeObject, ...]:
     raw = _git_bytes(
         (
@@ -463,7 +466,8 @@ def _git_tree_objects(
             "-r",
             "-t",
             commit,
-        )
+        ),
+        env,
     )
     objects: list[_GitTreeObject] = []
     for record in raw.split(b"\0"):
@@ -492,7 +496,7 @@ def _git_tree_objects(
     return tuple(objects)
 
 
-def _blob_bytes(git_dir: Path, object_id: str) -> bytes:
+def _blob_bytes(git_dir: Path, object_id: str, env: Mapping[str, str] | None = None) -> bytes:
     return _git_bytes(
         (
             "git",
@@ -501,7 +505,8 @@ def _blob_bytes(git_dir: Path, object_id: str) -> bytes:
             "cat-file",
             "blob",
             object_id,
-        )
+        ),
+        env,
     )
 
 
@@ -515,8 +520,8 @@ def _attributes_enable_lfs(payload: bytes) -> bool:
     return False
 
 
-def _validate_source_policy(git_dir: Path, commit: str) -> None:
-    for entry in _git_tree_objects(git_dir, commit):
+def _validate_source_policy(git_dir: Path, commit: str, env: Mapping[str, str] | None = None) -> None:
+    for entry in _git_tree_objects(git_dir, commit, env):
         leaf_name = PurePosixPath(entry.path).name
         if leaf_name == ".gitmodules":
             raise _source_policy_refusal(
@@ -531,7 +536,7 @@ def _validate_source_policy(git_dir: Path, commit: str) -> None:
                 "committed Git links are unsupported",
             )
         if leaf_name == ".gitattributes" and _attributes_enable_lfs(
-            _blob_bytes(git_dir, entry.object_id)
+            _blob_bytes(git_dir, entry.object_id, env)
         ):
             raise _source_policy_refusal(
                 "trial_source_lfs_unsupported",
@@ -543,9 +548,10 @@ def _validate_source_policy(git_dir: Path, commit: str) -> None:
 def _expected_checkout_tree_manifest(
     git_dir: Path,
     commit: str,
+    env: Mapping[str, str] | None = None,
 ) -> TreeManifest:
     entries: list[TreeEntry] = []
-    for entry in _git_tree_objects(git_dir, commit):
+    for entry in _git_tree_objects(git_dir, commit, env):
         if entry.mode == "040000" and entry.object_type == "tree":
             entries.append(
                 TreeEntry(
@@ -558,7 +564,7 @@ def _expected_checkout_tree_manifest(
             )
             continue
         if entry.mode in {"100644", "100755"} and entry.object_type == "blob":
-            payload = _blob_bytes(git_dir, entry.object_id)
+            payload = _blob_bytes(git_dir, entry.object_id, env)
             entries.append(
                 TreeEntry(
                     path=entry.path,
@@ -570,7 +576,7 @@ def _expected_checkout_tree_manifest(
             )
             continue
         if entry.mode == "120000" and entry.object_type == "blob":
-            target_bytes = _blob_bytes(git_dir, entry.object_id)
+            target_bytes = _blob_bytes(git_dir, entry.object_id, env)
             try:
                 target = target_bytes.decode("utf-8", errors="strict")
             except UnicodeDecodeError as exc:
@@ -854,11 +860,13 @@ def _verify_local_mirror(
     mirror_path: Path,
     seal_path: Path,
     source: _MirrorSourceIdentity,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[VerifiedGitTreeIdentity, TreeManifest]:
     payload = _read_seal(seal_path, source)
     try:
         is_bare = _git_stdout(
-            ("git", "--git-dir", str(mirror_path), "rev-parse", "--is-bare-repository")
+            ("git", "--git-dir", str(mirror_path), "rev-parse", "--is-bare-repository"),
+            env,
         )
         resolved = _git_stdout(
             (
@@ -867,7 +875,8 @@ def _verify_local_mirror(
                 str(mirror_path),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{commit}}",
-            )
+            ),
+            env,
         )
         tree = _git_stdout(
             (
@@ -876,7 +885,8 @@ def _verify_local_mirror(
                 str(mirror_path),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{tree}}",
-            )
+            ),
+            env,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise _materialization_refusal(
@@ -887,6 +897,7 @@ def _verify_local_mirror(
     expected_checkout_tree_manifest = _expected_checkout_tree_manifest(
         mirror_path,
         source.resolved_commit_sha,
+        env,
     )
     if (
         is_bare != "true"
@@ -907,6 +918,7 @@ def _initialize_mirror(
     source: _MirrorSourceIdentity,
     mirrors_root: Path,
     mirror_path: Path,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[VerifiedGitTreeIdentity, TreeManifest]:
     staging = Path(
         tempfile.mkdtemp(
@@ -915,7 +927,7 @@ def _initialize_mirror(
         )
     )
     try:
-        _run_git(("git", "init", "--bare", "--quiet", str(staging)))
+        _run_git(("git", "init", "--bare", "--quiet", str(staging)), env=env)
         _run_git(
             (
                 "git",
@@ -927,7 +939,8 @@ def _initialize_mirror(
                 "--force",
                 source.normalized_locator,
                 f"{source.resolved_commit_sha}:{_SEALED_BRANCH}",
-            )
+            ),
+            env=env,
         )
         resolved = _git_stdout(
             (
@@ -936,7 +949,8 @@ def _initialize_mirror(
                 str(staging),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{commit}}",
-            )
+            ),
+            env,
         )
         tree = _git_stdout(
             (
@@ -945,18 +959,20 @@ def _initialize_mirror(
                 str(staging),
                 "rev-parse",
                 f"{source.resolved_commit_sha}^{{tree}}",
-            )
+            ),
+            env,
         )
         if resolved != source.resolved_commit_sha:
             raise _materialization_refusal(
                 resolved,
                 "source resolved to a commit other than the exact authored revision",
             )
-        _validate_source_policy(staging, source.resolved_commit_sha)
+        _validate_source_policy(staging, source.resolved_commit_sha, env)
         verified = VerifiedGitTreeIdentity(f"git-tree:{tree}")
         expected_checkout_tree_manifest = _expected_checkout_tree_manifest(
             staging,
             source.resolved_commit_sha,
+            env,
         )
         durable_atomic_write(
             staging / _MIRROR_SEAL_FILENAME,
@@ -989,6 +1005,7 @@ def _sealed_mirror(
     *,
     source: _MirrorSourceIdentity,
     run_ref_root: Path,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[Path, Path, VerifiedGitTreeIdentity, TreeManifest]:
     digest = source.digest.removeprefix("sha256:")
     mirrors_root = run_ref_root / "mirrors"
@@ -1007,6 +1024,7 @@ def _sealed_mirror(
                     mirror_path,
                     seal_path,
                     source,
+                    env,
                 )
             else:
                 if mirror_path.exists() or mirror_path.is_symlink():
@@ -1015,6 +1033,7 @@ def _sealed_mirror(
                     source=source,
                     mirrors_root=mirrors_root,
                     mirror_path=mirror_path,
+                    env=env,
                 )
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
@@ -1024,6 +1043,79 @@ def _sealed_mirror(
         verified,
         expected_checkout_tree_manifest,
     )
+
+
+def _clone_detached(
+    *,
+    mirror_path: Path,
+    workspace_path: Path,
+    source: _MirrorSourceIdentity,
+    verified_tree: VerifiedGitTreeIdentity,
+    expected_checkout_tree_manifest: TreeManifest,
+    env: Mapping[str, str] | None = None,
+) -> TreeManifest:
+    """Clone the sealed mirror into a fresh detached checkout and verify its manifest."""
+
+    _run_git(
+        (
+            "git",
+            "clone",
+            "--quiet",
+            "--no-checkout",
+            "--no-local",
+            str(mirror_path),
+            str(workspace_path),
+        ),
+        env=env,
+    )
+    _run_git(
+        (
+            "git",
+            "-C",
+            str(workspace_path),
+            "checkout",
+            "--quiet",
+            "--detach",
+            source.resolved_commit_sha,
+        ),
+        env=env,
+    )
+    checked_commit = _git_stdout(
+        ("git", "-C", str(workspace_path), "rev-parse", "HEAD"),
+        env,
+    )
+    checked_tree = _git_stdout(
+        (
+            "git",
+            "-C",
+            str(workspace_path),
+            "rev-parse",
+            "HEAD^{tree}",
+        ),
+        env,
+    )
+    if (
+        checked_commit != source.resolved_commit_sha
+        or f"git-tree:{checked_tree}" != verified_tree.value
+    ):
+        raise _materialization_refusal(
+            source.resolved_commit_sha,
+            "detached clone does not match the sealed source revision",
+        )
+    _normalize_checkout_modes(
+        workspace_path,
+        expected_checkout_tree_manifest,
+    )
+    source_tree_manifest = freeze_tree(
+        workspace_path,
+        excluded_roots=(".git",),
+    )
+    if source_tree_manifest != expected_checkout_tree_manifest:
+        raise _materialization_refusal(
+            source_tree_manifest.digest,
+            "detached clone manifest does not match the sealed Git object manifest",
+        )
+    return source_tree_manifest
 
 
 def materialize_source(
@@ -1085,62 +1177,14 @@ def materialize_source(
         ) from exc
     workspace_created = False
     try:
-        _run_git(
-            (
-                "git",
-                "clone",
-                "--quiet",
-                "--no-checkout",
-                "--no-local",
-                str(mirror_path),
-                str(workspace_path),
-            )
-        )
         workspace_created = True
-        _run_git(
-            (
-                "git",
-                "-C",
-                str(workspace_path),
-                "checkout",
-                "--quiet",
-                "--detach",
-                source.resolved_commit_sha,
-            )
+        source_tree_manifest = _clone_detached(
+            mirror_path=mirror_path,
+            workspace_path=workspace_path,
+            source=source,
+            verified_tree=verified_tree,
+            expected_checkout_tree_manifest=expected_checkout_tree_manifest,
         )
-        checked_commit = _git_stdout(
-            ("git", "-C", str(workspace_path), "rev-parse", "HEAD")
-        )
-        checked_tree = _git_stdout(
-            (
-                "git",
-                "-C",
-                str(workspace_path),
-                "rev-parse",
-                "HEAD^{tree}",
-            )
-        )
-        if (
-            checked_commit != source.resolved_commit_sha
-            or f"git-tree:{checked_tree}" != verified_tree.value
-        ):
-            raise _materialization_refusal(
-                source.resolved_commit_sha,
-                "detached clone does not match the sealed source revision",
-            )
-        _normalize_checkout_modes(
-            workspace_path,
-            expected_checkout_tree_manifest,
-        )
-        source_tree_manifest = freeze_tree(
-            workspace_path,
-            excluded_roots=(".git",),
-        )
-        if source_tree_manifest != expected_checkout_tree_manifest:
-            raise _materialization_refusal(
-                source_tree_manifest.digest,
-                "detached clone manifest does not match the sealed Git object manifest",
-            )
         if progress_hook is not None:
             progress_hook("materialized")
         setup_evidence_path, setup_evidence_digest = _run_setup(

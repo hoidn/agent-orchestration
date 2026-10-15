@@ -287,7 +287,8 @@ def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
             children.extend(policy.values())
         return [child for child in children if isinstance(child, dict)]
     if kind == "run_ref":
-        return [row[1] for row in node.get("inputs", [])]
+        commit = [node["commit"]] if "commit" in node else []
+        return commit + [row[1] for row in node.get("inputs", [])]
     return []
 
 

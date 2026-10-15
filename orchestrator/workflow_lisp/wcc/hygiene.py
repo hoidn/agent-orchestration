@@ -52,13 +52,14 @@ from .model import (
     WccRecJoin,
     WccParallelMap,
     WccRunRefPayload,
+    WccRunRefWorkflowPayload,
     WccSelectArm,
     WccTrialPayload,
     WccValue,
 )
 
 # Nodes that hold no reference to a value name.
-_CLOSED = (WccNodeMetadata, WccRunRefPayload, WccTrialPayload)
+_CLOSED = (WccNodeMetadata, WccRunRefPayload, WccRunRefWorkflowPayload, WccTrialPayload)
 
 
 def _gather(

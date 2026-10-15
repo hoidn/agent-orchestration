@@ -133,6 +133,19 @@ def _read_source(node, prompt, *, workspace, reader):
 
 
 def _snapshot_dependencies(node, values, workspace):
+    required_rows, optional_rows = provider_dependency_rows(node, values)
+    if not required_rows and not optional_rows:
+        return None, {}
+    resolved = DependencyResolver(str(workspace)).resolve_exact(
+        required=required_rows, optional=optional_rows
+    )
+    return snapshot_content_dependencies_with_sha256(
+        workspace, resolved.classified_rows
+    )
+
+
+def provider_dependency_rows(node, values):
+    """`(name, path)` rows of `:doc` fills plus required, then optional, dependencies (C6)."""
     prompt = node["prompt"]
     fills = prompt.get("fills", ())
     dependencies = node.get("dependencies") or {}
@@ -155,14 +168,7 @@ def _snapshot_dependencies(node, values, workspace):
     optional_rows = [
         (f"optional:{index}", path) for index, path in enumerate(optional_values)
     ]
-    if not required_rows and not optional_rows:
-        return None, {}
-    resolved = DependencyResolver(str(workspace)).resolve_exact(
-        required=required_rows, optional=optional_rows
-    )
-    return snapshot_content_dependencies_with_sha256(
-        workspace, resolved.classified_rows
-    )
+    return required_rows, optional_rows
 
 
 def resolve_provider_input(node, operands, *, workspace, reader, result_path, delivery_name, logical_workspace=False):

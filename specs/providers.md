@@ -339,6 +339,74 @@ schema notation, not authored workflow files.
     described as available until the launcher, state, CLI, resume, and
     attestation integration gates land.
 
+- Run-ref confined provider transport (proposed for target 2.38; unimplemented, not copy-safe)
+  - Status: proposed and not current admission; it changes no current
+    provider execution. Authority:
+    [run-ref confined child environments](../docs/design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
+    (D7, F4 gate); the outer boundary is
+    [`run_ref_confinement.v1`](security.md).
+  - A confined child admits only portable provider calls; sessions and
+    context capture refuse at compile time. An interrupted tool-enabled
+    attempt takes the evaluated at-least-once rerun in the same clone; no
+    agent-session authority applies.
+  - Provider processes run as leaves inside the child's holder sandbox, from
+    profile-specific template variants over image executable pins with
+    base-URL and configuration injection. Host templates, host binaries and
+    an authenticated host SDK process are not alternatives, and CLI approval
+    bypass flags are not isolation.
+  - The provider environment is a per-attempt overlay, not a copy of the
+    controller environment, with telemetry and non-model traffic disabled.
+    The capability-bearing overlay/script is ephemeral and injected only after
+    retained configuration/prompt inputs have been constructed and the binding
+    acknowledged. Never persist the prepared request, capability/hash, injected
+    env/argv or private channel transcript as configuration/control/evidence.
+    Runtime diagnostics use closed categories before persistence, including
+    errors triggered by arbitrary guest names/targets. Guest content can retain
+    literal or encoded copies only as inert data after revocation, under
+    [Security](security.md#confined-capability-retention-and-transport-teardown)
+    and ordinary IO; this is no general secret-removal promise or relaxation for
+    upstream bearers, authfiles, permanent credentials or native RPC.
+    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` takes the guest spelling of
+    [IO](io.md#proposed-run-ref-confined-child-io-target-238). Each provider
+    timeout is clamped at dispatch to the remaining child wall budget.
+  - `:model-only` traffic reaches the model only through the qualified inference
+    gateway and per-leaf relay of the security profile. The selected Codex
+    managed ChatGPT route uses the private per-leaf native auth owner of D7;
+    every acquisition checks the visit's initial account/origin/routing binding.
+    First inference 401, invalid native acquisition and partial-stream failure
+    terminate without replay. The gateway exposes no app-server RPC to the
+    guest, and native authentication does not permit host provider execution.
+    Enforce request/byte/wall controls and refuse installation-required token
+    or cost ceilings without endpoint enforcement evidence; incomplete usage
+    or cost stays UNKNOWN. Qualification is transport-specific and does not
+    qualify Claude or an API-key route by analogy.
+  - The private native auth owner persists across requests of one provider leaf.
+    It is closed and reaped, with its gateway, before post-leaf quiescence,
+    result import, checkpoint or publication of guest output. Every public
+    caller must irreversibly revoke the capability, close/reap owned transport,
+    prove quiescence and verify private-script retirement before those boundaries
+    or successful leaf return; no active guest-output tee may persist it early.
+    A teardown failure blocks publication. A later leaf or recovered owner
+    revalidates the visit's original account/origin/routing binding and consumes a new durable
+    request reservation before native startup. Startup and normal native refresh
+    consume the existing child allowance. No owner is created per request.
+    The gateway and owner execute in the existing `host` containment slot;
+    result import/checkpoint requires both host and leaf slots empty. The
+    [parent ledger](state.md#confined-provider-capacity-and-binding), not the
+    gateway, owns effective request/byte policy, conservative reservations and
+    initial binding. Exact durable acknowledgement precedes startup and binding
+    acknowledgement precedes capability/release; no old permit is reused across
+    recovery or K4. The leaf's single BOOTTIME deadline includes these waits,
+    startup and native preflight. Independent cancellation remains active while
+    the lifecycle waits for persistence/ack; a late ack cannot revive the leaf.
+    A revoked private script may remain pending validated retirement during a
+    blocked ACK or controller loss; recovery retires it before further effects.
+    A capability copied from retained guest data never authorizes this leaf or
+    supplies its new grant; recovery requires a fresh capability/incarnation.
+  - Increment A: until provider transport qualifies (design gate F4), a
+    provider dispatch in a confined child refuses with
+    `run_ref_provider_transport_unavailable` before dispatch.
+
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
   - Minimal explicit-metadata shape:

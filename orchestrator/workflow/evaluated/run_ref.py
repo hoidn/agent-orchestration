@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 
 from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
+from orchestrator.workflow.run_ref.confined_config import (
+    RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA,
+    RunRefConfinedStaticConfig,
+    decode_run_ref_confined_static_config,
+)
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
 from orchestrator.workflow.run_ref.runtime import (
@@ -34,9 +40,20 @@ def require_run_ref_root(authority):
     return Path(root)
 
 
+def _static_config(payload: bytes):
+    if json.loads(payload).get("schema_version") == RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA:
+        return decode_run_ref_confined_static_config(payload)
+    return decode_run_ref_static_config(payload)
+
+
 def resolve_run_ref_input(node, operands):
-    config = RunRefStepConfig(common=StepCommonConfig(), run_ref=decode_run_ref_static_config(
-        base64.b64decode(node["config"], validate=True)))
+    """Checked config and parent state; a confined (v2) site's first operand is its `:commit`."""
+    static = _static_config(base64.b64decode(node["config"], validate=True))
+    config = RunRefStepConfig(common=StepCommonConfig(), run_ref=static)
+    confined = type(static) is RunRefConfinedStaticConfig
+    if confined != ("commit" in node):
+        raise MemoError("memo_inconsistent", "checked run-ref commit operand disagrees with its config")
+    commit, operands = (operands[0].json_value(), operands[1:]) if confined else (None, operands)
     rows = config.run_ref.inputs
     if len(operands) != len(rows) or [name for name, _ in node["inputs"]] != [row.name for row in rows]:
         raise MemoError("memo_inconsistent", "checked run-ref input order disagrees")
@@ -47,6 +64,9 @@ def resolve_run_ref_input(node, operands):
     }}
     values = resolve_run_ref_parent_input_values_for_config(config, parent_state)
     parts = {"config": config.step_config_digest, "inputs": canonical_sha256(values)}
+    if confined:
+        parent_state["commit"] = commit
+        parts["commit"] = canonical_sha256(commit)
     return (config, parent_state), parts
 
 
@@ -55,10 +75,12 @@ def _request(authority, resolved, identity, attempt, workspace):
     visit = RunRefVisitKey(parent_run_id=authority.run_root.name,
         execution_frame_id="root", call_frame_id=None,
         step_id="root." + canonical_sha256(identity).removeprefix("sha256:"), visit_count=1)
+    confined = type(config.run_ref) is RunRefConfinedStaticConfig  # no child process takes a parent fd
     return RunRefRuntimeRequest(step_config=config, visit=visit, parent_state=parent_state,
         parent_workspace=workspace, parent_run_root=authority.run_root,
         run_ref_root=require_run_ref_root(authority), run_files=authority.run_files,
-        parent_identity=identity, parent_attempt=attempt)
+        parent_identity=None if confined else identity, parent_attempt=None if confined else attempt,
+        parent_program=authority.program)
 
 
 def validate_evaluated_run_ref_start(authority, resolved, identity, attempt, workspace):
@@ -90,8 +112,9 @@ def settle_evaluated_run_ref(authority, resolved, identity, attempt, workspace, 
     finalize_run_ref_parent_commit(request, prepared,
         persisted_settled_result=commit.data["proof"]["settled_result"])
     _require_retained_root(authority.run_files)
-    append_record(authority.memo_path, {"record": "settled", "identity": identity,
+    settlement = append_record(authority.memo_path, {"record": "settled", "identity": identity,
         "attempt": attempt, "by": "settle"}, run_files=authority.run_files, checked_authority=authority)
+    _cleanup_if_confined(request, identity, attempt, settlement)
 
 
 def validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, *, settled):
@@ -118,8 +141,66 @@ def reconcile_evaluated_run_ref(authority, resolved, identity, workspace, expect
     recover_run_ref_settlement(request, settled_result=commit.data["proof"]["settled_result"],
         reconcile_pending=True)
     _require_retained_root(authority.run_files)
-    append_record(authority.memo_path, {"record": "settled", "identity": identity,
+    settlement = append_record(authority.memo_path, {"record": "settled", "identity": identity,
         "attempt": attempt, "by": "reconcile"}, run_files=authority.run_files, checked_authority=authority)
+    _cleanup_if_confined(request, identity, attempt, settlement)
+
+
+def _cleanup_if_confined(request, identity, attempt, settlement):
+    if type(request.step_config.run_ref) is RunRefConfinedStaticConfig:
+        from orchestrator.workflow.run_ref.confined_cleanup import cleanup_settled
+        try:
+            return cleanup_settled(request, identity=identity, attempt=attempt, settlement=settlement)
+        except Exception as exc:
+            exc.preflight = True  # settlement is durable; a cleanup refusal cannot append a workflow failure
+            raise
+
+
+def retry_evaluated_cleanup(authority, snapshot, workspace):
+    from orchestrator.workflow.run_ref.confined_cleanup import cleanup_projection, settlement_entry
+    pending = cleanup_projection(authority, snapshot)
+    if not pending:
+        return []
+    from .replay import discover_prefix
+    prefix = discover_prefix(authority, snapshot)
+    requested = {(row['identity'], row['attempt']) for row in pending}
+    for reached in prefix.commits:
+        attempt = reached.commit.data['attempt']
+        if (reached.identity, attempt) in requested:
+            resolved, _ = resolve_run_ref_input(reached.node, reached.operands)
+            request = _request(authority, resolved, reached.identity, attempt, workspace)
+            _cleanup_if_confined(request, reached.identity, attempt, settlement_entry(snapshot, reached.identity, attempt))
+    return cleanup_projection(authority, snapshot)
+
+
+def guard_confined_invalidation(authority, snapshot, from_offset):
+    """K8 starts at a confined child's first commit, before its parent has a result."""
+    from .replay import discover_prefix
+    from .machine import site_classes
+    from .authority import load_run_authority
+    from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
+    from orchestrator.workflow.run_ref.confinement import confined_attempt_layout
+    prefix = discover_prefix(authority, snapshot)
+    for reached in prefix.frontiers:
+        started = snapshot.latest_starts.get(reached.identity)
+        if reached.node['class'] != 'run_ref' or started is None or started.offset < from_offset:
+            continue
+        resolved, _parts = resolve_run_ref_input(reached.node, reached.operands)
+        if type(resolved[0].run_ref) is not RunRefConfinedStaticConfig:
+            continue
+        visit = RunRefVisitKey(parent_run_id=authority.run_root.name, execution_frame_id='root',
+            call_frame_id=None, step_id='root.' + canonical_sha256(reached.identity).removeprefix('sha256:'), visit_count=1)
+        rows = load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl', run_files=authority.run_files).rows
+        for row in reversed(rows):
+            if row.visit != visit:
+                continue
+            layout = confined_attempt_layout(run_ref_root=require_run_ref_root(authority), parent_run_root=authority.run_root,
+                visit=visit, attempt_ordinal=row.attempt_ordinal, config=resolved[0].run_ref)
+            if (layout.child_root / 'run.json').exists():
+                child = load_run_authority(layout.child_root)
+                if read_memo(child.memo_path, site_classes(child.program)).active_commits:
+                    raise MemoError('invalidate_coordinator_committed', reached.identity)
+            break
 
 
 def prepare_parallel_run_ref(attempt):
@@ -138,7 +219,8 @@ def inventory_parallel_run_ref_recovery(authority, obligations, workspace):
         settled = settled_result_binding_from_record(proof)
         ledger = load_attempt_ledger(authority.run_root / 'run-ref-attempts.jsonl', run_files=authority.run_files)
         committed = [row for row in ledger.rows if row.visit == settled.visit
-            and row.attempt_ordinal == settled.attempt_ordinal and row.stage == 'committed']
+            and row.attempt_ordinal == settled.attempt_ordinal and row.stage == 'committed'
+            and row.event_kind not in {'cleanup_intent', 'cleanup_error', 'cleanup_complete'}]
         if not committed:
             missing += 1
             if missing > 1 or not ledger.rows or ledger.rows[-1].row_digest != settled.pending_row_digest:
@@ -176,8 +258,13 @@ def _validate_parallel_event_scope(request, allocation, event, sequence):
     if (event.visit != request.visit or event.attempt_ordinal != allocation.attempt_ordinal
             or event.effect_instance_root != allocation.effect_instance_root):
         raise MemoError('memo_inconsistent', 'parallel E1 event allocation disagrees')
-    if sequence == 1 and (event.stage != 'allocated' or event.payload['bindings'] != allocation.bindings.record):
-        raise MemoError('memo_inconsistent', 'parallel E1 allocation event bindings disagree')
+    if sequence == 1:
+        if allocation.retained is None:
+            if (event.event_kind != 'allocation' or event.stage != 'allocated'
+                    or event.payload.get('bindings') != allocation.bindings.record):
+                raise MemoError('memo_inconsistent', 'parallel E1 allocation event bindings disagree')
+        elif (event.event_kind == 'allocation' or event.attempt_ordinal != allocation.retained.attempt_ordinal):
+            raise MemoError('memo_inconsistent', 'parallel E1 retained continuation disagrees')
 
 
 def parallel_run_ref_authority_failure(error):

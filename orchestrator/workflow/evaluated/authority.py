@@ -21,7 +21,10 @@ from orchestrator.workflow.run_ref.contracts import (
 from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow.evaluated.interpreters import (
+    image_resolvable,
+    is_image_pin,
     pin_command_interpreter,
+    pin_image_interpreter,
     validate_command_interpreter_pin_shape,
 )
 from .run_header import (
@@ -60,6 +63,12 @@ class RunAuthority:
     header: Mapping[str, Any]
     program: ClosedProgram
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
+
+    @property
+    def confined(self) -> bool:
+        """The checked child-recipe variant identifies confinement even with no executable pins."""
+        return ((self.header.get("resume_request") or {}).get("source_roots") == []
+                and self.header["workflow_file"] == (self.run_root / PROGRAM_FILENAME).as_posix())
 
     @property
     def header_path(self) -> Path:
@@ -145,11 +154,16 @@ def _validate_program_binding(
         raise ValueError("unsupported program representation")
 
 
-def _emitted_bare_interpreters(program: ClosedProgram) -> list[str]:
+def _emitted_bare_interpreters(program: ClosedProgram, *, image: bool = False) -> list[str]:
+    """Bare first tokens for host pins; every image-resolvable argv[0] for image pins.
+
+    A confined argv[0] naming the clone or guest scratch gets no pin: dispatch refuses it.
+    """
     bodies = [
         program.tree["body"],
         *(definition["body"] for definition in program.tree["definitions"].values()),
     ]
+    pinned = image_resolvable if image else (lambda token: "/" not in token)
     return sorted(
         {
             node["command"][0]
@@ -157,7 +171,7 @@ def _emitted_bare_interpreters(program: ClosedProgram) -> list[str]:
             for node in _ast_nodes(body)
             if node.get("k") == "perform"
             and node.get("class") == "command"
-            and "/" not in node["command"][0]
+            and pinned(node["command"][0])
         }
     )
 
@@ -175,10 +189,10 @@ def _has_command_transport(program: ClosedProgram) -> bool:
     )
 
 
-def _pin_emitted_interpreters(program: ClosedProgram) -> dict[str, dict[str, str]]:
+def _pin_emitted_interpreters(program: ClosedProgram, image=None) -> dict[str, dict[str, str]]:
     pins: dict[str, dict[str, str]] = {}
-    for token in _emitted_bare_interpreters(program):
-        pin = pin_command_interpreter((token,))
+    for token in _emitted_bare_interpreters(program, image=image is not None):
+        pin = pin_command_interpreter((token,)) if image is None else pin_image_interpreter(image, token)
         if pin is None:
             raise ValueError(f"bare command interpreter {token!r} was not pinned")
         pins[token] = pin
@@ -186,8 +200,10 @@ def _pin_emitted_interpreters(program: ClosedProgram) -> dict[str, dict[str, str
 
 
 def _validate_interpreter_pins(program: ClosedProgram, pins: object) -> None:
-    tokens = _emitted_bare_interpreters(program)
-    if not isinstance(pins, dict) or set(pins) != set(tokens):
+    image = isinstance(pins, dict) and any(map(is_image_pin, pins.values()))
+    tokens = _emitted_bare_interpreters(program, image=image)
+    if not isinstance(pins, dict) or set(pins) != set(tokens) or (
+            image and not all(map(is_image_pin, pins.values()))):
         raise ValueError("interpreter pins differ from emitted command interpreters")
     for token in tokens:
         validate_command_interpreter_pin_shape(pins[token])
@@ -328,8 +344,12 @@ def publish_run_authority(
     run_ref_root: str | None = None,
     run_files: WorkspaceFiles | None = None,
     result_root: str | None = None,
+    image=None,
 ) -> Iterator[RunAuthority]:
-    """Publish the checked program, header and empty memo under the run lock."""
+    """Publish the checked program, header and empty memo under the run lock.
+
+    `image` (a run_ref SealedImage) pins confined children's executables inside it.
+    """
     from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
     effective_run_ref_root = resolve_run_ref_root(run_ref_root).as_posix()
@@ -346,7 +366,7 @@ def publish_run_authority(
         raise CommandTransportRequiredError(
             "checked command has no argv transport; rebuild from its source"
         )
-    interpreters = _pin_emitted_interpreters(program)
+    interpreters = _pin_emitted_interpreters(program, image)
     if run_files is None:
         _create_run_root(run_root)
     with (run_writer_lock(run_root) if run_files is None else nullcontext(run_files.root_fd)) as fd:
