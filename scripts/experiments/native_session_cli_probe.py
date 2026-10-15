@@ -20,6 +20,7 @@ from typing import Sequence
 from native_session_cli_process import Invocation, ProcessTracker
 from native_session_cli_evidence import (
     NativeEvidence,
+    _identity,
     inspect_claude_turn,
     inspect_codex_turn,
     inspect_native_user_turn,
@@ -233,6 +234,20 @@ def _prompt(phase: str, nonce: str, output: Path, predecessor: str | None = None
     return instruction
 
 
+def _plain_claude_command(executable: str, model: str, session: str | None) -> list[str]:
+    """The Claude session adapter's own fresh/resume argv (prompt goes on stdin, no --json-schema)."""
+    if str(REPOSITORY_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY_ROOT))
+    from orchestrator.providers.registry import ProviderRegistry
+
+    support = ProviderRegistry().get("claude_unrestricted_workspace").session_support
+    template = support.fresh_command if session is None else support.resume_command
+    if template[0] != "claude":
+        raise ProbeStop("the Claude session adapter command no longer starts with the claude executable")
+    values = {"${model}": model, "${effort}": "low", "${SESSION_ID}": session}
+    return [executable] + [values.get(token, token) for token in template[1:]]
+
+
 def _command(
     provider: str,
     executable: str,
@@ -242,7 +257,12 @@ def _command(
     nonce: str,
     session: str | None,
     predecessor: str | None,
+    command_form: str = "schema",
 ) -> list[str]:
+    if command_form == "plain":
+        if provider != "claude":
+            raise ProbeStop("the plain command form exists only for claude")
+        return _plain_claude_command(executable, model, session)
     prompt = _prompt(phase, nonce, output, predecessor)
     schema = 1 if phase == "review" else 2
     schema_path = output / "schemas" / f"schema-{schema}.json"
@@ -379,12 +399,14 @@ def _invoke(
     allow_overlap: bool = False,
     private_home: Path | None = None,
     launch_metadata: dict[str, object] | None = None,
+    command_form: str = "schema",
 ) -> tuple[Invocation, dict[str, object]]:
     count = report.get("invocation_count")
-    if type(count) is not int or count >= MAX_INVOCATIONS or ordinal != count + 1:
+    limit = report.get("max_invocations", MAX_INVOCATIONS)
+    if type(count) is not int or count >= limit or ordinal != count + 1:
         raise ProbeStop("model invocation limit or fixed ordinal sequence would be exceeded")
     nonce = uuid.uuid4().hex
-    command = _command(provider, executable, model, output, phase, nonce, session, predecessor)
+    command = _command(provider, executable, model, output, phase, nonce, session, predecessor, command_form)
     environment = _private_environment(provider, output, ordinal, nonce, session, executable, private_home)
     environment["NATIVE_SESSION_PROBE_PHASE"] = phase
     if fake:
@@ -412,7 +434,11 @@ def _invoke(
     assert isinstance(rows, list)
     stdout_path = output / "evidence" / f"invocation-{ordinal}.stdout.log"
     stderr_path = output / "evidence" / f"invocation-{ordinal}.stderr.log"
-    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+    stdin_path = Path(os.devnull)
+    if command_form == "plain":  # the adapter sends the prompt on stdin
+        stdin_path = output / "evidence" / f"invocation-{ordinal}.stdin.txt"
+        stdin_path.write_text(_prompt(phase, nonce, output, predecessor), encoding="utf-8")
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr, stdin_path.open("rb") as stdin:
         rows.append(row)
         # Count an attempt even when process creation itself fails; never retry it.
         report["invocation_count"] = ordinal
@@ -425,6 +451,7 @@ def _invoke(
             stdout=stdout.fileno(),
             stderr=stderr.fileno(),
             allow_overlap=allow_overlap,
+            stdin=stdin.fileno(),
         )
         row["started_monotonic"] = invocation.started
         row["deadline_monotonic"] = invocation.started + timeout
@@ -687,7 +714,90 @@ def _observe_recovery_tail(
             pass
 
 
+def _stdout_session(stdout_path: Path) -> tuple[str | None, list[str]]:
+    """The one session id the stream-json stdout names, and the event kinds in order."""
+    sessions: set[str] = set()
+    kinds: list[str] = []
+    for line in stdout_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            kinds.append("<non-json>")
+            continue
+        if isinstance(event, dict):
+            kinds.append(f"{event.get('type')}/{event.get('subtype')}" if "subtype" in event else str(event.get("type")))
+            if _identity(event.get("session_id")):
+                sessions.add(event["session_id"])
+    return (sessions.pop() if len(sessions) == 1 else None), kinds
+
+
+def _plain_native_file(provider_home: Path, session_id: str) -> Path:
+    matches = sorted((provider_home / "projects").rglob(f"{session_id}.jsonl"))
+    if len(matches) != 1:
+        raise ProbeStop("the isolated home does not hold exactly one native file for the stdout session")
+    return matches[0]
+
+
+PLAIN_PHASES = ("review", "write", "review")  # fresh -> resume -> resume
+
+
+def _run_plain_campaign(args: argparse.Namespace, output: Path) -> int:
+    """Claude plain stream-json form (the session adapter's argv): bounded calls, native snapshot after each."""
+    provider_home = output / "provider-home" / "claude"
+    report: dict[str, object] = {
+        "provider": "claude", "model": args.model, "command_form": "plain", "synthetic_cli": False,
+        "invocation_count": 0, "max_invocations": args.max_calls, "timeout_seconds": args.timeout_seconds,
+        "invocations": [], "status": "RUNNING",
+    }
+    auth_copy: Path | None = None
+    tracker: ProcessTracker | None = None
+    try:
+        executable, fake = _provider_executable("claude")
+        report["synthetic_cli"] = fake
+        provider_home.mkdir(mode=0o700, exist_ok=True)
+        tracker = ProcessTracker()
+        _read_cli_version(tracker, "claude", executable, fake, args, output, report)
+        if not fake:  # a synthetic CLI runs against an empty private home; real credentials are never opened
+            auth_copy = _stage_auth("claude", provider_home, provider_home / ".credentials.json")
+        session_id: str | None = None
+        for ordinal, phase in enumerate(PLAIN_PHASES[: args.max_calls], start=1):
+            invocation, row = _invoke(
+                tracker, report, ordinal=ordinal, phase=phase, provider="claude", executable=executable,
+                fake=fake, model=args.model, output=output, timeout=args.timeout_seconds,
+                session=session_id, predecessor=None, command_form="plain",
+            )
+            _finish_row(tracker, invocation, row, args.timeout_seconds)
+            stdout_session, row["stdout_event_kinds"] = _stdout_session(output / "evidence" / f"invocation-{ordinal}.stdout.log")
+            row["stdout_session_id"] = stdout_session
+            if row["returncode"] != 0 or not row["quiescent"] or stdout_session is None or session_id not in {None, stdout_session}:
+                report["status"] = "STOPPED_INCONCLUSIVE"
+                row["reason"] = "nonzero exit, missing quiescence, or no single stable stdout session id"
+                return 0
+            session_id = stdout_session
+            row["native_files"] = sorted(str(path.relative_to(provider_home)) for path in (provider_home / "projects").rglob("*.jsonl"))
+            snapshot = _native_snapshot(_plain_native_file(provider_home, session_id), provider_home, output, f"{ordinal:02d}-{phase}")
+            row["raw_file"] = str(snapshot)
+            row["raw_sha256"] = "sha256:" + hashlib.sha256(snapshot.read_bytes()).hexdigest()
+        report["status"] = "PLAIN_CAMPAIGN_COMPLETE"
+        return 0
+    except (OSError, ProbeStop, RuntimeError, ValueError) as error:
+        report["status"] = "STOPPED_ERROR"
+        report["error"] = str(error)
+        return 1
+    finally:
+        try:
+            if tracker is not None:
+                tracker.close()
+        finally:
+            if auth_copy is not None:
+                auth_copy.unlink(missing_ok=True)
+                report["staged_auth_removed"] = True
+            _write_observations(output, report)
+
+
 def _run_campaign(args: argparse.Namespace, output: Path) -> int:
+    if args.command_form == "plain":
+        return _run_plain_campaign(args, output)
     provider = args.provider
     provider_home = output / "provider-home" / provider
     report: dict[str, object] = {
@@ -695,7 +805,7 @@ def _run_campaign(args: argparse.Namespace, output: Path) -> int:
         "model": args.model,
         "synthetic_cli": False,
         "invocation_count": 0,
-        "max_invocations": MAX_INVOCATIONS,
+        "max_invocations": args.max_calls,
         "timeout_seconds": args.timeout_seconds,
         "invocations": [],
         "gates": {},
@@ -931,6 +1041,14 @@ def _parser() -> argparse.ArgumentParser:
         default=MAX_TIMEOUT_SECONDS,
         help=f"Per-invocation timeout in (0, {MAX_TIMEOUT_SECONDS}] seconds.",
     )
+    parser.add_argument(
+        "--command-form", choices=("schema", "plain"), default="schema",
+        help="schema: the recorded --json-schema campaign; plain: the Claude session adapter's own argv, prompt on stdin.",
+    )
+    parser.add_argument(
+        "--max-calls", type=int, default=MAX_INVOCATIONS,
+        help=f"Bound on model invocations in [1, {MAX_INVOCATIONS}]; the campaign never exceeds it.",
+    )
     return parser
 
 
@@ -945,6 +1063,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.timeout_seconds > MAX_TIMEOUT_SECONDS
     ):
         parser.error(f"--timeout-seconds must be in (0, {MAX_TIMEOUT_SECONDS}]")
+    if not 1 <= args.max_calls <= MAX_INVOCATIONS:
+        parser.error(f"--max-calls must be in [1, {MAX_INVOCATIONS}]")
+    if args.command_form == "plain" and args.provider != "claude":
+        parser.error("--command-form plain exists only for --provider claude")
     try:
         output = _output_directory(args.output_dir)
         _prepare(args.provider, args.model, output)

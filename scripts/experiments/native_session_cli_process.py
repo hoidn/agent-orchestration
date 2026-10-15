@@ -174,6 +174,7 @@ class ProcessTracker:
     def launch(
         self, ordinal: int, argv: Sequence[str], *, cwd: Path,
         env: Mapping[str, str], stdout: int, stderr: int, allow_overlap: bool = False,
+        stdin: int = subprocess.DEVNULL,
     ) -> Invocation:
         live = self._owned_live()
         if (
@@ -184,7 +185,7 @@ class ProcessTracker:
             raise RuntimeError("cannot append a turn before earlier child quiescence is proven")
         started = time.monotonic()
         process = subprocess.Popen(
-            list(argv), cwd=cwd, env=dict(env), stdin=subprocess.DEVNULL,
+            list(argv), cwd=cwd, env=dict(env), stdin=stdin,
             stdout=stdout, stderr=stderr, start_new_session=True,
         )
         invocation = Invocation(ordinal, process, started, None)
