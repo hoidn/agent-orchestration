@@ -63,3 +63,10 @@ row; no `toolEndsTurn` row was observed in these 3 calls.
 Gate note: the store-only completion exists, but the committed Claude adapter does not bind it when the final message is
 split across content-block rows (observed on 1 of 3 turns, the one with a thinking block). Task 5's Claude completion rule
 needs to treat one assistant `message.id` (its last row) as the single final before the Claude adapter can drive Plan B.
+
+## Adapter follow-up
+
+The Claude adapter was corrected in commit 02a0067b: a final assistant message is collapsed by `message.id`, and its
+last row is the final. An offline re-run of that adapter over the same three snapshots binds all three turns, at
+positions 34, 48 and 62 (user lines 3, 39 and 54), with `open_turn=False`; this was independently re-verified in review.
+The probe was not re-run. The gate verdict for Plan B is `end_turn` with 3/3 turns binding.
