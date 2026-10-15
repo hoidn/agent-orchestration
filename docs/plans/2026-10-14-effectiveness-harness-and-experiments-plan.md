@@ -408,68 +408,84 @@ control's binding. Calibration runs are never treatment or control data.
 
 **Definitions, frozen in the calibration criterion before any calibration run:**
 - **Single-call patch:** the final patch of a `direct_task` run with the control's binding (`gpt-6.1-sol`, effort
-  high, `:timeout-sec 14400`), on the candidate task's package.
+  high, `:timeout-sec 14400`), on the rung's package.
 - **Hidden fraction:** `summarize.hidden_fraction`, run over a calibration pool built without running any judge,
-  exactly as in the E-B qualification.
-- **Review blockers of one patch:** the result of one call of the treatment reviewer on that patch.
-  - The reviewer is `reviewed_change.orc`'s `review-prompt` and `Review` union, bound to `gpt-6-sol`.
-  - It reviews the patch applied, uncommitted, to a fresh seeded candidate.
-  - `REQUEST_CHANGES` counts `len(findings)`; `WRONG_APPROACH` counts 1; `APPROVE` counts 0.
-  - `NEEDS_HUMAN` counts 0 and is reported.
-- **Expected review blockers:** the mean over the step's `k` patches.
+  as in the E-B qualification.
+- **Review blockers of one patch:** the result of one `review_once` call on that patch.
+  - `REQUEST_CHANGES` counts `len(findings)`, `WRONG_APPROACH` counts 1 and `APPROVE` counts 0.
+  - `NEEDS_HUMAN` counts 0, is reported and is not replaced.
+  - Findings are counted as the reviewer returned them. The coordinator does not merge, drop or reclassify any.
+- **Reviewer.** The blocker reviewer is `reviewed_change`'s reviewer for both treatments of Task 9.
+  `design_review_execute`'s own reviewer reads a design, not a patch, so for that arm the count stands in for
+  "work left to do". This is recorded as a ruling and as a known difference.
+- **Expected review blockers:** the mean over the rung's `k = 2` patches. If 1 ≤ mean < 1.5, one more single call
+  and its review run, and the rung qualifies on all three.
 - **Qualifies:** every patch's hidden fraction is below 0.5, and expected review blockers are at least 1.
+- **Failed runs:**
+  - Infrastructure failures are resumed (R3).
+  - A `direct_task` run that fails any other way, `provider_timeout` included, has no patch, and the rung does not
+    qualify, because Task 9's control would have no values.
+  - A contaminated run is replaced once, by the next run number. A second contaminated run rejects the rung.
+  - A failed review is resumed if the failure is infrastructure, and otherwise rerun once.
+  - Every run, `review_once` included, is collected, scanned and adjudicated.
+  - At most four runs are live at once.
 
-- [ ] **Apparatus.** One review-only arm, the smallest addition that reuses the reviewer unchanged:
-      - `prepare.py run --arm review_once --apply <patch.diff>` builds a seeded candidate, applies the patch
-        uncommitted, and writes the inputs the review step needs (`repo`, `intent`, `account`, `replies`).
-      - The arm runs one call of the reviewer. If the language lets `reviewed_change.orc` export `review-prompt`
-        and `Review`, export them and import them into `experiments/compare/control/review_once.orc`.
-        Otherwise copy both, plus a contract test that renders the two prompts for the same fills and checks
-        that they are equal. The test checks provenance, not phrasing.
+- [ ] **Apparatus:** one review-only arm, `review_once`.
+      - Copy `review-prompt`, `Review` and `ReviewReport` from `reviewed_change.orc` into
+        `experiments/compare/control/review_once.orc`. Importing them would need a second source root, and it would
+        edit a treatment file that must run unchanged.
+      - A contract test compiles both modules and checks that these are equal: the prompt template, the `Review`
+        descriptor, and the call binding (`gpt-6-sol`, effort high, `:timeout-sec 5400`,
+        `codex_unrestricted_workspace`).
+      - `prepare.py run --arm review_once --apply <final.diff>` builds a seeded candidate and applies the collected
+        final patch, unstripped and uncommitted. The working directory is the candidate, and `repo` is its absolute
+        path, as for `reviewed_change` (R34).
+      - Inputs: `intent` is `intent.txt`; `account` is a fixed text frozen in the criterion ("No account was
+        provided."); `replies` is "none".
       - `collect` records the blocker count.
-      - Tests: a stand-in reviewer returning each variant gives the counts above; the applied patch is
-        uncommitted in the candidate; the arm runs inside the sandbox like every other arm.
+      - Tests: a stand-in reviewer returning each variant gives the counts above; the patch is uncommitted in the
+        candidate; the arm runs in the sandbox.
 - [ ] **Candidate ladder:** written to `experiments/compare/tasks/calibration-ladder.md` before any run.
-      - **Candidates** are commits or features on `main` after 2026-07-01 (R4) with an objective oracle: at least
-        10 behavioural tests that fail at the parent and pass at the solution, runnable alone in a clone.
-      - **Order** is by expected difficulty: changed lines under `orchestrator/` (at least 1500), modules touched
-        (at least 5), spec and design changes, and the number of hidden tests.
-      - **Step 0 is a calibration of the existing E-B task.** `eb-repl` with its appendix cut to the entry
-        points the hidden tests call, and no output formats or codes. If it still qualifies only with the full
-        appendix, the hidden tests are over-specifying the task and the next rung is used.
-      - **Steps 1–3** take the next candidates in order. Each needs its own package (`task.txt`, `intent.txt`,
-        `base_commit`, `hidden/`, `hidden_tests.txt`, two anchors) and its fail-at-base and pass-at-solution
-        check recorded, as in Task 0.
+      - **Candidates** are features on `main` after 2026-07-01 (R4) with an objective oracle: at least 10
+        behavioural tests that fail at the base and pass at the solution, each runnable alone in a clone.
+      - **Base and solution.** The base is the parent of the feature's first design or plan commit; the solution is
+        its last implementation commit.
+      - **Order.** The primary key is lines changed under `orchestrator/`, which must be at least 1500. Modules
+        touched, then spec and design changes, then the number of hidden tests break ties.
+      - **No step 0.** `eb-repl`, which was already measured with its full appendix, is used only for the live smoke
+        and is never a rung.
+      - **What each rung's `task.txt` names.** Every public entry and every literal a hidden test checks (output
+        line, code, exit status), and nothing about implementation.
+      - **Dropped tests.** A hidden node id that checks a literal neither named in `task.txt` nor defined at the base
+        is dropped before freezing, and the drop is recorded in the ladder.
+      - **Packages.** Each rung has its own package (`task.txt`, `intent.txt`, `base_commit`, `hidden/`,
+        `hidden_tests.txt`, two anchors), and its fail-at-base and pass-at-solution check is recorded, as in Task 0.
 - [ ] **Calibration criterion:** `experiments/compare/criteria/calibration.json`.
-      - It holds the definitions above, `k = 2` single calls and `k` reviews per step, the ladder file's hash and
-        the stop rule.
-      - **Stop rule:** take the first rung that qualifies; stop after at most 4 rungs; if none qualifies, report
-        and stop.
+      - It holds the definitions above, the fixed `account` text, the ladder file's hash and the stop rule.
+      - **Stop rule:** take the first rung that qualifies; stop after at most 4 rungs; if none qualifies, report and
+        stop.
       - Have it reviewed, then hash and commit it before any calibration run.
-- [ ] **Live smoke before freezing** (postmortem action): one `direct_task` and one `review_once` call on rung 0,
-      with the real CLIs, inspected by hand (memo, result path, sandbox, scan). Fix harness defects only, then
-      freeze.
+- [ ] **Live smoke before freezing** (postmortem action), on `eb-repl`: one `direct_task` call and one `review_once`
+      call, with the real CLIs. Inspect them for mechanics only: memo, result path, sandbox, scan. Smoke runs are
+      never measured as a rung and never count. Fix harness defects, then freeze.
 - [ ] **Run the ladder.** For each rung, in order:
       - `k` `direct_task` runs, then collect, scan and adjudicate;
       - the calibration pool and its hidden fractions;
-      - `k` `review_once` runs, one on each single-call patch, then collect and scan.
+      - one `review_once` run on each single-call patch, then collect, scan and adjudicate.
 
-      Record the rung's hidden fractions and blockers in `experiments/compare/tasks/<rung>/calibration.json`.
-      Stop at the first rung that qualifies.
-- [ ] **Report:** `docs/reports/<date>-task-difficulty-calibration.md`. It gives, per rung, the hidden fraction
-      of each run, the blockers of each review with their findings, the qualifying rung or none, the cost, and
-      the limits (k = 2 is a small sample; the reviewer's own variance).
+      Record the rung's hidden fractions and blockers in `experiments/compare/tasks/<rung>/calibration.json`. Stop at
+      the first rung that qualifies.
+- [ ] **Report:** `docs/reports/<date>-task-difficulty-calibration.md`. It gives, per rung, the hidden fraction of
+      each run, the blockers of each review with their findings, the qualifying rung or none, the cost, and the
+      limits (`k` is small; the reviewer has its own variance).
 - [ ] **Verification:** harness tests and `--collect-only` on the new tests; the stand-in smoke for `review_once`;
-      the reviewer finds the calibration criterion complete; the report's numbers match the per-rung
-      `calibration.json` files.
+      the criterion reviewer's PASS; the report's numbers match the per-rung `calibration.json` files.
 
 **Owner decisions** (each with the coordinator's default):
-- **Budget per rung:** two `gpt-6.1-sol` calls of up to 4 h each, plus two `gpt-6-sol` reviews of up to 1 h each.
-  At most 4 rungs. Default: approve.
-- **Codex use:** all calibration calls are pre-registered experiment calls, which the owner's codex rule allows.
-  Default: allowed.
-- **`k`:** 2 per rung. Default: 2. Raise it to 3 if the first qualifying rung is borderline (blockers between 1
-  and 1.5).
+- **Budget, worst case per rung:** 2 calls × 4 h plus 2 reviews × 1.5 h, plus one more of each if the mean is
+  borderline. At most 4 rungs, plus the smoke. Default: approve.
+- **Codex use:** every calibration call is a pre-registered experiment call, which the owner's codex rule allows.
+  New runs stop when the weekly window falls to 5% left unless credits cover them (R8). Default: allowed.
 
 ## Task 9: Calibrated Experiment (E-B2)
 
@@ -478,33 +494,48 @@ control's binding. Calibration runs are never treatment or control data.
 - [ ] **Package:** the qualifying rung's package, unchanged.
 - [ ] **Arms:**
       - `design_review_execute` (planner `claude-fable-5-1`; reviewer and executor `gpt-6.1-sol`);
-      - `reviewed_change` (coder Sonnet; reviewer `gpt-6-sol`, the reviewer the calibration used);
+      - `reviewed_change` (coder Sonnet; reviewer `gpt-6-sol`);
       - control `direct_task` (`gpt-6.1-sol`, effort high, `:timeout-sec 14400`).
 
       `best_of_n` is optional, if the budget allows. Four runs per arm. Task 8's calibration runs are excluded.
-- [ ] **Criterion** `experiments/compare/criteria/eb2.json`, in the form of `eb.json`:
-      - **Primary:** `design_review_execute.hidden_minus_control >= 0.3` and `reviewed_change.hidden_minus_control
-        >= 0.3`, each with run floors of 3.
-      - **Secondary:** `minus_control` per arm, and `reviewed_change.paired_gain_mean`.
+- [ ] **Criterion** `experiments/compare/criteria/eb2.json`, in the form of `eb.json`, with two claims judged
+      separately:
+      - **`design_review_execute`:** `hidden_minus_control >= 0.3`, with run floors of 3 per arm.
+      - **`reviewed_change`:** `hidden_paired_gain_mean >= ` the frozen threshold, with a run floor of 3. This is the
+        final patch's hidden fraction minus the first patch's; it needs one line in `summarize.run_values`, since
+        the first clone is already pooled. Its `hidden_minus_control` is secondary only. Its coder (Sonnet, 5400 s
+        per call) differs from the control (`gpt-6.1-sol`, 14400 s), so a comparison with the control would measure
+        the model and the time limit, not the workflow. This is recorded as a known difference.
       - **Judges:** `claude-opus-5-5` and `gpt-6-sol`.
+        - Both OpenAI models are treatment reviewers: `gpt-6-sol` for `reviewed_change` and `gpt-6.1-sol` for
+          `design_review_execute`. This departs from R2; it is recorded as a ruling and as a known difference.
+        - The judges count only for secondary entries.
       - **Anchors:** the package's two anchors.
       - **Rules and provenance:** exclusions, `anchor_use`, `judge_rules`, `validity`, and `threshold_provenance`
         citing the calibration report.
 
       Have it reviewed, then hash and commit it before any run.
-- [ ] **Live smoke:** one run per arm before freezing, as in Task 8. Then the batch, at most four live runs, every
-      run collected, scanned and adjudicated; pool, both judges, `verify-pool` after each, `summarize`.
-- [ ] **Interim readouts** come only from `summarize`'s join, and are labelled partial.
+- [ ] **Live smoke** before freezing: one run per arm on `eb-repl`, for mechanics only. Nothing from it is measured
+      before the freeze, and it is discarded.
+- [ ] **Batch:** at most four live runs; every run collected, scanned and adjudicated; then pool, both judges,
+      `verify-pool` after each judge, and `summarize`. Interim readouts come only from `summarize`'s join and are
+      labelled partial.
 - [ ] **Report:** `docs/reports/<date>-calibrated-orc-versus-single-call.md`, with the same sections as E-A, plus the
-      calibration numbers it rests on. Add the README evidence row, the design lessons' Measured column, and the
-      index entry.
+      calibration numbers it rests on. Add the README evidence row, the design lessons' Measured column and the index
+      entry.
 - [ ] **Verification:** `results.json` and the report agree; the evidence is copied beside the repository.
 
 **Owner decisions** (each with the coordinator's default):
-- **`design_review_execute`'s planner model `claude-fable-5-1`:** it is an experiment provider, not a coordination
+- **Budget, worst case at four runs per arm:**
+  - control 16 h;
+  - `design_review_execute` 28 h (three calls of 1 h and one of 4 h per run);
+  - `reviewed_change` 36 h (up to six calls of 1.5 h per run);
+  - about 50 Codex calls in total.
+
+  Runs proceed in parallel, at most four live. Default: approve.
+- **`design_review_execute`'s planner `claude-fable-5-1`:** it is an experiment provider, not a coordination
   subagent. The owner's "no Fable subagent in this session" rule is read as not covering it. Default: ask before
   running.
-- **Runs per arm:** default 4.
 - **`best_of_n` as a fourth arm:** default no.
 
 ## Appendix: Rulings Made During Execution
