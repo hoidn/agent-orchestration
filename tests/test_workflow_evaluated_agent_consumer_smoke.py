@@ -115,6 +115,7 @@ def test_completed_consumer_replays_readonly_after_native_sessions_and_receipts_
 @pytest.mark.parametrize("tool, index, mode", [
     ("codex", 0, "interrupted"),        # reviewer first turn, unknown outcome after the committed draft
     ("codex", 0, "invalid-result"),     # reviewer first turn, invalid typed result after native success
+    ("codex", 0, "missing-result"),     # reviewer first turn, no typed result after native success
 ])
 def test_reviewer_first_turn_failure_bootstraps_only_a_fresh_reviewer_on_explicit_resume(tmp_path, monkeypatch, tool, index, mode) -> None:
     frontend = _setup(tmp_path, monkeypatch, _plan(tool, index, mode, retry=True))
@@ -136,6 +137,7 @@ def test_reviewer_first_turn_failure_bootstraps_only_a_fresh_reviewer_on_explici
 @pytest.mark.parametrize("tool, index, mode, code", [
     ("claude", 1, "interrupted", "agent_turn_unresolved"),         # designer's second turn: unknown outcome
     ("claude", 1, "invalid-result", "agent_turn_result_invalid"),  # designer's second turn: invalid output after native success
+    ("claude", 1, "missing-result", "agent_turn_result_invalid"),  # designer's second turn: no result file after native success
     ("codex", 1, "nonzero", "agent_turn_unresolved"),              # open head after a nonzero exit: uncertainty
 ])
 def test_later_turn_failure_refuses_on_resume_without_any_write(tmp_path, monkeypatch, tool, index, mode, code) -> None:

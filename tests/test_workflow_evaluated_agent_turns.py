@@ -247,6 +247,8 @@ def _failed_rows(memo) -> list[dict]:
 @pytest.mark.parametrize("plan, turn, code", [
     ({**PLAN, "claude": [{"mode": "invalid-result"}]}, "/ a1", "provider_result_invalid"),
     ({**PLAN, "claude": [PLAN["claude"][0], {"mode": "invalid-result"}]}, "/ a2", "agent_turn_result_invalid"),
+    ({**PLAN, "claude": [{"mode": "missing-result"}]}, "/ a1", "provider_result_invalid"),
+    ({**PLAN, "claude": [PLAN["claude"][0], {"mode": "missing-result"}]}, "/ a2", "agent_turn_result_invalid"),
 ])
 def test_invalid_typed_result_closes_failed_with_the_turn_position_code(tmp_path, monkeypatch, plan, turn, code) -> None:
     """Only a conclusively invalid typed result closes `failed`; a later turn never reports `provider_result_invalid`."""

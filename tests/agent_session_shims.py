@@ -3,8 +3,8 @@
 Modes (per plan step): success, interrupted, nonzero, nonzero-before-append, timeout, complete-then-hang, linger
 (forks a grandchild after completing), orphan (forks a grandchild at startup with stdio on /dev/null and its pid in
 `<bin>/.<tool>.orphan`, completes the turn, writes `<bin>/.<tool>.done`, then waits for its parent to die so a test
-driver can kill the orchestrator mid-call), overlap, lose-locator, invalid-result. A call beyond the plan exits 97
-with `shim plan exhausted: <tool> call #N` on stderr.
+driver can kill the orchestrator mid-call), overlap, lose-locator, invalid-result, missing-result (completes the native
+turn and writes no result file). A call beyond the plan exits 97 with `shim plan exhausted: <tool> call #N` on stderr.
 """
 from __future__ import annotations
 
@@ -43,6 +43,8 @@ def log_request(session):
 def write_result():
     for name, text in step.get("files", {}).items():
         Path(name).parent.mkdir(parents=True, exist_ok=True); Path(name).write_text(text, encoding="utf-8")
+    if mode == "missing-result":
+        return
     target = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
     payload = {"ok": "not-bool"} if mode == "invalid-result" else step["result"]
     target.parent.mkdir(parents=True, exist_ok=True)

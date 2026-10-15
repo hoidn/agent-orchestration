@@ -13,6 +13,22 @@ from tests.test_workflow_evaluated_agent_turns import PLAN, SOURCE, fixture, mem
 from tests.test_workflow_evaluated_invalidate import _cli
 
 
+# Dies just before `agent_turns.append_record` writes the matching record: for the bootstrap `failed`, after
+# `abandoned.json` is durable. Only that module's writer is hooked; it is the one `abandon_candidate` calls.
+STOP_BEFORE_RECORD = r'''import os, sys
+from orchestrator.workflow.evaluated import agent_turns
+append = agent_turns.append_record
+def stop(path, record, **kwargs):
+    if record["record"] == os.environ["STOP_RECORD"] and os.environ["STOP_TURN"] in record.get("identity", ""):
+        os._exit(75)
+    return append(path, record, **kwargs)
+agent_turns.append_record = stop
+from orchestrator.cli import main
+sys.argv = ["orchestrator", *sys.argv[1:]]
+sys.exit(main())
+'''
+
+
 def _install(tmp_path, monkeypatch, plan):
     install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=plan)
 
@@ -84,8 +100,9 @@ def test_later_turn_failures_cannot_bootstrap(tmp_path, monkeypatch, mode, code)
 
 
 @pytest.mark.parametrize("hook, env, failed_rows_after_kill", [
-    ("receipt", {"STOP_AT_COMPLETION": "abandoned", "STOP_TURN": "/ b1"}, 0),     # between abandonment and failure closure
+    ("receipt", {"STOP_AT_COMPLETION": "abandoned", "STOP_TURN": "/ b1"}, 0),     # after the `abandoned` receipt, before `abandoned.json`
     ("record", {"STOP_RECORD": "failed", "STOP_TURN": "/ b1"}, 1),                 # between failure closure and the next start
+    ("marker", {"STOP_RECORD": "failed", "STOP_TURN": "/ b1"}, 0),                 # after `abandoned.json`, before failure closure
 ])
 def test_kill_between_abandonment_failure_and_next_start_keeps_ordering_valid(tmp_path, monkeypatch, hook, env, failed_rows_after_kill) -> None:
     from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT
@@ -93,12 +110,12 @@ def test_kill_between_abandonment_failure_and_next_start_keeps_ordering_valid(tm
     _install(tmp_path, monkeypatch, plan)
     assert _cli(tmp_path, "run", *fixture(tmp_path)).returncode == 1
     run_root, *_ = memo_of(tmp_path)
-    _stopped(tmp_path, STOP_AFTER_RECEIPT if hook == "receipt" else STOP_AFTER_RECORD, env, "resume", run_root.name)
+    _stopped(tmp_path, {"receipt": STOP_AFTER_RECEIPT, "record": STOP_AFTER_RECORD, "marker": STOP_BEFORE_RECORD}[hook], env, "resume", run_root.name)
     _r, _a, classes, memo = memo_of(tmp_path)
     assert len(_rows(memo, "failed", "/ b1")) == failed_rows_after_kill
     attempt1 = run_root / Path(_rows(memo, "started", "/ b1")[0]["result_path"]).parent
     receipt = json.loads((attempt1 / "receipt.json").read_text())
-    assert receipt["completion"] == "abandoned"
+    assert receipt["completion"] == "abandoned" and (attempt1 / "abandoned.json").exists() == (hook != "receipt")
     assert receipt["locator"] and receipt["locator"] not in (run_root / "state.json").read_text()   # never in the view
     assert len([r for r in shim_requests(tmp_path) if r["tool"] == "codex"]) == 1
     resumed = _cli(tmp_path, "resume", run_root.name)
@@ -109,14 +126,23 @@ def test_kill_between_abandonment_failure_and_next_start_keeps_ordering_valid(tm
     assert turns(after, classes)["b1"]["attempt"] == 2
 
 
-def test_first_turn_killed_after_launch_is_quiesced_and_abandoned(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("crash_in_window", [False, True], ids=["once", "crash-after-unknown"])
+def test_first_turn_killed_after_launch_is_quiesced_and_abandoned(tmp_path, monkeypatch, crash_in_window) -> None:
     """The orchestrator dies right after binding b1's child (`launching`, no locator yet). Resume stops the group, finds
-    nothing recoverable and abandons the candidate (`launching -> unknown -> abandoned`) before attempt 2 starts."""
+    nothing recoverable and abandons the candidate (`launching -> unknown -> abandoned`) before attempt 2 starts. A resume
+    that dies at the `unknown` write, before `abandoned`, leaves no marker and no `failed`; the next resume finishes."""
     from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT
     plan = {"claude": PLAN["claude"], "codex": [{"mode": "interrupted", "result": {}}, {"mode": "success", "result": {"notes": ["n"]}}, {"mode": "success", "result": {"notes": ["done"]}}]}
     _install(tmp_path, monkeypatch, plan)
     _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "launching", "STOP_TURN": "/ b1"}, "run", *fixture(tmp_path))
     run_root, *_ = memo_of(tmp_path)
+    if crash_in_window:
+        _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "unknown", "STOP_TURN": "/ b1"}, "resume", run_root.name)
+        _r, _a, _c, memo = memo_of(tmp_path)
+        (pending,) = memo.pending_starts.values()
+        attempt1 = run_root / Path(pending.data["result_path"]).parent
+        assert json.loads((attempt1 / "receipt.json").read_text())["completion"] == "unknown"
+        assert not (attempt1 / "abandoned.json").exists() and not _rows(memo, "failed", "/ b1")
     resumed = _cli(tmp_path, "resume", run_root.name)
     assert resumed.returncode == 0, resumed.stderr
     _r, _a, classes, after = memo_of(tmp_path)
@@ -124,3 +150,4 @@ def test_first_turn_killed_after_launch_is_quiesced_and_abandoned(tmp_path, monk
     assert [r["code"] for r in _rows(after, "failed", "/ b1")] == ["agent_bootstrap_restarted"]
     attempt1 = run_root / Path(_rows(after, "started", "/ b1")[0]["result_path"]).parent
     assert json.loads((attempt1 / "receipt.json").read_text())["completion"] == "abandoned"
+    assert (attempt1 / "abandoned.json").exists()

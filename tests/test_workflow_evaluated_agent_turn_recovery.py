@@ -189,6 +189,35 @@ def test_quiesce_never_signals_a_reused_pgid(tmp_path) -> None:
         stranger.wait()
 
 
+@pytest.mark.parametrize("turn, plan", [
+    ("/ a2", {"claude": [PLAN["claude"][0], {"mode": "nonzero-before-append"}, PLAN["claude"][1]], "codex": PLAN["codex"]}),
+    ("/ b1", {"claude": PLAN["claude"], "codex": [{"mode": "nonzero-before-append"}, *PLAN["codex"]]}),
+], ids=["later-turn", "first-turn"])
+def test_unprovable_quiescence_refuses_unresolved_on_resume_without_redispatch(tmp_path, monkeypatch, turn, plan) -> None:
+    """Killed after `launching`. The receipt's recorded group is then one this test owns and never reaps, with its
+    leader's start time (R3): after SIGTERM and SIGKILL its zombie leader still answers `killpg(pgid, 0)`, so the group
+    cannot be proven stopped. Public resume refuses `agent_turn_unresolved` with no memo or receipt write and no
+    dispatch, where a stoppable group gives a2 its next attempt and b1 a bootstrap."""
+    from orchestrator.workflow.evaluated.agent_turns import leader_start_time
+    _install(tmp_path, monkeypatch, plan)
+    _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "launching", "STOP_TURN": turn}, "run", *fixture(tmp_path))
+    run_root, _a, _c, memo = memo_of(tmp_path)
+    (pending,) = memo.pending_starts.values()
+    path = run_root / Path(pending.data["result_path"]).parent / "receipt.json"
+    receipt = json.loads(path.read_text())
+    holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    try:
+        path.write_text(json.dumps({**receipt, "pgid": holder.pid, "leader_start_time": leader_start_time(holder.pid)}))
+        evidence = ((run_root / "memo.jsonl").read_bytes(), path.read_bytes(), len(shim_requests(tmp_path)))
+        resumed = _cli(tmp_path, "resume", run_root.name)
+        assert resumed.returncode == 1 and "agent_turn_unresolved" in resumed.stderr, resumed.stderr
+        assert holder.poll() is not None                   # resume did try to stop the group before refusing
+        assert ((run_root / "memo.jsonl").read_bytes(), path.read_bytes(), len(shim_requests(tmp_path))) == evidence
+    finally:
+        holder.kill()
+        holder.wait()
+
+
 def test_not_dispatched_needs_a_proven_empty_group_before_any_head_check() -> None:
     """Task 10 review: an unchanged head alone never closes `not_dispatched`. A group that cannot be proven stopped (here an
     unreaped zombie leader still answers `killpg(pgid, 0)`) is unresolved, and the head is not even consulted."""
