@@ -1,0 +1,65 @@
+{
+  "experiment": "Task 8: task-difficulty calibration. Find the first task on the frozen ladder where one call with the control's binding passes less than half of the hidden acceptance tests and the treatment reviewer raises on average at least one blocking finding on those single-call patches.",
+  "owner_rule": "raise task difficulty until the expected number of review blockers is >= 1 (owner, 2026-10-14); design 'Difficulty calibration for follow-on experiments'",
+  "ladder": {
+    "file": "experiments/compare/tasks/calibration-ladder.md",
+    "sha256": "078e021c05a55f65ae3ffd3a5f6cf3849c3141f8e9983fc64d251cc4b6ebc9c4",
+    "rung_n": "the n-th row of the ranked table",
+    "direction": "smallest first: rung 1 is the first row (R43)"
+  },
+  "single_call": {
+    "arm": "direct_task",
+    "model": "gpt-6.1-sol",
+    "effort": "high",
+    "timeout_sec": 14400,
+    "binding": "control/direct_task.providers.json (codex)"
+  },
+  "hidden_fraction": "per run: 1 - len(summarize.hidden_failures(P/clones/<id>, <runtime>/experiments/compare/tasks/<slug>, nodes, '/home/ollie/miniconda3/bin/python')) / len(nodes); nodes = hidden_tests.txt; clone = the D8-stripped clone of collected/final.diff in a pool from prepare.py pool, no judge run; a node passes iff pytest exits 0 within 1800 s; measured once, a rerun is reported beside the first, which stands; void unless the same pool's upstream anchor passes every node",
+  "review": {
+    "arm": "review_once",
+    "reviewer": "reviewed_change.orc review-prompt and Review union, copied into control/review_once.orc with a contract test; gpt-6-sol, effort high, :timeout-sec 5400, codex_unrestricted_workspace",
+    "inputs": {
+      "repo": "absolute path of the candidate with the single-call final patch applied uncommitted",
+      "intent": "the rung's intent.txt",
+      "account": "No account was provided.",
+      "replies": "none"
+    }
+  },
+  "blockers": {
+    "REQUEST_CHANGES": "len(findings) of the value collect records, every element counted (duplicates and empty strings included); 0 for an empty list",
+    "WRONG_APPROACH": 1,
+    "APPROVE": 0,
+    "NEEDS_HUMAN": "0, reported, not replaced",
+    "counting": "findings as returned; the coordinator does not merge, drop or reclassify them"
+  },
+  "k": 2,
+  "borderline": "if 1 <= mean < 1.5 over two patches and both hidden fractions are < 0.5, run one more direct_task and its review; qualifies is then evaluated over all three patches. Exactly 0.5 hidden fails; a mean of exactly 1.0 is borderline; a mean of exactly 1.5 qualifies without extension",
+  "qualifies": "every single-call patch's hidden fraction < 0.5 AND mean review blockers >= 1",
+  "failed_runs": "infrastructure failures are resumed (R3); a direct_task run that fails any other way (provider_timeout included) has no patch and the rung does not qualify; a contaminated run of either arm is replaced once by the next run number, and a second contaminated run in the same rung rejects the rung; a failed review is resumed if infrastructure, otherwise rerun once on the same patch, and a second non-infrastructure failure means the rung does not qualify; every run (review_once included) is collected, scanned and adjudicated; at most four live runs",
+  "rung_packages": "built and verified (fail at base, pass at solution, each node alone) when the rung is reached; the package sha256 is recorded in the rung's calibration.json before its first run (R42)",
+  "stop_rule": "stop at the first rung that qualifies; at most 4 rungs reached, rejected ones included; if none qualifies, report and stop",
+  "smoke": "before freezing: one direct_task and one review_once call on eb-repl with the real CLIs, mechanics only; never a rung, never counted",
+  "budget_worst_case_per_rung": "2 x 4 h single calls + 2 x 1.5 h reviews (+1 each if borderline)",
+  "codex": "every calibration call is a pre-registered experiment call; no new run when the weekly window is at 5% left unless credits cover it (R8)",
+  "data_use": "calibration runs are never treatment or control data in Task 9",
+  "written_before_any_calibration_run": true,
+  "runtime": {
+    "path": "/home/ollie/calib-runtime",
+    "commit": "2b9efd81",
+    "validity": "a run counts only if record.json runtime_commit starts with 2b9efd81 and the package hash reproduces at <runtime>; the review_once smoke runs at 2b9efd81 and is collected before the criterion is hashed"
+  },
+  "work_root": "/home/ollie/calib-work/ladder",
+  "scan_solution_hash": "each rung's solution commit (rung 1: 1798fc70)",
+  "rung_1": {
+    "slug": "cf1-generic-unions",
+    "package_sha256": "23681b729c512c7589cc9a6f0a12e7be102d7928d8f7967d2e6ca87a20dcd728",
+    "package_sha256_method": "cd <runtime>/experiments/compare/tasks/<slug>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum",
+    "hidden_node_ids": 164
+  },
+  "empty_patch": "a completed direct_task whose collected/final.diff has zero bytes is not reviewed and counts 1 blocker; its hidden fraction is measured as usual (R47). A review with candidate_changed true counts as returned and is reported",
+  "drop_rule": "hidden node ids that check a literal neither named in task.txt nor defined at the base, or call a private function whose signature or return shape the solution changed, are dropped before freezing and listed in the ladder (R44)",
+  "review_inputs_frozen": "review_once refuses --set account/replies; inputs as above",
+  "review_scope": "the blocker reviewer is reviewed_change's for both Task 9 treatments; for design_review_execute the count stands for 'work left to do' (plan Task 8 Definitions)",
+  "run_membership": "a run belongs to the rung whose package is record.json task; within a rung, direct_task runs count in run-number order; a review pairs with the run whose final.diff its applied.path names; every launched run is reported",
+  "report_rung_findings": "the report lists every review's findings verbatim, so a reader can judge whether a prescriptive task suppressed design objections (R46)"
+}
