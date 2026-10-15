@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.providers.native_store import NativePosition, native_store_adapter
+from orchestrator.providers.native_store import NativePosition, NativeStoreError, native_store_adapter
 
 CODEX_SID = "01a13777-79ec-7511-8b2b-42a6111e33cf"
 CLAUDE_SID = "1930ae6b-5267-4eec-b1e1-b430dad86844"
@@ -158,3 +158,70 @@ def test_position_record_round_trips_and_rejects_malformed_rows() -> None:
     assert NativePosition.from_record(position.record()) == position
     with pytest.raises(ValueError):
         NativePosition.from_record({"turn_id": "t1", "end_line": True})
+
+
+# --- Codex strictness and reader error paths -------------------------------------------------------------------------
+
+def _codex_store(tmp_path: Path, rows) -> Path:
+    path = tmp_path / f"rollout-x-{CODEX_SID}.jsonl"
+    _jsonl(path, rows)
+    return path
+
+
+def test_codex_turn_without_final_answer_is_not_bound(tmp_path) -> None:
+    rows = _codex_rows([("t1", "m1", True)])
+    del rows[3]  # the AgentMessage final_answer
+    path = _codex_store(tmp_path, rows)
+    assert native_store_adapter("codex_exec_jsonl_stdout").completed_turn(path, after=None, prompt_marker="m1") is None
+
+
+@pytest.mark.parametrize("later_complete", [False, True], ids=["later-open-turn", "external-completed-turn"])
+def test_codex_turn_followed_by_another_turn_is_not_bound(tmp_path, later_complete) -> None:
+    path = _codex_store(tmp_path, _codex_rows([("t1", "m1", True), ("t2", "external", later_complete)]))
+    assert native_store_adapter("codex_exec_jsonl_stdout").completed_turn(path, after=None, prompt_marker="m1") is None
+
+
+def _overlapping_start():
+    return _codex_rows([("t1", "m1", False), ("t2", "m2", True)])
+
+
+def _repeated_start():
+    rows = _codex_rows([("t1", "m1", True)])
+    return rows + [{"type": "event_msg", "payload": {"type": "task_started", "turn_id": "t1"}}]
+
+
+def _item_outside_turn():
+    rows = _codex_rows([("t1", "m1", True)])
+    return rows + [{"type": "event_msg", "payload": {"type": "item_completed", "turn_id": "t1", "thread_id": CODEX_SID,
+                                                     "item": {"id": "late", "type": "AgentMessage"}}}]
+
+
+@pytest.mark.parametrize("rows_for", [_overlapping_start, _repeated_start, _item_outside_turn])
+def test_codex_unsupported_lifecycle_raises(tmp_path, rows_for) -> None:
+    path = _codex_store(tmp_path, rows_for())
+    with pytest.raises(NativeStoreError):
+        native_store_adapter("codex_exec_jsonl_stdout").head(path)
+
+
+@pytest.mark.parametrize("text", [
+    "{not json\n",
+    '{"type": "session_meta", "type": "event_msg"}\n',
+    '{"type": "session_meta", "payload": {"id": NaN}}\n',
+], ids=["malformed", "duplicate-key", "nan"])
+def test_unreadable_store_rows_raise(tmp_path, text) -> None:
+    path = tmp_path / f"rollout-x-{CODEX_SID}.jsonl"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(NativeStoreError):
+        native_store_adapter("codex_exec_jsonl_stdout").head(path)
+
+
+@pytest.mark.parametrize("mode, home_env, store", [
+    ("codex_exec_jsonl_stdout", "CODEX_HOME", "sessions"),
+    ("claude_stream_json_stdout", "CLAUDE_CONFIG_DIR", "projects"),
+])
+@pytest.mark.parametrize("locator", ["../escape", "a/b", "*", "id[0]"])
+def test_locate_rejects_a_locator_that_is_not_a_plain_id(tmp_path, monkeypatch, mode, home_env, store, locator) -> None:
+    monkeypatch.setenv(home_env, str(tmp_path))
+    (tmp_path / store).mkdir()
+    with pytest.raises(NativeStoreError):
+        native_store_adapter(mode).locate(locator)

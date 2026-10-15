@@ -237,17 +237,27 @@ def _codex_user_text(payload: dict[str, Any]) -> str | None:
     return _texts(content)
 
 
-def _codex_turn_complete(events: Events, session_id: str, turn_id: str, user_line: int) -> bool:
-    in_turn = [(line, kind, payload) for line, kind, payload in events if payload.get("turn_id") == turn_id]
-    items = [(line, payload["item"]) for line, kind, payload in in_turn if kind == "item_completed"]
-    users = [line for line, item in items if item.get("type") == "UserMessage"]
-    finals = [line for line, item in items if item.get("type") == "AgentMessage" and item.get("phase") == "final_answer"]
-    starts = [line for line, kind, _ in in_turn if kind == "task_started"]
-    completions = [line for line, kind, _ in in_turn if kind == "task_complete"]
-    return (
-        users == [user_line] and len(starts) == 1 and starts[0] < user_line
-        and len(finals) == 1 and len(completions) == 1 and user_line < finals[0] < completions[0]
-    )
+def _codex_turn_event_key(kind: str, payload: dict[str, Any]) -> Any:
+    """`task_started`, `task_complete`, `UserMessage`, `final_answer` or another (ignored) key."""
+    if kind != "item_completed":
+        return kind
+    item = payload["item"]
+    if item.get("type") == "AgentMessage" and item.get("phase") == "final_answer":
+        return "final_answer"
+    return item.get("type")
+
+
+def _codex_turn_complete(events: Events, turn_id: str, user_line: int) -> bool:
+    """Exactly one start, user message, final answer and completion, in that order."""
+    seen: dict[str, list[int]] = {"task_started": [], "UserMessage": [], "final_answer": [], "task_complete": []}
+    for line, kind, payload in events:
+        key = _codex_turn_event_key(kind, payload) if payload.get("turn_id") == turn_id else None
+        if key in seen:
+            seen[key].append(line)
+    starts, users, finals, completions = seen.values()
+    if users != [user_line] or not len(starts) == len(finals) == len(completions) == 1:
+        return False
+    return starts[0] < user_line < finals[0] < completions[0]
 
 
 class _Codex:
@@ -287,7 +297,7 @@ class _Codex:
                 users.append((line, payload["turn_id"]))
         if len(users) != 1 or users[0][1] != target.turn_id:
             return None
-        if not _codex_turn_complete(events, session_id, target.turn_id, users[0][0]):
+        if not _codex_turn_complete(events, target.turn_id, users[0][0]):
             return None
         return NativeTurn(target, users[0][0])
 
@@ -310,26 +320,34 @@ def _claude_row_in_lineage(line: int, row: dict[str, Any], submitted: dict[str, 
     )
 
 
+def _claude_is_final(row: dict[str, Any]) -> bool:
+    if row.get("type") == "assistant":
+        return row["message"].get("stop_reason") == "end_turn"
+    return row.get("type") == "user" and row.get("toolEndsTurn") is True
+
+
+def _claude_next_parent(turn: Records, final_line: int, final_row: dict[str, Any], session_id: str, *, is_last: bool) -> str | None:
+    """The id the next submitted turn must descend from: the final, or its one resume-padding row (never on the last turn)."""
+    trailing = [row for line, row in turn if line > final_line]
+    if not trailing:
+        return final_row["uuid"]
+    if is_last or len(trailing) != 1 or not _claude_resume_padding(trailing[0], final_row["uuid"], session_id):
+        return None
+    return trailing[0]["uuid"]
+
+
 def _claude_turn_final(turn: Records, submitted: dict[str, Any], by_id, session_id: str, *, is_last: bool) -> tuple[int, str] | None:
     """(final line, id the next submitted turn must descend from) for a complete turn, else None."""
     if not all(_claude_row_in_lineage(line, row, submitted, by_id, session_id) for line, row in turn):
         return None
-    finals = [
-        (line, row) for line, row in turn
-        if (row.get("type") == "assistant" and row["message"].get("stop_reason") == "end_turn")
-        or (row.get("type") == "user" and row.get("toolEndsTurn") is True)
-    ]
+    finals = [(line, row) for line, row in turn if _claude_is_final(row)]
     if len(finals) != 1:
         return None
     final_line, final_row = finals[0]
     if final_row.get("type") == "user" and _claude_structured_result(final_line, final_row, by_id) is None:
         return None
-    trailing = [row for line, row in turn if line > final_line]
-    if not trailing:
-        return final_line, final_row["uuid"]
-    if is_last or len(trailing) != 1 or not _claude_resume_padding(trailing[0], final_row["uuid"], session_id):
-        return None
-    return final_line, trailing[0]["uuid"]
+    next_parent = _claude_next_parent(turn, final_line, final_row, session_id, is_last=is_last)
+    return None if next_parent is None else (final_line, next_parent)
 
 
 def _claude_by_id(records: Records) -> dict[str, tuple[int, dict[str, Any]]]:
@@ -343,19 +361,30 @@ def _claude_by_id(records: Records) -> dict[str, tuple[int, dict[str, Any]]]:
     return by_id
 
 
+def _claude_submitted(row: dict[str, Any]) -> bool:
+    return row.get("type") == "user" and not _claude_tool_result(row)
+
+
 def _claude_users(records: Records) -> tuple[str, Records]:
     """The session id and its submitted (non-tool-result) user rows."""
-    first = next((row for _line, row in records if row.get("type") == "user" and not _claude_tool_result(row)), None)
-    if first is None or not _identity(first.get("sessionId")):
+    first = next((row for _line, row in records if _claude_submitted(row)), {})
+    session_id = first.get("sessionId")
+    if not _identity(session_id):
         raise NativeStoreError("native store exposes no submitted user turn with a session id")
-    session_id = first["sessionId"]
-    users = [
-        (line, row) for line, row in records
-        if row.get("type") == "user" and row.get("sessionId") == session_id and not _claude_tool_result(row)
-    ]
-    if any(line < users[0][0] and row.get("sessionId") == session_id and row.get("type") == "assistant" for line, row in records):
+    session_rows = [(line, row) for line, row in records if row.get("sessionId") == session_id]
+    users = [(line, row) for line, row in session_rows if _claude_submitted(row)]
+    if any(row.get("type") == "assistant" for line, row in session_rows if line < users[0][0]):
         raise NativeStoreError("native assistant precedes the first submitted turn")
     return session_id, users
+
+
+def _claude_links(submitted: dict[str, Any], prior_final_id: object, prompts: set[str]) -> bool:
+    """Fresh prompt and row identities, and the row descends from the previous turn's final (or its padding)."""
+    prompt_id = submitted.get("promptId")
+    return (
+        _identity(prompt_id) and _identity(submitted.get("uuid")) and prompt_id not in prompts
+        and "parentUuid" in submitted and submitted.get("parentUuid") == prior_final_id
+    )
 
 
 def _claude_turns(path: Path) -> tuple[str, Records, list[NativePosition | None]]:
@@ -367,20 +396,16 @@ def _claude_turns(path: Path) -> tuple[str, Records, list[NativePosition | None]
     prior_final_id: object = None
     prompts: set[str] = set()
     for index, (start_line, submitted) in enumerate(users):
-        prompt_id = submitted.get("promptId")
         final = None
-        if (
-            _identity(prompt_id) and _identity(submitted.get("uuid")) and prompt_id not in prompts
-            and "parentUuid" in submitted and submitted.get("parentUuid") == prior_final_id
-        ):
+        if _claude_links(submitted, prior_final_id, prompts):
             next_line = users[index + 1][0] if index + 1 < len(users) else len(records) + 1
             turn = [
                 (line, row) for line, row in records
                 if start_line < line < next_line and row.get("sessionId") == session_id and row.get("type") in {"assistant", "user"}
             ]
             final = _claude_turn_final(turn, submitted, by_id, session_id, is_last=index + 1 >= len(users))
-            prompts.add(prompt_id)
-        positions.append(None if final is None else NativePosition(prompt_id, final[0]))
+            prompts.add(submitted["promptId"])
+        positions.append(None if final is None else NativePosition(submitted["promptId"], final[0]))
         prior_final_id = _UNLINKABLE if final is None else final[1]
     return session_id, users, positions
 
