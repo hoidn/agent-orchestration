@@ -372,6 +372,7 @@ def validate_pure_expr_payload(
             _raise("pure_expr_payload_invalid", f"binding `{name}` must be a mapping")
         _validate_type_descriptor(spec.get("type"), context=f"bindings.{name}.type")
         if "value" in spec:
+            reject_agent_operand([spec["type"]], "literal")
             _coerce_value(spec["value"], spec["type"], context=f"bindings.{name}.value")
 
     expr = payload.get("expr")
@@ -1025,6 +1026,7 @@ def _validate_expr_node_impl(
 
     if kind == "literal":
         _validate_type_descriptor(node.get("type"), context="expr.type")
+        reject_agent_operand([node["type"]], "literal")
         _coerce_value(node.get("value"), node["type"], context="expr.value")
         return count
 

@@ -1763,6 +1763,7 @@ class _Checker:
             validate_compiler_normalized_type_descriptor(descriptor)
         except (TypeError, ValueError, RecursionError) as exc:
             self.fail("type_descriptor", f"invalid normalized descriptor: {exc}", node)
+        check_agents.check_agent_target(self, descriptor, node)
         kind = descriptor["kind"]
         if kind == "primitive" and descriptor["name"] not in COMPILER_PRIMITIVE_TYPE_NAMES:
             self.fail("type_mismatch", f"unknown compiler primitive {descriptor['name']!r}", node)
@@ -2187,6 +2188,7 @@ class _Checker:
         for descriptor in [*residual["params"], residual["result"]]:
             self._validate_key_type(descriptor, runtime_only=True)
         self._validate_key_values(key)
+        check_agents.check_key_agents(self, key)
 
     @staticmethod
     def _is_projected_selector(selector):
@@ -2447,6 +2449,7 @@ class _Checker:
         except (TypeError, ValueError, RecursionError) as exc:
             self.fail("definition_key", f"invalid projected key type: {exc}")
         self._validate_key_primitive_names(normalized)
+        check_agents.check_agent_target(self, normalized)
 
     def _validate_key_primitive_names(self, descriptor: Any) -> None:
         if not isinstance(descriptor, Mapping):
@@ -2953,6 +2956,7 @@ class _Checker:
             if set(value) != {"k", "v", "type"}:
                 self.fail("definition_key", "closed literal has invalid fields")
             self._validate_key_type(value["type"])
+            check_agents.require_no_agent(self, value["type"], value)
         elif kind == "name":
             if set(value) != {"k", "n"} or not isinstance(value["n"], str):
                 self.fail("definition_key", "closed name has invalid fields")
@@ -3060,6 +3064,7 @@ class _Checker:
             self.fail("call_signature", "parameters must be an array")
         self._parameter_environment(params, defaults, node=self.tree)
         self._validate_descriptor(result)
+        check_agents.check_workflow_signature(self, params, result, self.tree)
 
     def _parameter_environment(
         self,
@@ -3086,6 +3091,7 @@ class _Checker:
         if not set(defaults).issubset(env):
             self.fail("call_signature", "defaults refer to an unknown parameter", node)
         for name, value in defaults.items():
+            check_agents.require_no_agent(self, env[name], node)
             try:
                 _coerce_checked_value(value, env[name], context=f"default {name}")
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
@@ -3280,6 +3286,7 @@ class _Checker:
             state_type = node.get("state_type")
             loop_result = node.get("result")
             self._validate_descriptor(state_type, node=node)
+            check_agents.require_no_agent(self, [state_type, loop_result], node)
             self._validate_descriptor(loop_result, node=node)
             budget_type = self._value(node.get("budget"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
             self._require_type(budget_type, {"kind": "primitive", "name": "Int"}, "type_mismatch", node["budget"])
@@ -3385,6 +3392,7 @@ class _Checker:
         if allowed is None:
             self.fail("node_kind", f"unknown value node kind {kind!r}", node)
         self._node_shape(node, allowed, node=node)
+        check_agents.check_agent_value(self, node, env)
         if kind == "lit":
             descriptor = node.get("type")
             self._validate_descriptor(descriptor, node=node)
@@ -3819,6 +3827,7 @@ class _Checker:
         item_type, result = node["item_type"], node["result"]
         self._validate_descriptor(item_type, node=node)
         self._validate_descriptor(result, node=node)
+        check_agents.require_no_agent(self, [item_type, result], node, rule="parallel_agent_boundary")
         context = dict(owner=owner, loops=(), scope=scope, allow_effect=False,
             provider_origins=provider_origins, command_roots=command_roots,
             command_index=command_index)
@@ -3832,7 +3841,7 @@ class _Checker:
         if workspace.get("kind") != "path" and workspace != {"kind": "primitive", "name": "String"}:
             self.fail("type_mismatch", "parallel map workspace must be a String or path", node)
         body_index = self._parallel_map_index(node, nested)
-        outcomes = self._body(node["body"], nested, owner=owner, result=result["item"],
+        outcomes = check_agents.check_parallel_agent_body(self, node["body"], nested, owner=owner, result=result["item"],
             joins={}, loops=(), scope=scope, provider_origins=context["provider_origins"],
             command_roots=command_roots, command_index=body_index)
         self._halt_body_type(outcomes, result["item"], rule="parallel_map_control",
@@ -3996,6 +4005,7 @@ class _Checker:
         value_type: Mapping[str, Any],
         node: Mapping[str, Any],
     ) -> None:
+        check_agents.require_no_agent(self, value_type, node)
         if not isinstance(renderer_id, str) or not renderer_id:
             self.fail("effect_shape", "provider input renderer id must be a nonempty string", node)
         try:
@@ -4369,7 +4379,7 @@ class _Checker:
         self._check_command_contract(node)
         self._check_command_operand_argv(node, value_context["scope"])
         for value in node["argv"]:
-            self._value(value, env, allow_effect=False, **value_context)
+            check_agents.require_no_agent(self, self._value(value, env, allow_effect=False, **value_context), node)
         if "document" in node:
             self._check_command_document_values(node, env, **value_context)
         if "argv_transport" in node:
@@ -4605,6 +4615,7 @@ class _Checker:
         arg_types: list[dict[str, Any]],
         definition: Mapping[str, Any],
     ) -> None:
+        check_agents.require_no_agent(self, [*arg_types, node.get("type")], node)
         boundary = node.get("boundary")
         if not isinstance(boundary, Mapping) or set(boundary) != {"params", "direct", "inputs", "outputs"}:
             self.fail("call_boundary", "annotated call boundary has invalid fields", node)

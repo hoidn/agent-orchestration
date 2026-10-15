@@ -36,5 +36,17 @@ def reject_agent_operand(arg_types: Sequence[Mapping[str, Any]], operator: str) 
 
     from orchestrator.workflow.pure_expr import _raise
 
-    if any(isinstance(t, Mapping) and t.get("kind") == "primitive" and t.get("name") == "Agent" for t in arg_types):
+    if any(contains_agent_descriptor(t) for t in arg_types):
         _raise("pure_expr_operand_type_mismatch", f"operator `{operator}` cannot take an Agent operand")
+
+
+def contains_agent_descriptor(descriptor: Any) -> bool:
+    """Find Agent at any depth of a normalized descriptor, including nominal fields."""
+
+    if isinstance(descriptor, Mapping):
+        if descriptor.get("kind") == "primitive" and descriptor.get("name") == "Agent":
+            return True
+        return any(contains_agent_descriptor(value) for value in descriptor.values())
+    if isinstance(descriptor, (list, tuple)):
+        return any(contains_agent_descriptor(value) for value in descriptor)
+    return False

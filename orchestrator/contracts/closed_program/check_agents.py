@@ -1,7 +1,7 @@
-"""Closed-program checks for the target-2.38 `agent` and `agent_turn` effect classes.
+"""Closed-program checks for target-2.38 Agent effects and run-local boundaries.
 
 Dependencies: `checker` is the `check._Checker` validating one tree; this module
-uses its `fail`, `_value`, `_require_type`, `_same`, `_check_effect_node` and `tree`.
+uses its `fail`, `_value`, `_body`, `_require_type`, `_same`, `_check_effect_node` and `tree`.
 An `agent` perform's result descriptor object is recorded by identity, so an
 `agent_turn` whose operand names a `let` bound to that perform (directly or by
 alias; the checker's environment carries the same descriptor object) must list
@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from orchestrator.workflow.agent_value import contains_agent_descriptor
+
 from .node_walk import _ast_nodes
 from .targets import target_dsl_supports_agent_sessions
 
@@ -25,6 +27,48 @@ _AGENT_KEYS = {"k", "class", "result", "repeat", "site", "@", "provider", "polic
 _TURN_KEYS = {"k", "class", "result", "repeat", "site", "@", "agent", "origins",
               "prompt", "inputs", "dependencies", "policy", "contract"}
 _TURN_REQUIRED = _TURN_KEYS - {"k", "class", "result", "site", "@"}
+
+
+def check_agent_target(checker, descriptor, node=None) -> None:
+    if (not target_dsl_supports_agent_sessions(checker.tree.get("target", ""))
+            and contains_agent_descriptor(descriptor)):
+        checker.fail("agent_target_dsl_unsupported", "Agent requires target 2.38", node)
+
+
+def require_no_agent(checker, descriptor, node=None, *, rule="agent_transport_forbidden") -> None:
+    if contains_agent_descriptor(descriptor):
+        checker.fail(rule, "a run-local Agent cannot cross this data boundary", node)
+
+
+def check_workflow_signature(checker, params, result, node=None) -> None:
+    require_no_agent(checker, [*(row[1] for row in params), result], node)
+
+
+def check_key_agents(checker, key) -> None:
+    require_no_agent(checker, [row["type"] for row in key[7]])
+    if key[1] == "workflow":
+        require_no_agent(checker, key[8])
+
+
+def check_agent_value(checker, node, env) -> None:
+    if node.get("k") == "lit":
+        require_no_agent(checker, node.get("type"), node)
+    elif node.get("k") == "name" and isinstance(node.get("n"), str):
+        name = node.get("n")
+        for captured in vars(checker).get("_parallel_agent_environments", ()):
+            if name in captured and env.get(name) is captured[name]:
+                require_no_agent(checker, captured[name], node, rule="parallel_agent_boundary")
+
+
+def check_parallel_agent_body(checker, body, env, **context):
+    """Track actual lexical captures; an unused or shadowed outside Agent is legal."""
+
+    captures = vars(checker).setdefault("_parallel_agent_environments", [])
+    captures.append(dict(env))
+    try:
+        return checker._body(body, env, **context)
+    finally:
+        captures.pop()
 
 
 def _allocated_providers(checker) -> dict[int, str]:
