@@ -90,7 +90,8 @@ def _tar(members: list[tuple[str, str, object, int]]) -> bytes:
 BASE_LAYER = [
     ("usr", "dir", None, 0o755), ("usr/bin", "dir", None, 0o755),
     ("usr/bin/dash", "file", b"#!dash\n", 0o755), ("usr/bin/sh", "symlink", "dash", 0o777),
-    ("usr/bin/env", "file", b"#!env\n", 0o755), ("usr/bin/su", "file", b"su\n", 0o4755),
+    ("usr/bin/env", "file", b"#!env\n", 0o755), ("usr/bin/setsid", "file", b"#!setsid\n", 0o755),
+    ("usr/bin/su", "file", b"su\n", 0o4755),
     ("bin", "symlink", "usr/bin", 0o777), ("etc", "dir", None, 0o755),
     ("etc/passwd", "file", b"root\n", 0o644), ("run", "dir", None, 0o755),
     ("run/lock", "dir", None, 0o755), ("dev", "dir", None, 0o755), ("dev/null", "chr", None, 0o666),
@@ -169,7 +170,7 @@ def test_import_pins_the_spawner_executables_through_image_symlinks(store_image)
     record = image_store._read_record(store / "records" / (image.rsplit("@sha256:", 1)[1] + ".json"), image)
 
     assert [(pin["path"], pin["resolved"]) for pin in record["executable_pins"]["executables"]] == [
-        ("/bin/sh", "/usr/bin/dash"), ("/usr/bin/env", "/usr/bin/env")]
+        ("/bin/sh", "/usr/bin/dash"), ("/usr/bin/env", "/usr/bin/env"), ("/usr/bin/setsid", "/usr/bin/setsid")]
 
 
 def test_import_applies_whiteouts_and_drops_setuid_bits_and_devices(store_image):

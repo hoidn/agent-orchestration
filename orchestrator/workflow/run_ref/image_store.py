@@ -42,7 +42,7 @@ RECORD_SCHEMA = "run_ref_image_record.v1"
 PINS_SCHEMA = "run_ref_image_executable_pins.v1"
 PLATFORM = {"os": "linux", "architecture": "amd64"}
 MOUNT_POINTS = ("dev", "proc", "result", "run", "tmp", "workspace")
-PINNED_EXECUTABLES = ("/bin/sh", "/usr/bin/env")
+PINNED_EXECUTABLES = ("/bin/sh", "/usr/bin/env", "/usr/bin/setsid")
 _LAYER_MODES = {
     "application/vnd.oci.image.layer.v1.tar+gzip": "r:gz",
     "application/vnd.docker.image.rootfs.diff.tar.gzip": "r:gz",
