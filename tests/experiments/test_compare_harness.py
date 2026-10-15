@@ -11,8 +11,10 @@ import pytest
 
 from experiments.compare import prepare, repos
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
-    READY, REPO, call, drive, edit, git, selects, start, world, write_memo, write_task,
+    READY, REPO, call, drive, edit, git, selects, skip_without_sandbox, start, world, write_memo, write_task,
 )
+
+skip_without_sandbox()
 
 
 def test_candidates_hold_the_base_commit_alone(world):
@@ -79,9 +81,21 @@ def test_run_refuses_a_runtime_inside_the_work_root(world):
         start(world, "direct_task", root=world.tmp)
 
 
-def test_run_refuses_a_work_root_the_sandbox_would_hide(world):
+@pytest.mark.parametrize("root", ["/tmp/compare-work", "/dev/shm/compare-work"])
+def test_run_refuses_a_work_root_the_sandbox_would_hide(world, root):
     with pytest.raises(SystemExit, match="under /tmp or /dev/shm"):
-        start(world, "direct_task", root=world.tmp / "work")
+        start(world, "direct_task", root=Path(root))
+
+
+def test_run_records_the_runtime_commit(world):
+    _, record = start(world, "direct_task")
+    assert record["runtime_commit"] == world.solution
+
+
+def test_run_refuses_a_runtime_with_uncommitted_changes_to_tracked_files(world):
+    (world.runtime / "README.md").write_text("edited\n")
+    with pytest.raises(SystemExit, match="uncommitted changes to tracked files"):
+        start(world, "direct_task")
 
 
 def test_agents_trees_have_unguessable_names_and_hold_only_candidates(world):
@@ -140,7 +154,6 @@ def test_best_of_n_result_paths_resolve_from_the_tree_and_every_candidate(world)
         str(tree), ["resume", "R1", "--state-dir", str(state)], [state.resolve()] * 2, ["", ""])
 
 
-
 def test_best_of_n_result_written_from_a_candidate_lands_in_the_state_and_not_in_its_patch(world):
     records, record = start(world, "best_of_n", candidates=2)
     relative = Path(record["state_root"]).relative_to(record["tree"]) / "r1" / "result.json"
@@ -149,6 +162,7 @@ def test_best_of_n_result_written_from_a_candidate_lands_in_the_state_and_not_in
     call(world, record, f"cd {cand} && mkdir -p {relative.parent} && echo '{{}}' > {relative}")
     patch = (records / "calls" / "1" / "patch-cand-1.diff").read_text()
     assert ((Path(record["state_root"]) / "r1" / "result.json").read_text(), ".orchestrate" in patch) == ("{}\n", False)
+
 
 def test_shim_forwards_to_the_real_cli_without_pythonpath(world):
     _, record = start(world, "direct_task")
@@ -187,6 +201,13 @@ def test_shim_records_each_call_with_a_patch_including_new_files(world):
             "bugs/report.md" in patch, sorted(p.name for p in (records / "calls").iterdir()),
             git(record["candidates"][0], "status", "--porcelain", "--", "pkg/extra.py")) == (
         script, True, True, False, ["1", "2"], "?? pkg/extra.py")
+
+
+def test_shim_leaves_what_the_agent_staged_staged_and_records_it_in_the_patch(world):
+    records, record = start(world, "direct_task")
+    call(world, record, "echo new > staged.txt && git add staged.txt")
+    assert (git(record["candidates"][0], "status", "--porcelain", "--", "staged.txt"),
+            "staged.txt" in (records / "calls/1/patch-cand-1.diff").read_text()) == ("A  staged.txt", True)
 
 
 def test_patches_ignore_external_diff_and_colour_settings(world):
@@ -309,7 +330,6 @@ def test_scan_matches_paths_written_under_the_home_directory(world):
         (2, "main checkout prefix"), (3, "main checkout prefix"), (4, "frozen checkout")]
 
 
-
 def test_scan_matches_the_records_root_written_under_the_home_directory(world):
     records, record = start(world, "direct_task")
     call(world, record, f"echo '~/{world.root.relative_to(world.outside)}/records'")
@@ -323,6 +343,7 @@ def test_run_refuses_a_base_that_does_not_ignore_run_state(world):
     (task / "seed" / ".gitignore").write_text("artifacts/\n")
     with pytest.raises(SystemExit, match="does not ignore .orchestrate/"):
         start(world, "direct_task", task=task)
+
 
 def test_scan_records_hits_without_a_verdict_and_adjudicate_records_one(world):
     records, _ = drive(world, "direct_task", ["echo github.com"], True)

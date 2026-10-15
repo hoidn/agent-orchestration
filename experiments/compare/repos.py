@@ -49,6 +49,16 @@ def main_checkout(runtime):
     return Path(git(runtime, "rev-parse", "--path-format=absolute", "--git-common-dir")).parent
 
 
+def runtime_commit(runtime):
+    """The frozen runtime's HEAD; refuse a checkout with uncommitted changes to tracked files, which no
+    commit would name. --no-optional-locks: the check never writes the runtime's index."""
+    dirty = git(runtime, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
+    if dirty:
+        raise SystemExit(f"the runtime {runtime} has uncommitted changes to tracked files; "
+                         f"commit or discard them:\n{dirty}")
+    return git(runtime, "rev-parse", "HEAD")
+
+
 def guard(main, *paths):
     """Refuse paths under the main checkout's prefix, where sibling checkouts hold solutions (R21)."""
     for path in paths:

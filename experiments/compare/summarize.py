@@ -8,9 +8,11 @@ state directory P/judges/<dir>/state/<run_id>/ (run.json and memo.jsonl). Refuse
 `judges` differ from the pool's. Refuses a judge that is not
 scanned, whose scan predates calls, or whose hits have no verdict; leaves out a judge found
 contaminated. Refuses unless every other judge has exactly one completed scoring run that bound the
-criterion file's SHA-256 and the judge's model, and every batch's ratings line up with its clones.
+criterion file's SHA-256 and the judge's model, whose provider starts pair one to one with the judge's
+shim call records (prepare.paired_calls), and every batch's ratings line up with its clones.
 When the task package has hidden/ and hidden_tests.txt, runs each listed node id in a copy of every
-clone without .git, with hidden/ copied over it and PYTHONPATH at the copy.
+clone without .git, with hidden/ copied over it and PYTHONPATH at the copy; results.json gives each
+clone's pass fraction (`hidden`) and failing node ids (`hidden_failed`).
 Writes P/records/results.json and P/records/results.md and prints the latter. Standard library only.
 """
 
@@ -25,6 +27,11 @@ import sys
 import tempfile
 from pathlib import Path
 from statistics import mean
+
+try:
+    from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
+except ImportError:  # run as a script
+    from prepare import paired_calls, read_memo
 
 SCORES = {"S0": 0, "S1": 1, "S2": 2}  # score.orc's Score enumeration
 CRITERIA = ("root_cause", "scope", "generality", "layering")
@@ -61,9 +68,10 @@ def scoring_run(pool, judge, info, sha):
                          f"file's {sha}")
     if bound["judge_model"] != judge:
         raise SystemExit(f"{run}: bound judge_model {bound['judge_model']!r} is not judge {judge!r}")
-    rows = [json.loads(line) for line in (run / "memo.jsonl").read_text().split("\n")[:-1]]
+    rows = read_memo(run / "memo.jsonl")
     if not rows or rows[-1]["record"] != "terminal" or rows[-1]["outcome"] != "completed":
         raise SystemExit(f"{run}: scoring run of judge {judge} has not completed")
+    paired_calls(pool / "records" / "judges" / judge, rows)  # a judge that bypassed the shims has no call records
     return run, bound["batches"], rows[-1]["value"]
 
 
@@ -96,14 +104,13 @@ def passes(work, node, python):
     return done.returncode == 0
 
 
-def hidden_fraction(clone, task, python):
-    """Passed / listed hidden node ids, run in a copy of the clone (no .git) with hidden/ copied over it."""
-    nodes = [line.strip() for line in (task / "hidden_tests.txt").read_text().splitlines() if line.strip()]
+def hidden_failures(clone, task, nodes, python):
+    """The hidden node ids that fail, run in a copy of the clone (no .git) with hidden/ copied over it."""
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / clone.name
         shutil.copytree(clone, work, symlinks=True, ignore=shutil.ignore_patterns(".git"))
         shutil.copytree(task / "hidden", work, dirs_exist_ok=True)
-        return sum(passes(work, node, python) for node in nodes) / len(nodes)
+        return [node for node in nodes if not passes(work, node, python)]
 
 
 def run_values(arm, selected, scores, hidden):
@@ -235,11 +242,14 @@ def judged_ratings(pool, mapping, sha):
     return excluded, ratings
 
 
-def hidden_fractions(pool, mapping, python):
+def hidden_acceptance(pool, mapping, python):
+    """({clone id: passed fraction}, {clone id: failing node ids}); both empty without hidden acceptance."""
     task = Path(mapping["task"])
     if not ((task / "hidden").is_dir() and (task / "hidden_tests.txt").is_file()):
-        return {}
-    return {cid: hidden_fraction(pool / "clones" / cid, task, python) for cid in mapping["clones"]}
+        return {}, {}
+    nodes = [line.strip() for line in (task / "hidden_tests.txt").read_text().splitlines() if line.strip()]
+    failed = {cid: hidden_failures(pool / "clones" / cid, task, nodes, python) for cid in mapping["clones"]}
+    return {cid: (len(nodes) - len(f)) / len(nodes) for cid, f in failed.items()}, failed
 
 
 def summarize(pool, criterion, python=sys.executable):
@@ -253,7 +263,7 @@ def summarize(pool, criterion, python=sys.executable):
     excluded, ratings = judged_ratings(pool, mapping, sha)
     totals = {judge: {cid: sum(r[c] for c in CRITERIA) for cid, r in rated.items()} for judge, rated in ratings.items()}
     clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid in mapping["clones"]}
-    clone_hidden = hidden_fractions(pool, mapping, python)
+    clone_hidden, hidden_failed = hidden_acceptance(pool, mapping, python)
     rows = run_rows(mapping, clone_scores, clone_hidden)
     m = measures(rows)
     results = {
@@ -262,6 +272,7 @@ def summarize(pool, criterion, python=sys.executable):
         "verdict": verdict(frozen, m), "agreement": agreement(ratings),
         "anchors": anchor_scores(mapping, totals),
         "clones": {cid: {**clone, "score": clone_scores[cid], "hidden": clone_hidden.get(cid),
+                         "hidden_failed": hidden_failed.get(cid),
                          "ratings": {j: ratings[j][cid] for j in sorted(ratings)}}
                    for cid, clone in mapping["clones"].items()},
     }

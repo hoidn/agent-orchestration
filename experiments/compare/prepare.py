@@ -14,9 +14,10 @@ W/agents/<16 hex>/ (cand-<k>/ and tmp/). The orchestrator keeps the run's state 
 <cwd>/.orchestrate/runs (cwd: cand-1), so the result path each provider prompt names lies inside the
 agent's workspace (R34; ignored by the task bases' .gitignore). best_of_n's cwd is the tree, its state
 is <tree>/.orchestrate/best-of-n-runs, linked from every candidate's .orchestrate/ (R37).
-Neither W nor the runtime may lie under the main checkout's path prefix. `collect` adds the
-outcome, call count, wall clock and patches to record.json; `scan` adds the hits and the controller's
-verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
+Neither W nor the runtime may lie under the main checkout's path prefix, and `run` and `pool` refuse a
+runtime with uncommitted changes to tracked files; record.json and mapping.json name its runtime_commit.
+`collect` adds the outcome, call count, wall clock and patches to record.json; `scan` adds the hits and
+the controller's verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
 P/judges/<16 hex>/ (one working and state directory per judge) and P/records/ (mapping.json,
 patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, resume-<judge>.sh, judges/<judge>/
 with the judge's calls and scan.json, later results.json and results.md).
@@ -34,14 +35,14 @@ try:
     from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
     from .repos import (
         build_candidate, dump, git, guard, load,
-        main_checkout, random_child, sha256_file, shim_commands, visible_in_sandbox,
+        main_checkout, random_child, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
     from repos import (
         build_candidate, dump, git, guard, load,
-        main_checkout, random_child, sha256_file, shim_commands, visible_in_sandbox,
+        main_checkout, random_child, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 
 # arm: (source, entry workflow, source root, providers file, typed inputs); paths in the runtime checkout.
@@ -88,6 +89,23 @@ def arm_inputs(task, arm, candidates, sets):
     return {f: values[f] for f in fields}
 
 
+def require_ignored_state(cands):
+    """Run state lives in the working directory; refuse candidates whose patch it would enter (R34)."""
+    for cand in cands:
+        if subprocess.run(["git", "-C", str(cand), "check-ignore", "-q", ".orchestrate/x"]).returncode:
+            raise SystemExit(f"{cand} does not ignore .orchestrate/: run state would enter its patch; "
+                             "seed a .gitignore")
+
+
+def link_best_of_n_state(tree, cands):
+    """best_of_n's state directory under the tree, linked from every candidate's .orchestrate/: candidates
+    work in cand-k and resolve the tree-relative result path there (R37)."""
+    for cand in cands:
+        (cand / ".orchestrate").mkdir()
+        (cand / ".orchestrate" / BEST_OF_N_STATE).symlink_to(Path("..", "..", ".orchestrate", BEST_OF_N_STATE))
+    return tree / ".orchestrate" / BEST_OF_N_STATE
+
+
 def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     """Build the run's agents' tree and records directory, print the command; return the records directory."""
     count = candidates or (4 if arm == "best_of_n" else 1)
@@ -99,6 +117,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     if str(runtime).startswith(f"{root}/"):
         raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
     visible_in_sandbox(root)
+    commit = runtime_commit(runtime)
     base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
     arm_inputs(task, arm, [Path("/")], sets)  # refuse bad --set values before building anything
     records, tree = next_run_dir(root / "records" / arm), random_child(root / "agents")
@@ -107,18 +126,10 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     if len(seeded) != 1:
         raise SystemExit(f"candidates disagree on the seeded commit: {sorted(seeded)}")
     compare_base = seeded.pop()
-    for cand in cands:  # run state lives in the working directory; it must never enter a patch (R34)
-        if subprocess.run(["git", "-C", str(cand), "check-ignore", "-q", ".orchestrate/x"]).returncode:
-            raise SystemExit(f"{cand} does not ignore .orchestrate/: run state would enter its patch; seed a .gitignore")
+    require_ignored_state(cands)
     (tree / "tmp").mkdir()
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))
-    cwd = tree if arm == "best_of_n" else cands[0]
-    state = None
-    if arm == "best_of_n":  # R37: candidates work in cand-k and resolve the tree-relative result path there
-        state = tree / ".orchestrate" / BEST_OF_N_STATE
-        for cand in cands:
-            (cand / ".orchestrate").mkdir()
-            (cand / ".orchestrate" / BEST_OF_N_STATE).symlink_to(Path("..", "..", ".orchestrate", BEST_OF_N_STATE))
+    cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], None)
     source, entry, source_root, providers, _ = ARMS[arm]
     command, resume = shim_commands(
         cwd, runtime, {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base,
@@ -129,10 +140,10 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
     (records / "command.sh").write_text(command + "\n")
     (records / "resume.sh").write_text(resume + "\n")
     dump(records / "record.json", {
-        "arm": arm, "task": str(task), "runtime": str(runtime), "main": str(main), "base": base,
-        "compare_base": compare_base, "records": str(records), "tree": str(tree),
-        "candidates": [str(c) for c in cands], "cwd": str(cwd), "state_root": str(state or cwd / ".orchestrate" / "runs"),
-        "command": command, "created_at": time.time(),
+        "arm": arm, "task": str(task), "runtime": str(runtime), "runtime_commit": commit, "main": str(main),
+        "base": base, "compare_base": compare_base, "records": str(records), "tree": str(tree),
+        "candidates": [str(c) for c in cands], "cwd": str(cwd),
+        "state_root": str(state or cwd / ".orchestrate" / "runs"), "command": command, "created_at": time.time(),
     })
     print(f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")
     return records

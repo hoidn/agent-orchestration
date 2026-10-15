@@ -20,13 +20,13 @@ try:
     from . import scan as contamination
     from .repos import (
         HIDDEN_DIR, build_candidate, dump, git, guard,
-        load, patch_of, sha256_file, shim_commands, visible_in_sandbox,
+        load, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 except ImportError:
     import scan as contamination
     from repos import (
         HIDDEN_DIR, build_candidate, dump, git, guard,
-        load, patch_of, sha256_file, shim_commands, visible_in_sandbox,
+        load, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 
 STRIPPED = ("docs/design/", "artifacts/")  # D8: removed from every pooled patch
@@ -147,6 +147,7 @@ def pool(task, criterion, out, judges, runs):
         raise SystemExit("runs in one pool must share the task and the seeded commit")
     guard(Path(ref["main"]), out)
     visible_in_sandbox(out)
+    commit = runtime_commit(ref["runtime"])
     rows, usable = pool_runs(records)
     batches = compose(usable)
     if not batches:
@@ -156,7 +157,7 @@ def pool(task, criterion, out, judges, runs):
     clones, members = build_batches(out, task, ref, batches)
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
     mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
-               "main": ref["main"], "runtime": ref["runtime"], "created_at": time.time(),
+               "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
                "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
                           for name, _, providers in (spec.partition("=") for spec in judges)},
                "runs": rows, "clones": clones, "batches": members}
@@ -224,7 +225,8 @@ def changed_paths(recorded, current):
 
 
 def verify_pool(out):
-    """Restore every clone whose HEAD or patch differs from the one recorded when the pool was built."""
+    """Restore every clone whose HEAD or patch differs from the one recorded when the pool was built, or
+    that holds an ignored file (patches leave out ignored paths such as artifacts/ and .orchestrate/)."""
     out = out.resolve()
     mapping = load(out / "records" / "mapping.json")
     base, changed = mapping["compare_base"], 0
@@ -232,10 +234,13 @@ def verify_pool(out):
         clone, recorded_file = out / "clones" / cid, out / "records" / "patches" / f"{cid}.diff"
         recorded = recorded_file.read_bytes()
         head, current = git(clone, "rev-parse", "HEAD"), patch_of(clone, base)
-        if head == base and current == recorded:
+        ignored = [line[3:] for line in git(clone, "status", "--porcelain", "--ignored").splitlines()
+                   if line.startswith("!! ")]
+        if head == base and current == recorded and not ignored:
             continue
         changed += 1
-        print(f"{cid}: HEAD {head[:12]}, changed {', '.join(changed_paths(recorded, current)) or 'nothing'}")
+        paths = changed_paths(recorded, current) + [f"{path} (ignored)" for path in ignored]
+        print(f"{cid}: HEAD {head[:12]}, changed {', '.join(paths) or 'nothing'}")
         git(clone, "reset", "-q", "--hard", base)
         git(clone, "clean", "-q", "-f", "-d", "-x")
         if recorded:

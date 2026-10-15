@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Stand-in for the agent CLI it is named after (shim/codex links here): runs the next real one on
 # PATH with the same arguments and stdin, tees stdout and stderr live, records the call in
-# $COMPARE_ROOT/calls/<n>/ with each $COMPARE_TREE/cand-* patch against $COMPARE_BASE. The agent loses
-# PYTHONPATH, OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and
-# records) and runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), /dev/shm and process list;
+# $COMPARE_ROOT/calls/<n>/ with each $COMPARE_TREE/cand-* patch against $COMPARE_BASE, taken through a
+# copy of the candidate's index so what the agent staged stays staged. The agent loses PYTHONPATH,
+# OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and records) and
+# runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), /dev/shm and process list;
 # the rest of the filesystem, home and network stay shared: reads there are only detected (R35).
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
 sandbox=$(command -v bwrap) || { echo "shim: bubblewrap (bwrap) is required on PATH" >&2; exit 127; }
@@ -31,8 +32,9 @@ status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"
 shopt -s nullglob
 for repo in "$COMPARE_TREE"/cand-*; do
-  git -C "$repo" add -A -N . && git -C "$repo" diff --binary --no-ext-diff --no-color --no-textconv \
-    --src-prefix=a/ --dst-prefix=b/ "$COMPARE_BASE" > "$call/patch-${repo##*/}.diff"
-  git -C "$repo" reset -q
+  t=$(mktemp) && cp "$repo/.git/index" "$t" && GIT_INDEX_FILE=$t git -C "$repo" add -A -N . &&
+    GIT_INDEX_FILE=$t git -C "$repo" diff --binary --no-ext-diff --no-color --no-textconv \
+      --src-prefix=a/ --dst-prefix=b/ "$COMPARE_BASE" > "$call/patch-${repo##*/}.diff"
+  rm -f "$t"
 done
 exit "$status"

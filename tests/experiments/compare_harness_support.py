@@ -41,6 +41,14 @@ READY = {"variant": "READY", "report": "artifacts/review/r.md", "rounds": 1}
 OUTSIDE_SANDBOX_MOUNTS = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "compare-harness-tests"
 
 
+def skip_without_sandbox():
+    """Skip the calling test module where the shims cannot build their sandbox (no bwrap on PATH, or no
+    unprivileged user namespaces)."""
+    if shutil.which("bwrap") is None or subprocess.run(["bwrap", "--dev-bind", "/", "/", "true"],
+                                                      capture_output=True).returncode:
+        pytest.skip("the shims need bubblewrap: `bwrap --dev-bind / / true` fails here", allow_module_level=True)
+
+
 def git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -124,7 +132,7 @@ def call(world, record, script, binary="claude"):
                           cwd=record["cwd"], env=env)
 
 
-def write_memo(record, prompts, value, outcome="completed"):
+def write_memo(record, prompts, value, outcome="completed", run_id="r1"):
     rows = []
     for index, prompt in enumerate(prompts):
         identity = f"workflow / effect {index}"
@@ -135,7 +143,7 @@ def write_memo(record, prompts, value, outcome="completed"):
                      "value": {}, "time": 101.0 + index})
     terminal = {"record": "terminal", "outcome": outcome}
     terminal |= {"value": value} if outcome == "completed" else {"code": "provider_timeout", "message": "t"}
-    memo = Path(record["state_root"]) / "r1" / "memo.jsonl"
+    memo = Path(record["state_root"]) / run_id / "memo.jsonl"
     memo.parent.mkdir(parents=True, exist_ok=True)
     memo.write_text("".join(json.dumps(row) + "\n" for row in [*rows, terminal]))
 
